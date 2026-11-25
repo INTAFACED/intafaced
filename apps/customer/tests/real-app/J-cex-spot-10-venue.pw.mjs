@@ -2,11 +2,14 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
+import { setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { reviewSheet, signIn, signUp, verify } from './desk.mjs';
+import { draftNotice, publishNotice } from './notices.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { ownSpotMarket } from './own-market.mjs';
 import {
+  continueInWallet,
   openVenueDesk,
   otherTraderKey,
   otherTraderRun,
@@ -21,11 +24,11 @@ import {
   venueWrites,
 } from './venue.mjs';
 
-// J-cex-spot-10 #1 #2 #3 #4 #6 #9 #11 on the venue model (docs/roadmap/journeys.json): a person sees what they pay on their
-// own venue account, the venue's maker or taker fee and our builder fee named apart, what tier the venue placed them
-// in, and how to get cheaper. One test per step, titled "J-cex-spot-10 #<n>", run in order on one TEST account.
-// J-cex-spot-10.pw.mjs keeps the steps that are ours alone (our tier programme, VIP benefits, the notice board) and the
-// custodial desk's checks of these seven, titled "part of", which count for no step.
+// J-cex-spot-10 #1 #2 #3 #4 #6 #9 #10 #11 on the venue model (docs/roadmap/journeys.json): a person sees what they pay on
+// their own venue account, the venue's maker or taker fee and our builder fee named apart, what tier the venue placed
+// them in, and how to get cheaper. One test per step, titled "J-cex-spot-10 #<n>", run in order on one TEST account.
+// J-cex-spot-10.pw.mjs keeps the steps that are ours alone (our tier programme, VIP benefits, fee currency on our own
+// desk) and the custodial desk's checks of these eight, titled "part of", which count for no step.
 //
 // INTAFACED holds none of this person's money: with svc-trade's user-venue door on for this file (venueForThisFile),
 // every rate, fee, fill, tier and volume is read from the stack's TEST venue simulator (packages/venue-sim) itself,
@@ -654,6 +657,245 @@ test(`${J} #9 chooses to pay trading fees in IFC: at launch the row is disabled 
   expect(requests.filter((r) => !r.endsWith('/api/v1/venue/preview'))).toEqual([]);
   expect(wallet.requests.length).toBe(asked);
   expect(await openOn(s.owner, market.symbol)).toEqual([]);
+});
+
+/** The stack's regular engine rates, carried unchanged beside our TEST builder-fee versions. */
+const BASE_SCHEDULE = {
+  defaultPairGroup: 'all-others',
+  pairGroups: { 'ETH/USDC': 'test-zero-fee' },
+  rows: [
+    { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null },
+    { pairGroup: 'all-others', tierId: 'test-vip-1', zeroFee: false, makerBps: '6', takerBps: '9', minFee: null },
+    { pairGroup: 'test-zero-fee', tierId: 'regular', zeroFee: true, minFee: null },
+  ],
+  perpetual: { makerBps: '2', takerBps: '5' },
+};
+
+/** BASE_SCHEDULE with a TEST builder-fee version on `venueId`: `symbol` at `symbolBps`, every other market at `defaultBps`. */
+const builderSchedule = (venueId, defaultBps, symbol, symbolBps) => ({
+  ...BASE_SCHEDULE,
+  builderFees: {
+    [venueId]: {
+      defaultGroup: 'all-markets',
+      marketGroups: { [symbol]: 'test-fee-change' },
+      groups: { 'all-markets': defaultBps, 'test-fee-change': symbolBps },
+    },
+  },
+});
+
+/** Latest stored fee-schedule effective time: a new version may not start before it. */
+async function latestScheduleEffective(founders) {
+  const { ctx, sessions } = await founders.ops();
+  const res = await ctx.edge.query('trade', 'admin.fees.get', undefined, await sessions.a.tradeOpsToken());
+  const data = res.json?.result?.data;
+  expect(data, JSON.stringify(res.json).slice(0, 300)).toBeTruthy();
+  return data.history.length ? data.history[data.history.length - 1].effectiveAt : null;
+}
+
+/** Our builder fee currently published on `/api/v1/venue/fees` for `symbol`. */
+async function publicBuilderFee(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/venue/fees`);
+  const body = await res.json();
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.value.markets.find((m) => m.symbol === symbol)?.builderFeeBps ?? null;
+}
+
+test(`${J} #10 receives a fee-change notice before a new schedule version takes effect: /notice shows the effective time; open orders keep their placement version`, async ({
+  page,
+  founders,
+  stepPicture,
+}) => {
+  test.setTimeout(360_000);
+  const s = state();
+  const session = await api(s.account);
+  const venueId = (await venueInfo()).id;
+  const ledgerBefore = await ledgerOf(s);
+  const tag = Date.now().toString(36);
+  const since = new Date(Date.now() - 60_000).toISOString();
+
+  // This step's own market with a bid at 99.8 and an ask at 180 (within 95% of 99.8), so our resting sells at 150 sit
+  // at the best ask and a crossing buy at 150 meets only them.
+  const market = await stepMarket('F', s, '10');
+  await traderOrder(MAKER, market.symbol, 'buy', '99.8', '5', 'GTC');
+  await traderOrder(MAKER, market.symbol, 'sell', '180', '5', 'GTC');
+  const listed = await venueMarket(market.symbol);
+  const ownRates = (await venueRecord(s.owner, '/fee-status')).value.account;
+  const makerBps = ownRates?.spot.makerFeeBps.known ? ownRates.spot.makerFeeBps.value : listed.makerFeeBps.value;
+
+  const { ctx, sessions } = await founders.ops();
+  const prevEffective = await latestScheduleEffective(founders);
+  const v1At = Math.max(Date.now() + 8_000, prevEffective ? Date.parse(prevEffective) + 3_000 : 0);
+  const v1 = await setFeeSchedule(ctx, builderSchedule(venueId, s.builder.feeBps, market.symbol, '2'), {
+    effectiveAt: v1At,
+    reason: `LOCAL TEST ${J}: ${market.symbol} builder fee 2 bps before the change`,
+    sessions,
+  });
+  let v2 = null;
+  try {
+    await expect
+      .poll(async () => (await publicBuilderFee(market.symbol))?.value ?? null, {
+        timeout: Math.max(0, Date.parse(v1.effectiveAt) - Date.now()) + 30_000,
+      })
+      .toBe('2');
+
+    // Approve our builder up to v1's 2 bps, then place a resting sell under v1.
+    await throughUs(
+      s,
+      { kind: 'approve_builder_fee', builder: s.builder.address, maxFeeBps: '2' },
+      `builder-approval:${s.owner}:${J}-10-v1-${tag}`,
+    );
+    const order1 = await personOrder(s, market.symbol, 'sell', '150', '1', 'GTC');
+    expect(sameDecimal(order1.builderFee.feeBps, '2')).toBe(true);
+    expect((await openOn(s.owner, market.symbol)).map((o) => o.venueClientOrderId)).toContain(order1.venueClientOrderId);
+
+    // Two operators schedule v2 (3 bps) ahead of time and publish the fee-change notice on /notice.
+    const v2At = Math.max(Date.now() + 50_000, Date.parse(v1.effectiveAt) + 5_000);
+    v2 = await setFeeSchedule(ctx, builderSchedule(venueId, s.builder.feeBps, market.symbol, '3'), {
+      effectiveAt: v2At,
+      reason: `LOCAL TEST ${J}: ${market.symbol} builder fee 3 bps from the notice time`,
+      sessions,
+    });
+    const effectiveAt = new Date(v2.effectiveAt).toISOString();
+    const draft = await draftNotice({
+      kind: 'fee_change',
+      title: `TEST fee change ${tag}`,
+      body: `TEST: our builder fee on ${market.symbol} changes from 0.02% to 0.03%.`,
+      startsAt: effectiveAt,
+      key: `${J}:venue:${tag}:fee-change`,
+    });
+    expect((await publishNotice(draft, `${J}:venue:${tag}:fee-change`)).status).toBe('published');
+
+    // Before the effective time: /notice shows the fee-change notice with its effective time, and v1 is still in force.
+    await page.goto('/notice');
+    const card = page.getByTestId(`notice-${draft.id}`);
+    await expect(card).toContainText(`TEST fee change ${tag}`);
+    await expect(card).toContainText('Fee change');
+    const when = card.getByTestId('notice-effective');
+    await expect(when).toHaveText(`Takes effect ${effectiveAt.slice(0, 19).replace('T', ' ')} UTC`);
+    await expect(when).toHaveAttribute('datetime', effectiveAt);
+    await expect(card).toContainText('Orders placed before then keep the fees in force when they were placed.');
+    expect(Date.now()).toBeLessThan(Date.parse(effectiveAt));
+    expect(sameDecimal((await publicBuilderFee(market.symbol)).value, '2')).toBe(true);
+    // The step's picture: the notice on /notice naming the effective time before v2 takes effect.
+    await stepPicture();
+
+    // Once the effective time passes: the public schedule serves v2's 3 bps, and order1 still rests unfilled.
+    await expect
+      .poll(async () => (await publicBuilderFee(market.symbol))?.value ?? null, {
+        timeout: Math.max(0, Date.parse(effectiveAt) - Date.now()) + 30_000,
+      })
+      .toBe('3');
+    expect(Date.now()).toBeGreaterThanOrEqual(Date.parse(effectiveAt));
+    await page.goto('/fees');
+    await expect(page.locator(`[data-fees="venue-markets"] tr[data-market="${market.symbol}"] [data-cell="builder-fee"]`)).toHaveText(
+      '0.03% on a sell',
+    );
+    expect((await openOn(s.owner, market.symbol)).map((o) => o.venueClientOrderId)).toContain(order1.venueClientOrderId);
+    const earlyFills = (await venueRecord(s.owner, '/fills', { since })).value.filter(
+      (f) => f.venueClientOrderId === order1.venueClientOrderId,
+    );
+    expect(earlyFills).toEqual([]);
+
+    // The order placed under v1 fills after v2 took effect: the venue charges v1's 2 bps (0.03 USDC), not v2's 3 bps.
+    await traderOrder(TAKER, market.symbol, 'buy', '150', '1', 'IOC');
+    const [fill1] = await fillsOf(s, order1.venueClientOrderId);
+    const fee1Builder = fromUnits((toUnits('150') * toUnits('2')) / toUnits('10000'));
+    const fee1Venue = fromUnits((toUnits('150') * toUnits(makerBps)) / toUnits('10000'));
+    expect(fill1).toMatchObject({ role: 'maker', side: 'sell', feeAsset: 'USDC' });
+    expect(sameDecimal(fill1.builderFee, fee1Builder)).toBe(true);
+    expect(sameDecimal(fill1.venueFee, fee1Venue)).toBe(true);
+
+    // On the desk: Trade history shows fill1's placement builder fee, and a new order previews and signs under v2 (3 bps).
+    await openVenueDesk(page, s.account, desk(market.symbol), s.walletKey);
+    await expect(page.getByTestId('venue-open-orders').locator(`a[href="/trade/orders/${order1.venueClientOrderId}"]`)).toBeVisible({
+      timeout: 20_000,
+    });
+    await bottomTab(page, 'Trade history');
+    const fill1Row = page.getByTestId('venue-fills').locator(`tr[data-fill="${fill1.fillId}"]`);
+    await expect.poll(async () => sameDecimal(await fill1Row.locator('[data-cell="builder-fee"]').innerText(), fee1Builder)).toBe(true);
+    await expect.poll(async () => sameDecimal(await fill1Row.locator('[data-cell="venue-fee"]').innerText(), fee1Venue)).toBe(true);
+
+    await orderTab(page, 'Limit').click();
+    await sellForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('150');
+    const nextPreview = await previewOn(page, () => sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1'));
+    const fee2Builder = fromUnits((toUnits('150') * toUnits('3')) / toUnits('10000'));
+    expect(sameDecimal(nextPreview.value.builderFeeBps, '3')).toBe(true);
+    expect(sameDecimal(nextPreview.value.builderFee.value.amount, fee2Builder)).toBe(true);
+
+    // Because v2 raised our builder fee past the wallet's 2 bps approval, the review asks to approve 3 bps before Confirm.
+    await sellForm(page)
+      .getByRole('button', { name: `Sell ${market.base}`, exact: true })
+      .click();
+    const sheet = reviewSheet(page);
+    await expect(sheet).toBeVisible();
+    await expect(line(sheet, 'builder-fee')).toContainText('0.045');
+    await expect(line(sheet, 'builder-fee')).toContainText('3 bps');
+    const confirmSell = sheet.getByRole('button', { name: 'Confirm sell', exact: true });
+    await expect(confirmSell).toBeDisabled();
+    await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet', exact: true }).click();
+    await continueInWallet(page);
+    await expect(confirmSell).toBeEnabled({ timeout: 20_000 });
+    await confirmSell.click();
+    await continueInWallet(page);
+    await expect(sheet).toHaveCount(0);
+
+    // Wait for the new order placed under v2 to rest, cross it, and verify it carries v2's 3 bps (0.045 USDC).
+    let order2;
+    await expect
+      .poll(
+        async () => {
+          const open = await openOn(s.owner, market.symbol);
+          order2 = open.find((o) => o.venueClientOrderId !== order1.venueClientOrderId);
+          return order2?.venueClientOrderId ?? null;
+        },
+        { timeout: 20_000 },
+      )
+      .toBeTruthy();
+    await traderOrder(TAKER, market.symbol, 'buy', '150', '1', 'IOC');
+    const [fill2] = await fillsOf(s, order2.venueClientOrderId);
+    expect(fill2).toMatchObject({ role: 'maker', side: 'sell', feeAsset: 'USDC' });
+    expect(sameDecimal(fill2.builderFee, fee2Builder)).toBe(true);
+
+    // Our ledger posts only our builder fee earned for each fill (0.03 for v1, 0.045 for v2), and holds none of the person's money.
+    await expect
+      .poll(
+        async () => {
+          const { status, body } = await session.get(`/api/v1/venue/builder-fees?owner=${s.owner}&since=${encodeURIComponent(since)}`);
+          if (status !== 200) return false;
+          const byFill = new Map(body.value.map((r) => [r.fillId, r]));
+          const r1 = byFill.get(fill1.fillId);
+          const r2 = byFill.get(fill2.fillId);
+          return (
+            r1?.status === 'posted' &&
+            Boolean(r1.ledgerTxId) &&
+            sameDecimal(r1.amount, fee1Builder) &&
+            r2?.status === 'posted' &&
+            Boolean(r2.ledgerTxId) &&
+            sameDecimal(r2.amount, fee2Builder)
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    expect(await ledgerOf(s)).toEqual(ledgerBefore);
+  } finally {
+    const after = await latestScheduleEffective(founders);
+    const restoreAt = Math.max(Date.now() + 8_000, after ? Date.parse(after) + 3_000 : 0, v2 ? Date.parse(v2.effectiveAt) + 3_000 : 0);
+    await setFeeSchedule(ctx, BASE_SCHEDULE, {
+      effectiveAt: restoreAt,
+      reason: `LOCAL TEST ${J}: restore boot builder fee after #10`,
+      sessions,
+    });
+    await expect
+      .poll(
+        async () => {
+          const fee = await publicBuilderFee(market.symbol);
+          return fee?.known ? sameDecimal(fee.value, s.builder.feeBps) : false;
+        },
+        { timeout: Math.max(0, restoreAt - Date.now()) + 30_000 },
+      )
+      .toBe(true);
+  }
 });
 
 test(`${J} #11 reads the fee and volume API: the same rates and volume as the screen`, async ({ page }) => {

@@ -69,7 +69,7 @@ const render = () => {
 it('keeps the guided session switched off with the real reason and no free-text answer boxes', () => {
   mutate.mockClear();
   const html = render();
-  expect(html).toContain('The Blueprint service does not publish its question list');
+  expect(html).toContain('Blueprint questions are not published');
   expect(html).toMatch(/<button[^>]*disabled[^>]*>Create your Blueprint<\/button>/);
   expect(html).toContain('<fieldset disabled');
   expect(html).not.toMatch(/Answer key|Your answer|Add answer/);

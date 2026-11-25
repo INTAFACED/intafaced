@@ -204,6 +204,7 @@ export const CAMPAIGNS_REFUSAL_STATUS: Readonly<Record<CampaignsCode, RefusalSta
   'drop.count_invalid': 'BAD_REQUEST',
   'drop.not_open': 'CONFLICT',
   'drop.sold_out': 'CONFLICT',
+  'drop.campaign_invalid': 'BAD_REQUEST',
   'launch.schedule_unset': 'PRECONDITION_FAILED',
   'audit.external': 'PRECONDITION_FAILED',
   'chain.go': 'PRECONDITION_FAILED',

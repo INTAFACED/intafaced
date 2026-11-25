@@ -5,15 +5,14 @@
  *
  *   APP_ENV=dev node tooling/scripts/local-tester-seed.mjs [step ...] [--state <dir>] [--notice-minutes <n>]
  *
- * A step is one of STEPS below, written as the compose file writes it ('local-founder-seed.mjs init'). With no step it
+ * A step is one of STEPS below, written as the compose file writes it ('local-tester-founders.mjs enrol'). With no step it
  * runs DEFAULT_STEPS. The compose `seed` service (docker-compose.apps.yml, profile `tester`) names its steps itself.
  * --notice-minutes goes to the `home` step alone (the TEST content seed checks the value); the compose service passes
  * none, so the tester's notice stays open for its default 30 days. A journey passes a short one.
  *
  * WHAT IT REFUSES. Before it runs anything, it exits 2 unless APP_ENV is exactly "dev" or "test" and NODE_ENV is not
  * "production": the same image started as staging or production seeds nothing. Each step then keeps its own guards
- * (the founder seed's INTAFACED_LOCAL_FOUNDER flag and loopback edge, the TEST content seed's LOCAL_TEST flag and stack
- * marker); this file sets those flags only after its own check passed, and never loosens them. A step that fails stops
+ * (the founder step's compose marker and its stack id, the TEST content seed's LOCAL_TEST flag and stack marker); this file sets those flags only after its own check passed, and never loosens them. A step that fails stops
  * the run with that step's exit code, so nothing after it runs.
  */
 import { spawnSync } from 'node:child_process';
@@ -24,8 +23,13 @@ const SCRIPTS = path.dirname(fileURLToPath(import.meta.url));
 
 /** Each step the seed service may run: its script, its arguments, and the flag that script asks for. */
 export const STEPS = Object.freeze({
-  'local-founder-seed.mjs init': { script: 'local-founder-seed.mjs', args: ['init'], flag: 'INTAFACED_LOCAL_FOUNDER' },
-  'local-founder-seed.mjs enrol': { script: 'local-founder-seed.mjs', args: ['enrol'], flag: 'INTAFACED_LOCAL_FOUNDER' },
+  'local-tester-founders.mjs enrol': { script: 'local-tester-founders.mjs', args: ['enrol'], flag: 'LOCAL_TEST', state: true },
+  // The founders' own `full` verification requests, approved by the two TEST operators, as `pnpm local:stack`'s gates do:
+  // Home's bank needs it. The gates steps read their state folder from LOCAL_STACK_STATE, not --state.
+  'local-test-gates.mjs verify': { script: 'local-test-gates.mjs', args: ['verify'], flag: 'LOCAL_TEST', stateEnv: true },
+  // The TEST personal transfer limits and fee, published with two-person approval, as the stack's gates do: Home's
+  // payment from founder b to founder a needs them.
+  'local-test-gates.mjs terms': { script: 'local-test-gates.mjs', args: ['terms'], flag: 'LOCAL_TEST', stateEnv: true },
   'local-test-seed.mjs apply': { script: 'local-test-seed.mjs', args: ['apply'], flag: 'LOCAL_TEST', state: true },
   'local-test-seed.mjs home': { script: 'local-test-seed.mjs', args: ['home'], flag: 'LOCAL_TEST', state: true, notice: true },
   'local-test-seed.mjs status': { script: 'local-test-seed.mjs', args: ['status'], flag: 'LOCAL_TEST', state: true },
@@ -92,7 +96,7 @@ export function main(argv, env = process.env, { spawn = spawnSync, log = (line) 
     ];
     log(`seed: ${name}`);
     const res = spawn(process.execPath, [path.join(SCRIPTS, step.script), ...args], {
-      env: { ...env, [step.flag]: '1' },
+      env: { ...env, [step.flag]: '1', ...(step.stateEnv && plan.state ? { LOCAL_STACK_STATE: plan.state } : {}) },
       stdio: 'inherit',
     });
     const code = res.status ?? 1;

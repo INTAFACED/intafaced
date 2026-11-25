@@ -1,8 +1,9 @@
-// World: book, restart
+// World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { createWalletClient, encodeFunctionData, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
+import { ownSpotMarket } from './own-market.mjs';
 import { api, journeyState, restartWithSetting } from './stack.mjs';
 import { confirm, reviewSheet, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
@@ -30,12 +31,12 @@ import {
   venueRecord,
 } from './venue.mjs';
 
-// J-portfolio-01 #1 #3 #4 #5 #6, in the running app (docs/roadmap/journeys.json): after I trade, I see what I hold, what is locked and what it is worth, on the launch
+// J-portfolio-01 #1 #2 #3 #4 #5 #6 #7, in the running app (docs/roadmap/journeys.json): after I trade, I see what I hold, what is locked and what it is worth, on the launch
 // model: INTAFACED holds none of this person's money. With svc-trade's user-venue door on for this file
 // (venueForThisFile), /money lists what each place holding it reports: the connected wallet (read from the stack's TEST
 // chain at one block), the venue account (the stack's TEST venue simulator) and the partner account (the stack's TEST
-// partner bank), each figure checked here against that source's own record, never against the page. #2 #7 #8 are in
-// J-portfolio-01.pw.mjs.
+// partner bank), each figure checked here against that source's own record, never against the page. #8 (bank prices
+// unavailable) stays in J-portfolio-01.pw.mjs.
 //
 // TEST setup (beforeAll, not a step), the journey's start: one verified TEST person with one TEST browser wallet, funded
 // on the TEST chain (`fund <address> venue`: TEST ETH for gas and 100 TEST USD) and sending TEST 10 USD from it to the
@@ -120,9 +121,39 @@ const dollars = (v) => {
   const [whole, cents] = fixed(round(v, 2), 2).split('.');
   return `$${grouped(whole)}.${cents}`;
 };
+/** Signed dollar figure as Movers prints it (fmtUsd: under $1 up to 4 places, else cents, half up). */
+function signedDollars(v) {
+  const negative = v < 0n;
+  const abs = negative ? -v : v;
+  const places = abs < SCALE ? 4 : 2;
+  const rounded = round(abs, places);
+  let [whole, frac] = fixed(rounded, places).split('.');
+  if (places === 4) frac = frac.replace(/0{1,2}$/, '');
+  const sign = rounded === 0n ? '' : negative ? '−' : '+';
+  return `${sign}$${grouped(whole)}.${frac}`;
+}
+/** Signed percent as Movers prints it (fmtPct: half-up to 2 places). */
+function signedPct(ratioUnits) {
+  const negative = ratioUnits < 0n;
+  const abs = negative ? -ratioUnits : ratioUnits;
+  const rounded = round(abs * 100n, 2);
+  const sign = rounded === 0n ? '' : negative ? '−' : '+';
+  return `${sign}${fixed(rounded, 2)}%`;
+}
 /** A share as Assets prints it: value × 100 / total, cut at 18 places, then half up to 0.01. */
 const share = (value, total) => `${fixed(round((value * 100n * SCALE) / total, 2), 2)}%`;
 const sum = (list) => list.reduce((a, b) => a + b, 0n);
+
+/** The venue's own spot candle quote (last trade price and 24h open) for `symbol`, read directly from the TEST venue. */
+async function venueSpotQuote(symbol) {
+  const { status, body } = await testVenue('/candles', { symbol, interval: '1h', limit: 25 });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const candles = [...body.value].sort((a, b) => Date.parse(a.openAt) - Date.parse(b.openAt));
+  if (candles.length === 0) return { symbol, last: null, open: null };
+  const last = units(candles[candles.length - 1].closePrice);
+  const open = units(candles[0].openPrice);
+  return { symbol, last, open };
+}
 
 // ── each source's own record ─────────────────────────────────────────────────
 /** The stack's TEST chain's TEST USD (services/svc-protocol/scripts/seed-test-chain.ts TEST_TOKENS.USD), 6 decimals. */
@@ -314,7 +345,15 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
   const prices = await pricesPublished();
   expect(prices).toMatchObject({ published: true, test: true, source: 'TEST price list' });
   const price = new Map(prices.prices.map((row) => [row.asset, units(row.usd)]));
+  const btcFill = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.find((f) => f.symbol === SYMBOL);
+  expect(btcFill, 'the TEST venue recorded the BTC-USDC fill from setup').toBeTruthy();
+  const btcQuote = await venueSpotQuote(SYMBOL);
+  expect(btcQuote.last, 'the TEST venue candle matches the BTC-USDC fill price').toBe(units(btcFill.price));
+  price.set('BTC', btcQuote.last);
   await openAssets(page);
+  await expect(page.getByTestId('source-venue').locator('tr[data-asset="BTC"] [data-cell="price"]')).toContainText('$', {
+    timeout: 30_000,
+  });
 
   // Each source's own figures; the total is what is priced, worked out here from those figures.
   const walletSection = page.getByTestId('source-wallet');
@@ -420,6 +459,54 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
 
   // INTAFACED holds none of it: the ledger holds nothing for this person and posted nothing.
   expect(await (await api(who)).balances()).toEqual(ledgerStart);
+});
+
+test(`${J} #2 reads the valuation note: the price source and refresh rate, stable coins counted at exactly 1, and a coin with no market listed as unpriced and never valued at zero`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(180_000);
+  const { owner } = state();
+  const { displayName: venueName } = await venueInfo();
+  const prices = await pricesPublished();
+  expect(prices).toMatchObject({ published: true, test: true, source: 'TEST price list' });
+  // Read the venue's own record for the BTC holding and its BTC-USDC spot market print.
+  const btcHolding = await venueBalance(owner, 'BTC');
+  expect(units(btcHolding.total)).toBeGreaterThan(0n);
+  const btcFill = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.find((f) => f.symbol === SYMBOL);
+  expect(btcFill).toBeTruthy();
+  const btcQuote = await venueSpotQuote(SYMBOL);
+  expect(btcQuote.last).toBe(units(btcFill.price));
+
+  await openAssets(page);
+  const note = page.getByRole('region', { name: 'How these values are worked out', exact: true });
+  await expect(note).toBeVisible({ timeout: 30_000 });
+  await expect(note.locator('tr[data-coin="BTC"] [data-col="price"]')).toHaveText(dollars(btcQuote.last), { timeout: 30_000 });
+
+  // Price source and refresh rate.
+  await expect(note.getByTestId('valuation-time')).toHaveText(/^Valued at \d{2}:\d{2}\. This page asks for new prices every 30 seconds\.$/);
+  await expect(note.getByTestId('valuation-source')).toHaveText(`Prices come from ${prices.source} and last trades on ${venueName}.`);
+  // Stable coins counted at exactly 1; a coin with no market listed as unpriced, never valued at zero.
+  await expect(note).toContainText('USDT, USDC and USD count as exactly $1.');
+  await expect(note).toContainText('never as zero');
+  for (const [asset, expectedSource, expectedPrice] of [
+    ['USDC', 'Counted at exactly $1', '$1.00'],
+    ['USDT', 'Counted at exactly $1', '$1.00'],
+    ['BTC', 'Last trade on BTC/USDC', dollars(btcQuote.last)],
+    ['TESTUSD', 'Not counted: no USDT or USDC market', 'Not counted'],
+    ['ETH', 'Not counted: no USDT or USDC market', 'Not counted'],
+  ]) {
+    const row = note.locator(`tr[data-coin="${asset}"]`);
+    await expect(row.locator('[data-col="source"]')).toHaveText(expectedSource);
+    await expect(row.locator('[data-col="price"]')).toHaveText(expectedPrice);
+  }
+  await expect(note).not.toContainText(/\$\s?0(\.0+)?\b/);
+  // The total header names the unpriced coins too, leaving them out rather than counting them as zero.
+  const unpriced = page.getByTestId('assets-total').getByTestId('standing-unpriced');
+  await expect(unpriced).toContainText('TESTUSD');
+  await expect(unpriced).toContainText('ETH');
+  await note.scrollIntoViewIfNeeded();
+  await stepPicture();
 });
 
 /** Places #3's TEST limit sell of BTC on the desk, signed in the wallet; returns the venue's order. */
@@ -624,4 +711,128 @@ test(`${J} #6 opens what makes a number: the source records behind it (chain tra
     // Each with its own reference, in words.
     for (const [i, ref] of refs.entries()) await expect(rows.nth(i).getByTestId('money-act__ref')).toHaveText(`Reference ${ref}`);
   }
+});
+
+test(`${J} #7 reads best and worst movers: the assets that moved most today, from the same valuation as the total`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
+  const { account: who, owner, walletKey } = state();
+  // Two fresh TEST spot markets of our own so the open and last trade prices are deterministic:
+  // `up` rises from 100 to 120 (+20.00%), `down` falls from 200 to 170 (-15.00%), while BTC stays flat at its 60100 print.
+  const up = await ownSpotMarket(J, 'PF1', 'U');
+  const down = await ownSpotMarket(J, 'PF1', 'D');
+  const makerA = `${J}-mv-a-${process.env.JOURNEY_RUN_ID ?? 'local'}-${owner.slice(2, 8)}`;
+  const makerB = `${J}-mv-b-${process.env.JOURNEY_RUN_ID ?? 'local'}-${owner.slice(2, 8)}`;
+  const makerAAddr = otherTraderKey(makerA).address.toLowerCase();
+  const makerBAddr = otherTraderKey(makerB).address.toLowerCase();
+  const makerAAcct = await venueAccount(makerAAddr);
+  const makerBAcct = await venueAccount(makerBAddr);
+
+  for (const [acct, asset, amount, ref] of [
+    [makerAAcct, up.base, '2', `seed:${makerA}:${up.base}`],
+    [makerAAcct, down.base, '2', `seed:${makerA}:${down.base}`],
+    [makerBAcct, 'USDC', '1000', `seed:${makerB}:USDC`],
+  ]) {
+    const dep = await testVenue('/test/deposit', { account: acct, asset, amount, depositRef: ref });
+    expect(dep.status, JSON.stringify(dep.body)).toBe(200);
+  }
+  const marketOrder = (whoAddr, symbol, side, amount, price, tif, tag) => ({
+    kind: 'place_order',
+    symbol,
+    side,
+    type: 'limit',
+    amount,
+    price,
+    timeInForce: tif,
+    reduceOnly: false,
+    clientOrderKey: `order:${whoAddr}:${symbol.toLowerCase()}:pf1${tag}${randomBytes(4).toString('hex')}`,
+    builderFee: null,
+  });
+
+  // First print on each market: the person buys 0.1 of `up` at 100 and 0.1 of `down` at 200.
+  for (const [mkt, price, tag] of [
+    [up, '100', 'u1'],
+    [down, '200', 'd1'],
+  ]) {
+    const ask = await otherTraderRun(makerA, marketOrder(makerAAddr, mkt.symbol, 'sell', '0.1', price, 'GTC', `${tag}s`));
+    expect(ask.definite && ask.accepted, JSON.stringify(ask)).toBe(true);
+    await signedOnVenue(walletKey, marketOrder(owner, mkt.symbol, 'buy', '0.1', price, 'IOC', `${tag}b`));
+  }
+  // Second print on each market (between two outside TEST traders): `up` trades at 120 (+20%), `down` trades at 170 (-15%).
+  for (const [mkt, price, tag] of [
+    [up, '120', 'u2'],
+    [down, '170', 'd2'],
+  ]) {
+    const ask = await otherTraderRun(makerA, marketOrder(makerAAddr, mkt.symbol, 'sell', '0.1', price, 'GTC', `${tag}s`));
+    expect(ask.definite && ask.accepted, JSON.stringify(ask)).toBe(true);
+    const bid = await otherTraderRun(makerB, marketOrder(makerBAddr, mkt.symbol, 'buy', '0.1', price, 'IOC', `${tag}b`));
+    expect(bid.definite && bid.accepted, JSON.stringify(bid)).toBe(true);
+  }
+
+  // Read every holding and market quote straight from the TEST venue and partner.
+  const [upBal, downBal, btcBal, usdcBal, upQuote, downQuote, btcQuote, partnerUsdt] = await Promise.all([
+    venueBalance(owner, up.base),
+    venueBalance(owner, down.base),
+    venueBalance(owner, 'BTC'),
+    venueBalance(owner, 'USDC'),
+    venueSpotQuote(up.symbol),
+    venueSpotQuote(down.symbol),
+    venueSpotQuote(SYMBOL),
+    partnerHeld(who, 'USDT'),
+  ]);
+  const btcFill = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.find((f) => f.symbol === SYMBOL);
+  expect(btcFill).toBeTruthy();
+  expect(upQuote).toEqual({ symbol: up.symbol, last: units('120'), open: units('100') });
+  expect(downQuote).toEqual({ symbol: down.symbol, last: units('170'), open: units('200') });
+  expect(btcQuote).toEqual({ symbol: SYMBOL, last: units(btcFill.price), open: units(btcFill.price) });
+
+  const upVal = (units(upBal.total) * upQuote.last) / SCALE;
+  const upChange = (units(upBal.total) * (upQuote.last - upQuote.open)) / SCALE;
+  const upRatio = ((upQuote.last - upQuote.open) * SCALE) / upQuote.open;
+  const downVal = (units(downBal.total) * downQuote.last) / SCALE;
+  const downChange = (units(downBal.total) * (downQuote.last - downQuote.open)) / SCALE;
+  const downRatio = ((downQuote.last - downQuote.open) * SCALE) / downQuote.open;
+  const btcVal = (units(btcBal.total) * btcQuote.last) / SCALE;
+  const expectedTotal = units(usdcBal.total) + btcVal + upVal + downVal + partnerUsdt;
+
+  await openAssets(page);
+  const movers = page.getByRole('region', { name: 'Best and worst today', exact: true });
+  await expect(movers).toBeVisible({ timeout: 30_000 });
+  await expect(movers.locator(`[data-side="best"] li[data-asset="${up.base}"]`)).toBeVisible({ timeout: 30_000 });
+
+  // Same valuation as the total: the holding rows and the header total use these exact same venue prices.
+  const venueTable = page.getByTestId('source-venue');
+  await expect(venueTable.locator(`tr[data-asset="${up.base}"] [data-cell="price"]`)).toHaveText(dollars(upQuote.last));
+  await expect(venueTable.locator(`tr[data-asset="${up.base}"] [data-cell="value"]`)).toHaveText(dollars(upVal));
+  await expect(venueTable.locator(`tr[data-asset="${down.base}"] [data-cell="price"]`)).toHaveText(dollars(downQuote.last));
+  await expect(venueTable.locator(`tr[data-asset="${down.base}"] [data-cell="value"]`)).toHaveText(dollars(downVal));
+  await expect(page.getByTestId('assets-total').getByTestId('standing-figure')).toHaveAttribute(
+    'data-total-usd',
+    fixed(round(expectedTotal, 2), 2),
+  );
+
+  // Best and worst movers: exact figures, drawn direction arrows and screen-reader direction words.
+  const sideItems = async (name) =>
+    movers.locator(`[data-side="${name}"] li`).evaluateAll((items) =>
+      items.map((li) => {
+        const arrows = [...li.querySelectorAll('[data-arrow]')].map((a) =>
+          a.getBoundingClientRect().width > 0 && getComputedStyle(a).maskImage !== 'none' ? `[drawn ${a.dataset.arrow}]` : '[not drawn]',
+        );
+        const change = li.querySelector('[data-slot="change-text"]')?.innerText.replace(/\s+/g, ' ').trim() ?? '';
+        return `${li.getAttribute('data-asset')} ${arrows.join(' ')} ${change}`;
+      }),
+    );
+  expect(await sideItems('best')).toEqual([`${up.base} [drawn up] up ${signedDollars(upChange)} (${signedPct(upRatio)})`]);
+  expect(await sideItems('worst')).toEqual([`${down.base} [drawn down] down ${signedDollars(downChange)} (${signedPct(downRatio)})`]);
+  await expect(movers.getByTestId('movers-flat')).toHaveText('No move: BTC');
+  await expect(movers.getByTestId('movers-unranked')).toHaveCount(0);
+  await expect(movers).not.toContainText('USDC');
+  await expect(movers).not.toContainText('USDT');
+  await expect(movers).not.toContainText('TESTUSD');
+  await expect(movers).toContainText('Not profit and loss.');
+  await movers.scrollIntoViewIfNeeded();
+  await expect(movers).toBeInViewport({ ratio: 1 });
+  await stepPicture();
 });

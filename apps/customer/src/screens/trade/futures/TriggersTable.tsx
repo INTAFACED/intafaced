@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Amount, Badge, Button, EmptyState, StatusTag, Table, type StatusKind, type TableColumn } from '@intafaced/ui';
+import { Amount, Tag, Button, StatusTag, type StatusKind } from '@intafaced/ui/lit';
+import { Table, type Column } from '@intafaced/ui/lit/templates';
 import { fmtAmount } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { usePreferences } from '../../../shared/preferences';
@@ -11,6 +12,7 @@ import { useFuturesWriter } from './hooks';
 import { WriteNotice } from './PositionDialogs';
 import { TriggerFacts, triggerKind, triggerLine, triggerStatus } from './TriggerFacts';
 import { triggersCopy } from './triggers-copy';
+import { RegionNote } from './notes';
 
 /**
  * Every take profit, stop loss and stop on the account, armed or recent (J-derivatives-03). A fired one stays listed
@@ -46,44 +48,40 @@ export function TriggersTable({
     onChanged();
   };
 
-  const columns: TableColumn<ConditionalOrder>[] = [
-    { id: 'time', header: t('Col time'), value: (o) => dayTime(Date.parse(o.createdAt), timeZone) },
-    { id: 'contract', header: t('Col contract'), value: (o) => o.market },
-    { id: 'what', header: t('Col what'), value: (o) => triggerKind(o, t) },
+  const columns: Column<ConditionalOrder>[] = [
+    { key: 'time', label: t('Col time'), cell: (o) => dayTime(Date.parse(o.createdAt), timeZone) },
+    { key: 'contract', label: t('Col contract'), cell: (o) => o.market },
+    { key: 'what', label: t('Col what'), cell: (o) => triggerKind(o, t) },
     {
-      id: 'side',
-      header: t('Col side'),
-      cell: (o) => (
-        <Badge variant="outline" tone={o.side === 'buy' ? 'up' : 'down'}>
-          {o.side === 'buy' ? t('Buy') : t('Sell')}
-        </Badge>
-      ),
+      key: 'side',
+      label: t('Col side'),
+      cell: (o) => <Tag tone={o.side === 'buy' ? 'up' : 'down'}>{o.side === 'buy' ? t('Buy') : t('Sell')}</Tag>,
     },
-    { id: 'size', header: t('Col size'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.quantity, { places: 8 })} /> },
-    { id: 'trigger', header: t('Col trigger'), value: (o) => triggerLine(o, t) ?? '' },
+    { key: 'size', label: t('Col size'), align: 'end', cell: (o) => <Amount value={fmtAmount(o.quantity, { places: 8 })} /> },
+    { key: 'trigger', label: t('Col trigger'), cell: (o) => triggerLine(o, t) ?? '' },
     {
-      id: 'status',
-      header: t('Col status'),
+      key: 'status',
+      label: t('Col status'),
       cell: (o) => <StatusTag status={triggerStatus(o)} label={t(`Status ${o.status}`)} />,
     },
     {
-      id: 'detail',
-      header: t('Col detail'),
+      key: 'detail',
+      label: t('Col detail'),
       cell: (o) => (
-        <span className="flex flex-col text-xs">
+        <span className="lt-stack-tight lt-small">
           <TriggerFacts order={o} positions={open} />
         </span>
       ),
     },
     {
-      id: 'action',
-      header: t('Col action'),
+      key: 'action',
+      label: t('Col action'),
       cell: (o) =>
         o.status === 'armed' ? (
           <Button
-            variant="secondary"
-            size={28}
-            loading={cancelling === o.id}
+            tone="secondary"
+            size="sm"
+            busy={cancelling === o.id}
             disabled={writer.locked}
             aria-label={t('Cancel trigger label', { what: triggerKind(o, t), contract: o.market })}
             onClick={() => void cancel(o)}
@@ -96,22 +94,23 @@ export function TriggersTable({
 
   return (
     <>
-      <section aria-label={t('Triggers table')} className="flex flex-col border-t border-line">
+      <section aria-label={t('Triggers table')} className="lt-stack">
         <TabHeader title={t('Triggers heading')} load={triggers} />
         {writer.outcome?.kind === 'refused' || writer.outcome?.kind === 'blocked' || writer.note.state !== 'none' ? (
-          <div className="px-3 text-xs">
+          <div className="lt-small">
             <WriteNotice writer={writer} onCheck={() => void check()} />
           </div>
         ) : null}
         <LoadGate load={triggers} thing={t('Triggers thing')}>
           {(rows) => (
             <Table
-              label={t('Triggers table')}
-              density="dense"
+              mode="pro"
+              dense
+              caption={t('Triggers table')}
               columns={columns}
               rows={[...rows].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))}
-              getRowId={(o) => o.id}
-              emptyState={<EmptyState size="inline" title={t('Triggers empty')} reason={t('Triggers empty reason')} />}
+              rowKey={(o) => o.id}
+              empty={<RegionNote title={t('Triggers empty')} reason={t('Triggers empty reason')} />}
             />
           )}
         </LoadGate>
@@ -134,39 +133,36 @@ const ENTRY_TONE: Record<EntryProtection['status'], StatusKind> = {
 function EntryProtections({ entries }: { entries: Loadable<EntryProtection[]> }) {
   const { t } = triggersCopy.useCopy();
   const { timeZone } = usePreferences();
-  const columns: TableColumn<EntryProtection>[] = [
-    { id: 'time', header: t('Col time'), value: (e) => dayTime(Date.parse(e.createdAt), timeZone) },
-    { id: 'contract', header: t('Col contract'), value: (e) => e.symbol },
+  const columns: Column<EntryProtection>[] = [
+    { key: 'time', label: t('Col time'), cell: (e) => dayTime(Date.parse(e.createdAt), timeZone) },
+    { key: 'contract', label: t('Col contract'), cell: (e) => e.symbol },
     {
-      id: 'order',
-      header: t('Col order'),
-      cell: (e) => (
-        <Badge variant="outline" tone={e.side === 'buy' ? 'up' : 'down'}>
-          {e.side === 'buy' ? t('Buy') : t('Sell')}
-        </Badge>
-      ),
+      key: 'order',
+      label: t('Col order'),
+      cell: (e) => <Tag tone={e.side === 'buy' ? 'up' : 'down'}>{e.side === 'buy' ? t('Buy') : t('Sell')}</Tag>,
     },
-    { id: 'tp', header: t('Col take profit'), numeric: true, value: (e) => e.takeProfit ?? t('None') },
-    { id: 'sl', header: t('Col stop loss'), numeric: true, value: (e) => e.stopLoss ?? t('None') },
-    { id: 'covers', header: t('Col covers'), numeric: true, cell: (e) => <Amount value={fmtAmount(e.armedQuantity, { places: 8 })} /> },
+    { key: 'tp', label: t('Col take profit'), align: 'end', cell: (e) => e.takeProfit ?? t('None') },
+    { key: 'sl', label: t('Col stop loss'), align: 'end', cell: (e) => e.stopLoss ?? t('None') },
+    { key: 'covers', label: t('Col covers'), align: 'end', cell: (e) => <Amount value={fmtAmount(e.armedQuantity, { places: 8 })} /> },
     {
-      id: 'status',
-      header: t('Col status'),
+      key: 'status',
+      label: t('Col status'),
       cell: (e) => <StatusTag status={ENTRY_TONE[e.status]} label={t(`Entry status ${e.status}`)} />,
     },
   ];
   return (
-    <section aria-label={t('Entries table')} className="flex flex-col border-t border-line">
+    <section aria-label={t('Entries table')} className="lt-stack">
       <TabHeader title={t('Entries heading')} load={entries} />
       <LoadGate load={entries} thing={t('Entries thing')}>
         {(rows) => (
           <Table
-            label={t('Entries table')}
-            density="dense"
+            mode="pro"
+            dense
+            caption={t('Entries table')}
             columns={columns}
             rows={rows}
-            getRowId={(e) => e.id}
-            emptyState={<EmptyState size="inline" title={t('Entries empty')} reason={t('Entries empty reason')} />}
+            rowKey={(e) => e.id}
+            empty={<RegionNote title={t('Entries empty')} reason={t('Entries empty reason')} />}
           />
         )}
       </LoadGate>

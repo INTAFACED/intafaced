@@ -330,6 +330,41 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
   });
 });
 
+describe('one part per role', () => {
+  /**
+   * Names main's kit exports that are defined in two files under src/lit: Segmented and RefusalBox twice on main, and
+   * Select (a combobox beside main's native one) and Checkbox beside main's. Folding a name main exports changes every
+   * layer that imports it, so these are the kit owner's to fold. The list only shrinks: a folded name fails the second
+   * test until it comes off.
+   */
+  const mainOwned = ['Checkbox', 'RefusalBox', 'Segmented', 'Select'];
+
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) return name === '__gallery__' ? [] : files(path);
+      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
+    });
+  const definedTwice = () => {
+    const where = new Map<string, string[]>();
+    for (const file of files(here)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/^export (?:function|const|class) ([A-Z][A-Za-z0-9]*)\b/gm)) {
+        const name = m[1]!;
+        where.set(name, [...(where.get(name) ?? []), file.slice(here.length)]);
+      }
+    }
+    return [...where].filter(([, at]) => at.length > 1);
+  };
+
+  it('no other part is defined twice in the kit: each exported name lives in one file under src/lit', () => {
+    expect(definedTwice().filter(([name]) => !mainOwned.includes(name))).toEqual([]);
+  });
+
+  it("every name on the kit owner's list is still defined twice (a folded name comes off the list)", () => {
+    expect(mainOwned.filter((name) => !definedTwice().some(([n]) => n === name))).toEqual([]);
+  });
+});
+
 describe('the kit draws the arrows its faces lack', () => {
   // Archivo and Geist carry no ▲ ▼ → ← ↗ (look gate run 45061471946: ▲ in WenQuanYi Zen Hei); fonts.css now gives each
   // family symbol faces for typed text, and the kit's own parts still draw theirs: lt-arrow-up, lt-arrow-down,

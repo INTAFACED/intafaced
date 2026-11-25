@@ -29,6 +29,6 @@ export async function device(page, credentials = []) {
 export async function openRoom(page, who) {
   await signIn(page, who);
   await page.goto('/wallet');
-  await page.getByRole('button', { name: 'My wallet', exact: true }).click();
+  await page.getByRole('link', { name: 'Open My wallet', exact: true }).click();
   await expect(page).toHaveURL(/\/wallet\/embedded$/);
 }

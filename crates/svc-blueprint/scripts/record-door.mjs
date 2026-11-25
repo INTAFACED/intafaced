@@ -7,6 +7,9 @@
 // - `tests/fixtures/refusals.golden.json`: what the router answers for every refusal code a handler can throw
 //   (`BlueprintError`, `AttestationSurfaceError`, and any other error), through a guarded call and an unmapped one.
 // - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
+// - `tests/fixtures/card.golden.json`: the share card `composeCard` draws for a set of subjects at both sizes, what the
+//   zero-PII bar (`attestations/zero-pii.ts`) says of a set of payloads, and what `HttpCardRenderer` sends and returns
+//   for a set of renderer answers.
 //
 // Who may call each call is not recorded here: the door reads it from the records' published schema
 // (`packages/contracts/procedures/svc-blueprint.schema.json`), the one list of the calls.
@@ -48,8 +51,11 @@ process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
 
 const { createBlueprintRouter } = await import(`${SVC}router.ts`);
 const { BlueprintService, BlueprintError } = await import(`${SVC}blueprint-service.ts`);
-const { BlueprintRow, MentorMatchRow } = await import(`${SVC}rows.ts`);
+const { BlueprintRow, MentorMatchRow, OpenerRow, ShareRow } = await import(`${SVC}rows.ts`);
 const zeroPii = await import(`${SVC}attestations/zero-pii.ts`);
+const { composeCard } = await import(`${SVC}card/compose.ts`);
+const { HttpCardRenderer } = await import(`${SVC}card/http-renderer.ts`);
+const { responseSchema: RendererResponse } = await import(`${SVC}card/renderer-response.ts`);
 // The service's own packages, resolved from the service as its tests resolve them.
 const fromService = createRequire(`${SVC}index.ts`);
 const load = (name) => import(pathToFileURL(fromService.resolve(name)).href);
@@ -253,6 +259,10 @@ for (const path of paths) {
 const rowParts = {
   BlueprintRow: node(BlueprintRow.array()),
   MentorMatchRow: node(MentorMatchRow.array()),
+  ShareRow: node(ShareRow.array()),
+  OpenerRow: node(OpenerRow.array()),
+  // Not a row: the card renderer's answer (`card/http-renderer.ts`), checked as one.
+  RendererResponse: node(RendererResponse.array()),
 };
 
 if (UNNAMED.size) throw new Error(`unnamed refines:\n${[...UNNAMED].join('\n---\n')}`);
@@ -787,6 +797,171 @@ const envCases = ENV_CASES.map((overrides) => {
   return { env: vars, answer: JSON.parse(out) };
 });
 
+// ── The card ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const AXES = {
+  decisionStyle: ['analytical', 'intuitive', 'collaborative', 'decisive'],
+  riskTemperament: ['guarded', 'measured', 'assertive', 'bold'],
+  energyRhythm: ['dawn', 'steady', 'surge', 'nocturnal'],
+  learningMode: ['visual', 'narrative', 'hands_on', 'systematic'],
+  crewRole: ['anchor', 'scout', 'builder', 'catalyst'],
+  curriculumPath: ['foundations', 'markets', 'sovereign'],
+  toneRegister: ['direct', 'warm', 'socratic', 'terse'],
+};
+const GUARDRAILS = { maxLeverage: 2, dailyLossPromptPct: 5, confirmBeforeMarketOrder: true, copyTradingVisible: false };
+const profileAt = (i) => ({
+  ...Object.fromEntries(Object.entries(AXES).map(([k, values]) => [k, values[i % values.length]])),
+  guardrails: GUARDRAILS,
+});
+const CREWS = [
+  { crewName: 'Iron Meridian', season: 1 },
+  { crewName: null, season: null },
+  { crewName: 'Quiet Harbour', season: null },
+  { crewName: `A&B <"Crew's">`, season: 12 },
+];
+const subjects = [0, 1, 2, 3].map((i) => ({ profile: profileAt(i), ...CREWS[i] }));
+// A token the label table does not hold is drawn as itself.
+subjects.push({ profile: { ...profileAt(0), crewRole: 'navigator', toneRegister: 'dry & <odd>' }, crewName: 'Iron Meridian', season: 2 });
+const composed = subjects.flatMap((subject) =>
+  ['portrait', 'landscape'].map((size) => ({ subject, size, svg: composeCard(subject, size) })),
+);
+
+const PII_PAYLOADS = [
+  { profile: profileAt(0), crewName: 'Iron Meridian', season: 1 },
+  {
+    size: 'portrait',
+    width: 1080,
+    height: 1350,
+    svg: '<svg/>',
+    raster: { status: 'unavailable', code: 'c', reason: 'r' },
+    shareMode: 'svg',
+  },
+  { profile: { userId: 'x' } },
+  [{ 'Phone-Number': 1 }],
+  { a: { b: [{ dateOfBirth: 1 }] } },
+  { name: 1, email: 2 },
+  { Wallet_Address: '0x' },
+  { display_name: 'n' },
+  { KYC: true },
+  { 'public-key': 'k' },
+  { accountId: 1 },
+  { emailAddress: 'e' },
+  { crew_name: 'c', fullName: null },
+  { nested: [[{ smartAccount: 1 }]] },
+  null,
+  'userId',
+  [],
+  {},
+];
+// Every key the bar names, each alone and in another spelling, and keys near them that it lets through.
+const PII_KEYS = [
+  'identity',
+  'identityId',
+  'legalName',
+  'fullName',
+  'firstName',
+  'lastName',
+  'displayName',
+  'givenName',
+  'name',
+  'email',
+  'phone',
+  'handle',
+  'username',
+  'avatar',
+  'birthData',
+  'birthDate',
+  'birthTime',
+  'birthPlace',
+  'governmentId',
+  'nationalId',
+  'passport',
+  'ssn',
+  'kyc',
+  'kycStatus',
+  'kycId',
+  'kycDocument',
+  'verificationLevel',
+  'aml',
+  'userId',
+  'custodialUserId',
+  'customerId',
+  'ledgerUserId',
+  'accountId',
+  'walletAddress',
+  'evmAddress',
+  'chainAddress',
+  'onChainAddress',
+  'crossPlaneAddress',
+  'smartAccount',
+  'intachainAddress',
+  'publicKey',
+  'phoneNumber',
+  'emailAddress',
+  'dateOfBirth',
+  'date_of_birth',
+  'PHONE_NUMBER',
+  'crewName',
+  'season',
+  'names',
+  'userIds',
+  'birth',
+  'address',
+  'key',
+];
+PII_PAYLOADS.push(...PII_KEYS.map((key) => ({ [key]: 1 })));
+const zeroPiiCases = PII_PAYLOADS.map((payload) => ({ payload, answer: zeroPii.inspectZeroPiiPayload(payload) }));
+
+const REQUEST = {
+  svg: '<svg width="1080"/>',
+  size: 'portrait',
+  width: 1080,
+  height: 1350,
+  blueprintId: '77777777-7777-4777-8777-777777777777',
+};
+const RENDERER_CASES = [
+  {
+    baseUrl: 'https://render.example',
+    apiKey: 'placeholder-renderer-key',
+    status: 200,
+    body: '{"url":"https://cdn.example/card.png","bytes":84000}',
+  },
+  { baseUrl: 'https://render.example///', status: 200, body: '{"bytes":1,"url":"https://cdn.example/b.png","extra":true}' },
+  { baseUrl: 'https://render.example', status: 201, body: '{"url":"https://cdn.example/c.png","bytes":2}' },
+  { baseUrl: 'https://render.example', status: 500, body: '{"url":"https://cdn.example/c.png","bytes":2}' },
+  { baseUrl: 'https://render.example', status: 404, body: 'gone' },
+  { baseUrl: 'https://render.example', status: 200, body: 'not json' },
+  { baseUrl: 'https://render.example', status: 200, body: '' },
+  { baseUrl: 'https://render.example', status: 200, body: '{"url":"nope","bytes":0}' },
+  { baseUrl: 'https://render.example', status: 200, body: '[]' },
+  { baseUrl: 'https://render.example', status: 200, body: 'null' },
+  { baseUrl: 'https://render.example', status: 200, body: '{"url":"https://cdn.example/d.png","bytes":1.5}' },
+  { baseUrl: 'https://render.example', status: 200, body: '{"bytes":-1.5}' },
+  { baseUrl: 'https://render.example', status: 200, body: '{"url":7,"bytes":"84000"}' },
+  { baseUrl: 'https://render.example', throws: 'fetch failed' },
+  { baseUrl: 'https://render.example', throws: 'timeout', timeoutMs: 5 },
+];
+const rendererCases = [];
+for (const c of RENDERER_CASES) {
+  let sent;
+  const fetchImpl = (url, init) => {
+    sent = { method: init.method, url, headers: Object.entries(init.headers), body: init.body };
+    if (c.throws === 'fetch failed') return Promise.reject(new TypeError('fetch failed'));
+    if (c.throws === 'timeout') {
+      return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+    }
+    return Promise.resolve(new Response(c.body, { status: c.status }));
+  };
+  const renderer = new HttpCardRenderer({
+    baseUrl: c.baseUrl,
+    ...(c.apiKey ? { apiKey: c.apiKey } : {}),
+    ...(c.timeoutMs ? { timeoutMs: c.timeoutMs } : {}),
+    fetchImpl,
+  });
+  const answer = await renderer.rasterize(REQUEST);
+  rendererCases.push({ case: c, sent, answer });
+}
+
 // ── Writing ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const verdictList = [];
@@ -804,6 +979,10 @@ const outputs = [
   ],
   [`${CRATE}tests/fixtures/refusals.golden.json`, `${JSON.stringify({ refusals }, null, 1)}\n`],
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
+  [
+    `${CRATE}tests/fixtures/card.golden.json`,
+    `${JSON.stringify({ request: REQUEST, composed, zeroPii: zeroPiiCases, renderer: rendererCases }, null, 1)}\n`,
+  ],
 ];
 
 /** Each file leaves in the shape the repo's checks hold it to: `format:check` for JSON. */

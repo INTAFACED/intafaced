@@ -8,11 +8,14 @@ import { useMemo } from 'react';
 import { marketHaltSchema, marketLifecycleSchema, tradeTapeTimesSchema } from '@intafaced/contracts/trade-desk-reads';
 import type { z } from 'zod';
 import { useDataEnv, useSource } from '../../data/hooks';
+import { constantSource } from '../../data/source';
 import type { Loadable } from '../../data/types';
 import { readServerClock } from '../../shared/server-clock';
 import { STATE_POLL_MS, type BookHaltView, type LifecycleView } from './data-status';
 
 export { STATE_POLL_MS };
+
+const OFF: Loadable<never> = { status: 'empty' };
 
 /** The server clock is read less often: its offset moves slowly. */
 const CLOCK_POLL_MS = 60_000;
@@ -26,60 +29,64 @@ const msOf = (iso: unknown): number | null => {
 type Raw<T> = { ok: true; data: T } | { ok: false; reason: string; code?: string; status?: number };
 
 /** The market's lifecycle state and when it took effect. A 503 (no authority) is an error, never an OPEN default. */
-export function useMarketLifecycle(symbol: string): Loadable<LifecycleView> {
+export function useMarketLifecycle(symbol: string, enabled = true): Loadable<LifecycleView> {
   const env = useDataEnv();
   return useSource(
     useMemo(
       () =>
-        env.poller.source<LifecycleView>(
-          `chart-lifecycle:${symbol}`,
-          async (signal) => {
-            const res = (await env.api.rest(`/market-lifecycle/${encodeURIComponent(symbol)}`, marketLifecycleSchema, { signal })) as Raw<
-              z.infer<typeof marketLifecycleSchema>
-            >;
-            if (!res.ok) return res;
-            return {
-              ok: true,
-              data: {
-                state: res.data.state,
-                effectiveAt: msOf(res.data.effectiveAt),
-                evidenceRefs: res.data.evidenceRefs ?? [],
+        enabled
+          ? env.poller.source<LifecycleView>(
+              `chart-lifecycle:${symbol}`,
+              async (signal) => {
+                const res = (await env.api.rest(`/market-lifecycle/${encodeURIComponent(symbol)}`, marketLifecycleSchema, {
+                  signal,
+                })) as Raw<z.infer<typeof marketLifecycleSchema>>;
+                if (!res.ok) return res;
+                return {
+                  ok: true,
+                  data: {
+                    state: res.data.state,
+                    effectiveAt: msOf(res.data.effectiveAt),
+                    evidenceRefs: res.data.evidenceRefs ?? [],
+                  },
+                };
               },
-            };
-          },
-          { intervalMs: STATE_POLL_MS },
-        ),
-      [env, symbol],
+              { intervalMs: STATE_POLL_MS },
+            )
+          : constantSource<LifecycleView>(OFF),
+      [env, symbol, enabled],
     ),
   );
 }
 
 /** The matching book's halt for this market and for the venue. A 503 (matching not readable) is an error, never open. */
-export function useBookHalt(symbol: string): Loadable<BookHaltView> {
+export function useBookHalt(symbol: string, enabled = true): Loadable<BookHaltView> {
   const env = useDataEnv();
   return useSource(
     useMemo(
       () =>
-        env.poller.source<BookHaltView>(
-          `chart-book-halt:${symbol}`,
-          async (signal) => {
-            const res = (await env.api.rest(`/market-halt/${encodeURIComponent(symbol)}`, marketHaltSchema, { signal })) as Raw<
-              z.infer<typeof marketHaltSchema>
-            >;
-            if (!res.ok) return res;
-            return {
-              ok: true,
-              data: {
-                halted: res.data.halted,
-                venueHalted: res.data.venueHalted,
-                haltedSinceMs: msOf(res.data.haltedSince),
-                venueHaltedSinceMs: msOf(res.data.venueHaltedSince),
+        enabled
+          ? env.poller.source<BookHaltView>(
+              `chart-book-halt:${symbol}`,
+              async (signal) => {
+                const res = (await env.api.rest(`/market-halt/${encodeURIComponent(symbol)}`, marketHaltSchema, { signal })) as Raw<
+                  z.infer<typeof marketHaltSchema>
+                >;
+                if (!res.ok) return res;
+                return {
+                  ok: true,
+                  data: {
+                    halted: res.data.halted,
+                    venueHalted: res.data.venueHalted,
+                    haltedSinceMs: msOf(res.data.haltedSince),
+                    venueHaltedSinceMs: msOf(res.data.venueHaltedSince),
+                  },
+                };
               },
-            };
-          },
-          { intervalMs: STATE_POLL_MS },
-        ),
-      [env, symbol],
+              { intervalMs: STATE_POLL_MS },
+            )
+          : constantSource<BookHaltView>(OFF),
+      [env, symbol, enabled],
     ),
   );
 }
@@ -107,28 +114,30 @@ export function useServerClock(): Loadable<number> {
 }
 
 /** The newest executed trade's time in epoch ms (server clock); null when the market has traded nothing. */
-export function useLastTrade(symbol: string): Loadable<number | null> {
+export function useLastTrade(symbol: string, enabled = true): Loadable<number | null> {
   const env = useDataEnv();
   return useSource(
     useMemo(
       () =>
-        env.poller.source<number | null>(
-          `chart-last-trade:${symbol}`,
-          async (signal) => {
-            const res = (await env.api.rest(`/trades/${encodeURIComponent(symbol)}`, tradeTapeTimesSchema, {
-              query: { limit: 1 },
-              signal,
-            })) as Raw<z.infer<typeof tradeTapeTimesSchema>>;
-            if (!res.ok) return res;
-            const newest = res.data.reduce<number | null>(
-              (best, print) => (best === null || print.timestamp > best ? print.timestamp : best),
-              null,
-            );
-            return { ok: true, data: newest };
-          },
-          { intervalMs: STATE_POLL_MS },
-        ),
-      [env, symbol],
+        enabled
+          ? env.poller.source<number | null>(
+              `chart-last-trade:${symbol}`,
+              async (signal) => {
+                const res = (await env.api.rest(`/trades/${encodeURIComponent(symbol)}`, tradeTapeTimesSchema, {
+                  query: { limit: 1 },
+                  signal,
+                })) as Raw<z.infer<typeof tradeTapeTimesSchema>>;
+                if (!res.ok) return res;
+                const newest = res.data.reduce<number | null>(
+                  (best, print) => (best === null || print.timestamp > best ? print.timestamp : best),
+                  null,
+                );
+                return { ok: true, data: newest };
+              },
+              { intervalMs: STATE_POLL_MS },
+            )
+          : constantSource<number | null>(OFF),
+      [env, symbol, enabled],
     ),
   );
 }

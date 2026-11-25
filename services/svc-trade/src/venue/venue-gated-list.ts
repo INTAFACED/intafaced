@@ -57,7 +57,7 @@ function listingBlockers(m: ListedVenueMarket): VenueGatedBlocker[] {
 }
 
 function venueStateBlocker(m: ListedVenueMarket, venueName: string): VenueGatedBlocker | null {
-  if (m.status === null || m.status === 'trading') return null;
+  if (m.status === null || m.status === 'trading' || m.status === 'limit_only') return null;
   const words = { halted: 'halted', cancel_only: 'taking cancels only', delisted: 'delisted' }[m.status];
   return { code: `trade.venue.market_${m.status}`, message: `${venueName} reports ${m.symbol} ${words}` };
 }

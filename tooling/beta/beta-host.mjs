@@ -109,12 +109,20 @@ const BETA_CADENCE_SECONDS = 300;
 const BETA_USER_VENUE = 'hl-testnet';
 
 /**
- * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its venue, and
- * no TEST listings on svc-trade's board. The journeys' TEST markets (an untraded book, a shut session, a delisting, a
- * new listing no one quotes) are fixtures for a step, not markets a tester can use; the beta showed TWIN/USDC's empty
- * coin page from its markets list (#10599). The rows stay in the database; the beta's markets are the quoted ones.
+ * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its venue,
+ * no TEST listings on svc-trade's board, and svc-ops' labelled TEST valuation price list. The journeys' TEST markets
+ * (an untraded book, a shut session, a delisting, a new listing no one quotes) are fixtures for a step, not markets a
+ * tester can use; the beta showed TWIN/USDC's empty coin page from its markets list (#10599). The rows stay in the
+ * database; the beta's markets are the quoted ones. Without `LOCAL_STACK_VALUATION_PRICES=test`, svc-ops leaves
+ * `valuation.prices` unpublished (`valuation.prices_unset`), so Home and Money show "No total" even after an invited
+ * tester's 1,000 TEST USDT sits in their TEST partner account (#10632); with it, svc-ops publishes the ops profile's
+ * labelled TEST price list (`test: true`, refused outside dev/test) so Home and Money total the partner balance.
  */
-const BETA_STACK_SETTINGS = Object.freeze({ LOCAL_STACK_USER_VENUE: BETA_USER_VENUE, LOCAL_STACK_TEST_MARKETS: 'off' });
+const BETA_STACK_SETTINGS = Object.freeze({
+  LOCAL_STACK_USER_VENUE: BETA_USER_VENUE,
+  LOCAL_STACK_TEST_MARKETS: 'off',
+  LOCAL_STACK_VALUATION_PRICES: 'test',
+});
 const settingsLine = () =>
   Object.entries(BETA_STACK_SETTINGS)
     .map(([k, v]) => `${k}=${v}`)

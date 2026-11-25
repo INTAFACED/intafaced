@@ -67,6 +67,8 @@ export const evidenceSchema = z.object({
   note: z.string().nullable(),
   addedBy: z.string(),
   createdAt: timestamp,
+  /** Whether the file's bytes are stored (an upload with a clean scan), not only its description. */
+  hasContent: z.boolean().optional(),
 });
 
 /** `merchantOps.disputes.getEvidence` on main: the evidence row plus its bytes, for a signed-in session only. */
@@ -765,6 +767,120 @@ export const PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST = defineProcedure({
     to: iso.optional(),
   }),
   output: payPageSchema(deliverySchema),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const EVIDENCE_KINDS = ['receipt', 'shipping_proof', 'customer_communication', 'terms_accepted', 'identity_check', 'other'] as const;
+
+export const note = z.string().trim().min(1).max(2000);
+
+export const TEAM_ROLES = ['admin', 'finance', 'developer', 'viewer'] as const;
+
+export const markedSchema = z.object({ marked: z.number().int() });
+
+export const PAY_MERCHANT_OPS_DISPUTES_UPLOAD_EVIDENCE = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.disputes.uploadEvidence',
+  kind: 'mutation',
+  path: 'merchantOps.disputes.uploadEvidence',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+  refusals: {},
+  input: z.object({
+    disputeId: z.string().trim().min(1).max(200),
+    kind: z.enum(EVIDENCE_KINDS),
+    fileName: z.string().trim().min(1).max(255),
+    contentType: z.string().trim().min(1).max(127),
+    contentBase64: z.string().min(1).max(1_400_000),
+    sha256: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/)
+      .optional(),
+    note: note.optional(),
+  }),
+  output: evidenceSchema,
+  samples: [
+    { verdict: 'accept', input: { disputeId: 'USDC', kind: 'receipt', fileName: 'USDC', contentType: 'USDC', contentBase64: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_TEAM_INVITE = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.team.invite',
+  kind: 'mutation',
+  path: 'merchantOps.team.invite',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+  refusals: {},
+  input: z.object({
+    userId: z.string().trim().min(1).max(128).optional(),
+    email: z.string().trim().min(1).max(254).optional(),
+    role: z.enum(TEAM_ROLES),
+    label: z.string().trim().min(1).max(120).optional(),
+  }),
+  output: memberSchema,
+  samples: [
+    { verdict: 'accept', input: { role: 'admin' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_TEAM_CHANGE_ROLE = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.team.changeRole',
+  kind: 'mutation',
+  path: 'merchantOps.team.changeRole',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+  refusals: {},
+  input: z.object({ memberId: id, role: z.enum(TEAM_ROLES) }),
+  output: memberSchema,
+  samples: [
+    { verdict: 'accept', input: { memberId: '11111111-1111-4111-8111-111111111111', role: 'admin' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_TEAM_REMOVE = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.team.remove',
+  kind: 'mutation',
+  path: 'merchantOps.team.remove',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+  refusals: {},
+  input: z.object({ memberId: id }),
+  output: memberSchema,
+  samples: [
+    { verdict: 'accept', input: { memberId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_READ = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.notifications.markRead',
+  kind: 'mutation',
+  path: 'merchantOps.notifications.markRead',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+  refusals: {},
+  input: z.object({ notificationIds: z.array(id).min(1).max(200) }),
+  output: markedSchema,
+  samples: [
+    { verdict: 'accept', input: { notificationIds: ['11111111-1111-4111-8111-111111111111'] } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_NOTIFICATIONS_MARK_ALL_READ = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.notifications.markAllRead',
+  kind: 'mutation',
+  path: 'merchantOps.notifications.markAllRead',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+  refusals: {},
+  input: z.object({}).strict(),
+  output: markedSchema,
   samples: [
     { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },

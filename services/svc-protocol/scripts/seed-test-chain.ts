@@ -57,6 +57,11 @@ export const TEST_TOKENS = {
   C: { address: '0x00000000000000000000000000000000000c0c00', name: 'TEST Token C', symbol: 'TESTC', decimals: 18 },
   /** TEST wrapped native currency (D-swap-03): router v2 wraps TEST ETH into it around a swap. */
   WETH: { address: '0x0000000000000000000000000000000000e7e700', name: 'TEST Wrapped ETH', symbol: 'TESTWETH', decimals: 18 },
+  /**
+   * A TEST token whose `approve(spender, nonZero)` reverts when a non-zero allowance already exists (USDT-style reset
+   * guard, J-dex-protocol-02 #6): `checkApproval` plans `[approve(0), approve(amount)]` with `resetFirst: true`.
+   */
+  RESET: { address: '0x0000000000000000000000000000000000007e57', name: 'TEST Reset', symbol: 'TESTRST', decimals: 6 },
 } as const;
 /**
  * The TEST network-fee relay's parts (RC-dex-protocol-02, J-dex-protocol-02 #11). The relayer submits a person's signed
@@ -231,6 +236,11 @@ async function seed(out: string) {
       // A chain seeded before the TEST lending market existed gets it now (J-dex-protocol-06 #4).
       const lending = await ensureLendingParts(clients(), out);
       if (lending) console.log(`lending market: ${lending}`);
+      // A chain seeded before the reset-approval token or swap paymaster existed gets them now (J-dex-protocol-02 #6, #7).
+      const reset = await ensureResetTokenParts(clients(), out, record.factory);
+      if (reset) console.log(`reset token: ${reset.resetToken}, pool ${reset.resetPool}`);
+      const swapPaymaster = await ensureSwapPaymasterParts(clients(), out);
+      if (swapPaymaster) console.log(`swap paymaster: ${swapPaymaster}`);
       // A chain seeded before router v2 existed gets it (TEST Token C, TEST Wrapped ETH, their pools) now.
       const current = JSON.parse(readFileSync(out, 'utf8')) as { routerV2?: Address };
       const v2Code = current.routerV2 ? await publicClient.getCode({ address: current.routerV2 }) : undefined;
@@ -262,8 +272,8 @@ async function seed(out: string) {
   // runtime code copied to the fixed address. TestToken keeps name, symbol and decimals as immutables, so that code is
   // the whole token: nothing in storage to copy, and the copy answers exactly as the deployment does.
   const token = artifact('TestToken');
-  // TEST Airdrop is deployed last (seedClaimLinkParts), so every address seeded before it stays where it was.
-  for (const t of Object.values(TEST_TOKENS).filter((entry) => !['TESTDROP', 'TESTC', 'TESTWETH'].includes(entry.symbol))) {
+  // TEST Airdrop, TEST Token C, TEST Wrapped ETH and TEST Reset are deployed later, so every address seeded before them stays where it was.
+  for (const t of Object.values(TEST_TOKENS).filter((entry) => !['TESTDROP', 'TESTC', 'TESTWETH', 'TESTRST'].includes(entry.symbol))) {
     const deployed = await deploy('TestToken', [t.name, t.symbol, t.decimals]);
     const code = await publicClient.getCode({ address: deployed });
     await publicClient.request({ method: 'anvil_setCode', params: [t.address, code] } as never);
@@ -402,8 +412,11 @@ async function seed(out: string) {
   await ensureVenueParts(all, out);
   // After the venue, for the same reason.
   await ensureLendingParts(all, out);
-  // Last, for the same reason.
+  // After the lending market, for the same reason.
   await ensureP2pEscrow(all, out);
+  // After P2P escrow, for the same reason (J-dex-protocol-02 #6, #7).
+  await ensureResetTokenParts(all, out, factory);
+  await ensureSwapPaymasterParts(all, out);
   await mineOnInterval(publicClient);
   console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools, fee relay ${feeRelay}`);
 }
@@ -822,15 +835,136 @@ async function fundPositions(address: Address, recordPath: string) {
   );
 }
 
+/**
+ * The TEST reset-approval token (TestResetToken) and its pool with TEST Token B (J-dex-protocol-02 #6). Deployed once
+ * per chain and recorded as `resetToken` and `resetPool`; a chain that already has them keeps them. Runs on automine.
+ */
+async function ensureResetTokenParts(
+  { publicClient, walletClient }: Clients,
+  out: string,
+  factory: Address,
+): Promise<{ resetToken: Address; resetPool: Address } | null> {
+  const record = JSON.parse(readFileSync(out, 'utf8')) as { resetToken?: Address; resetPool?: Address };
+  if (record.resetToken && record.resetPool) {
+    const code = await publicClient.getCode({ address: record.resetToken });
+    if (code && code !== '0x') return null;
+  }
+  const send = async (hash: Hex) => {
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error(`transaction failed: ${hash}`);
+    return receipt;
+  };
+  const reset = TEST_TOKENS.RESET;
+  const b = TEST_TOKENS.B;
+  const resetArtifact = artifact('TestResetToken');
+  const deployed = (
+    await send(
+      await walletClient.deployContract({
+        abi: resetArtifact.abi,
+        bytecode: resetArtifact.bytecode,
+        args: [reset.name, reset.symbol, reset.decimals],
+      }),
+    )
+  ).contractAddress as Address;
+  const code = await publicClient.getCode({ address: deployed });
+  await publicClient.request({ method: 'anvil_setCode', params: [reset.address, code] } as never);
+  const factoryAbi = artifact('LiquidityFactory').abi;
+  const poolAbi = artifact('LiquidityPool').abi;
+  const tokenAbi = artifact('TestToken').abi;
+  const account = walletClient.account!;
+  await send(
+    await walletClient.writeContract({
+      address: factory,
+      abi: factoryAbi,
+      functionName: 'createPool',
+      args: [reset.address, b.address, 30],
+    }),
+  );
+  const resetPool = (await publicClient.readContract({
+    address: factory,
+    abi: factoryAbi,
+    functionName: 'getPool',
+    args: [reset.address, b.address, 30],
+  })) as Address;
+  const units = {
+    [getAddress(reset.address)]: parseUnits('100000', reset.decimals),
+    [getAddress(b.address)]: parseUnits('100000', b.decimals),
+  };
+  for (const [address, amount] of Object.entries(units)) {
+    const abi = getAddress(address) === getAddress(reset.address) ? resetArtifact.abi : tokenAbi;
+    await send(
+      await walletClient.writeContract({ address: address as Address, abi, functionName: 'mint', args: [account.address, amount] }),
+    );
+    await send(await walletClient.writeContract({ address: address as Address, abi, functionName: 'approve', args: [resetPool, amount] }));
+  }
+  const token0 = getAddress((await publicClient.readContract({ address: resetPool, abi: poolAbi, functionName: 'token0' })) as Address);
+  const token1 = token0 === getAddress(reset.address) ? getAddress(b.address) : getAddress(reset.address);
+  await send(
+    await walletClient.writeContract({
+      address: resetPool,
+      abi: poolAbi,
+      functionName: 'mint',
+      args: [account.address, units[token0], units[token1]],
+    }),
+  );
+  writeFileSync(
+    out,
+    `${JSON.stringify({ ...JSON.parse(readFileSync(out, 'utf8')), tokens: TEST_TOKENS, resetToken: reset.address, resetPool }, null, 2)}\n`,
+  );
+  return { resetToken: reset.address, resetPool };
+}
+
+/**
+ * The TEST swap gas paymaster (ScopedPaymaster, J-dex-protocol-02 #7): deployed with a 1 TEST ETH native float so
+ * `PROTOCOL_SWAP_PAYMASTER_ADDRESS` (set only when `LOCAL_STACK_PROTOCOL_SWAP_PAYMASTER=on`) reads `sponsored: true`
+ * from a real funded contract on the TEST chain. Runs on automine.
+ */
+async function ensureSwapPaymasterParts({ publicClient, walletClient }: Clients, out: string): Promise<Address | null> {
+  const record = JSON.parse(readFileSync(out, 'utf8')) as { swapPaymaster?: Address };
+  if (record.swapPaymaster) {
+    const code = await publicClient.getCode({ address: record.swapPaymaster });
+    if (code && code !== '0x') return null;
+  }
+  const a = artifact('ScopedPaymaster');
+  const hash = await walletClient.deployContract({
+    abi: a.abi,
+    bytecode: a.bytecode,
+    args: [TEST_ENTRYPOINT, walletClient.account!.address],
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`swap paymaster deploy failed: ${hash}`);
+  const fundHash = await walletClient.sendTransaction({ to: receipt.contractAddress, value: parseUnits('1', 18) });
+  const fundReceipt = await publicClient.waitForTransactionReceipt({ hash: fundHash });
+  if (fundReceipt.status !== 'success') throw new Error(`swap paymaster fund failed: ${fundHash}`);
+  writeFileSync(out, `${JSON.stringify({ ...JSON.parse(readFileSync(out, 'utf8')), swapPaymaster: receipt.contractAddress }, null, 2)}\n`);
+  return receipt.contractAddress;
+}
+
+/** TEST Reset token + TEST ETH for a wallet testing the reset-pair approval branch (J-dex-protocol-02 #6). */
+async function fundReset(address: Address) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  await publicClient.request({ method: 'anvil_setBalance', params: [address, toHex(parseUnits('10', 18))] } as never);
+  const hash = await walletClient.writeContract({
+    address: TEST_TOKENS.RESET.address,
+    abi: artifact('TestResetToken').abi,
+    functionName: 'mint',
+    args: [address, parseUnits('10000', TEST_TOKENS.RESET.decimals)],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`funded ${address}: 10 TEST ETH, 10000 ${TEST_TOKENS.RESET.name}`);
+}
+
 const [command, arg, kind, recordPath] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'venue') await fundVenue(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'plain') await fundPlain(getAddress(arg));
+else if (command === 'fund' && arg && kind === 'reset') await fundReset(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'positions' && recordPath) await fundPositions(getAddress(arg), recordPath);
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
 else
   throw new Error(
-    'usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|venue|plain] | fund <address> positions <record.json>',
+    'usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|venue|plain|reset] | fund <address> positions <record.json>',
   );

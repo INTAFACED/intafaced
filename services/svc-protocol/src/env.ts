@@ -180,6 +180,12 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: z.string().default('').transform(parseFeeCapWei),
     /**
+     * Swap gas paymaster (D-swap-06): the ScopedPaymaster contract on PROTOCOL_CHAIN_ID that sponsors swap gas when
+     * deployed and holding a native float. NO DEFAULT: zero means no paymaster is configured and `amm.feeLevels` reports
+     * `sponsored: false` ("You pay the network fee").
+     */
+    PROTOCOL_SWAP_PAYMASTER_ADDRESS: evmAddressDefaultZero,
+    /**
      * Paying a swap's network fee in a token (RC-dex-protocol-02): the FeeTokenRelay contract, the relayer URL a signed
      * order is handed to (it sends it and pays the gas; this service holds no key), and the gas a relayed swap is priced
      * for and sent with. NO DEFAULTS: any one blank and `amm.feeTokens`, `amm.feeQuote` and the fee swap refuse

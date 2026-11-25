@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { displayAmount } from '../../shared/money';
-import { PayFailure } from './components';
+import { Field, PayFailure } from './volt/parts';
 import { Button } from '@intafaced/ui/lit';
 import type { PersonalPayApi } from './pay-api';
 import { mismatchCopy } from './p2p-mismatch-copy';
 import type { Trade, TradeMismatch } from './schemas';
-import { Field } from './ui-kit';
 
 const KINDS = ['under', 'over', 'partial'] as const;
 
@@ -31,7 +30,7 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
   const refusal =
     failure?.code === 'p2p.mismatch_report_exists' ? t('exists') : failure?.code === 'p2p.invalid_amount' ? t('invalid') : null;
   return (
-    <details className="p2p-order-other" data-testid="order-mismatch">
+    <details className="lt-stack" data-testid="order-mismatch">
       <summary>{t('title')}</summary>
       <p className="lt-muted">{t('why')}</p>
       <fieldset>

@@ -1102,9 +1102,10 @@ export function fileSteps(journey, text) {
  * The steps a pull request that changes a journey test file is judged on: for each changed file, the steps the title
  * names or a strict `Left-or-replaced:` line leaves, if any of them is the file's; otherwise every step the file holds,
  * returned as `derived` for judgeSteps to judge exactly as title steps (passing in a finished Real-app journeys run on
- * the exact head, or left on their own body line). A file with no readable `test(` titled `<journey> #n` fails closed.
- * `touched`: [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head
- * removed). (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so
+ * the exact head, or left on their own body line). A file with no readable `test(` titled `<journey> #n` at the head
+ * or the base fails closed, unless another file of its journey holds its steps (`siblings`).
+ * `touched`: [{ file, journey, steps, from?, siblings? }] from touchedSteps: the steps each file holds at the head (or
+ * at the base, for a file the head removed or one whose head holds none). (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so
  * the seal judged none of their steps; project-state #1249 comment 6681706701. Until 21 Nov 2026 a file whose steps
  * were not named failed the seal, which cost a push for a line the seal could compute; the owner's "yes" of 21 Nov
  * 2026 made it derive them instead.)
@@ -1120,8 +1121,16 @@ export function judgeTouched({ title, body, touched, repo }) {
   const lines = [];
   const derived = new Set();
   let ok = true;
-  for (const { file, journey, steps } of touched) {
+  for (const { file, journey, steps, from, siblings = [] } of touched) {
     if (steps.some((k) => named.has(k))) continue;
+    if (!steps.length && siblings.length) {
+      // Its journey's steps live in another file; this one holds none to judge, and its journeys run must still be
+      // clean on the head (judgeTouchedRun).
+      lines.push(
+        `${file} holds no \`test(\` titled \`${journey} #n\` at the head or the base; ${journey}'s steps live in ${siblings.join(', ')}, so it changes none, and its run on this head must still be clean`,
+      );
+      continue;
+    }
     if (!steps.length) {
       ok = false;
       lines.push(
@@ -1131,7 +1140,7 @@ export function judgeTouched({ title, body, touched, repo }) {
     }
     for (const k of steps) derived.add(k);
     lines.push(
-      `${file} changes the tests of ${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them, so the seal judges them all on this head`,
+      `${file} ${from === 'base' ? 'retitles out the last of its steps, ' : 'changes the tests of '}${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them, so the seal judges them all on this head`,
     );
   }
   return { ok, lines, derived: [...derived].sort(byStep) };
@@ -1372,17 +1381,46 @@ export async function revertSpent({ io, repo, pull, culprit }) {
     : null;
 }
 
-/** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
- *  file). `text(path, ref)` is the file's text, or null when the ref has no such file. */
-export async function touchedSteps({ paths, head, base, text }) {
+/**
+ * The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
+ * file). `text(path, ref)` is the file's text, or null when the ref has no such file. A file whose head holds no step
+ * takes the steps its base held (`from: 'base'`): retitling a file's last `<journey> #n` out of it still touches those
+ * steps, so they are judged on the head like any other (#10825 retitled J-derivatives-04.pw.mjs's custodial #1 and #2,
+ * which J-derivatives-04-venue.pw.mjs holds, and the seal failed closed on a file with no step left). A file with no
+ * step at the head or the base lists `siblings`: the other files of its journey at the head (`journeyFiles(ref)`, their
+ * names, as io.journeyFiles gives them) that hold its numbered steps, so a journey's companion file of unnumbered checks
+ * is not refused for holding none; without `journeyFiles` it lists none, and judgeTouched fails it closed.
+ */
+export async function touchedSteps({ paths, head, base, text, journeyFiles = null }) {
   const out = [];
+  let names;
+  const dir = 'apps/customer/tests/real-app';
   for (const file of [...new Set(paths)].sort()) {
     const m = JOURNEY_TEST.exec(file);
     if (!m) continue;
-    let t = await text(file, head);
-    if (t === null) t = await text(file, base);
-    if (t === null) throw new Error(`${file} could not be read at the head or the base`);
-    out.push({ file, journey: m[1], steps: fileSteps(m[1], t) });
+    const atHead = await text(file, head);
+    const atBase = atHead === null || !fileSteps(m[1], atHead).length ? await text(file, base) : null;
+    if (atHead === null && atBase === null) throw new Error(`${file} could not be read at the head or the base`);
+    const steps = fileSteps(m[1], atHead ?? atBase);
+    if (steps.length || atHead === null) {
+      out.push({ file, journey: m[1], steps });
+      continue;
+    }
+    const before = fileSteps(m[1], atBase);
+    if (before.length) {
+      out.push({ file, journey: m[1], steps: before, from: 'base' });
+      continue;
+    }
+    const siblings = [];
+    if (journeyFiles) {
+      names ??= [...(await journeyFiles(head))].sort();
+      for (const n of names) {
+        const f = `${dir}/${n}`;
+        if (f === file || JOURNEY_TEST.exec(f)?.[1] !== m[1]) continue;
+        if (fileSteps(m[1], await text(f, head)).length) siblings.push(f);
+      }
+    }
+    out.push({ file, journey: m[1], steps: [], siblings });
   }
   return out;
 }
@@ -1830,7 +1868,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     if (!texts.has(k)) texts.set(k, Promise.resolve(io.text(f, ref)));
     return texts.get(k);
   };
-  const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text });
+  const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text, journeyFiles: io.journeyFiles });
   // The revert main-bisect opens (autoRevertScope): it undoes the culprit's journey tests with it, so it names no steps,
   // and it runs the journeys that failed on main and the culprit's own. Anything else on its branch is ordinary.
   const auto = await readAutoRevertScope({ io, repo, pull, number, paths });
@@ -2244,8 +2282,12 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
         return { act: 'wait', runId, msg: `run ${runId} is deciding whether its seal waits for its inputs` };
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
     }
-    // A seal still waiting for its inputs (WAIT_STEP) reads them all once they finish: re-running it would be a second verdict.
-    if (seal.status !== 'completed' && (seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
+    // A seal still waiting for its inputs (WAIT_STEP, or judge-repair.mjs's REPAIR_STEP) reads them all once they finish:
+    // re-running it would be a second verdict.
+    if (
+      seal.status !== 'completed' &&
+      (seal.steps ?? []).some((s) => [WAIT_STEP, REPAIR_STEP].includes(s?.name) && s?.status !== 'completed')
+    )
       return { act: 'done', msg: `the seal in run ${runId} is waiting for its inputs and judges once they finish` };
     if (seal.status !== 'completed')
       return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
@@ -2588,6 +2630,11 @@ export function waitStep({ pull, sha, going }) {
 /** The seal job's step that waits for its inputs (waitStep); a re-check leaves a seal still in it alone (recheckStep). */
 export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this change needs';
 /**
+ * The seal job's step that judges a change to the judges alone (judge-repair.mjs REPAIR_STEP, which this must equal:
+ * judge-repair.test.mjs). Written here, not imported, so the journeys run, which reads this file, never reads that one.
+ */
+export const REPAIR_STEP = 'A change to the judges alone: every other check green, and a PASS from the CI review';
+/**
  * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
  * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on
  * 12 Nov at 02:59 UTC seals failed on "API rate limit exceeded for installation"), so a waiting seal spends about 100
@@ -2732,7 +2779,9 @@ async function beforePushStep() {
   const base = sh('git', 'merge-base', 'HEAD', 'origin/main').trim();
   const paths = sh('git', 'diff', '--name-only', base, 'HEAD').split('\n').filter(Boolean);
   const text = (f, ref) => { try { return sh('git', 'show', `${ref}:${f}`); } catch { return null; } }; // prettier-ignore
-  const touched = await touchedSteps({ paths, head: 'HEAD', base, text });
+  const dir = 'apps/customer/tests/real-app';
+  const journeyFiles = () => sh('git', 'ls-tree', '--name-only', 'HEAD', `${dir}/`).split('\n').filter(Boolean).map((f) => f.slice(dir.length + 1)); // prettier-ignore
+  const touched = await touchedSteps({ paths, head: 'HEAD', base, text, journeyFiles });
   if (!touched.length) return;
   let pull = null;
   try {

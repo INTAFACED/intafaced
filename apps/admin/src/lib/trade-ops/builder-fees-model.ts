@@ -19,6 +19,8 @@ const VENUE_BPS = /^(?:0|[1-9]\d{0,19})(?:\.\d{1,18})?$/;
 
 export interface VenueBuilderFeesView {
   readonly defaultGroup: string;
+  /** Every market of a kind (`spot`, `perpetual`) not named in `marketGroups`: its group. */
+  readonly kindGroups: Readonly<Record<string, string>>;
   readonly marketGroups: Readonly<Record<string, string>>;
   readonly groups: Readonly<Record<string, string>>;
 }
@@ -33,7 +35,9 @@ export function builderFeesOf(schedule: Readonly<Record<string, unknown>>): Reco
     for (const [g, rate] of Object.entries(entry.groups)) if (str(rate)) groups[g] = rate;
     const marketGroups: Record<string, string> = {};
     if (rec(entry.marketGroups)) for (const [s, g] of Object.entries(entry.marketGroups)) if (str(g)) marketGroups[s] = g;
-    out[venueId] = { defaultGroup: entry.defaultGroup, marketGroups, groups };
+    const kindGroups: Record<string, string> = {};
+    if (rec(entry.kindGroups)) for (const [k, g] of Object.entries(entry.kindGroups)) if (str(g)) kindGroups[k] = g;
+    out[venueId] = { defaultGroup: entry.defaultGroup, kindGroups, marketGroups, groups };
   }
   return out;
 }
@@ -154,10 +158,16 @@ export function builderFeeViews(
             markets:
               group === latest.defaultGroup
                 ? null
-                : Object.entries(latest.marketGroups)
-                    .filter(([, g]) => g === group)
-                    .map(([s]) => s)
-                    .sort(),
+                : [
+                    ...Object.entries(latest.kindGroups)
+                      .filter(([, g]) => g === group)
+                      .map(([k]) => `every ${k} market not named elsewhere`)
+                      .sort(),
+                    ...Object.entries(latest.marketGroups)
+                      .filter(([, g]) => g === group)
+                      .map(([s]) => s)
+                      .sort(),
+                  ],
             lines,
           })),
       };
@@ -225,7 +235,7 @@ export function applyBuilderDraft(
         message: `The cap of ${venueId} could not be read from the venue, so a builder fee there cannot be shown to be within it.`,
       };
     for (const market of caps.markets) {
-      const group = fees.marketGroups[market.symbol] ?? fees.defaultGroup;
+      const group = fees.marketGroups[market.symbol] ?? fees.kindGroups[market.kind] ?? fees.defaultGroup;
       const rate = fees.groups[group];
       if (rate === undefined || !BUILDER_RATE.test(rate))
         return { ok: false, code: 'trade.builder_fee_blank', message: `The builder fee of ${venueId} / ${group} is blank.` };

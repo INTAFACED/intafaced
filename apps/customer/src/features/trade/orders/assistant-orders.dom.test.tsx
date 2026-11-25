@@ -148,18 +148,14 @@ describe('Orders by your assistant', () => {
       },
     });
     const rows = [...(await show()).querySelectorAll('tbody tr')];
-    expect(rows.map((r) => r.querySelectorAll('td')[5]!.textContent)).toEqual([
-      'Not sent',
-      'Not known: the venue hasn’t answered',
-      'Refused by the venue',
-    ]);
+    expect(rows.map((r) => r.querySelectorAll('td')[5]!.textContent)).toEqual(['Not sent', 'Status pending confirmation', 'Refused']);
     expect(rows.map((r) => r.querySelectorAll('td')[0]!.textContent)).toEqual(['not known', 'not known', 'not known']);
     expect(assistantOrders([kept({ origin: null })])).toEqual([]);
   });
 
   it('says the venue account is off here when the door is off, and shows a failure in words', async () => {
     venue.agentAccounts.mockResolvedValue({ ok: false, reason: 'error', message: 'off', code: 'trade.user_venue_off', status: 404 });
-    expect((await show()).textContent).toContain('Trading on your own venue account isn’t on here');
+    expect((await show()).textContent).toContain('Connected-wallet trading is not currently available');
     act(() => root.unmount());
     root = createRoot(host);
     venue.agentAccounts.mockResolvedValue(accounts(OWNER));

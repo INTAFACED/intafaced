@@ -50,9 +50,7 @@ import { useBankView } from './bank-context';
 import { CardsRoom } from './cards-room/CardsRoom';
 import { BankOverview } from './bank-overview/BankOverviewRoom';
 import { SpacesRoom } from './spaces/SpacesRoom';
-import { AddMoney } from './AddMoney';
-import { WalletProvider } from '../protocol';
-import { addMoneyCopy } from './add-money-copy';
+import { AddMoneyRoom } from './add-money/AddMoneyRoom';
 import { LinkedAccountsRoom } from './linked-accounts/LinkedAccountsRoom';
 import { DirectDebitsRoom } from './direct-debits/DirectDebitsRoom';
 import { directDebitsCopy } from './direct-debits-copy';
@@ -691,18 +689,6 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
       </Section>
       <BankRailSend />
       <Schedules open={open} />
-    </BankPage>
-  );
-}
-/** `/bank/ramps/new`: add money, inside the Ramps room. */
-function AddMoneyRoom() {
-  const { t } = addMoneyCopy.useCopy();
-  return (
-    <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      {/* The browser wallet's connection, so a purchase can be delivered straight to it (J-dex-protocol-05 #4). */}
-      <WalletProvider>
-        <AddMoney />
-      </WalletProvider>
     </BankPage>
   );
 }

@@ -245,7 +245,7 @@
 </table>
 </div>
 </div>
-<p class="text-xs text-fg-2">Margin ratio is maintenance margin divided by margin plus unrealised PnL. The Healthy, Watch and Danger words are our reading of it (50%, 80%, 100%), not the platform’s liquidation trigger. A position shows — until the service publishes the inputs.</p>
+<p class="text-xs text-fg-2">Margin ratio is maintenance margin divided by your margin plus unrealised PnL. Healthy, Watch and Danger are guide levels (50%, 80%, 100%), not the liquidation trigger. A dash appears when figures are unavailable.</p>
 </section>
 <section aria-labelledby="margin-rules" class="grid gap-6 lg:grid-cols-2">
 <div class="lt-stack">
@@ -265,7 +265,7 @@
 </div>
 <div data-slot="key-value-row" class="border-b border-line py-1 last:border-b-0 min-h-10 flex flex-col justify-center gap-0.5">
 <dt class="text-fg-2 text-sm">Hedge mode</dt>
-<dd class="m-0 min-w-0 text-base text-left tabular-nums if-num">No position-mode setting is published. Until the platform sets one, new positions are refused.</dd>
+<dd class="m-0 min-w-0 text-base text-left tabular-nums if-num">Hedge mode is not currently enabled.</dd>
 </div>
 <div data-slot="key-value-row" class="border-b border-line py-1 last:border-b-0 min-h-10 flex flex-col justify-center gap-0.5">
 <dt class="text-fg-2 text-sm">Collateral class</dt>
@@ -285,7 +285,7 @@
 </span>
 <div class="flex min-w-0 flex-col gap-1 flex-1 basis-48">
 <p data-slot="empty-state-title" class="m-0 font-medium text-fg text-base">Switch margin mode</p>
-<p data-slot="empty-state-reason" class="m-0 text-fg-2 text-sm">Margin mode is chosen when a position opens. The service does not switch it later, so this control stays off.</p>
+<p data-slot="empty-state-reason" class="m-0 text-fg-2 text-sm">Margin mode is set when a position opens and cannot be switched afterward.</p>
 </div>
 </div>
 </div>
@@ -304,7 +304,7 @@
 </span>
 <div class="flex min-w-0 flex-col gap-1 flex-1 basis-48">
 <p data-slot="empty-state-title" class="m-0 font-medium text-fg text-base">Spot margin is not offered</p>
-<p data-slot="empty-state-reason" class="m-0 text-fg-2 text-sm">Borrowing to buy spot has no borrow or repay service, so spot buys are paid in full from your balance. Nothing is borrowed on your behalf.</p>
+<p data-slot="empty-state-reason" class="m-0 text-fg-2 text-sm">Margin borrowing for spot trades is not offered. Spot orders are funded in full from your available balance.</p>
 </div>
 <div data-slot="empty-state-actions" class="flex flex-wrap items-center gap-2 ml-auto">
 <a href="/trade/spot/BTC-USDT" role="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Trade spot</a>
@@ -316,7 +316,7 @@
 <li>The platform watches each position’s mark price. When a position can no longer cover its maintenance margin it is closed in steps, not all at once where that is safe.</li>
 <li>While a liquidation step is running, changes to that position are refused.</li>
 <li>A loss that has been posted is not reversed. A later correction is a new entry.</li>
-<li>If a position cannot be closed at a fair price, the platform’s last-resort steps are published in the ADL notice on the futures desk. <a class="text-accent-text underline" href="/trade/futures">Read the ADL notice</a>
+<li>If a position cannot be closed at a fair price, auto-deleveraging may apply. Details are published in the auto-deleveraging notice on the futures desk. <a class="text-accent-text underline" href="/trade/futures">Read the auto-deleveraging notice</a>
 </li>
 </ul>
 </div>

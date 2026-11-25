@@ -1139,7 +1139,7 @@ export class CopyService {
     if (!this.listLeaderFillsSince || !follow.copyCursor) return;
     let cursor = follow.copyCursor;
     for (let page = 0; page < pages; page += 1) {
-      const fills = await this.listLeaderFillsSince(follow.leaderId, cursor, limit);
+      const fills = await this.listLeaderFillsSince(follow.leaderId, cursor, limit, follow.followId);
       for (const fill of fills) {
         if (follow.envelope.permittedMarkets.includes(fill.marketId) && !(await store.getPlacedMirror(follow.followId, fill.fillId))) {
           await recordCopySkip(this.mirrorEvents, {

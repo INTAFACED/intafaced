@@ -1,3 +1,4 @@
+// volt-room: /money/activity
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownLeft,
@@ -7,7 +8,6 @@ import {
   ArrowUpRight,
   CircleDot,
   CreditCard,
-  Search,
   Check,
   Download,
   Gift,
@@ -40,7 +40,8 @@ import {
 } from './activity-view';
 import { OrdersPanel, TradesPanel } from './TradeTabs';
 import { moneyCopy } from './copy';
-import { Amount, Button, Skeleton, StateBlock, Tabs, TabsList, TabsTab } from './ui-deps';
+import { Amount, Button, Checkbox, Field, Select, StateBlock } from '@intafaced/ui/lit';
+import { RecordListTemplate, SelectField, Skeleton, TabList } from '@intafaced/ui/lit/templates';
 import {
   fmtAmount,
   isHiddenPath,
@@ -75,7 +76,6 @@ import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { SourceActivity } from './SourceActivity';
-import { DateInput } from '@intafaced/ui/lit';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -97,6 +97,10 @@ const ICON: Record<ActivityKind, LucideIcon> = {
   order_release: LockOpen,
   other: CircleDot,
 };
+
+/** The kit's colour for a line's icon and its amount, by the way the money went. */
+const ICON_TONE = { in: 'lt-up', out: 'lt-muted' } as const;
+const AMOUNT_TONE = { in: 'lt-up', out: 'lt-down' } as const;
 
 /** A tab shows at least this many rows before it stops looking further back on its own. */
 const WANT_ROWS = 10;
@@ -143,73 +147,68 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
   const thisYear = new Date().getUTCFullYear();
   const years = Array.from({ length: 6 }, (_, back) => thisYear - back);
   return (
-    <form className="money-bar" role="search" aria-label={t('Search activity')} onSubmit={(event) => event.preventDefault()}>
-      <label className="money-bar__search">
-        <Search size={16} aria-hidden="true" />
-        <span className="if-sr">{t('Search activity')}</span>
-        <input
+    <form className="lt-stack" role="search" aria-label={t('Search activity')} onSubmit={(event) => event.preventDefault()}>
+      <div className="lt-toolbar">
+        <Field
           type="search"
+          label={t('Search activity')}
           value={filters.q}
           placeholder={t('Search activity hint')}
           autoComplete="off"
           onChange={(event) => onChange({ ...filters, q: event.target.value })}
         />
-      </label>
-      <label className="money-bar__field">
-        <span>{t('Money in or out')}</span>
-        <select value={filters.dir} onChange={(event) => onChange({ ...filters, dir: event.target.value as ActivityFilters['dir'] })}>
-          <option value="all">{t('All')}</option>
-          <option value="in">{t('Money in')}</option>
-          <option value="out">{t('Money out')}</option>
-        </select>
-      </label>
-      <label className="money-bar__field">
-        <span>{t('From date')}</span>
-        <DateInput type="date" value={filters.from} onChange={(event) => onChange({ ...filters, from: event.target.value })} />
-      </label>
-      <label className="money-bar__field">
-        <span>{t('To date')}</span>
-        <DateInput type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
-      </label>
-      <label className="money-bar__field">
-        <span>{t('Order')}</span>
-        <select value={filters.sort} onChange={(event) => onChange({ ...filters, sort: event.target.value as ActivityFilters['sort'] })}>
-          <option value="desc">{t('Newest first')}</option>
-          <option value="asc">{t('Oldest first')}</option>
-        </select>
-      </label>
-      {accounts.status === 'ready' && accounts.data.length > 0 ? (
-        <label className="money-bar__field">
-          <span>{t('Account')}</span>
-          <select value={filters.accountId} onChange={(event) => onChange({ ...filters, accountId: event.target.value })}>
-            <option value="">{t('All accounts')}</option>
-            <option value="main">{t('Main account')}</option>
-            {accounts.data.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      <label className="money-bar__field">
-        <span>{t('Year')}</span>
-        <select value={filters.year} onChange={(event) => onChange({ ...filters, year: event.target.value })}>
-          <option value="">{t('Any year')}</option>
-          {years.map((year) => (
-            <option key={year} value={String(year)}>
-              {year}
-            </option>
-          ))}
-          <option value="" disabled>
-            {t('Tax year not set up')}
-          </option>
-        </select>
-      </label>
-      <label className="money-bar__field">
-        <span>{t('Withdrawal address')}</span>
-        <input
+        <Select
+          label={t('Money in or out')}
+          value={filters.dir}
+          options={[
+            { value: 'all', label: t('All') },
+            { value: 'in', label: t('Money in') },
+            { value: 'out', label: t('Money out') },
+          ]}
+          onChange={(value) => onChange({ ...filters, dir: value as ActivityFilters['dir'] })}
+        />
+        <Field
+          type="date"
+          label={t('From date')}
+          value={filters.from}
+          onChange={(event) => onChange({ ...filters, from: event.target.value })}
+        />
+        <Field type="date" label={t('To date')} value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
+        <Select
+          label={t('Order')}
+          value={filters.sort}
+          options={[
+            { value: 'desc', label: t('Newest first') },
+            { value: 'asc', label: t('Oldest first') },
+          ]}
+          onChange={(value) => onChange({ ...filters, sort: value as ActivityFilters['sort'] })}
+        />
+        {accounts.status === 'ready' && accounts.data.length > 0 ? (
+          <Select
+            label={t('Account')}
+            value={filters.accountId}
+            options={[
+              { value: '', label: t('All accounts') },
+              { value: 'main', label: t('Main account') },
+              ...accounts.data.map((account) => ({ value: account.id, label: account.name })),
+            ]}
+            onChange={(value) => onChange({ ...filters, accountId: value })}
+          />
+        ) : null}
+        {/* Only calendar years: a tax year needs a start date that is an owner value not set, so it is named and refused. */}
+        <SelectField
+          label={t('Year')}
+          value={filters.year}
+          options={[
+            { value: '', label: t('Any year') },
+            ...years.map((year) => ({ value: String(year), label: String(year) })),
+            { value: 'tax-year', label: t('Tax year not set up'), disabled: true },
+          ]}
+          onChange={(value) => onChange({ ...filters, year: value })}
+        />
+        <Field
           type="search"
+          label={t('Withdrawal address')}
           value={filters.address}
           placeholder={t('Address hint', { min: ADDRESS_MIN })}
           autoComplete="off"
@@ -217,24 +216,23 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
           maxLength={ADDRESS_MAX}
           onChange={(event) => onChange({ ...filters, address: event.target.value })}
         />
-      </label>
-      <label className="money-bar__check">
-        <input type="checkbox" checked={filters.hasNote} onChange={(event) => onChange({ ...filters, hasNote: event.target.checked })} />
-        <span>{t('Only lines with a note')}</span>
-      </label>
-      {hasFilters(filters) && (
-        <Button type="button" variant="secondary" size={40} onClick={() => onChange(NO_FILTERS)}>
-          {t('Clear filters')}
-        </Button>
-      )}
-      <p className="money-bar__note">{t('Tax year note')}</p>
+        <Checkbox checked={filters.hasNote} onCheckedChange={(checked) => onChange({ ...filters, hasNote: checked })}>
+          {t('Only lines with a note')}
+        </Checkbox>
+        {hasFilters(filters) && (
+          <Button type="button" tone="secondary" onClick={() => onChange(NO_FILTERS)}>
+            {t('Clear filters')}
+          </Button>
+        )}
+      </div>
+      <p className="lt-hint">{t('Tax year note')}</p>
       {filters.address.trim() !== '' && filters.address.trim().length < ADDRESS_MIN ? (
-        <p className="money-bar__note" role="status">
+        <p className="lt-hint" role="status">
           {t('Address too short', { min: ADDRESS_MIN })}
         </p>
       ) : null}
       {problem && (
-        <p className="money-bar__error" role="alert">
+        <p className="lt-hint lt-error" role="alert">
           {problem === 'order' ? t('Date range order') : t('Date range invalid')}
         </p>
       )}
@@ -300,10 +298,9 @@ function ExportButton({ feed, rows, copy, sort }: { feed: ActivityFeed; rows: Ac
   }, [state, feed]);
 
   return (
-    <div className="money-export">
+    <div className="lt-row">
       <Button
-        variant="secondary"
-        size={40}
+        tone="secondary"
         onClick={() => {
           pages.current = 0;
           setState('loading');
@@ -313,7 +310,7 @@ function ExportButton({ feed, rows, copy, sort }: { feed: ActivityFeed; rows: Ac
         <Download size={16} aria-hidden="true" />
         {t('Export CSV')}
       </Button>
-      <p className="money-export__note" role="status" aria-live="polite">
+      <p className="lt-hint" role="status" aria-live="polite">
         {state === 'loading'
           ? t('Exporting', { count: feed.items.length })
           : state === 'done'
@@ -325,7 +322,7 @@ function ExportButton({ feed, rows, copy, sort }: { feed: ActivityFeed; rows: Ac
                 : t('Export note')}
       </p>
       {state === 'loading' && (
-        <Button variant="secondary" size={40} onClick={() => setState('idle')}>
+        <Button tone="secondary" onClick={() => setState('idle')}>
           {t('Export cancel')}
         </Button>
       )}
@@ -381,20 +378,14 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
       ].join(' · ')
     : null;
   return (
-    <tr
-      data-testid="money-act"
-      className="money-act"
-      data-kind={item.kind}
-      data-ref={item.txId}
-      data-source={item.heldAt ? 'partner' : undefined}
-    >
-      <td>
-        <div className="money-act__what">
-          <span className="money-act__icon" data-direction={item.direction} aria-hidden="true">
+    <tr data-testid="money-act" data-kind={item.kind} data-ref={item.txId} data-source={item.heldAt ? 'partner' : undefined}>
+      <td data-label={t('Activity')}>
+        <div className="lt-row lt-row-nowrap">
+          <span className={ICON_TONE[item.direction]} data-direction={item.direction} aria-hidden="true">
             <Icon size={18} />
           </span>
-          <span className="money-act__text">
-            <a data-testid="money-act__title" className="money-act__title money-act__link" href={detailHref(group)}>
+          <span className="lt-stack lt-stack-tight">
+            <a data-testid="money-act__title" className="lt-link lt-strong" href={detailHref(group)}>
               {title}
             </a>
             {sub ? (
@@ -403,31 +394,33 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
               </span>
             ) : null}
             {fees ? (
-              <span data-testid="money-act__fees" className="money-act__sub">
+              <span data-testid="money-act__fees" className="lt-hint">
                 {fees}
               </span>
             ) : null}
           </span>
         </div>
       </td>
-      <td data-testid="money-act__time" className="money-act__time">
-        <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
+      <td data-testid="money-act__time" data-label={t('Date')} className="lt-nowrap">
+        <time className="lt-nowrap" dateTime={item.postedAt}>
+          {stamp(item.postedAt, timeZone)}
+        </time>
       </td>
-      <td className="money-num">
+      <td data-testid="money-act__amount" data-label={t('Amount')} className="lt-end">
         <Amount
           value={cancelled ? `${amount} ${item.asset}` : `${up ? '+' : '−'}${amount} ${item.asset}`}
           hidden={hidden}
-          className={holding || cancelled ? undefined : up ? 'text-up-text' : 'text-down-text'}
+          className={holding || cancelled ? undefined : AMOUNT_TONE[item.direction]}
           data-direction={item.direction}
         />
       </td>
-      <td data-testid="money-act__status" className="money-act__status money-cell--status">
+      <td data-testid="money-act__status" data-label={t('Status')}>
         {holding ? (
-          <span data-testid="money-act__hold" className="money-act__hold">
+          <span data-testid="money-act__hold" className="lt-muted lt-nowrap">
             {t('Set aside')}
           </span>
         ) : (
-          <span data-testid="money-act__done" className="money-act__done">
+          <span data-testid="money-act__done" className="lt-row lt-row-nowrap lt-nowrap">
             <Check size={14} aria-hidden="true" />
             {t('Completed')}
           </span>
@@ -442,15 +435,10 @@ const ZERO = /^0+(\.0+)?$/;
 
 function SkeletonRows({ count, label }: { count: number; label: string }) {
   return (
-    <div aria-busy="true" role="status" aria-label={label} className="money-act-skeleton">
+    <div aria-busy="true" role="status" aria-label={label}>
       {Array.from({ length: count }, (_, index) => (
-        <div data-testid="money-act-skeleton__row" className="money-act-skeleton__row" key={index}>
-          <Skeleton width={32} height={32} circle className="bg-field" />
-          <Skeleton width={180} height={20} className="bg-field" />
-          <span className="money-skeleton-gap" />
-          <Skeleton width={120} height={20} className="bg-field" />
-          <Skeleton width={110} height={20} className="bg-field" />
-          <Skeleton width={84} height={20} className="bg-field" />
+        <div data-testid="money-act-skeleton__row" key={index}>
+          <Skeleton shape="rows" count={1} />
         </div>
       ))}
     </div>
@@ -511,13 +499,13 @@ function Body({
   const searching =
     (!everyLine || asset !== null || filtered) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
   const more = feed.hasMore ? (
-    <div className="money-more">
+    <div data-testid="money-more" className="lt-row">
       {feed.moreFailed ? (
-        <p data-testid="money-more__note" className="money-more__note">
+        <p data-testid="money-more__note" className="lt-hint">
           {t('Couldn’t load more')}
         </p>
       ) : null}
-      <Button variant="secondary" size={40} loading={feed.loadingMore} onClick={feed.loadMore}>
+      <Button tone="secondary" busy={feed.loadingMore} onClick={feed.loadMore}>
         {feed.moreFailed ? t('Try again') : t('Load more')}
       </Button>
     </div>
@@ -528,7 +516,6 @@ function Body({
         <StateBlock
           kind="empty"
           testId="money-state"
-          className="money-state"
           title={t('No matches')}
           body={feed.hasMore ? t('No matches more body') : t('No matches body')}
         />
@@ -544,7 +531,6 @@ function Body({
         <StateBlock
           kind="empty"
           testId="money-state"
-          className="money-state"
           title={asset ? t('No {asset} activity in the latest items', { asset }) : t(TAB_LATEST[tab as Exclude<LedgerTab, 'all'>])}
           body={t('Load more to look further back')}
         />
@@ -552,7 +538,6 @@ function Body({
         <StateBlock
           kind="empty"
           testId="money-state"
-          className="money-state"
           title={t('No {asset} activity', { asset })}
           body={t('No {asset} activity body', { asset })}
         />
@@ -560,7 +545,6 @@ function Body({
         <StateBlock
           kind="empty"
           testId="money-state"
-          className="money-state"
           title={t(tab === 'all' ? 'No activity yet' : TAB_EMPTY[tab as Exclude<LedgerTab, 'all'>])}
           body={tab === 'all' ? t('No activity yet body') : t('Nothing of this kind yet body')}
           action={tab === 'all' ? emptyAction(copy) : undefined}
@@ -581,31 +565,31 @@ function Body({
       <PeriodTotals filters={filters} />
       <StatementPanel />
       <TaxEffects />
-      <table data-testid="money-table" className="money-table money-table--activity">
-        <colgroup>
-          <col className="money-act-col--what" />
-          <col className="money-act-col--time" />
-          <col className="money-act-col--amount" />
-          <col className="money-act-col--status money-cell--status" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th scope="col">{t('Activity')}</th>
-            <th scope="col">{t('Date')}</th>
-            <th scope="col" className="money-num">
-              {t('Amount')}
-            </th>
-            <th scope="col" className="money-cell--status">
-              {t('Status')}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((group) => (
-            <Row key={group.id} group={group} copy={copy} hidden={hidden} />
-          ))}
-        </tbody>
-      </table>
+      <div className="lt-table-scroll">
+        <table data-testid="money-table" className="lt-table">
+          <thead>
+            <tr>
+              <th scope="col">
+                <span className="lt-nowrap">{t('Activity')}</span>
+              </th>
+              <th scope="col">
+                <span className="lt-nowrap">{t('Date')}</span>
+              </th>
+              <th scope="col" className="lt-end">
+                {t('Amount')}
+              </th>
+              <th scope="col">
+                <span className="lt-nowrap">{t('Status')}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((group) => (
+              <Row key={group.id} group={group} copy={copy} hidden={hidden} />
+            ))}
+          </tbody>
+        </table>
+      </div>
       {more}
     </>
   );
@@ -638,7 +622,6 @@ function Content({
         <StateBlock
           kind="error"
           testId="money-state"
-          className="money-state"
           title={t('Couldn’t load your activity')}
           onRetry={activity.retry}
           retryLabel={t('Try again')}
@@ -650,7 +633,6 @@ function Content({
         <StateBlock
           kind="refused"
           testId="money-state"
-          className="money-state"
           title={words.title}
           body={words.body}
           code={words.reference}
@@ -659,13 +641,11 @@ function Content({
       );
     }
     case 'empty':
-      if (asked)
-        return <StateBlock kind="empty" testId="money-state" className="money-state" title={t('No matches')} body={t('No matches body')} />;
+      if (asked) return <StateBlock kind="empty" testId="money-state" title={t('No matches')} body={t('No matches body')} />;
       return (
         <StateBlock
           kind="empty"
           testId="money-state"
-          className="money-state"
           title={t('No activity yet')}
           body={t('No activity yet body')}
           action={emptyAction(copy)}
@@ -723,57 +703,50 @@ export default function Activity({ search }: { search: string }) {
   const bySource = venue.mode === 'on' && venue.status.available ? venue.status : null;
   // `?asset=BTC` narrows every tab that lists money lines or fills; Orders lists orders, so it ignores it.
   const asset = tab === 'orders' ? null : assetFromSearch(search);
-  // On a phone the tab row scrolls on its own; keep the open tab in view, also when a link opens a far one, and again
-  // whenever a tab changes size (its face arriving late widens the row after the first scroll).
-  const tabList = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const row = tabList.current;
-    if (!row) return;
-    const reveal = () => row.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    reveal();
-    if (typeof ResizeObserver === 'undefined') return;
-    const sizes = new ResizeObserver(reveal);
-    for (const child of row.children) sizes.observe(child);
-    return () => sizes.disconnect();
-  }, [tab]);
-  return (
-    <div data-testid="if-money" className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
-      <h1 className="money-title">{t('Activity')}</h1>
-      <DormancyNotice />
-      <Tabs value={tab} onValueChange={(next) => navigate(tabHref(next as Tab, assetFromSearch(search)))}>
-        <TabsList ref={tabList} divider aria-label={t('Activity filters')} data-testid="money-tabs" className="money-tabs">
-          {TABS.map((id) => (
-            <TabsTab key={id} value={id}>
-              {t(TAB_LABEL[id])}
-            </TabsTab>
-          ))}
-        </TabsList>
-      </Tabs>
+  // On a phone the tab row scrolls on its own; the kit's tab row keeps the open tab in view, also when a link opens a far one.
+  const section = (
+    <div className="lt-stack">
+      <div data-testid="money-tabs">
+        <TabList
+          items={TABS.map((id) => ({ value: id, label: t(TAB_LABEL[id]) }))}
+          value={tab}
+          onChange={(next) => navigate(tabHref(next, assetFromSearch(search)))}
+          label={t('Activity filters')}
+        />
+      </div>
       {asset ? (
-        <div className="money-filter">
-          <button
-            type="button"
-            className="money-chip"
-            aria-label={t('Remove {asset} filter', { asset })}
-            onClick={() => navigate(tabHref(tab))}
-          >
+        <div className="lt-row">
+          <Button tone="secondary" size="sm" aria-label={t('Remove {asset} filter', { asset })} onClick={() => navigate(tabHref(tab))}>
             {asset}
             <X size={14} aria-hidden="true" />
-          </button>
+          </Button>
         </div>
       ) : null}
-      {isLedgerTab(tab) && <FilterBar filters={filters} onChange={setFilters} copy={copy} />}
-      <section data-testid="money-card" className="money-card money-card--activity" aria-label={t('Activity')}>
-        {tab === 'trades' ? (
-          <TradesPanel asset={asset} fill={fillFromSearch(search)} />
-        ) : tab === 'orders' ? (
-          <OrdersPanel />
-        ) : tab === 'all' && bySource ? (
-          <SourceActivity status={bySource} filters={filters} asset={asset} hidden={hideBalances} />
-        ) : isLedgerTab(tab) ? (
-          <LedgerTabs tab={tab} asset={asset} copy={copy} hidden={hideBalances} filters={filters} />
-        ) : null}
-      </section>
+    </div>
+  );
+  return (
+    <div data-testid="if-money" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
+      <RecordListTemplate
+        title={t('Activity')}
+        state={{ kind: 'ready' }}
+        mode={layoutMode === 'pro' ? 'pro' : 'simple'}
+        section={section}
+        filters={isLedgerTab(tab) ? <FilterBar filters={filters} onChange={setFilters} copy={copy} /> : undefined}
+        summary={<DormancyNotice />}
+        list={
+          <section data-testid="money-card" className="lt-stack" aria-label={t('Activity')}>
+            {tab === 'trades' ? (
+              <TradesPanel asset={asset} fill={fillFromSearch(search)} />
+            ) : tab === 'orders' ? (
+              <OrdersPanel />
+            ) : tab === 'all' && bySource ? (
+              <SourceActivity status={bySource} filters={filters} asset={asset} hidden={hideBalances} />
+            ) : isLedgerTab(tab) ? (
+              <LedgerTabs tab={tab} asset={asset} copy={copy} hidden={hideBalances} filters={filters} />
+            ) : null}
+          </section>
+        }
+      />
     </div>
   );
 }

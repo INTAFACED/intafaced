@@ -283,8 +283,8 @@ test(`${J} #1 desk status strip and asset list, each read back from the service`
   await openOtc(page);
   // The overview: each item reads what the service publishes for it.
   await expect(desk(page).getByText(status.published ? 'Open' : 'Closed', { exact: true })).toBeVisible();
-  await expect(desk(page).getByText(status.makerRouting.published ? 'Routed' : 'Platform only', { exact: true })).toBeVisible();
-  await expect(desk(page).getByText(status.midFeed.published ? 'Wired' : 'Not wired', { exact: true })).toBeVisible();
+  await expect(desk(page).getByText(status.makerRouting.published ? 'External makers' : 'Direct desk', { exact: true })).toBeVisible();
+  await expect(desk(page).getByText(status.midFeed.published ? 'Live' : 'Unavailable', { exact: true })).toBeVisible();
   const assets = desk(page).getByRole('region', { name: 'Assets on the desk' });
   await expect(assets.getByRole('listitem')).toHaveText(status.assets);
   await expect(assets.getByText('Not set', { exact: true })).toHaveCount(0);

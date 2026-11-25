@@ -317,12 +317,13 @@ function VoucherRow({
                 {r.reward.payout ? (
                   <>
                     {' '}
-                    {/* The chain's own record of the payment: it left INTAFACED's wallet for the connected one, never a balance. */}
-                    <span data-testid="voucher-paid-to" data-wallet={r.reward.payout.toWallet}>
+                    {/* The chain's own record of the payment: it left INTAFACED's wallet for the connected one, never a balance.
+                        The wallet and the hash have no spaces: they break anywhere, so the table stays inside the room. */}
+                    <span className="lt-wrap" data-testid="voucher-paid-to" data-wallet={r.reward.payout.toWallet}>
                       {t('paidTo', { wallet: r.reward.payout.toWallet })}
                     </span>{' '}
                     <a
-                      className="lt-link"
+                      className="lt-link lt-wrap"
                       data-testid="voucher-chain-tx"
                       data-tx={r.reward.payout.chainTx}
                       href={`/chain/tx/${encodeURIComponent(r.reward.payout.chainTx)}`}

@@ -1,4 +1,4 @@
-import { StatusChip } from '@intafaced/ui';
+import { FreshnessChip } from '@intafaced/ui/lit/templates';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { BalanceEntry } from '../../../data/derive';
 import { UNKNOWN, fmtAmount } from '../../../data/format';
@@ -39,17 +39,17 @@ export function RiskSummary({ asset, positions, balances, calls, now }: Props) {
   } as const;
   const money = (v: string | null | undefined) => (v === null || v === undefined ? UNKNOWN : `${fmtAmount(v, { places: 4 })} ${asset}`);
   return (
-    <section aria-label={t('Risk summary')} className="flex flex-col gap-2 border-t border-line px-4 py-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-fg">{t('Risk summary')}</h2>
-        <StatusChip
+    <section aria-label={t('Risk summary')} className="lt-panel">
+      <div className="lt-panel-head">
+        <h2 className="lt-panel-title">{t('Risk summary')}</h2>
+        <FreshnessChip
           asOf={positions.status === 'ready' ? positions.asOf : null}
           now={now}
           staleAfterMs={STALE_AFTER_MS.positions}
           refused={positions.status === 'refused' || positions.status === 'error'}
         />
       </div>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-3 xl:grid-cols-6">
+      <dl className="lt-stats">
         {[
           [t('Free balance'), money(freeOf(balances, asset))],
           [t('Margin posted'), money(totals?.collateral)],
@@ -58,13 +58,13 @@ export function RiskSummary({ asset, positions, balances, calls, now }: Props) {
           [t('Worst margin ratio'), worst && worst.marginRatioPct ? `${worst.marginRatioPct}% · ${bandWords[worst.band]}` : UNKNOWN],
           [t('Margin calls open'), open === null ? UNKNOWN : String(open)],
         ].map(([label, value]) => (
-          <div key={label} className="flex min-w-0 flex-col gap-0.5">
-            <dt className="lt-hint">{label}</dt>
-            <dd className="if-num truncate text-base text-fg">{value}</dd>
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd className="lt-num">{value}</dd>
           </div>
         ))}
       </dl>
-      <p className="text-xs text-fg-2">{t('Risk unknown hint')}</p>
+      <p className="lt-note">{t('Risk unknown hint')}</p>
     </section>
   );
 }

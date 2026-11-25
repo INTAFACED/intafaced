@@ -97,60 +97,58 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>My Launch orders</h1>
-<p class="lt-muted">
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.scope">New coins launching here, and the launches you have joined</span>
-</p>
+<h1 class="lt-title">My Launch orders</h1>
+<p class="lt-description">New coins launching here, and the launches you have joined</p>
 </div>
 </header>
-<div class="lt-stack">
-<div class="lt-tabs" role="group" aria-label="Launch sections">
-<button type="button" class="lt-tab" aria-pressed="false">Launches</button>
-<button type="button" class="lt-tab" aria-pressed="false">Issuer journey</button>
-<button type="button" class="lt-tab" aria-pressed="false">Pre-listing check</button>
-<button type="button" class="lt-tab" aria-pressed="false">Requirements</button>
-<button type="button" class="lt-tab" aria-pressed="true">My participation</button>
+<div class="lt-body">
+<div class="lt-toolbar">
+<section class="lt-region" data-region="filters">
+<nav class="lt-tabs" aria-label="Launch sections" data-region="section-tabs">
+<a href="/launch" class="lt-tab">Launches</a>
+<a href="/launch/new" class="lt-tab">Issuer journey</a>
+<a href="/launch/check" class="lt-tab">Pre-listing check</a>
+<a href="/launch/requirements" class="lt-tab">Requirements</a>
+<a href="/launch/mine" class="lt-tab" aria-current="page">My participation</a>
+</nav>
+</section>
 </div>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Your launch participation</h2>
-</header>
-<div class="if-panel__body">
+<div class="lt-grid">
+<section class="lt-region" data-region="list" aria-label="Records">
+<section class="lt-stack">
+<h2>Your launch participation</h2>
 <p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="more.launch.depth.participationBody">Sale subscriptions, allocations and refunds would be listed here with the round they belong to. No sale-round service exists, so they cannot be read and nothing is counted.</span>
 </p>
-<div class="depth-filters">
+<div class="lt-toolbar">
 <label class="lt-field">
-<span>Sale round</span>
-<select>
+<span id="_r_3_-label">Sale round</span>
+<select aria-labelledby="_r_3_-label">
 <option value="">Any</option>
 </select>
 </label>
 <label class="lt-field">
-<span>Status</span>
-<select>
+<span id="_r_4_-label">Status</span>
+<select aria-labelledby="_r_4_-label">
 <option value="">Any</option>
 </select>
 </label>
 </div>
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>
+<div class="lt-empty">
+<h3 class="lt-empty-title">
 <span lang="en" dir="ltr" data-i18n="more.launch.depth.participationUnavailable">Unavailable, not zero. An unreadable record does not mean you have no orders.</span>
 </h3>
-<p>
-<span class="depth-pill depth-pill--blocked">
+<p class="lt-empty-body">
+<span class="lit-tag" data-tone="neutral">
 <span lang="en" dir="ltr" data-i18n="more.launch.depth.modeBlocked">Blocked</span>
 </span> <span lang="en" dir="ltr" data-i18n="more.launch.depth.participationBlocker">Blocked: no sale-round service exists, so no order or allocation can be read or placed.</span>
 </p>
 </div>
-<div class="table-scroll" tabindex="0" role="region" aria-label="Your launch participation">
-<table>
+<div role="region" aria-label="Your launch participation" tabindex="0">
+<table class="lt-table">
 <thead>
 <tr>
 <th scope="col">Round</th>
@@ -168,7 +166,7 @@
 </tbody>
 </table>
 </div>
-</div>
+</section>
 </section>
 </div>
 </div>
