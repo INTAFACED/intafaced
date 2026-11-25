@@ -9,6 +9,7 @@ import { connectWhenAsked } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
+  openAccountTab,
   openVenueDesk,
   otherTraderKey,
   otherTraderRun,
@@ -313,6 +314,7 @@ test(`${J} #3 opens Collateral: what the venue accepts as margin with its haircu
   const others = held.filter((b) => !taken.some((c) => c.asset === b.asset) && toUnits(b.total) > 0n);
   expect(others.map((b) => b.asset)).toContain('BTC');
 
+  await openAccountTab(page);
   const panel = page.getByTestId('venue-collateral');
   await expect(panel.getByRole('heading', { level: 2 })).toContainText(`What ${displayName} takes as margin`);
   const table = panel.getByRole('region', { name: `Margin ${displayName} takes on ${SYMBOL}`, exact: true }).getByRole('table');

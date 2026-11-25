@@ -529,3 +529,21 @@
 .xd [data-testid='dk-form'][hidden] {
   display: none;
 }
+
+/* The ticket's summary rows keep the ticket's inner padding, so the scroll bar never clips a figure at the end. */
+.xd [data-testid='venue-ticket-summary'] {
+  padding-inline: 0.75rem;
+}
+
+/* The positions band's head: its tabs, and the connected wallet kept in sight at the row's end. */
+.xd-blotter-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.xd-blotter-head > [data-compact] {
+  gap: 0.5rem;
+  color: var(--lit-text-2);
+}

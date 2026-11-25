@@ -1,5 +1,5 @@
 import { ActionLimitWarning } from '../../../features/trade';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import { VenueMarketPanel } from '../desk/VenueMarketData';
 import '../desk/exchange-desk.css';
@@ -63,6 +63,7 @@ import {
 } from '../../../features/trade/venue/VenueKit';
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { VenueSessionPanel, useDeskSession } from '../../../features/trade/venue/VenueSession';
+import { sessionLine } from '../../../features/trade/venue/session-signer';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
 import { slippageLimit, venueSelfTrade } from '../desk/venue-desk';
@@ -247,6 +248,8 @@ function Contracts({
   const account = useVenueAccount(owner, { positions: true });
   // A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's live key.
   const session = useDeskSession(owner, status);
+  // No live session on a venue whose orders it signs: no order can go, so starting it is the ticket's one key.
+  const needsSession = session.on && session.read && sessionLine(session.current, session.held).offer === 'start';
   const { run, resend } = useVenueActions(owner, session.signing);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const ticketRef = useRef<HTMLDivElement>(null);
@@ -343,6 +346,7 @@ function Contracts({
                   side={side}
                   setSide={setSide}
                   disabled={false}
+                  keySlot={needsSession ? <VenueSessionPanel session={session} owner={owner} status={status} /> : undefined}
                 />
               ) : null}
               {owner && market.marginAccount?.known ? (
@@ -355,29 +359,34 @@ function Contracts({
           }
           orders={
             <div className="lt-stack">
-              {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
-              {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-              {/* Under the positions, never squeezed under the ticket: the wallet, its session, the venue balances and collateral. */}
               {owner ? (
-                <div className="xd-under">
-                  <div className="lt-stack">
-                    <WalletBar />
-                    <VenueSessionPanel session={session} owner={owner} status={status} />
-                  </div>
-                  <div className="lt-stack">
-                    <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-                    <BalancesPanel balances={account.balances.data} test={status.test} />
-                    <VenueCollateral
-                      market={market}
-                      venueName={status.venue.displayName}
-                      balances={account.balances.data}
-                      test={status.test}
-                    />
-                  </div>
-                </div>
+                <Blotter
+                  status={status}
+                  market={market}
+                  owner={owner}
+                  account={account}
+                  run={run}
+                  wallet={<WalletBar compact />}
+                  accountTab={
+                    <div className="xd-under">
+                      {needsSession ? null : <VenueSessionPanel session={session} owner={owner} status={status} />}
+                      <div className="lt-stack">
+                        <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+                        <BalancesPanel balances={account.balances.data} test={status.test} />
+                        <VenueCollateral
+                          market={market}
+                          venueName={status.venue.displayName}
+                          balances={account.balances.data}
+                          test={status.test}
+                        />
+                      </div>
+                    </div>
+                  }
+                />
               ) : (
                 <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
               )}
+              {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
               {owner ? (
                 // The venue's fees, tiers, account and bills: one fold under the positions, never on the desk's face.
                 <Fold title={t('Venue account fold')} data-testid="venue-account-fold">
@@ -941,6 +950,7 @@ function Ticket({
   side,
   setSide,
   disabled,
+  keySlot,
 }: {
   status: VenueUp;
   market: VenueMarket;
@@ -951,6 +961,8 @@ function Ticket({
   side: 'buy' | 'sell';
   setSide: (s: 'buy' | 'sell') => void;
   disabled: boolean;
+  /** What stands in the key's place while the order can't be sent yet (starting the trading session), or nothing. */
+  keySlot?: ReactNode;
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
@@ -1460,9 +1472,11 @@ function Ticket({
             ]}
           />
         </div>
-        <Button tone="primary" disabled={disabled} onClick={() => void openReview()}>
-          {side === 'buy' ? t('Review long') : t('Review short')}
-        </Button>
+        {keySlot ?? (
+          <Button tone="primary" disabled={disabled} onClick={() => void openReview()}>
+            {side === 'buy' ? t('Review long') : t('Review short')}
+          </Button>
+        )}
       </div>
       {priceCorrected ? (
         <p className="lt-note" role="status" data-testid="venue-price-moved">
@@ -1755,16 +1769,22 @@ function Blotter({
   owner,
   account,
   run,
+  wallet,
+  accountTab,
 }: {
   status: VenueUp;
   market: VenueMarket;
   owner: string;
   account: VenueAccount;
   run: RunAction;
+  /** The connected wallet, kept in sight at the tabs' end. */
+  wallet: ReactNode;
+  /** The Account tab: the trading session, the venue balances and what the venue takes as margin. */
+  accountTab: ReactNode;
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const s = spotVenueCopy.useCopy().t;
-  const [tab, setTab] = useState<'positions' | 'orders' | 'history' | 'funding' | 'calculator'>('positions');
+  const [tab, setTab] = useState<'positions' | 'orders' | 'history' | 'funding' | 'calculator' | 'account'>('positions');
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
   const tags = useMemo(() => heldTags(owner), [owner]);
   const open = account.openOrders.data?.value ?? [];
@@ -1777,18 +1797,23 @@ function Blotter({
   const positions = account.positions.data;
   return (
     <section className="lt-panel" data-testid="venue-blotter">
-      <Segmented
-        options={[
-          { value: 'positions', label: t('Positions') },
-          { value: 'orders', label: t('Orders') },
-          { value: 'history', label: t('History') },
-          { value: 'funding', label: t('Funding') },
-          { value: 'calculator', label: t('Calculator') },
-        ]}
-        value={tab}
-        onChange={(x) => setTab(x as typeof tab)}
-        label={t('Positions')}
-      />
+      <div className="xd-blotter-head">
+        <Segmented
+          options={[
+            { value: 'positions', label: t('Positions') },
+            { value: 'orders', label: t('Orders') },
+            { value: 'history', label: t('History') },
+            { value: 'funding', label: t('Funding') },
+            { value: 'calculator', label: t('Calculator') },
+            { value: 'account', label: t('Account tab') },
+          ]}
+          value={tab}
+          onChange={(x) => setTab(x as typeof tab)}
+          label={t('Positions')}
+        />
+        {wallet}
+      </div>
+      {tab === 'account' ? accountTab : null}
       {tab === 'funding' ? <VenueFunding market={market} owner={owner} venueName={status.venue.displayName} test={status.test} /> : null}
       {tab === 'calculator' ? (
         <VenueCalculator
@@ -1876,7 +1901,7 @@ function Blotter({
             />
           ) : null}
         </>
-      ) : tab === 'funding' || tab === 'calculator' ? null : (
+      ) : tab === 'funding' || tab === 'calculator' || tab === 'account' ? null : (
         <>
           <Settlements owner={owner} test={status.test} />
           <History fills={account.fills.data} test={status.test} />

@@ -7,6 +7,7 @@ import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
+  openAccountTab,
   openVenueDesk,
   sameDecimal,
   shownBalance,
@@ -100,6 +101,7 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
   await expect(list.getByRole('button')).toHaveCount(markets.length);
   for (const m of markets) await expect(list.getByRole('button', { name: `${m.symbol} · ${displayName}` })).toBeVisible();
   await expect(list.getByTestId('venue-test').first()).toHaveText('TEST');
+  await openAccountTab(page);
   for (const part of ['venue-wallet', 'venue-balances', 'venue-margin', 'venue-ticket', 'venue-blotter'])
     await expect(page.getByTestId(part)).toBeVisible();
   // The contract's figures sit in the desk's "Market details", one click away.

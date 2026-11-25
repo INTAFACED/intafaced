@@ -6,9 +6,31 @@ import { venueCopy } from './venue-copy';
  * Connect, the connected address and network, and the switch when the wallet is on another network: one panel every
  * venue room and Home's launch total share, drawn from the Volt kit.
  */
-export function WalletBar() {
+export function WalletBar({ compact = false }: { compact?: boolean } = {}) {
   const { t } = venueCopy.useCopy();
   const wallet = useWallet();
+  // Compact, once connected: the address and Disconnect on one line, the network named only when it is the wrong one.
+  if (compact && wallet.status === 'connected' && wallet.address)
+    return (
+      <section className="lt-row" aria-label={t('Your wallet')} data-testid="venue-wallet" data-compact="true">
+        <span className="lt-mono" data-testid="venue-wallet-address" title={wallet.address.toLowerCase()}>
+          {wallet.address.toLowerCase().slice(0, 6)}
+          <span data-part="address-middle">{wallet.address.toLowerCase().slice(6, -4)}</span>
+          <span data-part="address-end">{wallet.address.toLowerCase().slice(-4)}</span>
+        </span>
+        {wallet.guard && !wallet.guard.ok ? (
+          <span role="alert">
+            {t('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}
+            <Button tone="secondary" size="sm" onClick={() => void wallet.switchNetwork()}>
+              {t('Switch network')}
+            </Button>
+          </span>
+        ) : null}
+        <Button tone="secondary" size="sm" onClick={wallet.disconnect}>
+          {t('Disconnect')}
+        </Button>
+      </section>
+    );
   return (
     <section className="lt-stack" aria-label={t('Your wallet')} data-testid="venue-wallet">
       <h2>{t('Your wallet')}</h2>

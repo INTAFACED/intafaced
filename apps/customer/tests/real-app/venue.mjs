@@ -258,8 +258,20 @@ export async function openVenuePage(page, who, path, privateKey) {
   return wallet;
 }
 
+/**
+ * The futures desk's Account tab (the trading session, the venue balances, what the venue takes as margin), opened
+ * beside its positions. The spot desk, with no such tab, shows its balances as they are.
+ */
+export async function openAccountTab(page) {
+  const tab = page.getByTestId('venue-blotter').getByRole('button', { name: 'Account', exact: true });
+  if ((await tab.count()) === 0) return;
+  if ((await tab.getAttribute('aria-pressed')) !== 'true') await tab.click();
+  await expect(tab).toHaveAttribute('aria-pressed', 'true');
+}
+
 /** A balance row of the desk's venue balances: free, used and total as the desk shows them. */
 export async function shownBalance(page, asset) {
+  await openAccountTab(page);
   const row = page.getByTestId('venue-balances').locator(`tr[data-asset="${asset}"]`);
   await expect(row).toBeVisible();
   const cell = async (name) => (await row.locator(`[data-cell="${name}"]`).innerText()).replace(/,/g, '');
