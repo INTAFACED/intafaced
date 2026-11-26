@@ -1,6 +1,6 @@
 # Volt kit (`@intafaced/ui/lit`)
 
-The customer app's only look, Volt (the owner's pick, 2026-11-21), built as a system: role tokens, components, eight templates and the 3D objects. The app's root carries `data-look="lit"` from its first byte (`apps/customer/index.html`); the beta is dark only.
+The customer app's only look, built as a system (its values are still Volt's until the owner's new palette lands here; the direction lives in project-state `design/new-look/README.md`): role tokens, components, eight templates and the 3D objects. The app's root carries `data-look="lit"` from its first byte (`apps/customer/index.html`); the beta is dark only.
 
 ## Layout and owners
 
