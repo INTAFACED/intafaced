@@ -12,6 +12,7 @@ env:
 
 jobs:
   knip:
+    if: github.event.before == 'b5c5ad299278db01b6be655a033617805e61605b'
     name: Knip full scan and unreachable files
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -56,6 +57,7 @@ jobs:
           retention-days: 3
 
   shape:
+    if: github.event.before == 'b5c5ad299278db01b6be655a033617805e61605b'
     name: Shape census
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -93,7 +95,7 @@ jobs:
       - name: Scan for unused Cargo dependencies
         run: |
           mkdir "$RUNNER_TEMP/rust-deadcode"
-          cargo install cargo-machete --locked --version 0.9.2
+          cargo install cargo-machete --locked --version 0.10.1
           status=0
           cargo machete --json --with-metadata --skip crates/vendor > "$RUNNER_TEMP/rust-deadcode/machete.json" || status=$?
           if [ "$status" -gt 1 ]; then exit "$status"; fi
@@ -121,7 +123,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        batch: [control, unused-components]
+        batch: [unused-declarations, combined]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -131,11 +133,18 @@ jobs:
         with:
           node-version-file: .node-version
       - name: Delete reviewed unreachable components in the runner checkout
-        if: matrix.batch == 'unused-components'
+        if: matrix.batch == 'combined'
         run: |
           git rm -- apps/invitation/src/components/{halo-toggle-group,noise-texture,shimmer-button,text-animate}.tsx
           git diff --cached --numstat
       - run: pnpm install --frozen-lockfile
+      - name: Delete unreferenced invitation declarations
+        run: |
+          sed -i '24d;11s/, FieldTitle//' apps/invitation/src/components/halo-field.tsx
+          sed -i '66,67d;122,137d;121d' apps/invitation/src/components/metal-button.tsx
+          git add -- apps/invitation/src/components/{halo-field,metal-button}.tsx
+          git diff --cached --check
+          git diff --cached --numstat
       - name: Typecheck invitation
         run: pnpm --filter @intafaced/invitation typecheck
       - name: Build invitation
@@ -157,3 +166,103 @@ jobs:
           test -n "$entry"
           curl -fsS "$url$entry" -o "$RUNNER_TEMP/invitation.js"
           test -s "$RUNNER_TEMP/invitation.js"
+
+  manifests:
+    name: Trial manifest batch (${{ matrix.app }} / ${{ matrix.batch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: customer
+            batch: control
+          - app: customer
+            batch: react-virtual
+            dependency: '@tanstack/react-virtual'
+            section: dependencies
+          - app: admin
+            batch: control
+          - app: admin
+            batch: db
+            dependency: '@intafaced/db'
+            section: devDependencies
+          - app: admin
+            batch: events
+            dependency: '@intafaced/events'
+            section: devDependencies
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      APP: ${{ matrix.app }}
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - name: Remove the direct dependency and update the lockfile
+        if: matrix.batch != 'control'
+        env:
+          DEP: ${{ matrix.dependency }}
+          SECTION: ${{ matrix.section }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const { APP, DEP, SECTION } = process.env;
+          const path = 'apps/' + APP + '/package.json';
+          const pkg = JSON.parse(readFileSync(path, 'utf8'));
+          if (!Object.hasOwn(pkg[SECTION], DEP)) throw new Error('Dependency entry missing: ' + DEP);
+          delete pkg[SECTION][DEP];
+          writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+          JS
+          pnpm install --lockfile-only --ignore-scripts
+          git diff --check
+          git diff --numstat
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/test-infra
+      - name: Build the app and its workspace dependencies
+        run: pnpm turbo run build --filter="@intafaced/$APP"
+      - name: Typecheck the app
+        run: pnpm turbo run typecheck --filter="@intafaced/$APP"
+      - name: Run the app's unit tests
+        run: pnpm test --concurrency=3 --filter="@intafaced/$APP"
+      - name: Start the built app and request its home page
+        run: |
+          if [ "$APP" = admin ]; then
+            pnpm --filter "@intafaced/$APP" start > "$RUNNER_TEMP/app-start.log" 2>&1 &
+            port=3100
+          else
+            pnpm --filter "@intafaced/$APP" preview --strictPort > "$RUNNER_TEMP/app-start.log" 2>&1 &
+            port=3200
+          fi
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in {1..45}; do
+            if curl -fsS "http://127.0.0.1:$port/" -o "$RUNNER_TEMP/home.html"; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/app-start.log"
+          exit 1
