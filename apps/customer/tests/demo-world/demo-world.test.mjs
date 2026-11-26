@@ -24,6 +24,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { demoChain } from './chain.mjs';
 import { DEMO_NOW, RECORDING, callKey, demoAnswer, recordedAnswer } from './index.mjs';
 import { demoWalletKey } from './seed.mjs';
+import { verificationStatus } from '../../src/features/account/verification-guards';
+import { owner } from '../../src/screens/account/account.fixtures.mjs';
 
 // The demo world is only worth its pictures while the app reads it: every answer a desk draws from is parsed here with
 // the app's own schemas, so a schema change that would leave a picture's panel empty fails here first.
@@ -76,7 +78,10 @@ describe('the demo world', () => {
     const trpc = (procedure, input) =>
       read(`/api/identity/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`)?.json
         .result.data;
-    const level = trpc('kyc.status', { limit: 50 }).tier;
+    const status = trpc('kyc.status', { limit: 50 });
+    // The room's own check on the reply: every record is the signed-in person's.
+    expect(verificationStatus(owner, 50).safeParse(status).success).toBe(true);
+    const level = status.tier;
     expect(trpc('kyc.levels.describe', {}).held).toBe(level);
     expect(trpc('kyc.levels.describe', {}).levels.find((l) => l.current)?.level).toBe(level);
     const approved = trpc('kyc.history', { limit: 10 }).cases.filter((c) => c.state === 'approved');
