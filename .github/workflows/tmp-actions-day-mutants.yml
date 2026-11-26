@@ -1,0 +1,511 @@
+name: Temporary money mutation tests
+on:
+  push:
+    branches: [tmp/actions-day/mutants]
+    paths: [.github/workflows/tmp-actions-day-mutants.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust / ${{ matrix.crate }} / ${{ matrix.shard }} of ${{ matrix.total }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 155
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        include:
+          - crate: svc-ledger
+            shard: 1
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 2
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 3
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 4
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 5
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 6
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 7
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 8
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 9
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-ledger
+            shard: 10
+            total: 10
+            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
+            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
+          - crate: svc-bank
+            shard: 1
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 2
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 3
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 4
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 5
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 6
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 7
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 8
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 9
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 10
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 11
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-bank
+            shard: 12
+            total: 12
+            paths: transfers/** global/** ramps/** partner/custody.rs partner_account/cash_out/** partner_account/recovery/** ops_desk/balances.rs
+            tests: transfers_guards_db transfers_send_db transfers_withdrawal_db transfers_schedules_db global_send_db ramps_offramp_db ramps_onramp_db partner_account_cash_out partner_account_deposits partner_account_payouts
+          - crate: svc-matching
+            shard: 1
+            total: 8
+            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
+            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
+          - crate: svc-matching
+            shard: 2
+            total: 8
+            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
+            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
+          - crate: svc-matching
+            shard: 3
+            total: 8
+            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
+            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
+          - crate: svc-matching
+            shard: 4
+            total: 8
+            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
+            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
+          - crate: svc-matching
+            shard: 5
+            total: 8
+            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
+            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
+          - crate: svc-matching
+            shard: 6
+            total: 8
+            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
+            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
+          - crate: svc-matching
+            shard: 7
+            total: 8
+            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
+            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
+          - crate: svc-matching
+            shard: 8
+            total: 8
+            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
+            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://intafaced:intafaced@localhost:5432/intafaced_test
+      REQUIRE_POSTGRES: '1'
+      CARGO_TERM_COLOR: never
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_INCREMENTAL: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up the disposable database
+        run: |
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -c 'ALTER SYSTEM SET fsync = off' \
+            -c 'ALTER SYSTEM SET synchronous_commit = off' \
+            -c 'ALTER SYSTEM SET full_page_writes = off' \
+            -c 'SELECT pg_reload_conf()'
+      - name: Install cargo-mutants
+        run: |
+          rustup toolchain install --profile minimal
+          cargo install --locked cargo-mutants --version 27.1.0
+      - name: Mutate a deterministic shard
+        env:
+          CRATE: ${{ matrix.crate }}
+          SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ matrix.total }}
+          MUTATION_PATHS: ${{ matrix.paths }}
+          TEST_TARGETS: ${{ matrix.tests }}
+        shell: bash
+        run: |
+          read -ra paths <<< "$MUTATION_PATHS"
+          read -ra targets <<< "$TEST_TARGETS"
+          args=(--in-place --colors=never --package "$CRATE" --shard "$SHARD/$TOTAL"
+            --cargo-arg=--locked --cargo-test-arg=--lib --minimum-test-timeout 30)
+          for path in "${paths[@]}"; do args+=(--file "crates/$CRATE/src/$path"); done
+          for test in "${targets[@]}"; do args+=(--cargo-test-arg=--test --cargo-test-arg="$test"); done
+          result=0
+          timeout --signal=INT --kill-after=45s 130m cargo mutants "${args[@]}" || result=$?
+          echo "$result" > mutation-exit.txt
+          case "$result" in 0|2|3) exit 0 ;; *) exit "$result" ;; esac
+      - name: Upload Rust results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: rust-${{ matrix.crate }}-${{ matrix.shard }}-of-${{ matrix.total }}
+          path: |
+            mutation-exit.txt
+            mutants.out/outcomes.json
+            mutants.out/mutants.json
+            mutants.out/diff/
+            mutants.out/log/baseline.log
+          retention-days: 7
+
+  typescript:
+    name: TypeScript / ${{ matrix.label }} / ${{ matrix.part }} of ${{ matrix.total }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 145
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        include:
+          - target: packages/ledger-client
+            label: ledger-client
+            part: 1
+            total: 3
+            scope: ^src/(recipes/|gate/|money\.ts|accounts\.ts|custody-layer\.ts|post-recipe|http-client\.ts|client\.ts|memory-ledger\.ts|post-outcome\.ts)
+          - target: packages/ledger-client
+            label: ledger-client
+            part: 2
+            total: 3
+            scope: ^src/(recipes/|gate/|money\.ts|accounts\.ts|custody-layer\.ts|post-recipe|http-client\.ts|client\.ts|memory-ledger\.ts|post-outcome\.ts)
+          - target: packages/ledger-client
+            label: ledger-client
+            part: 3
+            total: 3
+            scope: ^src/(recipes/|gate/|money\.ts|accounts\.ts|custody-layer\.ts|post-recipe|http-client\.ts|client\.ts|memory-ledger\.ts|post-outcome\.ts)
+          - target: packages/money-math
+            label: money-math
+            part: 1
+            total: 1
+            scope: ^src/
+          - target: packages/execution-arb
+            label: execution-arb
+            part: 1
+            total: 1
+            scope: ^src/
+          - target: packages/execution-mm
+            label: execution-mm
+            part: 1
+            total: 1
+            scope: ^src/
+          - target: services/svc-pay
+            label: svc-pay
+            part: 1
+            total: 6
+            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
+          - target: services/svc-pay
+            label: svc-pay
+            part: 2
+            total: 6
+            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
+          - target: services/svc-pay
+            label: svc-pay
+            part: 3
+            total: 6
+            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
+          - target: services/svc-pay
+            label: svc-pay
+            part: 4
+            total: 6
+            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
+          - target: services/svc-pay
+            label: svc-pay
+            part: 5
+            total: 6
+            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
+          - target: services/svc-pay
+            label: svc-pay
+            part: 6
+            total: 6
+            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
+          - target: services/svc-trade
+            label: svc-trade
+            part: 1
+            total: 8
+            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
+          - target: services/svc-trade
+            label: svc-trade
+            part: 2
+            total: 8
+            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
+          - target: services/svc-trade
+            label: svc-trade
+            part: 3
+            total: 8
+            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
+          - target: services/svc-trade
+            label: svc-trade
+            part: 4
+            total: 8
+            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
+          - target: services/svc-trade
+            label: svc-trade
+            part: 5
+            total: 8
+            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
+          - target: services/svc-trade
+            label: svc-trade
+            part: 6
+            total: 8
+            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
+          - target: services/svc-trade
+            label: svc-trade
+            part: 7
+            total: 8
+            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
+          - target: services/svc-trade
+            label: svc-trade
+            part: 8
+            total: 8
+            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
+          - target: services/svc-execution
+            label: svc-execution
+            part: 1
+            total: 5
+            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
+          - target: services/svc-execution
+            label: svc-execution
+            part: 2
+            total: 5
+            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
+          - target: services/svc-execution
+            label: svc-execution
+            part: 3
+            total: 5
+            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
+          - target: services/svc-execution
+            label: svc-execution
+            part: 4
+            total: 5
+            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
+          - target: services/svc-execution
+            label: svc-execution
+            part: 5
+            total: 5
+            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
+          - target: services/svc-p2p
+            label: svc-p2p
+            part: 1
+            total: 2
+            scope: ^src/(.*(?:escrow|fee|payout|ledger|trade|pricing|payment)|p2p-service)
+          - target: services/svc-p2p
+            label: svc-p2p
+            part: 2
+            total: 2
+            scope: ^src/(.*(?:escrow|fee|payout|ledger|trade|pricing|payment)|p2p-service)
+          - target: services/svc-token
+            label: svc-token
+            part: 1
+            total: 1
+            scope: ^src/(.*(?:buyback|payout|ledger|fee)|economics/)
+          - target: services/svc-campaigns
+            label: svc-campaigns
+            part: 1
+            total: 1
+            scope: ^src/.*(?:payout|ledger|reward|settle|credit)
+          - target: services/svc-market
+            label: svc-market
+            part: 1
+            total: 1
+            scope: ^src/(commerce/|ledger-client)
+          - target: services/svc-identity
+            label: svc-identity
+            part: 1
+            total: 1
+            scope: ^src/(affiliates/payout|ledger-client)
+          - target: services/svc-ops
+            label: svc-ops
+            part: 1
+            total: 1
+            scope: ^src/staff-holds/
+          - target: services/svc-mining-pool
+            label: svc-mining-pool
+            part: 1
+            total: 1
+            scope: ^src/.*(?:payout|ledger|reward|settle|credit|server)
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/test-infra
+        if: startsWith(matrix.target, 'services/')
+      - name: Build this package and its dependencies
+        env:
+          TARGET: ${{ matrix.target }}
+        run: pnpm turbo run build "--filter=./$TARGET" '--filter=!./apps/*'
+      - name: Install StrykerJS for this runner
+        run: |
+          npm install --prefix "$RUNNER_TEMP/stryker" --ignore-scripts --no-audit --no-fund \
+            @stryker-mutator/core@10.1.1 @stryker-mutator/vitest-runner@10.1.1 vitest@4.1.12
+      - name: Mutate a disjoint set of files
+        env:
+          TARGET: ${{ matrix.target }}
+          PART: ${{ matrix.part }}
+          TOTAL: ${{ matrix.total }}
+          SCOPE: ${{ matrix.scope }}
+        shell: bash
+        run: |
+          cd "$TARGET"
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { statSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const scope = new RegExp(process.env.SCOPE);
+          const files = execFileSync('git', ['ls-files', '-z', '--', 'src'], { encoding: 'utf8' })
+            .split('\0')
+            .filter(file => file.endsWith('.ts') && scope.test(file)
+              && !/\.(?:test|spec|d)\.ts$/.test(file)
+              && !/(?:^|\/)(?:__tests__|__mocks__|fixtures|testing|test-support)\//.test(file)
+              && !/(?:-fake|-test-helper|-test-shim|-test-reset)\.ts$/.test(file))
+            .map(file => ({ file, bytes: statSync(file).size }))
+            .sort((a, b) => b.bytes - a.bytes || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+          const shards = Array.from({ length: Number(process.env.TOTAL) }, () => ({ bytes: 0, files: [] }));
+          for (const { file, bytes } of files) {
+            const shard = shards.reduce((smallest, next) => next.bytes < smallest.bytes ? next : smallest);
+            shard.files.push(file);
+            shard.bytes += bytes;
+          }
+          const mutate = shards[Number(process.env.PART) - 1].files;
+          if (!mutate.length) throw new Error('No tracked production files in mutation shard');
+          const plugins = [join(process.env.RUNNER_TEMP, 'stryker/node_modules/@stryker-mutator/vitest-runner/dist/src/index.js')];
+          writeFileSync('mutation-scope.txt', mutate.join('\n') + '\n');
+          writeFileSync('stryker-tmp.json', JSON.stringify({
+            inPlace: true,
+            mutate,
+            plugins,
+            testRunner: 'vitest',
+            vitest: { configFile: 'vitest.config.ts', related: false, pool: 'forks' },
+            concurrency: 1,
+            timeoutMS: 30000,
+            thresholds: { break: 0 },
+            reporters: ['clear-text', 'json'],
+            clearTextReporter: { reportTests: false, reportMutants: false },
+            jsonReporter: { fileName: 'mutation-results.json' },
+          }));
+          JS
+          result=0
+          timeout --signal=INT --kill-after=45s 120m \
+            "$RUNNER_TEMP/stryker/node_modules/.bin/stryker" run stryker-tmp.json || result=$?
+          echo "$result" > mutation-exit.txt
+          exit "$result"
+      - name: Upload TypeScript results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ts-${{ matrix.label }}-${{ matrix.part }}-of-${{ matrix.total }}
+          path: |
+            ${{ matrix.target }}/mutation-results.json
+            ${{ matrix.target }}/mutation-scope.txt
+            ${{ matrix.target }}/mutation-exit.txt
+          retention-days: 7
