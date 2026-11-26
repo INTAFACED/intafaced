@@ -169,7 +169,7 @@ const openIssues = async (token, label = LABEL, title = ISSUE_TITLE) => {
 /** The second-key issue's body: the first key's error line and the one action, before the second key runs out too. */
 export function keyIssueBody({ line, runUrl, now = new Date() }) {
   return [
-    'The CI review runs on its second key, `CLAUDE_CODE_OAUTH_TOKEN_2`: its first key, `CLAUDE_CODE_OAUTH_TOKEN`, was refused or used up, so each reviewer call is asked again on the second. PRs still get their verdicts.',
+    'The CI review runs on its second key, `CLAUDE_CODE_OAUTH_TOKEN_2`, or a later spare (`_3` to `_5`): its first key, `CLAUDE_CODE_OAUTH_TOKEN`, was refused or used up, so each reviewer call is asked again on the next spare that is set. PRs still get their verdicts.',
     '',
     `- **First key's error:** \`${String(line || '(not given)').replace(/`/g, "'")}\``,
     `- **Since:** ${times(now)}, ${runUrl}`,
@@ -182,7 +182,9 @@ export function keyIssueBody({ line, runUrl, now = new Date() }) {
 /** Which key answered: `second` opens the one second-key issue (none while one is open), `first` closes it. */
 async function keyIssue(which) {
   const { RUN_URL = '', LINE = '', ISSUE_TOKEN } = process.env;
-  console.log(`reviewer key: ${which}${which === 'second' ? ' (CLAUDE_CODE_OAUTH_TOKEN_2); renew CLAUDE_CODE_OAUTH_TOKEN' : ''}`);
+  console.log(
+    `reviewer key: ${which}${which === 'second' ? ' (a spare, CLAUDE_CODE_OAUTH_TOKEN_2 to _5); renew CLAUDE_CODE_OAUTH_TOKEN' : ''}`,
+  );
   if (!ISSUE_TOKEN) return console.log(`::warning::no project-state issues token, so no "${KEY_ISSUE_TITLE}" issue is read or written`);
   const open = await openIssues(ISSUE_TOKEN, KEY_LABEL, KEY_ISSUE_TITLE);
   if (which === 'first') {
