@@ -9,6 +9,8 @@ permissions:
 
 jobs:
   rust:
+    if: >-
+      github.event.head_commit.message != 'ci: isolate Stryker installation'
     name: Rust / ${{ matrix.crate }} / ${{ matrix.shard }} of ${{ matrix.total }}
     runs-on: ubuntu-latest
     timeout-minutes: 155
@@ -451,7 +453,9 @@ jobs:
         run: pnpm turbo run build "--filter=./$TARGET" '--filter=!./apps/*'
       - name: Install StrykerJS for this runner
         run: |
-          npm install --prefix "$RUNNER_TEMP/stryker" --ignore-scripts --no-audit --no-fund \
+          mkdir -p "$RUNNER_TEMP/stryker"
+          printf '%s\n' '{"name":"temporary-mutation-tools","private":true}' > "$RUNNER_TEMP/stryker/package.json"
+          pnpm --dir "$RUNNER_TEMP/stryker" add --ignore-scripts --save-exact \
             @stryker-mutator/core@10.1.1 @stryker-mutator/vitest-runner@10.1.1 vitest@4.1.12
       - name: Mutate a disjoint set of files
         env:
