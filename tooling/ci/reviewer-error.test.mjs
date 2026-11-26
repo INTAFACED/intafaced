@@ -525,7 +525,10 @@ const FIVE = { ...THREE, CLAUDE_CODE_OAUTH_TOKEN_4: 'k4', CLAUDE_CODE_OAUTH_TOKE
 test('the Review step: with four keys used up, the call is answered on the fifth; all five used up is the judge down', () => {
   const r = runStep('Review', { keys: FIVE, plan: { k1: LIMIT, k2: LIMIT, k3: LIMIT, k4: LIMIT, k5: ANSWER }, edit: reviewEdit });
   assert.equal(r.code, 0, r.stdout);
-  assert.deepEqual(r.calls, ['k1', 'k2', 'k3', 'k4', 'k5'].map((k) => `${k} spares-in-env:`));
+  assert.deepEqual(
+    r.calls,
+    ['k1', 'k2', 'k3', 'k4', 'k5'].map((k) => `${k} spares-in-env:`),
+  );
   assert.match(r.stdout, /asked again on CLAUDE_CODE_OAUTH_TOKEN_5/);
   assert.match(r.outputs, /^key=fifth$/m);
   assert.ok(!/k[1-5]/.test(r.stdout), 'no key in the log');
@@ -534,16 +537,27 @@ test('the Review step: with four keys used up, the call is answered on the fifth
   assert.equal(all.calls.length, 5);
   assert.match(all.outputs, /^kind=down$/m);
   // Only the fifth set beside the first: it is the next key.
-  const gap = runStep('Review', { keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_5: 'k5' }, plan: { k1: LIMIT, k5: ANSWER }, edit: reviewEdit });
+  const gap = runStep('Review', {
+    keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_5: 'k5' },
+    plan: { k1: LIMIT, k5: ANSWER },
+    edit: reviewEdit,
+  });
   assert.equal(gap.code, 0, gap.stdout);
   assert.deepEqual(gap.calls, ['k1 spares-in-env:', 'k5 spares-in-env:']);
 });
 
 test('the proof read: with four keys used up, both calls are answered on the fifth', () => {
-  const r = runStep('Read the steps (proof v2)', { keys: FIVE, plan: { k1: LIMIT, k2: LIMIT, k3: LIMIT, k4: LIMIT, k5: ANSWER }, edit: readEdit });
+  const r = runStep('Read the steps (proof v2)', {
+    keys: FIVE,
+    plan: { k1: LIMIT, k2: LIMIT, k3: LIMIT, k4: LIMIT, k5: ANSWER },
+    edit: readEdit,
+  });
   assert.equal(r.code, 0, r.stdout);
   assert.ok(r.calls.filter((c) => c.startsWith('k5')).length >= 1, r.calls.join(','));
-  assert.ok(r.calls.every((c) => c.endsWith('spares-in-env:')), 'one key per call');
+  assert.ok(
+    r.calls.every((c) => c.endsWith('spares-in-env:')),
+    'one key per call',
+  );
   assert.match(r.stdout, /reviewer key: fifth/);
   assert.ok(!/k[1-5]/.test(r.stdout), 'no key in the log');
 });
