@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { userVenueCount, userVenueSwitchOn } from '../local-test-venue.mjs';
+import { userVenueCount, userVenueKind, userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -328,6 +328,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_AGENT_KEY_SEED: testValue('TRADE_AGENT_KEY_SEED'),
           // J-derivatives-03: our engine judges the venue-lacking protections (a trailing stop, a stop on the index) each second.
           TRADE_PROTECTION_ENGINE_INTERVAL_MS: '1000',
+          // J-cex-spot-15 #9's balance watch reads two balances per watched account on each pass. Hyperliquid's test network
+          // allows 1200 weight a minute per IP, shared by everything on the box, and each balance read weighs 2: at the
+          // engine's second, seven testers' accounts alone spent it (25 Nov 2026, every funding read answered 429). On the
+          // test network the watch reads each account every 15 s; the TEST venue keeps the engine's second.
+          ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? { TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: '15000' } : {}),
           TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
           TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
           // `LOCAL_STACK_AGENT_MARKETS_ADD=<symbols>` adds a journey's own TEST markets to the list for one restart, so an

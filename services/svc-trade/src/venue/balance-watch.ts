@@ -1,12 +1,13 @@
 import { add, formatAmount, isNegative, isZero, mul, neg, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import type { Payload } from '@intafaced/events';
-import type {
-  UserVenue,
-  UserVenueAccount,
-  UserVenueArrival,
-  UserVenueBalance,
-  UserVenueFill,
-  UserVenueMarket,
+import {
+  VenueRefusalError,
+  type UserVenue,
+  type UserVenueAccount,
+  type UserVenueArrival,
+  type UserVenueBalance,
+  type UserVenueFill,
+  type UserVenueMarket,
 } from '@intafaced/venue-contracts';
 import type { BalanceWatchCursor, BalanceWatchStore } from './balance-watch-store.js';
 import type { OwnerSignedAccount } from './prepared-action-store.js';
@@ -185,6 +186,29 @@ function balanceStep(input: {
 
 const maxDate = (a: Date, b: Date) => (a.getTime() >= b.getTime() ? a : b);
 
+/** True when every asset's total in the reading is the one last reported (an asset absent from either counts as zero). */
+function sameTotals(before: ReadonlyMap<string, Amount>, balances: readonly UserVenueBalance[]): boolean {
+  const now = new Map(balances.map((b) => [b.asset, b.total]));
+  for (const asset of new Set([...before.keys(), ...now.keys()]))
+    if ((before.get(asset) ?? ZERO) !== (now.get(asset) ?? ZERO)) return false;
+  return true;
+}
+
+/**
+ * The venue's credits from outside, or null when it reads none: a venue that refuses the read `not_offered` (Hyperliquid's
+ * test network) reads none, and its changes are named by fills or published as `other`. Without this, every reading of
+ * such a venue failed, its cursor was never written, and each tick read the account's fills again.
+ */
+async function readArrivals(venue: UserVenue, account: UserVenueAccount): Promise<readonly UserVenueArrival[] | null> {
+  if (!venue.arrivals) return null;
+  try {
+    return (await venue.arrivals(account)).value;
+  } catch (err) {
+    if (err instanceof VenueRefusalError && err.refusal.code === 'not_offered') return null;
+    throw err;
+  }
+}
+
 export interface VenueBalanceWatchDeps {
   readonly venue: () => Promise<UserVenue>;
   /** Every person's accounts on this venue their own wallet signed for. */
@@ -237,17 +261,12 @@ export class VenueBalanceWatch {
     const now = this.deps.now();
     const cursor = await this.deps.store.read(account);
     const since = cursor ? cursor.fillsSince : new Date(now.getTime() - BALANCE_WATCH_FILL_OVERLAP_MS);
-    const [balances, arrivals, fills] = await Promise.all([
-      venue.balances(account),
-      venue.arrivals ? venue.arrivals(account) : Promise.resolve(null),
-      venue.fills(account, since),
-    ]);
-    const step = balanceStep({
-      account,
-      cursor,
-      reading: { balances: balances.value, arrivals: arrivals?.value ?? null, fills: fills.value, markets },
-      now,
-    });
+    const balances = (await venue.balances(account)).value;
+    // Totals that did not move have no record to name: the records (a fill read weighs ten balance reads on Hyperliquid)
+    // are read only for the first reading and a reading whose totals moved. A record seen later is still named by its id.
+    if (cursor && sameTotals(cursor.totals, balances)) return 0;
+    const [arrivals, fills] = await Promise.all([readArrivals(venue, account), venue.fills(account, since)]);
+    const step = balanceStep({ account, cursor, reading: { balances, arrivals, fills: fills.value, markets }, now });
     for (const change of step.changes) for (const userId of users) await this.deps.publish(userId, change);
     await this.deps.store.write(account, step.next, step.newlySeen);
     return step.changes.length * users.length;

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { userVenueKind } from '../scripts/local-test-venue.mjs';
 import opsService from '../scripts/local-stack-services/ops.mjs';
+import tradeService from '../scripts/local-stack-services/trade.mjs';
 import { GRANT } from './beta-invited.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -430,6 +431,31 @@ test("the beta's Customer build shows only rooms finished in Volt; the switch is
     if (prevVal === undefined) delete process.env.LOCAL_STACK_VALUATION_PRICES;
     else process.env.LOCAL_STACK_VALUATION_PRICES = prevVal;
   }
+});
+
+test("the beta's balance watch reads the test network every 15 s, inside its 1200 weight a minute per IP; the TEST venue keeps the engine's second", () => {
+  const tradeEnv = (venue) => {
+    const prev = process.env.LOCAL_STACK_USER_VENUE;
+    try {
+      process.env.LOCAL_STACK_USER_VENUE = venue;
+      return tradeService({
+        c: () => ({}),
+        secrets: {},
+        dbUrl: () => 'postgres://127.0.0.1/db',
+        urlOf: (n) => `http://127.0.0.1/${n}`,
+        PORTS: { trade: 1 },
+        P: { data: '/tmp/beta-data', root: '/tmp/beta', state: '/tmp/beta-state' },
+        TEST_FUTURES_LADDER_POLICY: '',
+      }).env();
+    } finally {
+      if (prev === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+      else process.env.LOCAL_STACK_USER_VENUE = prev;
+    }
+  };
+  const beta = tradeEnv(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE);
+  assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, '15000');
+  assert.equal(beta.TRADE_PROTECTION_ENGINE_INTERVAL_MS, '1000');
+  for (const venue of ['on', 'hl-recorded']) assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, undefined, venue);
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {
