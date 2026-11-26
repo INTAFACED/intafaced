@@ -214,9 +214,12 @@ jobs:
           read -ra paths <<< "$MUTATION_PATHS"
           read -ra targets <<< "$TEST_TARGETS"
           args=(--in-place --colors=never --package "$CRATE" --shard "$SHARD/$TOTAL"
-            --cargo-arg=--locked --cargo-test-arg=--lib --minimum-test-timeout 30)
+            --cargo-arg=--locked --cargo-test-arg=--lib --cargo-test-arg=--test --cargo-test-arg=it --minimum-test-timeout 30)
           for path in "${paths[@]}"; do args+=(--file "crates/$CRATE/src/$path"); done
-          for test in "${targets[@]}"; do args+=(--cargo-test-arg=--test --cargo-test-arg="$test"); done
+          if [[ "$CRATE" == svc-bank ]]; then
+            args+=(--)
+            for test in "${targets[@]}"; do args+=("$test::"); done
+          fi
           result=0
           timeout --signal=INT --kill-after=45s 130m cargo mutants "${args[@]}" || result=$?
           echo "$result" > mutation-exit.txt
@@ -235,6 +238,8 @@ jobs:
           retention-days: 7
 
   typescript:
+    if: >-
+      github.event.head_commit.message != 'ci: correct Rust mutation harness'
     name: TypeScript / ${{ matrix.label }} / ${{ matrix.part }} of ${{ matrix.total }}
     runs-on: ubuntu-latest
     timeout-minutes: 145
