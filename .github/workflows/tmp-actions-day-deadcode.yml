@@ -170,7 +170,7 @@ jobs:
           test -s "$RUNNER_TEMP/invitation.js"
 
   manifests:
-    if: github.event.before == '0091e2005bc51a60e0a4d2df1ae1e655d5cbb6dc'
+    if: github.event.before == '4c1590009110688f64738a22bb281b5bf1e235b4'
     name: Trial manifest batch (${{ matrix.app }} / ${{ matrix.batch }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -178,21 +178,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - app: customer
-            batch: control
-          - app: customer
-            batch: react-virtual
-            dependency: '@tanstack/react-virtual'
-            section: dependencies
           - app: admin
             batch: control
           - app: admin
             batch: db
             dependency: '@intafaced/db'
-            section: devDependencies
-          - app: admin
-            batch: events
-            dependency: '@intafaced/events'
             section: devDependencies
     services:
       postgres:
@@ -252,25 +242,24 @@ jobs:
         run: pnpm turbo run typecheck --filter="@intafaced/$APP"
       - name: Run the app's unit tests
         run: pnpm test --concurrency=3 --filter="@intafaced/$APP"
-      - name: Start the built app and request its home page
+      - name: Start the built console on loopback and fetch its sign-in page
         run: |
-          if [ "$APP" = admin ]; then
-            pnpm --filter "@intafaced/$APP" start > "$RUNNER_TEMP/app-start.log" 2>&1 &
-            port=3100
-          else
-            pnpm --filter "@intafaced/$APP" preview --strictPort > "$RUNNER_TEMP/app-start.log" 2>&1 &
-            port=3200
-          fi
+          pnpm --filter @intafaced/admin run start --hostname 127.0.0.1 > "$RUNNER_TEMP/admin-start.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           for i in {1..45}; do
-            if curl -fsS "http://127.0.0.1:$port/" -o "$RUNNER_TEMP/home.html"; then exit 0; fi
+            kill -0 "$server" || break
+            if curl --noproxy '*' --max-time 3 -fsS "http://127.0.0.1:3100/login" -o "$RUNNER_TEMP/admin-login.html"; then
+              grep -Fq 'Sign in to your workspace' "$RUNNER_TEMP/admin-login.html"
+              exit 0
+            fi
             sleep 1
           done
-          cat "$RUNNER_TEMP/app-start.log"
+          echo 'The built console did not serve its sign-in page'
           exit 1
 
   rust_tax:
+    if: github.event.before == '435083e3f9aa84d88937d8cb41737f9a6b1a9a33'
     name: Trial svc-tax dependency batch (${{ matrix.batch }})
     runs-on: ubuntu-24.04
     timeout-minutes: 35
