@@ -1,0 +1,159 @@
+name: Actions day dead code
+
+on:
+  push:
+    branches: [tmp/actions-day/deadcode]
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+
+jobs:
+  knip:
+    name: Knip full scan and unreachable files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile
+      - name: Scan all Knip issue types and list tracked unreachable files
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir "$RUNNER_TEMP/knip"
+          pnpm exec knip --reporter json --no-progress --no-exit-code --include-entry-exports --include-subpath-exports --include nsExports,nsTypes \
+            > "$RUNNER_TEMP/knip/knip.json" 2> "$RUNNER_TEMP/knip/diagnostics.log"
+          if grep -Eq '\bERROR\b' "$RUNNER_TEMP/knip/diagnostics.log"; then
+            cat "$RUNNER_TEMP/knip/diagnostics.log"
+            exit 1
+          fi
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const dir = process.env.RUNNER_TEMP + '/knip';
+          const report = JSON.parse(readFileSync(dir + '/knip.json', 'utf8'));
+          if (!Array.isArray(report.issues)) throw new Error('Knip issue list is missing');
+          const tracked = new Set(execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0'));
+          const files = new Set(report.issues.filter(row => row.files?.length).map(row => row.file));
+          for (const file of report.files ?? []) files.add(typeof file === 'string' ? file : file.file);
+          const unreachable = [...files].filter(file => tracked.has(file)).sort();
+          writeFileSync(dir + '/unreachable.json', JSON.stringify(unreachable, null, 2));
+          console.log('Tracked files unreachable from the configured Knip entries:', unreachable.length);
+          JS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: deadcode-knip
+          path: ${{ runner.temp }}/knip/
+          if-no-files-found: error
+          retention-days: 3
+
+  shape:
+    name: Shape census
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile
+      - name: Count the five existing shape rules
+        run: |
+          mkdir "$RUNNER_TEMP/shape"
+          for rule in no-call-by-name no-cross-feature-import no-hand-schema no-source-text-test no-runtime-swap; do
+            node tooling/lint/count-rule.mjs "garden/$rule" --json > "$RUNNER_TEMP/shape/$rule.json"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: deadcode-shape
+          path: ${{ runner.temp }}/shape/
+          if-no-files-found: error
+          retention-days: 3
+
+  rust:
+    name: Rust dependency and dead-code scans
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - name: Scan for unused Cargo dependencies
+        run: |
+          mkdir "$RUNNER_TEMP/rust-deadcode"
+          cargo install cargo-machete --locked --version 0.9.2
+          status=0
+          cargo machete --json --with-metadata --skip crates/vendor > "$RUNNER_TEMP/rust-deadcode/machete.json" || status=$?
+          if [ "$status" -gt 1 ]; then exit "$status"; fi
+          jq -e 'type == "object"' "$RUNNER_TEMP/rust-deadcode/machete.json"
+          git restore -- Cargo.lock
+      - name: Check all workspace targets for dead-code warnings
+        if: '!cancelled()'
+        run: |
+          mkdir -p "$RUNNER_TEMP/rust-deadcode"
+          RUSTFLAGS=-Wdead_code cargo check --workspace --all-targets --locked --message-format=json \
+            | jq -c 'select(.reason == "compiler-message") | .message | select(.code.code == "dead_code" or .level == "error")' \
+            | tee "$RUNNER_TEMP/rust-deadcode/compiler.jsonl"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: deadcode-rust
+          path: ${{ runner.temp }}/rust-deadcode/
+          if-no-files-found: error
+          retention-days: 3
+
+  invitation:
+    name: Trial invitation batch (${{ matrix.batch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: [control, unused-components]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - name: Delete reviewed unreachable components in the runner checkout
+        if: matrix.batch == 'unused-components'
+        run: |
+          git rm -- apps/invitation/src/components/{halo-toggle-group,noise-texture,shimmer-button,text-animate}.tsx
+          git diff --cached --numstat
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck invitation
+        run: pnpm --filter @intafaced/invitation typecheck
+      - name: Build invitation
+        run: pnpm --filter @intafaced/invitation build
+      - name: Run invitation unit tests
+        run: pnpm --filter @intafaced/invitation test
+      - name: Start the built app and request its page and JS entry
+        run: |
+          pnpm --filter @intafaced/invitation preview --strictPort > "$RUNNER_TEMP/invitation.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          url=http://127.0.0.1:3201
+          for i in {1..30}; do
+            if curl -fsS "$url/" -o "$RUNNER_TEMP/invitation.html"; then break; fi
+            sleep 1
+          done
+          test -s "$RUNNER_TEMP/invitation.html"
+          entry=$(grep -oE 'src="/assets/[^"]+\.js"' "$RUNNER_TEMP/invitation.html" | head -1 | cut -d'"' -f2)
+          test -n "$entry"
+          curl -fsS "$url$entry" -o "$RUNNER_TEMP/invitation.js"
+          test -s "$RUNNER_TEMP/invitation.js"
