@@ -519,7 +519,7 @@ test("--key says `other` only for the key's own refusals", () => {
   assert.equal(otherKey(classify('', 1, now)), false);
 });
 
-// Five keys (Nino, 26 Nov 2026: "rotate between all five claude keys"): the fourth and fifth are asked in order after
+// Five keys (the owner, 26 Nov 2026): the fourth and fifth are asked in order after
 // the third, on the Review step and the Proof read step alike, one key per call; all five used up is the judge down.
 const FIVE = { ...THREE, CLAUDE_CODE_OAUTH_TOKEN_4: 'k4', CLAUDE_CODE_OAUTH_TOKEN_5: 'k5' };
 test('the Review step: with four keys used up, the call is answered on the fifth; all five used up is the judge down', () => {
