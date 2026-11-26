@@ -1,3 +1,4 @@
+import { ActivityList, ActivityRow, AssetIcon } from '@intafaced/ui/lit';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import {
@@ -11,7 +12,7 @@ import {
   type Loadable,
 } from './deps';
 import { HOME_LINKS } from './links';
-import { Amount, Ghost, StateBlock } from './volt-parts';
+import { Ghost, StateBlock } from './volt-parts';
 import { usePreferences } from '../../shared/preferences';
 import { RECENT_ACTIVITY_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
 import type { ActivityLimit } from './recent-activity-limit';
@@ -84,33 +85,33 @@ export function RecentActivity({
       ) : activity.status === 'empty' ? (
         <StateBlock kind="empty" title={t('No activity yet')} body={t('No activity body')} />
       ) : activity.status === 'ready' ? (
-        <ul data-testid="home-activity" className="lt-rows">
-          {groupActivity(activity.data.items)
-            .groups.slice(0, limit.count)
-            .map((group) => {
-              const item = group.main;
-              const when = dayTime(item.postedAt, timeZone);
-              return (
-                <li key={group.id}>
-                  <a data-testid="home-activity__row" className="lt-row-link" href={detailHref(group)}>
-                    <span className="lt-lines">
-                      <span data-testid="home-activity__kind">{t(LABEL[item.kind])}</span>
-                      {when ? (
-                        <span data-testid="home-activity__when" className="lt-hint">
-                          {when}
-                        </span>
-                      ) : null}
-                    </span>
-                    <Amount
-                      testId="home-activity__amount"
-                      value={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}
-                      hidden={hidden}
-                    />
-                  </a>
-                </li>
-              );
-            })}
-        </ul>
+        <div data-testid="home-activity">
+          <ActivityList label={t('Recent activity')}>
+            {groupActivity(activity.data.items)
+              .groups.slice(0, limit.count)
+              .map((group) => {
+                const item = group.main;
+                return (
+                  <ActivityRow
+                    key={group.id}
+                    icon={<AssetIcon asset={item.asset} />}
+                    title={t(LABEL[item.kind])}
+                    time={dayTime(item.postedAt, timeZone) ?? ''}
+                    amount={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}
+                    direction={item.direction}
+                    href={detailHref(group)}
+                    hidden={hidden}
+                    marks={{
+                      row: { 'data-testid': 'home-activity__row', 'data-dir': item.direction },
+                      title: { 'data-testid': 'home-activity__kind' },
+                      time: { 'data-testid': 'home-activity__when' },
+                      amount: { 'data-testid': 'home-activity__amount' },
+                    }}
+                  />
+                );
+              })}
+          </ActivityList>
+        </div>
       ) : activity.status === 'error' ? (
         <StateBlock kind="error" title={t('Couldn’t load your activity')} onRetry={activity.retry} retryLabel={t('Try again')} />
       ) : (
