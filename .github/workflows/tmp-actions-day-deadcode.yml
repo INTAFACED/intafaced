@@ -84,6 +84,7 @@ jobs:
           retention-days: 3
 
   rust:
+    if: github.event.before == '0091e2005bc51a60e0a4d2df1ae1e655d5cbb6dc'
     name: Rust dependency and dead-code scans
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -117,6 +118,7 @@ jobs:
           retention-days: 3
 
   invitation:
+    if: github.event.before == '0091e2005bc51a60e0a4d2df1ae1e655d5cbb6dc'
     name: Trial invitation batch (${{ matrix.batch }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -168,6 +170,7 @@ jobs:
           test -s "$RUNNER_TEMP/invitation.js"
 
   manifests:
+    if: github.event.before == '0091e2005bc51a60e0a4d2df1ae1e655d5cbb6dc'
     name: Trial manifest batch (${{ matrix.app }} / ${{ matrix.batch }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -265,4 +268,106 @@ jobs:
             sleep 1
           done
           cat "$RUNNER_TEMP/app-start.log"
+          exit 1
+
+  rust_tax:
+    name: Trial svc-tax dependency batch (${{ matrix.batch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: [control, four-direct-dependencies]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test
+      REQUIRE_POSTGRES: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo fetch --locked
+      - name: Drop the four reviewed entries
+        if: matrix.batch == 'four-direct-dependencies'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          manifest = Path('crates/svc-tax/Cargo.toml')
+          text = manifest.read_text()
+          names = {'base64', 'ed25519-dalek', 'hmac', 'ureq'}
+          assert names <= tomllib.loads(text)['dependencies'].keys()
+          lines = text.splitlines(keepends=True)
+          kept = [line for line in lines if line.split('=', 1)[0].strip() not in names]
+          assert len(lines) - len(kept) == len(names)
+          manifest.write_text(''.join(kept))
+          PY
+      - name: Typecheck every workspace target and reconcile Cargo.lock
+        run: cargo check --workspace --all-targets --offline
+      - name: Verify and show the direct dependency delta
+        run: |
+          if [ "$BATCH" = control ]; then
+            git diff --exit-code -- Cargo.lock crates/svc-tax/Cargo.toml
+          else
+            python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, tomllib
+
+          before = tomllib.loads(subprocess.check_output(['git', 'show', 'HEAD:Cargo.lock'], text=True))
+          after = tomllib.loads(Path('Cargo.lock').read_text())
+          names = {'base64', 'ed25519-dalek', 'hmac', 'ureq'}
+          def svc_tax_edges(lock):
+              return next(set(pkg['dependencies']) for pkg in lock['package'] if pkg['name'] == 'svc-tax')
+
+          removed = svc_tax_edges(before) - svc_tax_edges(after)
+          assert {entry.split()[0] for entry in removed} == names
+          print('Removed direct Cargo edges:', ', '.join(sorted(removed)))
+          PY
+            git diff --check
+            git diff --numstat
+          fi
+        env:
+          BATCH: ${{ matrix.batch }}
+      - name: Build the svc-tax executable
+        run: cargo build --locked -p svc-tax
+      - name: Unit, integration and Postgres replay tests
+        run: |
+          psql "$TEST_DATABASE_URL" -q -c 'ALTER SYSTEM SET fsync = off' -c 'ALTER SYSTEM SET synchronous_commit = off' -c 'SELECT pg_reload_conf()'
+          cargo test --locked -p svc-tax
+      - name: Start the built svc-tax and verify its health endpoint
+        env:
+          APP_ENV: test
+          SERVICE_NAME: svc-tax
+          HTTP_HOST: 127.0.0.1
+          HTTP_PORT: '4020'
+          LEDGER_URL: http://127.0.0.1:4001
+          EDGE_PRINCIPAL_SECRET: dev-only-actions-day-edge-placeholder
+          INTERNAL_SERVICE_SECRET: dev-only-actions-day-service-placeholder
+        run: |
+          target/debug/svc-tax > "$RUNNER_TEMP/svc-tax-start.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in {1..30}; do
+            kill -0 "$server" || break
+            if curl -fsS "http://127.0.0.1:4020/health" -o "$RUNNER_TEMP/tax-health.json"; then
+              jq -e 'type == "object"' "$RUNNER_TEMP/tax-health.json"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'svc-tax did not answer its health check'
           exit 1
