@@ -52,8 +52,8 @@ const schema = serviceEnvSchema
        */
       TRADE_PROTECTION_ENGINE_INTERVAL_MS: z.string().default(''),
       /**
-       * How often the venue balance watch (J-cex-spot-15 #9) reads every watched account, in milliseconds. Blank: as often as
-       * the protection engine. A venue that limits reads by weight a minute (Hyperliquid's test network: 1200 per IP) needs a
+       * How often the venue balance watch (J-cex-spot-15 #9) reads every watched account, in milliseconds. Blank or not all
+       * digits: as often as the protection engine; `0`: the watch is off. A venue that limits reads by weight a minute (Hyperliquid's test network: 1200 per IP) needs a
        * slower watch than the TEST venue, as each reading costs it two balance reads per account.
        */
       TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: z.string().default(''),
