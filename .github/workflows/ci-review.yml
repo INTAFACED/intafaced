@@ -528,7 +528,11 @@ jobs:
           done
           [ "$failed" = 0 ] || no "a reader call failed"
           echo "called=true" >> "$GITHUB_OUTPUT"
-          spare="$(cat "$dir/answered-on-key" "$dir/second/answered-on-key" 2> /dev/null | sort -r | head -n 1)" || true
+          # The latest spare key either read answered on, by its place in the order (not by name: "third" sorts after "fifth").
+          spare=""
+          for n in fifth fourth third second; do
+            if grep -qsx "$n" "$dir/answered-on-key" "$dir/second/answered-on-key"; then spare="$n" && break; fi
+          done
           if [ -n "$spare" ]; then
             echo "::warning::reviewer key: $spare (a spare key); renew CLAUDE_CODE_OAUTH_TOKEN"
           else echo "reviewer key: first"; fi
