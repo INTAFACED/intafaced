@@ -9,8 +9,6 @@ permissions:
 
 jobs:
   rust:
-    if: >-
-      github.event.head_commit.message != 'ci: isolate Stryker installation'
     name: Rust / ${{ matrix.crate }} / ${{ matrix.shard }} of ${{ matrix.total }}
     runs-on: ubuntu-latest
     timeout-minutes: 155
@@ -21,51 +19,6 @@ jobs:
         include:
           - crate: svc-ledger
             shard: 1
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 2
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 3
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 4
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 5
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 6
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 7
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 8
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 9
-            total: 10
-            paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
-            tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
-          - crate: svc-ledger
-            shard: 10
             total: 10
             paths: posting/** balances.rs freeze.rs controls/** reversal.rs reconcile.rs assets.rs chain.rs
             tests: balances_pg controls_pg freeze_pg guards_pg posting_pg post_recipe_pg engine_pg bindings_pg operator_reverse_pg reconcile_pg store_pg door_bookings_pg assets_pg
@@ -134,41 +87,6 @@ jobs:
             total: 8
             paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
             tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
-          - crate: svc-matching
-            shard: 2
-            total: 8
-            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
-            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
-          - crate: svc-matching
-            shard: 3
-            total: 8
-            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
-            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
-          - crate: svc-matching
-            shard: 4
-            total: 8
-            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
-            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
-          - crate: svc-matching
-            shard: 5
-            total: 8
-            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
-            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
-          - crate: svc-matching
-            shard: 6
-            total: 8
-            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
-            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
-          - crate: svc-matching
-            shard: 7
-            total: 8
-            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
-            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
-          - crate: svc-matching
-            shard: 8
-            total: 8
-            paths: holds.rs engine/** book/** rulebook/** door/book.rs door/venue.rs
-            tests: book engine engine_calls journal_replay order_rules ported_b_reconcile ported_c_amend_priority ported_c_order_doors ported_d_orders ported_f_conformance venue_engine
     services:
       postgres:
         image: postgres:16-alpine
@@ -215,11 +133,11 @@ jobs:
         run: |
           read -ra paths <<< "$MUTATION_PATHS"
           read -ra targets <<< "$TEST_TARGETS"
-          args=(--in-place --colors=never --package "$CRATE" --shard "$SHARD/$TOTAL"
+          args=(--in-place --colors=never --package "$CRATE" --shard "$((SHARD - 1))/$TOTAL"
             --cargo-arg=--locked --cargo-test-arg=--lib --cargo-test-arg=--test --cargo-test-arg=it --minimum-test-timeout 30)
           for path in "${paths[@]}"; do args+=(--file "crates/$CRATE/src/$path"); done
           if [[ "$CRATE" == svc-bank ]]; then
-            args+=(--)
+            args+=(-- --)
             for test in "${targets[@]}"; do args+=("$test::"); done
           fi
           result=0
@@ -240,8 +158,6 @@ jobs:
           retention-days: 7
 
   typescript:
-    if: >-
-      github.event.head_commit.message != 'ci: correct Rust mutation harness'
     name: TypeScript / ${{ matrix.label }} / ${{ matrix.part }} of ${{ matrix.total }}
     runs-on: ubuntu-latest
     timeout-minutes: 145
@@ -265,11 +181,6 @@ jobs:
             part: 3
             total: 3
             scope: ^src/(recipes/|gate/|money\.ts|accounts\.ts|custody-layer\.ts|post-recipe|http-client\.ts|client\.ts|memory-ledger\.ts|post-outcome\.ts)
-          - target: packages/money-math
-            label: money-math
-            part: 1
-            total: 1
-            scope: ^src/
           - target: packages/execution-arb
             label: execution-arb
             part: 1
@@ -280,141 +191,6 @@ jobs:
             part: 1
             total: 1
             scope: ^src/
-          - target: services/svc-pay
-            label: svc-pay
-            part: 1
-            total: 6
-            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
-          - target: services/svc-pay
-            label: svc-pay
-            part: 2
-            total: 6
-            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
-          - target: services/svc-pay
-            label: svc-pay
-            part: 3
-            total: 6
-            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
-          - target: services/svc-pay
-            label: svc-pay
-            part: 4
-            total: 6
-            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
-          - target: services/svc-pay
-            label: svc-pay
-            part: 5
-            total: 6
-            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
-          - target: services/svc-pay
-            label: svc-pay
-            part: 6
-            total: 6
-            scope: ^src/(custody/|withdrawals/|rails/|payment-service|payments/|payout|settlement|chargeback|fee-|starter-fee|user-money|ledger-(client|receipt)|merchant-kyb-money)
-          - target: services/svc-trade
-            label: svc-trade
-            part: 1
-            total: 8
-            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
-          - target: services/svc-trade
-            label: svc-trade
-            part: 2
-            total: 8
-            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
-          - target: services/svc-trade
-            label: svc-trade
-            part: 3
-            total: 8
-            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
-          - target: services/svc-trade
-            label: svc-trade
-            part: 4
-            total: 8
-            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
-          - target: services/svc-trade
-            label: svc-trade
-            part: 5
-            total: 8
-            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
-          - target: services/svc-trade
-            label: svc-trade
-            part: 6
-            total: 8
-            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
-          - target: services/svc-trade
-            label: svc-trade
-            part: 7
-            total: 8
-            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
-          - target: services/svc-trade
-            label: svc-trade
-            part: 8
-            total: 8
-            scope: ^src/(spot/|futures/|orders/|builder-fee/|copy/|convert/|otc/|ledger-client|venue/)
-          - target: services/svc-execution
-            label: svc-execution
-            part: 1
-            total: 5
-            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
-          - target: services/svc-execution
-            label: svc-execution
-            part: 2
-            total: 5
-            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
-          - target: services/svc-execution
-            label: svc-execution
-            part: 3
-            total: 5
-            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
-          - target: services/svc-execution
-            label: svc-execution
-            part: 4
-            total: 5
-            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
-          - target: services/svc-execution
-            label: svc-execution
-            part: 5
-            total: 5
-            scope: ^src/(oms-|ledger-|.*(?:funding|settlement|size|notional|fee))
-          - target: services/svc-p2p
-            label: svc-p2p
-            part: 1
-            total: 2
-            scope: ^src/(.*(?:escrow|fee|payout|ledger|trade|pricing|payment)|p2p-service)
-          - target: services/svc-p2p
-            label: svc-p2p
-            part: 2
-            total: 2
-            scope: ^src/(.*(?:escrow|fee|payout|ledger|trade|pricing|payment)|p2p-service)
-          - target: services/svc-token
-            label: svc-token
-            part: 1
-            total: 1
-            scope: ^src/(.*(?:buyback|payout|ledger|fee)|economics/)
-          - target: services/svc-campaigns
-            label: svc-campaigns
-            part: 1
-            total: 1
-            scope: ^src/.*(?:payout|ledger|reward|settle|credit)
-          - target: services/svc-market
-            label: svc-market
-            part: 1
-            total: 1
-            scope: ^src/(commerce/|ledger-client)
-          - target: services/svc-identity
-            label: svc-identity
-            part: 1
-            total: 1
-            scope: ^src/(affiliates/payout|ledger-client)
-          - target: services/svc-ops
-            label: svc-ops
-            part: 1
-            total: 1
-            scope: ^src/staff-holds/
-          - target: services/svc-mining-pool
-            label: svc-mining-pool
-            part: 1
-            total: 1
-            scope: ^src/.*(?:payout|ledger|reward|settle|credit|server)
     services:
       postgres:
         image: postgres:16-alpine
@@ -465,48 +241,48 @@ jobs:
           SCOPE: ${{ matrix.scope }}
         shell: bash
         run: |
-          cd "$TARGET"
           node --input-type=module <<'JS'
           import { execFileSync } from 'node:child_process';
           import { statSync, writeFileSync } from 'node:fs';
           import { join } from 'node:path';
           const scope = new RegExp(process.env.SCOPE);
-          const files = execFileSync('git', ['ls-files', '-z', '--', 'src'], { encoding: 'utf8' })
+          const target = process.env.TARGET;
+          const files = execFileSync('git', ['-C', target, 'ls-files', '-z', '--', 'src'], { encoding: 'utf8' })
             .split('\0')
             .filter(file => file.endsWith('.ts') && scope.test(file)
               && !/\.(?:test|spec|d)\.ts$/.test(file)
               && !/(?:^|\/)(?:__tests__|__mocks__|fixtures|testing|test-support)\//.test(file)
               && !/(?:-fake|-test-helper|-test-shim|-test-reset)\.ts$/.test(file))
-            .map(file => ({ file, bytes: statSync(file).size }))
+            .map(file => ({ file, bytes: statSync(join(target, file)).size }))
             .sort((a, b) => b.bytes - a.bytes || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
           const shards = Array.from({ length: Number(process.env.TOTAL) }, () => ({ bytes: 0, files: [] }));
           for (const { file, bytes } of files) {
             const shard = shards.reduce((smallest, next) => next.bytes < smallest.bytes ? next : smallest);
-            shard.files.push(file);
+            shard.files.push(join(target,file));
             shard.bytes += bytes;
           }
           const mutate = shards[Number(process.env.PART) - 1].files;
           if (!mutate.length) throw new Error('No tracked production files in mutation shard');
           const plugins = [join(process.env.RUNNER_TEMP, 'stryker/node_modules/@stryker-mutator/vitest-runner/dist/src/index.js')];
-          writeFileSync('mutation-scope.txt', mutate.join('\n') + '\n');
+          writeFileSync(join(target,'mutation-scope.txt'), mutate.join('\n') + '\n');
           writeFileSync('stryker-tmp.json', JSON.stringify({
             inPlace: true,
             mutate,
             plugins,
             testRunner: 'vitest',
-            vitest: { configFile: 'vitest.config.ts', related: false, pool: 'forks' },
+            vitest: { configFile: join(target,'vitest.config.ts'), dir: target, related: false, pool: 'forks' },
             concurrency: 1,
             timeoutMS: 30000,
             thresholds: { break: 0 },
             reporters: ['clear-text', 'json'],
             clearTextReporter: { reportTests: false, reportMutants: false },
-            jsonReporter: { fileName: 'mutation-results.json' },
+            jsonReporter: { fileName: join(target,'mutation-results.json') },
           }));
           JS
           result=0
           timeout --signal=INT --kill-after=45s 120m \
             "$RUNNER_TEMP/stryker/node_modules/.bin/stryker" run stryker-tmp.json || result=$?
-          echo "$result" > mutation-exit.txt
+          echo "$result" > "$TARGET/mutation-exit.txt"
           exit "$result"
       - name: Upload TypeScript results
         if: always()
