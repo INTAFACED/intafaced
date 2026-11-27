@@ -68,6 +68,8 @@ function door(
     slippageCapBps,
     // A labelled TEST spread limit, wide of the TEST simulator's ladder.
     spreadLimitBps: 100,
+    // A labelled TEST close tolerance: 10%, so a reduce-only close is priced.
+    closeSlippageBps: 1000,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP'])),
   });

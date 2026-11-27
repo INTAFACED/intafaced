@@ -74,6 +74,7 @@ function router(published: { builder?: typeof BUILDER | null; builderAddress?: s
         ...(published.builderAddress !== undefined ? { builderAddress: published.builderAddress } : {}),
         // A labelled TEST bound, the widest; the bound is proven in user-venue-protection.test.ts.
         slippageCapBps: TEST_SLIPPAGE_CAP_BPS,
+        closeSlippageBps: 1000,
         // A labelled TEST spread limit, wide of the TEST books here.
         spreadLimitBps: 5000,
         now: () => new Date(),

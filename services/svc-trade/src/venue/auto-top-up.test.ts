@@ -68,6 +68,7 @@ describe('venue auto top-up (J-derivatives-06 #4)', { timeout: 60_000 }, () => {
       builder: { address: BUILDER, feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore([ETH])),
       slippageCapBps: 50,
+      closeSlippageBps: 1000,
       ordersPageMax: 100,
       now: () => new Date(),
     } as never);

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { keccak256, toHex, type TypedDataDefinition } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
-import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, formatAmount, max, min, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, type Principal } from '@intafaced/auth';
 import { JurisdictionError } from '@intafaced/contracts/trpc';
 import type { AccountFreezeRead } from '../quant/live-run/ports.js';
@@ -14,6 +14,7 @@ import {
   type UserVenueOrder,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
+import { closeTolerancePrice, requireCloseSlippageBps } from './close-slippage.js';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
 import {
   assertTradingLevel,
@@ -76,9 +77,6 @@ const FIELDS: Readonly<Record<ProtectionKind, readonly ('triggerPrice' | 'limitP
 };
 const PRICE_FIELDS = ['triggerPrice', 'limitPrice', 'trailingDistance'] as const;
 
-/** A fired market exit's worst price, from its trigger: 5% past it, the same slippage limit the desk's Close uses. */
-const EXIT_SLIPPAGE_PERCENT = 5n;
-
 export const VENUE_LABEL = 'Rests on the venue as its trigger order';
 export const ENGINE_LABEL = 'Runs on our engine under your agent permission';
 /** The agent name the person's wallet sees when it approves the protection key on the venue. */
@@ -135,6 +133,11 @@ export interface ProtectionsDeps {
   /** `TRADE_AGENT_KEY_SEED`: the owner's secret the protection key derives from. Blank refuses every engine stop. */
   readonly keySeed: string;
   /**
+   * `TRADE_CLOSE_SLIPPAGE_BPS`: how far a stop's market exit may cross from its trigger (close-slippage.ts). Blank refuses
+   * every stop placed as a market exit `trade.close_slippage_unset`, and an engine stop fires nothing.
+   */
+  readonly closeSlippageBps: number | null;
+  /**
    * The person's verification level as identity holds it now (signals/live-tier.ts), read before each order our engine
    * sends, so a stop never trades on a level the person no longer has. Null, or a read that fails, sends nothing.
    */
@@ -169,15 +172,6 @@ const onTick = (price: Amount, tick: Amount, up: boolean): Amount => {
   return up && down !== price ? add(down, tick) : down;
 };
 
-/** A sell's worst price below its trigger, a buy's above, on the market's tick. */
-function worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
-  const raw =
-    side === 'sell'
-      ? div(mul(from, parseAmount(String(100n - EXIT_SLIPPAGE_PERCENT))), parseAmount('100'), 'floor')
-      : div(mul(from, parseAmount(String(100n + EXIT_SLIPPAGE_PERCENT))), parseAmount('100'), 'ceil');
-  return onTick(raw, tick, side === 'buy');
-}
-
 const sourceWords = (s: ProtectionSource) => (s === 'mark' ? 'mark price' : s === 'last' ? 'last traded price' : 'index price');
 
 /**
@@ -197,6 +191,15 @@ export function engineActor(userId: string, tier: Principal['tier']): Principal 
 
 export class VenueProtections {
   constructor(private readonly deps: ProtectionsDeps) {}
+
+  /**
+   * A fired market exit's worst price, from its trigger: the owner's close tolerance past it (TRADE_CLOSE_SLIPPAGE_BPS,
+   * close-slippage.ts), the one the desk's Close uses too, a sell's below and a buy's above, on the market's tick. Blank
+   * refuses `trade.close_slippage_unset`.
+   */
+  private worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
+    return onTick(closeTolerancePrice(side, from, this.deps.closeSlippageBps), tick, side === 'buy');
+  }
 
   /** The venue agent key INTAFACED holds for one person's protections on one venue account. Derived, never stored. */
   protectionKey(userId: string, owner: string): PrivateKeyAccount {
@@ -248,6 +251,8 @@ export class VenueProtections {
     }
     if (req.side !== 'buy' && req.side !== 'sell') bad('side must be buy or sell');
     const side = req.side;
+    // Every kind but a stop limit closes as a market exit at the owner's close tolerance: blank refuses here, nothing stored.
+    if (kind !== 'stop_limit') requireCloseSlippageBps(this.deps.closeSlippageBps);
     if (typeof req.symbol !== 'string' || req.symbol.trim() === '') bad('symbol is required');
     const symbol = req.symbol;
     const source = (req.triggerSource ?? 'mark') as ProtectionSource;
@@ -323,7 +328,7 @@ export class VenueProtections {
         side,
         type: kind === 'stop_limit' ? 'limit' : 'market',
         amount: quantity,
-        price: kind === 'stop_limit' ? (limitPrice as Amount) : worstPrice(side, triggerPrice as Amount, market.tickSize),
+        price: kind === 'stop_limit' ? (limitPrice as Amount) : this.worstPrice(side, triggerPrice as Amount, market.tickSize),
         timeInForce: kind === 'stop_limit' ? 'GTC' : 'IOC',
         reduceOnly: true,
         trigger: {
@@ -487,7 +492,7 @@ export class VenueProtections {
       side: row.side,
       type: 'market',
       amount: min(row.quantity, position.size),
-      price: worstPrice(row.side, market.mark.value, market.tickSize),
+      price: this.worstPrice(row.side, market.mark.value, market.tickSize),
       timeInForce: 'IOC',
       reduceOnly: true,
       clientOrderKey: key,

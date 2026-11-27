@@ -165,6 +165,7 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       // Set so perpetual market opens are allowed under the slippage cap rule (J-derivatives-02 #5).
       slippageCapBps: 50,
+      closeSlippageBps: 1000,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });

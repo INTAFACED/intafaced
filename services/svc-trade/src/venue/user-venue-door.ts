@@ -52,6 +52,7 @@ import type { MarketMaintenanceBoard } from '../market-maintenance-read.js';
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
 import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, type VenueRoutingGate } from './venue-listing.js';
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
+import { requireCloseSlippageBps } from './close-slippage.js';
 import {
   AMEND_KEY_PREFIX,
   VENUE_ORDER_LABEL_RE,
@@ -492,6 +493,12 @@ export interface UserVenueDoorDeps {
    * on preview and on prepare, before anything is prepared. Never a default.
    */
   readonly spreadLimitBps?: number | null;
+  /**
+   * The owner's close tolerance in basis points (TRADE_CLOSE_SLIPPAGE_BPS, close-slippage.ts), or null/absent when blank.
+   * `status` publishes it for the desk's closes; blank refuses a perpetual's reduce-only market or IOC order
+   * `trade.close_slippage_unset`, on preview and on prepare. Never a default.
+   */
+  readonly closeSlippageBps?: number | null;
   /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
   readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
@@ -856,6 +863,9 @@ export class UserVenueDoor {
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
       // J-derivatives-30 #1: our builder address alone, so an approval stays readable and revocable while the fee is blank.
       builderAddress: this.publishedBuilderAddress(),
+      // The owner's close tolerance (TRADE_CLOSE_SLIPPAGE_BPS): how far the desk's reduce-only closes cross from the mark;
+      // null is blank, and every such close is refused here by name.
+      closeSlippageBps: this.deps.closeSlippageBps ?? null,
     };
   }
 
@@ -994,6 +1004,12 @@ export class UserVenueDoor {
    * reduce-only closes always pass and, with a cap published, the futures ticket's typed worst price goes to the venue.
    */
   private async assertMarketProtection(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
+    // A reduce-only close that takes the book now (a market order, or an IOC limit at a close's worst price) on a
+    // perpetual is priced by the owner's close tolerance (close-slippage.ts): blank refuses before anything is prepared.
+    const takesNow = intent.type === 'market' || intent.timeInForce === 'IOC';
+    if (intent.reduceOnly && takesNow && (await this.market(venue, intent.symbol)).kind !== 'spot') {
+      requireCloseSlippageBps(this.deps.closeSlippageBps);
+    }
     if (intent.type !== 'market') return;
     const market = await this.market(venue, intent.symbol);
     if (market.kind !== 'spot') {

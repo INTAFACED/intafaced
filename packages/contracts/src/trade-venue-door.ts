@@ -76,6 +76,9 @@ export const venueStatusSchema = z.union([
       .object({ minLeadMs: z.number().int().min(0), timeoutsSec: z.array(z.number().int().positive()).nullable() })
       .nullable()
       .optional(),
+    // The owner's close tolerance in bps (svc-trade TRADE_CLOSE_SLIPPAGE_BPS): how far a reduce-only close crosses from
+    // the mark. Null is blank, and svc-trade refuses every such close `trade.close_slippage_unset`; absent from an older door.
+    closeSlippageBps: z.number().int().positive().nullable().optional(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
     // Every configured venue with its health and the position modes it offers (J-derivatives-28, J-derivatives-05 #1 #3).

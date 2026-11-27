@@ -119,6 +119,7 @@ describe('venue markets desk (J-cex-spot-16)', () => {
       builder: BUILDER,
       // The owner's market price protection is blank: these tests place limit orders only.
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => now,
       listings: new StoreVenueRoutingGate(store),
     });
@@ -698,6 +699,7 @@ describe('venue markets desk (J-cex-spot-16)', () => {
       builder: BUILDER,
       // The owner's market price protection is blank: these tests place limit orders only.
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => now,
       listings: new StoreVenueRoutingGate(store),
     });
