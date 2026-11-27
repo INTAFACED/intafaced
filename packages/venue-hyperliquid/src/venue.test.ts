@@ -623,10 +623,6 @@ describe('prepare builds exactly what the wallet signs', () => {
       }),
       'not_offered',
     );
-    await refusedWith(
-      venue.prepare(account, ownerSigner, { kind: 'cancel_orders', orders: [{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }] }),
-      'not_offered',
-    );
   });
 });
 
@@ -883,6 +879,106 @@ describe('outcome classification', () => {
       expect(outcome.order).toBeNull();
       expect(outcome.venueRef).toBe('77');
     }
+  });
+});
+
+describe('an open order this browser did not place is cancelled by its client id, signed by the session key (#11170)', () => {
+  // Placed in another browser, before storage was cleared, or under another sign-in: this page holds no key for either.
+  const elsewhere = venueClientOrderId(HL_TESTNET_VENUE_ID, 'order:test-user:other-browser:1');
+  const exitElsewhere = venueClientOrderId(HL_TESTNET_VENUE_ID, 'order:test-user:other-browser:tp:1');
+  const goneText = 'Order was never placed, already canceled, or filled. asset=0';
+  const cancels = (orders: { symbol: string; venueClientOrderId: string }[]): VenueIntent => ({ kind: 'cancel_orders', orders });
+
+  it('the venue declares how many orders it cancels in one signed action, so the desks offer Cancel on them', () => {
+    expect(venueWith(fakeVenue()).venue.cancelsPerAction).toBe(20);
+  });
+
+  it("one cancelByCloid names each order by the venue's client id; the session key signs it; each order is answered", async () => {
+    const fake = fakeVenue();
+    const base = fake.info.orderStatus!;
+    fake.info.orderStatus = (b) => (b.oid === exitElsewhere ? { status: 'unknownOid' } : base(b));
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(
+      account,
+      agentSigner,
+      cancels([
+        { symbol: 'ETH-PERP', venueClientOrderId: elsewhere },
+        { symbol: 'BTC-PERP', venueClientOrderId: exitElsewhere },
+      ]),
+    );
+    const action = {
+      type: 'cancelByCloid',
+      cancels: [
+        { asset: 1, cloid: elsewhere },
+        { asset: 0, cloid: exitElsewhere },
+      ],
+    };
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(prepared.nonce)));
+    fake.exchange.push(ok({ type: 'cancel', data: { statuses: ['success', { error: goneText }] } }));
+    const outcome = await venue.submit(prepared, await sign(agentKey, prepared));
+    expect(fake.exchangeBodies.at(-1)!.action).toEqual(action);
+    if (!outcome.definite || !outcome.accepted) throw new Error(`expected the batch taken, got ${JSON.stringify(outcome)}`);
+    expect(outcome.legs).toHaveLength(2);
+    const [first, second] = outcome.legs!;
+    expect(first!.definite && first!.accepted).toBe(true);
+    expect(!second!.definite || second!.accepted ? null : second!.refusal.code).toBe('unknown_order');
+  });
+
+  it('an order the venue already cancelled is reported cancelled; a filled one is order_final', async () => {
+    for (const [status, expected] of [
+      ['canceled', 'accepted'],
+      ['filled', 'order_final'],
+    ] as const) {
+      const fake = fakeVenue();
+      const base = fake.info.orderStatus!;
+      fake.info.orderStatus = (b) => {
+        const r = base(b) as { order: { status: string } };
+        r.order.status = status;
+        return r;
+      };
+      const venue = venueWith(fake);
+      const prepared = await venue.prepare(account, agentSigner, cancels([{ symbol: 'ETH-PERP', venueClientOrderId: elsewhere }]));
+      fake.exchange.push(ok({ type: 'cancel', data: { statuses: [{ error: goneText }] } }));
+      const outcome = await venue.submit(prepared, await sign(agentKey, prepared));
+      if (!outcome.definite || !outcome.accepted) throw new Error(`expected the batch taken, got ${JSON.stringify(outcome)}`);
+      const leg = outcome.legs![0]!;
+      expect(!leg.definite ? null : leg.accepted ? 'accepted' : leg.refusal.code).toBe(expected);
+    }
+  });
+
+  it('a refusal of the whole action is that refusal; an answer that does not name each order is not an answer', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const one = cancels([{ symbol: 'ETH-PERP', venueClientOrderId: elsewhere }]);
+    const p1 = await venue.prepare(account, agentSigner, one);
+    fake.exchange.push(err('User or API Wallet 0x1 does not exist.'));
+    const refused = await venue.submit(p1, await sign(agentKey, p1));
+    expect(refused.definite && !refused.accepted).toBe(true);
+    const p2 = await venue.prepare(account, agentSigner, one);
+    fake.exchange.push(ok({ type: 'cancel', data: { statuses: ['success', 'success'] } }));
+    expect(await venue.submit(p2, await sign(agentKey, p2))).toEqual({ definite: false, reason: 'venue_error_after_send' });
+  });
+
+  it('refuses before signing: no order, more than it declares, an order named twice, an id that is not a client id', async () => {
+    const venue = venueWith(fakeVenue());
+    await refusedWith(venue.prepare(account, agentSigner, cancels([])), 'venue_rejected');
+    const many = Array.from({ length: 21 }, (_, i) => ({
+      symbol: 'ETH-PERP',
+      venueClientOrderId: venueClientOrderId(HL_TESTNET_VENUE_ID, `order:test-user:many:${i}`),
+    }));
+    await refusedWith(venue.prepare(account, agentSigner, cancels(many)), 'not_offered');
+    await refusedWith(
+      venue.prepare(
+        account,
+        agentSigner,
+        cancels([
+          { symbol: 'ETH-PERP', venueClientOrderId: elsewhere },
+          { symbol: 'ETH-PERP', venueClientOrderId: elsewhere },
+        ]),
+      ),
+      'venue_rejected',
+    );
+    await refusedWith(venue.prepare(account, agentSigner, cancels([{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }])), 'venue_rejected');
   });
 });
 
