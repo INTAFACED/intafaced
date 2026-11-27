@@ -437,9 +437,10 @@ test(`${J} #2 opens the public fee page: the venue's schedule and our builder fe
     expect(caps('perpetual')).toEqual(['0.1%']);
     await expect(section.locator('[data-fees="builder-cap"]')).toContainText('0.1% on perpetuals');
   }
-  // The network fee for sending a coin out is its own line, never inside a trading rate.
-  await expect(page.locator('[data-fees="network"]')).toContainText('Network fee on withdrawals');
-  // And what taking USDC out of the venue costs, as the venue publishes it before anything is signed, beside the rates.
+  // What taking USDC out of the venue costs, as the venue publishes it before anything is signed, beside the rates. Its
+  // network fee is the step's separate line: its own row in the withdrawal list, never inside a trading rate. Our own
+  // custodial "Network fee on withdrawals" line shows only while our own book runs (fees-page.render.test.tsx), and
+  // this file's person holds their money on the venue, so the venue's line is the one they pay.
   const terms = (await testVenue('/withdrawal-terms', { asset: 'USDC' })).body.value;
   const out = section.locator('[data-fees="withdrawal"]');
   await expect(out.locator('h3')).toHaveText('Taking USDC out to your wallet');
@@ -451,6 +452,7 @@ test(`${J} #2 opens the public fee page: the venue's schedule and our builder fe
   await expect(out.locator('[data-cell="withdrawal-network-fee"]')).toHaveText(
     terms.networkFee.known ? `Network fee: ${terms.networkFee.value} USDC` : 'Network fee: not published by the venue.',
   );
+  await expect(section.locator('[data-fees="venue-markets"]').getByText('Network fee', { exact: false })).toHaveCount(0);
   await expect(out.locator('[data-cell="withdrawal-arrival"]')).toHaveText(
     terms.arrivalSeconds === null
       ? 'Arrival time: not published by the venue.'
