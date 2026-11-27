@@ -572,6 +572,7 @@ const privateGateway = createPrivateWebSocketGateway({
   tradeCancel: new HttpTradeCancelPort({ baseUrl: env.TRADE_URL }),
   authority,
   customerOrigins,
+  trustedProxies: env.WS_TRUST_PROXY,
   positions: positionsStream,
 });
 
@@ -584,6 +585,7 @@ const dropCopyGateway = createDropCopyWebSocketGateway({
   tokens: privateTokens,
   authority,
   customerOrigins,
+  trustedProxies: env.WS_TRUST_PROXY,
 });
 
 poller.start();

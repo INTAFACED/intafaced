@@ -196,9 +196,10 @@ const schema = baseEnvSchema
         z.union([z.undefined(), z.coerce.number().int().min(1)]),
       ),
       /**
-       * The reverse proxy in front of the public doors, as exact IP addresses (comma-separated; no CIDR, no `true`).
-       * Unset: the per-IP guard keys on the TCP peer. Set: a listed peer's `x-forwarded-for` names the caller
-       * (`publicCallerIp`). Behind a proxy without it, every caller shares the proxy's one per-IP budget.
+       * The reverse proxy in front of the doors, as exact IP addresses (comma-separated; no CIDR, no `true`).
+       * Unset: the per-IP guard and a key's IP allowlist on the private and drop-copy doors read the TCP peer. Set: a
+       * listed peer's `x-forwarded-for` names the caller (`publicCallerIp`). Behind a proxy without it, every caller
+       * shares the proxy's one per-IP budget and a key bound to a real address is refused.
        */
       WS_TRUST_PROXY: z
         .string()

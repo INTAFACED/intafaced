@@ -29,7 +29,8 @@ export function apiKeyIpAllowed(allowlist: readonly string[], requestIp: string 
 /**
  * The TCP peer. This socket is outside svc-edge, which is the door that
  * strips a client x-forwarded-for and writes the real one. A header here
- * is the caller talking. Never invent an address.
+ * is the caller talking. Never invent an address. The doors read the
+ * caller through `publicCallerIp`, which falls back to this peer.
  */
 export function callerIpFromUpgrade(req: IncomingMessage): string | null {
   return normalizeIp(req.socket.remoteAddress);
@@ -37,7 +38,9 @@ export function callerIpFromUpgrade(req: IncomingMessage): string | null {
 
 /**
  * The caller of a public upgrade behind a stated reverse proxy (`WS_TRUST_PROXY`, exact addresses only). A peer not on
- * the list is the caller, whatever it sends. A listed peer's `x-forwarded-for` is read from its right end: each listed
+ * the list is the caller, whatever it sends. The per-IP guard and a key's IP allowlist (private and drop-copy doors) both
+ * read it, so each listed address must be a proxy that drops the client's header and writes the real one (the beta
+ * front does: tooling/beta/beta-front.mjs). A listed peer's `x-forwarded-for` is read from its right end: each listed
  * hop is skipped and the first address not on the list is the caller. An unreadable entry stops the walk at the last
  * listed hop, so a forged or broken header can only fall back to the proxy's own address, never pick a new one.
  */
