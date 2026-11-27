@@ -20,6 +20,8 @@ import { registerInternalEquity } from './internal-equity.js';
 import { registerInternalOurFills } from './internal-our-fills.js';
 import { registerInternalRealised } from './internal-realised.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
+import { DailyLossGuard } from './daily-loss-limit.js';
+import { SqlDailyLossLimitStore } from './daily-loss-limit-store.js';
 import { UserVenueDoor, parseBuilderAddress, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
 import { SqlVenueListingStore } from './venue-listing-store.js';
 import {
@@ -78,6 +80,9 @@ export function wireUserVenue(deps: {
     ? createFeeSaverClient(env.CAMPAIGNS_URL.trim(), env.INTERNAL_SERVICE_SECRET, outS2s)
     : null;
   const maintenanceBoard = createMarketMaintenanceReader({ notifyUrl: env.NOTIFY_URL });
+  // The person's own daily loss limit (daily-loss-limit.ts): one store, checked by every door on a fresh opening order.
+  const dailyLossStore = new SqlDailyLossLimitStore(sql);
+  const dailyLoss = new DailyLossGuard({ store: dailyLossStore, now: () => new Date() });
   const userVenueDoors = userVenueUrls.map(
     (url, i) =>
       new UserVenueDoor({
@@ -88,6 +93,7 @@ export function wireUserVenue(deps: {
         },
         listings: new StoreVenueRoutingGate(venueListings),
         maintenanceBoard,
+        dailyLoss,
         appEnv: process.env.APP_ENV,
         betaPosture: process.env.INTAFACED_BETA_POSTURE,
         store: userVenueStore,
@@ -199,6 +205,7 @@ export function wireUserVenue(deps: {
     venueDelistingNotices,
     venueSellQuotes,
     venueConverts,
+    dailyLossStore,
     startAtBoot,
   };
 }
