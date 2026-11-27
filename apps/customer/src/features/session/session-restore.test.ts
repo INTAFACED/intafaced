@@ -301,6 +301,31 @@ describe('session controller', () => {
     expect(outage.controller.getState().session?.accessToken).toBe('t8');
     outage.controller.stop();
   });
+  it('a tab that slept past its token refreshes on the 401 instead of signing out; a refused refresh still signs out', async () => {
+    // A frozen or sleeping tab runs no timers, so it wakes holding a token that has run out, and its first call is
+    // answered 401 before the overdue refresh lands. The cookie is still good: that 401 is the missed refresh, not an end.
+    const slept = build((_call, n) => ok(session('t' + n, 60_000)));
+    await slept.controller.start();
+    vi.setSystemTime(Date.now() + 30 * 60_000);
+    slept.controller.unauthorized('t1');
+    expect(slept.controller.getState().session?.accessToken).toBe('t1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slept.calls).toHaveLength(2);
+    expect(slept.controller.getState().session?.accessToken).toBe('t2');
+    // More 401s from the same wake, sent with the old token, change nothing and ask nothing more.
+    slept.controller.unauthorized('t1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slept.calls).toHaveLength(2);
+    slept.controller.stop();
+
+    const ended = build((_call, n) => (n === 1 ? ok(session('t1', 60_000)) : refusal(401, 'auth.session_invalid')));
+    await ended.controller.start();
+    vi.setSystemTime(Date.now() + 30 * 60_000);
+    ended.controller.unauthorized('t1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ended.controller.getState().session).toBeNull();
+    ended.controller.stop();
+  });
   it('stops the silent refresh once stopped or signed out', async () => {
     const { controller, calls } = build((_call, n) => ok(session('t' + n, 60_000)));
     await controller.start();
