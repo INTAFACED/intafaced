@@ -37,10 +37,10 @@ const SELF = fileURLToPath(import.meta.url);
 export const ACCOUNT_CALL_MSG = 'edge.account_call';
 /** No new stage for this long, short of a first order, is stuck. */
 export const STUCK_AFTER_MS = 30 * 60_000;
-export const STAGES = Object.freeze(['signedUp', 'wallet', 'funded', 'desk', 'firstOrder']);
+const STAGES = Object.freeze(['signedUp', 'wallet', 'funded', 'desk', 'firstOrder']);
 const STAGE_WORDS = { signedUp: 'signed up', wallet: 'wallet made', funded: 'funded', desk: 'desk reached', firstOrder: 'first order' };
 /** Calls the trading desk makes and nothing else does. */
-export const DESK_PATHS = Object.freeze([
+const DESK_PATHS = Object.freeze([
   '/api/v1/venue/session',
   '/api/v1/venue/session/start',
   '/api/v1/venue/leverage',
@@ -113,7 +113,7 @@ function grouped(rows, keyOf) {
 }
 
 /** One tester's block, from what was read. Pure: `now` in ms. */
-export function testerRow({ user, granted, testnet, calls = [], now }) {
+function testerRow({ user, granted, testnet, calls = [], now }) {
   const sends = testnet.filter((r) => r.userId === user.id);
   const sent = sends.filter((r) => r.state === 'sent').map((r) => Date.parse(r.at));
   const firstCall = (pred) => calls.find(pred)?.at ?? null;
@@ -212,7 +212,7 @@ function arg(argv, name, fallback) {
   return i >= 0 && argv[i + 1] ? path.resolve(argv[i + 1]) : fallback;
 }
 
-export async function main(argv) {
+async function main(argv) {
   const root = arg(argv, '--root', path.join(os.homedir(), '.intafaced', 'beta'));
   const gates = await import(pathToFileURL(path.join(path.dirname(SELF), '..', 'scripts', 'local-test-gates.mjs')).href);
   const secrets = readJson(gates.gatePaths().secrets, null);
