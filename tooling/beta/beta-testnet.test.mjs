@@ -262,6 +262,9 @@ test('a funder under the grant sends nothing and says so once in round.log', asy
   assert.equal(w.records().length, 0);
   assert.equal(w.lines.length, 1);
   assert.match(w.lines[0], new RegExp(`NOT sent to ${addr(1)}: the funder ${FUNDER} holds 24.99 free TEST USDC, under 25`));
+  // The line says how the funder refills, so nobody asks a person for a faucet deposit already made (#11030).
+  assert.match(w.lines[0], /its one faucet claim is spent/);
+  assert.match(w.lines[0], /only a send from another funded testnet account refills it/);
   w.done();
 });
 
