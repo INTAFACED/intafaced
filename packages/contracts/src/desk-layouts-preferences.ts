@@ -33,6 +33,59 @@ const id = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, 'id');
 const symbol = z.string().regex(/^[A-Za-z0-9._-]{1,32}\/[A-Za-z0-9._:-]{1,32}$/, 'symbol');
 const at = z.string().datetime({ offset: true });
 
+/** The colour groups a desk panel may join. Names, not colours: the screen draws each from the kit's tokens. */
+export const DESK_LINK_COLOURS = ['red', 'green', 'blue', 'amber'] as const;
+export type DeskLinkColour = (typeof DESK_LINK_COLOURS)[number];
+/** The market kinds a link group may carry: the venue door's own. */
+export const DESK_LINK_MARKET_KINDS = ['spot', 'perpetual'] as const;
+
+const colour = z.enum(DESK_LINK_COLOURS);
+
+/** What a link group carries: the market every member shows. A perpetual's symbol may be its base alone. */
+export const deskLinkContextSchema = z
+  .object({
+    symbol: z.string().regex(/^[A-Za-z0-9._:-]{1,32}(\/[A-Za-z0-9._:-]{1,32})?$/, 'symbol'),
+    venue: id,
+    kind: z.enum(DESK_LINK_MARKET_KINDS),
+  })
+  .strict();
+export type DeskLinkContext = z.infer<typeof deskLinkContextSchema>;
+
+/**
+ * Panel link groups: each panel may join one colour group, and each group carries one market; a change in one
+ * member reaches every member of its group and none outside it (`apps/customer/src/screens/trade/desk/link-groups.ts`).
+ * Saved with the layout; the server only stores it.
+ */
+export const deskLinksSchema = z
+  .object({
+    members: z
+      .object({ markets: colour.optional(), chart: colour.optional(), book: colour.optional(), trades: colour.optional() })
+      .strict(),
+    groups: z
+      .object({
+        red: deskLinkContextSchema.optional(),
+        green: deskLinkContextSchema.optional(),
+        blue: deskLinkContextSchema.optional(),
+        amber: deskLinkContextSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict()
+  .refine(
+    (links) =>
+      DESK_WIDGET_IDS.every((panel) => {
+        const name = links.members[panel];
+        return name === undefined || links.groups[name] !== undefined;
+      }),
+    "each member's group carries a market",
+  )
+  .refine(
+    (links) =>
+      DESK_LINK_COLOURS.every((name) => links.groups[name] === undefined || DESK_WIDGET_IDS.some((panel) => links.members[panel] === name)),
+    'each group has a member',
+  );
+export type DeskLinks = z.infer<typeof deskLinksSchema>;
+
 /** The desk's widget workspace, as `apps/customer/src/screens/trade/desk/workspace.ts` draws it. Widths are rem. */
 export const deskWorkspaceV1Schema = z
   .object({
@@ -46,9 +99,14 @@ export const deskWorkspaceV1Schema = z
         trades: z.number().min(10).max(32).optional(),
       })
       .strict(),
+    links: deskLinksSchema.optional(),
   })
   .strict()
-  .refine((desk) => new Set(desk.order).size === desk.order.length, 'each widget once');
+  .refine((desk) => new Set(desk.order).size === desk.order.length, 'each widget once')
+  .refine(
+    (desk) => DESK_WIDGET_IDS.every((panel) => desk.links?.members[panel] === undefined || desk.order.includes(panel)),
+    'a linked panel is on the desk',
+  );
 
 export type DeskWorkspaceV1 = z.infer<typeof deskWorkspaceV1Schema>;
 
@@ -104,6 +162,27 @@ export type DeskPanel = z.infer<typeof deskPanelSchema>;
 type Grid = DeskPanel['grid'];
 const overlaps = (a: Grid, b: Grid) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
+/** A free-form workspace's link groups: the same groups as a v1 desk's, its members named by panel id. */
+export const deskPanelLinksSchema = z
+  .object({
+    members: z.record(id, colour),
+    groups: z
+      .object({
+        red: deskLinkContextSchema.optional(),
+        green: deskLinkContextSchema.optional(),
+        blue: deskLinkContextSchema.optional(),
+        amber: deskLinkContextSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict()
+  .refine((links) => Object.values(links.members).every((name) => links.groups[name] !== undefined), "each member's group carries a market")
+  .refine(
+    (links) => DESK_LINK_COLOURS.every((name) => links.groups[name] === undefined || Object.values(links.members).includes(name)),
+    'each group has a member',
+  );
+export type DeskPanelLinks = z.infer<typeof deskPanelLinksSchema>;
+
 /** A free-form workspace: panels on a grid, none on another's cells. `preset` names the v1 preset it was read from. */
 export const deskWorkspaceV2Schema = z
   .object({
@@ -111,9 +190,14 @@ export const deskWorkspaceV2Schema = z
     columns: z.literal(DESK_GRID_COLUMNS),
     preset: z.enum(DESK_PRESET_IDS).optional(),
     panels: z.array(deskPanelSchema).min(1).max(DESK_PANELS_HARD_MAX),
+    links: deskPanelLinksSchema.optional(),
   })
   .strict()
   .refine((desk) => new Set(desk.panels.map((panel) => panel.id)).size === desk.panels.length, 'each panel id once')
+  .refine(
+    (desk) => Object.keys(desk.links?.members ?? {}).every((member) => desk.panels.some((panel) => panel.id === member)),
+    'a linked panel is on the desk',
+  )
   .refine(
     (desk) => desk.panels.every((panel, i) => desk.panels.slice(i + 1).every((other) => !overlaps(panel.grid, other.grid))),
     'no two panels on one cell',
@@ -161,7 +245,9 @@ export function readDeskWorkspace(desk: DeskWorkspace): DeskWorkspaceV2 {
     x += w;
     return panel;
   });
-  return { v: 2, columns: DESK_GRID_COLUMNS, preset: desk.preset, panels };
+  // Each v1 widget's panel keeps the widget's name as its id, so its link group carries over as it is.
+  const links = desk.links ? { members: { ...desk.links.members }, groups: { ...desk.links.groups } } : undefined;
+  return { v: 2, columns: DESK_GRID_COLUMNS, preset: desk.preset, panels, ...(links ? { links } : {}) };
 }
 
 const V1_OF_TYPE = new Map<string, V1Widget>(DESK_WIDGET_IDS.map((widget) => [V1_PANEL_TYPE[widget], widget]));
@@ -191,7 +277,8 @@ export function legacyDeskOf(desk: DeskWorkspace): DeskWorkspaceV1 | null {
   if (x !== DESK_GRID_COLUMNS) return null;
   const expected = V1_PRESET_WIDGETS[desk.preset];
   if (order.length !== expected.length || !expected.every((widget) => order.includes(widget))) return null;
-  const parsed = deskWorkspaceV1Schema.safeParse({ v: 1, preset: desk.preset, order, widths });
+  const links = desk.links ? { members: { ...desk.links.members }, groups: { ...desk.links.groups } } : undefined;
+  const parsed = deskWorkspaceV1Schema.safeParse({ v: 1, preset: desk.preset, order, widths, ...(links ? { links } : {}) });
   return parsed.success ? parsed.data : null;
 }
 

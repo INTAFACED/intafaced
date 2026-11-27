@@ -8,6 +8,7 @@ export type BuiltIntentKind =
   | 'replace_order'
   | 'update_leverage'
   | 'withdraw'
+  | 'spot_perps_transfer'
   | 'approve_builder_fee'
   | 'approve_agent'
   | 'revoke_agent';
@@ -31,8 +32,7 @@ export const NOT_OFFERED: Readonly<Record<Exclude<VenueIntent['kind'], BuiltInte
   // Hyperliquid has one (`updateIsolatedMargin`); this adapter does not build it or read its limit yet.
   update_isolated_margin: "changing an isolated position's margin is not offered by this adapter yet",
   place_orders: 'orders signed together are not offered by this adapter yet: sign each order on its own',
-  // Hyperliquid has both (`usdClassTransfer`, and the account abstraction setting); this adapter builds neither yet.
-  spot_perps_transfer: 'a move between spot and perps is not offered by this adapter yet',
+  // Hyperliquid has one (`userSetAbstraction`); this adapter does not build it yet.
   set_account_mode: 'changing the account mode is not offered by this adapter yet',
   // The venue holds one net position per contract and moves no open position between accounts: there is nothing to build.
   set_position_mode: 'a position mode switch is not offered: the venue holds one net position per contract',

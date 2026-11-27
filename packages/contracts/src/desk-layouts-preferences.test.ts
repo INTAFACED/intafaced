@@ -133,6 +133,30 @@ describe("today's layouts", () => {
     expect(new Set(v2.panels.map((panel) => panel.grid.y))).toEqual(new Set([0]));
   });
 
+  it('a v1 desk’s link groups carry over to its panels and back', () => {
+    const btc = { symbol: 'BTC/USDT', venue: 'test-venue', kind: 'spot' as const };
+    const linked: DeskWorkspaceV1 = {
+      ...V1_CLASSIC,
+      links: { members: { markets: 'red', chart: 'red', book: 'blue' }, groups: { red: btc, blue: btc } },
+    };
+    const v2 = readDeskWorkspace(linked);
+    expect(deskWorkspaceV2Schema.parse(v2).links).toEqual({
+      members: { markets: 'red', chart: 'red', book: 'blue' },
+      groups: { red: btc, blue: btc },
+    });
+    expect(legacyDeskOf(v2)).toEqual(linked);
+  });
+
+  it('a free-form link names a panel on the desk, and its group carries a market', () => {
+    const btc = { symbol: 'BTC/USDT', venue: 'test-venue', kind: 'spot' as const };
+    const ok = { ...TEN_PANELS, links: { members: { 'chart-1': 'green', heatmap: 'green' }, groups: { green: btc } } };
+    expect(deskWorkspaceV2Schema.parse(ok)).toEqual(ok);
+    expect(deskWorkspaceV2Schema.safeParse({ ...ok, links: { members: { gone: 'green' }, groups: { green: btc } } }).success).toBe(false);
+    expect(deskWorkspaceV2Schema.safeParse({ ...ok, links: { members: { 'chart-1': 'red' }, groups: { green: btc } } }).success).toBe(
+      false,
+    );
+  });
+
   it('a v2 workspace already is one: read returns it as is', () => {
     expect(readDeskWorkspace(TEN_PANELS)).toBe(TEN_PANELS);
   });

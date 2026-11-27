@@ -1,4 +1,4 @@
-import { add, compare, div, formatAmount, mul, parseAmount, sub as minus, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, mul, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import type { TypedDataDefinition } from 'viem';
@@ -34,6 +34,7 @@ import type { AgentKeyReader } from './agent-key-read-client.js';
 import { agentKeyFor } from './agent-key.js';
 import type { AccountFreezeRead } from '../quant/live-run/ports.js';
 import { assertNotSelfFrozen, freezePrincipal } from './self-freeze.js';
+import { dailyLossOf, startOfUtcDay } from './daily-loss.js';
 import { AGENT_ORDER_PREFIX, orderOriginOf, UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
 
 /**
@@ -987,8 +988,7 @@ export class AgentOrders {
   private async withinDailyLoss(a: AgentAccountRecord, venue: UserVenue, sub: UserVenueAccount): Promise<void> {
     const cap = a.limits.maxDailyLoss;
     if (cap === null) return;
-    const now = this.deps.now();
-    const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const since = startOfUtcDay(this.deps.now());
     const loss = dailyLossOf((await venue.fills(sub, since)).value, a.asset);
     if (compare(loss, cap) >= 0) {
       throw new AgentAccountError(
@@ -1169,25 +1169,5 @@ export class AgentOrders {
   }
 }
 
-/**
- * #18: the loss in `asset` the venue's fills come to: their realised results less every fee, as a positive amount; zero
- * when they come to a gain. A fee in another asset (a spot buy's fee in the base asset) is valued at the fill's price.
- */
-export function dailyLossOf(
-  fills: readonly {
-    readonly price: Amount;
-    readonly venueFee: Amount;
-    readonly builderFee: Amount;
-    readonly feeAsset: string;
-    readonly realisedPnl: Amount | null;
-  }[],
-  asset: string,
-): Amount {
-  let result = ZERO;
-  for (const f of fills) {
-    if (f.realisedPnl !== null) result = add(result, f.realisedPnl);
-    const fees = add(f.venueFee, f.builderFee);
-    result = minus(result, f.feeAsset === asset ? fees : mul(fees, f.price, 'ceil'));
-  }
-  return compare(result, ZERO) < 0 ? minus(ZERO, result) : ZERO;
-}
+/** #18: the loss the venue's fills come to (daily-loss.ts, shared with the person's own daily loss limit). */
+export { dailyLossOf };

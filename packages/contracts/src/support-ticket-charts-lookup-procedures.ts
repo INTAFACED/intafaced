@@ -22,8 +22,15 @@ export const SUPPORT_TICKET_CHARTS_LOOKUP = defineProcedure({
   input: supportChartsLookupInputSchema,
   output: supportChartsLookupSchema,
   outputChecks: {
-    desk_workspace_holds: { at: 'output.layouts|0.items[].desk|0', says: 'each widget once' },
-    desk_panels_hold: { at: 'output.layouts|0.items[].desk|1', says: 'each panel id once, and no two panels on one cell' },
+    desk_workspace_holds: { at: 'output.layouts|0.items[].desk|0', says: 'each widget once; a linked panel is on the desk' },
+    desk_links_hold: {
+      at: ['output.layouts|0.items[].desk|0.links', 'output.layouts|0.items[].desk|1.links'],
+      says: "each member's group carries a market; each group has a member",
+    },
+    desk_panels_hold: {
+      at: 'output.layouts|0.items[].desk|1',
+      says: 'each panel id once, a linked panel is on the desk, and no two panels on one cell',
+    },
     desk_panel_settings_fit: {
       at: 'output.layouts|0.items[].desk|1.panels[].settings',
       says: 'settings stay under 4096 characters as JSON',
