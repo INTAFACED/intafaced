@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { DeskWorkspaceV2 } from '@intafaced/contracts/desk-layouts-preferences';
 import {
   checkDeskLayoutGrowth,
   DESK_LAYOUT_CAP_EXCEEDED,
@@ -25,6 +26,16 @@ const layout = (id: string, name = id) => ({
   desk: { ...desk, order: [...desk.order] },
   savedAt: '2026-11-07T08:00:00.000Z',
 });
+/** A free-form workspace: two panels, one of a type no screen knows yet. */
+const freeForm: DeskWorkspaceV2 = {
+  v: 2,
+  columns: 24,
+  panels: [
+    { id: 'chart', type: 'chart', settings: { symbol: 'ETH/USDT' }, grid: { x: 0, y: 0, w: 16, h: 12 } },
+    { id: 'later', type: 'liquidity-heatmap', settings: { depth: 3 }, grid: { x: 16, y: 0, w: 8, h: 12 } },
+  ],
+};
+const freeLayout = (id: string, name = id) => ({ ...layout(id, name), desk: freeForm });
 const value = (over: Partial<DeskLayoutsValue> = {}): DeskLayoutsValue =>
   parseDeskLayoutsShape({ layouts: [], active: null, deleted: [], ...over });
 const LIMITS = { layoutCap: 2, restoreCap: 1, restoreDays: 7 };
@@ -49,6 +60,31 @@ describe('saved desk layouts: shape', () => {
     expect(codeOf(() => parseDeskLayoutsShape({ layouts: [], active: null, deleted: [], extra: 1 }))).toBe(
       'identity.preferences_value_invalid',
     );
+  });
+});
+
+describe('saved desk layouts: the free-form workspace', () => {
+  it('stores a free-form layout beside a v1 one, with a default per desk, and keeps an unknown panel type', () => {
+    const stored = value({ layouts: [layout('a'), freeLayout('b')], active: 'b', defaults: { spot: 'a', perps: 'b' } });
+    expect(stored.layouts[1]?.desk).toEqual(freeForm);
+    expect(stored.defaults).toEqual({ spot: 'a', perps: 'b' });
+  });
+
+  it('refuses two panels on one cell, as invalid', () => {
+    const clash = { ...freeForm, panels: [freeForm.panels[0]!, { ...freeForm.panels[1]!, grid: { x: 10, y: 0, w: 8, h: 12 } }] };
+    expect(codeOf(() => value({ layouts: [{ ...layout('a'), desk: clash }] }))).toBe('identity.preferences_value_invalid');
+  });
+
+  it('meets the same owner limits as a v1 layout', () => {
+    expect(codeOf(() => checkDeskLayoutGrowth(value({ layouts: [freeLayout('a')] }), null, NO_DESK_LAYOUT_LIMITS, NOW))).toBe(
+      DESK_LAYOUT_CAP_UNSET,
+    );
+    const two = value({ layouts: [freeLayout('a'), freeLayout('b')] });
+    const three = value({ layouts: [freeLayout('a'), freeLayout('b'), freeLayout('c')] });
+    expect(codeOf(() => checkDeskLayoutGrowth(three, two, LIMITS, NOW))).toBe(DESK_LAYOUT_CAP_EXCEEDED);
+    const deleted = value({ layouts: [freeLayout('b')], deleted: [{ ...freeLayout('a'), deletedAt: NOW.toISOString() }] });
+    expect(codeOf(() => checkDeskLayoutGrowth(deleted, two, NO_DESK_LAYOUT_LIMITS, NOW))).toBe(DESK_LAYOUT_RESTORE_UNSET);
+    expect(codeOf(() => checkDeskLayoutGrowth(deleted, two, LIMITS, NOW))).toBeNull();
   });
 });
 

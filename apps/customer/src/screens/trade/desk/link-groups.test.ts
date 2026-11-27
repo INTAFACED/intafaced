@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deskLayoutsValueSchema, EMPTY_DESK_LAYOUTS } from '@intafaced/contracts/desk-layouts-preferences';
+import { deskLayoutsValueSchema, EMPTY_DESK_LAYOUTS, legacyDeskOf } from '@intafaced/contracts/desk-layouts-preferences';
 import { changeSymbol, contextOf, createLinkGroups, joinGroup, leaveGroup, NO_LINKS, type LinkContext } from './link-groups';
 import { autosave, saveAs } from './saved-layouts';
 import { isDeskLayout, presetLayout, type WidgetId } from './workspace';
@@ -84,7 +84,7 @@ describe('panel link groups', () => {
     const layout = loaded.layouts[0]!;
     expect(layout.desk.links).toEqual(grouped());
     expect(isDeskLayout(layout.desk)).toBe(true);
-    const { links } = changeSymbol(layout.desk.links!, 'markets', ETH);
+    const { links } = changeSymbol(legacyDeskOf(layout.desk)!.links!, 'markets', ETH);
     const autosaved = deskLayoutsValueSchema.parse(
       JSON.parse(JSON.stringify(autosave(loaded, { ...presetLayout('advanced'), links }, NOW))),
     );
