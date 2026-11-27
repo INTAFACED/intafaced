@@ -1651,9 +1651,10 @@ export class UserVenueDoor {
     );
     const perps = new Set(listed.value.filter((m) => m.kind === 'perpetual').map((m) => m.symbol));
     if (perps.size > 0 && venue.perpetualPrices) {
-      const read = await venue.perpetualPrices();
-      if (read.asOf.getTime() > asOf.getTime()) asOf = read.asOf;
-      for (const p of read.value) if (perps.has(p.symbol)) rows[p.symbol] = perpetualTicker(p);
+      // A failed perpetual read leaves those rows out (each then shows no price) and never takes the spot rows with it.
+      const read = await venue.perpetualPrices().catch(() => null);
+      if (read && read.asOf.getTime() > asOf.getTime()) asOf = read.asOf;
+      for (const p of read?.value ?? []) if (perps.has(p.symbol)) rows[p.symbol] = perpetualTicker(p);
     }
     return { venueId: listed.venueId, value: rows, asOf, test: isTestVenue(venue.venue) };
   }
