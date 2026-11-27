@@ -707,6 +707,11 @@ export type VenueRefusalCode =
    * A "nonce already used" answer is never this: that is `already_submitted`.
    */
   | 'nonce_rejected'
+  /**
+   * The venue still holds an ended agent's removal and refuses any agent approval until it clears, a few seconds. Nothing
+   * was applied; the same signed approval may be sent again once it clears.
+   */
+  | 'agent_removal_pending'
   /** The venue refused for its own stated reason; the text is in `detail`. */
   | 'venue_rejected'
   /** No sub-account with that id under this owner on the venue. */

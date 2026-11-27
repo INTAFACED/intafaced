@@ -156,25 +156,29 @@ const TIF_WIRE: Record<VenueTimeInForce, 'Gtc' | 'Ioc' | 'Alo'> = { GTC: 'Gtc', 
  * The wording for a nonce too far in the future was not found in any public
  * source. Every nonce answer other than the duplicate one guarantees the
  * action was not applied, so it is a definite `nonce_rejected`.
+ * "User has pending agent removal" answers an agent approval sent while the venue still removes an agent ended
+ * moments before (seen on the test network): nothing applied, `agent_removal_pending`.
  */
 export function classifyVenueError(venueId: string, text: string, asOf: Date): VenueSubmitOutcome {
   if (/invalid nonce:\s*duplicate nonce/i.test(text)) return { definite: false, reason: 'already_submitted' };
   if (/cloid|client order id/i.test(text) && /duplicate|already/i.test(text)) return { definite: false, reason: 'already_submitted' };
   const code: VenueRefusalCode = /\bnonce\b/i.test(text)
     ? 'nonce_rejected'
-    : /builder/i.test(text) && /approv|max(imum)? ?fee|exceed/i.test(text)
-      ? 'builder_fee_not_approved'
-      : /insufficient|not enough/i.test(text) && /margin|balance|funds/i.test(text)
-        ? 'insufficient_balance'
-        : /does not exist/i.test(text) && /user|wallet|agent|signer/i.test(text)
-          ? 'signer_not_authorised'
-          : /cannot modify/i.test(text) && /canceled|cancelled|filled/i.test(text)
-            ? 'order_final'
-            : /never placed|already canceled|already cancelled/i.test(text)
-              ? 'unknown_order'
-              : /unknown asset|invalid asset|asset not found/i.test(text)
-                ? 'unknown_market'
-                : 'venue_rejected';
+    : /pending agent removal/i.test(text)
+      ? 'agent_removal_pending'
+      : /builder/i.test(text) && /approv|max(imum)? ?fee|exceed/i.test(text)
+        ? 'builder_fee_not_approved'
+        : /insufficient|not enough/i.test(text) && /margin|balance|funds/i.test(text)
+          ? 'insufficient_balance'
+          : /does not exist/i.test(text) && /user|wallet|agent|signer/i.test(text)
+            ? 'signer_not_authorised'
+            : /cannot modify/i.test(text) && /canceled|cancelled|filled/i.test(text)
+              ? 'order_final'
+              : /never placed|already canceled|already cancelled/i.test(text)
+                ? 'unknown_order'
+                : /unknown asset|invalid asset|asset not found/i.test(text)
+                  ? 'unknown_market'
+                  : 'venue_rejected';
   return { definite: true, accepted: false, refusal: { venueId, code, detail: text }, asOf };
 }
 
