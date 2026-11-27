@@ -2245,6 +2245,8 @@ export async function startCustomer({ stop = stopForNewBuild, ready = bannerSite
     ...baseEnv(),
     CUSTOMER_WS_URL: customerWsUpstream(),
     ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}),
+    // The page's connect-src names the test network's read endpoint when the venue is the live one (customerSecurityHeaders).
+    ...(process.env.LOCAL_STACK_USER_VENUE ? { LOCAL_STACK_USER_VENUE: process.env.LOCAL_STACK_USER_VENUE } : {}),
   };
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
