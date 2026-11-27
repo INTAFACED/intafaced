@@ -286,7 +286,8 @@ test(`${J} #3 replays the older trade whose candles the venue no longer returns:
   const { owner } = state();
   const v = await venueTrade(owner);
   await openReplay(page, v);
-  await expect(page.getByTestId('replay-bars-stored')).toBeVisible();
+  // Its bars come from the journal's own record, named with the time they were stored.
+  await expect(page.getByTestId('replay-source')).toContainText('stored');
   await stepPicture();
 });
 
