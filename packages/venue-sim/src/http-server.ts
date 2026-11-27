@@ -630,6 +630,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     baseAsset: 'XJRN',
     quoteAsset: 'USDC',
     orderTypes: ['limit', 'market'],
+    // TEST: stop orders judged on the mark, so the journal's trades open with a stop (J-portfolio-18 #4).
+    triggerSources: ['mark'],
     timeInForce: ['GTC', 'IOC'],
     marginModes: ['isolated'],
     maxLeverageBps: 100_000,
