@@ -42,6 +42,11 @@ const KEYWORDS_BEFORE_REGEX = new Set([
 ]);
 const WORD = /[A-Za-z0-9_$#]/;
 
+/** A comment a bundler or runtime reads (a webpack or Vite hint, a pure mark, a source map line): kept as code, so a change
+ *  to it is a code change (the CI review's note on #11098). */
+export const BUILD_COMMENT =
+  /webpack|@vite-|[#@]__(?:PURE|NO_SIDE_EFFECTS|INLINE|NOINLINE|KEY)__|[#@] source(?:Mapping)?URL|@jsx|@preserve|@license/i;
+
 /**
  * JavaScript or TypeScript text with its comments taken out and each run of blank space written as one space, or one
  * newline when it holds a line break (a line break can end a statement, so it stays), or null when the text can't be
@@ -103,11 +108,20 @@ export function stripComments(text) {
       i++;
     } else if (c === '/' && n === '/') {
       const e = s.indexOf('\n', i);
-      i = e < 0 ? s.length : e;
+      const end = e < 0 ? s.length : e;
+      if (BUILD_COMMENT.test(s.slice(i, end))) {
+        flush();
+        out += s.slice(i, end);
+      }
+      i = end;
       space(false);
     } else if (c === '/' && n === '*') {
       const e = s.indexOf('*/', i + 2);
       if (e < 0) return null;
+      if (BUILD_COMMENT.test(s.slice(i, e + 2))) {
+        flush();
+        out += s.slice(i, e + 2);
+      }
       space(/[\n\u2028\u2029]/.test(s.slice(i + 2, e)));
       i = e + 2;
     } else if (c === '"' || c === "'") {

@@ -1165,7 +1165,7 @@ async function carriedMain() {
         return null;
       }
     };
-    carry = await carriedHeads({ head: sha, commits, compare: (a, b) => json(`repos/${repo}/compare/${a}...${b}?per_page=1`), text });
+    carry = await carriedHeads({ head: sha, commits, compare: (a, b) => json(`repos/${repo}/compare/${a}...${b}?per_page=250`), text });
     if (json(`repos/${repo}/pulls/${pr}`)?.head?.sha === sha && branch) {
       const runs = json(
         `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=${encodeURIComponent(branch)}&event=pull_request&per_page=100`,

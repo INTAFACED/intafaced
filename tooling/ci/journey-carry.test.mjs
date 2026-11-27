@@ -205,3 +205,11 @@ test('carriedHeads: complete only when the walk ends on a commit shown to change
   });
   assert.equal(long.complete, false);
 });
+
+test('stripComments: a comment a bundler reads is code, so changing it is a code change (CI review note on #11098)', () => {
+  assert.ok(!same('import(/* webpackIgnore: true */ u)', 'import(/* webpackIgnore: false */ u)'));
+  assert.ok(!same('const x = /*#__PURE__*/ f();', 'const x = f();'));
+  assert.ok(!same('import(/* @vite-ignore */ u)', 'import(u)'));
+  assert.ok(!same('x();\n//# sourceMappingURL=a.map\n', 'x();\n//# sourceMappingURL=b.map\n'));
+  assert.ok(same('x(); // a plain note\n', 'x(); // another plain note\n'));
+});
