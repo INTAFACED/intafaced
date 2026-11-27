@@ -600,6 +600,20 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     expect((await sendHeld(first)).outcome).toMatchObject({ definite: true, accepted: false, refusal: { code: 'agent_removal_pending' } });
     expect(sends).toHaveLength(5);
     expect(await q.agent(person, owner)).toMatchObject({ approved: false });
+    // Only the same approval's next try is waived: the refused key under any other business key is still refused.
+    await expect(
+      held.prepare(person, {
+        owner,
+        signer: { role: 'owner', address: owner },
+        intent: {
+          kind: 'approve_agent',
+          agentAddress: q.protectionKey(USER, owner).address.toLowerCase(),
+          agentName: 'other',
+          validUntil: null,
+        },
+        actionKey: `other-agent:${owner}:11089`,
+      }),
+    ).rejects.toMatchObject({ code: 'trade.venue_session_key_reused' });
     // Approve again: a new key and new bytes, sent to the venue again, never the stored refusal replayed.
     const second = await q.prepareAgent(person, owner);
     expect(second.actionKey).not.toBe(first.actionKey);
