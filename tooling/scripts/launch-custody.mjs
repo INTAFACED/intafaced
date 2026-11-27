@@ -45,6 +45,8 @@ export const LAUNCH_ORDER = 1;
  * history), refused custody off. launch-custody.test.mjs now fails any file that runs custody off and funds that way.
  * J-wallet-01 left it once #5 paid its retired coin in at the TEST partner bank and read its history from the partner's
  * own line; today's custodial Deposit and Withdraw pickers moved to J-wallet-01-custodial.pw.mjs (CUSTODIAL_PART).
+ * J-derivatives-04 left it once its one custody-on file, three custodial Later tests on our own book that fund a trader
+ * through our ledger, became J-derivatives-04-custodial.pw.mjs; all seven steps are proven in J-derivatives-04-venue.pw.mjs.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
