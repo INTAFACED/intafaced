@@ -123,6 +123,16 @@ provider and svc-protocol's wallet messages accept that origin. A sign-in passke
 **Known gaps on the public name:** the TEST bank pay-in's return link and the academy's videos point at the box's loopback. On a phone-width screen the desk's order-type
 tabs overlap, so "OTO" covers "Market".
 
+## Check a trading change on the test network, no browser
+
+`node tooling/beta/hl-drive.mjs <setup|status|spot|perp|move-stop|cancel|close|flatten>` on the box (#11060), under the
+user's systemd manager so the stack's tools can read its processes:
+`systemd-run --user --pipe --wait --quiet -p WorkingDirectory=$PWD node tooling/beta/hl-drive.mjs perp`. It signs in as
+its own TEST customer on the beta stack and sends what the desk sends through our doors, signed by a test key kept in
+`~/.intafaced/beta/hl-drive/` (mode 600), never printed. Each action prints our door's answer beside the venue's own
+record. It refuses any venue but Hyperliquid's test network. `setup` makes the account and key once; fund the printed
+address with `hl-testnet-send.yml`. The file's header lists each action's options.
+
 ## When it is not up
 
 - **`blocked`: no TEST screening file.** Edge refuses every call until a sanctions screening list is set, and no agent
