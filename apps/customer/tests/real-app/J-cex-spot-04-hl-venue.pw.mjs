@@ -9,20 +9,22 @@ import { hyperliquidForThisFile, openVenueDesk, sameDecimal, venueBalance, venue
 // smallest order value) the test network publishes to any wallet. The daily run on main
 // (.github/workflows/hl-venue-daily.yml) runs this file live and writes its recording; every other run replays that
 // recording strictly, and until the first one lands the file runs on the TEST venue simulator (hyperliquidForThisFile).
-// The step reads BTC-USDC's rules from the venue's own record and checks the desk against them, so the same words hold on
-// either venue: BTC-USDC is listed on both (the stack's TEST listing seed, tooling/scripts/local-stack-services/trade.mjs).
+// The step reads the pair's rules from the venue's own record and checks the desk against them, so the same words hold on
+// either venue. The pair is PURR-USDC on Hyperliquid, the one spot pair its test network trades every day, and BTC-USDC on
+// the simulator, which lists no PURR-USDC: the stack's TEST listing seed (tooling/scripts/local-stack-services/trade.mjs)
+// lists no BTC-USDC on the test network.
 //
 // Simulator-only, in J-cex-spot-04-venue.pw.mjs: #2 (the test network publishes no price band and no largest order:
 // packages/venue-hyperliquid/src/market-terms.ts), #5 (the test network's cap is 1000 open orders), #6 (its owner branch
 // blanks the stack's own settings, and its pairs are the simulator's TEST markets) and #7 (it rests a TEST order, which
 // needs a funded venue account). Every figure is TEST.
 const J = 'J-cex-spot-04';
-const SYMBOL = 'BTC-USDC';
-const BASE = 'BTC';
 const run = journeyState(`${J}-hl-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
 const venue = hyperliquidForThisFile(test, 'J-cex-spot-04-hl-venue');
+const SYMBOL = venue.kind === 'on' ? 'BTC-USDC' : 'PURR-USDC';
+const BASE = SYMBOL.split('-')[0];
 
 /**
  * TEST setup, not a journey step: a verified account and the wallet it signs with, the trader's own key on Hyperliquid
