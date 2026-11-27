@@ -671,6 +671,8 @@ describe('cancelling orders by the client id the venue holds: one signed `cancel
 
   it('each order is answered on its own: one already gone is unknown_order and the other still cancelled', async () => {
     const fake = fakeVenue();
+    // Gone, and the venue holds no record of it: never placed.
+    fake.info.orderStatus = () => ({ status: 'unknownOid' });
     const venue = venueWith(fake);
     const prepared = await venue.prepare(account, agentSigner, both);
     fake.exchange.push(
