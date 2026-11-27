@@ -253,7 +253,7 @@ export function obj(value: Json | undefined, what: string): { [key: string]: Jso
   return value;
 }
 
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+export const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 export function arr(value: Json | undefined, what: string): Json[] {
   if (!Array.isArray(value)) throw new Error(`venue answer: ${what} is not a list`);
@@ -274,7 +274,7 @@ export abstract class HyperliquidCore {
   private readonly shareReads: boolean;
   /** The HIP-3 perp DEXs listed beside the main one (`HyperliquidTestnetOptions.perpDexs`). */
   protected readonly perpDexs: readonly string[];
-  private readonly warn: (message: string) => void;
+  protected readonly warn: (message: string) => void;
   /** Shared reads (`shareReads`): each answer's text by its request body, and the reads in flight, with the account read. */
   private readonly kept = new Map<string, { text: string; atMs: number; user: string | null; type: string }>();
   private readonly reading = new Map<string, { read: Promise<string>; user: string | null; type: string }>();

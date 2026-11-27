@@ -93,6 +93,8 @@ const INFO: Record<string, unknown> = {
     universe: [{ name: 'PURR/USDC', tokens: [1, 0], index: 0 }],
   },
   userFees: { userCrossRate: '0.00035', userAddRate: '0.0001', userSpotCrossRate: '0.0007', userSpotAddRate: '0.0004' },
+  metaAndAssetCtxs: [{ universe: [{ name: 'ETH', szDecimals: 4, maxLeverage: 25 }] }, [{ markPx: '2010', funding: '0.0000125' }]],
+  predictedFundings: [['ETH', [['HlPerp', { fundingRate: '0.0000125', nextFundingTime: NOW + 3_600_000, fundingIntervalHours: 1 }]]]],
 };
 
 function venue(): { venue: HyperliquidTestnetUserVenue; exchangeCalls: () => number } {

@@ -88,6 +88,7 @@ import { VenueSplitReview, type SplitReviewData } from './VenueSplitReview';
 import { VenueTierConfirm } from './VenueTierConfirm';
 import { venueRiskCopy } from './venue-risk-copy';
 import { VenueFunding } from './VenueFunding';
+import { TicketPreview } from './TicketPreview';
 import { VenueAccount as VenueAccountPanel } from './VenueAccount';
 import { intervalText } from './venue-funding-logic';
 import { bpsToPercent, clampToBand, planSplitOrders, projectedVenueTier, roomLeft, takenAssets } from './venue-risk-logic';
@@ -227,6 +228,8 @@ function Contracts({
   // A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's live key.
   const session = useDeskSession(owner, status);
   const { run, resend } = useVenueActions(owner, session.signing);
+  // A venue a session key signs, with no live session in this tab: nothing can be sent until one starts.
+  const needsSession = session.on && session.signing.live === null;
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const ticketRef = useRef<HTMLDivElement>(null);
   // A phone: the ticket is far below the chart, so Long and Short wait at the bottom and bring it into view.
@@ -302,8 +305,12 @@ function Contracts({
         }
         ticket={
           <div className="lt-stack" ref={ticketRef}>
-            {/* No wallet yet: connecting it comes first. Connected: the ticket comes first, the wallet under it. */}
+            {/* No wallet yet: the order form with its one step, connecting it; then the wallet. Connected: the ticket
+                comes first, the wallet under it; with no live trading session on a venue a session signs, starting one
+                comes first and the ticket waits for it. */}
+            {owner ? null : <TicketPreview status={status} market={market} side={side} setSide={setSide} />}
             {owner ? null : <WalletBar />}
+            {owner && needsSession ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
             {owner ? (
               <Ticket
                 key={`t:${market.symbol}`}
@@ -315,11 +322,11 @@ function Contracts({
                 resend={resend}
                 side={side}
                 setSide={setSide}
-                disabled={false}
+                disabled={needsSession}
               />
             ) : null}
             {owner ? <WalletBar /> : null}
-            {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
+            {owner && !needsSession ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
             {owner && market.marginAccount?.known ? (
               <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
             ) : null}
