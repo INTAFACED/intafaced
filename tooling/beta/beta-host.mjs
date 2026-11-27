@@ -1007,7 +1007,7 @@ const PRIORITY_LINES = Object.entries(BETA_PRIORITY)
   .join('');
 /**
  * The memory the beta's stack (2.4 GB on 27 Nov) keeps when the box reclaims: builders' memory goes first. It holds
- * within what the box grants the user slice (claude-hub machine/linux/setup.sh), shared with T3's own.
+ * within the protection the box grants its user slice (a root setting outside this repo), shared with T3's own.
  */
 const BETA_MEMORY_LOW = '2G';
 
