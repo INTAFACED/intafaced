@@ -12,12 +12,14 @@ import {
   dropKey,
   freshKey,
   heldKey,
+  joinLiveSession,
   keepKey,
   keyFor,
   orderKey,
   signWithSessionKey,
   type HeldKey,
   type Prepared,
+  type SessionStatus,
   type SessionView,
   type SubmitAnswer,
 } from './trading-session';
@@ -62,8 +64,19 @@ export function TradingSession(props: {
   const door = useResource((signal) => venue.door(signal), `venue-door:${userId}`);
   const doorReady =
     door.resource.status === 'ready' && door.resource.data.enabled && door.resource.data.available ? door.resource.data : null;
+  const [held, setHeld] = useState<HeldKey | null>(() => heldKey(userId));
+  // Each read of the session: when it is live under a key another of the person's tabs holds, this tab takes that key
+  // too (the venue keeps one per account), so no tab needs its own approval.
   const session = useResource(
-    (signal) => (doorReady ? venue.session(owner, signal) : Promise.resolve({ ok: true as const, data: null })),
+    async (signal): Promise<ApiResult<SessionStatus | null>> => {
+      if (!doorReady) return { ok: true, data: null };
+      const answer = await venue.session(owner, signal);
+      if (answer.ok) {
+        const joined = await joinLiveSession(userId, answer.data.current, heldKey(userId));
+        if (joined && !signal.aborted) setHeld(joined);
+      }
+      return answer;
+    },
     `venue-session:${userId}:${owner}:${doorReady ? 'on' : 'off'}:${epoch}`,
   );
   const approval = useResource(
@@ -75,7 +88,6 @@ export function TradingSession(props: {
       doorReady ? api.rest('/venue/markets', tradingMarketsSchema, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `venue-markets:${userId}:${doorReady ? 'on' : 'off'}`,
   );
-  const [held, setHeld] = useState<HeldKey | null>(() => heldKey(userId));
   const [said, setSaid] = useState<Said | null>(null);
   const [placed, setPlaced] = useState<{ key: string; status: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -167,6 +179,12 @@ export function TradingSession(props: {
   const start = () =>
     once(async () => {
       if (!sessionRead) return;
+      // A session live under a key another of the person's tabs holds is joined: a new key would take that tab's away.
+      const joined = await joinLiveSession(userId, current, held);
+      if (joined) {
+        setHeld(joined);
+        return reread();
+      }
       // The key for an approval still out is the same key, so a retry is the same approval. An approval that was sent
       // with no answer, whose key this tab does not hold (a closed tab), is read back by sending the stored approval
       // again, with no new prompt; the venue's answer then decides. Otherwise a new key.
@@ -210,7 +228,7 @@ export function TradingSession(props: {
       // An order sent with no definite answer is re-sent as that same order (one business key, one venue order); a new
       // order takes the next ticket, kept with the key so a reload never reuses one.
       const pending = key.pendingOrder ?? {
-        key: orderKey(userId, current.sessionId, key.nextTicket),
+        key: orderKey(userId, current.sessionId, key.nextTicket, key.lane),
         intent: {
           kind: 'place_order',
           symbol,
@@ -220,7 +238,7 @@ export function TradingSession(props: {
           price: order.price.trim(),
           timeInForce: 'GTC',
           reduceOnly: false,
-          clientOrderKey: orderKey(userId, current.sessionId, key.nextTicket),
+          clientOrderKey: orderKey(userId, current.sessionId, key.nextTicket, key.lane),
           builderFee: null,
         },
       };

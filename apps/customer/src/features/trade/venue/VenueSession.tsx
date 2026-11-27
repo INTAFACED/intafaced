@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { createTradingSessionApi, heldKey, keyFor, usePolled, useWallet, type HeldKey } from '../../protocol';
+import { createTradingSessionApi, heldKey, joinLiveSession, keyFor, usePolled, useWallet, type HeldKey } from '../../protocol';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../session';
 import { venueCopy } from './venue-copy';
@@ -19,13 +19,23 @@ export function useDeskSession(owner: string | null, status: VenueUp) {
   const tradesSignedBy = status.tradesSignedBy ?? 'owner_wallet';
   const on = tradesSignedBy === 'session_key' && owner !== null && userId !== null;
   const sessions = useMemo(() => createTradingSessionApi(api), [api]);
+  // The key this tab holds for the person, re-read from the tab's storage whenever this desk starts or ends a session.
+  const [held, setHeld] = useState<HeldKey | null>(() => (userId ? heldKey(userId) : null));
+  // Each read of the session: when it is live under a key another of the person's tabs holds, this tab takes that key
+  // too (the venue keeps one per account), so no tab needs its own approval.
   const read = usePolled(
-    (signal) => (on && owner ? sessions.session(owner, signal) : Promise.resolve(null)),
+    async (signal) => {
+      if (!on || !owner) return null;
+      const answer = await sessions.session(owner, signal);
+      if (answer.ok && userId) {
+        const joined = await joinLiveSession(userId, answer.data.current, heldKey(userId));
+        if (joined && !signal.aborted) setHeld(joined);
+      }
+      return answer;
+    },
     `venue-session:${userId ?? ''}:${owner ?? ''}:${on ? 'on' : 'off'}`,
     VENUE_POLL_MS,
   );
-  // The key this tab holds for the person, re-read from the tab's storage whenever this desk starts or ends a session.
-  const [held, setHeld] = useState<HeldKey | null>(() => (userId ? heldKey(userId) : null));
   const current = read.data?.current ?? null;
   const live = on && read.data && keyFor(current, held) === 'use' ? held : null;
   const signing: SessionSigning = useMemo(() => ({ tradesSignedBy, live }), [tradesSignedBy, live]);
@@ -161,6 +171,8 @@ function startWords(
   t: ReturnType<typeof venueCopy.useCopy>['t'],
 ): { tone: 'status' | 'alert'; text: string } | null {
   switch (result.kind) {
+    case 'joined':
+      return null;
     case 'sent':
       if (result.answer === 'accepted') return null;
       if (result.answer === 'unknown') return { tone: 'status', text: t('Session unknown') };

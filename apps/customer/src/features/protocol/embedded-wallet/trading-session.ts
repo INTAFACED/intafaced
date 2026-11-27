@@ -15,16 +15,19 @@ import {
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { ApiClient } from '../../../shared/api';
 import { DEVICE_SESSION_KEY_PREFIX } from '../../../shared/device-session-key';
-import { heldSchema } from './held-key';
+import { heldSchema, keyAskSchema, keyGiveSchema, lanesGivenSchema } from './held-key';
 
 /**
  * The trading session (J-wallet-22 #8, slice D-venue-09): one approval per session, signed by the person's wallet after
  * their passkey, for a FRESH session key made here, on this device, beside the wallet provider's client. The key can
  * trade on the venue and can never withdraw or approve; orders in the session are signed by it with no passkey.
  *
- * The key never leaves this tab in a form that can sign: svc-trade is told its address only
- * (`POST /api/v1/venue/session/start`), and the key itself is kept in this tab's sessionStorage, which the browser
- * clears when the tab closes, and which a sign-out empties at once (shared/device-session-key.ts). It is used only
+ * The key never leaves this browser in a form that can sign: svc-trade is told its address only
+ * (`POST /api/v1/venue/session/start`), and the key itself is kept in each tab's sessionStorage, which the browser
+ * clears when the tab closes, and which a sign-out empties at once (shared/device-session-key.ts). The venue keeps one
+ * key per account, so the person's other tabs share it rather than each approving its own: a tab that sees the live
+ * session under a key it does not hold asks the browser's other tabs for it over a same-origin channel
+ * (`keyFromOtherTab`, answered by `answerSessionKeyAsks`). It is used only
  * while svc-trade's record for THIS sign-in names the same address and the venue lists it live; after a sign-out the
  * next sign-in has no session, and the next session approves a new key. A key once used is never approved again (svc-trade refuses it).
  */
@@ -79,6 +82,8 @@ export interface HeldKey {
   /** The session ticket's next order count: kept with the key, so a reload never reuses an order's business key. */
   readonly nextTicket: number;
   readonly pendingOrder: PendingOrder | null;
+  /** This tab's own ticket lane under the key ('' for the tab that made it), so two tabs never number one order alike. */
+  readonly lane?: string;
 }
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -107,7 +112,7 @@ export function freshKey(userId: string, store: Storage | null = storage(), make
   const privateKey = make();
   return keepKey(
     userId,
-    { address: privateKeyToAccount(privateKey).address.toLowerCase(), privateKey, nextTicket: 1, pendingOrder: null },
+    { address: privateKeyToAccount(privateKey).address.toLowerCase(), privateKey, nextTicket: 1, pendingOrder: null, lane: '' },
     store,
   );
 }
@@ -151,5 +156,128 @@ export async function signWithSessionKey(key: HeldKey, prepared: TradingPrepared
   return { digest: prepared.digest, signature, signedBy: key.address };
 }
 
-/** The business key of one order from the session's ticket: the session and the ticket's own count, never a random id. */
-export const orderKey = (userId: string, sessionId: string, ticket: number) => `order:${userId}:session:${sessionId}:${ticket}`;
+/**
+ * The business key of one order from the session's ticket: the session, the tab's lane under the key and the ticket's
+ * own count, never a random id.
+ */
+export const orderKey = (userId: string, sessionId: string, ticket: number, lane = '') =>
+  `order:${userId}:session:${sessionId}:${lane ? `${lane}-` : ''}${ticket}`;
+
+// ── the one key, shared by the person's tabs ────────────────────────────────────────────────────────────────────────
+
+/** The browser's same-origin channel between this person's tabs: nothing on it reaches a server. */
+export type KeyChannel = {
+  postMessage: (message: unknown) => void;
+  close: () => void;
+  onmessage: ((event: { data: unknown }) => void) | null;
+};
+const SESSION_KEY_CHANNEL = 'intafaced.venue-session-key';
+function browserChannel(): KeyChannel | null {
+  try {
+    if (typeof BroadcastChannel === 'undefined') return null;
+    const channel = new BroadcastChannel(SESSION_KEY_CHANNEL);
+    let heard: KeyChannel['onmessage'] = null;
+    return {
+      postMessage: (message) => channel.postMessage(message),
+      close: () => channel.close(),
+      get onmessage() {
+        return heard;
+      },
+      set onmessage(handler) {
+        heard = handler;
+        channel.onmessage = handler ? (event) => handler({ data: event.data }) : null;
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+type ChannelDeps = { open?: () => KeyChannel | null; store?: Storage | null };
+const lanesKey = (userId: string) => `${storeKey(userId)}:lanes`;
+
+/** The next lane under `held` for a tab this one hands the key to: `1`, `2`, … under the maker, `1.1` under lane `1`. */
+function nextLane(userId: string, held: HeldKey, store: Storage | null): string {
+  let given = 0;
+  try {
+    const raw = store?.getItem(lanesKey(userId));
+    const parsed = raw ? lanesGivenSchema.safeParse(JSON.parse(raw)) : null;
+    if (parsed?.success && parsed.data.address === held.address) given = parsed.data.given;
+    store?.setItem(lanesKey(userId), JSON.stringify({ address: held.address, given: given + 1 }));
+  } catch {
+    /* a tab that cannot count its lanes still hands on a distinct one this time */
+  }
+  return held.lane ? `${held.lane}.${given + 1}` : `${given + 1}`;
+}
+
+/**
+ * This tab answers the person's other tabs: an ask for the key it holds for that person, at that address, is answered
+ * with the key and a lane of the asker's own. Started once with the app (main.tsx); a key this tab no longer holds (a
+ * sign-out, an ended session) is never handed on.
+ */
+export function answerSessionKeyAsks({ open = browserChannel, store = storage() }: ChannelDeps = {}): () => void {
+  const channel = open();
+  if (!channel) return () => {};
+  channel.onmessage = (event) => {
+    const ask = keyAskSchema.safeParse(event.data);
+    if (!ask.success) return;
+    const held = heldKey(ask.data.userId, store);
+    if (!held || held.address !== ask.data.address) return;
+    channel.postMessage({
+      type: 'give',
+      ask: ask.data.ask,
+      address: held.address,
+      privateKey: held.privateKey,
+      lane: nextLane(ask.data.userId, held, store),
+    });
+  };
+  return () => channel.close();
+}
+
+/**
+ * The live session key at `address`, from another of the person's tabs, kept in this tab with its own lane; null when
+ * no tab answers within `waitMs`. An answer whose key does not sign for that address is not taken.
+ */
+export function keyFromOtherTab(
+  userId: string,
+  address: string,
+  { open = browserChannel, store = storage(), waitMs = 750 }: ChannelDeps & { waitMs?: number } = {},
+): Promise<HeldKey | null> {
+  const channel = open();
+  if (!channel) return Promise.resolve(null);
+  const wanted = address.toLowerCase();
+  // The reply's address on the channel, never a business key: it only pairs this ask with its answer.
+  const ask = `${Date.now().toString(36)}.${Math.random().toString(36).slice(2)}`;
+  return new Promise((resolve) => {
+    const done = (key: HeldKey | null) => {
+      clearTimeout(timer);
+      channel.onmessage = null;
+      channel.close();
+      resolve(key);
+    };
+    const timer = setTimeout(() => done(null), waitMs);
+    channel.onmessage = (event) => {
+      const give = keyGiveSchema.safeParse(event.data);
+      if (!give.success || give.data.ask !== ask || give.data.address !== wanted) return;
+      const privateKey = give.data.privateKey as `0x${string}`;
+      if (privateKeyToAccount(privateKey).address.toLowerCase() !== wanted) return;
+      const mine = heldKey(userId, store);
+      done(
+        mine?.address === wanted
+          ? mine
+          : keepKey(userId, { address: wanted, privateKey, nextTicket: 1, pendingOrder: null, lane: give.data.lane }, store),
+      );
+    };
+    channel.postMessage({ type: 'ask', ask, userId, address: wanted });
+  });
+}
+
+/** This sign-in's session is live under a key this tab does not hold: the key another tab holds, if one does. */
+export function joinLiveSession(
+  userId: string,
+  current: TradingSessionView | null,
+  held: HeldKey | null,
+  join: (address: string) => Promise<HeldKey | null> = (address) => keyFromOtherTab(userId, address),
+): Promise<HeldKey | null> {
+  if (current?.state !== 'live' || keyFor(current, held) === 'use') return Promise.resolve(null);
+  return join(current.agentAddress);
+}

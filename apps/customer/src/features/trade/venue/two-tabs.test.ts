@@ -152,4 +152,13 @@ describe('two tabs of one tester share the one session key', () => {
     expect(await keyFromOtherTab('user-2', keyA.address, { open: channel, store: tabStorage(), waitMs: 20 })).toBeNull();
     stop();
   });
+
+  it('over the browser’s own channel, as the app opens it', async () => {
+    const tabA = tabStorage();
+    const keyA = freshKey('user-1', tabA);
+    const stop = answerSessionKeyAsks({ store: tabA });
+    const keyB = await keyFromOtherTab('user-1', keyA.address, { store: tabStorage(), waitMs: 2000 });
+    expect(keyB).toMatchObject({ address: keyA.address, privateKey: keyA.privateKey, lane: '1' });
+    stop();
+  });
 });
