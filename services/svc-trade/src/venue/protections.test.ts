@@ -545,4 +545,78 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     }
     await flat();
   });
+
+  it('#11089: an approval the venue refused (agent_removal_pending) is prepared and sent again under a new key; an accepted one never twice', async () => {
+    // The venue still holds an ended agent's removal for the next `pending` approvals it is sent, as Hyperliquid does.
+    let pending = 6;
+    const sends: string[] = [];
+    const held = new UserVenueDoor({
+      connect: async () => {
+        const inner = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 5000 });
+        return new Proxy(inner, {
+          get(target, prop, receiver) {
+            const v = Reflect.get(target, prop, receiver) as unknown;
+            if (prop !== 'submit') return typeof v === 'function' ? (v as (...args: unknown[]) => unknown).bind(target) : v;
+            return async (prepared: PreparedVenueAction, signature: Parameters<HttpUserVenue['submit']>[1]) => {
+              if (prepared.intent.kind === 'approve_agent') sends.push(prepared.digest);
+              if (prepared.intent.kind === 'approve_agent' && pending > 0) {
+                pending -= 1;
+                return {
+                  definite: true as const,
+                  accepted: false as const,
+                  refusal: { venueId: inner.venue.id, code: 'agent_removal_pending' as const, detail: 'User has pending agent removal' },
+                  asOf: new Date(),
+                };
+              }
+              return target.submit(prepared, signature);
+            };
+          },
+        });
+      },
+      appEnv: 'test',
+      store: new InMemoryPreparedActionStore(),
+      stepUp: { check: async () => ({ ok: true }) } as never,
+      builder: { address: BUILDER, feeBps: a('1') },
+      listings: new StoreVenueRoutingGate(listedTestStore([ETH])),
+      slippageCapBps: 50,
+      closeSlippageBps: CLOSE_BPS,
+      ordersPageMax: 100,
+      now: () => new Date(),
+      wait: async () => undefined,
+    } as never);
+    const q = new VenueProtections({
+      door: held,
+      store: new InMemoryEngineProtectionStore(),
+      keySeed: 'intafaced unit TEST protection seed #11089',
+      closeSlippageBps: CLOSE_BPS,
+      liveTier,
+      freeze,
+      now: () => new Date(),
+    });
+    const sendHeld = async (x: { actionKey: string; prepared: PreparedVenueAction }) =>
+      held.submit(person, x.actionKey, await signed(x.prepared));
+    // The first approval and its four resends are all refused: the refusal stands, nothing is approved.
+    const first = await q.prepareAgent(person, owner);
+    expect((await sendHeld(first)).outcome).toMatchObject({ definite: true, accepted: false, refusal: { code: 'agent_removal_pending' } });
+    expect(sends).toHaveLength(5);
+    expect(await q.agent(person, owner)).toMatchObject({ approved: false });
+    // Approve again: a new key and new bytes, sent to the venue again, never the stored refusal replayed.
+    const second = await q.prepareAgent(person, owner);
+    expect(second.actionKey).not.toBe(first.actionKey);
+    expect(second.reused).toBe(false);
+    expect(second.prepared.digest).not.toBe(first.prepared.digest);
+    const answered = await sendHeld(second);
+    expect(answered).toMatchObject({ replayed: false, outcome: { definite: true, accepted: true } });
+    expect(sends).toHaveLength(7);
+    expect(sends[6]).toBe(second.prepared.digest);
+    expect(await q.agent(person, owner)).toMatchObject({ approved: true });
+    // Accepted: Approve again is that same stored approval, and sending it again sends nothing to the venue.
+    const third = await q.prepareAgent(person, owner);
+    expect(third).toMatchObject({ actionKey: second.actionKey, reused: true, signed: true });
+    expect(await sendHeld(third)).toMatchObject({ replayed: true, outcome: { accepted: true } });
+    expect(sends).toHaveLength(7);
+    // The first, refused key still answers its own refusal: it is never sent again either.
+    expect(await sendHeld(first)).toMatchObject({ replayed: true, outcome: { accepted: false } });
+    expect(sends).toHaveLength(7);
+  });
 });
