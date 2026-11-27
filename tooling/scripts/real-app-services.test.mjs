@@ -138,6 +138,11 @@ const BLANK = { code: 0, timedOut: false, stdout: '{"agents":["LOCAL_STACK_AGENT
     LOCAL_STACK_HOSTS_X: 'on',
     HOME: 'off',
   });
+  // The custody switch is the stack's own start setting, not an owner value a file blanked: a restore that restarts a
+  // blanked service keeps it, so a custody-off shard stays custody off (#11102: on run 45977414925, shard 6, the
+  // restore after J-agents-01 restarted every service custody on, J-agents-02 then funded a customer in our ledger, and
+  // svc-ledger refused to boot custody off again on that balance, which took the ledger down for the rest of the shard).
+  assert.deepEqual(withoutOff({ LOCAL_STACK_HOSTS: 'off', LOCAL_STACK_CUSTODY_LAYER: 'off' }), { LOCAL_STACK_CUSTODY_LAYER: 'off' });
 }
 // The stack records the off values each process started with (local-test-stack.mjs startProc), and its `overrides`
 // command answers them for each live service it can restart: a process started with LOCAL_STACK_*=off is named with
@@ -171,6 +176,8 @@ const BLANK = { code: 0, timedOut: false, stdout: '{"agents":["LOCAL_STACK_AGENT
   try {
     pids.push(start('customer', ['LOCAL_STACK_WS_UPSTREAM', 'LOCAL_STACK_HOSTS']));
     pids.push(start('invitation', []));
+    // A service started custody off with nothing blanked is not named: the switch is the stack's, not an override.
+    pids.push(start('apex', ['LOCAL_STACK_CUSTODY_LAYER']));
     const r = spawnSync(process.execPath, [fileURLToPath(stackUrl), 'overrides'], {
       env: { ...clean, LOCAL_STACK_STATE: state },
       encoding: 'utf8',
