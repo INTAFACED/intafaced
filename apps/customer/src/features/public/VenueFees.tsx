@@ -114,6 +114,7 @@ function VenueFeesBody({ fees, t }: { fees: VenuePublicFees['value']; t: T }) {
       <h3>{t('tiersTitle')}</h3>
       <TiersTable schedule={fees.schedule} t={t} />
       <h3>{t('marketsTitle')}</h3>
+      <p>{t('marketsRateNote')}</p>
       <p data-fees="builder-cap">
         {t('capLine', {
           spot: spotCaps.length ? spotCaps.map((c) => `${c}%`).join(', ') : t('notSet'),
@@ -157,7 +158,46 @@ function VenueFeesBody({ fees, t }: { fees: VenuePublicFees['value']; t: T }) {
           ))}
         </tbody>
       </table>
+      {fees.withdrawal !== undefined ? <WithdrawalTerms terms={fees.withdrawal} t={t} /> : null}
     </>
+  );
+}
+
+/**
+ * What taking money out costs (J-cex-spot-01 #12), as the venue publishes it before anything is signed: its own
+ * fee, the network fee and the arrival time, each "not published" when it gives none, never shown as free.
+ */
+function WithdrawalTerms({ terms, t }: { terms: VenuePublicFees['value']['withdrawal']; t: T }) {
+  if (!terms) {
+    return (
+      <section aria-labelledby="fees-withdrawal" data-fees="withdrawal">
+        <h3 id="fees-withdrawal">{t('withdrawalTitle', { asset: 'USDC' })}</h3>
+        <p data-cell="withdrawal-none">{t('withdrawalNone')}</p>
+        <p>{t('withdrawalNoTradingFee')}</p>
+      </section>
+    );
+  }
+  const { asset } = terms;
+  return (
+    <section aria-labelledby="fees-withdrawal" data-fees="withdrawal">
+      <h3 id="fees-withdrawal">{t('withdrawalTitle', { asset })}</h3>
+      <ul>
+        <li data-cell="withdrawal-fee" data-value={terms.fee.known ? terms.fee.value : ''}>
+          {terms.fee.known ? t('withdrawalFee', { amount: terms.fee.value, asset }) : t('withdrawalFeeUnpublished')}
+        </li>
+        <li data-cell="withdrawal-network-fee" data-value={terms.networkFee.known ? terms.networkFee.value : ''}>
+          {terms.networkFee.known
+            ? t('withdrawalNetworkFee', { amount: terms.networkFee.value, asset })
+            : t('withdrawalNetworkFeeUnpublished')}
+        </li>
+        <li data-cell="withdrawal-arrival">
+          {terms.arrivalSeconds === null
+            ? t('withdrawalArrivalUnpublished')
+            : t('withdrawalArrival', { minutes: String(Math.max(1, Math.ceil(terms.arrivalSeconds / 60))) })}
+        </li>
+      </ul>
+      <p>{t('withdrawalNoTradingFee')}</p>
+    </section>
   );
 }
 

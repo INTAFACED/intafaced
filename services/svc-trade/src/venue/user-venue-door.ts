@@ -36,6 +36,7 @@ import {
   type UserVenueAccount,
   type UserVenueOrder,
   type UserVenueDepositRoute,
+  type UserVenueWithdrawalTerms,
   type UserVenueMarket,
   type VenueBestPrices,
   type VenueIntent,
@@ -131,6 +132,8 @@ export function assertOwnWalletWithdrawal(principal: Principal, owner: string, i
   }
 }
 
+/** The asset a trader withdraws from the venue to their own wallet (J-cex-spot-01 #12), whose terms the fee page lists. */
+const WITHDRAWAL_ASSET = 'USDC';
 const MARKET_KINDS_TTL_MS = 60_000;
 /** On a symbol the list doesn't hold, the list is read again at most this often, so unlisted symbols can't each cost a venue read. */
 const MARKET_MISS_REREAD_MS = 5_000;
@@ -1297,6 +1300,16 @@ export class UserVenueDoor {
         builderFeeBps: ours && ours.carries ? { known: true, value: ours.feeBps } : { known: false },
       });
     }
+    // What taking USDC out to the trader's own wallet costs, as the venue publishes it (J-cex-spot-01 #12), listed
+    // beside the trading fees. A venue that publishes no terms answers null, shown "not published", never as free.
+    let withdrawal: UserVenueWithdrawalTerms | null = null;
+    if (venue.withdrawalTerms) {
+      try {
+        withdrawal = (await venue.withdrawalTerms(WITHDRAWAL_ASSET)).value;
+      } catch (err) {
+        if (!(err instanceof VenueRefusalError && err.refusal.code === 'not_offered')) throw err;
+      }
+    }
     const test = isTestVenue(venue.venue);
     return {
       venueId: status.venueId,
@@ -1304,6 +1317,7 @@ export class UserVenueDoor {
         venue: { id: venue.venue.id, displayName: venue.venue.displayName },
         schedule: status.value.schedule,
         markets,
+        withdrawal,
         test,
         ...(test ? { label: 'TEST' } : {}),
       },

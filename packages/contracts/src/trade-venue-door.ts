@@ -799,6 +799,19 @@ export const venuePublicFeesSchema = asOf(
         builderFeeBps: maybeKnown(decimalSchema),
       }),
     ),
+    /**
+     * What a USDC withdrawal to the trader's wallet costs, as the venue publishes it; `null`: it publishes none.
+     * Absent: a service from before the field, so the page lists nothing rather than "not published".
+     */
+    withdrawal: z
+      .object({
+        asset: z.string(),
+        fee: maybeKnown(decimalSchema),
+        networkFee: maybeKnown(decimalSchema),
+        arrivalSeconds: z.number().int().nonnegative().nullable(),
+      })
+      .nullable()
+      .optional(),
     test: z.boolean(),
   }),
 );

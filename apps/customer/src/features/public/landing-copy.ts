@@ -17,6 +17,7 @@ export const landingCopy = defineCopy('public-landing', {
   statVolume: 'traded in 24h',
   statFee: 'our taker fee, from',
   statFeeBlank: 'our fee schedule is not set',
+  statFeeVenue: 'the venue’s fee and our builder fee, on Fees',
   boardLabel: 'Markets',
   tabPopular: 'Popular',
   tabGainers: 'Gainers',
