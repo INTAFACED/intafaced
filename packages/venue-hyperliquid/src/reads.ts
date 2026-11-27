@@ -176,7 +176,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         const ctx = assetCtxs[i];
         if (!u || typeof u !== 'object' || Array.isArray(u) || typeof u.name !== 'string') return;
         if (!ctx || typeof ctx !== 'object' || Array.isArray(ctx) || typeof ctx.markPx !== 'string') return;
-        marks.set(u.name, amt(ctx.markPx, 'markPx'));
+        const mark = this.figure(() => amt(ctx.markPx, 'markPx'), `mark for ${u.name}`);
+        if (mark !== undefined) marks.set(u.name, mark);
       });
     }
     if (Array.isArray(predicted)) {
@@ -186,14 +187,22 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         const f = Array.isArray(own) && own[1] && typeof own[1] === 'object' && !Array.isArray(own[1]) ? own[1] : null;
         if (!f || typeof f.fundingRate !== 'string' || typeof f.nextFundingTime !== 'number' || typeof f.fundingIntervalHours !== 'number')
           continue;
-        fundings.set(row[0], {
-          rate: amt(f.fundingRate, 'fundingRate'),
-          intervalSeconds: f.fundingIntervalHours * 3600,
-          nextFundingAt: new Date(f.nextFundingTime),
-        });
+        const rate = this.figure(() => amt(f.fundingRate, 'fundingRate'), `funding for ${row[0]}`);
+        if (rate === undefined) continue;
+        fundings.set(row[0], { rate, intervalSeconds: f.fundingIntervalHours * 3600, nextFundingAt: new Date(f.nextFundingTime) });
       }
     }
     return { marks, fundings };
+  }
+
+  /** One coin's figure, or undefined with a warning when the venue's value is not a decimal: that figure reads not known. */
+  private figure(read: () => Amount, what: string): Amount | undefined {
+    try {
+      return read();
+    } catch (error) {
+      this.warn(`venue listing: ${what} left not known: ${messageOf(error)}`);
+      return undefined;
+    }
   }
 
   /**

@@ -1275,9 +1275,47 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
 
   it('markets: a failed mark or funding read leaves those figures not known and the listing up', async () => {
     const fake = fakeVenue();
-    const list = (await venueWith(fake).markets(null)).value;
+    // Neither read has an answer: the venue refuses both (HTTP 400).
+    delete fake.info.metaAndAssetCtxs;
+    delete fake.info.predictedFundings;
+    const warnings: string[] = [];
+    const venue = new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      fetch: fake.fetch,
+      clock: () => new Date(NOW),
+      warn: (m) => warnings.push(m),
+    });
+    const list = (await venue.markets(null)).value;
     const btc = list.find((m) => m.symbol === 'BTC-PERP')!;
     expect([btc.status, btc.mark, btc.funding]).toEqual(['trading', { known: false }, { known: false }]);
+    expect(fake.infoTypes).toEqual(expect.arrayContaining(['metaAndAssetCtxs', 'predictedFundings']));
+    expect(warnings.some((w) => w.startsWith('venue listing: marks left not known'))).toBe(true);
+    expect(warnings.some((w) => w.startsWith('venue listing: funding left not known'))).toBe(true);
+  });
+
+  it("markets: a mark or funding rate that is not a decimal leaves that coin's figure not known and the listing up", async () => {
+    const fake = fakeVenue();
+    fake.info.metaAndAssetCtxs = () => [META, [{ markPx: 'NaN' }, { markPx: '2010' }, { markPx: '1' }]];
+    const next = NOW + 1_800_000;
+    fake.info.predictedFundings = () => [
+      ['BTC', [['HlPerp', { fundingRate: '0.0000125', nextFundingTime: next, fundingIntervalHours: 1 }]]],
+      ['ETH', [['HlPerp', { fundingRate: '1e-5', nextFundingTime: next, fundingIntervalHours: 1 }]]],
+    ];
+    const warnings: string[] = [];
+    const venue = new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      fetch: fake.fetch,
+      clock: () => new Date(NOW),
+      warn: (m) => warnings.push(m),
+    });
+    const list = (await venue.markets(null)).value;
+    const btc = list.find((m) => m.symbol === 'BTC-PERP')!;
+    const eth = list.find((m) => m.symbol === 'ETH-PERP')!;
+    expect([btc.status, btc.mark]).toEqual(['trading', { known: false }]);
+    expect(btc.funding).toEqual({ known: true, value: { rate: a('0.0000125'), intervalSeconds: 3600, nextFundingAt: new Date(next) } });
+    expect([eth.mark, eth.funding]).toEqual([{ known: true, value: a('2010') }, { known: false }]);
+    expect(warnings.some((w) => w.includes('mark for BTC left not known'))).toBe(true);
+    expect(warnings.some((w) => w.includes('funding for ETH left not known'))).toBe(true);
   });
 });
 
