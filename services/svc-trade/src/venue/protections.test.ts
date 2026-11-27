@@ -33,7 +33,7 @@ const person = {
 const wallet = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade protections')));
 const owner = wallet.address.toLowerCase();
 const BUILDER = '0x00000000000000000000000000000000000000b3';
-/** The owner's close tolerance on this TEST stack: 10% (1000 bps), as the owner decided for stop-loss and reduce-only closes. */
+/** A labelled TEST close tolerance: 10% (1000 bps). */
 const CLOSE_BPS = 1000;
 /** The region of the request that arms a stop: one where trading is open. */
 const REGION = 'DE';

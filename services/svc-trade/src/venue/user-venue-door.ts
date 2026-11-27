@@ -1001,7 +1001,9 @@ export class UserVenueDoor {
    * `trade.slippage_cap_unset`; no best price on the side it meets refuses `trade.no_reference_price` (never an
    * unbounded order); a worst price past the bound refuses `trade.venue.price_outside_protection`. A limit order is
    * not touched. On perpetuals, a blank slippage cap refuses market opens (`!reduceOnly`, J-derivatives-02 #5) while
-   * reduce-only closes always pass and, with a cap published, the futures ticket's typed worst price goes to the venue.
+   * reduce-only closes pass it and, with a cap published, the futures ticket's typed worst price goes to the venue. A
+   * reduce-only market or IOC order on a perpetual needs the owner's close tolerance set (blank refuses
+   * `trade.close_slippage_unset`); its price is not bounded here.
    */
   private async assertMarketProtection(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
     // A reduce-only close that takes the book now (a market order, or an IOC limit at a close's worst price) on a
