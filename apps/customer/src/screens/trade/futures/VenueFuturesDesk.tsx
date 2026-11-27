@@ -87,7 +87,7 @@ import type { ChartOrderLine } from '../chart/PriceChart';
 import { VenueSplitReview, type SplitReviewData } from './VenueSplitReview';
 import { VenueTierConfirm } from './VenueTierConfirm';
 import { DailyLossConfirm, DeskDailyLoss, DailyLossRefused } from '../../../features/trade/risk/DailyLossParts';
-import { advisoryReached, useDailyLoss } from '../../../features/trade/risk/daily-loss-source';
+import { advisoryReached, counted, useDailyLoss } from '../../../features/trade/risk/daily-loss-source';
 import { venueRiskCopy } from './venue-risk-copy';
 import { VenueFunding } from './VenueFunding';
 import { TicketPreview } from './TicketPreview';
@@ -951,8 +951,8 @@ function Ticket({
   const [tierAccepted, setTierAccepted] = useState(false);
   // The person's daily loss limit (J-derivatives-35): an opening order past an advisory limit asks a confirm naming it; a
   // blocking one is refused by svc-trade at prepare, before the wallet signs anything. Closes are never asked or held.
-  const dailyLossRead = useDailyLoss(owner);
-  const dailyLoss = dailyLossRead.status === 'ready' ? dailyLossRead.data : null;
+  const dailyLossRead = useDailyLoss(owner, { terms: true });
+  const dailyLoss = dailyLossRead.status === 'ready' ? counted(dailyLossRead.data) : null;
   const [lossAccepted, setLossAccepted] = useState(false);
   const [review, setReview] = useState<{
     intent: OrderIntent;

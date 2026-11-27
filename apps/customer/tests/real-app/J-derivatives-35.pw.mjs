@@ -278,7 +278,6 @@ test(`${J} #2 sets a TEST limit of 100 USDC with "Warn me" and closes TEST trade
   const resting = (await openOrders(owner)).filter((o) => !o.reduceOnly && o.side === 'buy');
   expect(resting).toHaveLength(1);
   expect(sameDecimal(resting[0].price, '2000')).toBe(true);
-  run.write({ resting: resting[0].venueClientOrderId });
   await sheet.getByRole('button', { name: 'Back', exact: true }).click();
 
   // Risk rules shows today's loss from the venue, with its as-of time, against the limit.
@@ -346,7 +345,7 @@ test(`${J} #4 closes a position, moves its stop and cancels an order while stopp
   stepPicture,
 }) => {
   test.setTimeout(480_000);
-  const { owner, resting } = state();
+  const { owner } = state();
   expect((await limitView()).active).toEqual({ mode: 'blocking', limit: '100' });
   const wallet = await openDesk(page);
   await expect(page.getByTestId('daily-loss-desk')).toHaveAttribute('data-state', 'blocking', { timeout: 20_000 });
@@ -376,18 +375,27 @@ test(`${J} #4 closes a position, moves its stop and cancels an order while stopp
   await expect(dialog.getByTestId('protection-refusal')).toHaveCount(0);
   expect(signatures(wallet) - beforeMove.signed).toBe(2);
   expect(sent.length - beforeMove.sent).toBe(2);
-  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
 
-  // The resting opening order from #2 cancelled: one signed cancel, the venue no longer holds it.
-  const beforeCancel = { signed: signatures(wallet), sent: sent.length };
-  await page.getByTestId('venue-blotter').getByRole('button', { name: 'Open orders', exact: true }).click();
-  const order = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${resting}"]`);
-  await expect(order).toBeVisible({ timeout: 20_000 });
-  await order.getByRole('button', { name: 'Cancel', exact: true }).click();
+  // An order cancelled: a TEST take profit resting on the venue as a trigger order, then cancelled; one signed cancel,
+  // and the venue no longer holds it.
+  await dialog.getByRole('button', { name: 'Take profit', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Size to close', exact: true }).fill('0.3');
+  await dialog.getByRole('textbox', { name: 'Trigger price', exact: true }).fill('3000');
+  await dialog.getByRole('button', { name: 'Arm exit order', exact: true }).click();
   await continueInWallet(page);
-  await expect.poll(async () => (await openOrders(owner)).some((o) => o.venueClientOrderId === resting), { timeout: 20_000 }).toBe(false);
+  await expect(dialog.getByTestId('protection-outcome')).toHaveText('Armed on the venue.', { timeout: 15_000 });
+  const targetAt = async () => (await openOrders(owner)).filter((o) => o.reduceOnly && o.trigger && sameDecimal(o.trigger.price, '3000'));
+  await expect.poll(async () => (await targetAt()).length, { timeout: 15_000 }).toBe(1);
+  const target = dialog.locator('li[data-kind="take_profit"][data-status="armed"]');
+  await expect(target).toHaveCount(1, { timeout: 15_000 });
+  const beforeCancel = { signed: signatures(wallet), sent: sent.length };
+  await target.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await continueInWallet(page);
+  await expect.poll(async () => (await targetAt()).length, { timeout: 20_000 }).toBe(0);
   expect(signatures(wallet) - beforeCancel.signed).toBe(1);
   expect(sent.length - beforeCancel.sent).toBe(1);
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
 
   // The whole position closed: one signed reduce-only close, filled; no confirm, warning or refusal on the way.
   const beforeClose = { signed: signatures(wallet), sent: sent.length };

@@ -5,11 +5,12 @@ import { displayAmount } from '../../../shared/money';
 import { Section, Waiting } from '../../more';
 import {
   advisoryReached,
+  counted,
   useDailyLoss,
   useSaveDailyLoss,
   type DailyLossMode,
   type DailyLossTerms,
-  type DailyLossView,
+  type CountedDailyLoss,
 } from './daily-loss-source';
 import { dailyLossCopy } from './daily-loss-copy';
 
@@ -57,10 +58,19 @@ export function DailyLossRule({ owner }: { owner: string }) {
         </p>
       </Section>
     );
-  return <Rule owner={owner} view={view.data} />;
+  const read = counted(view.data);
+  if (!read)
+    return (
+      <Section title={t('heading')}>
+        <p role="alert" data-testid="daily-loss-unread">
+          {t('unread')}
+        </p>
+      </Section>
+    );
+  return <Rule owner={owner} view={read} />;
 }
 
-function Rule({ owner, view }: { owner: string; view: DailyLossView }) {
+function Rule({ owner, view }: { owner: string; view: CountedDailyLoss }) {
   const { t } = dailyLossCopy.useCopy();
   const when = useWhen();
   const save = useSaveDailyLoss(owner);
@@ -228,7 +238,7 @@ function RuleForm({
 }
 
 /** The desk's line once today's loss has reached the limit in force (or could not be read with one on); nothing while off. */
-export function DeskDailyLoss({ view }: { view: DailyLossView | null }) {
+export function DeskDailyLoss({ view }: { view: CountedDailyLoss | null }) {
   const { t } = dailyLossCopy.useCopy();
   const when = useWhen();
   const active = view?.active ?? null;
@@ -267,7 +277,7 @@ export function DailyLossConfirm({
   accepted,
   onAccept,
 }: {
-  view: DailyLossView;
+  view: CountedDailyLoss;
   accepted: boolean;
   onAccept: (checked: boolean) => void;
 }) {
@@ -297,7 +307,7 @@ export function DailyLossConfirm({
 }
 
 /** What the review shows when svc-trade refused an opening order on a blocking limit: the limit, today's loss and the reset. */
-export function DailyLossRefused({ view }: { view: DailyLossView | null }) {
+export function DailyLossRefused({ view }: { view: CountedDailyLoss | null }) {
   const { t } = dailyLossCopy.useCopy();
   const when = useWhen();
   if (!view || !view.active) return null;

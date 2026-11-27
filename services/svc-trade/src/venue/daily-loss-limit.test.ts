@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
@@ -195,6 +195,26 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
     // The venue's as-of time for the fills it was counted from, and the next 00:00 UTC, when the count starts again.
     expect(view.today.asOf).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(view.today.resetsAt).toBe(new Date(Date.parse(view.today.since) + 86_400_000).toISOString());
+  });
+
+  it("the desk's terms read of an account that never set a limit asks the venue nothing", async () => {
+    const venueNow = await d.venue();
+    const markets = vi.spyOn(venueNow, 'markets');
+    const fills = vi.spyOn(venueNow, 'fills');
+    try {
+      expect(await limits.get(principal, owner, { terms: true })).toMatchObject({
+        owner,
+        asset: null,
+        active: null,
+        pending: null,
+        today: null,
+      });
+      expect(markets).not.toHaveBeenCalled();
+      expect(fills).not.toHaveBeenCalled();
+    } finally {
+      markets.mockRestore();
+      fills.mockRestore();
+    }
   });
 
   it('off (the default), an opening order is prepared with no warning', async () => {

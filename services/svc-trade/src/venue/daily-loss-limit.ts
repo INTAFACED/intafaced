@@ -142,9 +142,19 @@ export class VenueDailyLossLimits {
     return { account, venue };
   }
 
-  async get(principal: Principal, owner: string): Promise<DailyLossView> {
+  async get(principal: Principal, owner: string, opts: { terms?: boolean } = {}): Promise<DailyLossView> {
     const { account, venue } = await this.read(owner);
     const rec = await this.deps.store.get({ userId: principal.userId, venueId: venue.venue.id, owner: account.owner });
+    // The desk's read of an account that never set a limit: our record says it is off, and the venue is not asked.
+    if (!rec && opts.terms)
+      return {
+        venue: { id: venue.venue.id, name: venue.venue.displayName, test: isTestVenue(venue.venue) },
+        owner: account.owner,
+        asset: null,
+        active: null,
+        pending: null,
+        today: null,
+      };
     const asset = rec?.asset ?? (await this.assetOf(venue, account));
     return this.view({ venue, account, asset, rec: rec ? inForce(rec, this.deps.now()) : null });
   }
