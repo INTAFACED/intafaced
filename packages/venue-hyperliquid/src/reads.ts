@@ -208,8 +208,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     if (!HL_CANDLE_INTERVALS.has(interval)) throw refusal(this.venue.id, 'not_offered', `this venue publishes no ${interval} candles`);
     const m = await this.market(symbol);
     const stepMs = VENUE_CANDLE_INTERVALS[interval] * 1000;
-    const endTime = this.clock().getTime();
-    const startTime = since ? since.getTime() : endTime - limit * stepMs;
+    // The window ends where the current candle ends, not at this millisecond, so every desk asking within one candle asks
+    // the same read and shares it (`shareReads`); the venue answers only candles that have opened.
+    const endTime = (Math.floor(this.clock().getTime() / stepMs) + 1) * stepMs - 1;
+    const startTime = since ? since.getTime() : endTime + 1 - limit * stepMs;
     const rows = arr(
       await this.info({ type: 'candleSnapshot', req: { coin: m.coin, interval, startTime, endTime } }),
       'candleSnapshot',
