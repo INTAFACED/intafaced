@@ -118,7 +118,7 @@ describe('venue client', () => {
     expect(totalToCommit({ ...preview, venueFee: { known: false } })).toBeNull();
   });
 
-  it('puts a close’s worst price the owner’s close tolerance from the mark, on the tick, against the position', () => {
+  it('puts a close’s worst price the owner’s close tolerance from the mark, against the position, rounded toward the mark', () => {
     const position = {
       symbol: 'BTC-PERP',
       side: 'long' as const,
@@ -134,8 +134,29 @@ describe('venue client', () => {
     // 10% (1000 bps), the owner's close tolerance as `/venue/status` answers it: never a figure of the desk's own.
     expect(closeWorstPrice(position, '1', 1000)).toBe('54000');
     expect(closeWorstPrice({ ...position, side: 'short' }, '1', 1000)).toBe('66000');
-    expect(closeWorstPrice({ ...position, markPrice: '60000.7' }, '1', 1000)).toBe('54000');
-    expect(closeWorstPrice({ ...position, side: 'short', markPrice: '60000.7' }, '1', 1000)).toBe('66001');
+    // 60000.7 × 0.9 = 54000.63 → 54001 (a long's sell up); × 1.1 = 66000.77 → 66000 (a short's buy down).
+    expect(closeWorstPrice({ ...position, markPrice: '60000.7' }, '1', 1000)).toBe('54001');
+    expect(closeWorstPrice({ ...position, side: 'short', markPrice: '60000.7' }, '1', 1000)).toBe('66000');
+    // Close all sends with tick '0' when it can't find the position's market: the close still goes, on 5 figures.
+    expect(closeWorstPrice({ ...position, markPrice: '60000.7' }, '0', 1000)).toBe('54001');
+  });
+
+  it('a close’s worst price is one the venue takes: 5 significant figures, toward the mark', () => {
+    const position = {
+      symbol: 'BTC-PERP',
+      side: 'long' as const,
+      size: '0.001',
+      entryPrice: '62400',
+      markPrice: '62424',
+      unrealisedPnl: '0',
+      marginMode: 'cross' as const,
+      margin: '6',
+      leverageBps: 100000,
+      liquidationPrice: { known: false as const },
+    };
+    // 62424 × 0.95 = 59302.8 → 59303 (a long's sell floor up); 62424 × 1.05 = 65545.2 → 65545 (a short's buy cap down).
+    expect(closeWorstPrice(position, '0.1', 500)).toBe('59303');
+    expect(closeWorstPrice({ ...position, side: 'short' }, '0.1', 500)).toBe('65545');
   });
 
   it('bounds a market close by the owner’s close tolerance from the venue’s best price, else from the mark', () => {
@@ -153,9 +174,9 @@ describe('venue client', () => {
     };
     const best = { symbol: 'BTC-PERP', bid: '60000', ask: '60010' };
     const read = { value: best };
-    // A long closes with a sell against the best bid: at least 60000 less 10%, down to the tick.
+    // A long closes with a sell against the best bid: at least 60000 less 10%, up toward the market.
     expect(closeMarketPrice(position, '1', read, 1000)).toBe('54000');
-    // A short closes with a buy against the best ask: at most 60010 plus 10%, up to the tick.
+    // A short closes with a buy against the best ask: at most 60010 plus 10%, down toward the market.
     expect(closeMarketPrice({ ...position, side: 'short' }, '1', read, 1000)).toBe('66011');
     // No best price on that side, or no read: 10% from the mark.
     expect(closeMarketPrice(position, '1', { value: { ...best, bid: null } }, 1000)).toBe('54000');

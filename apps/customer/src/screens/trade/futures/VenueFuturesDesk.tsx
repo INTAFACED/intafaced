@@ -1,3 +1,4 @@
+import { venueBound } from '@intafaced/contracts/venue-price';
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
@@ -1718,16 +1719,15 @@ export function closeMarketPrice(
 }
 
 /**
- * A close's worst price: the owner's close tolerance from the mark, on the tick, against the position. Blank sends the
- * mark itself, which svc-trade refuses by name (`trade.close_slippage_unset`) before anything is signed.
+ * A close's worst price: the owner's close tolerance from the mark, against the position, on the venue's price rule
+ * rounded toward the mark (a long's sell up, a short's buy down; `venueBound`). Blank sends the mark itself, which
+ * svc-trade refuses by name (`trade.close_slippage_unset`) before anything is signed.
  */
 export function closeWorstPrice(position: VenuePosition, tick: string, closeSlippageBps: number | null): string {
   const mark = parseAmount(position.markPrice);
-  const step = parseAmount(tick);
   const bps = BigInt(closeSlippageBps ?? 0);
   const raw = position.side === 'long' ? (mark * (10_000n - bps)) / 10_000n : (mark * (10_000n + bps)) / 10_000n;
-  const onTick = step > 0n ? (position.side === 'long' ? (raw / step) * step : ((raw + step - 1n) / step) * step) : raw;
-  return formatAmount(onTick);
+  return venueBound(position.side === 'long' ? 'sell' : 'buy', { moved: formatAmount(raw), reference: formatAmount(mark), tick });
 }
 
 function Blotter({

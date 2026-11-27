@@ -22,9 +22,20 @@ import { TextAreaField } from '@intafaced/ui/lit/templates';
 import { Details, Limit } from './catalogue-parts';
 import { EmptyNote, KitRead, ScrollTable, Section } from './volt-parts';
 import { governanceRoomCopy } from './governance-room-copy';
+import { paperRefusal } from './action-state';
+import { usePaperMode } from './paper-context';
 import { TOKEN_VOTING_TYPES, type TokenVotingType } from '@intafaced/contracts/token-governance';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+
+/**
+ * The room's one way to send a write: in the simulated view (`?simulated=true`) it answers the paper refusal and sends
+ * nothing, as `useAction` does for the other More rooms.
+ */
+function useWrite() {
+  const paper = usePaperMode();
+  return <R,>(send: () => Promise<R>): Promise<R | Refusal> => (paper ? Promise.resolve(paperRefusal()) : send());
+}
 type T = ReturnType<typeof governanceRoomCopy.forLocale>['t'];
 
 const KINDS = ['listing', 'fee_param', 'curriculum', 'grant'] as const;
@@ -292,13 +303,14 @@ export function GovernanceProposals({
 
 function SpaceCard({ home, t, onChanged }: { home: Home; t: T; onChanged: () => void }) {
   const api = useApi();
+  const write = useWrite();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Refusal | null>(null);
   // A follow press always asks to follow: pressing it again (or from a page that was out of date) changes nothing.
   async function follow() {
     setBusy(true);
     setFailure(null);
-    const result = await api.call(TOKEN_FOLLOW_SPACE, { following: true });
+    const result = await write(() => api.call(TOKEN_FOLLOW_SPACE, { following: true }));
     setBusy(false);
     if (!result.ok) setFailure(result);
     onChanged();
@@ -334,6 +346,7 @@ function ProposalForm({
   onClose: () => void;
 }) {
   const api = useApi();
+  const write = useWrite();
   const [kind, setKind] = useState<(typeof KINDS)[number] | ''>(editing?.kind ?? '');
   const [votingType, setVotingType] = useState<TokenVotingType>('basic');
   const [choices, setChoices] = useState('');
@@ -356,10 +369,8 @@ function ProposalForm({
         opensAt: opens !== localValue(editing.opensAt) ? instant(opens) : undefined,
         closesAt: closes !== localValue(editing.closesAt) ? instant(closes) : undefined,
       };
-      const result = await api.call(
-        TOKEN_EDIT_PROPOSAL,
-        { proposalId: editing.id, title, bodyMd: body, ...window },
-        { accept: instantsRead },
+      const result = await write(() =>
+        api.call(TOKEN_EDIT_PROPOSAL, { proposalId: editing.id, title, bodyMd: body, ...window }, { accept: instantsRead }),
       );
       setBusy(false);
       setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
@@ -386,19 +397,21 @@ function ProposalForm({
       setBusy(false);
       return;
     }
-    const result = await api.call(
-      TOKEN_CREATE_PROPOSAL,
-      {
-        kind,
-        body: {},
-        handle,
-        title,
-        bodyMd: body,
-        ...(votingType !== 'basic' ? { votingType, choices: choiceList } : {}),
-        ...(discussion ? { discussionLink: discussion } : {}),
-        ...window,
-      },
-      { accept: instantsRead },
+    const result = await write(() =>
+      api.call(
+        TOKEN_CREATE_PROPOSAL,
+        {
+          kind,
+          body: {},
+          handle,
+          title,
+          bodyMd: body,
+          ...(votingType !== 'basic' ? { votingType, choices: choiceList } : {}),
+          ...(discussion ? { discussionLink: discussion } : {}),
+          ...window,
+        },
+        { accept: instantsRead },
+      ),
     );
     setBusy(false);
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
@@ -467,6 +480,7 @@ function ProposalForm({
  */
 function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal; onDone: () => void; onClose: () => void }) {
   const api = useApi();
+  const write = useWrite();
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ ok: true } | { ok: false; failure: Refusal } | null>(null);
@@ -474,7 +488,7 @@ function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal
     event.preventDefault();
     setBusy(true);
     setOutcome(null);
-    const result = await api.call(TOKEN_GOVERNANCE_CANCEL, { proposalId: proposal.id, reason }, { accept: instantsRead });
+    const result = await write(() => api.call(TOKEN_GOVERNANCE_CANCEL, { proposalId: proposal.id, reason }, { accept: instantsRead }));
     setBusy(false);
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
     if (result.ok || result.reason === 'uncertain') onDone();
@@ -503,6 +517,7 @@ function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal
 export function GovernanceDelegation() {
   const t = useWords();
   const api = useApi();
+  const write = useWrite();
   const { userId } = useSession();
   const read = useResource((signal) => api.call(TOKEN_DELEGATION, undefined, { signal }), `gov-delegation:${userId}`);
   const [delegatee, setDelegatee] = useState('');
@@ -511,7 +526,7 @@ export function GovernanceDelegation() {
   async function delegate() {
     setBusy(true);
     setFailure(null);
-    const result = await api.call(TOKEN_DELEGATE, { delegateeUserId: delegatee.trim() || null });
+    const result = await write(() => api.call(TOKEN_DELEGATE, { delegateeUserId: delegatee.trim() || null }));
     setBusy(false);
     if (!result.ok) setFailure(result);
     read.reload();

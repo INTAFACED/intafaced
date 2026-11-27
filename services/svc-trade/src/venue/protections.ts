@@ -16,6 +16,7 @@ import {
 } from '@intafaced/venue-contracts';
 import { closeTolerancePrice, requireCloseSlippageBps } from './close-slippage.js';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
+import { venueBoundPrice } from './venue-price.js';
 import {
   assertTradingLevel,
   type PreparedAnswer,
@@ -166,12 +167,6 @@ function positive(v: unknown, field: string): Amount {
   return amount;
 }
 
-const onTick = (price: Amount, tick: Amount, up: boolean): Amount => {
-  if (tick === ZERO) return price;
-  const down = price - (price % tick);
-  return up && down !== price ? add(down, tick) : down;
-};
-
 const sourceWords = (s: ProtectionSource) => (s === 'mark' ? 'mark price' : s === 'last' ? 'last traded price' : 'index price');
 
 /**
@@ -198,7 +193,8 @@ export class VenueProtections {
    * refuses `trade.close_slippage_unset`.
    */
   private worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
-    return onTick(closeTolerancePrice(side, from, this.deps.closeSlippageBps), tick, side === 'buy');
+    // On the venue's price rule, toward the market and still beyond `from` (`venueBoundPrice`).
+    return venueBoundPrice(side, { moved: closeTolerancePrice(side, from, this.deps.closeSlippageBps), reference: from, tick });
   }
 
   /** The venue agent key INTAFACED holds for one person's protections on one venue account. Derived, never stored. */

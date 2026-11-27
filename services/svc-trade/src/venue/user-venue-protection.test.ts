@@ -158,12 +158,26 @@ async function refusal(run: () => Promise<unknown>): Promise<string> {
 }
 
 describe('marketProtectionBound: the same rounding as the desk', () => {
-  it('a buy is the best ask plus the cap rounded up to the tick; a sell the best bid less the cap rounded down', () => {
-    // 60010 × 1.005 = 60310.05 → 60311; 59990 × 0.995 = 59690.05 → 59690.
-    expect(marketProtectionBound('buy', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('60311'));
-    expect(marketProtectionBound('sell', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('59690'));
+  it('a buy is the best ask plus the cap rounded down toward the market; a sell the best bid less the cap rounded up', () => {
+    // 60010 × 1.005 = 60310.05 → 60310; 59990 × 0.995 = 59690.05 → 59691: never past the protection.
+    expect(marketProtectionBound('buy', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('60310'));
+    expect(marketProtectionBound('sell', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('59691'));
     expect(marketProtectionBound('buy', { bid: a('1'), ask: null }, 50, a('1'))).toBeNull();
     expect(marketProtectionBound('sell', { bid: null, ask: a('1') }, 50, a('1'))).toBeNull();
+  });
+});
+
+describe('marketProtectionBound: a price the venue takes', () => {
+  it('BTC-PERP at about 62,424 with a 50 bps cap: 5 significant figures, rounded toward the market', () => {
+    // 62432 × 1.005 = 62744.16 → 62744 (a buy's cap down); 62423 × 0.995 = 62110.885 → 62111 (a sell's floor up).
+    expect(marketProtectionBound('buy', { bid: a('62423'), ask: a('62432') }, 50, a('0.1'))).toBe(a('62744'));
+    expect(marketProtectionBound('sell', { bid: a('62423'), ask: a('62432') }, 50, a('0.1'))).toBe(a('62111'));
+  });
+
+  it('a cap finer than one price step still bounds past the best price, by the nearest step (J-cex-spot-11 #3)', () => {
+    // 10 × 1.0001 = 10.001 would round down to the ask itself and leave no slippage limit.
+    expect(marketProtectionBound('buy', { bid: a('9.99'), ask: a('10') }, 1, a('0.01'))).toBe(a('10.01'));
+    expect(marketProtectionBound('sell', { bid: a('10'), ask: a('10.01') }, 1, a('0.01'))).toBe(a('9.99'));
   });
 });
 
@@ -222,7 +236,7 @@ describe('the door bounds a spot market order by the owner protection', () => {
 
   it('a buy past the bound refuses trade.venue.price_outside_protection on preview and prepare; nothing is prepared', async () => {
     const { d, asked } = door(50);
-    const over = order({ price: a('60312') });
+    const over = order({ price: a('60311') });
     expect(await refusal(() => d.preview(principal, owner, over))).toBe('trade.venue.price_outside_protection');
     expect(await refusal(() => d.prepare(principal, { owner, signer, intent: over }))).toBe('trade.venue.price_outside_protection');
     expect(asked).toEqual({ previews: 0, prepares: 0 });
@@ -230,18 +244,19 @@ describe('the door bounds a spot market order by the owner protection', () => {
 
   it('a buy at the bound passes preview and prepare', async () => {
     const { d, asked } = door(50);
-    expect(await refusal(() => d.preview(principal, owner, order({ price: a('60311') })))).toBe('passed');
-    const prepared = await d.prepare(principal, { owner, signer, intent: order({ price: a('60311') }) });
+    // The bound is 60310 (60310.05 rounded toward the market), the desk's own worst price.
+    expect(await refusal(() => d.preview(principal, owner, order({ price: a('60310') })))).toBe('passed');
+    const prepared = await d.prepare(principal, { owner, signer, intent: order({ price: a('60310') }) });
     expect(prepared.reused).toBe(false);
     expect(asked).toEqual({ previews: 1, prepares: 1 });
   });
 
   it('a sell below the bound refuses; at the bound it passes', async () => {
     const { d } = door(50);
-    expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59689') })))).toBe(
+    expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59690') })))).toBe(
       'trade.venue.price_outside_protection',
     );
-    expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59690') })))).toBe('passed');
+    expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59691') })))).toBe('passed');
   });
 
   it("an alert's order carries its own worst price: the signal desk's prepare skips the protection, and only it", async () => {

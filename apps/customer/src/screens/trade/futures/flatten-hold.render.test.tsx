@@ -97,7 +97,8 @@ describe('Flatten (desk A)', () => {
       reduceOnly: true,
       timeInForce: 'IOC',
     });
-    expect(eth).toMatchObject({ symbol: 'ETH-PERP', side: 'buy', amount: '2', price: '66001.1', reduceOnly: true });
+    // 66001.1 has 6 significant figures, which the venue refuses: a buy's cap rounds down to 5.
+    expect(eth).toMatchObject({ symbol: 'ETH-PERP', side: 'buy', amount: '2', price: '66001', reduceOnly: true });
     expect(btc.clientOrderKey).toMatch(/^close:/);
     expect(btc.clientOrderKey).not.toBe(eth.clientOrderKey);
   });
