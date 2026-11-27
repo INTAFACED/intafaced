@@ -18,12 +18,18 @@
  *                                             checkout moves until then, so the front shows its updating page, never a
  *                                             half-built app (#10299). A moved commit that fails goes back to the last
  *                                             good one and is refused until main moves past it
- *   node tooling/beta/beta-host.mjs move      on demand: the supervisor moves to main within 15 seconds, between slots
+ *   node tooling/beta/beta-host.mjs move      on demand: the supervisor moves to main within 15 seconds, between slots;
+ *                                             it also ends a hold that `back` set
+ *   node tooling/beta/beta-host.mjs back [<sha>]   a commit that started but broke testers: within 15 seconds the
+ *                                             supervisor moves the beta back to <sha>, a commit on main (default: the
+ *                                             one before the commit served), and holds it there until main moves past
+ *                                             the main of that moment; status names the held commit and why (#11065)
  *   node tooling/beta/beta-host.mjs check [--state <dir>]   the TEST funds check alone, on the beta stack (or another
  *                                             stack's state folder); exit 1 on any finding. `--hosted <beta-host>`
  *                                             also passes the exact hosted allow list: the test networks' hosts and the
  *                                             beta's own, nothing else (hostedAllowList)
- *   node tooling/beta/beta-host.mjs status    which commit the beta serves and why, then what the last round found
+ *   node tooling/beta/beta-host.mjs status    each outside limit and what is left, read now (beta-limits.mjs), then which
+ *                                             commit the beta serves and why, and what the last round found
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
  *   node tooling/beta/beta-host.mjs invited-test [--checkout <dir>] [--root <dir>] [--watch]
@@ -51,6 +57,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PUBLIC_ORIGIN } from './beta-front.mjs';
 import { INVITED_RECENT_MS, invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
+import { limitsLine, limitsReport, readLimits } from './beta-limits.mjs';
+import { liveDeps } from './beta-testnet.mjs';
 import { LAUNCH_CUSTODY_LAYER } from '../scripts/launch-custody.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -103,6 +111,8 @@ export function betaPaths(home = os.homedir()) {
     served: path.join(root, 'served.json'),
     /** Present while a move on demand is asked for (`beta-host.mjs move`); the next round uses it once. */
     moveNow: path.join(root, 'move-now'),
+    /** Present while a move back is asked for (`beta-host.mjs back`): the commit and the bad one; the next round uses it once. */
+    backTo: path.join(root, 'back-to.json'),
   };
 }
 
@@ -605,6 +615,32 @@ function writeStatus(paths, status) {
   fs.renameSync(tmp, paths.status);
 }
 
+/** Where beta-limits.mjs reads the outside limits on the beta: the funded and invited files, the stack's venue log. */
+const limitPaths = (paths) => ({
+  testnet: paths.testnet,
+  invited: paths.invited,
+  venueLog: path.join(paths.state, 'logs', 'test-venue.log'),
+});
+
+/**
+ * Read the beta's outside limits now (#11063) and keep them in status.json beside the round's own fields (`limits`,
+ * `limitsLine`, `limitsAt`), so the walk's record, which carries status.json, carries them too. A limit that turns `warn`
+ * is a line in round.log, once until it changes.
+ */
+export async function recordLimits(paths, deps = {}) {
+  const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree, ...deps });
+  const s = readJson(paths.status, null);
+  if (s) {
+    const said = new Set((s.limits ?? []).filter((l) => l.state === 'warn').map((l) => l.line));
+    for (const l of limits) if (l.state === 'warn' && !said.has(l.line)) log(paths, `limit: warn: ${l.line}`);
+    const tmp = `${paths.status}.${process.pid}.tmp`;
+    const next = { ...s, limits, limitsLine: limitsLine(limits), limitsAt: new Date().toISOString() };
+    fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
+    fs.renameSync(tmp, paths.status);
+  }
+  return limits;
+}
+
 const git = (cwd, ...args) => spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 /** Run a command to its end, its output appended to the round log; resolves to its exit code. */
@@ -684,6 +720,37 @@ export function askMove(paths, now = new Date()) {
 }
 
 /**
+ * Ask for a move back (#11065): the supervisor's next round (within 15 seconds) moves the beta to `sha`, a commit on main,
+ * and holds it there until main moves past the main of that moment. `bad` is the commit that broke testers.
+ */
+export function askBack(paths, { sha, bad }, now = new Date()) {
+  fs.mkdirSync(paths.root, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(paths.backTo, `${JSON.stringify({ sha, bad, at: now.toISOString() })}\n`);
+}
+
+/**
+ * The hold a round keeps (#11065): a new ask sets it, with the main of this round; it lasts while main is still that
+ * commit or the bad one, and a move on demand ends it. Returns the hold, or null, and a log line when it changed.
+ */
+function holdFor({ held = null, ask = null, asked = false, main, served }) {
+  if (ask?.sha) {
+    const bad = ask.bad ?? served ?? null;
+    return {
+      held: { sha: ask.sha, bad, mainAt: main, at: ask.at ?? null },
+      line: `back: asked to ${ask.sha.slice(0, 9)}, held until main moves past ${main.slice(0, 9)}`,
+    };
+  }
+  if (!held) return { held: null, line: null };
+  if (asked) return { held: null, line: `back: the hold on ${held.sha.slice(0, 9)} ends on demand (beta-host.mjs move)` };
+  if (main !== held.mainAt && main !== held.bad)
+    return {
+      held: null,
+      line: `back: main moved past ${held.mainAt.slice(0, 9)} to ${main.slice(0, 9)}, so the hold on ${held.sha.slice(0, 9)} ends`,
+    };
+  return { held, line: null };
+}
+
+/**
  * The beta's stop: the TEST market maker's own stop, then the stack's, as `verify stop` runs them, without its gate.
  * `verify stop` stops only a stack that the latest `verify launch` started, and every round's launch after the first
  * finds the stack running, so it left every process up, team-tls included. The beta owns its whole stack.
@@ -740,16 +807,26 @@ export async function round(paths = betaPaths(), io = {}) {
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
   const fetched = git(paths.checkout, 'fetch', '--quiet', 'origin', 'main');
   if (fetched.status !== 0) log(paths, `fetch failed (${fetched.stderr.trim()}); the round goes on with the last main it has`);
-  const target = git(paths.checkout, 'rev-parse', 'origin/main').stdout.trim();
+  const mainTarget = git(paths.checkout, 'rev-parse', 'origin/main').stdout.trim();
   const head = git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
   const prev = readJson(paths.status, {});
   const screening = fs.existsSync(paths.screening);
   // The last commit that came up, and the moved commit that failed: refused only until main moves past it (#11029).
   const served = readJson(paths.served, {}) ?? {};
   let good = served.good ?? (prev.state === 'up' ? prev.sha : null) ?? null;
-  let refused = served.refused?.sha === target ? served.refused : null;
+  let refused = served.refused?.sha === mainTarget ? served.refused : null;
   const asked = fs.existsSync(paths.moveNow);
-  const slot = moveDue({
+  // A move back (`beta-host.mjs back`, #11065): the beta goes to the named commit and stays there until main moves past
+  // the main of the ask; the round's target is then the held commit, never main.
+  const backAsk = readJson(paths.backTo, null);
+  const hold = holdFor({ held: served.held ?? null, ask: backAsk, asked, main: mainTarget, served: prev.sha ?? head });
+  if (hold.line) log(paths, hold.line);
+  const held = hold.held;
+  const target = held ? held.sha : mainTarget;
+  const heldWhy = held
+    ? `held on ${held.sha.slice(0, 9)} (beta-host.mjs back)${held.bad ? `: ${held.bad.slice(0, 9)} broke testers` : ''}; main waits until it moves past ${held.mainAt.slice(0, 9)} (beta-host.mjs move ends the hold now)`
+    : null;
+  const due = moveDue({
     testers: readInvited(paths.invited, { seenSince: now() - INVITED_RECENT_MS }).size,
     invited: readInvited(paths.invited).size,
     now: now(),
@@ -757,7 +834,8 @@ export async function round(paths = betaPaths(), io = {}) {
     at: process.env.BETA_MOVE_AT ?? BETA_MOVE_AT,
     asked,
   });
-  const step = decide({ screening, head, target, due: slot.due, refused: refused?.sha });
+  const slot = held ? { due: true, why: heldWhy } : due;
+  const step = decide({ screening, head, target, due: slot.due, refused: held ? null : refused?.sha });
   log(paths, `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)})`);
   if (step === 'blocked')
     return finish(paths, {
@@ -766,26 +844,28 @@ export async function round(paths = betaPaths(), io = {}) {
       sha: head,
     });
   if (asked) fs.rmSync(paths.moveNow, { force: true });
-  let why =
-    step === 'update'
+  if (backAsk) fs.rmSync(paths.backTo, { force: true });
+  let why = held
+    ? heldWhy
+    : step === 'update'
       ? `moved to main ${target.slice(0, 9)} ${slot.why}`
       : head === target
         ? `main ${target.slice(0, 9)} is the newest main`
         : refused
           ? `main ${target.slice(0, 9)} is refused (${refused.reason}); the beta stays on ${head.slice(0, 9)} until main moves past it`
           : slot.why;
-  const record = () => fs.writeFileSync(paths.served, `${JSON.stringify({ good, refused }, null, 2)}\n`);
+  const record = () => fs.writeFileSync(paths.served, `${JSON.stringify({ good, refused, ...(held ? { held } : {}) }, null, 2)}\n`);
   const end = (status) => {
     if (status.state === 'up') good = status.sha;
     record();
-    return finish(paths, { ...status, why, ...(refused ? { refused } : {}) });
+    return finish(paths, { ...status, why, ...(refused ? { refused } : {}), ...(held ? { held } : {}) });
   };
   const chain = anvil(paths);
   log(paths, chain.line);
   const settingsNew = settingsChanged(paths);
   const otherCustody = bookOnOtherCustody(paths);
   const env = stackEnv(paths);
-  const mainAt = target;
+  const mainAt = mainTarget;
   // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
   // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
   // readied restarts nothing (same commit), so it stays `up`.
@@ -802,7 +882,11 @@ export async function round(paths = betaPaths(), io = {}) {
       mainAt,
     });
   if (!warm)
-    updating(step === 'update' ? `moving to main ${target.slice(0, 9)}` : 'starting what is down', head, step === 'update' ? target : head);
+    updating(
+      step !== 'update' ? 'starting what is down' : held ? `going back to ${target.slice(0, 9)}` : `moving to main ${target.slice(0, 9)}`,
+      head,
+      step === 'update' ? target : head,
+    );
 
   /**
    * Bring the stack up on `sha`: check it out when `move`, install, launch, the TEST funds check, readied. Returns the
@@ -872,7 +956,8 @@ export async function round(paths = betaPaths(), io = {}) {
    * failure stands and the next due round tries again.
    */
   async function goBack(failed, updatedAt) {
-    if (failed.state === 'up' || !good || good === target) return failed;
+    // A held commit that fails stands as it is: going back would serve the commit that broke testers.
+    if (failed.state === 'up' || held || !good || good === target) return failed;
     refused = { sha: target, reason: failed.reason, at: new Date(now()).toISOString() };
     record();
     log(paths, `back: main ${target.slice(0, 9)} did not come up (${failed.reason}); back to the last good commit ${good.slice(0, 9)}`);
@@ -955,6 +1040,11 @@ async function serve(paths) {
       finish(paths, { state: 'down', reason: `round threw: ${err.message}` });
     }
     try {
+      await recordLimits(paths);
+    } catch (err) {
+      log(paths, `limits: ${err.message}`);
+    }
+    try {
       syncFront(paths);
     } catch (err) {
       log(paths, `front: ${err.message}`);
@@ -970,7 +1060,7 @@ async function serve(paths) {
       process.exit(0);
     }
     // A move asked for on demand (`beta-host.mjs move`) starts the next round within 15 seconds.
-    for (const until = Date.now() + everyMin * 60_000; Date.now() < until && !fs.existsSync(paths.moveNow);)
+    for (const until = Date.now() + everyMin * 60_000; Date.now() < until && !fs.existsSync(paths.moveNow) && !fs.existsSync(paths.backTo);)
       await new Promise((r) => setTimeout(r, 15_000));
   }
 }
@@ -1085,12 +1175,32 @@ async function main(argv) {
   }
   if (cmd === 'status') {
     const s = readJson(paths.status);
+    // Each outside limit, read now rather than at the last round (#11063).
+    const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree });
+    console.log(`${limitsLine(limits)}\n${limitsReport(limits)}`);
     console.log(s ? `${statusLine(s)}\n${JSON.stringify(s, null, 2)}` : `no round yet (${paths.status})`);
     return;
   }
   if (cmd === 'move') {
     askMove(paths);
     console.log(`asked: the supervisor moves the beta to main within 15 seconds (${paths.moveNow}); status: beta-host.mjs status`);
+    return;
+  }
+  if (cmd === 'back') {
+    const s = readJson(paths.status, {}) ?? {};
+    const current = s.sha ?? git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
+    if (!current) throw new Error(`no commit served yet (${paths.status})`);
+    const want = rest[0] ?? `${current}^`;
+    const r = git(paths.checkout, 'rev-parse', '--verify', '--quiet', `${want}^{commit}`);
+    const sha = r.stdout.trim();
+    if (r.status !== 0 || !sha) throw new Error(`${want} is not a commit in the beta checkout (${paths.checkout})`);
+    if (sha === current) throw new Error(`the beta already serves ${sha.slice(0, 9)}`);
+    if (git(paths.checkout, 'merge-base', '--is-ancestor', sha, 'origin/main').status !== 0)
+      throw new Error(`${sha.slice(0, 9)} is not on main: the beta goes back only to a commit main has had`);
+    askBack(paths, { sha, bad: current });
+    console.log(
+      `asked: the supervisor moves the beta back to ${sha.slice(0, 9)} within 15 seconds and holds it until main moves past its current commit (${paths.backTo}); status: beta-host.mjs status`,
+    );
     return;
   }
   if (cmd === 'stop') process.exit(await stopStack(paths));
@@ -1112,7 +1222,7 @@ async function main(argv) {
     return;
   }
   console.error(
-    'usage: beta-host.mjs serve | round | move | check [--state <dir>] [--hosted <beta-host>] | status | stop | install | invited-test [--watch]',
+    'usage: beta-host.mjs serve | round | move | back [<sha>] | check [--state <dir>] [--hosted <beta-host>] | status | stop | install | invited-test [--watch]',
   );
   process.exit(2);
 }
