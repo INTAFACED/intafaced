@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { walletReader, type WalletRead, type WalletReader } from './venue/wallet-reads';
+import { VENUE_ORDER_LABELS_LIST } from '@intafaced/contracts/trade-venue-order-labels-procedures';
 import { decimalSchema, formatAmount, parseAmount } from '../../shared/money';
 import type { TypedDataDocument } from '../protocol';
 import {
@@ -377,7 +378,15 @@ function walletReaderOf(api: ApiClient): Promise<WalletReader | null> {
     }
     const s = status.data;
     if (!s.enabled || !s.available || !s.walletReads) return null;
-    return walletReader({ venueId: s.venue.id, baseUrl: s.walletReads.baseUrl, perpDexs: s.walletReads.perpDexs });
+    // The person's own order labels come from the door's record, which reads nothing at the venue (J-derivatives-04 #2).
+    return walletReader(
+      { venueId: s.venue.id, baseUrl: s.walletReads.baseUrl, perpDexs: s.walletReads.perpDexs },
+      undefined,
+      async (owner) => {
+        const read = await api.call(VENUE_ORDER_LABELS_LIST, { owner });
+        return read.ok ? { ok: true, data: new Map(read.data.labels.map((l) => [l.venueClientOrderId.toLowerCase(), l.label])) } : read;
+      },
+    );
   });
   walletReaders.set(api, entry);
   return entry.reader;
@@ -391,22 +400,22 @@ export function venueApi(api: ApiClient) {
   const write = <T>(path: string, schema: z.ZodType<T>, body: unknown): Promise<ApiResult<T>> =>
     api.rest(`/venue${path}`, schema, { method: 'POST', body });
   /**
-   * A main account's fills, balances, positions or account mode on the door's own venue: from this browser where the door names the
-   * venue's read endpoint, else through the door. A sub-account, or another venue, always reads through the door,
+   * A main account's fills, balances, positions, account mode, open orders or order by client id on the door's own venue:
+   * from this browser where the door names the venue's read endpoint, else through the door. A sub-account, or another venue, always reads through the door,
    * which checks the sub-account is listed under the owner.
    */
   const ownRead = async <T>(
     which: WalletRead,
     path: string,
     schema: z.ZodType<T>,
-    query: Record<string, string | undefined> & { owner: string; since?: string },
+    query: Record<string, string | undefined> & { owner: string; since?: string; clientOrderId?: string },
     signal?: AbortSignal,
   ): Promise<ApiResult<T>> => {
     if (!query.subAccount) {
       const reader = await walletReaderOf(api);
       if (signal?.aborted) return authoredRefusal('aborted', { key: 'beforeDispatch' });
       if (reader && (query.venueId === undefined || query.venueId === reader.venueId))
-        return reader.read(which, query.owner, schema, query.since);
+        return reader.read(which, query.owner, schema, which === 'orderByClientId' ? query.clientOrderId : query.since);
     }
     return read(path, schema, query, signal);
   };
@@ -423,7 +432,8 @@ export function venueApi(api: ApiClient) {
     gatedList: (signal?: AbortSignal) => read('/gated-list', asOf(z.array(venueGatedContractSchema)), {}, signal),
     balances: (owner: string, signal?: AbortSignal, subAccount?: string, venueId?: string) =>
       ownRead('balances', '/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount, venueId }, signal),
-    openOrders: (owner: string, signal?: AbortSignal) => read('/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),
+    openOrders: (owner: string, signal?: AbortSignal) =>
+      ownRead('openOrders', '/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),
     /** The orders this person's door kept on the owner's accounts, oldest first, a page at a time (J-agents-21 #7). */
     keptOrders: (owner: string, cursor?: string, signal?: AbortSignal) => read('/orders', venueOrderPageSchema, { owner, cursor }, signal),
     /** The person's agent accounts, each with its owner wallet and venue sub-account (J-agents-21). */
@@ -435,7 +445,7 @@ export function venueApi(api: ApiClient) {
     orderRecord: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
       read('/orders/record', venueOrderRecordSchema, { owner, clientOrderId }, signal),
     orderByClientId: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
-      read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
+      ownRead('orderByClientId', '/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
       ownRead('fills', '/fills', asOf(z.array(venueFillSchema)), { owner, since, ...at }, signal),
     /** Credits into the account from outside it (deposits, transfers in), oldest first (J-portfolio-06 #3). */
@@ -539,7 +549,7 @@ export function venueApi(api: ApiClient) {
       api.rest(`/venue/markets/${encodeURIComponent(symbol)}/venues`, marketVenuesSchema, { query: { owner, side }, signal }),
     routePreview: (owner: string, intent: OrderIntent) => write('/route-preview', routePreviewSchema, { owner, intent }),
     ordersByClientIdOn: (venueId: string, owner: string, clientOrderId: string, signal?: AbortSignal) =>
-      read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId, venueId }, signal),
+      ownRead('orderByClientId', '/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId, venueId }, signal),
     withdrawal: (owner: string, nonce: string, signal?: AbortSignal) =>
       api.rest(`/venue/withdrawals/${encodeURIComponent(nonce)}`, asOf(venueWithdrawalSchema.nullable()), { query: { owner }, signal }),
     preview: (owner: string, intent: OrderIntent) => write('/preview', asOf(venuePreviewSchema), { owner, intent }),

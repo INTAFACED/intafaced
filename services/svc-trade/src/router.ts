@@ -9,6 +9,8 @@ import { tradeJournalRouter } from './venue/trade-journal-router.js';
 import type { TradeJournalDeps } from './venue/trade-journal.js';
 import type { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
 import { dailyLossRouter } from './venue/daily-loss-router.js';
+import { venueOrderLabelsRouter } from './venue/order-labels-router.js';
+import type { UserVenueDoor } from './venue/user-venue-door.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
 import { venueAccountAdminRouter } from './admin/venue-account-admin.js';
@@ -807,6 +809,7 @@ export function createTradeRouter(
   riskAlerts?: VenueRiskAlerts | null,
   journal?: TradeJournalDeps | null,
   dailyLoss?: VenueDailyLossLimits | null,
+  venueDoor?: Pick<UserVenueDoor, 'orderLabelsOf'> | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -896,6 +899,8 @@ export function createTradeRouter(
     journal: tradeJournalRouter(journal),
     /** `dailyLoss.*`: the person's opt-in daily loss limit on their own venue account (venue/daily-loss-router.ts). */
     dailyLoss: dailyLossRouter(dailyLoss),
+    /** `venueOrderLabels.list`: the person's own order labels, for a browser reading its own orders from the venue (venue/order-labels-router.ts). */
+    venueOrderLabels: venueOrderLabelsRouter(venueDoor),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
