@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { createTradingSessionApi, heldKey, joinLiveSession, keyFor, usePolled, useWallet, type HeldKey } from '../../protocol';
+import { bindLiveKey, createTradingSessionApi, heldKey, joinLiveSession, keyFor, usePolled, useWallet, type HeldKey } from '../../protocol';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../session';
 import { venueCopy } from './venue-copy';
@@ -28,8 +28,9 @@ export function useDeskSession(owner: string | null, status: VenueUp) {
       if (!on || !owner) return null;
       const answer = await sessions.session(owner, signal);
       if (answer.ok && userId) {
-        const joined = await joinLiveSession(userId, answer.data.current, heldKey(userId));
-        if (joined && !signal.aborted) setHeld(joined);
+        const kept = heldKey(userId);
+        const next = bindLiveKey(userId, answer.data.current, kept) ?? (await joinLiveSession(userId, answer.data.current, kept));
+        if (next && !signal.aborted) setHeld(next);
       }
       return answer;
     },

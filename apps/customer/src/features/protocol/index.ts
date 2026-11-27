@@ -19,6 +19,7 @@ export { isFactoryUnset, toWei, utcTime } from './wallet/wallet-text';
 export { EmbeddedWalletAnnouncer } from './embedded-wallet/EmbeddedWalletAnnouncer';
 export {
   answerSessionKeyAsks,
+  bindLiveKey,
   createTradingSessionApi,
   freshKey,
   heldKey,

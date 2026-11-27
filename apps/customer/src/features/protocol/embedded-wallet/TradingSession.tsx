@@ -11,6 +11,7 @@ import {
   createTradingSessionApi,
   dropKey,
   freshKey,
+  bindLiveKey,
   heldKey,
   joinLiveSession,
   keepKey,
@@ -72,8 +73,9 @@ export function TradingSession(props: {
       if (!doorReady) return { ok: true, data: null };
       const answer = await venue.session(owner, signal);
       if (answer.ok) {
-        const joined = await joinLiveSession(userId, answer.data.current, heldKey(userId));
-        if (joined && !signal.aborted) setHeld(joined);
+        const kept = heldKey(userId);
+        const next = bindLiveKey(userId, answer.data.current, kept) ?? (await joinLiveSession(userId, answer.data.current, kept));
+        if (next && !signal.aborted) setHeld(next);
       }
       return answer;
     },

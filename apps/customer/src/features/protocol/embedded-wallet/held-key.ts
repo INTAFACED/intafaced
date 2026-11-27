@@ -15,12 +15,20 @@ export const heldSchema = z.object({
     .nullable()
     .default(null),
   lane: lane.default(''),
+  session: z.string().min(1).optional(),
 });
 
 /** How many lanes this tab has handed on under one key, so no two tabs it hands the key to share a lane. */
 export const lanesGivenSchema = z.object({ address, given: z.number().int().nonnegative() });
 
-/** One tab asks the browser's other tabs (same origin only) for the live session key it does not hold. */
-export const keyAskSchema = z.object({ type: z.literal('ask'), ask: z.string().min(1), userId: z.string().min(1), address });
-/** A tab that holds the key answers that one ask with it and the asker's own lane. */
-export const keyGiveSchema = z.object({ type: z.literal('give'), ask: z.string().min(1), address, privateKey, lane });
+const hex = (bytes: number) => z.string().regex(new RegExp(`^[0-9a-f]{${bytes * 2}}$`));
+/**
+ * One tab asks the browser's other tabs (same origin only) for the live session key it does not hold. `proof` shows the
+ * asker read this sign-in's session from svc-trade: a hash of the ask with the session's key there, which only this
+ * sign-in can read; the key itself never goes on the channel.
+ */
+export const keyAskSchema = z.object({ type: z.literal('ask'), ask: hex(16), userId: z.string().min(1), address, proof: hex(32) });
+/** A tab that holds the key answers that one ask, sealed so only a tab of the same sign-in can open it. */
+export const keyGiveSchema = z.object({ type: z.literal('give'), ask: hex(16), iv: hex(12), sealed: z.string().regex(/^[0-9a-f]+$/) });
+/** What a sealed answer holds: the key, and the asker's own lane under it. */
+export const keyGivenSchema = z.object({ privateKey, lane });

@@ -113,7 +113,7 @@ export interface SessionStartDeps {
   readonly store?: Store | null;
   readonly make?: () => `0x${string}`;
   /** Asks the person's other tabs for the live key at an address (trading-session.ts `keyFromOtherTab`). */
-  readonly join?: (address: string) => Promise<HeldKey | null>;
+  readonly join?: (address: string, session: string) => Promise<HeldKey | null>;
 }
 
 /**
