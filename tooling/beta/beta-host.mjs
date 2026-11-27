@@ -23,7 +23,8 @@
  *                                             stack's state folder); exit 1 on any finding. `--hosted <beta-host>`
  *                                             also passes the exact hosted allow list: the test networks' hosts and the
  *                                             beta's own, nothing else (hostedAllowList)
- *   node tooling/beta/beta-host.mjs status    which commit the beta serves and why, then what the last round found
+ *   node tooling/beta/beta-host.mjs status    each outside limit and what is left, read now (beta-limits.mjs), then which
+ *                                             commit the beta serves and why, and what the last round found
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
  *   node tooling/beta/beta-host.mjs invited-test [--checkout <dir>] [--root <dir>] [--watch]
@@ -51,6 +52,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PUBLIC_ORIGIN } from './beta-front.mjs';
 import { INVITED_RECENT_MS, invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
+import { limitsLine, limitsReport, readLimits } from './beta-limits.mjs';
+import { liveDeps } from './beta-testnet.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -600,6 +603,32 @@ function writeStatus(paths, status) {
   fs.renameSync(tmp, paths.status);
 }
 
+/** Where beta-limits.mjs reads the outside limits on the beta: the funded and invited files, the stack's venue log. */
+const limitPaths = (paths) => ({
+  testnet: paths.testnet,
+  invited: paths.invited,
+  venueLog: path.join(paths.state, 'logs', 'test-venue.log'),
+});
+
+/**
+ * Read the beta's outside limits now (#11063) and keep them in status.json beside the round's own fields (`limits`,
+ * `limitsLine`, `limitsAt`), so the walk's record, which carries status.json, carries them too. A limit that turns `warn`
+ * is a line in round.log, once until it changes.
+ */
+export async function recordLimits(paths, deps = {}) {
+  const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree, ...deps });
+  const s = readJson(paths.status, null);
+  if (s) {
+    const said = new Set((s.limits ?? []).filter((l) => l.state === 'warn').map((l) => l.line));
+    for (const l of limits) if (l.state === 'warn' && !said.has(l.line)) log(paths, `limit: warn: ${l.line}`);
+    const tmp = `${paths.status}.${process.pid}.tmp`;
+    const next = { ...s, limits, limitsLine: limitsLine(limits), limitsAt: new Date().toISOString() };
+    fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
+    fs.renameSync(tmp, paths.status);
+  }
+  return limits;
+}
+
 const git = (cwd, ...args) => spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 
 /** Run a command to its end, its output appended to the round log; resolves to its exit code. */
@@ -950,6 +979,11 @@ async function serve(paths) {
       finish(paths, { state: 'down', reason: `round threw: ${err.message}` });
     }
     try {
+      await recordLimits(paths);
+    } catch (err) {
+      log(paths, `limits: ${err.message}`);
+    }
+    try {
       syncFront(paths);
     } catch (err) {
       log(paths, `front: ${err.message}`);
@@ -1080,6 +1114,9 @@ async function main(argv) {
   }
   if (cmd === 'status') {
     const s = readJson(paths.status);
+    // Each outside limit, read now rather than at the last round (#11063).
+    const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree });
+    console.log(`${limitsLine(limits)}\n${limitsReport(limits)}`);
     console.log(s ? `${statusLine(s)}\n${JSON.stringify(s, null, 2)}` : `no round yet (${paths.status})`);
     return;
   }
