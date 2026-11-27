@@ -2,6 +2,7 @@
 // Run: node --test tooling/scripts/launch-custody.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,4 +89,64 @@ test("a launch-desk journey's custodial part file keeps today's switch; its othe
   assert.equal(journeyIdOf('J-a-1-custodial.pw.mjs'), 'J-a-1');
   assert.equal(fileCustody('J-cex-spot-03-custodial.pw.mjs', readLaunchJourneyIds()), 'on');
   assert.equal(fileCustody('J-cex-spot-03.pw.mjs', readLaunchJourneyIds()), 'off');
+});
+
+// The ledger's TEST funding (`fund` from stack.mjs, `local-test-stack.mjs fund`) credits a customer account, which a
+// custody-off stack refuses (`local_test.custody_layer_off`, exit 3). A file that runs custody off and funds that way,
+// itself or through a helper of its folder that does (desk.mjs fundedTrader), fails every run (#11159: J-wallet-01 and
+// J-p2p-21 did, once #11129 stopped the world restore turning custody back on).
+const LEDGER_FUND_CALL = [/\bfund\(/, /['"]local-test-stack\.mjs['"]\s*,\s*['"]fund['"]/];
+const STACK_FUND_IMPORT = /import\s*\{[^}]*\bfund\b[^}]*\}\s*from\s*'\.\/stack\.mjs'/;
+const importsOf = (src, from) =>
+  [...src.matchAll(new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*'\\./${from.replace('.', '\\.')}'`, 'g'))].flatMap((m) =>
+    m[1]
+      .split(',')
+      .map((n) => n.trim().split(/\s+as\s+/)[0])
+      .filter(Boolean),
+  );
+
+/** The exported functions of a helper module whose own body funds through the ledger. Pure, for the tests. */
+function ledgerFunders(src) {
+  if (!STACK_FUND_IMPORT.test(src) && !LEDGER_FUND_CALL[1].test(src)) return [];
+  return src
+    .split(/^(?=export |function |async function |const |let )/m)
+    .map((part) => [/^export (?:async )?function\s+(\w+)|^export const\s+(\w+)/.exec(part), part])
+    .filter(([m, part]) => m && LEDGER_FUND_CALL.some((re) => re.test(part.replace(/^.*?\{/s, ''))))
+    .map(([m]) => m[1] ?? m[2]);
+}
+
+/** Whether a journey file funds through the ledger, itself or through `helpers` (module file to its funding exports). */
+function fundsThroughLedger(src, helpers = {}) {
+  if (STACK_FUND_IMPORT.test(src) || LEDGER_FUND_CALL[1].test(src)) return true;
+  return Object.entries(helpers).some(([file, names]) => importsOf(src, file).some((n) => names.includes(n)));
+}
+
+test('a file that runs custody off never funds a customer through our ledger, which custody off refuses (#11159)', () => {
+  assert.ok(fundsThroughLedger("import { api, fund, tool } from './stack.mjs';"));
+  assert.ok(fundsThroughLedger("tool('local-test-stack.mjs', 'fund', email, 'USDT', '5')"));
+  assert.ok(!fundsThroughLedger("import { api, tool } from './stack.mjs';\nconst fund = async () => {};"));
+  const helper =
+    "import { api, fund } from './stack.mjs';\nexport async function rich(p) {\n  fund(p, 'USDT', '9');\n}\nexport function plain() {}\n";
+  assert.deepEqual(ledgerFunders(helper), ['rich']);
+  assert.ok(fundsThroughLedger("import { plain, rich as r } from './h.mjs';", { 'h.mjs': ['rich'] }));
+  assert.ok(!fundsThroughLedger("import { plain } from './h.mjs';", { 'h.mjs': ['rich'] }));
+
+  const launch = readLaunchJourneyIds();
+  const dir = path.join(ROOT, JOURNEY_DIR);
+  const helpers = Object.fromEntries(
+    fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.mjs') && !f.endsWith('.pw.mjs') && f !== 'stack.mjs')
+      .map((f) => [f, ledgerFunders(fs.readFileSync(path.join(dir, f), 'utf8'))])
+      .filter(([, names]) => names.length > 0),
+  );
+  assert.ok(helpers['desk.mjs']?.includes('fundedTrader'), `the helpers that fund: ${JSON.stringify(helpers)}`);
+  const funding = journeyFiles(dir).filter(
+    (f) => fileCustody(f, launch) === LAUNCH_CUSTODY_LAYER && fundsThroughLedger(fs.readFileSync(path.join(dir, f), 'utf8'), helpers),
+  );
+  assert.deepEqual(
+    funding,
+    [],
+    'these files run custody off and fund through our ledger: fund the person where launch holds their money (the TEST partner, their TEST venue account or wallet), or move the custodial check to a `<journey>-custodial.pw.mjs` part file',
+  );
 });
