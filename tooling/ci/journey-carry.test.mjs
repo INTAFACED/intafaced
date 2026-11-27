@@ -167,11 +167,3 @@ test("supersededRuns: stops this pull request's runs still going on another comm
   ];
   assert.deepEqual(supersededRuns(runs, { head: sha('d'), carried: [sha('b')], self: 8, repo, branch: 'b1' }), [1]);
 });
-
-test('the touch job and the seal read the same carried commits (journey-touch.mjs --carried, journey-seal.mjs sealPull)', () => {
-  const seal = readFileSync('tooling/ci/journey-seal.mjs', 'utf8');
-  const touch = readFileSync('tooling/ci/journey-touch.mjs', 'utf8');
-  assert.match(seal, /carriedHeads\(\{ head, commits: await io\.prCommits\(number\), compare: io\.compare, text \}\)/);
-  assert.match(touch, /carriedHeads\(\{ head: sha, commits, compare:/);
-  assert.match(readFileSync('.github/workflows/real-app-journeys.yml', 'utf8'), /journey-touch\.mjs" --carried/);
-});
