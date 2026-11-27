@@ -462,8 +462,7 @@ export class VenueProtections {
     if (typeof req.clientOrderId !== 'string' || !CLIENT_ID_RE.test(req.clientOrderId))
       bad('clientOrderId must be 1 to 64 letters, digits, - or _');
     const clientOrderId = req.clientOrderId;
-    const agentSigner = agentSignerOf(req.signer);
-    const signer: { role: 'owner' | 'agent'; address: string } | null = agentSigner;
+    const signer = agentSignerOf(req.signer, bad);
 
     const account = await this.deps.door.account(typeof req.owner === 'string' ? req.owner : '');
     const venue = await this.deps.door.venue();
@@ -564,7 +563,7 @@ export class VenueProtections {
       if (cloid === keep?.cloid || cloid === null || key === null) continue;
       const answer = await this.deps.door.prepare(principal, {
         owner: account.owner,
-        signer: signer ?? { role: 'owner', address: account.owner },
+        signer: orderSigner(signer, account.owner),
         intent: { kind: 'cancel_order', symbol, clientOrderKey: key },
         actionKey: `breakeven:cancel:${account.owner}:${clientOrderId}:${cloid}`,
       });
