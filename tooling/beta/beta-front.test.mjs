@@ -64,3 +64,107 @@ test("each viewer sees only the mail of the TEST addresses they created; no toke
   assert.deepEqual(viewerRows(rows, ''), []);
   assert.deepEqual(viewerRows(rows, null), []);
 });
+
+// #11027: the address each caller reaches the stack with. Cloudflare's Cf-Connecting-Ip, else the front's own peer; every
+// forwarding header a caller sent is dropped, so nobody names another address.
+test('the front sends the caller address from Cf-Connecting-Ip and drops every forwarding header a caller sent', () => {
+  const h = appRequestHeaders(
+    {
+      'cf-connecting-ip': '203.0.113.10',
+      'x-forwarded-for': '192.0.2.1',
+      'x-real-ip': '192.0.2.1',
+      forwarded: 'for=192.0.2.1',
+      'x-forwarded-host': 'evil.example',
+    },
+    { peer: '127.0.0.1' },
+  );
+  assert.equal(h['x-forwarded-for'], '203.0.113.10');
+  assert.equal(h['x-real-ip'], undefined);
+  assert.equal(h.forwarded, undefined);
+  assert.equal(h['x-forwarded-host'], undefined);
+  assert.equal(appRequestHeaders({ 'x-forwarded-for': '192.0.2.1' }, { peer: '127.0.0.1' })['x-forwarded-for'], '127.0.0.1');
+  assert.equal(appRequestHeaders({ 'cf-connecting-ip': 'not-an-ip' }, { peer: '127.0.0.1' })['x-forwarded-for'], '127.0.0.1');
+  assert.equal(
+    appRequestHeaders({ 'cf-connecting-ip': '2001:db8::1' }, { upgrade: true, peer: '127.0.0.1' })['x-forwarded-for'],
+    '2001:db8::1',
+  );
+});
+
+test("two callers through the front get two of Edge's rate-limit buckets; a spoofed forwarded header is ignored", async () => {
+  const { createRequire } = await import('node:module');
+  const http = await import('node:http');
+  const { frontApp } = await import('./beta-front.mjs');
+  const { forwardedFor } = await import('../scripts/local-test-stack.mjs');
+  const edgeRequire = createRequire(new URL('../../services/svc-edge/package.json', import.meta.url));
+  const Fastify = edgeRequire('fastify');
+  const rateLimit = edgeRequire('@fastify/rate-limit');
+  const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+
+  // Edge as the beta stack starts it: trustProxy is EDGE_TRUST_PROXY (tooling/scripts/local-stack-services/edge.mjs).
+  const edgeDefs = (await import('../scripts/local-stack-services/edge.mjs')).default;
+  const edgeEnv = (origin) =>
+    edgeDefs({
+      c: () => ({}),
+      secrets: {},
+      urlOf: () => 'http://127.0.0.1:1',
+      PORTS: { edge: 1 },
+      P: { data: '/x' },
+      UNUSED: 'x',
+      PUBLIC_ORIGIN: origin,
+      EDGE_UPSTREAMS: {},
+      EDGE_ABSENT: {},
+    }).env();
+  assert.equal(edgeEnv(null).EDGE_TRUST_PROXY, undefined, 'a stack reached directly trusts no forwarded header');
+  const edge = Fastify({ trustProxy: edgeEnv('https://beta.intafaced.com').EDGE_TRUST_PROXY });
+  await edge.register(rateLimit, { max: 1, timeWindow: 60_000 });
+  edge.get('/api/x', async (req) => ({ ip: req.ip }));
+  await edge.listen({ port: 0, host: '127.0.0.1' });
+  const edgePort = edge.server.address().port;
+
+  // The stack's Customer server's forwarding, behind a front (LOCAL_STACK_PUBLIC_ORIGIN set).
+  const customer = http.createServer((req, res) => {
+    const headers = { ...req.headers, 'x-forwarded-for': forwardedFor(req.headers['x-forwarded-for'], req.socket.remoteAddress, true) };
+    const up = http.request({ host: '127.0.0.1', port: edgePort, method: req.method, path: req.url, headers }, (ur) => {
+      res.writeHead(ur.statusCode, ur.headers);
+      ur.pipe(res);
+    });
+    req.pipe(up);
+  });
+  const customerPort = await listen(customer);
+  const front = frontApp({ upstream: customerPort, statusFile: '/nonexistent/status.json' });
+  const frontPort = await listen(front);
+
+  const call = (headers) =>
+    new Promise((resolve, reject) => {
+      const r = http.request(
+        {
+          host: '127.0.0.1',
+          port: frontPort,
+          path: '/api/x',
+          headers: { host: 'beta.intafaced.com', accept: 'application/json', ...headers },
+        },
+        (res) => {
+          let body = '';
+          res.on('data', (c) => (body += c));
+          res.on('end', () => resolve({ status: res.statusCode, body }));
+        },
+      );
+      r.on('error', reject);
+      r.end();
+    });
+  try {
+    const a1 = await call({ 'cf-connecting-ip': '203.0.113.10' });
+    assert.equal(a1.status, 200);
+    assert.equal(JSON.parse(a1.body).ip, '203.0.113.10');
+    const b1 = await call({ 'cf-connecting-ip': '198.51.100.7' });
+    assert.equal(b1.status, 200, 'a second caller has a bucket of its own');
+    assert.equal(JSON.parse(b1.body).ip, '198.51.100.7');
+    // The first caller, spent, claims a fresh address in a forwarded header: still its own bucket, refused.
+    const a2 = await call({ 'cf-connecting-ip': '203.0.113.10', 'x-forwarded-for': '192.0.2.99', 'x-real-ip': '192.0.2.99' });
+    assert.equal(a2.status, 429);
+  } finally {
+    front.close();
+    customer.close();
+    await edge.close();
+  }
+});
