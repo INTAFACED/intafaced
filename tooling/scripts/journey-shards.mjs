@@ -115,7 +115,7 @@ export const TARGETED_MAX_SHARDS = 10;
 // run's own times, 20 shards end with its longest file, J-campaigns-18 at 14.7 minutes, about 9 minutes sooner. What
 // the cap saved is gone: a shard's setup took 2.2 minutes there, not 8 (the stack is seeded once in the build job,
 // #9151), and from 03:20 to 06:00 UTC that day 526 shard jobs waited 2 seconds at the median for a runner (8 at most),
-// at most 137 running at once. Raised from 30 to 60 on 25 Nov 2026 (Nino: "the dream fast line"): a beta pull
+// at most 137 running at once. Raised from 30 to 60 on 25 Nov 2026 (the owner: "the dream fast line"): a beta pull
 // request's ~310 files, about 800 minutes (#10872's run 45561547305, 327 files), asked about 13-minute shards but stopped
 // at 30 of about 27 minutes each; 60 lets the target stand. The same journeys run; only the packing changes.
 export const PR_MAX_SHARDS = 60;
