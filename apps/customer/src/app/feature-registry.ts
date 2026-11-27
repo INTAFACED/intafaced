@@ -822,13 +822,25 @@ export const features: readonly Feature[] = [
     checked: '2026-11-24, Real-app journeys run 11739 (J-identity-13 #1 passed on the real stack with proof v2 FAITHFUL).',
   },
   {
+    id: 'platform-status',
+    label: 'Platform status',
+    paths: ['/status'],
+    status: 'live',
+    reason:
+      "svc-notify serves the founders' status components and maintenance notices, and each market's trading mode is its own reported state; with no components set the page says so and shows no overall status",
+    unlock: 'already live',
+    tab: 'public',
+    checked:
+      '2026-11-27, Real-app journeys run 12722 on main (J-cex-spot-14 #2, #3, #4 and #5 passed on the real stack; their only hidden path was /status).',
+  },
+  {
     id: 'owner-blank-pages',
-    label: 'Platform status, trading rulebook, support chat and the money mule policy',
-    paths: ['/status', '/rulebook', '/support/chat', '/help/mule-policy'],
+    label: 'Trading rulebook, support chat and the money mule policy',
+    paths: ['/rulebook', '/support/chat', '/help/mule-policy'],
     status: 'blocked',
     reason:
-      'Owner values not set: the components the status page reports on, the published rulebook, support hours and the mule policy wording, so each page says it is blank or shows TEST text',
-    unlock: 'the owner sets the status components, publishes the rulebook and the mule policy, and sets support hours',
+      'Owner values not set: the published rulebook, support hours and the mule policy wording, so each page says it is blank or shows TEST text',
+    unlock: 'the owner publishes the rulebook and the mule policy, and sets support hours',
     tab: 'public',
   },
   {

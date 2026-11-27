@@ -214,7 +214,7 @@ describe("the beta's menus", () => {
     expect(isHiddenPath('/developers/status')).toBe(true);
   });
 
-  it('shows Official channels (/help/official-channels) on the beta while keeping Status, Rulebook, Support chat and Money mule policy blocked (J-identity-13 #1)', () => {
+  it('shows Official channels (/help/official-channels) on the beta while keeping Rulebook, Support chat and Money mule policy blocked (J-identity-13 #1)', () => {
     const betaList = betaRoomList(betaScreens.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
     expect(shownRooms.has('/help/official-channels')).toBe(true);
@@ -223,10 +223,19 @@ describe("the beta's menus", () => {
     expect(isHiddenPath('/help/official-channels')).toBe(false);
     expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/help/official-channels');
     expect(searchRooms('official channels', 'Personal').map((room) => room.path)).toContain('/help/official-channels');
-    for (const blockedPath of ['/status', '/rulebook', '/support/chat', '/help/mule-policy']) {
+    for (const blockedPath of ['/rulebook', '/support/chat', '/help/mule-policy']) {
       expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('owner-blank-pages');
       expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
     }
+  });
+
+  it('shows Platform status (/status) on the beta, the page J-cex-spot-14 #2 to #5 open (#11178)', () => {
+    const betaList = betaRoomList(betaScreens.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(shownRooms.has('/status')).toBe(true);
+    expect(betaHides('/status', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/status')).toBeUndefined();
+    expect(isHiddenPath('/status')).toBe(false);
   });
 
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
