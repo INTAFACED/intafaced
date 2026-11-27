@@ -1462,7 +1462,9 @@ export async function revertSpent({ io, repo, pull, culprit }) {
  * which J-derivatives-04-venue.pw.mjs holds, and the seal failed closed on a file with no step left). A file with no
  * step at the head or the base lists `siblings`: the other files of its journey at the head (`journeyFiles(ref)`, their
  * names, as io.journeyFiles gives them) that hold its numbered steps, so a journey's companion file of unnumbered checks
- * is not refused for holding none; without `journeyFiles` it lists none, and judgeTouched fails it closed.
+ * is not refused for holding none; without `journeyFiles` it lists none, and judgeTouched fails it closed. A removed
+ * file with no step at the base is the same (#11174 renamed J-derivatives-04.pw.mjs, three unnumbered custodial checks,
+ * to J-derivatives-04-custodial.pw.mjs, and the seal failed closed on the old name).
  */
 export async function touchedSteps({ paths, head, base, text, journeyFiles = null }) {
   const out = [];
@@ -1475,7 +1477,7 @@ export async function touchedSteps({ paths, head, base, text, journeyFiles = nul
     const atBase = atHead === null || !fileSteps(m[1], atHead).length ? await text(file, base) : null;
     if (atHead === null && atBase === null) throw new Error(`${file} could not be read at the head or the base`);
     const steps = fileSteps(m[1], atHead ?? atBase);
-    if (steps.length || atHead === null) {
+    if (steps.length) {
       out.push({ file, journey: m[1], steps });
       continue;
     }

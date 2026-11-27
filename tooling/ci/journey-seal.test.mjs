@@ -1137,6 +1137,25 @@ test('a companion file with no numbered step at the head or the base passes when
   // A new companion file (no base) is the same.
   const fresh = await touchedSteps({ paths: [X04], head: HEAD, base: OLD, text: xText({ [HEAD]: at[HEAD] }), journeyFiles: xFiles });
   assert.equal(judgeTouched({ title: 'x', body: '', touched: fresh }).ok, true);
+  // #11174: a companion file removed (renamed to a part file) with no numbered step at the base is the same.
+  const removed = await touchedSteps({
+    paths: [X04],
+    head: HEAD,
+    base: OLD,
+    text: xText({ [HEAD]: { [X04_VENUE]: VENUE }, [OLD]: at[OLD] }),
+    journeyFiles: async () => new Set(['J-x-04-venue.pw.mjs', 'J-x-04-custodial.pw.mjs']),
+  });
+  assert.deepEqual(removed, [{ file: X04, journey: 'J-x-04', steps: [], siblings: [X04_VENUE] }]);
+  assert.equal(judgeTouched({ title: 'x', body: '', touched: removed }).ok, true);
+  // Planted: removed, and no file of its journey at the head holds a step: it still fails closed.
+  const orphan = await touchedSteps({
+    paths: [X04],
+    head: HEAD,
+    base: OLD,
+    text: xText({ [HEAD]: {}, [OLD]: at[OLD] }),
+    journeyFiles: async () => new Set(['J-x-04-custodial.pw.mjs']),
+  });
+  assert.equal(judgeTouched({ title: 'x', body: '', touched: orphan }).ok, false);
 });
 
 test('planted: a file with no numbered step anywhere still fails closed when no file of its journey holds one', async () => {
