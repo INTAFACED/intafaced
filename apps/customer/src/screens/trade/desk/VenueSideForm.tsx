@@ -19,7 +19,7 @@ import {
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
 import { builderApproved, carriesBuilderFee, requiredBuilderFeeBps } from '../../../features/trade/venue/VenueReview';
-import { useSignPrepared } from '../futures/VenueProtect';
+import { useExitSigner, useSignPrepared } from '../futures/VenueProtect';
 import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
@@ -139,6 +139,7 @@ export function VenueSideForm({
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
   const sign = useSignPrepared(owner ?? '');
+  const entrySigner = useExitSigner(owner ?? '');
   // Good till date: the order rests on the venue good till cancelled, and our engine cancels it at the expiry.
   const gtd = type === 'limit' && tif === 'GTD';
   // The draft this form's builder approval is asked under (keys.builderApproval).
@@ -395,7 +396,7 @@ export function VenueSideForm({
 
   /**
    * Good till date (J-cex-spot-03 #7): our engine keeps the order and its expiry, and the person's wallet signs the order
-   * itself, a good-till-cancelled limit on the venue. A refusal (an expiry now past, no agent permission yet) is said in
+   * itself (or the desk's trading session key, where the venue needs one), a good-till-cancelled limit on the venue. A refusal (an expiry now past, no agent permission yet) is said in
    * the review, and nothing is signed. `sending` is already held.
    */
   async function placeGoodTillDate(order: OrderIntent) {
@@ -403,7 +404,14 @@ export function VenueSideForm({
       sending.current = false;
       return setReviewProblem(t('Expiry past'));
     }
+    // The order itself is the person's: signed by the desk's trading session key where the venue needs one.
+    const chosen = entrySigner();
+    if ('refusal' in chosen) {
+      sending.current = false;
+      return setReviewProblem(chosen.refusal.message);
+    }
     const created = await venue.createSpotOrder({
+      signer: chosen.signer,
       owner,
       symbol: order.symbol,
       kind: 'gtd',

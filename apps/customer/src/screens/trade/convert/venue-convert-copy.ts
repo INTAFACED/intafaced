@@ -4,6 +4,7 @@ import { defineCopy } from '../../../shared/i18n';
 // partner or vendor named.
 const messages = {
   'Venue tagline': 'One order on your own trading account, signed by your wallet. We hold none of your money.',
+  'Venue tagline session': 'One order on your own trading account, signed by your trading session. We hold none of your money.',
   'Connect to convert': 'Connect your wallet to convert from your trading account.',
   'Venue unavailable': 'The trading venue can’t be reached right now. Nothing was priced or sent.',
   'Pairs unread': 'Couldn’t load what can be converted. Nothing was priced.',
@@ -46,6 +47,7 @@ const messages = {
   Review: 'Review',
   'Review conversion': 'Review conversion',
   'Review hint': 'One order on your trading account, signed by your wallet. Check the numbers first.',
+  'Review hint session': 'One order on your trading account, signed by your trading session. Check the numbers first.',
   'Convert now': 'Convert now',
   Converting: 'Converting…',
   'Stale title': 'This price is past its window',

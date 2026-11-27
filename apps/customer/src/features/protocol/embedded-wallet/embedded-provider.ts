@@ -31,6 +31,8 @@ const DISCONNECTED = 4900;
 const CHAIN_DISCONNECTED = 4901;
 const INTERNAL = -32603;
 const INVALID_PARAMS = -32602;
+/** EIP-1474's "limit exceeded": the provider's own signing limit, which the desk names as such. */
+const LIMIT_EXCEEDED = -32005;
 
 /** A provider client's failure as the EIP-1193 error a dapp reads: a passkey that did not pass is the person's no. */
 function failureError(failure: ClientFailure): ProviderRpcError {
@@ -47,6 +49,8 @@ function failureError(failure: ClientFailure): ProviderRpcError {
       return new ProviderRpcError(INTERNAL, 'The chain refused this transaction before it was sent. Nothing was sent.');
     case 'spent':
       return new ProviderRpcError(INTERNAL, 'The wallet provider refused this request. Nothing was signed or sent.');
+    case 'busy':
+      return new ProviderRpcError(LIMIT_EXCEEDED, 'The wallet provider has reached its signing limit. Nothing was signed or sent.');
   }
 }
 

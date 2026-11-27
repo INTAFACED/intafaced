@@ -23,6 +23,7 @@ import {
   type UserVenueDoor,
   type VenueOrderByKey,
 } from './user-venue-door.js';
+import { agentSignerOf, orderSigner } from './request-signer.js';
 
 /**
  * CONDITIONAL SPOT ORDERS ON THE PERSON'S OWN VENUE ACCOUNT (J-cex-spot-08; SP-conditional-algo-01, -02).
@@ -126,6 +127,12 @@ export interface SpotConditionalRequest {
   /** A good-till-date order's expiry, an ISO time in the future. */
   readonly expireAt?: unknown;
   readonly clientOrderId?: unknown;
+  /**
+   * Who signs the person's own orders here (a stop the venue holds, an entry): the owner's wallet when absent, or the
+   * trading session's key on a venue whose trades only a session key signs (request-signer.ts). Our engine's own
+   * orders are always its spot-order key's.
+   */
+  readonly signer?: unknown;
 }
 
 export type SpotLegRole = 'stop' | 'take_profit' | 'stop_loss' | 'entry' | 'close';
@@ -470,6 +477,7 @@ export class VenueSpotConditionals {
 
   async create(principal: Principal, req: SpotConditionalRequest, region = ''): Promise<SpotConditionalCreated> {
     const p = parse(req);
+    const agentSigner = agentSignerOf(req.signer, bad);
     const { account, venue, market } = await this.spotMarket(typeof req.owner === 'string' ? req.owner : '', p.symbol);
     for (const f of FIELDS) {
       const price = p.prices[f];
@@ -496,12 +504,12 @@ export class VenueSpotConditionals {
       );
     }
 
-    // A stop the venue holds on spot rests there as its own trigger order, for the person's wallet to sign.
+    // A stop the venue holds on spot rests there as its own trigger order, for the person's wallet (or session key) to sign.
     if ((p.kind === 'stop_limit' || p.kind === 'stop_market') && spotStopRestsOn(market) === 'venue') {
       const trigger = p.prices.triggerPrice!;
       const answer = await this.deps.door.prepare(principal, {
         owner: account.owner,
-        signer: { role: 'owner', address: account.owner },
+        signer: orderSigner(agentSigner, account.owner),
         intent: {
           kind: 'place_order',
           symbol: p.symbol,
@@ -568,10 +576,10 @@ export class VenueSpotConditionals {
     const reused = stored.createdAt.getTime() !== now.getTime() || existing !== undefined;
     let entry: PreparedAnswer | null = null;
     if (ENTRY_KINDS.has(stored.kind)) {
-      // The entry is the person's own order, signed in their own wallet; our engine watches it on the venue.
+      // The entry is the person's own order, signed in their own wallet (or session key); our engine watches it on the venue.
       entry = await this.deps.door.prepare(principal, {
         owner: account.owner,
-        signer: { role: 'owner', address: account.owner },
+        signer: orderSigner(agentSigner, account.owner),
         intent: {
           kind: 'place_order',
           symbol: stored.symbol,

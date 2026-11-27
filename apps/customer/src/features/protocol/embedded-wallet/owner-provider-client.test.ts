@@ -134,6 +134,8 @@ describe('the owner’s provider signs after the person’s passkey', () => {
     const cases: Array<[Parameters<typeof provider>[0], string]> = [
       [{ status: 500 }, 'down'],
       [{ status: 401 }, 'refused'],
+      // A provider over its signing quota answers 429: its own limit, not the person's passkey.
+      [{ status: 429 }, 'busy'],
       [{ activityStatus: 'ACTIVITY_STATUS_FAILED' }, 'refused'],
       // A signature from any other key never passes as the wallet's.
       [{ key: generatePrivateKey() }, 'refused'],
