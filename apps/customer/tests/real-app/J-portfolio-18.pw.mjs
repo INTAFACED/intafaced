@@ -126,7 +126,9 @@ function expected(id, side, opens, closes, largest) {
   const part = ([f, amount], closing) => {
     const units = toUnits(amount);
     const whole = toUnits(f.amount);
-    const share = (fee) => (units === whole ? toUnits(fee) : proRata(toUnits(fee), [units, whole - units])[closing ? 0 : 1]);
+    // A flipping fill closes first, then opens: its fee is split [closing size, opening size] and each part takes its own share.
+    const split = closing ? [units, whole - units] : [whole - units, units];
+    const share = (fee) => (units === whole ? toUnits(fee) : proRata(toUnits(fee), split)[closing ? 0 : 1]);
     return { f, units, venueFee: share(f.venueFee), builderFee: share(f.builderFee), realised: closing ? toUnits(f.realisedPnl) : 0n };
   };
   const o = opens.map((p) => part(p, false));
