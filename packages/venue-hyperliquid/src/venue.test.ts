@@ -1703,6 +1703,51 @@ describe('HIP-3 perp DEXs: the stock, index and gold perpetuals', () => {
     expect(open.map((o) => [o.symbol, o.price])).toEqual([['xyz:TSLA-PERP', a('300')]]);
   });
 
+  // One named DEX the venue doesn't list, or whose read fails, is left out with a warning naming it; the main
+  // listing, and every other named DEX, stays up.
+  function hip3VenueWarning(perpDexs: readonly string[]) {
+    const { fake } = hip3Venue();
+    const warnings: string[] = [];
+    const venue = new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      fetch: fake.fetch,
+      clock: () => new Date(NOW),
+      timeoutMs: 50,
+      perpDexs,
+      warn: (message) => warnings.push(message),
+    });
+    return { fake, venue, warnings };
+  }
+
+  it('a named DEX that perpDexs does not list is left out with a warning naming it; the main and other DEX markets stay listed', async () => {
+    const { venue, warnings } = hip3VenueWarning(['gone', 'xyz']);
+    const symbols = (await venue.markets(null)).value.map((m) => m.symbol);
+    expect(symbols).toEqual(expect.arrayContaining(['BTC-PERP', 'ETH-PERP', 'xyz:TSLA-PERP', 'xyz:HOOD-PERP']));
+    expect(symbols.some((s) => s.startsWith('gone:'))).toBe(false);
+    expect(warnings).toEqual(['venue listing: the perp DEX gone is left out: it is not listed by perpDexs']);
+  });
+
+  it('a named DEX whose metaAndAssetCtxs read fails is left out with a warning naming it; the main markets stay listed', async () => {
+    const { fake, venue, warnings } = hip3VenueWarning(['xyz']);
+    const main = fake.info.metaAndAssetCtxs!;
+    fake.info.metaAndAssetCtxs = (b) => (b.dex === 'xyz' ? 'not an answer' : main(b));
+    const symbols = (await venue.markets(null)).value.map((m) => m.symbol);
+    expect(symbols).toEqual(expect.arrayContaining(['BTC-PERP', 'ETH-PERP']));
+    expect(symbols.some((s) => s.startsWith('xyz:'))).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/^venue listing: the perp DEX xyz is left out: /);
+  });
+
+  it('a failing perpDexs read leaves every named DEX out with a warning; the main markets stay listed', async () => {
+    const { fake, venue, warnings } = hip3VenueWarning(['xyz']);
+    delete fake.info.perpDexs; // no handler: HTTP 400
+    const symbols = (await venue.markets(null)).value.map((m) => m.symbol);
+    expect(symbols).toEqual(expect.arrayContaining(['BTC-PERP', 'ETH-PERP']));
+    expect(symbols.some((s) => s.includes(':'))).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/^venue listing: the perp DEXs xyz are left out: /);
+  });
+
   it('with no DEX named, nothing beyond the main listing is read', async () => {
     const fake = fakeVenue();
     const symbols = (await venueWith(fake).markets(null)).value.map((m) => m.symbol);
