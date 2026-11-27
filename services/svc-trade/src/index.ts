@@ -1003,6 +1003,14 @@ export const appRouter = createTradeRouter(
     now: () => new Date(),
   },
   venueRiskAlerts,
+  // The perps trade journal: read only, off with the door.
+  userVenue
+    ? {
+        venue: () => userVenue.venue(),
+        account: (owner: string, subAccount: string | null) => userVenue.readableAccount(owner, subAccount),
+        now: () => new Date(),
+      }
+    : null,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

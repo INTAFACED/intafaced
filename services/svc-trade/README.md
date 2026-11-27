@@ -60,6 +60,11 @@ where the ledger reconciles.
 | `orders.history` | `trade:read`                 | `{ limit, marketId? }`                                                             | `Order[]`  |
 | `fills.mine`     | `trade:read`                 | `{ limit }`                                                                        | `Fill[]`   |
 
+**Perps trade journal.** `journal.closedTrades` (`trade:read`, record `@intafaced/contracts/trade-journal-procedures`) lists every closed
+perpetual trade on one of the person's venue accounts since a time (at most 90 days back): entry, exit, size, fees, the stop and target
+planned at entry, the R-multiple, MAE and MFE from the venue's candles, and the result had it left at its planned stop or target. Read
+only, from the venue's own fills, order history and candles; nothing is stored. Code: `src/venue/trade-journal.ts`.
+
 **Dead-man switch.** `POST /api/v1/orders/cancel-all-after {timeout}` (seconds) arms a countdown for the caller; re-send it to push
 the deadline out, `timeout: 0` disarms. When the deadline passes, a sweep (every `TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS`) cancels
 every open order of that user through `cancelAllOrders`. Allowed timeouts are `TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC` (blank = arming
