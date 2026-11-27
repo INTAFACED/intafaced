@@ -41,6 +41,9 @@ export class PostgresEmbeddedWalletStore implements EmbeddedWalletStore {
   async insert(input: EmbeddedWalletRow): Promise<{ row: EmbeddedWalletRow; created: boolean }> {
     // Only the person's own key is a replay. The same provider wallet already recorded for someone else is a unique
     // violation on (provider, provider_wallet_id), refused by name: it is never another person's wallet to record.
+    // Two first presses at once both pass find(); the target absorbs only the primary key, so the loser can raise 23505
+    // on embedded_wallets_user_idx or embedded_wallets_provider_wallet_idx instead. The winner has committed by
+    // then: when this person holds a row, that row is the answer, the same as a replay.
     let inserted: Row | undefined;
     try {
       [inserted] = await this.sql<Row[]>`
@@ -50,7 +53,13 @@ export class PostgresEmbeddedWalletStore implements EmbeddedWalletStore {
       ON CONFLICT (idempotency_key) DO NOTHING
       RETURNING user_id, idempotency_key, provider, provider_wallet_id, address, test, created_at`;
     } catch (err) {
-      if ((err as { code?: string; constraint_name?: string }).constraint_name === 'embedded_wallets_provider_wallet_idx')
+      const { code, constraint_name } = err as { code?: string; constraint_name?: string };
+      const lost =
+        code === '23505' && (constraint_name === 'embedded_wallets_user_idx' || constraint_name === 'embedded_wallets_provider_wallet_idx');
+      if (!lost) throw err;
+      const won = await this.find(input.userId);
+      if (won) return { row: won, created: false };
+      if (constraint_name === 'embedded_wallets_provider_wallet_idx')
         throw new EmbeddedWalletRefusedError(
           EMBEDDED_WALLET_MISMATCH,
           'Your wallet provider returned a wallet already recorded for someone else, so nothing was recorded.',
