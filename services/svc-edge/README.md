@@ -57,7 +57,7 @@ An unlisted prefix returns **404, never a pass-through**. An edge that forwards 
 
 **`/internal/*` after a listed prefix is also 404** (`edge.s2s_not_proxied`). Pay jobs, token stake, identity rank, bank cron — those are S2S, authenticated by a secret the edge does not hold and will not forward. A 200 on that path would be a door that opened nothing useful, or worse.
 
-**`/ready.upstreamConfiguration`** lists which prefixes have their env var set (`configured`) vs unset (`absent`). This process does not fetch upstream `/health` (`probe: unprobed`). In `staging`/`prod` an unset `PAY_URL` (etc.) refuses with **503 `edge.upstream_unwired`** — it does not silently proxy to `localhost`. `dev`/`test` keep the table's local default.
+**`/ready.upstreamConfiguration`** lists which prefixes have their env var set (`configured`) vs unset (`absent`). This process does not fetch upstream `/health` (`probe: unprobed`). In `staging`/`prod` an unset `PAY_URL` (etc.) refuses with **503 `edge.upstream_unwired`** — it does not silently proxy to `localhost`. `dev`/`test` keep the table's local default. `EDGE_UPSTREAMS_OFF` (a comma list of these env vars, e.g. `P2P_URL,DEX_URL`) turns an upstream off in every env: it answers the same 503 `edge.upstream_unwired`, which the app words as not connected here (the hosted beta runs only the launch desk's services, #11075).
 
 **API-key `Origin`.** `ifc_…` exchange at the door sends the real `Origin` to identity so `domain_whitelist` can fail closed. Client `x-forwarded-origin` is stripped and rewritten from `Origin` only — a stolen browser key cannot pick its own allowed origin.
 
