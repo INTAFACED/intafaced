@@ -213,3 +213,8 @@ test('stripComments: a comment a bundler reads is code, so changing it is a code
   assert.ok(!same('x();\n//# sourceMappingURL=a.map\n', 'x();\n//# sourceMappingURL=b.map\n'));
   assert.ok(same('x(); // a plain note\n', 'x(); // another plain note\n'));
 });
+
+test('stripComments: a regular expression after `default` or `extends` is read as one (CI review note on #11098)', () => {
+  assert.ok(!same('export default /[//]x/.test(a) ? 1 : 2', 'export default /[//]x/.test(a) ? 3 : 2'));
+  assert.ok(!same('class A extends /[//]/.constructor {}', 'class B extends /[//]/.constructor {}'));
+});

@@ -39,6 +39,8 @@ const KEYWORDS_BEFORE_REGEX = new Set([
   'else',
   'yield',
   'await',
+  'default',
+  'extends',
 ]);
 const WORD = /[A-Za-z0-9_$#]/;
 
