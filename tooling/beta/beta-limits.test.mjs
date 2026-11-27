@@ -10,6 +10,7 @@ import {
   VENUE_WEIGHT_LIMIT,
   funderLimit,
   limitsLine,
+  limitsReport,
   readLimits,
   seatsLimit,
   venueLimit,
@@ -153,4 +154,12 @@ test('readLimits reads all four live, from the funded file, the venue log, the i
   assert.equal(broken[1].state, 'unread');
   assert.match(broken[1].line, /HTTP 429/);
   assert.equal(broken[3].state, 'unread');
+});
+
+test('the status report puts each limit on its own line, state first', () => {
+  const r = limitsReport([
+    { name: 'funder', state: 'warn', line: 'testnet funder: a' },
+    { name: 'venue-weight', state: 'ok', line: 'venue weight: b' },
+  ]);
+  assert.equal(r, '  warn   testnet funder: a\n  ok     venue weight: b');
 });
