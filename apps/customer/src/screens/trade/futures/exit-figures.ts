@@ -17,7 +17,7 @@ export function closeFeeBpsOf(market: Pick<VenueMarket, 'takerFeeBps'> | undefin
 }
 
 /** The fees the position's opening fills paid, from the venue's fills on its market; null when they don't add up to it. */
-export function openingFees(position: VenuePosition, fills: readonly VenueFill[]): Scaled | null {
+function openingFees(position: VenuePosition, fills: readonly VenueFill[]): Scaled | null {
   const size = dec(position.size);
   if (size === null) return null;
   const mine = fills

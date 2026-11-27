@@ -667,7 +667,8 @@ export class VenueProtections {
     const order = (await venue.openOrders(account)).value.find(
       (o) => o.symbol === symbol && o.venueClientOrderId?.toLowerCase() === cloid && o.trigger?.state === 'waiting',
     );
-    if (!order?.trigger || !order.reduceOnly) {
+    const orderId = order?.venueClientOrderId;
+    if (!order?.trigger || !order.reduceOnly || !orderId) {
       throw new ProtectionError(
         'trade.trigger_not_resting',
         `no stop or take profit ${cloid} waits on ${symbol} on ${venue.venue.displayName}: nothing was moved`,
@@ -696,12 +697,12 @@ export class VenueProtections {
     const answer = await this.deps.door.prepare(principal, {
       owner: account.owner,
       signer: orderSigner(signer, account.owner),
-      intent: { kind: 'move_trigger', symbol, venueClientOrderId: order.venueClientOrderId!, triggerPrice, price },
+      intent: { kind: 'move_trigger', symbol, venueClientOrderId: orderId, triggerPrice, price },
       actionKey: `trigger-move:${account.owner}:${cloid}:${formatAmount(triggerPrice)}`,
     });
     return {
       symbol,
-      venueClientOrderId: order.venueClientOrderId!,
+      venueClientOrderId: orderId,
       role,
       from: formatAmount(order.trigger.price),
       triggerPrice: formatAmount(triggerPrice),

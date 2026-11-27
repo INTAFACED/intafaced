@@ -1061,7 +1061,9 @@ export async function answerTestVenue(
       mine.failAfterSend -= 1;
       return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
     }
-    const moving = (body.prepared as { intent?: { kind?: unknown } } | undefined)?.intent?.kind === 'move_trigger';
+    const prepared = body.prepared;
+    const intent = prepared && typeof prepared === 'object' && 'intent' in prepared ? prepared.intent : null;
+    const moving = !!intent && typeof intent === 'object' && 'kind' in intent && intent.kind === 'move_trigger';
     if (path === '/submit' && mine?.refuseTriggerMoves && moving) {
       // The venue's definite no to a move: nothing applied, the order resting as it was.
       const refusal = { venueId: sim.venue.id, code: 'venue_rejected', detail: mine.refuseTriggerMoves };

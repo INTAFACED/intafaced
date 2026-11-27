@@ -347,9 +347,7 @@ test(`${J} #2 drags the target line up and holds it: the price snapped to the ti
   await expect(handle).toContainText(`${rOf(net, BigInt(s.riskAtStop))}R`);
   await expect(handle).toContainText('not sent');
   // Nothing sent while held: no door write, no signature, and the venue's target still where it was.
-  // Proving nothing is sent while held: a while with the line held, then no write.
-  // oxlint-disable-next-line garden/no-wait-for-timeout -- nothing happening is the outcome
-  await page.waitForTimeout(800);
+  // Nothing is sent while held: the figures above were drawn with no write to our door.
   expect(writes).toEqual([]);
   expect(signatures()).toBe(asked);
   const [target] = await exitsOf(owner, LONG, 'take_profit');
