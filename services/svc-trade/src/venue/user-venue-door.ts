@@ -340,6 +340,15 @@ export class UserVenueDoorError extends Error {
   }
 }
 
+/** A sent approval the venue definitely refused: nothing was approved, and its key only ever replays that refusal. */
+function refusedApproval(row: StoredVenueAction): boolean {
+  const o = row.lastOutcome;
+  return row.signature !== null && o?.definite === true && !o.accepted;
+}
+
+/** The key a fixed agent's approval was first prepared under: a retry's `:<n>` taken off (`fixedAgentApprovalKey`). */
+const approvalBase = (key: string) => key.replace(/:\d+$/, '');
+
 /** The longest Idempotency-Key header accepted (DV-auth-03). */
 export const IDEMPOTENCY_KEY_MAX = 255;
 /** How long one request may hold a key's send before another request can take it over (a crashed request). */
@@ -1991,7 +2000,11 @@ export class UserVenueDoor {
     if (intent.kind === 'approve_agent') {
       const address = (intent.agentAddress ?? '').toLowerCase();
       const earlier = await this.deps.store.agentApprovals(principal.userId, address);
-      if (earlier.some((row) => row.businessKey !== key)) {
+      // A fixed agent's approval the venue definitely refused approved nothing: it never blocks the next try of
+      // the same approval (`fixedAgentApprovalKey`). A session key is never retried: its next Start takes a fresh key.
+      const retry = (row: StoredVenueAction) =>
+        !key.startsWith(SESSION_KEY_PREFIX) && refusedApproval(row) && approvalBase(row.businessKey) === approvalBase(key);
+      if (earlier.some((row) => row.businessKey !== key && !retry(row))) {
         throw new UserVenueDoorError(
           `${address} was approved as an agent before; a key is approved once and never again`,
           'trade.venue_session_key_reused',
@@ -2194,6 +2207,22 @@ export class UserVenueDoor {
   /** The stored action under `actionKey`, or `null`: what the agent account reads back its own actions by. */
   async stored(principal: Principal, actionKey: string): Promise<StoredVenueAction | null> {
     return this.deps.store.find(principal.userId, actionKey);
+  }
+
+  /**
+   * The key a fixed agent's approval (one address per person, derived, never a new one) is prepared under now: `base` the
+   * first time; the same key while its approval is unsent, unanswered or accepted, so an accepted approval is never sent
+   * twice; and a new key, `base:<n>`, once the venue definitely refused the latest one, which approved nothing (a passing
+   * `agent_removal_pending` included). Each try's own key keeps answering its own stored outcome.
+   */
+  async fixedAgentApprovalKey(principal: Principal, agentAddress: string, base: string): Promise<string> {
+    const tries = (await this.deps.store.agentApprovals(principal.userId, agentAddress)).filter(
+      (row) => approvalBase(row.businessKey) === base,
+    );
+    const n = (key: string) => (key === base ? 1 : Number(key.slice(base.length + 1)));
+    const latest = tries.reduce<StoredVenueAction | null>((a, r) => (a === null || n(r.businessKey) > n(a.businessKey) ? r : a), null);
+    if (latest === null) return base;
+    return refusedApproval(latest) ? `${base}:${n(latest.businessKey) + 1}` : latest.businessKey;
   }
 
   /** Every stored action of this person under keys starting `prefix`: what a revoke reads the assistant's orders by (#12). */
