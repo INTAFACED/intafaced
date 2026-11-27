@@ -496,5 +496,47 @@ describe('embeddedWallet.* mounted', () => {
     const d = deps({ kind: 'ready', adapter: fakeProvider().adapter });
     await expect(caller(d, signedOut).embeddedWallet.status()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     await expect(caller(d, signedOut).embeddedWallet.create({ passkey: PASSKEY })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(caller(d, signedOut).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+  });
+
+  it('outcome counts a provider outcome only against the person’s own wallet at a provider outside the stack', async () => {
+    const store = new MemoryEmbeddedWalletStore();
+    const lines: unknown[] = [];
+    const d = { ...deps({ kind: 'unset' }, store), outcomes: (line: unknown) => lines.push(line) };
+    // No wallet: nothing to count.
+    expect(await caller(d).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: false });
+    // A TEST wallet spends nothing at the owner's provider: not counted.
+    store.rows.set(embeddedWalletKey(ALICE), {
+      userId: ALICE,
+      idempotencyKey: embeddedWalletKey(ALICE),
+      provider: 'test',
+      providerWalletId: 'w-1',
+      address: ADDRESS,
+      test: true,
+      createdAt: T0,
+    });
+    expect(await caller(d).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: false });
+    expect(lines).toEqual([]);
+    store.rows.set(embeddedWalletKey(BOB), {
+      userId: BOB,
+      idempotencyKey: embeddedWalletKey(BOB),
+      provider: 'turnkey',
+      providerWalletId: 'sub-org/wallet',
+      address: ADDRESS,
+      test: false,
+      createdAt: T0,
+    });
+    expect(await caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: true });
+    expect(await caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'down', status: null })).toEqual({ recorded: true });
+    expect(lines).toEqual([
+      { msg: 'protocol.embedded_provider_outcome', provider: 'turnkey', outcome: 'quota', status: 429, at: expect.any(String) },
+      { msg: 'protocol.embedded_provider_outcome', provider: 'turnkey', outcome: 'down', status: null, at: expect.any(String) },
+    ]);
+    // An outcome the record does not name is refused at the door.
+    await expect(caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'busy' as 'quota', status: 429 })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
   });
 });
