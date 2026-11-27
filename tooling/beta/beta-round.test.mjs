@@ -6,7 +6,22 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { READY_WAIT_MS, betaPaths, frontAction, frontUnitText, readied, round, syncFront, venueReadied } from './beta-host.mjs';
+import {
+  BETA_MOVE_AT,
+  READY_WAIT_MS,
+  askMove,
+  betaPaths,
+  decide,
+  frontAction,
+  frontUnitText,
+  moveDue,
+  readied,
+  round,
+  slotStart,
+  statusLine,
+  syncFront,
+  venueReadied,
+} from './beta-host.mjs';
 import { frontApp, holdOf } from './beta-front.mjs';
 
 const OLD = 'a'.repeat(40);
@@ -30,8 +45,12 @@ function home() {
 const readStatus = (paths) => JSON.parse(fs.readFileSync(paths.status, 'utf8'));
 
 /** Fakes for one round. `seen` records the status file and what the front shows at every outside step. */
-function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, readyAfter = 0, warmBefore = true, chainNew = false } = {}) {
+function fakes(
+  paths,
+  { head = OLD, target = NEW, check = PASS, checkFor = () => check, launch = 0, readyAfter = 0, warmBefore = true, chainNew = false } = {},
+) {
   let clock = Date.parse('2026-11-23T09:00:00Z');
+  let current = head;
   let calls = 0;
   const seen = [];
   const look = (step) => {
@@ -41,7 +60,10 @@ function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, read
   const io = {
     git: (_cwd, ...args) => {
       if (args[0] === 'rev-parse') return { status: 0, stdout: `${args[1] === 'HEAD' ? head : target}\n`, stderr: '' };
-      if (args[0] === 'checkout') look('checkout');
+      if (args[0] === 'checkout') {
+        current = args.at(-1);
+        look('checkout');
+      }
       return { status: 0, stdout: '', stderr: '' };
     },
     run: async (_p, cmd, args) => {
@@ -49,7 +71,7 @@ function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, read
       return args.includes('launch') ? launch : 0;
     },
     anvil: () => ({ line: 'anvil: fake', fresh: chainNew }),
-    check: async () => (look('check'), check),
+    check: async () => (look('check'), checkFor(current)),
     readied: async () => {
       const first = calls++ === 0;
       if (first && seen.length === 0) return { ok: warmBefore, why: 'before the round' };
@@ -437,4 +459,125 @@ test('a round 30 minutes after the last update still moves to a moved main, and 
   assert.equal(end.sha, NEW);
   assert.equal(end.updatedAt, '2026-11-23T09:00:00.000Z');
   assert.match(fs.readFileSync(paths.log, 'utf8'), /round: update \(checkout aaaaaaaaa, main bbbbbbbbb\)/);
+});
+
+// ── While testers are on: a daily slot, on demand, and back to the last good commit (#11029) ──────────────
+
+const THIRD = 'c'.repeat(40);
+/** Testers are on: someone invited has opened the TEST mailbox (beta-invited.mjs invited.json). */
+const invite = (paths) =>
+  fs.writeFileSync(paths.invited, JSON.stringify({ kind: 'intafaced-beta-invited', tokens: { tester1: '2026-11-22T10:00:00Z' } }));
+const steps = (seen) => seen.map((s) => s.step);
+
+test('moveDue: nobody invited follows main; with testers, main moves once a day at the slot, or when asked', () => {
+  const now = Date.parse('2026-11-23T09:00:00Z');
+  assert.equal(BETA_MOVE_AT, '20:00');
+  assert.equal(new Date(slotStart(now)).toISOString(), '2026-11-22T20:00:00.000Z');
+  assert.equal(new Date(slotStart(Date.parse('2026-11-23T20:00:00Z'))).toISOString(), '2026-11-23T20:00:00.000Z');
+  assert.equal(moveDue({ testers: 0, now, updatedAt: '2026-11-23T08:59:00Z' }).due, true);
+  assert.match(moveDue({ testers: 0, now, updatedAt: '2026-11-23T08:59:00Z' }).why, /nobody is invited/);
+  const held = moveDue({ testers: 2, now, updatedAt: '2026-11-23T06:00:00Z' });
+  assert.equal(held.due, false);
+  assert.match(held.why, /2 invited testers: main waits for the daily slot at 20:00 UTC/);
+  assert.equal(moveDue({ testers: 2, now, updatedAt: '2026-11-22T19:59:00Z' }).due, true, 'not moved since the last slot');
+  assert.match(moveDue({ testers: 2, now, updatedAt: '2026-11-22T19:59:00Z' }).why, /the daily slot/);
+  assert.equal(moveDue({ testers: 2, now, updatedAt: '2026-11-23T06:00:00Z', asked: true }).due, true);
+  assert.match(moveDue({ testers: 2, now, updatedAt: '2026-11-23T06:00:00Z', asked: true }).why, /on demand/);
+  assert.equal(moveDue({ testers: 2, now, updatedAt: '2026-11-23T06:00:00Z', at: '09:00' }).due, true, 'a slot set by BETA_MOVE_AT');
+  assert.throws(() => slotStart(now, '25:00'), /BETA_MOVE_AT/);
+  assert.equal(decide({ screening: true, head: 'a', target: 'b', due: false }), 'launch');
+  assert.equal(decide({ screening: true, head: 'a', target: 'b', refused: 'b' }), 'launch');
+  assert.equal(decide({ screening: true, head: 'a', target: 'b', refused: 'c' }), 'update');
+});
+
+test('with testers on, a merge between slots does not reach them: the stack stays up on its commit, and status says why', async () => {
+  const paths = home();
+  invite(paths);
+  fs.writeFileSync(
+    paths.status,
+    JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T06:00:00Z', upSince: '2026-11-23T06:05:00Z' }),
+  );
+  const { io, seen } = fakes(paths);
+  const end = await round(paths, io);
+  assert.ok(!steps(seen).includes('checkout'), 'the checkout does not move');
+  for (const s of seen) assert.deepEqual([s.state, s.shown], ['up', 'app'], s.step);
+  assert.equal(end.state, 'up');
+  assert.equal(end.sha, OLD);
+  assert.equal(end.mainAt, NEW);
+  assert.equal(end.upSince, '2026-11-23T06:05:00Z', 'no restart, so no tab reloads');
+  assert.match(end.why, /1 invited tester: main waits for the daily slot at 20:00 UTC/);
+  assert.match(statusLine(readStatus(paths)), /^up: serves aaaaaaaaa; main is at bbbbbbbbb; 1 invited tester: main waits/);
+});
+
+test('with testers on, the first round after the daily slot moves to main', async () => {
+  const paths = home();
+  invite(paths);
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-22T08:00:00Z' }));
+  const { io, seen } = fakes(paths);
+  const end = await round(paths, io);
+  assert.ok(steps(seen).includes('checkout'));
+  assert.equal(end.state, 'up');
+  assert.equal(end.sha, NEW);
+  assert.match(end.why, /moved to main bbbbbbbbb at the daily slot/);
+});
+
+test('on demand: `beta-host.mjs move` moves to main at the next round, between slots, once', async () => {
+  const paths = home();
+  invite(paths);
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T06:00:00Z' }));
+  askMove(paths, new Date('2026-11-23T08:58:00Z'));
+  assert.ok(fs.existsSync(paths.moveNow));
+  const { io, seen } = fakes(paths);
+  const end = await round(paths, io);
+  assert.ok(steps(seen).includes('checkout'));
+  assert.equal(end.sha, NEW);
+  assert.match(end.why, /on demand/);
+  assert.equal(fs.existsSync(paths.moveNow), false, 'the ask is used once');
+  // The next merge waits for the slot again.
+  const again = await round(paths, fakes(paths, { head: NEW, target: THIRD }).io);
+  assert.equal(again.sha, NEW);
+  assert.match(again.why, /waits for the daily slot/);
+});
+
+test('a moved commit that fails its check goes back to the last good commit, which it refuses until main moves past it', async () => {
+  const paths = home();
+  invite(paths);
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-22T08:00:00Z' }));
+  const bad = { ok: false, lines: ['FAIL svc-x names https://api.real.xyz'] };
+  const { io, seen } = fakes(paths, { checkFor: (sha) => (sha === NEW ? bad : PASS) });
+  const end = await round(paths, io);
+  assert.deepEqual(steps(seen).slice(0, 4), ['checkout', 'install', 'launch', 'check'], 'the new commit is tried first');
+  assert.ok(steps(seen).slice(4).includes('stop'), 'the failed stack is stopped');
+  assert.deepEqual(steps(seen).slice(-5), ['checkout', 'install', 'launch', 'check', 'readied'], 'then the last good one is started');
+  for (const s of seen) assert.equal(s.shown, 'updating', `${s.step}: testers see the updating page, never the failed build`);
+  assert.equal(end.state, 'up');
+  assert.equal(end.sha, OLD);
+  assert.equal(end.refused.sha, NEW);
+  assert.match(end.refused.reason, /the TEST funds check failed/);
+  assert.match(end.why, /back on the last good commit aaaaaaaaa: main bbbbbbbbb failed its check/);
+  // Main has not moved: the refused commit is not tried again, even on demand or at the slot.
+  askMove(paths);
+  const held = await round(paths, fakes(paths, { head: OLD, target: NEW }).io);
+  assert.equal(held.sha, OLD);
+  assert.equal(held.refused.sha, NEW);
+  assert.match(held.why, /main bbbbbbbbb is refused/);
+  // Main moves past it: the next due move tries the new main.
+  askMove(paths);
+  const past = await round(paths, fakes(paths, { head: OLD, target: THIRD }).io);
+  assert.equal(past.sha, THIRD);
+  assert.equal(past.state, 'up');
+  assert.equal(past.refused ?? null, null, 'forgotten once main moved past it');
+});
+
+test('a moved commit whose launch fails goes back too; a good commit that fails the same way, or none known, is down', async () => {
+  const paths = home();
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T06:00:00Z' }));
+  const { io } = fakes(paths, { launch: 1 });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'down', 'the good commit fails the same way here, so it stays down');
+  assert.equal(end.refused.sha, NEW);
+  const fresh = home();
+  const first = await round(fresh, fakes(fresh, { launch: 1 }).io);
+  assert.equal(first.state, 'down');
+  assert.equal(first.sha, NEW, 'no last good commit: nothing to go back to');
 });
