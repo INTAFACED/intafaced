@@ -1022,8 +1022,9 @@ export async function round(paths = betaPaths(), io = {}) {
   }
   if (whole) await stopStack(paths, run);
   if (otherCustody) log(paths, moveBookAside(paths, otherCustody, new Date(now())));
-  if (resumed) {
-    // The move the previous copy handed over: a launch that fails goes back to the last good commit, as a move does.
+  if (resumed && head === target) {
+    // The move the previous copy handed over: a launch that fails goes back to the last good commit, as a move does. Only
+    // while it is still the target: goBack refuses `target`, and a newer main nobody tried must never be refused.
     const updatedAt = new Date(now()).toISOString();
     return end(await goBack(await bring(head, { move: false, updatedAt }), updatedAt));
   }
