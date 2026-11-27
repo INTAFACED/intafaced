@@ -800,6 +800,32 @@ describe('outcome classification', () => {
       asOf: new Date(NOW),
     });
   });
+
+  it('a cancel the venue answered "success" never reads back as still open: a read-back that lags leaves the detail to the next read (#11048)', async () => {
+    // On the beta (2026-11-27 08:54 UTC) the venue answered the cancel "success" and cancelled the order at 08:54:02.279,
+    // but the read-back a moment later still listed it open, so the desk told the tester "Open on the venue." after Cancel.
+    // Still open with nothing filled, and still open with part filled (sz under origSz).
+    for (const left of ['0.5', '0.2']) {
+      const fake = fakeVenue();
+      const base = fake.info.orderStatus!;
+      fake.info.orderStatus = (b) => {
+        const r = base(b) as { order: { order: { sz: string } } };
+        r.order.order.sz = left;
+        return r;
+      };
+      const venue = venueWith(fake);
+      const prepared = await venue.prepare(account, ownerSigner, {
+        kind: 'cancel_order',
+        symbol: 'ETH-PERP',
+        clientOrderKey: 'order:test-user:desk:1',
+      });
+      fake.exchange.push(ok({ type: 'cancel', data: { statuses: ['success'] } }));
+      const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+      if (!outcome.definite || !outcome.accepted) throw new Error(`expected an accepted cancel, got ${JSON.stringify(outcome)}`);
+      expect(outcome.order).toBeNull();
+      expect(outcome.venueRef).toBe('77');
+    }
+  });
 });
 
 describe('reads: the venue record, decimal strings to scaled bigints', () => {
