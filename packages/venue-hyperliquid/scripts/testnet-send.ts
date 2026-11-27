@@ -5,8 +5,10 @@
  *     pnpm --filter @intafaced/venue-hyperliquid testnet:send
  *
  * Run by the dispatch-only workflow `.github/workflows/hl-testnet-send.yml`, which passes the funded account's key from
- * the `HL_TESTNET_TRADER_KEY` secret. Hyperliquid's testnet faucet pays only addresses that have deposited on mainnet,
- * so a fresh testnet address (a box's platform key, a tester's wallet: intafaced#10204) gets its TEST USDC this way.
+ * the `HL_TESTNET_TRADER_KEY` secret. Hyperliquid's testnet faucet (`claimDrip`, keyless) pays 1,000 once per address
+ * that exists on mainnet, so a fresh testnet address (a box's platform key, a tester's wallet: intafaced#10204) gets
+ * its TEST USDC this way. The funder qualified and spent its one claim on 19 Nov 2026; the faucet does not refill it
+ * (tooling/beta/beta-testnet.mjs, "How the funder refills").
  *
  * 1. Refuses before anything is sent (exit 2): a URL that isn't the testnet's, APP_ENV other than dev or test, a key
  *    that isn't 32-byte hex, a destination that isn't a 0x address or is the funder itself, an amount that isn't a
@@ -41,7 +43,7 @@ import {
 import { isHexKey } from './live-settings.js';
 import { postExchange } from './testnet-setup.js';
 
-/** The most one run may send. TEST USDC on the testnet only; the faucet pays 1,000 per mainnet-funded address. */
+/** The most one run may send. TEST USDC on the testnet only; the faucet pays 1,000 once per mainnet address. */
 export const MAX_SEND_USDC = parseAmount('500');
 
 export interface SendDeps {
