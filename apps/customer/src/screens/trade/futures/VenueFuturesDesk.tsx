@@ -47,6 +47,7 @@ import {
   VenueHeader,
   WalletBar,
   heldKeys,
+  DeskSigningContext,
   heldTags,
   outcomeText,
   keepsDraft,
@@ -74,7 +75,7 @@ import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
 import { spotVenueCopy } from '../desk/venue-copy';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
-import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
+import { ProtectDialog, ReverseDialog, refusalOf, useExitSigner, useSignPrepared } from './VenueProtect';
 import { venueProtectCopy } from './venue-protect-copy';
 import { VenueCollateral, VenueTiers } from './VenueRisk';
 import { VenueCalculator } from './VenueCalculator';
@@ -234,7 +235,7 @@ function Contracts({
     ticketRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   };
   return (
-    <>
+    <DeskSigningContext.Provider value={session.signing}>
       <DeskTemplate
         title={t('Futures on venue')}
         mode="pro"
@@ -355,7 +356,7 @@ function Contracts({
           {t('Short')}
         </Button>
       </div>
-    </>
+    </DeskSigningContext.Provider>
   );
 }
 
@@ -920,6 +921,7 @@ function Ticket({
   const p = venueProtectCopy.useCopy().t;
   const r = venueRiskCopy.useCopy().t;
   const signPrepared = useSignPrepared(owner);
+  const exitSigner = useExitSigner(owner);
   const best = usePolled((signal) => venue.bestPrices(market.symbol, signal), `best:${market.symbol}`, VENUE_POLL_MS);
   const [problem, setProblem] = useState<string | null>(null);
   const [problemCode, setProblemCode] = useState<string | null>(null);
@@ -1213,6 +1215,8 @@ function Ticket({
     setAttached({ state: 'working' });
     const set: Array<'take_profit' | 'stop_loss'> = [];
     for (const [kind, price] of legs) {
+      const chosen = exitSigner();
+      if ('refusal' in chosen) return setAttached({ state: 'failed', kind, filled, set, refusal: chosen.refusal });
       const created = await venue.createProtection({
         owner,
         symbol: entry.symbol,
@@ -1223,6 +1227,7 @@ function Ticket({
         triggerSource: (market.triggerSources ?? []).includes('mark') ? 'mark' : (market.triggerSources?.[0] ?? 'mark'),
         clientOrderId: protectionClientId(Date.now(), counter.current++),
         attachTo: entry.clientOrderKey,
+        signer: chosen.signer,
       });
       const refused = !created.ok
         ? { message: created.message, code: created.code ?? null }

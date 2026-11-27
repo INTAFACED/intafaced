@@ -37,6 +37,7 @@ import { EXPLORER_LIVE_WRITE_REFUSED, explorerLiveWrite } from './explorer-guard
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { keyCallReport, presentedKeyHash, replyErrorCode, reportKeyCall } from './key-call-log.js';
+import { registerAccountCallLog, rememberCaller } from './account-call-log.js';
 import { normalizeIp } from './request-client-ip.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
@@ -435,6 +436,9 @@ await app.register(async (api) => {
     return payload;
   });
 
+  // An account's call line: each reply to a signed-in person's call is logged by account id (`account-call-log.ts`).
+  registerAccountCallLog(api);
+
   api.all('/api/*', async (req, reply) => {
     // The same resolver the onRequest guards read, so the proxy forwards exactly the path they judged. Null (a path
     // not in normal form, or one with no single answer) was already refused there; refused here too as a belt.
@@ -552,6 +556,7 @@ await app.register(async (api) => {
     // signing-key mismatch, and a spike in `anonymous` is a front-end that stopped
     // attaching the header. An availability panel that merges them shows neither.
     markAuthOutcome(req, exchanged.rejected ? 'refused' : exchanged.principal ? 'authenticated' : 'anonymous');
+    rememberCaller(req, exchanged.principal);
 
     // The API explorer never writes with a live key (DV-console-01): its tagged write is refused before anything else.
     if (explorerLiveWrite(req.method, req.headers, exchanged.principal)) {

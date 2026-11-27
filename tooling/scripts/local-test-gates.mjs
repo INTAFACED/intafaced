@@ -440,8 +440,8 @@ export function listAccountsAndTiers(secrets) {
   const users = psqlRead(
     secrets,
     'svc_identity',
-    'SELECT id::text, handle::text, email::text FROM identity.users ORDER BY created_at, id',
-  ).map(([id, handle, email]) => ({ id, handle, email }));
+    `SELECT id::text, handle::text, email::text, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM identity.users ORDER BY created_at, id`,
+  ).map(([id, handle, email, createdAt]) => ({ id, handle, email, createdAt }));
   const approved = new Map();
   for (const [uid, tier] of psqlRead(
     secrets,

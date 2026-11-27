@@ -142,6 +142,8 @@ export interface SpotConditionalRequest {
   /** A good-till-date order's expiry, an ISO time (J-cex-spot-03 #7). */
   expireAt?: string;
   clientOrderId: string;
+  /** Who signs the person's own orders here: the owner's wallet when absent, or the desk's trading session key. */
+  signer?: { role: 'owner' | 'agent'; address: string };
 }
 
 // ── Intents, as the door takes them: every Amount a decimal string ─────────────────────────────────────────────────
