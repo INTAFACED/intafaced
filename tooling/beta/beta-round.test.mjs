@@ -6,13 +6,13 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { READY_WAIT_MS, betaPaths, frontAction, frontUnitText, readied, round, syncFront } from './beta-host.mjs';
+import { READY_WAIT_MS, betaPaths, frontAction, frontUnitText, readied, round, syncFront, venueReadied } from './beta-host.mjs';
 import { frontApp, holdOf } from './beta-front.mjs';
 
 const OLD = 'a'.repeat(40);
 /** The marker a launch on the beta's own settings writes (BETA_STACK_SETTINGS). */
 const SETTINGS =
-  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey';
+  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey LOCAL_STACK_CUSTODY_LAYER=off';
 const NEW = 'b'.repeat(40);
 const PASS = { ok: true, lines: ['ok   the Customer page carries the TEST banner ("TEST FUNDS")'] };
 
@@ -63,6 +63,57 @@ function fakes(paths, { head = OLD, target = NEW, check = PASS, launch = 0, read
   };
   return { io, seen };
 }
+
+test("readied with custody off reads the venue's own prices, since our own book's markets have none at launch (#11019)", () => {
+  // svc-trade's reply on a custody-off stack with the beta's venue (27 Nov 2026, slot 0, LOCAL_STACK_CUSTODY_LAYER=off).
+  const live = JSON.stringify({
+    venueId: 'hyperliquid-testnet',
+    value: {
+      'PURR-USDC': { symbol: 'PURR-USDC', last: '4.5795', bid: '4.5342', ask: '4.5795' },
+      'BTC-USDC': { symbol: 'BTC-USDC', last: '6100', bid: null, ask: '6100' },
+    },
+    asOf: '2026-11-27T03:38:04.606Z',
+    test: true,
+  });
+  assert.deepEqual(venueReadied(live), { ok: true, why: "2 of 2 of the venue's markets (hyperliquid-testnet) have a price" });
+  assert.equal(venueReadied(JSON.stringify({ venueId: 'x', value: { A: { last: null } } })).ok, false);
+  assert.equal(venueReadied(JSON.stringify({ code: 'trade.user_venue_off' })).ok, false);
+  assert.equal(venueReadied(null).ok, false);
+  // The same stack's own-book reads: every market unpriced, so the custody-on gate would never ready the beta.
+  assert.equal(
+    readied({ markets: JSON.stringify([{ symbol: 'BTC/USDC', test: false }]), tickers: JSON.stringify({ 'BTC/USDC': { last: null } }) }).ok,
+    false,
+  );
+});
+
+test('a database served custody on is kept aside once, so svc-ledger starts custody off on a fresh book (#11019)', async () => {
+  const paths = home();
+  const records = (custodyLayer) =>
+    fs.writeFileSync(path.join(paths.state, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1, custodyLayer } }));
+  fs.mkdirSync(path.join(paths.state, 'run'), { recursive: true });
+  fs.mkdirSync(path.join(paths.state, 'data', 'postgres'), { recursive: true });
+  fs.writeFileSync(path.join(paths.state, 'data', 'postgres', 'PG_VERSION'), '16\n');
+  records('on');
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, upSince: '2026-11-23T04:00:00Z' }));
+  const { io, seen } = fakes(paths, { target: OLD });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'up');
+  assert.deepEqual(seen.map((s) => s.step).slice(0, 3), ['stop', 'stop', 'launch'], 'stopped whole before the move, then launched');
+  assert.equal(fs.existsSync(path.join(paths.state, 'data')), false, 'the custody-on database no longer serves');
+  const kept = fs.readdirSync(paths.state).filter((n) => n.startsWith('data-custody-on-'));
+  assert.equal(kept.length, 1);
+  assert.equal(fs.readFileSync(path.join(paths.state, kept[0], 'postgres', 'PG_VERSION'), 'utf8'), '16\n', 'kept, never deleted');
+  assert.match(
+    fs.readFileSync(paths.log, 'utf8'),
+    /custody: the database was served custody on, so it is kept at .*data-custody-on-\d{8}T\d{6}Z/,
+  );
+  // The next round, on the custody-off stack the launch started: nothing moves again.
+  fs.mkdirSync(path.join(paths.state, 'data', 'postgres'), { recursive: true });
+  records('off');
+  await round(paths, fakes(paths, { target: OLD }).io);
+  assert.equal(fs.existsSync(path.join(paths.state, 'data', 'postgres')), true);
+  assert.equal(fs.readdirSync(paths.state).filter((n) => n.startsWith('data-custody-')).length, 1);
+});
 
 test('an update round: status reads updating, and the front shows its updating page, from before the checkout moves until the new stack is readied', async () => {
   const paths = home();
