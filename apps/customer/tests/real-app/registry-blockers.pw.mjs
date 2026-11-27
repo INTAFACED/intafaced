@@ -58,7 +58,6 @@ const SWEEP = {
   'pay-scan': { at: '/pay/scan', shows: 'A payment code or link from this app opens Send' },
   'pay-bill-detail': { at: '/pay/bills/invoices/TEST-not-a-record', shows: 'there is no biller network behind INTAFACED' },
   'oauth-apps': { at: '/developers/apps', shows: 'The owner has not published the lifetime that signing in with apps needs' },
-  'developer-portal': { at: '/developers', shows: 'No separate access tiers are published.' },
   'trade-news-calendar': { at: '/trade/news', shows: 'News needs a news data feed.' },
   p2p: { silent: 'the room does not name the missing instrument encryption provider' },
   // Status components and support hours are set by other journeys on the shared stack; no journey publishes a rulebook.
