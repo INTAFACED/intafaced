@@ -50,18 +50,22 @@ export function useVenueTickers(): Loadable<VenueTickersRead> {
   );
 }
 
-/** A venue ticker as a markets-list price row: what the venue publishes, and null (never zero) for what it does not. */
+/**
+ * A venue ticker as a markets-list price row: what the venue publishes, and null (never zero) for what it does not. A
+ * perpetual has no last print here: its price is the venue's mark, and its 24h move is from the venue's own price 24
+ * hours ago.
+ */
 export function venueTickerRow(t: VenueTickerRow): TickerRow {
   return {
     symbol: t.symbol,
-    last: t.last,
+    last: t.last ?? t.mark ?? null,
     bid: t.bid,
     ask: t.ask,
-    open24h: null,
+    open24h: t.open ?? null,
     high24h: t.high,
     low24h: t.low,
-    change24h: null,
-    changePct24h: null,
+    change24h: t.change ?? null,
+    changePct24h: t.changePct ?? null,
     baseVolume24h: t.baseVolume,
     quoteVolume24h: t.quoteVolume,
     windowStart: null,

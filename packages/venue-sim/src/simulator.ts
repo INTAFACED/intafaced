@@ -88,6 +88,7 @@ import {
   type VenueFeeStatus,
   type VenueOtherFee,
   type VenueBestPrices,
+  type VenuePerpetualPrice,
   type VenueMarginMode,
   type VenueRefusalCode,
   type VenueSignature,
@@ -1472,6 +1473,23 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
     }
     return this.asOf({ symbol: market.symbol, bid, ask });
+  }
+
+  /**
+   * Every listed perpetual's mark and, where it publishes one, its index, as the markets list prices them. TEST: the
+   * simulator keeps no price from 24 hours ago and counts no day's volume, so those are left out, never guessed.
+   */
+  async perpetualPrices(): Promise<AsOf<readonly VenuePerpetualPrice[]>> {
+    this.up();
+    if (this.switches.unlistPerpetuals) return this.asOf([]);
+    const list: VenuePerpetualPrice[] = [];
+    for (const m of this.marketsBySymbol.values()) {
+      const markPrice = m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined;
+      if (markPrice === undefined) continue;
+      const indexPrice = this.indexUnpublished.has(m.symbol) ? undefined : this.indexes.get(m.symbol);
+      list.push({ symbol: m.symbol, markPrice, ...(indexPrice === undefined ? {} : { indexPrice }) });
+    }
+    return this.asOf(list);
   }
 
   /**

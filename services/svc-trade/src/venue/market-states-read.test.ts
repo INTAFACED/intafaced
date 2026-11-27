@@ -1,3 +1,4 @@
+import { formatAmount } from '@intafaced/ledger-client/money';
 import http from 'node:http';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -183,6 +184,25 @@ describe('/api/v1/venue/market-states (J-cex-spot-14 #1 #2)', () => {
     const tickersRes = await a.inject({ url: '/api/v1/venue/tickers' });
     expect(tickersRes.statusCode, tickersRes.body).toBe(200);
     expect(tickersRes.json().value['BTC-USDC']).toMatchObject({ symbol: 'BTC-USDC' });
+    // Each listed perpetual is priced from the venue's own published prices: its mark, with no last print.
+    const marks = new Map((await sim.perpetualPrices()).value.map((p) => [p.symbol, formatAmount(p.markPrice)]));
+    for (const symbol of ['BTC-PERP', 'ETH-PERP']) {
+      expect(marks.get(symbol), symbol).toMatch(/^\d/);
+      expect(tickersRes.json().value[symbol], symbol).toMatchObject({ symbol, mark: marks.get(symbol), last: null });
+    }
+    // A failed perpetual read leaves the perpetuals out and keeps the spot rows.
+    const read = sim.perpetualPrices.bind(sim);
+    sim.perpetualPrices = async () => {
+      throw new Error('TEST: the perpetual price read failed');
+    };
+    try {
+      const partial = await a.inject({ url: '/api/v1/venue/tickers' });
+      expect(partial.statusCode, partial.body).toBe(200);
+      expect(partial.json().value['BTC-USDC']).toMatchObject({ symbol: 'BTC-USDC' });
+      expect(partial.json().value['BTC-PERP']).toBeUndefined();
+    } finally {
+      sim.perpetualPrices = read;
+    }
 
     const spreadsRes = await a.inject({ url: '/api/v1/venue/spreads' });
     expect(spreadsRes.statusCode, spreadsRes.body).toBe(200);

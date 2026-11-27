@@ -88,11 +88,18 @@ export function dialPool(
       if (settled) return;
       settled = true;
       socket.destroy();
-      resolve({ kind, roundTripMs: Date.now() - started });
+      const elapsed = Date.now() - started;
+      // The socket's idle timer runs on the monotonic clock and the wall clock can read short of it (999 for 1000): a
+      // time-out of our own wait lasted at least that wait.
+      resolve({ kind, roundTripMs: kind === 'timed_out' && ownTimeout ? Math.max(elapsed, timeoutMs) : elapsed });
     };
+    let ownTimeout = false;
     socket.setTimeout(timeoutMs);
     socket.once('connect', () => finish('reachable'));
-    socket.once('timeout', () => finish('timed_out'));
+    socket.once('timeout', () => {
+      ownTimeout = true;
+      finish('timed_out');
+    });
     // Only a wait running out is a time-out (ours, or the system's own connect time-out). Any other error before it
     // (refused, reset, no route, no such host) is the address not being reached, never a time-out the wait did not reach.
     socket.once('error', (err: NodeJS.ErrnoException) => finish(err.code === 'ETIMEDOUT' ? 'timed_out' : 'refused'));
