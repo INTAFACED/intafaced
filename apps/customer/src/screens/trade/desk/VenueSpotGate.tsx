@@ -149,17 +149,3 @@ export function VenueSpotGate({
     </VenueFrame>
   );
 }
-
-/**
- * A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's key. The
- * owner is read here, inside VenueFrame, whose WalletProvider holds the wallet the person connects on the desk; read
- * above it, it is the app's outer wallet, never connected, and the session panel never shows.
- */
-function SpotDeskSession({ status, children }: { status: VenueUp; children: React.ReactNode }) {
-  const owner = useOwner();
-  return (
-    <DeskSessionProvider owner={owner} status={status}>
-      {children}
-    </DeskSessionProvider>
-  );
-}
