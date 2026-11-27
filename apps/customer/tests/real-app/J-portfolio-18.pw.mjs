@@ -6,12 +6,12 @@ import { MINUTE, minuteStart } from './clock.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { signInWithWallet } from './sources.mjs';
 import { connectWhenAsked } from './dex.mjs';
 import {
   continueInWallet,
   doorOk,
   openVenueDesk,
+  openVenuePage,
   sameDecimal,
   signPrepared,
   testDeposit,
@@ -337,10 +337,12 @@ async function startsLine(browser) {
 
 /** The Journal as the person, with the TEST wallet connected; waits until the venue's journal has answered. */
 async function openJournal(page, s, { fresh = true } = {}) {
-  if (fresh) await signInWithWallet(page, s);
-  await page.goto(JOURNAL);
+  if (fresh) await openVenuePage(page, s.account, JOURNAL, s.walletKey);
+  else {
+    await page.goto(JOURNAL);
+    await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
+  }
   await expect(page.getByTestId('money-journal')).toBeVisible({ timeout: 30_000 });
-  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
   await expect(page.getByTestId('venue-wallet-address')).toHaveText(s.owner);
   await expect(page.getByTestId('journal-summary')).toBeVisible({ timeout: 30_000 });
 }
