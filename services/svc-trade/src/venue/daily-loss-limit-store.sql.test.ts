@@ -68,7 +68,7 @@ describe('SqlDailyLossLimitStore on Postgres (trade.user_venue_daily_loss_limits
   });
 
   it("the TEST age door moves only a waiting loosening's time back, so its 24 hours pass on a TEST clock", async () => {
-    const key = { ...KEY, userId: '11111111-1111-4111-8111-1111111111d4' };
+    const key = { ...KEY, userId: '11111111-1111-4111-8111-1111111111d4', owner: '0x00000000000000000000000000000000000000d4' };
     const store = new SqlDailyLossLimitStore(db!.sql);
     const age = ageDailyLossLimit(db!.sql);
     const t0 = new Date();
@@ -78,7 +78,7 @@ describe('SqlDailyLossLimitStore on Postgres (trade.user_venue_daily_loss_limits
     expect(await age(key.owner, 60_000)).toBeNull();
     const asked = await store.update(key, (r) => changed(r!, { mode: 'blocking', limit: a('300') }, t0));
     const due = asked.pending!.effectiveAt.getTime();
-    expect(await age(key.owner.toUpperCase().replace('0X', '0x'), LOOSENING_WAIT_MS)).toEqual({
+    expect(await age(key.owner.replace('d4', 'D4'), LOOSENING_WAIT_MS)).toEqual({
       pendingEffectiveAt: new Date(due - LOOSENING_WAIT_MS).toISOString(),
     });
     const aged = (await store.get(key))!;
