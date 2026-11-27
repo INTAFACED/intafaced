@@ -49,9 +49,12 @@ export function venueForThisFile(test, value = 'on', { recording = null, trader 
   });
   test.afterAll(async () => {
     test.setTimeout(240_000);
-    // A replayed file fails on every request its recording had no answer for, by its key, even one no step checked.
-    // Read before the switch-off and checked after it, so a miss never leaves the door on for the next file.
-    const misses = value === 'hl-recorded' ? (await venueOk(TEST_VENUE, '/replay/misses')).misses : [];
+    // A replayed file fails on every request its recording had no answer for, by its key, even one no step checked,
+    // except a read about another file's account that the service still reconciles on the same stack (`otherAccount`):
+    // the replay refuses it too, and no step of this file asked it. Read before the switch-off and checked after it, so a
+    // miss never leaves the door on for the next file.
+    const all = value === 'hl-recorded' ? (await venueOk(TEST_VENUE, '/replay/misses')).misses : [];
+    const misses = all.filter((miss) => miss.otherAccount !== true);
     restartWithSetting('trade', SWITCH, 'off');
     on = false;
     process.off('exit', offOnExit);

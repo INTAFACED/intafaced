@@ -97,11 +97,16 @@ const VOLATILE_KEYS = new Set(['nonce', 'time', 'startTime', 'endTime', 'expires
 const CLOID_RE = /^0x[0-9a-f]{32}$/i;
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
 
-/** One request a replay had no answer for: its path, the epoch it came in and its key. */
+/**
+ * One request a replay had no answer for: its path, the epoch it came in and its key. `otherAccount` is true when the
+ * request is about an account (`user`) that is neither the run's trader nor any address the recording names: another
+ * file's account on the same stack, still reconciled by the service. It is refused like any miss; a file judges only its own.
+ */
 export interface ReplayMiss {
   readonly path: HlRecordedPath;
   readonly epoch: number;
   readonly key: string;
+  readonly otherAccount: boolean;
 }
 
 /** A replaying fetch, with every request it had no answer for. */
@@ -154,6 +159,12 @@ function pairCloids(recorded: unknown, current: unknown, into: Map<string, strin
   }
 }
 
+function addressesIn(value: unknown, into: Set<string>): void {
+  if (typeof value === 'string' && ADDRESS_RE.test(value)) into.add(value.toLowerCase());
+  else if (Array.isArray(value)) value.forEach((v) => addressesIn(v, into));
+  else if (isRecord(value)) Object.values(value).forEach((v) => addressesIn(v, into));
+}
+
 function cloidsIn(value: unknown, into: Set<string>): void {
   if (typeof value === 'string' && CLOID_RE.test(value)) into.add(value.toLowerCase());
   else if (Array.isArray(value)) value.forEach((v) => cloidsIn(v, into));
@@ -174,7 +185,9 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
   const reads = new Map<string, { epoch: number; call: HlRecordedCall }[]>();
   const writes: { key: string; call: HlRecordedCall }[] = [];
   const seen = new Set<string>();
+  const named = new Set<string>();
   for (const call of recording.calls) {
+    addressesIn(call.request, named);
     const key = requestKey(call.path, call.request, (c) => (seen.has(c) ? c : undefined));
     if (call.path === '/exchange') {
       writes.push({ key, call });
@@ -211,7 +224,9 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
       for (const entry of reads.get(key) ?? []) if (entry.epoch <= epoch) found = entry.call;
     }
     if (!found) {
-      misses.push({ path, epoch, key });
+      const user = isRecord(request) && typeof request.user === 'string' ? request.user.toLowerCase() : null;
+      const otherAccount = user !== null && ADDRESS_RE.test(user) && !named.has(user);
+      misses.push({ path, epoch, key, otherAccount });
       throw new NotRecordedError(path, request);
     }
     const swapped = swapStrings(found.answer, (s) => (CLOID_RE.test(s) ? (toCurrent.get(s.toLowerCase()) ?? s) : s));
