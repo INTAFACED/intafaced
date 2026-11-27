@@ -117,6 +117,13 @@ describe('the slippage limit, from the venue’s own best prices', () => {
     expect(slippageLimit('sell', best, '100', '0.1')).toBe('59399.9'); // 59399.901 → down to the tick
     expect(slippageLimit('buy', best, '50', '0.1')).toBe('60300.2');
   });
+  it('the limit is a price the venue takes: at most 5 significant figures, rounded toward the market (#11018)', () => {
+    // BTC-PERP, tick 0.1: 62432 × 1.005 = 62744.16, which the venue refuses at 6 figures; a buy's cap rounds down.
+    const btc = { symbol: 'BTC-PERP', bid: '62423', ask: '62432' };
+    expect(slippageLimit('buy', btc, '50', '0.1')).toBe('62744');
+    // 62423 × 0.995 = 62110.885; a sell's floor rounds up, so neither goes past the protection the review shows.
+    expect(slippageLimit('sell', btc, '50', '0.1')).toBe('62111');
+  });
   it('no price on the side the order meets is no limit', () => {
     expect(slippageLimit('buy', { ...best, ask: null }, '100', '0.1')).toBeNull();
     expect(slippageLimit('sell', null, '100', '0.1')).toBeNull();

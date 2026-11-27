@@ -165,6 +165,14 @@ describe('marketProtectionBound: the same rounding as the desk', () => {
   });
 });
 
+describe('marketProtectionBound: a price the venue takes (#11018)', () => {
+  it('BTC-PERP at about 62,424 with a 50 bps cap: 5 significant figures, rounded toward the market', () => {
+    // 62432 × 1.005 = 62744.16 → 62744 (a buy's cap down); 62423 × 0.995 = 62110.885 → 62111 (a sell's floor up).
+    expect(marketProtectionBound('buy', { bid: a('62423'), ask: a('62432') }, 50, a('0.1'))).toBe(a('62744'));
+    expect(marketProtectionBound('sell', { bid: a('62423'), ask: a('62432') }, 50, a('0.1'))).toBe(a('62111'));
+  });
+});
+
 describe('the owner spread limit (J-cex-spot-03 #2)', () => {
   it('spreadTooWide: the ask further above the bid than the limit, in bps of the bid; a missing side is never within', () => {
     // 59990 → 60010 is 20 wide: 3.33 bps of the bid.

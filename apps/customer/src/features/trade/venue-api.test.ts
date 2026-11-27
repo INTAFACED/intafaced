@@ -135,6 +135,24 @@ describe('venue client', () => {
     expect(closeWorstPrice({ ...position, side: 'short' }, '1')).toBe('63000');
   });
 
+  it('a close’s worst price is one the venue takes: 5 significant figures, toward the mark (#11018)', () => {
+    const position = {
+      symbol: 'BTC-PERP',
+      side: 'long' as const,
+      size: '0.001',
+      entryPrice: '62400',
+      markPrice: '62424',
+      unrealisedPnl: '0',
+      marginMode: 'cross' as const,
+      margin: '6',
+      leverageBps: 100000,
+      liquidationPrice: { known: false as const },
+    };
+    // 62424 × 0.95 = 59302.8 → 59303 (a long's sell floor up); 62424 × 1.05 = 65545.2 → 65545 (a short's buy cap down).
+    expect(closeWorstPrice(position, '0.1')).toBe('59303');
+    expect(closeWorstPrice({ ...position, side: 'short' }, '0.1')).toBe('65545');
+  });
+
   it('bounds a market close by the owner’s price protection from the venue’s best price, as svc-trade does', () => {
     const position = {
       symbol: 'BTC-PERP',
