@@ -8,7 +8,7 @@ import { futuresVenueCopy } from './venue-copy';
 import { laterOf, legAnswer, planLegs, verdictOf, type FlattenLeg, type FlattenVerdict } from './flatten-logic';
 
 /** How long Flatten is held before it sends: long enough that a stray click never closes anything, and no longer. */
-export const FLATTEN_HOLD_MS = 650;
+const FLATTEN_HOLD_MS = 650;
 
 /**
  * Flatten everything (J-derivatives-33): hold the button 0.65 s and every open order on this venue account is cancelled
