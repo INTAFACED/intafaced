@@ -6,7 +6,7 @@
  *   again on a pan, a zoom, a resize and once a second (the price scale moves with new bars). Everything is unsubscribed
  *   when the chart goes.
  * - `useChartPriceLines`: price lines on the chart's own canvas, drawn again only when their key changes, with the price
- *   scale taking every line in, so a line far from the bars stays on the chart to read and to drag.
+ *   scale taking every line in (`useChartPricesInView`), so a line far from the bars stays on the chart to read and to drag.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ChartValue } from './chart-value';
@@ -111,19 +111,36 @@ export function useChartPriceLines(host: OverlayHost | null, lines: readonly Pri
         title: line.title,
       }),
     );
-    const prices = specs.map((line) => line.price);
-    if (prices.length > 0)
-      host.main.applyOptions({
-        autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
-          const base = original();
-          const low = Math.min(...prices, base?.priceRange.minValue ?? Infinity);
-          const high = Math.max(...prices, base?.priceRange.maxValue ?? -Infinity);
-          return { ...base, priceRange: { minValue: low, maxValue: high } };
-        },
-      });
     return () => {
       for (const line of drawn) host.main.removePriceLine(line);
-      if (prices.length > 0) host.main.applyOptions({ autoscaleInfoProvider: undefined });
     };
+  }, [host, key]);
+  useChartPricesInView(
+    host,
+    lines.map((line) => line.price),
+    key,
+  );
+}
+
+/**
+ * The price scale takes in every one of `prices` as well as the bars, so a line far from them (a stop, a target, an
+ * order) stays on the chart to read and to drag; set again only when `key` changes (it must carry every price).
+ */
+export function useChartPricesInView(host: OverlayHost | null, prices: readonly ChartValue[], key: string): void {
+  const latest = useRef(prices);
+  latest.current = prices;
+  useEffect(() => {
+    if (!host) return;
+    const held = [...latest.current];
+    if (held.length === 0) return;
+    host.main.applyOptions({
+      autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
+        const base = original();
+        const low = Math.min(...held, base?.priceRange.minValue ?? Infinity);
+        const high = Math.max(...held, base?.priceRange.maxValue ?? -Infinity);
+        return { ...base, priceRange: { minValue: low, maxValue: high } };
+      },
+    });
+    return () => host.main.applyOptions({ autoscaleInfoProvider: undefined });
   }, [host, key]);
 }

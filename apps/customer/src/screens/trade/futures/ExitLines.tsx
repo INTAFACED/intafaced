@@ -17,7 +17,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom';
 import { Button, ChartMark, ChartOverlay } from '@intafaced/ui/lit';
 import { displayAmount } from '../../../shared/money';
-import { useChartOverlay } from '../../../shared/chart-overlay';
+import { useChartOverlay, useChartPricesInView } from '../../../shared/chart-overlay';
 import { chartValue } from '../../../shared/chart-value';
 import type { VenueMarket, VenueOrder, VenuePosition } from '../../../features/trade/venue-api';
 import { outcomeText, useVenueApi } from '../../../features/trade/venue/VenueKit';
@@ -102,6 +102,13 @@ export function ExitLines({
     const net = position && basis ? netAt(position, price, basis) : null;
     return { net, r: rAt(net, riskNet) };
   };
+
+  // The entry, stop, target and liquidation price stay on the chart however far they sit from the bars, so each line can
+  // be read and dragged, and a new stop can be dragged out anywhere between the entry and liquidation.
+  const inView = [position?.entryPrice, stop?.trigger?.price, target?.trigger?.price, position?.liquidationPrice].filter(
+    (p): p is string => !!p,
+  );
+  useChartPricesInView(host, inView.map(chartValue), inView.join(','));
 
   if (!host || !position) return null;
   const pane = pricePane(host);

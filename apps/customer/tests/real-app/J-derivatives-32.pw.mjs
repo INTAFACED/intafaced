@@ -173,6 +173,8 @@ async function yOfPrice(price) {
   const lo = Number(await o.getAttribute('data-price-bottom'));
   expect(height).toBeGreaterThan(0);
   expect(hi).toBeGreaterThan(lo);
+  expect(Number(price), `${price} is on the chart's price scale (${lo} to ${hi})`).toBeGreaterThanOrEqual(lo);
+  expect(Number(price), `${price} is on the chart's price scale (${lo} to ${hi})`).toBeLessThanOrEqual(hi);
   return box.y + top + ((hi - Number(price)) / (hi - lo)) * height;
 }
 /** Press a line's handle and drag it to the pixel of `price`, still held; answers a function that lets go. */
