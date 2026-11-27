@@ -9982,6 +9982,240 @@
         }
       ]
     },
+    "notify.telegram.linkCode": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "telegram.linkCode",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:write",
+        "module": "notify"
+      },
+      "refusals": {
+        "notify.telegram_token_unset": "PRECONDITION_FAILED",
+        "notify.out_of_app_off": "PRECONDITION_FAILED",
+        "notify.verify_ttl_unset": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 16
+          },
+          "command": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["code", "command", "expiresAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "notify.telegram.setProfitTarget": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "telegram.setProfitTarget",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:write",
+        "module": "notify"
+      },
+      "refusals": {
+        "notify.telegram_target_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["target"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profitTarget": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["profitTarget"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "target": "250"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "target": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "target": 250
+          }
+        }
+      ]
+    },
+    "notify.telegram.status": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "telegram.status",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:read",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "const": "off"
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["notify.telegram_token_unset", "notify.out_of_app_off"]
+              }
+            },
+            "required": ["state", "reason"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "const": "unlinked"
+              },
+              "profitTarget": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["state", "profitTarget"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "const": "linked"
+              },
+              "linkedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "profitTarget": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["state", "linkedAt", "profitTarget"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "notify.telegram.unlink": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "telegram.unlink",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:write",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "unlinked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["unlinked"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "notify.unreadCount": {
       "service": "svc-notify",
       "module": "notify",

@@ -51,6 +51,9 @@ import { ContactPolicy } from './ops-config/contact-policy.js';
 import { PostgresContactPolicyStore } from './ops-config/contact-policy.pg.js';
 import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
+import { TELEGRAM_SWEEP_INTERVAL_MS, TelegramDesk } from './telegram/desk.js';
+import { PostgresTelegramStore } from './telegram/store.js';
+import { createTradeDeskClient, telegramTransportFromToken, webhookSecretMatches } from './telegram/wire.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { subscribeNotificationEvents } from './events.js';
 import { SqlReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
@@ -450,6 +453,18 @@ alerts.attachOwnerValues(
 const reconAlertFeed = new SqlReconAlertFeedStore(sql);
 // Set once the consumers attach below; until then, and if any of the four is pending, the feed reads as detached.
 let reconAlertFeedAttached = false;
+/**
+ * The launch desk's read-only Telegram alerts (telegram/desk.ts): off with `notify.telegram_token_unset` until the bot token
+ * is set, and with `notify.out_of_app_off` while the operator's out-of-app switch is off. The desk reads svc-trade's
+ * `venue.deskSnapshot` and nothing else: it holds no way to trade, cancel or move money.
+ */
+const telegramDesk = new TelegramDesk({
+  store: new PostgresTelegramStore(sql),
+  transport: telegramTransportFromToken(env.NOTIFY_TELEGRAM_BOT_TOKEN, { timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS }),
+  outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
+  reader: createTradeDeskClient({ tradeUrl: env.TRADE_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+  linkCodeTtlMinutes: env.NOTIFY_VERIFY_TTL_MINUTES,
+});
 export const appRouter = createNotifyRouter(
   notify,
   alerts,
@@ -476,6 +491,7 @@ export const appRouter = createNotifyRouter(
   ),
   watchRules,
   { store: reconAlertFeed, attached: () => reconAlertFeedAttached },
+  telegramDesk,
 );
 export type AppRouter = typeof appRouter;
 
@@ -568,6 +584,23 @@ app.get('/ready', async () => ({
     sweep: { lastAt: lastAlertSweepAt, ...(lastAlertSweep ?? { markets: 0, fired: 0, held: 0, refused: 0, refusals: {} }) },
   },
 }));
+
+/**
+ * The bot's webhook: every update carries the shared secret header the bot API was given; anything else is refused before
+ * it is read. The desk answers in the chat it came from. Always 200 to an authenticated update, so the bot API does not
+ * resend one the desk has already answered.
+ */
+app.post('/telegram/webhook', async (request, reply) => {
+  if (!telegramDesk.on) return reply.code(404).send({ code: telegramDesk.offReason });
+  if (!webhookSecretMatches(env.NOTIFY_TELEGRAM_WEBHOOK_SECRET, request.headers['x-telegram-bot-api-secret-token']))
+    return reply.code(401).send({ code: 'notify.telegram_webhook_unauthenticated' });
+  try {
+    await telegramDesk.handleUpdate(request.body);
+  } catch (err) {
+    app.log.error({ err }, 'svc-notify telegram update failed — the chat got no answer');
+  }
+  return reply.code(200).send({ ok: true });
+});
 
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
@@ -687,6 +720,23 @@ const maintenanceSweep = setInterval(() => {
   });
 }, MAINTENANCE_SWEEP_INTERVAL_MS);
 maintenanceSweep.unref();
+
+/**
+ * THE TELEGRAM DESK SWEEP: reads each linked person's desk, raises each alert once under its business key, and sends what is
+ * raised and unsent. Fail-safe like the sweeps above: a tick that cannot run logs and waits for the next.
+ */
+let telegramSweepRunning = false;
+const telegramSweep = setInterval(() => {
+  if (telegramSweepRunning || !telegramDesk.on) return;
+  telegramSweepRunning = true;
+  void telegramDesk
+    .sweep()
+    .catch((err) => app.log.error({ err }, 'svc-notify telegram desk sweep failed — alerts wait for the next tick'))
+    .finally(() => {
+      telegramSweepRunning = false;
+    });
+}, TELEGRAM_SWEEP_INTERVAL_MS);
+telegramSweep.unref();
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 

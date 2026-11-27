@@ -1415,6 +1415,13 @@ import {
   NOTIFY_STATUS_PAGE_CONFIGURE,
 } from './notify-status-page-procedures.js';
 
+import {
+  NOTIFY_TELEGRAM_STATUS,
+  NOTIFY_TELEGRAM_LINK_CODE,
+  NOTIFY_TELEGRAM_UNLINK,
+  NOTIFY_TELEGRAM_SET_PROFIT_TARGET,
+} from './notify-telegram-procedures.js';
+
 import { OPS_ALERT_RULES_STATES } from './ops-alert-rules-procedures.js';
 
 import {
@@ -2426,6 +2433,8 @@ import {
 } from './trade-copy-records.js';
 
 import { DAILY_LOSS_GET, DAILY_LOSS_SET, DAILY_LOSS_OFF } from './trade-daily-loss-procedures.js';
+
+import { TRADE_DESK_SNAPSHOT } from './trade-desk-snapshot.js';
 
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
 
@@ -3949,6 +3958,13 @@ const part_notify_status_page_procedures: readonly ProcedureRecord[] = [
   NOTIFY_STATUS_PAGE_CONFIGURE,
 ];
 
+const part_notify_telegram_procedures: readonly ProcedureRecord[] = [
+  NOTIFY_TELEGRAM_STATUS,
+  NOTIFY_TELEGRAM_LINK_CODE,
+  NOTIFY_TELEGRAM_UNLINK,
+  NOTIFY_TELEGRAM_SET_PROFIT_TARGET,
+];
+
 const part_ops_alert_rules_procedures: readonly ProcedureRecord[] = [OPS_ALERT_RULES_STATES];
 
 const part_ops_alerts_procedures: readonly ProcedureRecord[] = [
@@ -4995,6 +5011,8 @@ const part_trade_copy_records: readonly ProcedureRecord[] = [
 
 const part_trade_daily_loss_procedures: readonly ProcedureRecord[] = [DAILY_LOSS_GET, DAILY_LOSS_SET, DAILY_LOSS_OFF];
 
+const part_trade_desk_snapshot: readonly ProcedureRecord[] = [TRADE_DESK_SNAPSHOT];
+
 const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD];
 
 const part_trade_journal_procedures: readonly ProcedureRecord[] = [TRADE_JOURNAL_CLOSED_TRADES];
@@ -5260,6 +5278,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_notify_procedures,
   ...part_notify_reconciliation_alert_feed_procedures,
   ...part_notify_status_page_procedures,
+  ...part_notify_telegram_procedures,
   ...part_ops_alert_rules_procedures,
   ...part_ops_alerts_procedures,
   ...part_ops_announcements_procedures,
@@ -5363,6 +5382,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_copy_procedures,
   ...part_trade_copy_records,
   ...part_trade_daily_loss_procedures,
+  ...part_trade_desk_snapshot,
   ...part_trade_grid_procedures,
   ...part_trade_journal_procedures,
   ...part_trade_otc_procedures,
