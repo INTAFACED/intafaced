@@ -17,7 +17,7 @@ type T = ReturnType<typeof dailyLossCopy.useCopy>['t'];
 const LIMIT_RE = /^[0-9]+(\.[0-9]+)?$/;
 
 /** A time in the person's chosen zone (the device's own clock unless they picked one, which is then named). */
-export function useWhen(): (iso: string) => string {
+function useWhen(): (iso: string) => string {
   const { timeZone } = usePreferences();
   return useCallback(
     (iso: string) => {

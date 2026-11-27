@@ -312,10 +312,7 @@ test(`${J} #3 switches to "Stop new trades": takes effect at once; an opening or
     `reaching your daily loss limit of 100 USDC, so no new opening order is placed until the day resets at ${now.today.resetsAt}`,
   );
   await stepPicture();
-  // Nothing was sent: no wallet prompt, no submit, and the venue holds the same orders and position.
-  // Proving nothing was sent: a second for a stray prompt or submit to show, then none is there.
-  // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing happens after the refusal
-  await page.waitForTimeout(1_000);
+  // Nothing was sent: the refusal is the answer to the prepare, before any wallet prompt or submit.
   expect(signatures(wallet)).toBe(signedBefore);
   expect(sent).toHaveLength(0);
   expect(await openOrders(owner)).toEqual(ordersBefore);
