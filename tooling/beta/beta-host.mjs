@@ -150,6 +150,9 @@ const BETA_USER_VENUE = 'hl-testnet';
  * off together, as the launch build runs them (docs/adr/2026-11-10-launch-money-model.md): our own order book is off, the
  * ledger holds no tester's money, and a tester's money is where launch keeps it, at the TEST partner and in their own
  * wallet on the venue's test network (#11019). The TEST funds check fails a process that runs it otherwise (BETA_CUSTODY).
+ * `LOCAL_STACK_PROFILE=launch-desk` starts only the launch desk's services (tooling/scripts/local-stack-profile.mjs), not
+ * every service of the stack: each is a failure point while testers are on and takes memory on a box shared with
+ * builders. A room whose service is off says it is not connected here (#11075).
  */
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
@@ -158,6 +161,7 @@ const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_VALUATION_PRICES: 'test',
   LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey',
   LOCAL_STACK_CUSTODY_LAYER: 'off',
+  LOCAL_STACK_PROFILE: 'launch-desk',
 });
 /** The custody switch every process of the beta stack runs (BETA_STACK_SETTINGS), as launch does. */
 export const BETA_CUSTODY = BETA_STACK_SETTINGS.LOCAL_STACK_CUSTODY_LAYER;
@@ -368,10 +372,12 @@ export function fundsCheck({ records, readEnviron, readListeners = () => null, p
   if (named.length === 0) findings.push('no process: the stack is not running, so nothing could be read');
   let read = 0;
   let clean = 0;
+  const running = [];
   for (const [name, r] of named) {
     const text = readEnviron(r.pid);
     if (text == null) continue; // a process that has ended holds no route
     read++;
+    running.push(name);
     const outside = outsideAddresses(environEntries(text), allow);
     if (outside.length === 0) clean++;
     const off = allow.size ? 'off this machine and the hosted allow list' : 'off this machine';
@@ -394,6 +400,7 @@ export function fundsCheck({ records, readEnviron, readListeners = () => null, p
   }
   const where = allow.size ? 'this machine, a reserved name or the hosted allow list' : 'this machine or a reserved name';
   if (clean) passes.push(`${clean} of ${read} running processes: every address in their environments is ${where}`);
+  if (read) passes.push(`the ${read} running processes: ${running.join(', ')}`);
   if (page == null) findings.push('the Customer page did not answer');
   else if (!page.includes(BANNER_MARK)) findings.push(`the Customer page lacks the TEST banner ("${BANNER_MARK}")`);
   else passes.push(`the Customer page carries the TEST banner ("${BANNER_MARK}")`);

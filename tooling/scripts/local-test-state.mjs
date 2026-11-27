@@ -34,6 +34,7 @@ export function localPgOsUser(env = process.env, uid = process.getuid?.()) {
 
 // The state folder rule lives in local-test-facts.mjs, so the journeys read it without this script.
 import { localStackState } from './local-test-facts.mjs';
+import { profileOff } from './local-stack-profile.mjs';
 
 export { localStackState };
 
@@ -331,7 +332,7 @@ export function assertComposeOwnership({ marker, services, read = readComposeSta
 }
 
 /** Check selected Postgres and service PID/argv/start time/listeners without exposing their environment. */
-export function assertActiveLocalStack({ stateDir = localStackState(), services = DEFAULT_SERVICES } = {}) {
+export function assertActiveLocalStack({ stateDir = localStackState(), services = DEFAULT_SERVICES.filter((n) => !profileOff(n)) } = {}) {
   let marker, records, postgres;
   try {
     marker = JSON.parse(fs.readFileSync(path.join(stateDir, 'LOCAL-TEST-STACK.json'), 'utf8'));

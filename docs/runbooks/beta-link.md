@@ -27,6 +27,13 @@ minutes fetches main and runs `verify launch`, which readies the stack the way a
 what is down. When main has moved, it first moves the checkout to main and installs, so the launch rebuilds what
 changed: a merge to main is on the link within about 35 minutes. The mailbox page names the commit served.
 
+**Only the launch desk runs.** The beta starts the stack with `LOCAL_STACK_PROFILE=launch-desk`
+(`tooling/scripts/local-stack-profile.mjs`): identity, edge, customer, notify, bank, ops, pay, ledger and its
+rail-statements, protocol and its TEST wallet provider, indexer, trade, ws, the TEST venue adapter, NATS, Postgres and the
+TEST chain. Every other service stays in the repo and in CI, and is off here: its health row reads `off`, and edge answers
+its routes as not connected here (`EDGE_UPSTREAMS_OFF`), which the app says plainly. `status` names each running process
+and their count.
+
 **While testers are on** (anyone invited has opened the TEST mailbox, `~/.intafaced/beta/invited.json`), each move
 restarts the stack and sends every open tab to the updating page, so main moves only once a day, at the first round after
 the daily slot (20:00 UTC, 04:00 in Bali; `BETA_MOVE_AT=HH:MM` in the service's environment sets another), or on demand

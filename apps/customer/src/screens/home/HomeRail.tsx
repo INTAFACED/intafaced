@@ -6,7 +6,7 @@ import { PROTOCOL_VENUE_WALLET_STATUS } from '@intafaced/contracts/protocol-wall
 import type { VenueFeeTier, VenueOrder, VenuePosition } from '@intafaced/contracts/trade-venue-door';
 import { useSession } from '../../features/session/session';
 import { venueApi } from '../../features/trade';
-import { authoredRefusal, type ApiResult } from '../../shared/api';
+import { authoredRefusal, isServiceNotConnected, type ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
 import { commandCopy } from './command-copy';
 import { dec, fmtAmount, fmtUsd, isHiddenPath, str } from './deps';
@@ -176,9 +176,17 @@ export function AgentSection() {
       {loading(agents) ? (
         <Ghost shape="rows" count={1} />
       ) : agents.status === 'failed' ? (
-        <p className="lt-hint" data-state="failed">
-          {t('Agent unread')}
-        </p>
+        // The gateway says the agents service is not connected on this deployment (the beta runs without it): say that,
+        // not that a read failed and could work later.
+        isServiceNotConnected(agents.failure.code) ? (
+          <p className="lt-hint" data-state="off">
+            {t('Agent off')}
+          </p>
+        ) : (
+          <p className="lt-hint" data-state="failed">
+            {t('Agent unread')}
+          </p>
+        )
       ) : agents.data.length === 0 ? (
         <p className="lt-hint" data-state="none">
           {t('Agent none')}
