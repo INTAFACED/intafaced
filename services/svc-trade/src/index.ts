@@ -1032,6 +1032,7 @@ export const appRouter = createTradeRouter(
       }
     : null,
   venueDailyLoss,
+  userVenue,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

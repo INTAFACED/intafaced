@@ -46,6 +46,7 @@ import {
   type VenueSubmitOutcome,
   VENUE_CANDLE_INTERVALS,
   type VenueCandleInterval,
+  withOwnOrderLabel,
 } from '@intafaced/venue-contracts';
 import { requireMarketSlippageCapBps } from '../spot/risk.js';
 import { TradeError, type PublicTapePrint } from '../spot/types.js';
@@ -60,7 +61,6 @@ import {
   VENUE_ORDER_LABEL_RE,
   amendTrail,
   historyPage,
-  orderOriginOf as venueOrderOriginOf,
   parseHistoryQuery,
   VenueHistoryQueryError,
   type VenueAmendment,
@@ -2494,13 +2494,7 @@ export class UserVenueDoor {
 
   /** Attach resolved origin, originRef and this person's own label to a venue order. */
   private enrichOrder(order: UserVenueOrder, labels: ReadonlyMap<string, string>): UserVenueOrder {
-    const label = order.label ?? (order.venueClientOrderId ? (labels.get(order.venueClientOrderId.toLowerCase()) ?? null) : null);
-    return {
-      ...order,
-      origin: venueOrderOriginOf(order),
-      originRef: order.originRef ?? null,
-      label,
-    };
+    return withOwnOrderLabel(order, labels);
   }
 
   /** Open orders on `account`, enriched with origin and this person's own order labels (J-derivatives-04 #1 #2). */
@@ -2508,6 +2502,16 @@ export class UserVenueDoor {
     const venue = await this.venue();
     const [read, labels] = await Promise.all([venue.openOrders(account), this.deps.store.orderLabels(principal.userId, account)]);
     return { ...read, value: read.value.map((o) => this.enrichOrder(o, labels)) };
+  }
+
+  /**
+   * This person's own labels on the orders they signed for `owner`'s main account (J-derivatives-04 #2), from our record
+   * only: nothing is read from the venue. A browser that reads its own orders from the venue adds them from this.
+   */
+  async orderLabelsOf(principal: Principal, owner: string): Promise<{ labels: { venueClientOrderId: string; label: string }[] }> {
+    const account = await this.account(owner);
+    const labels = await this.deps.store.orderLabels(principal.userId, account);
+    return { labels: [...labels].map(([venueClientOrderId, label]) => ({ venueClientOrderId, label })) };
   }
 
   /** One order by client id on `account`, enriched with origin and this person's own label (J-derivatives-04 #2). */
