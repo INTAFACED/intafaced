@@ -98,9 +98,11 @@ const CLOID_RE = /^0x[0-9a-f]{32}$/i;
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
 
 /**
- * One request a replay had no answer for: its path, the epoch it came in and its key. `otherAccount` is true when the
- * request is about an account (`user`) that is neither the run's trader nor any address the recording names: another
- * file's account on the same stack, still reconciled by the service. It is refused like any miss; a file judges only its own.
+ * One request a replay had no answer for: its path, the epoch it came in and its key. `otherAccount` is true only when
+ * the request is about an account (`user`) that is neither the run's trader nor any address the recording names, and
+ * that the replay was already asked about before the run's trader or any write came in: an account the stack held
+ * before this run did anything, so none of its steps can have made it. It is refused like any miss. An address first
+ * asked about once the run has started is never another account's, whatever it is.
  */
 export interface ReplayMiss {
   readonly path: HlRecordedPath;
@@ -201,12 +203,18 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
   const toCurrent = new Map<string, string>();
   const toRecorded = new Map<string, string>();
   const misses: ReplayMiss[] = [];
+  /** Addresses asked about before the run's trader or any write came in: the stack's, not this run's. */
+  const earlier = new Set<string>();
+  let started = false;
   let epoch = 0;
   const replay = async (input: string, init: { body: string }) => {
     const path = pathOf(input);
     const parsed: unknown = JSON.parse(init.body);
     const request = hide(parsed);
     const key = requestKey(path, request, (c) => toRecorded.get(c));
+    const user = isRecord(request) && typeof request.user === 'string' ? request.user.toLowerCase() : null;
+    if (path === '/exchange' || user === TRADER) started = true;
+    if (!started && user !== null && ADDRESS_RE.test(user)) earlier.add(user);
     let found: HlRecordedCall | null = null;
     if (path === '/exchange') {
       const next = writes[epoch];
@@ -224,8 +232,7 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
       for (const entry of reads.get(key) ?? []) if (entry.epoch <= epoch) found = entry.call;
     }
     if (!found) {
-      const user = isRecord(request) && typeof request.user === 'string' ? request.user.toLowerCase() : null;
-      const otherAccount = user !== null && ADDRESS_RE.test(user) && !named.has(user);
+      const otherAccount = user !== null && earlier.has(user) && !named.has(user);
       misses.push({ path, epoch, key, otherAccount });
       throw new NotRecordedError(path, request);
     }

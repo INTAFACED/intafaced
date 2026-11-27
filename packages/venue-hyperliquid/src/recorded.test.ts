@@ -199,7 +199,7 @@ describe('a recorded run of the venue journeys (hl-recorded)', () => {
     ).rejects.toBeInstanceOf(NotRecordedError);
   });
 
-  it("a read about an account the recording never names is refused and listed as another account's; the trader's own is not", async () => {
+  it("only an account the replay was asked about before the run began is another account's; one first asked after is the run's", async () => {
     const { recording } = await record();
     const fetch = replayRecording(recording, { trader: replayKey.address });
     const ask = (body: unknown) =>
@@ -209,15 +209,22 @@ describe('a recorded run of the venue journeys (hl-recorded)', () => {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(1_000),
       });
-    // Another file's account on the same stack: the replay never answers it.
-    const stranger = privateKeyToAccount(keccak256(toHex('another file on the stack'))).address;
+    const address = (seed: string) => privateKeyToAccount(keccak256(toHex(seed))).address;
+    // An account the stack already held, read before this run's trader asked anything: refused, and another account's.
+    const stranger = address('another file on the stack');
     await expect(ask({ type: 'frontendOpenOrders', user: stranger })).rejects.toBeInstanceOf(NotRecordedError);
+    // The run starts with its trader's first read.
+    await ask({ type: 'clearinghouseState', user: replayKey.address }).catch(() => undefined);
+    await expect(ask({ type: 'clearinghouseState', user: stranger })).rejects.toBeInstanceOf(NotRecordedError);
+    // An address first asked about once the run has started (a wrong or invented one): the run's own miss.
+    await expect(ask({ type: 'frontendOpenOrders', user: address('a wrong address') })).rejects.toBeInstanceOf(NotRecordedError);
     // The run's own trader, and a read naming no account, asking what the recording never holds.
     await expect(ask({ type: 'userFillsByTime', user: replayKey.address, startTime: 1, aggregateByTime: true })).rejects.toBeInstanceOf(
       NotRecordedError,
     );
     await expect(ask({ type: 'allMids' })).rejects.toBeInstanceOf(NotRecordedError);
-    expect(fetch.misses.map((m) => m.otherAccount)).toEqual([true, false, false]);
+    // The trader's own read above is recorded, so it is no miss.
+    expect(fetch.misses.map((m) => m.otherAccount)).toEqual([true, true, false, false, false]);
   });
 
   it('a read answers the state its epoch settled on, however often it is asked; a read first recorded later has none', async () => {
