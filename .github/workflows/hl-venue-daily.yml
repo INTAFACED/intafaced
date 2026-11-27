@@ -110,12 +110,14 @@ jobs:
           LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
 
       # HL_VENUE_LIVE=1 makes each opted-in file run `hl-testnet` and write its recording. The key
-      # reaches the files only as an environment value; nothing prints it.
+      # reaches the files only as an environment value; nothing prints it. LOCAL_STACK_LIVE_TEST_NETWORK=on lets the stack
+      # reach the live test network at all: only this run and the hosted beta set it (#11061).
       - name: Venue files, live (TEST funds only)
         if: steps.plan.outputs.files != ''
         env:
           JOURNEY_FILES: ${{ steps.plan.outputs.files }}
           HL_VENUE_LIVE: '1'
+          LOCAL_STACK_LIVE_TEST_NETWORK: 'on'
           HL_TESTNET_TRADER_KEY: ${{ secrets.HL_TESTNET_TRADER_KEY }}
           JOURNEY_RUN_ID: hl-daily-${{ github.run_id }}
         run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off

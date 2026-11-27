@@ -173,6 +173,8 @@ const PROVIDER_WORDS = { test: 'the TEST provider', turnkey: "the owner's wallet
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
   LOCAL_STACK_USER_VENUE: BETA_USER_VENUE,
+  // The stack reaches the live test network only with this beside hl-testnet; builders' stacks on this box lack it (#11061).
+  LOCAL_STACK_LIVE_TEST_NETWORK: 'on',
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
   LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: BETA_WALLET_PROVIDER,
