@@ -422,6 +422,8 @@ export const STACK_CANARY = 'tooling/scripts/local-test-stack.mjs';
  * shard proves it starts; these prove it still serves other areas. One missing at the head makes the change full.
  */
 export const CANARY = [
+  // J-cex-spot-01 #10 on Hyperliquid's test network: on the simulator until its recording lands, then replayed.
+  'J-cex-spot-01-hl-venue.pw.mjs',
   'J-cex-spot-01.pw.mjs',
   'J-home-ia-01-venue.pw.mjs',
   'J-home-ia-01.pw.mjs',
