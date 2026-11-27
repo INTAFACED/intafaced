@@ -604,7 +604,7 @@ function writeStatus(paths, status) {
 }
 
 /** Where beta-limits.mjs reads the outside limits on the beta: the funded and invited files, the stack's venue log. */
-export const limitPaths = (paths) => ({
+const limitPaths = (paths) => ({
   testnet: paths.testnet,
   invited: paths.invited,
   venueLog: path.join(paths.state, 'logs', 'test-venue.log'),
