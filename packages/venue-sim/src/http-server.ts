@@ -642,6 +642,8 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maxOrderQty: parseAmount('1000'),
     maxOrderNotional: parseAmount('1000000'),
     listedBy: VENUE_LISTED,
+    // A stop on the mark rests here (the journey's own stops), and never fires: the mark stays at its TEST oracle's 100.
+    triggerSources: ['mark'],
     oracle: {},
   },
 ];
