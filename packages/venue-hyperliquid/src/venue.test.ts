@@ -1074,12 +1074,6 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect((await venue.leverage(account, 'ETH-PERP')).value).toEqual({ symbol: 'ETH-PERP', leverageBps: 100_000, marginMode: 'cross' });
   });
 
-  it('without an account, a base-fee read that fails leaves the rates not known and the listing read', async () => {
-    const fake = fakeVenue();
-    const anon = (await venueWith(fake).markets(null)).value;
-    expect(anon.find((m) => m.symbol === 'ETH-PERP')!.takerFeeBps).toEqual({ known: false });
-  });
-
   it('a read that cannot reach the venue is venue_down', async () => {
     const fake = fakeVenue();
     fake.fetch = async () => {
@@ -1088,30 +1082,13 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     await refusedWith(venueWith(fake).markets(null), 'venue_down');
   });
 
-  it("markets: lot and tick from szDecimals; without an account, the base tier's fees (the zero address's)", async () => {
+  it('markets: lot and tick from szDecimals, fees "not known" without an account', async () => {
     const fake = fakeVenue();
-    const asked: string[] = [];
-    fake.info.userFees = (b) => {
-      asked.push(String(b.user));
-      return b.user === '0x0000000000000000000000000000000000000000'
-        ? { userCrossRate: '0.00045', userAddRate: '0.00015', userSpotCrossRate: '0.0007', userSpotAddRate: '0.0004' }
-        : { userCrossRate: '0.00035', userAddRate: '0.0001' };
-    };
+    fake.info.userFees = () => ({ userCrossRate: '0.00035', userAddRate: '0.0001' });
     const venue = venueWith(fake);
     const anon = (await venue.markets(null)).value;
-    expect(asked).toEqual(['0x0000000000000000000000000000000000000000']);
     const eth = anon.find((m) => m.symbol === 'ETH-PERP')!;
-    expect([eth.lotSize, eth.tickSize, eth.maxLeverageBps]).toEqual([a('0.0001'), a('0.01'), 250_000]);
-    // The rate a new account pays: what the public fee page names per market, never "not set" for a published one.
-    expect([eth.makerFeeBps, eth.takerFeeBps]).toEqual([
-      { known: true, value: a('1.5') },
-      { known: true, value: a('4.5') },
-    ]);
-    const purr = anon.find((m) => m.symbol === 'PURR-USDC')!;
-    expect([purr.makerFeeBps, purr.takerFeeBps]).toEqual([
-      { known: true, value: a('4') },
-      { known: true, value: a('7') },
-    ]);
+    expect([eth.lotSize, eth.tickSize, eth.maxLeverageBps, eth.takerFeeBps]).toEqual([a('0.0001'), a('0.01'), 250_000, { known: false }]);
     expect(anon.find((m) => m.symbol === 'ISO-PERP')!.marginModes).toEqual(['isolated']);
     const mine = (await venue.markets(account)).value.find((m) => m.symbol === 'ETH-PERP')!;
     expect([mine.takerFeeBps, mine.makerFeeBps]).toEqual([
@@ -1540,7 +1517,15 @@ describe('feeStatus reads userFees and sends nothing (J-cex-spot-10 #2 #6)', () 
     const fake = fakeVenue();
     fake.info.userFees = () => ({});
     const s = (await venueWith(fake).feeStatus(null)).value;
-    expect(s).toEqual({ schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+    expect(s).toEqual({ ratesByTier: true, schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+  });
+
+  it('says it charges by tier: its markets read with no account carry no rate of their own', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => USER_FEES;
+    expect((await venueWith(fake).feeStatus(null)).value.ratesByTier).toBe(true);
+    const eth = (await venueWith(fake).markets(null)).value.find((m) => m.symbol === 'ETH-PERP')!;
+    expect(eth.takerFeeBps).toEqual({ known: false });
   });
 });
 

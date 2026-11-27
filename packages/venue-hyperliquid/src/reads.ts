@@ -52,9 +52,6 @@ import {
 import { rateToBps, tenthsToBps, unit, PERP_MAX_DECIMALS, SPOT_MAX_DECIMALS } from './wire.js';
 
 /** The candle intervals `candleSnapshot` takes among ours: it has no 6h. */
-/** The address no one holds: its `userFees` answer is the base tier every account starts at. */
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-
 const HL_CANDLE_INTERVALS: ReadonlySet<VenueCandleInterval> = new Set([
   '1m',
   '3m',
@@ -81,18 +78,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
 
   async markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
     const { bySymbol } = await this.loadMarkets();
-    // Hyperliquid prices a fill by the account's tier, not by market: with no account, the rates are the zero address's,
-    // the base tier every account starts at (as `feeStatus` reads the schedule), so a public list names the rate a
-    // new account pays rather than "not set". That read failing leaves the rates not known, never the listing
-    // unread: the listing is the desk's, the base rates only the fee page's.
-    const fees: { [key: string]: Json } = account
-      ? obj(await this.info({ type: 'userFees', user: this.user(account) }), 'userFees')
-      : await this.info({ type: 'userFees', user: ZERO_ADDRESS }).then(
-          (read) => obj(read, 'userFees'),
-          () => ({}),
-        );
+    let fees: { [key: string]: Json } | null = null;
+    if (account) fees = obj(await this.info({ type: 'userFees', user: this.user(account) }), 'userFees');
     const fee = (field: string): MaybeKnown<Amount> =>
-      typeof fees[field] === 'string' ? { known: true, value: rateToBps(fees[field]) } : { known: false };
+      fees && typeof fees[field] === 'string' ? { known: true, value: rateToBps(fees[field]) } : { known: false };
     const list: UserVenueMarket[] = [...bySymbol.values()].map((m) => {
       const read: ReadMarketTerms = {
         symbol: m.symbol,
@@ -567,7 +556,7 @@ export abstract class HyperliquidReads extends HyperliquidCore {
    * account, the schedule is read for the zero address, which every account shares.
    */
   async feeStatus(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>> {
-    const user = account ? this.user(account) : ZERO_ADDRESS;
+    const user = account ? this.user(account) : '0x0000000000000000000000000000000000000000';
     const fees = obj(await this.info({ type: 'userFees', user }), 'userFees');
     const rate = (o: { [key: string]: Json }, field: string): MaybeKnown<Amount> =>
       typeof o[field] === 'string' ? { known: true, value: rateToBps(o[field]) } : { known: false };
@@ -598,6 +587,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     }
     const own = (taker: string, maker: string) => ({ makerFeeBps: rate(fees, maker), takerFeeBps: rate(fees, taker) });
     return this.asOf({
+      // Hyperliquid charges by the account's tier on every market; `markets()` with no account carries no rate.
+      ratesByTier: true,
       schedule: { tiers, volumeAsset: PERP_QUOTE, volumeDays: 14 },
       account: account
         ? {

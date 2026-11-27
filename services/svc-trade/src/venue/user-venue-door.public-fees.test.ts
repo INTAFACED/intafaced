@@ -69,6 +69,40 @@ describe('UserVenueDoor.publicFees (J-cex-spot-10 #2)', () => {
     });
   });
 
+  it('a venue that charges by tier shows each market at its first tier; one whose markets carry rates keeps a blank one blank', async () => {
+    const door = (byTier: boolean) =>
+      new UserVenueDoor({
+        connect: async () => {
+          const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 });
+          const feeStatus = venue.feeStatus!.bind(venue);
+          return Object.assign(venue, {
+            feeStatus: async (account: Parameters<typeof feeStatus>[0]) => {
+              const read = await feeStatus(account);
+              return byTier ? { ...read, value: { ...read.value, ratesByTier: true } } : read;
+            },
+          });
+        },
+        appEnv: 'test',
+        store: new InMemoryPreparedActionStore(),
+        stepUp: allowAll,
+        builder: BUILDER,
+        slippageCapBps: null,
+        closeSlippageBps: 1000,
+        now: () => new Date(),
+        listings: new StoreVenueRoutingGate(listedTestStore(['TFEE-USDC'])),
+      });
+    const first = (await door(true).publicFees()).value.schedule.tiers![0]!;
+    expect((await door(true).publicFees()).value.markets.find((m) => m.symbol === 'TFEE-USDC')).toMatchObject({
+      makerFeeBps: first.spot.makerFeeBps,
+      takerFeeBps: first.spot.takerFeeBps,
+    });
+    expect(first.spot.makerFeeBps.known).toBe(true);
+    expect((await door(false).publicFees()).value.markets.find((m) => m.symbol === 'TFEE-USDC')).toMatchObject({
+      makerFeeBps: { known: false },
+      takerFeeBps: { known: false },
+    });
+  });
+
   it('lists what a USDC withdrawal to the wallet costs, as the venue publishes it, beside the trading fees', async () => {
     const d = new UserVenueDoor({
       connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
