@@ -129,6 +129,33 @@ describe('a recorded run of the venue journeys (hl-recorded)', () => {
     expect(recording.calls.filter((c) => c.path === '/exchange')).toHaveLength(1);
   });
 
+  it("drops each spot token's tokenId, which the adapter never reads and a secret scanner takes for a key, and keeps the rest", () => {
+    const id = `0x${'ab'.repeat(16)}`;
+    const token = { name: 'USDC', index: 0, szDecimals: 8, tokenId: id };
+    const calls: HlRecordedCall[] = [
+      {
+        path: '/info',
+        request: { type: 'spotMeta' },
+        status: 200,
+        answer: { tokens: [token], universe: [{ name: 'X', tokens: [0, 0], index: 0 }] },
+        source: 'testnet',
+      },
+      {
+        path: '/info',
+        request: { type: 'spotMetaAndAssetCtxs' },
+        status: 200,
+        answer: [{ tokens: [token], universe: [] }, [{ markPx: '1' }]],
+        source: 'testnet',
+      },
+      { path: '/info', request: { type: 'meta' }, status: 200, answer: { tokenId: id }, source: 'testnet' },
+    ];
+    const [spot, both, other] = traderRecording(calls, liveKey.address, 'TEST').calls.map((c) => c.answer);
+    expect(spot).toEqual({ tokens: [{ name: 'USDC', index: 0, szDecimals: 8 }], universe: [{ name: 'X', tokens: [0, 0], index: 0 }] });
+    expect(both).toEqual([{ tokens: [{ name: 'USDC', index: 0, szDecimals: 8 }], universe: [] }, [{ markPx: '1' }]]);
+    expect(other).toEqual({ tokenId: id });
+    expect(calls[0]!.answer).toEqual({ tokens: [token], universe: [{ name: 'X', tokens: [0, 0], index: 0 }] });
+  });
+
   it('another wallet replaying the same steps gets the same answers, its own address and order id written in', async () => {
     const { recording, live } = await record();
     const fetch = replayRecording(recording, { trader: replayKey.address });
@@ -170,6 +197,34 @@ describe('a recorded run of the venue journeys (hl-recorded)', () => {
         signal: AbortSignal.timeout(1_000),
       }),
     ).rejects.toBeInstanceOf(NotRecordedError);
+  });
+
+  it("only an account the replay was asked about before the run began is another account's; one first asked after is the run's", async () => {
+    const { recording } = await record();
+    const fetch = replayRecording(recording, { trader: replayKey.address });
+    const ask = (body: unknown) =>
+      fetch('https://api.hyperliquid-testnet.xyz/info', {
+        method: 'POST',
+        headers: {},
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(1_000),
+      });
+    const address = (seed: string) => privateKeyToAccount(keccak256(toHex(seed))).address;
+    // An account the stack already held, read before this run's trader asked anything: refused, and another account's.
+    const stranger = address('another file on the stack');
+    await expect(ask({ type: 'frontendOpenOrders', user: stranger })).rejects.toBeInstanceOf(NotRecordedError);
+    // The run starts with its trader's first read.
+    await ask({ type: 'clearinghouseState', user: replayKey.address }).catch(() => undefined);
+    await expect(ask({ type: 'clearinghouseState', user: stranger })).rejects.toBeInstanceOf(NotRecordedError);
+    // An address first asked about once the run has started (a wrong or invented one): the run's own miss.
+    await expect(ask({ type: 'frontendOpenOrders', user: address('a wrong address') })).rejects.toBeInstanceOf(NotRecordedError);
+    // The run's own trader, and a read naming no account, asking what the recording never holds.
+    await expect(ask({ type: 'userFillsByTime', user: replayKey.address, startTime: 1, aggregateByTime: true })).rejects.toBeInstanceOf(
+      NotRecordedError,
+    );
+    await expect(ask({ type: 'allMids' })).rejects.toBeInstanceOf(NotRecordedError);
+    // The trader's own read above is recorded, so it is no miss.
+    expect(fetch.misses.map((m) => m.otherAccount)).toEqual([true, true, false, false, false]);
   });
 
   it('a read answers the state its epoch settled on, however often it is asked; a read first recorded later has none', async () => {

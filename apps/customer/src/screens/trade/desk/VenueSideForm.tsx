@@ -19,7 +19,7 @@ import {
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
 import { builderApproved, carriesBuilderFee, requiredBuilderFeeBps } from '../../../features/trade/venue/VenueReview';
-import { useSignPrepared } from '../futures/VenueProtect';
+import { useExitSigner, useSignPrepared } from '../futures/VenueProtect';
 import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
@@ -68,6 +68,8 @@ export interface TicketPick {
 export interface TicketHandle {
   flatten: (amount: string, worst: string | null) => void;
   pick: (pick: TicketPick) => void;
+  /** A book level or a print clicked: its price on a limit ticket, the size kept, nothing reviewed or sent. */
+  price: (at: string) => void;
 }
 
 type Live =
@@ -105,6 +107,7 @@ export function VenueSideForm({
   waiting,
   settledKeys,
   handle,
+  hidden = false,
 }: {
   side: VenueSide;
   type: VenueOrderType;
@@ -128,12 +131,15 @@ export function VenueSideForm({
   settledKeys: readonly string[];
   /** Flatten (J-cex-spot-05 #8): the sell ticket registers here how it types all the free base in and opens its review. */
   handle?: Ref<TicketHandle>;
+  /** The other side while this one is chosen: kept mounted, so a pick from the book or chart still lands on it. */
+  hidden?: boolean;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
   const sign = useSignPrepared(owner ?? '');
+  const entrySigner = useExitSigner(owner ?? '');
   // Good till date: the order rests on the venue good till cancelled, and our engine cancels it at the expiry.
   const gtd = type === 'limit' && tif === 'GTD';
   // The draft this form's builder approval is asked under (keys.builderApproval).
@@ -228,7 +234,11 @@ export function VenueSideForm({
   // A buy that spot can't pay in standard mode, or in a mode not known: the move from perps is offered, or refused.
   const spotOffer = side === 'buy' && market.kind === 'spot' && (spotRows !== null || accountMode.state === 'unknown');
   const tagBad = tagProblem(tag);
+  const cancelOnly = market.status === 'cancel_only';
+  const sessionClosed = market.session.known && market.session.value.state === 'closed';
   const canSend =
+    !cancelOnly &&
+    !sessionClosed &&
     access === 'verified' &&
     owner !== null &&
     intent !== null &&
@@ -280,11 +290,17 @@ export function VenueSideForm({
       const f: TicketFields = { side, type: kind, price: kind === 'limit' ? at : '', amount: size, tif: venueTifOf(tif) };
       // A good-till-date order is never placed at once: its expiry and our engine's cancel are reviewed first.
       if (kind === 'limit' && tif === 'GTD' && expireAt === null) return;
+      if (cancelOnly || sessionClosed) return;
       if (!draft || !owner || access !== 'verified' || waiting || ticketProblem(f, market, worstNow, capSet) !== null) return;
       const hold = draft.hold(f, worstNow);
       const order = intentOf(f, market, hold.worst, hold.key, capSet);
       if (!order) return;
       void (instant && kind === 'limit' && tif !== 'GTD' ? sendNow(order) : reviewOf(order));
+    },
+    price(at: string) {
+      setPrice(at);
+      setResult(null);
+      setProblem(null);
     },
     flatten(all: string, worstNow: string | null) {
       // The ticket shows the same market sell the review holds, so its draft keeps the one key for it.
@@ -380,7 +396,7 @@ export function VenueSideForm({
 
   /**
    * Good till date (J-cex-spot-03 #7): our engine keeps the order and its expiry, and the person's wallet signs the order
-   * itself, a good-till-cancelled limit on the venue. A refusal (an expiry now past, no agent permission yet) is said in
+   * itself (or the desk's trading session key, where the venue needs one), a good-till-cancelled limit on the venue. A refusal (an expiry now past, no agent permission yet) is said in
    * the review, and nothing is signed. `sending` is already held.
    */
   async function placeGoodTillDate(order: OrderIntent) {
@@ -388,7 +404,14 @@ export function VenueSideForm({
       sending.current = false;
       return setReviewProblem(t('Expiry past'));
     }
+    // The order itself is the person's: signed by the desk's trading session key where the venue needs one.
+    const chosen = entrySigner();
+    if ('refusal' in chosen) {
+      sending.current = false;
+      return setReviewProblem(chosen.refusal.message);
+    }
     const created = await venue.createSpotOrder({
+      signer: chosen.signer,
       owner,
       symbol: order.symbol,
       kind: 'gtd',
@@ -424,6 +447,7 @@ export function VenueSideForm({
 
   return (
     <form
+      hidden={hidden}
       data-testid="dk-form"
       className="lt-stack"
       data-side={side}
@@ -507,19 +531,22 @@ export function VenueSideForm({
           {t('Worst price line', { price: displayAmount(shownWorst), quote: market.quoteAsset })}
         </p>
       ) : null}
-      <Button
-        busy={busy}
-        type="submit"
-        tone={side === 'buy' ? 'up' : 'down'}
-        size="md"
-        block
-        disabled={!canSend}
-        aria-describedby={`dk-reason-${side}`}
-      >
-        {verb}
-      </Button>
+      {/* Pinned at the ticket column's foot, as on the perps desk: a long ticket never hides the one primary button. */}
+      <div className="xd-ticket-go">
+        <Button busy={busy} type="submit" tone="primary" size="md" block disabled={!canSend} aria-describedby={`dk-reason-${side}`}>
+          {verb}
+        </Button>
+      </div>
       <div className="lt-stack-tight lt-tight" id={`dk-reason-${side}`} aria-live="polite">
-        {access === 'verify' ? (
+        {cancelOnly ? (
+          <p className="lt-note lt-note-bad" role="alert">
+            {t('Mode cancel only ticket')}
+          </p>
+        ) : sessionClosed ? (
+          <p className="lt-note lt-note-bad" role="alert">
+            {t('Session closed note')}
+          </p>
+        ) : access === 'verify' ? (
           <VerifyNote />
         ) : access === 'loading' ? (
           <p className="lt-note">{t('Checking verification')}</p>

@@ -23,10 +23,12 @@ import {
   type UserSignedTypedData,
 } from './signing.js';
 import {
+  FILLS_GRID_MS,
   FILLS_PAGE_CAP,
   HL_TESTNET_VENUE_ID,
   HyperliquidTestnetUserVenue,
   InMemoryNonceSource,
+  keylessStandIn,
   PERP_COLLATERAL_ASSET,
   mapOrderStatus,
   withCancelReason,
@@ -34,6 +36,7 @@ import {
   type HyperliquidNonceSource,
 } from './venue.js';
 import type { MsgpackValue } from './msgpack.js';
+import type { VenueWeightMinute } from './core.js';
 
 const a = parseAmount;
 const NOW = Date.UTC(2026, 10, 9, 0, 0, 0);
@@ -266,6 +269,77 @@ describe('prepare builds exactly what the wallet signs', () => {
     await refusedWith(venue.prepare(account, ownerSigner, order({ type: 'market', timeInForce: 'ALO' })), 'not_offered');
   });
 
+  it("#11070: a reduce-only stop goes out as the venue's trigger order (the SDK's tpsl wire), never as a plain order", async () => {
+    // On the testnet a reduce-only stop 3,000 under the mark once went out as a plain IOC and closed the position.
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const stop = { price: a('1800'), source: 'mark' as const, role: 'stop_loss' as const };
+    const market = { type: 'market' as const, timeInForce: 'IOC' as const, side: 'sell' as const, reduceOnly: true, price: a('1620') };
+    const prepared = await venue.prepare(account, ownerSigner, order({ ...market, trigger: stop }));
+    const cloid = venueClientOrderId(HL_TESTNET_VENUE_ID, 'order:test-user:desk:1');
+    // Key order is the Python SDK's (`test_l1_action_signing_tpsl_order_matches`): isMarket, triggerPx, tpsl.
+    const action = {
+      type: 'order',
+      orders: [
+        { a: 1, b: false, p: '1620', s: '0.5', r: true, t: { trigger: { isMarket: true, triggerPx: '1800', tpsl: 'sl' } }, c: cloid },
+      ],
+      grouping: 'na',
+    };
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(prepared.nonce)));
+    fake.exchange.push(orderStatus('waitingForTrigger'));
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(outcome.definite && outcome.accepted).toBe(true);
+    expect(JSON.stringify(fake.exchangeBodies[0]!.action)).toBe(JSON.stringify(action));
+
+    // A take profit is `tp`; a triggered limit carries isMarket false and its own price.
+    const tp = await venue.prepare(
+      account,
+      ownerSigner,
+      order({ side: 'sell', reduceOnly: true, price: a('2500'), trigger: { price: a('2400'), source: 'mark', role: 'take_profit' } }),
+    );
+    const tpAction = {
+      type: 'order',
+      orders: [
+        { a: 1, b: false, p: '2500', s: '0.5', r: true, t: { trigger: { isMarket: false, triggerPx: '2400', tpsl: 'tp' } }, c: cloid },
+      ],
+      grouping: 'na',
+    };
+    expect((tp.typedData as L1TypedData).message.connectionId).toBe(actionHash(tpAction, null, BigInt(tp.nonce)));
+  });
+
+  it('#11070: a trigger the venue cannot carry is refused before signing, never sent without its condition', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const stop = { price: a('1800'), source: 'mark' as const, role: 'stop_loss' as const };
+    const market = { type: 'market' as const, timeInForce: 'IOC' as const, side: 'sell' as const, reduceOnly: true };
+    // Judged on the last price: the venue judges triggers on its mark only.
+    await refusedWith(venue.prepare(account, ownerSigner, order({ ...market, trigger: { ...stop, source: 'last' } })), 'not_offered');
+    // Not reduce-only: a trigger here only closes.
+    await refusedWith(venue.prepare(account, ownerSigner, order({ ...market, reduceOnly: false, trigger: stop })), 'not_offered');
+    // A trigger price off the venue's price rule (6 significant figures).
+    await refusedWith(
+      venue.prepare(account, ownerSigner, order({ ...market, trigger: { ...stop, price: a('1800.12') } })),
+      'venue_rejected',
+    );
+    // On spot: the venue's triggers are on perpetuals here.
+    await refusedWith(
+      venue.prepare(
+        account,
+        ownerSigner,
+        order({ ...market, symbol: 'PURR-USDC', amount: a('10'), price: a('0.2'), trigger: { ...stop, price: a('0.1') } }),
+      ),
+      'not_offered',
+    );
+    // A preview would show it filling now; it fills only once crossed.
+    await refusedWith(venue.preview(account, order({ ...market, trigger: stop })), 'not_offered');
+    // Attached to an entry needs the venue's grouping, not built.
+    await refusedWith(
+      venue.prepare(account, ownerSigner, order({ ...market, parentClientOrderKey: 'order:0xabc:entry:1' })),
+      'not_offered',
+    );
+    expect(fake.exchangeBodies).toHaveLength(0);
+  });
+
   it('price and size follow the venue rules, refused before signing and never rounded', async () => {
     const venue = venueWith(fakeVenue());
     // ETH perp: szDecimals 4, so at most 2 price decimals and 5 significant figures.
@@ -415,7 +489,91 @@ describe('prepare builds exactly what the wallet signs', () => {
     expect(() => new HyperliquidTestnetUserVenue({ appEnv: 'test', walletChainId: 0 })).toThrow(/wallet chain/);
   });
 
-  it('approveBuilderFee and approveAgent: the testnet typed data; an agent expiry, revoke and amend refuse', async () => {
+  // Hyperliquid takes an agent's expiry only in its name, `<name> valid_until <ms>`, at most 180 days ahead (exchange
+  // endpoint, "Approve an API wallet"); the session key (J-wallet-22 #8) is approved with one.
+  it('approveAgent with an expiry signs `<name> valid_until <ms>`, and an expiry past or beyond 180 days refuses', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const until = new Date(NOW + 8 * 3_600_000);
+    const agent = await venue.prepare(account, ownerSigner, {
+      kind: 'approve_agent',
+      agentAddress: AGENT,
+      agentName: 'trading-session',
+      validUntil: until,
+    });
+    expect((agent.typedData as UserSignedTypedData).message.agentName).toBe(`trading-session valid_until ${until.getTime()}`);
+    await venue.submit(agent, await sign(ownerKey, agent));
+    expect((fake.exchangeBodies[0]!.action as Record<string, unknown>).agentName).toBe(`trading-session valid_until ${until.getTime()}`);
+    const day = 86_400_000;
+    await refusedWith(
+      venue.prepare(account, ownerSigner, { kind: 'approve_agent', agentAddress: AGENT, agentName: 'x', validUntil: new Date(NOW - 1) }),
+      'venue_rejected',
+    );
+    await refusedWith(
+      venue.prepare(account, ownerSigner, {
+        kind: 'approve_agent',
+        agentAddress: AGENT,
+        agentName: 'x',
+        validUntil: new Date(NOW + 181 * day),
+      }),
+      'not_offered',
+    );
+    const longest = await venue.prepare(account, ownerSigner, {
+      kind: 'approve_agent',
+      agentAddress: AGENT,
+      agentName: 'x',
+      validUntil: new Date(NOW + 179 * day),
+    });
+    expect((longest.typedData as UserSignedTypedData).message.agentName).toMatch(/^x valid_until \d+$/);
+  });
+
+  // The venue has no revoke: an agent is deregistered by approving another under its name ("Nonces and API wallets").
+  it("revoke_agent approves, under the agent's own name, a keyless address new to this revoke that lapses in a day", async () => {
+    const fake = fakeVenue();
+    fake.info.extraAgents = () => [{ name: `trading-session valid_until ${NOW + 3_600_000}`, address: AGENT, validUntil: NOW + 3_600_000 }];
+    const venue = venueWith(fake);
+    const revoke = await venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT });
+    const message = (revoke.typedData as UserSignedTypedData).message;
+    expect((revoke.typedData as UserSignedTypedData).primaryType).toBe('HyperliquidTransaction:ApproveAgent');
+    expect(message.agentAddress).toBe(keylessStandIn(AGENT, revoke.nonce));
+    // A fixed vector: the derivation is keccak256 of the revoked address and the nonce, its last 20 bytes.
+    expect(keylessStandIn('0x00000000000000000000000000000000000000a1', '1762646400000')).toBe(
+      '0x81ac6ec1caafeda86fe627ea69432025ca9610af',
+    );
+    expect(message.agentAddress).not.toBe(AGENT);
+    expect(message.agentName).toBe(`trading-session valid_until ${Number(revoke.nonce) + 86_400_000}`);
+    const outcome = await venue.submit(revoke, await sign(ownerKey, revoke));
+    expect(outcome).toMatchObject({ definite: true, accepted: true });
+    expect(fake.exchangeBodies[0]!.action).toMatchObject({ type: 'approveAgent', agentAddress: keylessStandIn(AGENT, revoke.nonce) });
+    // Sent again after it landed (its answer lost): the stand-in is listed, so it is done, and nothing is posted twice.
+    fake.info.extraAgents = () => [
+      { name: `trading-session valid_until ${NOW + 86_400_000}`, address: keylessStandIn(AGENT, revoke.nonce), validUntil: null },
+    ];
+    expect(await venue.submit(revoke, await sign(ownerKey, revoke))).toMatchObject({ definite: true, accepted: true });
+    expect(fake.exchangeBodies).toHaveLength(1);
+    // ...but only with the owner's own signature over it.
+    await refusedWith(venue.submit(revoke, { ...(await sign(strangerKey, revoke)), signedBy: OWNER }), 'signature_mismatch');
+    expect(fake.exchangeBodies).toHaveLength(1);
+    fake.info.extraAgents = () => [{ name: `trading-session valid_until ${NOW + 3_600_000}`, address: AGENT, validUntil: NOW + 3_600_000 }];
+    // A second revoke gets a different stand-in, so no address is ever approved twice.
+    const again = await venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT });
+    expect((again.typedData as UserSignedTypedData).message.agentAddress).not.toBe(message.agentAddress);
+    // The account's one unnamed agent is replaced by an unnamed stand-in, which carries no expiry.
+    fake.info.extraAgents = () => [{ name: '', address: AGENT, validUntil: null }];
+    const unnamed = await venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT });
+    expect((unnamed.typedData as UserSignedTypedData).message.agentName).toBe('');
+    await refusedWith(
+      venue.prepare({ ...account, subAccount: '0x1719884eb866cb12b2287399b15f7db5e7d775ea' }, ownerSigner, {
+        kind: 'revoke_agent',
+        agentAddress: AGENT,
+      }),
+      'not_offered',
+    );
+    // An agent key can never revoke.
+    await refusedWith(venue.prepare(account, agentSigner, { kind: 'revoke_agent', agentAddress: AGENT }), 'agent_not_permitted');
+  });
+
+  it('approveBuilderFee and approveAgent: the testnet typed data; a nameless agent and a revoke of no agent refuse', async () => {
     const fake = fakeVenue();
     const venue = venueWith(fake);
     const fee = await venue.prepare(account, ownerSigner, { kind: 'approve_builder_fee', builder: BUILDER, maxFeeBps: a('1') });
@@ -442,10 +600,14 @@ describe('prepare builds exactly what the wallet signs', () => {
       nonce: Number(agent.nonce),
     });
     await refusedWith(
-      venue.prepare(account, ownerSigner, { kind: 'approve_agent', agentAddress: AGENT, agentName: 'x', validUntil: new Date(NOW + 1) }),
-      'not_offered',
+      venue.prepare(account, ownerSigner, { kind: 'approve_agent', agentAddress: AGENT, agentName: ' ', validUntil: null }),
+      'venue_rejected',
     );
-    await refusedWith(venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: AGENT }), 'not_offered');
+    await refusedWith(
+      venue.prepare(account, ownerSigner, { kind: 'approve_agent', agentAddress: AGENT, agentName: 'x valid_until 1', validUntil: null }),
+      'venue_rejected',
+    );
+    await refusedWith(venue.prepare(account, ownerSigner, { kind: 'revoke_agent', agentAddress: OWNER }), 'venue_rejected');
     await refusedWith(
       venue.prepare(account, ownerSigner, { kind: 'create_sub_account', name: 'TEST sub', subAccountKey: 'sub:owner:1' }),
       'not_offered',
@@ -458,16 +620,6 @@ describe('prepare builds exactly what the wallet signs', () => {
         asset: 'USDC',
         amount: 1n,
         moveKey: 'move:owner:1',
-      }),
-      'not_offered',
-    );
-    await refusedWith(
-      venue.prepare(account, ownerSigner, {
-        kind: 'amend_order',
-        symbol: 'ETH-PERP',
-        venueClientOrderId: '0x00000000000000000000000000000001',
-        amount: a('1'),
-        price: a('1'),
       }),
       'not_offered',
     );
@@ -639,6 +791,13 @@ describe('outcome classification', () => {
     expect(await code(orderStatus({ error: 'Order must have minimum value of $10.' }))).toBe('venue_rejected');
   });
 
+  it('#11051: "User has pending agent removal" is agent_removal_pending, keeping the venue words', async () => {
+    const { outcome } = await submitWith(err('User has pending agent removal'));
+    if (!outcome.definite || outcome.accepted) throw new Error('expected a definite refusal');
+    expect(outcome.refusal.code).toBe('agent_removal_pending');
+    expect(outcome.refusal.detail).toBe('User has pending agent removal');
+  });
+
   it('a 4xx after the bytes went out is never a refusal: 403, 408, 409, 422 and 429 are read back', async () => {
     for (const status of [400, 403, 408, 409, 422, 429]) {
       const { outcome } = await submitWith({ status, body: status === 422 ? 'Failed to deserialize the JSON body' : 'proxy said no' });
@@ -699,6 +858,32 @@ describe('outcome classification', () => {
       asOf: new Date(NOW),
     });
   });
+
+  it('a cancel the venue answered "success" never reads back as still open: a read-back that lags leaves the detail to the next read (#11048)', async () => {
+    // On the beta (2026-11-27 08:54 UTC) the venue answered the cancel "success" and cancelled the order at 08:54:02.279,
+    // but the read-back a moment later still listed it open, so the desk told the tester "Open on the venue." after Cancel.
+    // Still open with nothing filled, and still open with part filled (sz under origSz).
+    for (const left of ['0.5', '0.2']) {
+      const fake = fakeVenue();
+      const base = fake.info.orderStatus!;
+      fake.info.orderStatus = (b) => {
+        const r = base(b) as { order: { order: { sz: string } } };
+        r.order.order.sz = left;
+        return r;
+      };
+      const venue = venueWith(fake);
+      const prepared = await venue.prepare(account, ownerSigner, {
+        kind: 'cancel_order',
+        symbol: 'ETH-PERP',
+        clientOrderKey: 'order:test-user:desk:1',
+      });
+      fake.exchange.push(ok({ type: 'cancel', data: { statuses: ['success'] } }));
+      const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+      if (!outcome.definite || !outcome.accepted) throw new Error(`expected an accepted cancel, got ${JSON.stringify(outcome)}`);
+      expect(outcome.order).toBeNull();
+      expect(outcome.venueRef).toBe('77');
+    }
+  });
 });
 
 describe('reads: the venue record, decimal strings to scaled bigints', () => {
@@ -717,6 +902,34 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       { asset: PERP_COLLATERAL_ASSET, free: a('800.25'), locked: a('200.25'), total: a('1000.5') },
     ]);
     expect(b.asOf.getTime()).toBe(NOW);
+  });
+
+  it('accountSummary: the perp account value, the margin its positions hold and the cross maintenance, as the venue reports them', async () => {
+    const fake = fakeVenue();
+    fake.info.clearinghouseState = () => ({
+      marginSummary: { accountValue: '1000.5', totalMarginUsed: '800.4' },
+      crossMaintenanceMarginUsed: '100.05',
+      withdrawable: '200.1',
+      assetPositions: [],
+      time: NOW,
+    });
+    const s = await venueWith(fake).accountSummary(account);
+    expect(s.value).toEqual({
+      asset: PERP_COLLATERAL_ASSET,
+      equity: a('1000.5'),
+      free: a('200.1'),
+      usedMargin: a('800.4'),
+      maintenanceMargin: a('100.05'),
+      marginRatio: { known: true, value: a('0.1') },
+    });
+    expect(s.asOf.getTime()).toBe(NOW);
+    fake.info.clearinghouseState = () => ({
+      marginSummary: { accountValue: '0', totalMarginUsed: '0' },
+      crossMaintenanceMarginUsed: '0',
+      withdrawable: '0',
+      assetPositions: [],
+    });
+    expect((await venueWith(fake).accountSummary(account)).value.marginRatio).toEqual({ known: false });
   });
 
   it('a JSON number where money belongs is refused, never read as a float', async () => {
@@ -811,6 +1024,42 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       ['12', 'take_profit'],
       ['13', 'liquidation'],
     ]);
+  });
+
+  it("#11070: a resting stop reads back with its trigger, as the venue's own open-order record states it", async () => {
+    const fake = fakeVenue();
+    const common = { coin: 'ETH', side: 'A', sz: '0.5', origSz: '0.5', tif: null, reduceOnly: true, isTrigger: true };
+    fake.info.frontendOpenOrders = () => [
+      {
+        ...common,
+        limitPx: '1620',
+        oid: 21,
+        cloid: `0x${'a'.repeat(32)}`,
+        orderType: 'Stop Market',
+        triggerPx: '1800',
+        triggerCondition: 'Price below 1800',
+      },
+      {
+        ...common,
+        limitPx: '2500',
+        oid: 22,
+        cloid: `0x${'b'.repeat(32)}`,
+        orderType: 'Take Profit Limit',
+        triggerPx: '2400',
+        triggerCondition: 'Price above 2400',
+      },
+      { coin: 'ETH', side: 'B', limitPx: '1900', sz: '0.1', origSz: '0.1', oid: 23, tif: 'Gtc', orderType: 'Limit', reduceOnly: false },
+    ];
+    const open = (await venueWith(fake).openOrders(account)).value;
+    expect(open.map((o) => [o.venueOrderId, o.type, o.reduceOnly, o.trigger ?? null])).toEqual([
+      ['21', 'market', true, { price: a('1800'), source: 'mark', role: 'stop_loss', state: 'waiting', triggeredAt: null, failure: null }],
+      ['22', 'limit', true, { price: a('2400'), source: 'mark', role: 'take_profit', state: 'waiting', triggeredAt: null, failure: null }],
+      ['23', 'limit', false, null],
+    ]);
+    // Every perpetual lists the mark as the price its triggers are judged on; spot lists none.
+    const markets = (await venueWith(fakeVenue()).markets(null)).value;
+    expect(markets.find((m) => m.symbol === 'ETH-PERP')!.triggerSources).toEqual(['mark']);
+    expect(markets.find((m) => m.symbol === 'PURR-USDC')!.triggerSources).toEqual([]);
   });
 
   it('open orders: a spot buy holds its notional; a perp order its margin at the account leverage', async () => {
@@ -976,7 +1225,17 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     for (const m of anon) {
       expect([m.minOrderNotional, m.priceBandBps, m.maxOpenOrders]).toEqual([a('10'), null, 1000]);
     }
-    expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => [null, null, null]));
+    // A listed market is trading, as the venue lists it; no largest order is published.
+    expect(anon.map((m) => [m.status, m.maxOrderQty, m.maxOrderNotional])).toEqual(anon.map(() => ['trading', null, null]));
+  });
+
+  it('a perp the venue flags delisted is not listed at all, so no market it lists is ever drawn trading after delisting', async () => {
+    const fake = fakeVenue();
+    fake.info.meta = () => ({ universe: [...META.universe, { name: 'OLD', szDecimals: 2, maxLeverage: 3, isDelisted: true }] });
+    const listed = (await venueWith(fake).markets(null)).value.map((m) => [m.symbol, m.status]);
+    expect(listed).not.toContainEqual(['OLD-PERP', 'trading']);
+    expect(listed.map(([s]) => s)).not.toContain('OLD-PERP');
+    expect(listed).toContainEqual(['BTC-PERP', 'trading']);
   });
 });
 
@@ -1380,6 +1639,669 @@ describe('feeStatus reads userFees and sends nothing (J-cex-spot-10 #2 #6)', () 
     const fake = fakeVenue();
     fake.info.userFees = () => ({});
     const s = (await venueWith(fake).feeStatus(null)).value;
-    expect(s).toEqual({ schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+    expect(s).toEqual({ ratesByTier: true, schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+  });
+
+  it('says it charges by tier: its markets read with no account carry no rate of their own', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => USER_FEES;
+    expect((await venueWith(fake).feeStatus(null)).value.ratesByTier).toBe(true);
+    const eth = (await venueWith(fake).markets(null)).value.find((m) => m.symbol === 'ETH-PERP')!;
+    expect(eth.takerFeeBps).toEqual({ known: false });
+  });
+});
+
+describe("public market data: best prices, prints and candles, no account (the desks' book, tape and chart)", () => {
+  const book = (bids: [string, string][], asks: [string, string][]) => () => ({
+    coin: 'BTC',
+    time: NOW,
+    levels: [bids.map(([px, sz]) => ({ px, sz, n: 1 })), asks.map(([px, sz]) => ({ px, sz, n: 1 }))],
+  });
+
+  it('best prices are the top of the public book; an empty side is null', async () => {
+    const fake = fakeVenue();
+    fake.info.l2Book = book(
+      [
+        ['58737', '0.1'],
+        ['58730', '1'],
+      ],
+      [],
+    );
+    const read = await venueWith(fake).bestPrices('BTC-PERP');
+    expect(read.value).toEqual({ symbol: 'BTC-PERP', bid: a('58737'), ask: null });
+    expect(read.reportedAt?.getTime()).toBe(NOW);
+  });
+
+  it('prints: newest first, at most limit, the taker side named, the id kept exact (a hash past a safe number)', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    fake.info.recentTrades = (b) => {
+      asked = b;
+      return [
+        { coin: 'BTC', side: 'A', px: '58731.0', sz: '0.00002', time: NOW - 2000, hash: '0xaa', tid: 614600037758557 },
+        { coin: 'BTC', side: 'B', px: '58740.5', sz: '0.5', time: NOW - 1000, hash: '0xbb', tid: 2 ** 60 },
+        { coin: 'BTC', side: 'B', px: '58700', sz: '1', time: NOW - 3000, hash: '0xcc', tid: 7 },
+      ];
+    };
+    const read = await venueWith(fake).trades('BTC-PERP', 2);
+    expect(asked).toEqual({ type: 'recentTrades', coin: 'BTC' });
+    expect(read.value).toEqual([
+      { tradeId: '0xbb', symbol: 'BTC-PERP', price: a('58740.5'), amount: a('0.5'), takerSide: 'buy', tradedAt: new Date(NOW - 1000) },
+      {
+        tradeId: '614600037758557',
+        symbol: 'BTC-PERP',
+        price: a('58731'),
+        amount: a('0.00002'),
+        takerSide: 'sell',
+        tradedAt: new Date(NOW - 2000),
+      },
+    ]);
+    expect(read.reportedAt?.getTime()).toBe(NOW - 1000);
+  });
+
+  it('a price sent as a JSON number is refused, never read as a float', async () => {
+    const fake = fakeVenue();
+    fake.info.recentTrades = () => [{ coin: 'BTC', side: 'B', px: 58740.5, sz: '0.5', time: NOW, hash: '0xbb', tid: 1 }];
+    await expect(venueWith(fake).trades('BTC-PERP', 5)).rejects.toThrow(/not a string/);
+  });
+
+  it('candles: the window asked is limit intervals back from now, oldest first, the newest limit kept', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    const c = (t: number, o: string, cl: string) => ({
+      t,
+      T: t + 3_599_999,
+      s: 'BTC',
+      i: '1h',
+      o,
+      c: cl,
+      h: '59953',
+      l: '58856',
+      v: '1.13873',
+      n: 3,
+    });
+    fake.info.candleSnapshot = (b) => {
+      asked = b;
+      return [
+        c(NOW - 3_600_000, '58959', '58731'),
+        c(NOW - 3 * 3_600_000, '59216', '59312'),
+        c(NOW - 2 * 3_600_000, '59365', '59146'),
+        { ...c(NOW, '58731', '58731'), v: '0.0', n: 0 }, // no print in this interval: not a candle
+      ];
+    };
+    const read = await venueWith(fake).candles('BTC-PERP', '1h', 2);
+    // The window ends where the current candle ends, so every desk asking within this hour asks the same read.
+    expect(asked).toEqual({
+      type: 'candleSnapshot',
+      req: { coin: 'BTC', interval: '1h', startTime: NOW - 3_600_000, endTime: NOW + 3_600_000 - 1 },
+    });
+    expect(read.value.map((x) => [x.openAt.getTime(), x.openPrice, x.closePrice])).toEqual([
+      [NOW - 2 * 3_600_000, a('59365'), a('59146')],
+      [NOW - 3_600_000, a('58959'), a('58731')],
+    ]);
+    expect(read.value[0]).toMatchObject({ highPrice: a('59953'), lowPrice: a('58856'), baseVolume: a('1.13873') });
+  });
+
+  it('candles from a time start there; an interval the venue does not publish and an unlisted market are refused', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    fake.info.candleSnapshot = (b) => ((asked = b), []);
+    await venueWith(fake).candles('ETH-PERP', '15m', { limit: 10, since: new Date(NOW - 60_000) });
+    expect(asked).toEqual({
+      type: 'candleSnapshot',
+      req: { coin: 'ETH', interval: '15m', startTime: NOW - 60_000, endTime: NOW + 900_000 - 1 },
+    });
+    await refusedWith(venueWith(fake).candles('BTC-PERP', '6h', 10), 'not_offered');
+    await refusedWith(venueWith(fake).candles('DOGE-PERP', '1h', 10), 'unknown_market');
+    await refusedWith(venueWith(fake).trades('DOGE-PERP', 10), 'unknown_market');
+  });
+
+  it('a failed read is venue_down: nothing changed', async () => {
+    const fake = fakeVenue();
+    await refusedWith(venueWith(fake).trades('BTC-PERP', 10), 'venue_down'); // no recentTrades handler: HTTP 400
+  });
+});
+
+describe('HIP-3 perp DEXs: the stock, index and gold perpetuals', () => {
+  // The test network's answers, cut down (read 27 Nov 2026): `perpDexs` lists the main DEX as null, then each HIP-3 DEX;
+  // `metaAndAssetCtxs` with `dex` lists that DEX's markets under `<dex>:<coin>`, with their live open interest.
+  const XYZ_DEPLOYER = '0x7770132f86dd4002d018edd7d348f4a0e4340777';
+  const PERP_DEXS = [
+    null,
+    { name: 'test', fullName: 'test dex', deployer: '0x5e89b26d8d66da9888c835c9bfcc2aa51813e152', assetToStreamingOiCap: [] },
+    { name: 'xyz', fullName: 'XYZ', deployer: XYZ_DEPLOYER, assetToStreamingOiCap: [['xyz:TSLA', '50000000.0']] },
+  ];
+  const XYZ_META = {
+    universe: [
+      { name: 'xyz:TSLA', szDecimals: 3, maxLeverage: 10, growthMode: 'enabled' },
+      { name: 'xyz:HOOD', szDecimals: 3, maxLeverage: 10, onlyIsolated: true, marginMode: 'noCross' },
+      { name: 'xyz:URANIUM', szDecimals: 3, maxLeverage: 10, onlyIsolated: true, isDelisted: true },
+      { name: 'xyz:SKHX', szDecimals: 3, maxLeverage: 10, onlyIsolated: true },
+    ],
+    collateralToken: 0,
+  };
+  const XYZ_CTXS = [
+    { markPx: '378.82', openInterest: '51.352', funding: '0.0' },
+    { markPx: '71.0', openInterest: '0.626', funding: '0.0' },
+    { markPx: '85.0', openInterest: '0.0', funding: '0.0' },
+    { markPx: '866.135', openInterest: '0.0', funding: '0.0' },
+  ];
+
+  function hip3Venue() {
+    const fake = fakeVenue();
+    fake.info.perpDexs = () => PERP_DEXS;
+    fake.info.metaAndAssetCtxs = (b) =>
+      b.dex === 'xyz' ? [XYZ_META, XYZ_CTXS] : [META, [{ markPx: '60000' }, { markPx: '2010' }, { markPx: '1' }]];
+    const venue = new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      fetch: fake.fetch,
+      clock: () => new Date(NOW),
+      timeoutMs: 50,
+      perpDexs: ['xyz'],
+    });
+    return { fake, venue };
+  }
+
+  it('lists each live market of a named DEX under its dex prefix, and no delisted or untraded one', async () => {
+    const { venue } = hip3Venue();
+    const listed = (await venue.markets(null)).value;
+    const symbols = listed.map((m) => m.symbol);
+    expect(symbols).toEqual(expect.arrayContaining(['BTC-PERP', 'ETH-PERP', 'xyz:TSLA-PERP', 'xyz:HOOD-PERP']));
+    expect(symbols).not.toContain('xyz:URANIUM-PERP');
+    expect(symbols).not.toContain('xyz:SKHX-PERP');
+    const tsla = listed.find((m) => m.symbol === 'xyz:TSLA-PERP')!;
+    expect([tsla.kind, tsla.baseAsset, tsla.quoteAsset, tsla.lotSize, tsla.maxLeverageBps]).toEqual([
+      'perpetual',
+      'xyz:TSLA',
+      'USDC',
+      a('0.001'),
+      100_000,
+    ]);
+    // Who listed it is the DEX's own deployer, as the venue names it.
+    expect(tsla.listedBy).toEqual({ known: true, value: { kind: 'hip3', name: 'XYZ' } });
+    // The venue's own margin flag: a no-cross market is isolated only.
+    expect(listed.find((m) => m.symbol === 'xyz:HOOD-PERP')!.marginModes).toEqual(['isolated']);
+    expect(tsla.marginModes).toEqual(['cross', 'isolated']);
+  });
+
+  it('an order on a HIP-3 market signs its DEX asset id: 100000 + DEX index × 10000 + its index in the DEX', async () => {
+    const { venue } = hip3Venue();
+    const prepared = await venue.prepare(account, ownerSigner, order({ symbol: 'xyz:HOOD-PERP', amount: a('0.5'), price: a('70') }));
+    const cloid = venueClientOrderId(HL_TESTNET_VENUE_ID, 'order:test-user:desk:1');
+    const action = {
+      type: 'order',
+      orders: [{ a: 120_001, b: true, p: '70', s: '0.5', r: false, t: { limit: { tif: 'Gtc' } }, c: cloid }],
+      grouping: 'na',
+    };
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(NOW)));
+  });
+
+  it('positions and open orders are read on every named DEX, each with its own mark', async () => {
+    const { fake, venue } = hip3Venue();
+    const position = (coin: string, szi: string) => ({
+      position: {
+        coin,
+        szi,
+        entryPx: '370',
+        unrealizedPnl: '0.5',
+        marginUsed: '37',
+        liquidationPx: null,
+        leverage: { type: 'isolated', value: 5 },
+      },
+    });
+    fake.info.clearinghouseState = (b) => ({
+      marginSummary: { accountValue: '0' },
+      withdrawable: '0',
+      time: NOW,
+      assetPositions: b.dex === 'xyz' ? [position('xyz:TSLA', '0.1')] : [position('ETH', '-0.5')],
+    });
+    fake.info.frontendOpenOrders = (b) =>
+      b.dex === 'xyz'
+        ? [
+            {
+              coin: 'xyz:TSLA',
+              side: 'B',
+              limitPx: '300',
+              sz: '0.1',
+              origSz: '0.1',
+              oid: 9,
+              tif: 'Gtc',
+              orderType: 'Limit',
+              reduceOnly: false,
+            },
+          ]
+        : [];
+    const positions = (await venue.positions(account)).value;
+    expect(positions.map((p) => [p.symbol, p.side, p.markPrice])).toEqual([
+      ['ETH-PERP', 'short', a('2010')],
+      ['xyz:TSLA-PERP', 'long', a('378.82')],
+    ]);
+    const open = (await venue.openOrders(account)).value;
+    expect(open.map((o) => [o.symbol, o.price])).toEqual([['xyz:TSLA-PERP', a('300')]]);
+  });
+
+  // One named DEX the venue doesn't list, or whose read fails, is left out with a warning naming it; the main
+  // listing, and every other named DEX, stays up.
+  function hip3VenueWarning(perpDexs: readonly string[]) {
+    const { fake } = hip3Venue();
+    const warnings: string[] = [];
+    const venue = new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      fetch: fake.fetch,
+      clock: () => new Date(NOW),
+      timeoutMs: 50,
+      perpDexs,
+      warn: (message) => warnings.push(message),
+    });
+    return { fake, venue, warnings };
+  }
+
+  it('a named DEX that perpDexs does not list is left out with a warning naming it; the main and other DEX markets stay listed', async () => {
+    const { venue, warnings } = hip3VenueWarning(['gone', 'xyz']);
+    const symbols = (await venue.markets(null)).value.map((m) => m.symbol);
+    expect(symbols).toEqual(expect.arrayContaining(['BTC-PERP', 'ETH-PERP', 'xyz:TSLA-PERP', 'xyz:HOOD-PERP']));
+    expect(symbols.some((s) => s.startsWith('gone:'))).toBe(false);
+    expect(warnings).toEqual(['venue listing: the perp DEX gone is left out: it is not listed by perpDexs']);
+  });
+
+  it('a named DEX whose metaAndAssetCtxs read fails is left out with a warning naming it; the main markets stay listed', async () => {
+    const { fake, venue, warnings } = hip3VenueWarning(['xyz']);
+    const main = fake.info.metaAndAssetCtxs!;
+    fake.info.metaAndAssetCtxs = (b) => (b.dex === 'xyz' ? 'not an answer' : main(b));
+    const symbols = (await venue.markets(null)).value.map((m) => m.symbol);
+    expect(symbols).toEqual(expect.arrayContaining(['BTC-PERP', 'ETH-PERP']));
+    expect(symbols.some((s) => s.startsWith('xyz:'))).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/^venue listing: the perp DEX xyz is left out: /);
+  });
+
+  it('a failing perpDexs read leaves every named DEX out with a warning; the main markets stay listed', async () => {
+    const { fake, venue, warnings } = hip3VenueWarning(['xyz']);
+    delete fake.info.perpDexs; // no handler: HTTP 400
+    const symbols = (await venue.markets(null)).value.map((m) => m.symbol);
+    expect(symbols).toEqual(expect.arrayContaining(['BTC-PERP', 'ETH-PERP']));
+    expect(symbols.some((s) => s.includes(':'))).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/^venue listing: the perp DEXs xyz are left out: /);
+  });
+
+  it('with no DEX named, nothing beyond the main listing is read', async () => {
+    const fake = fakeVenue();
+    const symbols = (await venueWith(fake).markets(null)).value.map((m) => m.symbol);
+    expect(symbols.some((s) => s.includes(':'))).toBe(false);
+    expect(fake.infoTypes).not.toContain('perpDexs');
+  });
+});
+
+describe('moving a resting order: one signed `modify`, never cancel then place (#11020)', () => {
+  const RESTING = order({ clientOrderKey: 'order:test-user:desk:resting' });
+  const restingId = venueClientOrderId(HL_TESTNET_VENUE_ID, RESTING.clientOrderKey);
+  const replacement = order({ clientOrderKey: 'order:test-user:desk:replacement', price: a('1990') });
+  const replacementId = venueClientOrderId(HL_TESTNET_VENUE_ID, replacement.clientOrderKey);
+  const move: VenueIntent = { kind: 'replace_order', symbol: 'ETH-PERP', venueClientOrderId: restingId, order: replacement };
+  const modifyOf = (oid: string, c: string, p: string, s: string) => ({
+    type: 'modify',
+    oid,
+    order: { a: 1, b: true, p, s, r: false, t: { limit: { tif: 'Gtc' } }, c },
+  });
+
+  it('replace_order is one modify of the resting order, the replacement under its own client id, signed once and sent once', async () => {
+    const fake = fakeVenue();
+    // The venue's record after the modify: the order at its new price, under the replacement's client id.
+    fake.info.orderStatus = (b) => ({
+      status: 'order',
+      order: {
+        status: 'open',
+        statusTimestamp: NOW,
+        order: {
+          coin: 'ETH',
+          side: 'B',
+          limitPx: '1990',
+          sz: '0.5',
+          origSz: '0.5',
+          oid: 78,
+          cloid: b.oid,
+          tif: 'Gtc',
+          orderType: 'Limit',
+          reduceOnly: false,
+        },
+      },
+    });
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, move);
+    expect(prepared.venueClientOrderId).toBe(replacementId);
+    const action = modifyOf(restingId, replacementId, '1990', '0.5');
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(prepared.nonce)));
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(fake.exchangeBodies).toHaveLength(1);
+    expect(fake.exchangeBodies[0]!.action).toEqual(action);
+    if (!outcome.definite || !outcome.accepted) throw new Error('expected the modify accepted');
+    const [cancelled, placed] = outcome.legs ?? [];
+    expect(cancelled).toMatchObject({ definite: true, accepted: true });
+    expect(placed).toMatchObject({ definite: true, accepted: true, venueRef: '78' });
+    expect(placed?.definite && placed.accepted ? placed.order : null).toMatchObject({
+      venueClientOrderId: replacementId,
+      price: a('1990'),
+      status: 'open',
+    });
+  });
+
+  it('a modify refused, or racing a fill, says so, keeps the venue words, and is never sent again', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, move);
+    fake.exchange.push(err('Cannot modify canceled or filled order'));
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(fake.exchangeBodies).toHaveLength(1);
+    expect(outcome).toEqual({
+      definite: true,
+      accepted: false,
+      refusal: { venueId: HL_TESTNET_VENUE_ID, code: 'order_final', detail: 'Cannot modify canceled or filled order' },
+      asOf: new Date(NOW),
+    });
+    const other = await venue.prepare(account, ownerSigner, move);
+    fake.exchange.push(err('Order must have minimum value of $10.'));
+    const refused = await venue.submit(other, await sign(ownerKey, other));
+    expect(refused.definite && !refused.accepted ? refused.refusal : null).toMatchObject({
+      code: 'venue_rejected',
+      detail: 'Order must have minimum value of $10.',
+    });
+  });
+
+  it('a lost modify answer is not definite: it is read back by the replacement client id and never resent', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, move);
+    fake.exchange.push('timeout');
+    expect(await venue.submit(prepared, await sign(ownerKey, prepared))).toEqual({ definite: false, reason: 'timeout' });
+    expect(fake.exchangeBodies).toHaveLength(1);
+    const read = await venue.orderByClientId(account, prepared.venueClientOrderId!);
+    expect(read.value?.venueClientOrderId).toBe(replacementId);
+    expect(fake.exchangeBodies).toHaveLength(1);
+  });
+
+  it('a replacement the one modify cannot carry is refused before anything is signed', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const replace = (o: Partial<PlaceUserOrderIntent>, symbol = 'ETH-PERP'): VenueIntent => ({
+      kind: 'replace_order',
+      symbol,
+      venueClientOrderId: restingId,
+      order: { ...replacement, ...o },
+    });
+    await refusedWith(venue.prepare(account, ownerSigner, replace({ clientOrderKey: RESTING.clientOrderKey })), 'venue_rejected');
+    await refusedWith(venue.prepare(account, ownerSigner, replace({}, 'BTC-PERP')), 'venue_rejected');
+    await refusedWith(venue.prepare(account, ownerSigner, replace({ type: 'market', timeInForce: 'IOC' })), 'not_offered');
+    await refusedWith(
+      venue.prepare(account, ownerSigner, replace({ trigger: { price: a('1900'), source: 'mark', role: 'stop_loss' } })),
+      'not_offered',
+    );
+    await refusedWith(venue.prepare(account, ownerSigner, replace({ builderFee: { builder: BUILDER, feeBps: a('0.5') } })), 'not_offered');
+    await refusedWith(venue.prepare(account, ownerSigner, replace({ amount: a('0.123456') })), 'venue_rejected');
+    expect(fake.exchangeBodies).toHaveLength(0);
+  });
+
+  it('amend_order is one modify that keeps the client id, the side and the time in force the venue holds', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const amend: VenueIntent = {
+      kind: 'amend_order',
+      symbol: 'ETH-PERP',
+      venueClientOrderId: restingId,
+      amount: a('0.3'),
+      price: a('1995'),
+    };
+    const prepared = await venue.prepare(account, ownerSigner, amend);
+    expect(prepared.venueClientOrderId).toBe(restingId);
+    const action = modifyOf(restingId, restingId, '1995', '0.3');
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(prepared.nonce)));
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(fake.exchangeBodies).toHaveLength(1);
+    expect(fake.exchangeBodies[0]!.action).toEqual(action);
+    expect(outcome).toMatchObject({ definite: true, accepted: true });
+    // An order the venue no longer holds open is not amended: nothing is signed.
+    fake.info.orderStatus = () => ({ status: 'unknownOid' });
+    await refusedWith(venueWith(fake).prepare(account, ownerSigner, amend), 'unknown_order');
+    expect(fake.exchangeBodies).toHaveLength(1);
+  });
+});
+
+describe('shared reads across testers: one IP, 1,200 weight a minute (#11028)', () => {
+  const STRANGER = strangerKey.address.toLowerCase();
+  const strangers: UserVenueAccount = { venueId: HL_TESTNET_VENUE_ID, owner: STRANGER, subAccount: null };
+  function sharedVenue(fake: Fake, clock: () => number, onWeightMinute?: (spent: VenueWeightMinute) => void) {
+    return new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      fetch: fake.fetch,
+      clock: () => new Date(clock()),
+      timeoutMs: 50,
+      shareReads: true,
+      ...(onWeightMinute ? { onWeightMinute } : {}),
+    });
+  }
+  const count = (fake: Fake, type: string) => fake.infoTypes.filter((t) => t === type).length;
+
+  it("an order forgets only its own wallet's reads: another tester's fills and the market's prints stay shared", async () => {
+    const fake = fakeVenue();
+    fake.info.userFillsByTime = () => [];
+    fake.info.recentTrades = () => [];
+    const venue = sharedVenue(fake, () => NOW);
+    const since = new Date(NOW - 60_000);
+    const readAll = async () => {
+      await venue.fills(account, since);
+      await venue.fills(strangers, since);
+      await venue.trades('ETH-PERP', 10);
+    };
+    await readAll();
+    expect([count(fake, 'userFillsByTime'), count(fake, 'recentTrades')]).toEqual([2, 1]);
+    const prepared = await venue.prepare(account, ownerSigner, order());
+    fake.exchange.push(orderStatus({ resting: { oid: 77, cloid: prepared.venueClientOrderId } }));
+    await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(fake.exchangeBodies).toHaveLength(1);
+    const fillsBefore = count(fake, 'userFillsByTime');
+    await readAll();
+    // The ordering wallet's fills are read again; the stranger's and the market's prints are served as kept.
+    expect(count(fake, 'userFillsByTime')).toBe(fillsBefore + 1);
+    expect(count(fake, 'recentTrades')).toBe(1);
+  });
+
+  it('fills: desks asking from moments a few seconds apart share one read of the hour, and each gets only its own fills since (#11041)', async () => {
+    const fake = fakeVenue();
+    const fill = (tid: number, time: number) => ({
+      coin: 'ETH',
+      px: '2000',
+      sz: '0.01',
+      side: 'B',
+      time,
+      dir: 'Open Long',
+      closedPnl: '0',
+      oid: 1,
+      crossed: true,
+      fee: '0.01',
+      tid,
+      feeToken: 'USDC',
+    });
+    const hour = Math.floor((NOW - 30 * 60_000) / FILLS_GRID_MS) * FILLS_GRID_MS;
+    const all = [fill(1, hour + 1_000), fill(2, hour + 5_000), fill(3, hour + 9_000)];
+    const starts: number[] = [];
+    fake.info.userFillsByTime = (b) => (starts.push(Number(b.startTime)), all.filter((f) => f.time >= Number(b.startTime)));
+    const venue = sharedVenue(fake, () => NOW);
+    const first = (await venue.fills(account, new Date(hour + 1_000))).value;
+    const second = (await venue.fills(account, new Date(hour + 4_000))).value;
+    expect(starts).toEqual([hour]);
+    expect(first.map((f) => f.fillId)).toEqual([`${hour + 1_000}:ETH:1`, `${hour + 5_000}:ETH:2`, `${hour + 9_000}:ETH:3`]);
+    expect(second.map((f) => f.fillId)).toEqual([`${hour + 5_000}:ETH:2`, `${hour + 9_000}:ETH:3`]);
+  });
+
+  it('fills: a full page answered entirely before the asked start keeps paging to the fills after it (#11041)', async () => {
+    const fake = fakeVenue();
+    const fill = (tid: number, time: number) => ({
+      coin: 'ETH',
+      px: '2000',
+      sz: '0.01',
+      side: 'B',
+      time,
+      dir: 'Open Long',
+      closedPnl: '0',
+      oid: 1,
+      crossed: true,
+      fee: '0.01',
+      tid,
+      feeToken: 'USDC',
+    });
+    const hour = Math.floor(NOW / FILLS_GRID_MS) * FILLS_GRID_MS;
+    const since = hour + 30 * 60_000;
+    // A full page of fills between the hour and the asked start, then one fill after it.
+    const all = [...Array.from({ length: FILLS_PAGE_CAP }, (_, i) => fill(i + 1, hour + i)), fill(9_999, since + 1)];
+    fake.info.userFillsByTime = (b) => all.filter((f) => f.time >= Number(b.startTime)).slice(0, FILLS_PAGE_CAP);
+    const fills = (await venueWith(fake).fills(account, new Date(since))).value;
+    expect(fills.map((f) => f.fillId)).toEqual([`${since + 1}:ETH:9999`]);
+  });
+
+  it('candles: every desk asking within one candle asks the same window, so they share one read', async () => {
+    const fake = fakeVenue();
+    const asked: unknown[] = [];
+    fake.info.candleSnapshot = (b) => (asked.push(b.req), []);
+    let now = NOW + 1_234;
+    const venue = sharedVenue(fake, () => now);
+    await venue.candles('BTC-PERP', '1m', 100);
+    now += 10_001; // another desk, a different millisecond inside the same minute and the read's 15 s
+    await venue.candles('BTC-PERP', '1m', 100);
+    expect(asked).toEqual([{ coin: 'BTC', interval: '1m', startTime: NOW + 60_000 - 100 * 60_000, endTime: NOW + 60_000 - 1 }]);
+    now = NOW + 60_000; // the next candle opens: a new window
+    await venue.candles('BTC-PERP', '1m', 100);
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toEqual({ coin: 'BTC', interval: '1m', startTime: NOW + 2 * 60_000 - 100 * 60_000, endTime: NOW + 2 * 60_000 - 1 });
+  });
+
+  it('counts the weight spent at the venue by request type, and tells it once a minute', async () => {
+    const fake = fakeVenue();
+    fake.info.userFillsByTime = () => Array.from({ length: 45 }, () => ({}));
+    fake.info.l2Book = (b) => ({ coin: b.coin, time: NOW, levels: [[], []] });
+    const told: VenueWeightMinute[] = [];
+    let now = NOW;
+    const venue = sharedVenue(
+      fake,
+      () => now,
+      (spent) => told.push(spent),
+    );
+    await venue.fills(account, new Date(NOW - 60_000)).catch(() => null); // 45 fills: 20 + 2 per the venue's 1 per 20
+    await venue.book('ETH-PERP', 5).catch(() => null);
+    await venue.book('ETH-PERP', 5).catch(() => null); // kept: no second request, no weight
+    expect(told).toEqual([]);
+    now += 60_000;
+    await venue.book('BTC-PERP', 5).catch(() => null);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject({
+      minute: new Date(NOW).toISOString(),
+      byType: { userFillsByTime: { requests: 1, weight: 22, accounts: 1 }, l2Book: { requests: 1, weight: 2 } },
+    });
+    // A market read names no account.
+    expect(told[0]!.byType.l2Book).not.toHaveProperty('accounts');
+    // The listing read on the way (meta, spotMeta) is counted too: the total is every request's weight.
+    const byType = Object.values(told[0]!.byType);
+    expect(told[0]!.weight).toBe(byType.reduce((n, r) => n + r.weight, 0));
+    expect(told[0]!.byType.meta).toEqual({ requests: 1, weight: 20 });
+  });
+
+  it('names how many different accounts each account read was for, so a reader of every account shows apart', async () => {
+    const fake = fakeVenue();
+    fake.info.clearinghouseState = () => ({ marginSummary: { accountValue: '0' }, withdrawable: '0', assetPositions: [] });
+    fake.info.spotClearinghouseState = () => ({ balances: [] });
+    const told: VenueWeightMinute[] = [];
+    let now = NOW;
+    const venue = sharedVenue(
+      fake,
+      () => now,
+      (spent) => told.push(spent),
+    );
+    const other = { ...account, owner: '0x00000000000000000000000000000000000000b2' };
+    // Three reads of two accounts, each past the light reads' keeping, so each one leaves for the venue.
+    for (const a of [account, other, account]) {
+      await venue.balances(a).catch(() => null);
+      now += 3_000;
+    }
+    now += 60_000;
+    await venue.book('BTC-PERP', 5).catch(() => null);
+    expect(told[0]!.byType.clearinghouseState).toEqual({ requests: 3, weight: 6, accounts: 2 });
+    expect(told[0]!.byType.spotClearinghouseState).toEqual({ requests: 3, weight: 6, accounts: 2 });
+  });
+});
+
+// A fresh tester's grant lands in perps (the venue's default mode keeps spot apart), so a spot buy needs a
+// move from perps to spot. The adapter reads the account's mode and signs that move (J-derivatives-29 #1 #2).
+describe('the account mode and a move between spot and perps (J-derivatives-29)', () => {
+  const withAccount = (abstraction: unknown) => {
+    const fake = fakeVenue();
+    fake.info.userAbstraction = () => abstraction;
+    fake.info.clearinghouseState = () => ({ marginSummary: { accountValue: '25' }, withdrawable: '25', assetPositions: [], time: NOW });
+    fake.info.spotClearinghouseState = () => ({ balances: [{ coin: 'USDC', token: 0, total: '1.5', hold: '0.5', entryNtl: '0' }] });
+    return fake;
+  };
+  const move = {
+    kind: 'spot_perps_transfer',
+    direction: 'perps_to_spot',
+    asset: 'USDC',
+    amount: a('9.4365'),
+    moveKey: 'class-move:test-user:1',
+  } as const;
+
+  it("reads the venue's default and disabled modes as standard, with spot and perps USDC apart", async () => {
+    for (const abstraction of ['default', 'disabled']) {
+      const read = await venueWith(withAccount(abstraction)).accountMode(account);
+      expect(read.value).toEqual({
+        mode: 'standard',
+        spot: [{ asset: 'USDC', free: a('1'), locked: a('0.5'), total: a('1.5') }],
+        perps: [{ asset: 'USDC', free: a('25'), locked: ZERO, total: a('25') }],
+        actions: null,
+      });
+    }
+  });
+
+  it('reads unified and portfolio margin as one balance (no spot or perps apart); a word it does not know is not known', async () => {
+    expect((await venueWith(withAccount('unifiedAccount')).accountMode(account)).value).toEqual({
+      mode: 'unified',
+      spot: null,
+      perps: null,
+      actions: null,
+    });
+    expect((await venueWith(withAccount('portfolioMargin')).accountMode(account)).value.mode).toBe('portfolio_margin');
+    expect((await venueWith(withAccount('somethingNew')).accountMode(account)).value.mode).toBeNull();
+  });
+
+  it('perps to spot: the owner signs usdClassTransfer on the testnet chain, toPerp false, and the venue takes it', async () => {
+    const fake = withAccount('default');
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, move);
+    const typed = prepared.typedData as UserSignedTypedData;
+    expect(typed.primaryType).toBe('HyperliquidTransaction:UsdClassTransfer');
+    expect(typed.domain.chainId).toBe(84532);
+    expect(typed.message).toEqual({ hyperliquidChain: 'Testnet', amount: '9.4365', toPerp: false, nonce: BigInt(NOW) });
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(outcome).toMatchObject({ definite: true, accepted: true });
+    expect(fake.exchangeBodies[0]!.action).toEqual({
+      type: 'usdClassTransfer',
+      signatureChainId: '0x14a34',
+      hyperliquidChain: 'Testnet',
+      amount: '9.4365',
+      toPerp: false,
+      nonce: NOW,
+    });
+    const back = await venue.prepare(account, ownerSigner, { ...move, direction: 'spot_to_perps', moveKey: 'class-move:test-user:2' });
+    expect((back.typedData as UserSignedTypedData).message.toPerp).toBe(true);
+  });
+
+  it('refuses a move that is not USDC, too fine, on a sub-account, by a session key, or in a mode without spot and perps apart', async () => {
+    const venue = venueWith(withAccount('default'));
+    await refusedWith(venue.prepare(account, ownerSigner, { ...move, asset: 'PURR' }), 'venue_rejected');
+    await refusedWith(venue.prepare(account, ownerSigner, { ...move, amount: a('1.0000001') }), 'venue_rejected');
+    await refusedWith(
+      venue.prepare({ ...account, subAccount: '0x1719884eb866cb12b2287399b15f7db5e7d775ea' }, ownerSigner, move),
+      'not_offered',
+    );
+    await expect(venue.prepare(account, agentSigner, move)).rejects.toThrow();
+    const unified = await refusedWith(venueWith(withAccount('unifiedAccount')).prepare(account, ownerSigner, move), 'venue_rejected');
+    expect(unified.refusal.detail).toMatch(/unified mode/);
+    await refusedWith(venueWith(withAccount('somethingNew')).prepare(account, ownerSigner, move), 'venue_rejected');
   });
 });

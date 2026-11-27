@@ -79,6 +79,11 @@ function readColors(): Colors {
 export interface ChartOrderLine {
   price: string;
   side: 'buy' | 'sell';
+  /** The line's own words (a position's entry, stop, target or liquidation); without it, the side's word. */
+  title?: string;
+  /** Its colour: up, down or a quiet neutral; without it, the side's colour. Solid unless `dashed`. */
+  tone?: 'up' | 'down' | 'neutral';
+  dashed?: boolean;
 }
 
 export interface PriceChartProps {
@@ -301,11 +306,11 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
     lines.current = orderLines.map((order) =>
       series.createPriceLine({
         price: chartValue(order.price),
-        color: order.side === 'buy' ? c.up : c.down,
+        color: order.tone === 'neutral' ? c.text : (order.tone ?? (order.side === 'buy' ? 'up' : 'down')) === 'up' ? c.up : c.down,
         lineWidth: 1,
-        lineStyle: 2,
+        lineStyle: order.dashed === false ? 0 : 2,
         axisLabelVisible: true,
-        title: order.side === 'buy' ? labels.buy : labels.sell,
+        title: order.title ?? (order.side === 'buy' ? labels.buy : labels.sell),
       }),
     );
   }, [orderLines, ready, labels.buy, labels.sell]);

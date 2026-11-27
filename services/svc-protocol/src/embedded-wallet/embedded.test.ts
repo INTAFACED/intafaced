@@ -377,6 +377,49 @@ describe('embeddedWallet.* mounted', () => {
     expect((await caller(d, signedIn(BOB)).embeddedWallet.status()).wallet).toBeNull();
   });
 
+  it('status names where the person’s own wallet is kept, not the setting’s provider, so the room signs there (#10582)', async () => {
+    const store = new MemoryEmbeddedWalletStore();
+    // Alice made hers at the TEST provider; the setting then moved to the owner's provider.
+    await createEmbeddedWallet(deps({ kind: 'ready', adapter: fakeProvider().adapter }, store), { userId: ALICE, passkey: PASSKEY }, T0);
+    const owner = deps({ kind: 'ready', adapter: identityProvisionAdapter(URL, async () => new Response('{}', { status: 500 })) }, store);
+    const alice = await caller(owner).embeddedWallet.status();
+    expect(alice.provider).toEqual({
+      id: 'test',
+      displayName: 'TEST wallet provider',
+      test: true,
+      capabilities: { export: true, recovery: true },
+    });
+    expect(alice.wallet).toMatchObject({ provider: 'test', test: true });
+    // Bob has none: the room names the setting's provider, where his would be made.
+    expect((await caller(owner, signedIn(BOB)).embeddedWallet.status()).provider).toEqual({
+      id: 'turnkey',
+      displayName: 'your wallet provider',
+      test: false,
+      capabilities: { export: false, recovery: false },
+    });
+    // A blank setting still names where an existing wallet is kept; creating still refuses it.
+    expect((await caller(deps({ kind: 'unset' }, store)).embeddedWallet.status()).provider).toMatchObject({ id: 'test', test: true });
+    expect((await caller(deps({ kind: 'unset' }, store), signedIn(BOB)).embeddedWallet.status()).provider).toBeNull();
+    // A wallet at the owner's provider under a TEST setting is named as the owner's, never TEST.
+    store.rows.set(embeddedWalletKey(BOB), {
+      userId: BOB,
+      idempotencyKey: embeddedWalletKey(BOB),
+      provider: 'turnkey',
+      providerWalletId: 'sub-org/wallet',
+      address: ADDRESS,
+      test: false,
+      createdAt: T0,
+    });
+    expect(
+      (await caller(deps({ kind: 'ready', adapter: fakeProvider().adapter }, store), signedIn(BOB)).embeddedWallet.status()).provider,
+    ).toEqual({
+      id: 'turnkey',
+      displayName: 'your wallet provider',
+      test: false,
+      capabilities: { export: false, recovery: false },
+    });
+  });
+
   it('create with the owner’s provider passes the person’s own edge-signed principal on to svc-identity, byte for byte', async () => {
     const seen: Headers[] = [];
     const fetcher: typeof fetch = async (_input, init) => {
@@ -453,5 +496,47 @@ describe('embeddedWallet.* mounted', () => {
     const d = deps({ kind: 'ready', adapter: fakeProvider().adapter });
     await expect(caller(d, signedOut).embeddedWallet.status()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     await expect(caller(d, signedOut).embeddedWallet.create({ passkey: PASSKEY })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(caller(d, signedOut).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+  });
+
+  it('outcome counts a provider outcome only against the person’s own wallet at a provider outside the stack', async () => {
+    const store = new MemoryEmbeddedWalletStore();
+    const lines: unknown[] = [];
+    const d = { ...deps({ kind: 'unset' }, store), outcomes: (line: unknown) => lines.push(line) };
+    // No wallet: nothing to count.
+    expect(await caller(d).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: false });
+    // A TEST wallet spends nothing at the owner's provider: not counted.
+    store.rows.set(embeddedWalletKey(ALICE), {
+      userId: ALICE,
+      idempotencyKey: embeddedWalletKey(ALICE),
+      provider: 'test',
+      providerWalletId: 'w-1',
+      address: ADDRESS,
+      test: true,
+      createdAt: T0,
+    });
+    expect(await caller(d).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: false });
+    expect(lines).toEqual([]);
+    store.rows.set(embeddedWalletKey(BOB), {
+      userId: BOB,
+      idempotencyKey: embeddedWalletKey(BOB),
+      provider: 'turnkey',
+      providerWalletId: 'sub-org/wallet',
+      address: ADDRESS,
+      test: false,
+      createdAt: T0,
+    });
+    expect(await caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: true });
+    expect(await caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'down', status: null })).toEqual({ recorded: true });
+    expect(lines).toEqual([
+      { msg: 'protocol.embedded_provider_outcome', provider: 'turnkey', outcome: 'quota', status: 429, at: expect.any(String) },
+      { msg: 'protocol.embedded_provider_outcome', provider: 'turnkey', outcome: 'down', status: null, at: expect.any(String) },
+    ]);
+    // An outcome the record does not name is refused at the door.
+    await expect(caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'busy' as 'quota', status: 429 })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
   });
 });

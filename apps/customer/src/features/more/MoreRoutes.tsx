@@ -27,7 +27,8 @@ import { agentRunCopy } from './agent-run-copy';
 import { Blueprint } from './Blueprint';
 import { BlueprintSharedRoom } from './BlueprintSharedCard';
 import { BlueprintRoom } from './blueprint-room/BlueprintRoom';
-import { Campaigns, CampaignsRoom } from './Campaigns';
+import { BlueprintCrewRoom } from './blueprint-room/BlueprintCrewRoom';
+import { CampaignsMineRoom, CampaignsRoom } from './Campaigns';
 import { CampaignDetail } from './campaign-detail/CampaignDetailRoom';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { DropRoom } from './DropRoom';
@@ -36,10 +37,13 @@ import type { LaunchTab } from './LaunchAvailability';
 import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
 import { MarketRoom } from './market-room/MarketRoom';
+import { MarketMineRoom } from './market-mine/MarketMineRoom';
+import { MarketPurchasesRoom } from './market-purchases/MarketPurchasesRoom';
 import { MarketStrategyRoom } from './market-strategy/MarketStrategyRoom';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { PredictRoom } from './predict-room/PredictRoom';
+import { PredictPositionsRoom } from './predict-positions/PredictPositionsRoom';
 import { PredictSettingsRoom } from './predict-settings/PredictSettingsRoom';
 import { quantRoute } from '../quant';
 import { quantModeRoute } from './quant-mode-route';
@@ -47,9 +51,12 @@ import { Support } from './Support';
 import { SupportChatRoom } from './SupportChat';
 import { Token, selectedFor, type TokenTab } from './Token';
 import { TokenRoom } from './token-room/TokenRoom';
+import { TokenBurnRoom } from './token-burn/TokenBurnRoom';
+import { TokenGovernanceRoom } from './token-governance/TokenGovernanceRoom';
 import { launchCopy } from './launch-copy';
 import { LaunchDetail } from './LaunchCatalogue';
 import { LaunchRoom } from './launch-room/LaunchRoom';
+import { LaunchMineRoom } from './launch-mine/LaunchMineRoom';
 import { miningCopy } from './mining-copy';
 import { MiningRoom } from './mining-room/MiningRoom';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
@@ -63,8 +70,11 @@ import { LaunchCheckRoom } from './launch-flow/LaunchCheckRoom';
 import { LaunchNewRoom } from './launch-flow/LaunchNewRoom';
 import { LaunchRequirementsRoom } from './launch-requirements/LaunchRequirementsRoom';
 import { TokenEconomyRoom } from './token-economy/TokenEconomyRoom';
+import { MiningRewardsRoom } from './mining-section/MiningRewardsRoom';
+import { MiningSharesRoom } from './mining-section/MiningSharesRoom';
 import { MiningStatusRoom } from './mining-section/MiningStatusRoom';
 import { MiningWorkerRoom } from './mining-section/MiningWorkerRoom';
+import { MiningWorkersRoom } from './mining-section/MiningWorkersRoom';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -179,9 +189,7 @@ function MoreRooms({ path }: { path: string }) {
   } else if (p === '/campaigns') {
     volt = <CampaignsRoom title={copyText('moreroutes.campaigns')} description={copyText('moreroutes.your.campaign.participation')} />;
   } else if (p === '/campaigns/mine') {
-    title = <campaignCatalogueCopy.Copy k="myCampaigns" />;
-    description = <campaignCatalogueCopy.Copy k="mineTitle" />;
-    content = <Campaigns initial="Mine" />;
+    volt = <CampaignsMineRoom title={campaignCatalogueCopy.t('myCampaigns')} description={campaignCatalogueCopy.t('mineTitle')} />;
   } else if (/^\/campaigns\/cmp_[A-Za-z0-9-]+$/.test(p)) {
     volt = <CampaignDetail key={p} campaignId={decodeURIComponent(p.slice('/campaigns/'.length))} />;
   } else if (p === '/campaigns/drops') {
@@ -191,9 +199,7 @@ function MoreRooms({ path }: { path: string }) {
     volt = <LaunchRoom paper={paper} />;
   } else if (p === '/uc/innovation/myorders') {
     room = 'launch';
-    title = copyText('moreroutes.my.launch.orders');
-    description = <launchCopy.Copy k="scope" />;
-    content = <Launch orders />;
+    volt = <LaunchMineRoom paper={paper} orders />;
   } else if (p === '/market') {
     room = 'market';
     volt = <MarketRoom />;
@@ -202,9 +208,7 @@ function MoreRooms({ path }: { path: string }) {
     volt = <MarketStrategyRoom />;
   } else if (p === '/market/mine') {
     room = 'market';
-    title = copyText('moreroutes.my.listings');
-    description = copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace');
-    content = <Market key={p} mine strategy={false} />;
+    volt = <MarketMineRoom />;
   } else if (p === '/predict') {
     room = 'predict';
     volt = <PredictRoom />;
@@ -235,14 +239,23 @@ function MoreRooms({ path }: { path: string }) {
       const page = ROOM_PAGES[room];
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
-      if (hit.route.pattern === '/predict/settings') volt = <PredictSettingsRoom />;
+      if (hit.route.pattern === '/predict/positions') volt = <PredictPositionsRoom />;
+      else if (hit.route.pattern === '/predict/settings') volt = <PredictSettingsRoom />;
+      else if (hit.route.pattern === '/market/purchases') volt = <MarketPurchasesRoom />;
       else if (hit.route.pattern === '/launch/new') volt = <LaunchNewRoom paper={paper} />;
       else if (hit.route.pattern === '/launch/check') volt = <LaunchCheckRoom paper={paper} />;
       else if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      else if (hit.route.pattern === '/launch/mine') volt = <LaunchMineRoom paper={paper} />;
+      else if (hit.route.pattern === '/token/governance') volt = <TokenGovernanceRoom paper={paper} />;
       else if (hit.route.pattern === '/token/economy') volt = <TokenEconomyRoom paper={paper} />;
+      else if (hit.route.pattern === '/token/burn') volt = <TokenBurnRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/workers') volt = <MiningWorkersRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/shares') volt = <MiningSharesRoom paper={paper} />;
+      else if (hit.route.pattern === '/mining/rewards') volt = <MiningRewardsRoom paper={paper} />;
       else if (hit.route.pattern === '/mining/status') volt = <MiningStatusRoom paper={paper} />;
       else if (hit.route.pattern === '/mining/workers/:workerId')
         volt = <MiningWorkerRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
+      else if (hit.route.pattern === '/blueprint/crew') volt = <BlueprintCrewRoom path={path} />;
       else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
       else if (hit.route.kind === 'detail' && room === 'token')
         volt = <TokenProposalRoom key={hit.id ?? 'invalid'} proposalId={hit.invalid ? null : (hit.id ?? null)} paper={paper} />;

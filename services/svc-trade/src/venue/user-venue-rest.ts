@@ -92,14 +92,16 @@ import {
   type VenueCandleInterval,
   VENUE_CANDLE_INTERVALS,
   venueClientOrderId,
+  venueSymbolBody,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
+import { refuseRetailPriceImprovement } from '../spot/rpi.js';
 import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
 import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
-import { presentConversion, presentConvertQuote, presentPairs, type VenueConverts } from './venue-convert.js';
+import { presentConversion, presentConvertQuote, presentPairs, type ConvertSigner, type VenueConverts } from './venue-convert.js';
 import { StatementError } from '../statements/statement-export.js';
 import type { VenueStatements } from './venue-statements.js';
 import type { VenueAdlAcks } from './venue-adl-acks.js';
@@ -479,7 +481,8 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     async (req, reply) => {
       return answer(reply, async (d) => {
         const symbol = req.query.symbol ?? '';
-        if (!/^[A-Za-z0-9][A-Za-z0-9/._-]{0,63}$/.test(symbol)) throw new VenueWireError('symbol is a perpetual, as BTC-PERP');
+        if (!/^[A-Za-z0-9][A-Za-z0-9/._-]{0,63}$/.test(venueSymbolBody(symbol)))
+          throw new VenueWireError('symbol is a perpetual, as BTC-PERP');
         const kind = req.query.kind;
         if (kind !== 'mark' && kind !== 'index') throw new VenueWireError('kind is mark or index');
         const since = new Date(req.query.since ?? '');
@@ -503,10 +506,26 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
   });
 
-  // J-cex-spot-14 #1 #2: each market we show with the venue's own trading state and session and our listing beside them,
-  // signed in or not: the markets list and /status read the venue, never our own book.
+  // J-cex-spot-14 #1 #2 #5 #6 #7: each market we show with the venue's own trading state, session, opening window, zone,
+  // our listing and upcoming maintenance beside them, signed in or not.
   app.get<{ Querystring: Query }>('/api/v1/venue/market-states', publicRead, async (req, reply) => {
     return answer(reply, async (d) => d.marketStates(), req.query.venueId);
+  });
+
+  // J-cex-spot-14 #8: public venue depth book, tickers and spreads, signed in or not.
+  app.get<{ Querystring: MarketQuery & { depth?: string } }>('/api/v1/venue/public-book', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)), req.query.venueId);
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/tickers', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicTickers(), req.query.venueId);
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/spreads', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicSpreads(), req.query.venueId);
+  });
+
+  // J-cex-spot-14 #9: public market analytics from the venue's own trade tape; blank window refuses trade.analytics_window_unset.
+  app.get<{ Querystring: Query & { window?: string } }>('/api/v1/venue/analytics', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicAnalytics(symbolOf(req.query.symbol), req.query.window), req.query.venueId);
   });
 
   // J-derivatives-31 #1: the vaults the venue lists, signed in or not, each with its lock-up, leader profit share, value and
@@ -668,7 +687,8 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return n;
   };
   const symbolOf = (raw: string | undefined) => {
-    if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(raw)) throw new VenueWireError('symbol is the venue market, as BTC-USDC');
+    if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(venueSymbolBody(raw)))
+      throw new VenueWireError('symbol is the venue market, as BTC-USDC');
     return raw;
   };
   type MarketQuery = Query & { depth?: string; limit?: string; interval?: string; since?: string };
@@ -1091,9 +1111,24 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     }
   }
 
+  /** Refuse the retail price improvement flag on any venue preview or prepare (J-cex-spot-14 #11). */
+  function checkNoRpi(req: FastifyRequest, reply: FastifyReply): boolean {
+    try {
+      refuseRetailPriceImprovement(req.body);
+      if (typeof req.body === 'object' && req.body !== null && 'intent' in req.body) {
+        refuseRetailPriceImprovement(req.body.intent);
+      }
+      return true;
+    } catch (err) {
+      void venueRefusalReply(reply, err);
+      return false;
+    }
+  }
+
   app.post('/api/v1/venue/preview', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
+    if (!checkNoRpi(req, reply)) return;
     const b = bodyOr<{ owner?: string; intent?: VenueIntent; venueId?: string | null; requestDeadline?: string | null }>(req, reply);
     if (!b) return;
     return answer(
@@ -1177,17 +1212,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (d) => {
-      const b = body<{ owner?: string; quoteId?: string }>(req);
+      const b = body<{ owner?: string; quoteId?: string; signer?: ConvertSigner }>(req);
       return converts()
         .forPerson(forwardedOf(req))
-        .accept(d, principal, { owner: b.owner ?? '', quoteId: b.quoteId ?? '' });
+        .accept(d, principal, { owner: b.owner ?? '', quoteId: b.quoteId ?? '', signer: b.signer });
     });
   });
   app.post('/api/v1/venue/convert/limit', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (d) => {
-      const b = body<{ owner?: string; from?: string; to?: string; amount?: bigint; price?: bigint; limitKey?: string }>(req);
+      const b = body<{
+        owner?: string;
+        from?: string;
+        to?: string;
+        amount?: bigint;
+        price?: bigint;
+        limitKey?: string;
+        signer?: ConvertSigner;
+      }>(req);
       return converts().limit(d, principal, {
         owner: b.owner ?? '',
         from: b.from ?? '',
@@ -1195,6 +1238,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         amount: b.amount ?? 0n,
         price: b.price ?? 0n,
         limitKey: b.limitKey ?? '',
+        signer: b.signer,
       });
     });
   });
@@ -1220,6 +1264,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.post('/api/v1/venue/prepare', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
+    if (!checkNoRpi(req, reply)) return;
     const b = bodyOr<{
       owner?: string;
       subAccount?: string | null;

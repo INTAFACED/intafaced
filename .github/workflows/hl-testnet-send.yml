@@ -1,5 +1,5 @@
 # Send capped TEST USDC on Hyperliquid's TESTNET from the platform's funded testnet account to one address, by hand
-# only. The testnet faucet pays only addresses that have deposited on mainnet, so a fresh testnet address (a machine's
+# only. The testnet faucet pays 1,000 once per address that exists on mainnet, so a fresh testnet address (a machine's
 # platform key, a tester's wallet: #10204) is funded this way. The script refuses mainnet, amounts above its cap
 # (packages/venue-hyperliquid/scripts/testnet-send.ts, MAX_SEND_USDC) and prints only addresses and amounts.
 # The owner allowed this key in CI for these sends (project-state decision PR #3883, REVIEW.md entry of 2026-11-23).

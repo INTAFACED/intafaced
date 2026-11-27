@@ -7,6 +7,7 @@ import {
   type UserVenueOrderRecord,
   type VenueOrderOrigin,
   type VenueOrderStatus,
+  venueSymbolBody,
 } from '@intafaced/venue-contracts';
 import type { StoredVenueAction } from './prepared-action-store.js';
 
@@ -93,7 +94,8 @@ export function parseHistoryQuery(raw: Record<string, string | undefined>): Venu
       : (HISTORY_STATES.find((s) => s === raw.status) ??
         refuse(`state “${raw.status}” isn’t a choice we know: ${HISTORY_STATES.join(', ')}`));
   const symbol = raw.symbol === undefined || raw.symbol === '' ? null : raw.symbol;
-  if (symbol !== null && !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(symbol)) refuse(`market “${symbol}” isn’t one we know`);
+  if (symbol !== null && !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(venueSymbolBody(symbol)))
+    refuse(`market “${symbol}” isn’t one we know`);
   const origin: VenueOrderOrigin | null =
     raw.origin === undefined || raw.origin === ''
       ? null

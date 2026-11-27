@@ -2,7 +2,7 @@
  * Saved desk layouts kept by the account (C-workspace-02, J-charts-desk-07 #3 to #5), read and written through the identity
  * preferences door (`trade.desk.layouts`) with compare-and-set on its version, so a second device shows the same list.
  *
- * - Save names the current desk (its widgets, order and widths) with the symbol and chart interval it is on, and makes it
+ * - Save names the current desk (its widgets, order, widths and panel link groups) with the symbol and chart interval it is on, and makes it
  *   the layout in use; a name already in the list is replaced only after the person says so.
  * - While a layout is in use, each change to the desk is saved into it (autosave), and a device that opens the desk takes
  *   the layout in use from the account: the account's copy wins.
@@ -66,7 +66,8 @@ export function saveAs(
 
 /** The desk as the record keeps it: plain arrays and widths. */
 function deskOf(desk: DeskLayout): SavedDeskLayout['desk'] {
-  return { v: 1, preset: desk.preset, order: [...desk.order], widths: { ...desk.widths } };
+  const kept = { v: 1 as const, preset: desk.preset, order: [...desk.order], widths: { ...desk.widths } };
+  return desk.links ? { ...kept, links: desk.links } : kept;
 }
 
 /** Each change to the desk goes into the layout in use. Nothing is in use: nothing changes. */
@@ -99,6 +100,7 @@ export function deleteLayout(value: DeskLayoutsValue, id: string, now: Date): De
   const layout = value.layouts.find((one) => one.id === id);
   if (!layout) return value;
   return {
+    ...value,
     layouts: value.layouts.filter((one) => one.id !== id),
     active: value.active === id ? null : value.active,
     deleted: [...value.deleted.filter((one) => one.id !== id), { ...layout, deletedAt: now.toISOString() }],

@@ -37,6 +37,7 @@ import { createHash } from 'node:crypto';
 import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
 import { custodyLayerOf, custodyOffRefusal, localStackState } from './local-test-state.mjs';
 import { GATE_URL, stackUrl } from './local-test-facts.mjs';
+import { profileOff } from './local-stack-profile.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -500,17 +501,18 @@ export async function applyP2p(deps) {
  */
 export const CUSTODY_OFF_SEED = 'not loaded: custody off (they hold customer money in our ledger; Later: custody journeys only)';
 
-export async function applyAll(deps, { custodyLayer = 'on' } = {}) {
+export async function applyAll(deps, { custodyLayer = 'on', p2pOff = profileOff('p2p') } = {}) {
   const off = custodyLayer === 'off';
   const earn = off ? null : await applyEarn(deps);
   const loans = off ? null : await applyLoans(deps);
   const house = await applyHouse(deps);
-  const p2p = await applyP2p(deps);
+  // A stack whose profile leaves svc-p2p off (LOCAL_STACK_PROFILE, the beta) has no p2p schema to seed.
+  const p2p = p2pOff ? null : await applyP2p(deps);
   const lines = [
     off ? `earn pools: ${CUSTODY_OFF_SEED}` : `earn pools: created ${earn.created}, skipped ${earn.skipped}`,
     off ? `loan products: ${CUSTODY_OFF_SEED}` : `loan products: created ${loans.created}, skipped ${loans.skipped}`,
     `house inventory: ${house.posted} assets posted on rail local-test`,
-    `p2p method: ${p2p.methodId}`,
+    p2p ? `p2p method: ${p2p.methodId}` : 'p2p method: not loaded: svc-p2p is off in this profile',
     FUNDS_LABEL,
   ];
   return { earn, loans, house, p2p, lines };

@@ -132,10 +132,12 @@ import { VenueProtections } from './venue/protections.js';
 import { SqlEngineProtectionStore } from './venue/protection-store.js';
 import { VenueAutoTopUp } from './venue/auto-top-up.js';
 import { SqlAutoTopUpStore } from './venue/auto-top-up-store.js';
+import { AccountPace, accountPaceSetting } from './venue/account-pace.js';
 import { VenueBalanceWatch } from './venue/balance-watch.js';
 import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
 import { busRiskAlertNotices, VenueRiskAlerts } from './venue/risk-alerts.js';
 import { SqlRiskAlertStore } from './venue/risk-alerts-store.js';
+import { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -199,6 +201,8 @@ import { HOUSE_MM_API_KEY_ID } from './spot/auth-attribution.js';
 import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
+import { SqlHistoryDatasets } from './spot/history-datasets.js';
+import { startHistoryJobs } from './spot/history-jobs.js';
 import { FEED_WATCH_INTERVAL_MS, runFeedWatchTick } from './admin/feed-health.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { startFeeTierJobs } from './spot/fee-tier-jobs.js';
@@ -510,8 +514,17 @@ const stepUp = createStepUpCheck({
 });
 // The user-venue door, its router, our listings of its markets and the deposits read (src/venue/wire.ts).
 const userVenueWiring = wireUserVenue({ app, sql, bus, stepUp, perks, outS2s, doorS2s });
-const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes, venueConverts } =
-  userVenueWiring;
+const {
+  userVenueDoors,
+  userVenue,
+  userVenueRouter,
+  userVenueStore,
+  venueListings,
+  venueDelistingNotices,
+  venueSellQuotes,
+  venueConverts,
+  dailyLossStore,
+} = userVenueWiring;
 // The agents beside the door, each off with it (src/venue/agents-wire.ts).
 const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading, ownAgentRebalance } =
   wireVenueAgents({
@@ -528,6 +541,8 @@ const venueProtections = userVenue
       door: userVenue,
       store: new SqlEngineProtectionStore(sql),
       keySeed: env.TRADE_AGENT_KEY_SEED,
+      // The owner's close tolerance a stop's market exit crosses by (blank: every such stop refuses).
+      closeSlippageBps: env.TRADE_CLOSE_SLIPPAGE_BPS,
       // The person's level from identity before each order the engine sends (fails closed: nothing is sent).
       liveTier: (userId) => protectionTier.tierOf(userId),
       // The person's own freeze from identity before each order the engine sends (fails closed: nothing is sent).
@@ -567,6 +582,13 @@ const venueBalanceWatch = userVenue
       venue: () => userVenue.venue(),
       accounts: (venueId) => userVenueStore.ownerSignedAccountsAll(venueId),
       store: new SqlBalanceWatchStore(sql),
+      ...(() => {
+        const perMinute = accountPaceSetting(
+          env.TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE,
+          'TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE',
+        );
+        return perMinute === null ? {} : { pace: new AccountPace(perMinute, () => new Date()) };
+      })(),
       publish: async (userId, change) => {
         await bus.publish('venueBalanceChanged', { ...change, userId }, { idempotencyKey: `${change.changeId}:${userId}` });
       },
@@ -575,6 +597,8 @@ const venueBalanceWatch = userVenue
   : null;
 // Margin and liquidation-risk alerts on a position on the person's own venue account (J-derivatives-06 #6 #7): one alert
 // per crossing of a level, published to svc-notify after its row is written, ticked with the protections. Off with the door.
+// The person's own daily loss limit: its settings (trade.dailyLoss.*); every door checks it (venue/wire.ts).
+const venueDailyLoss = userVenue ? new VenueDailyLossLimits({ door: userVenue, store: dailyLossStore, now: () => new Date() }) : null;
 const venueRiskAlerts = userVenue
   ? new VenueRiskAlerts({ door: userVenue, store: new SqlRiskAlertStore(sql), notices: busRiskAlertNotices(bus), now: () => new Date() })
   : null;
@@ -595,7 +619,10 @@ if (venueProtections && protectionEngineMs > 0) {
       });
   }, protectionEngineMs).unref();
 }
-if (venueBalanceWatch && protectionEngineMs > 0) {
+const balanceWatchMs = /^\d+$/.test(env.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS.trim())
+  ? Number(env.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS.trim())
+  : protectionEngineMs;
+if (venueBalanceWatch && protectionEngineMs > 0 && balanceWatchMs > 0) {
   let busy = false;
   setInterval(() => {
     if (busy) return;
@@ -608,7 +635,7 @@ if (venueBalanceWatch && protectionEngineMs > 0) {
       .finally(() => {
         busy = false;
       });
-  }, protectionEngineMs).unref();
+  }, balanceWatchMs).unref();
 }
 // Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
 // from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
@@ -996,6 +1023,15 @@ export const appRouter = createTradeRouter(
     now: () => new Date(),
   },
   venueRiskAlerts,
+  // The perps trade journal: read only, off with the door.
+  userVenue
+    ? {
+        venue: () => userVenue.venue(),
+        account: (owner: string, subAccount: string | null) => userVenue.readableAccount(owner, subAccount),
+        now: () => new Date(),
+      }
+    : null,
+  venueDailyLoss,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1311,6 +1347,17 @@ const candleJobs = startCandleJobs({
     }
   },
 });
+const historyDatasets = new SqlHistoryDatasets(sql, {
+  bookIntervalMs: env.TRADE_HISTORY_BOOK_INTERVAL_MS,
+});
+const historyJobs = startHistoryJobs({
+  history: historyDatasets,
+  markets: () => trade.markets(MARKETS_LIMIT_MAX),
+  depth: (marketId, limit) => matching.depth(marketId, limit),
+  bookIntervalMs: env.TRADE_HISTORY_BOOK_INTERVAL_MS,
+  buildIntervalMs: env.TRADE_HISTORY_JOBS_INTERVAL_MS,
+  onError: (name, err) => app.log.error({ err, job: name }, 'history job tick failed'),
+});
 const trailingMarkJobs = startTrailingMarkJobs({
   config: {
     enabled: env.TRADE_TRAILING_MARK_JOBS_ENABLED,
@@ -1542,6 +1589,7 @@ registerPublicRest(app, {
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
+  history: historyDatasets,
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   maintenanceBoard: createMarketMaintenanceReader({ notifyUrl: env.NOTIFY_URL }),
@@ -1845,6 +1893,7 @@ installMarketDelistedPlace(TradeService);
 installCollarPlace(TradeService);
 installComboPlace(TradeService);
 registerPrivateRest(app, {
+  ownBookEnabled: env.TRADE_SPOT_ENABLED,
   userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   userVenueSpreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
   apiKeyRotation: createApiKeyRotationClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
@@ -2104,6 +2153,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       futuresJobs.stop();
       conditionalJobs.stop();
       candleJobs.stop();
+      historyJobs.stop();
       trailingMarkJobs.stop();
       feeTierJobs.stop();
       mmSeedJobs.stop();

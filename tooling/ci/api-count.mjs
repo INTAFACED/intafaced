@@ -48,3 +48,13 @@ export function countCall(res) {
 
 /** This process's count so far (for tests). */
 export const counted = () => ({ ...state });
+
+/**
+ * What a GitHub read that got no answer says: the path it asked (no query, which can carry a branch name) and the network's
+ * own reason, which `fetch` hides under `cause` and prints only as "fetch failed" (intafaced #10910's CI review, twice).
+ */
+export function fetchFailure(path, e) {
+  const cause = e?.cause;
+  const why = [cause?.code, cause?.message ?? (e?.name === 'TimeoutError' ? 'no answer in 60 s' : null)].filter(Boolean).join(' ');
+  return `${e?.message ?? 'fetch failed'} on GET ${String(path).split('?')[0]}${why ? `: ${why}` : ''}`;
+}

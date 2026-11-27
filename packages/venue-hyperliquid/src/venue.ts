@@ -1,3 +1,4 @@
+import { keccak256, toHex } from 'viem';
 import { add, compare, div, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   assertSignatureMatches,
@@ -16,12 +17,14 @@ import {
   type VenueRefusalCode,
   type VenueSignature,
   type VenueSigner,
+  type VenueTrigger,
   type VenueSubmitOutcome,
   type VenueTimeInForce,
 } from '@intafaced/venue-contracts';
 import {
   BPS_PER_X,
   PERP_COLLATERAL_ASSET,
+  PERP_QUOTE,
   WITHDRAW_DECIMALS,
   amt,
   arr,
@@ -50,8 +53,36 @@ import {
   userSignedTypedData,
   type HlTypedData,
   type UserSignedPrimaryType,
+  type UserSignedTypedData,
 } from './signing.js';
 import { bpsToPercentString, bpsToTenths, priceProblem, rateToBps, sizeProblem, toWire } from './wire.js';
+
+/** "The expiration can be at most 180 days in the future." */
+const AGENT_EXPIRY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
+/** Prepared typed data that approves an agent, as the wallet was asked to sign it. */
+function isApproveAgentTypedData(typed: unknown): typed is UserSignedTypedData {
+  return (
+    typeof typed === 'object' &&
+    typed !== null &&
+    'primaryType' in typed &&
+    typed.primaryType === 'HyperliquidTransaction:ApproveAgent' &&
+    'domain' in typed &&
+    'types' in typed &&
+    'message' in typed &&
+    typeof typed.message === 'object' &&
+    typed.message !== null
+  );
+}
+
+/** The expiry the venue reads off the end of an agent's name. */
+const EXPIRY_IN_NAME = / valid_until \d+$/;
+/** How long a revoke's keyless stand-in holds a named agent's slot before the venue prunes it. */
+const REVOKE_STAND_IN_MS = 24 * 60 * 60 * 1000;
+
+/** An address no one holds the key to (a hash, not a public key), new for each revoke: the agent that replaces a revoked one. */
+export function keylessStandIn(revoked: string, nonce: string): string {
+  return `0x${keccak256(toHex(`intafaced hyperliquid revoked agent ${revoked.toLowerCase()} ${nonce}`)).slice(-40)}`;
+}
 
 /**
  * THE HYPERLIQUID TESTNET `UserVenue` — the customer's own testnet account, signed by the customer's wallet.
@@ -89,6 +120,7 @@ import { bpsToPercentString, bpsToTenths, priceProblem, rateToBps, sizeProblem, 
 
 // What this module exported before it was split (project-state #2655): importers of `./venue.js` are unchanged.
 export {
+  FILLS_GRID_MS,
   FILLS_PAGE_CAP,
   HL_TESTNET_VENUE_ID,
   InMemoryNonceSource,
@@ -126,23 +158,29 @@ const TIF_WIRE: Record<VenueTimeInForce, 'Gtc' | 'Ioc' | 'Alo'> = { GTC: 'Gtc', 
  * The wording for a nonce too far in the future was not found in any public
  * source. Every nonce answer other than the duplicate one guarantees the
  * action was not applied, so it is a definite `nonce_rejected`.
+ * "User has pending agent removal" answers an agent approval sent while the venue still removes an agent ended
+ * moments before (seen on the test network): nothing applied, `agent_removal_pending`.
  */
 export function classifyVenueError(venueId: string, text: string, asOf: Date): VenueSubmitOutcome {
   if (/invalid nonce:\s*duplicate nonce/i.test(text)) return { definite: false, reason: 'already_submitted' };
   if (/cloid|client order id/i.test(text) && /duplicate|already/i.test(text)) return { definite: false, reason: 'already_submitted' };
   const code: VenueRefusalCode = /\bnonce\b/i.test(text)
     ? 'nonce_rejected'
-    : /builder/i.test(text) && /approv|max(imum)? ?fee|exceed/i.test(text)
-      ? 'builder_fee_not_approved'
-      : /insufficient|not enough/i.test(text) && /margin|balance|funds/i.test(text)
-        ? 'insufficient_balance'
-        : /does not exist/i.test(text) && /user|wallet|agent|signer/i.test(text)
-          ? 'signer_not_authorised'
-          : /never placed|already canceled|already cancelled/i.test(text)
-            ? 'unknown_order'
-            : /unknown asset|invalid asset|asset not found/i.test(text)
-              ? 'unknown_market'
-              : 'venue_rejected';
+    : /pending agent removal/i.test(text)
+      ? 'agent_removal_pending'
+      : /builder/i.test(text) && /approv|max(imum)? ?fee|exceed/i.test(text)
+        ? 'builder_fee_not_approved'
+        : /insufficient|not enough/i.test(text) && /margin|balance|funds/i.test(text)
+          ? 'insufficient_balance'
+          : /does not exist/i.test(text) && /user|wallet|agent|signer/i.test(text)
+            ? 'signer_not_authorised'
+            : /cannot modify/i.test(text) && /canceled|cancelled|filled/i.test(text)
+              ? 'order_final'
+              : /never placed|already canceled|already cancelled/i.test(text)
+                ? 'unknown_order'
+                : /unknown asset|invalid asset|asset not found/i.test(text)
+                  ? 'unknown_market'
+                  : 'venue_rejected';
   return { definite: true, accepted: false, refusal: { venueId, code, detail: text }, asOf };
 }
 
@@ -162,6 +200,35 @@ function statusLine(response: Json): StatusLine {
   const placed = (o.resting ?? o.filled) as Json | undefined;
   if (placed !== undefined) return { kind: 'accepted', venueRef: String(int(obj(placed, 'status.order').oid, 'oid')) };
   throw new Error('venue answer: an order status with neither resting, filled nor error');
+}
+
+/**
+ * A trigger order's condition (the Python SDK's `test_l1_action_signing_tpsl_order_matches`): the venue holds
+ * it unseen until its mark price crosses `triggerPx`, then sends it as a market order bounded by `p` (`isMarket`) or a
+ * limit at `p`. Hyperliquid judges every trigger on its mark price, closes with it only (a trigger here is
+ * reduce-only, on a perpetual), and names a stop loss `sl` and a take profit `tp`. Anything else is refused before
+ * signing, so no order goes out without its condition and trades at once.
+ */
+function triggerWire(
+  venue: { readonly id: string; readonly displayName: string },
+  m: HlMarket,
+  intent: PlaceUserOrderIntent & { readonly trigger: VenueTrigger },
+): Record<string, MsgpackValue> {
+  const venueId = venue.id;
+  const trigger = intent.trigger;
+  if (m.kind !== 'perpetual') throw refusal(venueId, 'not_offered', `${m.symbol} is spot: a trigger order is offered on perpetuals only`);
+  if (trigger.source !== 'mark')
+    throw refusal(
+      venueId,
+      'not_offered',
+      `${venue.displayName} judges a trigger order on its mark price only, not the ${trigger.source} price`,
+    );
+  if (!intent.reduceOnly) throw refusal(venueId, 'not_offered', 'a trigger order here only closes: it must be reduce-only');
+  if (intent.type === 'limit' && intent.timeInForce !== 'GTC')
+    throw refusal(venueId, 'not_offered', 'a triggered limit rests on the book until it fills: its time in force is GTC');
+  const triggerIssue = priceProblem(trigger.price, m.szDecimals, m.kind);
+  if (triggerIssue) throw refusal(venueId, 'venue_rejected', `${m.symbol} trigger: ${triggerIssue}`);
+  return { isMarket: intent.type === 'market', triggerPx: toWire(trigger.price), tpsl: trigger.role === 'take_profit' ? 'tp' : 'sl' };
 }
 
 /**
@@ -191,6 +258,8 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     if (intent?.kind !== 'place_order') throw refusal(venueId, 'not_offered', 'preview takes an order intent');
     const m = await this.market(intent.symbol);
     this.orderWire(m, intent);
+    // A trigger order rests unseen until its price is crossed: what it would fill now is not what it will do.
+    if (intent.trigger) throw refusal(venueId, 'not_offered', 'a trigger order is not previewed: it fills only once its price is crossed');
     const perp = m.kind === 'perpetual';
     if (!perp && intent.reduceOnly) throw refusal(venueId, 'not_offered', 'reduce-only is for perpetuals');
 
@@ -322,8 +391,15 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       signer,
       intent,
       nonce,
+      // A move is read back by the client id the order holds after it: the replacement's own, or the amended order's.
       venueClientOrderId:
-        intent.kind === 'place_order' || intent.kind === 'cancel_order' ? venueClientOrderId(this.venue.id, intent.clientOrderKey) : null,
+        intent.kind === 'place_order' || intent.kind === 'cancel_order'
+          ? venueClientOrderId(this.venue.id, intent.clientOrderKey)
+          : intent.kind === 'replace_order'
+            ? venueClientOrderId(this.venue.id, intent.order.clientOrderKey)
+            : intent.kind === 'amend_order'
+              ? intent.venueClientOrderId
+              : null,
       typedData: built.typedData,
       digest: typedDataDigest(built.typedData),
       builderFee:
@@ -362,7 +438,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const userSigned = (
       primaryType: UserSignedPrimaryType,
       type: string,
-      fields: Record<string, string>,
+      fields: Record<string, string | boolean>,
       nonceField: 'time' | 'nonce',
     ): BuiltAction => {
       const action: Record<string, MsgpackValue> = {
@@ -399,6 +475,44 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         const m = await this.market(intent.symbol);
         return l1({ type: 'cancelByCloid', cancels: [{ asset: m.asset, cloid: venueClientOrderId(venueId, intent.clientOrderKey) }] });
       }
+      case 'replace_order': {
+        // Hyperliquid's own `modify`: the venue cancels the resting order and places the replacement in one signed
+        // action, so no moment passes with neither resting (a stop's position unprotected), as a cancel then a place
+        // would leave. The `a` flag (place even when the cancel failed) is never set: a replacement whose original is
+        // no longer resting is not placed (exchange endpoint, "Modify an order").
+        const r = intent.order;
+        if (r?.kind !== 'place_order') throw refusal(venueId, 'venue_rejected', 'a replacement is an order');
+        if (r.symbol !== intent.symbol)
+          throw refusal(venueId, 'venue_rejected', 'the replacement is on the market of the order it replaces');
+        if (venueClientOrderId(venueId, r.clientOrderKey) === intent.venueClientOrderId)
+          throw refusal(venueId, 'venue_rejected', 'the replacement has a client id of its own');
+        if (r.type !== 'limit') throw refusal(venueId, 'not_offered', 'a replacement rests on the book: a limit order');
+        if (r.trigger || r.parentClientOrderKey) throw refusal(venueId, 'not_offered', 'a trigger order is not placed as a replacement');
+        // The venue's modify carries no builder field.
+        if (r.builderFee) throw refusal(venueId, 'not_offered', 'a replacement carries no builder fee on this venue');
+        const m = await this.market(r.symbol);
+        return l1({ type: 'modify', oid: intent.venueClientOrderId, order: this.orderWire(m, r) });
+      }
+      case 'amend_order': {
+        // The same `modify`, keeping the order's client id, side, reduce-only and time in force as the venue holds them.
+        const m = await this.market(intent.symbol);
+        const resting = (await this.orderByClientId(account, intent.venueClientOrderId)).value;
+        if (resting === null || resting.status !== 'open' || resting.symbol !== intent.symbol)
+          throw refusal(venueId, 'unknown_order', `no open order with client id ${intent.venueClientOrderId} on ${intent.symbol}`);
+        const order: PlaceUserOrderIntent = {
+          kind: 'place_order',
+          symbol: intent.symbol,
+          side: resting.side,
+          type: 'limit',
+          amount: intent.amount,
+          price: intent.price,
+          timeInForce: resting.timeInForce,
+          reduceOnly: resting.reduceOnly,
+          clientOrderKey: 'amend:unused',
+          builderFee: null,
+        };
+        return l1({ type: 'modify', oid: intent.venueClientOrderId, order: { ...this.orderWire(m, order), c: intent.venueClientOrderId } });
+      }
       case 'update_leverage': {
         const m = await this.market(intent.symbol);
         if (m.kind !== 'perpetual') throw refusal(venueId, 'not_offered', `${m.symbol} is spot: leverage is not offered`);
@@ -433,6 +547,31 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
           'time',
         );
       }
+      case 'spot_perps_transfer': {
+        // The venue's `usdClassTransfer` (J-derivatives-29 #2): USDC between this account's own spot and perps balances,
+        // signed by the owner's wallet. The venue's sub-account form (" subaccount:<address>" in the amount) is not built.
+        if (account.subAccount !== null)
+          throw refusal(venueId, 'not_offered', 'a move between spot and perps on a sub-account is not offered by this adapter yet');
+        if (intent.asset !== PERP_QUOTE) throw refusal(venueId, 'venue_rejected', `only ${PERP_QUOTE} moves between spot and perps`);
+        if (compare(intent.amount, ZERO) <= 0) throw refusal(venueId, 'venue_rejected', 'a move must be positive');
+        const problem = sizeProblem(intent.amount, WITHDRAW_DECIMALS);
+        if (problem) throw refusal(venueId, 'venue_rejected', `move: ${problem}`);
+        const { mode } = (await this.accountMode(account)).value;
+        if (mode !== 'standard')
+          throw refusal(
+            venueId,
+            'venue_rejected',
+            mode === null
+              ? 'the account mode is not known, so a move between spot and perps is refused'
+              : `the account is in ${mode} mode, which holds one balance for each asset: there is nothing to move between spot and perps`,
+          );
+        return userSigned(
+          'HyperliquidTransaction:UsdClassTransfer',
+          'usdClassTransfer',
+          { amount: toWire(intent.amount), toPerp: intent.direction === 'spot_to_perps' },
+          'nonce',
+        );
+      }
       case 'approve_builder_fee': {
         const f = bpsToTenths(intent.maxFeeBps);
         if (f === null || f < 0)
@@ -445,15 +584,48 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         );
       }
       case 'approve_agent': {
+        const name = intent.agentName;
+        if (name.trim() === '') throw refusal(venueId, 'venue_rejected', 'an agent needs a name, so it can be listed and replaced');
+        // The venue reads an expiry out of the name, so a name never carries one of its own.
+        if (EXPIRY_IN_NAME.test(name)) throw refusal(venueId, 'venue_rejected', 'an agent name cannot end in "valid_until <ms>"');
+        let wireName = name;
         if (intent.validUntil !== null) {
-          throw refusal(venueId, 'not_offered', 'an agent expiry is not offered by this adapter yet: approve without one');
+          // The venue takes an expiry only in the name: `<name> valid_until <ms>`, at most 180 days ahead
+          // (exchange endpoint, "Approve an API wallet"). Checked against the nonce, so a rebuild at submit agrees.
+          const until = intent.validUntil.getTime();
+          const at = Number(nonce);
+          if (!Number.isSafeInteger(until) || until <= at)
+            throw refusal(venueId, 'venue_rejected', 'an agent expiry must be ahead of the approval');
+          if (until - at > AGENT_EXPIRY_MAX_MS)
+            throw refusal(venueId, 'not_offered', 'an agent expiry is at most 180 days ahead on this venue');
+          wireName = `${name} valid_until ${until}`;
         }
-        if (intent.agentName.trim() === '')
-          throw refusal(venueId, 'venue_rejected', 'an agent needs a name, so it can be listed and replaced');
         return userSigned(
           'HyperliquidTransaction:ApproveAgent',
           'approveAgent',
-          { agentAddress: intent.agentAddress.toLowerCase(), agentName: intent.agentName },
+          { agentAddress: intent.agentAddress.toLowerCase(), agentName: wireName },
+          'nonce',
+        );
+      }
+      case 'revoke_agent': {
+        // The venue has no revoke. An agent is deregistered when another is approved under its name (the account's one
+        // unnamed agent by another unnamed one) ("Nonces and API wallets"). So a revoke approves, under the agent's own
+        // name, an address nobody holds a key for: derived from the revoked address and this nonce, so it is new every
+        // time and never approved again. A named stand-in lapses a day later and frees its slot.
+        // The venue lists agents per owner: a revoke asked for a sub-account could not be checked against its scope.
+        if (account.subAccount !== null)
+          throw refusal(venueId, 'not_offered', 'revoking an agent on a sub-account is not offered by this adapter yet');
+        const address = intent.agentAddress.toLowerCase();
+        const listed = (await this.agents(account)).value.find((a) => a.address === address);
+        if (!listed) throw refusal(venueId, 'venue_rejected', `${address} is not an agent on this account: there is nothing to revoke`);
+        const name = listed.name.replace(EXPIRY_IN_NAME, '');
+        return userSigned(
+          'HyperliquidTransaction:ApproveAgent',
+          'approveAgent',
+          {
+            agentAddress: keylessStandIn(address, nonce),
+            agentName: name === '' ? '' : `${name} valid_until ${Number(nonce) + REVOKE_STAND_IN_MS}`,
+          },
           'nonce',
         );
       }
@@ -464,20 +636,24 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const venueId = this.venue.id;
     if (intent.type === 'market' && intent.timeInForce === 'ALO')
       throw refusal(venueId, 'not_offered', 'a market order cannot be post-only');
+    // An order attached to an entry needs the venue's `normalTpsl` grouping, not built here: sent alone it would arm on
+    // nothing the entry filled. Refused, never sent without its link.
+    if (intent.parentClientOrderKey)
+      throw refusal(venueId, 'not_offered', 'an order attached to an entry is not offered on this venue yet');
     const sizeIssue = sizeProblem(intent.amount, m.szDecimals);
     if (sizeIssue) throw refusal(venueId, 'venue_rejected', `${m.symbol}: ${sizeIssue}`);
     const priceIssue = priceProblem(intent.price, m.szDecimals, m.kind);
     if (priceIssue) throw refusal(venueId, 'venue_rejected', `${m.symbol}: ${priceIssue}`);
-    // A market order is an IOC limit at the customer's worst price (the interface's rule, and the venue's own).
-    const tif = intent.type === 'market' ? 'Ioc' : TIF_WIRE[intent.timeInForce];
-    // Key order is the SDK's (order_request_to_order_wire): the hash depends on it.
+    // Key order is the SDK's (order_request_to_order_wire, order_type_to_wire): the hash depends on it.
     return {
       a: m.asset,
       b: intent.side === 'buy',
       p: toWire(intent.price),
       s: toWire(intent.amount),
       r: intent.reduceOnly,
-      t: { limit: { tif } },
+      t: intent.trigger
+        ? { trigger: triggerWire(this.venue, m, { ...intent, trigger: intent.trigger }) }
+        : { limit: { tif: intent.type === 'market' ? 'Ioc' : TIF_WIRE[intent.timeInForce] } },
       c: venueClientOrderId(venueId, intent.clientOrderKey),
     };
   }
@@ -489,6 +665,25 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     assertSignatureMatches(prepared, signature);
     this.checkAccount(prepared.account);
     assertSignerMaySign(prepared.account, prepared.signer, prepared.intent);
+    if (prepared.intent.kind === 'revoke_agent') {
+      // A revoke sent again after it landed: its stand-in, which only this signed action approves, is listed. Once the
+      // owner's signature over that approval checks out, it is done, and nothing is posted twice.
+      const standIn = keylessStandIn(prepared.intent.agentAddress, prepared.nonce);
+      const agents = await this.agents(prepared.account);
+      if (agents.value.some((a) => a.address === standIn)) {
+        const typed = prepared.typedData;
+        if (
+          !isApproveAgentTypedData(typed) ||
+          String(typed.message.agentAddress).toLowerCase() !== standIn ||
+          String(typed.message.nonce) !== prepared.nonce ||
+          typedDataDigest(typed).toLowerCase() !== prepared.digest.toLowerCase() ||
+          (await recoverTypedDataSigner(typed, signature.signature)) !== prepared.signer.address.toLowerCase()
+        ) {
+          throw refusal(venueId, 'signature_mismatch', 'the prepared revoke does not match the approval that replaced the agent');
+        }
+        return { definite: true, accepted: true, venueRef: null, order: null, asOf: agents.asOf };
+      }
+    }
     // Rebuild from the intent: the prepared object may have been edited after prepare.
     const built = await this.build(prepared.account, prepared.intent, prepared.nonce);
     const digest = typedDataDigest(built.typedData);
@@ -512,7 +707,13 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     });
     if (prepared.intent.kind === 'withdraw') this.withdrawalDestinations.set(prepared.nonce, prepared.intent.destination.toLowerCase());
 
-    const sent = await this.post(body);
+    const accounts = [prepared.account.owner, prepared.account.subAccount, built.vaultAddress].filter(
+      (a): a is string => typeof a === 'string' && a !== '',
+    );
+    // The venue weighs an action 1, plus 1 per 40 orders or cancels it carries.
+    const batch = [built.action.orders, built.action.cancels].reduce<number>((n, l) => n + (Array.isArray(l) ? l.length : 0), 0);
+    this.spend(`exchange:${String(built.action.type)}`, 1 + Math.floor(batch / 40));
+    const sent = await this.post(body, accounts, String(built.action.type));
     if (sent.kind === 'unknown') return { definite: false, reason: sent.reason };
     const asOf = this.clock();
     let line: StatusLine;
@@ -552,6 +753,10 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
           };
         }
         if (order.status === 'canceled') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
+        // The venue said success, but its record still lists the order live: the read lags the cancel. Never hand
+        // that back as the answer, which would read "Open" after Cancel; the next read of the venue has the detail.
+        if (line.kind === 'accepted' && (order.status === 'open' || order.status === 'partially_filled'))
+          return { definite: true, accepted: true, venueRef: order.venueOrderId, order: null, asOf };
         if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
         return {
           definite: true,
@@ -563,6 +768,30 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       return classifyVenueError(venueId, line.text, asOf);
     }
     if (line.kind === 'error') return classifyVenueError(venueId, line.text, asOf);
+    if (intent.kind === 'replace_order' || intent.kind === 'amend_order') {
+      // The venue took the one modify: the original was cancelled and the order now rests as changed. Its record is read
+      // back by the client id it holds now; a read that finds nothing yet leaves the detail to the next read.
+      let order: UserVenueOrder | null = null;
+      const changedId = prepared.venueClientOrderId;
+      try {
+        if (changedId !== null) order = (await this.orderByClientId(prepared.account, changedId)).value;
+      } catch {
+        order = null;
+      }
+      const venueRef = order?.venueOrderId ?? null;
+      if (intent.kind === 'amend_order') return { definite: true, accepted: true, venueRef, order, asOf };
+      return {
+        definite: true,
+        accepted: true,
+        venueRef,
+        order,
+        legs: [
+          { definite: true, accepted: true, venueRef: null, order: null, asOf },
+          { definite: true, accepted: true, venueRef, order, asOf },
+        ],
+        asOf,
+      };
+    }
     let order: UserVenueOrder | null = null;
     if (intent.kind === 'place_order') {
       try {
@@ -576,7 +805,12 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
 
   private async post(
     body: string,
+    accounts: readonly string[],
+    actionType: string,
   ): Promise<{ kind: 'json'; json: Json } | { kind: 'unknown'; reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' }> {
+    // A signed action changes what its own accounts read (an order, a builder approval, a new session key): what was kept
+    // of them is dropped before it is sent, and again once the venue answers, so a read made while it was in flight is not kept.
+    this.forgetReads(accounts, actionType);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -614,6 +848,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       }
     } finally {
       clearTimeout(timer);
+      this.forgetReads(accounts, actionType);
     }
   }
 }

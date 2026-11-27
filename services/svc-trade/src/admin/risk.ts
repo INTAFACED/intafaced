@@ -19,6 +19,8 @@ export interface RiskLimits {
   readonly slippageCap: string | null;
   readonly throttle: string | null;
   readonly circuitBreaker: string | null;
+  /** Published minimum order value in the quote asset (J-cex-spot-04 #6); blank refuses trade.min_notional_unset. */
+  readonly minNotional: string | null;
   /** A futures market's largest open interest, in its base asset (the sum of open position sizes). */
   readonly oiLimit: string | null;
   /** The largest share of `oiLimit` one account may hold, in basis points (1 to 10000). */
@@ -33,6 +35,7 @@ export interface RiskLimits {
 
 /** The fields a write may leave out, keeping the current values. Added after the first five, so older callers omit them. */
 export const CARRIED_RISK_FIELDS = [
+  'minNotional',
   'oiLimit',
   'oiShareBps',
   'priceRangeMax',
@@ -65,6 +68,7 @@ interface RiskRow {
   slippage_cap: string | null;
   throttle: string | null;
   circuit_breaker: string | null;
+  min_notional: string | null;
   oi_limit: string | null;
   oi_share_bps: string | null;
   price_range_max: string | null;
@@ -83,6 +87,7 @@ const EMPTY: RiskLimits = {
   slippageCap: null,
   throttle: null,
   circuitBreaker: null,
+  minNotional: null,
   oiLimit: null,
   oiShareBps: null,
   priceRangeMax: null,
@@ -99,6 +104,7 @@ function present(row: RiskRow): RiskVersion {
     slippageCap: row.slippage_cap,
     throttle: row.throttle,
     circuitBreaker: row.circuit_breaker,
+    minNotional: row.min_notional,
     oiLimit: row.oi_limit,
     oiShareBps: row.oi_share_bps,
     priceRangeMax: row.price_range_max,
@@ -127,6 +133,18 @@ export function validateLimits(input: RiskLimitsInput): RiskLimitsInput {
     const bps = Number(slippageCap);
     if (!Number.isInteger(bps) || bps < 1 || bps > 5000) {
       throw new TradeOpsError('risk_limit_not_exact', 'slippageCap must be an integer basis-point string from 1 to 5000');
+    }
+  }
+  const minNotional = input.minNotional == null ? input.minNotional : exactDecimal(input.minNotional, 'minNotional');
+  if (minNotional != null) {
+    let parsed: Amount;
+    try {
+      parsed = parseAmount(minNotional);
+    } catch {
+      throw new TradeOpsError('risk_limit_not_exact', 'minNotional must be a decimal amount the ledger can hold');
+    }
+    if (parsed <= 0n) {
+      throw new TradeOpsError('risk_limit_not_exact', 'minNotional must be above 0');
     }
   }
   const oiLimit = input.oiLimit == null ? input.oiLimit : exactDecimal(input.oiLimit, 'oiLimit');
@@ -172,6 +190,7 @@ export function validateLimits(input: RiskLimitsInput): RiskLimitsInput {
     slippageCap,
     throttle,
     circuitBreaker,
+    ...(minNotional !== undefined ? { minNotional } : {}),
     ...(oiLimit !== undefined ? { oiLimit } : {}),
     ...(oiShareBps !== undefined ? { oiShareBps } : {}),
     ...(priceRangeMax !== undefined ? { priceRangeMax } : {}),
@@ -215,7 +234,7 @@ export function carriedLimits(limits: RiskLimitsInput, current: RiskLimits | nul
 // "9" comes after "10", so from version 10 on the latest row read as an older one.
 export async function currentRisk(sql: Sql, marketId: string): Promise<RiskVersion | null> {
   const [row] = await sql<RiskRow[]>`
-    SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
+    SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, min_notional, oi_limit, oi_share_bps,
            price_range_max, price_range_trigger, price_range_cadence_seconds,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
@@ -235,7 +254,7 @@ export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string
   if (marketIds.length === 0) return out;
   const rows = await sql<RiskRow[]>`
     SELECT DISTINCT ON (market_id)
-           market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
+           market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, min_notional, oi_limit, oi_share_bps,
            price_range_max, price_range_trigger, price_range_cadence_seconds,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
@@ -247,7 +266,7 @@ export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string
 
 export async function riskHistory(sql: Sql, marketId: string): Promise<RiskVersion[]> {
   const rows = await sql<RiskRow[]>`
-    SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
+    SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, min_notional, oi_limit, oi_share_bps,
            price_range_max, price_range_trigger, price_range_cadence_seconds,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
@@ -320,8 +339,20 @@ export async function assertOperatorRiskOnPlace(
     if (input.rests && limits?.throttle == null) {
       throw new TradeError('no open-order cap is published for this market', 'trade.open_orders_cap_unset', { rule: 'open-order cap' });
     }
+    if (limits?.minNotional == null) {
+      throw new TradeError('no minimum order value is published for this market', 'trade.min_notional_unset', {
+        rule: 'minimum order value',
+      });
+    }
   }
   if (!limits) return;
+  if (limits.minNotional != null && input.price != null && input.protective !== true) {
+    const notional = mul(input.price, input.qty, 'floor');
+    const floor = parseAmount(limits.minNotional);
+    if (notional < floor) {
+      throw new TradeError(`order value ${formatAmount(notional)} is below the ${limits.minNotional} minimum`, 'trade.below_min_notional');
+    }
+  }
   if (limits.fatFinger != null) {
     if (input.price == null) {
       throw new TradeError('fat-finger limit is set and this order has no price to value against it', 'trade.operator_fat_finger');

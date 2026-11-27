@@ -7,6 +7,7 @@ import { restartWithSetting, stackUrl, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 import { connectWhenAsked } from './dex.mjs';
+import { HL_TRADER_KEY_ENV, HyperliquidFileError, hlLiveKey, hyperliquidFileRun } from './hl-file-run.mjs';
 
 // What the venue journeys (J-derivatives-01-venue; J-cex-spot-01 had one until its own file covered its venue steps) share: svc-trade's user-venue door switched on
 // for one file and off after it, the stack's LOCAL TEST venue simulator (tooling/scripts/local-test-venue.mjs) reached
@@ -48,9 +49,12 @@ export function venueForThisFile(test, value = 'on', { recording = null, trader 
   });
   test.afterAll(async () => {
     test.setTimeout(240_000);
-    // A replayed file fails on every request its recording had no answer for, by its key, even one no step checked.
-    // Read before the switch-off and checked after it, so a miss never leaves the door on for the next file.
-    const misses = value === 'hl-recorded' ? (await venueOk(TEST_VENUE, '/replay/misses')).misses : [];
+    // A replayed file fails on every request its recording had no answer for, by its key, even one no step checked,
+    // except a read about an account the stack held before this file did anything (`otherAccount`, recorded.ts
+    // ReplayMiss): the service still reconciles it, and the replay refuses it too. Read before the switch-off and
+    // checked after it, so a miss never leaves the door on for the next file.
+    const all = value === 'hl-recorded' ? (await venueOk(TEST_VENUE, '/replay/misses')).misses : [];
+    const misses = all.filter((miss) => miss.otherAccount !== true);
     restartWithSetting('trade', SWITCH, 'off');
     on = false;
     process.off('exit', offOnExit);
@@ -58,32 +62,26 @@ export function venueForThisFile(test, value = 'on', { recording = null, trader 
   });
 }
 
-/** The GitHub secret (and env var) with the funded Hyperliquid test-network wallet's key: what an `hl-testnet` file signs with. */
-const HL_TRADER_KEY_ENV = 'HL_TESTNET_TRADER_KEY';
-
-/** A Hyperliquid file asked for what it lacks: `code` names it. */
-class HyperliquidFileError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-}
+/** The funded test-network wallet an `hl-testnet` file signs with (hl-file-run.mjs `hlLiveKey`). Never printed. */
+const hlLiveTrader = (env = process.env) => privateKeyToAccount(hlLiveKey(env));
 
 /**
- * The funded test-network wallet an `hl-testnet` file signs with, from HL_TESTNET_TRADER_KEY. MetaMask exports the key
- * without `0x`, so both forms are read. Unset refuses `hl_live_key_missing`, naming the secret. Never printed.
+ * A venue file that opts in to Hyperliquid's test network under its recording's name (hl-file-run.mjs
+ * `hyperliquidFileRun`): live on main's daily run (.github/workflows/hl-venue-daily.yml finds the files that call this),
+ * replayed strictly from its recording everywhere else, and on the TEST venue simulator until its first recording lands.
+ * Returns `{ kind, key, trader }`: the wallet key the file signs with, null on the simulator (the file keeps its own).
  */
-function hlLiveTrader(env = process.env) {
-  const text = (env[HL_TRADER_KEY_ENV] ?? '').trim();
-  if (text === '')
-    throw new HyperliquidFileError(
-      'hl_live_key_missing',
-      `LOCAL_STACK_USER_VENUE=hl-testnet needs ${HL_TRADER_KEY_ENV}, the funded test-network wallet's key: it is not set`,
-    );
-  const hex = /^0x/i.test(text) ? text.slice(2) : text;
-  if (!/^[0-9a-fA-F]{64}$/.test(hex))
-    throw new HyperliquidFileError('hl_live_key_malformed', `${HL_TRADER_KEY_ENV} must be 64 hex digits, with or without 0x`);
-  return privateKeyToAccount(`0x${hex.toLowerCase()}`);
+export function hyperliquidForThisFile(test, recording) {
+  const run = hyperliquidFileRun(recording);
+  if (run.kind === 'on') {
+    venueForThisFile(test, 'on');
+    test.beforeAll(() => {
+      console.warn(
+        `hl_recording_pending: no Hyperliquid recording "${recording}" yet, so this file runs on the TEST venue simulator until the daily run adds it`,
+      );
+    });
+  } else venueForThisFile(test, run.kind, { recording, trader: run.trader });
+  return run;
 }
 
 /**

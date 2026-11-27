@@ -60,6 +60,11 @@ where the ledger reconciles.
 | `orders.history` | `trade:read`                 | `{ limit, marketId? }`                                                             | `Order[]`  |
 | `fills.mine`     | `trade:read`                 | `{ limit }`                                                                        | `Fill[]`   |
 
+**Perps trade journal.** `journal.closedTrades` (`trade:read`, record `@intafaced/contracts/trade-journal-procedures`) lists every closed
+perpetual trade on one of the person's venue accounts since a time (at most 90 days back): entry, exit, size, fees, the stop and target
+planned at entry, the R-multiple, MAE and MFE from the venue's candles, and the result had it left at its planned stop or target. Read
+only, from the venue's own fills, order history and candles; nothing is stored. Code: `src/venue/trade-journal.ts`.
+
 **Dead-man switch.** `POST /api/v1/orders/cancel-all-after {timeout}` (seconds) arms a countdown for the caller; re-send it to push
 the deadline out, `timeout: 0` disarms. When the deadline passes, a sweep (every `TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS`) cancels
 every open order of that user through `cancelAllOrders`. Allowed timeouts are `TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC` (blank = arming
@@ -172,6 +177,10 @@ its worst price off the best price on the side it meets (blank: `trade.slippage_
 than that share of the best bid (blank: `trade.spread_limit_unset`; wider: `trade.venue.spread_too_wide`). Never a
 default; `GET /api/v1/venue/best-prices` answers both as known or unknown, so the desk closes market orders while either is
 blank (J-cex-spot-03 #2).
+A stop's market exit and a reduce-only close on a perpetual cross the market by at most the owner's close tolerance,
+`TRADE_CLOSE_SLIPPAGE_BPS` (`src/venue/close-slippage.ts`, its one home): blank refuses every such stop and close
+`trade.close_slippage_unset`. `GET /api/v1/venue/status` answers it as `closeSlippageBps` (null: blank), and the desk's
+closes, flatten and close-all price from it, never from a figure of their own.
 
 **The trader's account reads (J-derivatives-12).** `GET /api/v1/venue/eligible-instruments` lists every perpetual we
 show on the venue, each with its settle asset, when the account meets the owner's eligibility level
@@ -206,6 +215,11 @@ refused at accept and at submit (`trade.convert_quote_expired`). A limit convert
 partner is set). History reads each accepted order's fills from the venue by client id. The ledger posts nothing for the
 swap; a sell's builder fee is posted once per fill by the builder-fee poster. The older `convert.*` tRPC path settles on
 our own book and is the custodial layer, kept and switched off with it.
+
+**The launch desk's read, for svc-notify's Telegram alerts.** `venue.deskSnapshot` (record `TRADE_DESK_SNAPSHOT`,
+svc-notify only): the person's own venue accounts' perpetual positions, margin use (the venue's margin summary: margin
+used over account value, null where the venue reads none), perpetual fills since a time and the week's realised profit
+less fees, from Monday 00:00 UTC. Read at the moment of the call; nothing stored, nothing posted.
 
 **The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
 `serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers

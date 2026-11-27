@@ -103,6 +103,7 @@ import {
   slotPorts,
   STACK_PORTS,
   MAKER_RECORD,
+  STACK_START_SETTINGS,
   stackPids,
   stackRecords,
   stackRecordsFile,
@@ -122,6 +123,8 @@ import {
   testVenueKind,
   userVenueCount,
   userVenueKind,
+  liveTestNetworkRefusal,
+  LIVE_TEST_NETWORK_SWITCH,
   userVenueSwitchOn,
 } from './local-test-venue.mjs';
 import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
@@ -184,6 +187,7 @@ import {
 } from './local-test-state.mjs';
 import { lostAccountFiles, pgDurable, pgServerFlags, retireAccountFiles } from './local-test-db-state.mjs';
 import { BANNER_TEXT, withTestBanner } from '../../apps/customer/deployment/test-banner.mjs';
+import { profileOff, stackProfile } from './local-stack-profile.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -226,6 +230,26 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // LOCAL TEST: WebAuthn (passkeys) cannot use an IP address as its relying-party ID, so the same Customer
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
+/**
+ * `LOCAL_STACK_PUBLIC_ORIGIN=<https origin>` on a start: the public origin a person opens this stack on (the hosted
+ * beta's name, beta-host.mjs), so what they sign there is accepted. A passkey's answer and a wallet message both name
+ * the page's own origin, which no front can rewrite: svc-identity's relying party becomes that host, and the TEST wallet
+ * provider and svc-protocol's wallet messages accept that origin beside the stack's own. One plain https origin or
+ * nothing: anything else stops the start. Unset: the stack's own origins only.
+ */
+export function publicOrigin(env = process.env) {
+  const raw = env.LOCAL_STACK_PUBLIC_ORIGIN?.trim();
+  if (!raw) return null;
+  let url = null;
+  try {
+    url = new URL(raw);
+  } catch {
+    // not a URL: refused below
+  }
+  if (!url || url.protocol !== 'https:' || url.origin !== raw)
+    throw new Error(`LOCAL_STACK_PUBLIC_ORIGIN must be one https origin like https://beta.example.com, not "${raw}"`);
+  return url.origin;
+}
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 // The Customer build links to the Team console only over HTTPS, so the stack's build points at this TEST front.
 const TEAM_TLS_ORIGIN = `https://${HOST}:${PORTS['team-tls']}`;
@@ -551,11 +575,12 @@ function ownedAlive(rec) {
 /**
  * The `LOCAL_STACK_*=off` values this command runs with, sorted: a journey that blanks an owner value restarts a service
  * with one (J-agents-15). Recorded on each process it starts, so the world restore can see a service left blank after
- * its file (apps/customer/tests/real-app/services.mjs) and start it again without them.
+ * its file (apps/customer/tests/real-app/services.mjs) and start it again without them. The stack's own start settings
+ * (STACK_START_SETTINGS: the custody switch) are not overrides.
  */
 export function offOverrides(env = process.env) {
   return Object.keys(env)
-    .filter((k) => /^LOCAL_STACK_[A-Z0-9_]+$/.test(k) && env[k] === 'off')
+    .filter((k) => /^LOCAL_STACK_[A-Z0-9_]+$/.test(k) && env[k] === 'off' && !STACK_START_SETTINGS.has(k))
     .sort();
 }
 
@@ -1725,7 +1750,9 @@ function serviceDefs(secrets) {
     UNUSED,
     CUSTOMER_ORIGIN,
     CUSTOMER_LOCALHOST_ORIGIN,
+    PUBLIC_ORIGIN: publicOrigin(),
     INVITATION_ORIGIN,
+    vendorKeys,
     identityFounderEnv,
     opsOutreachEnv,
     localOperatorIds,
@@ -1756,6 +1783,24 @@ function screeningEnv() {
   return { INTAFACED_SANCTIONS_REGIONS: file.regions, INTAFACED_SANCTIONS_LIST_SOURCE: file.source };
 }
 const screeningSet = () => Boolean(screeningEnv().INTAFACED_SANCTIONS_REGIONS);
+
+/**
+ * The owner's vendor keys (his wallet provider's three, his screening vendor's one), from a file that exists only on the
+ * box he allowed them on: `beta-screening-seal.yml` seals them to the box's key and the box decrypts them into
+ * STATE/vendors.local.json (mode 600). The repo never carries a value, and no message here ever names one: a malformed
+ * file is refused by its name alone. A service gets them only when its own switch asks (identity.mjs, pay.mjs).
+ */
+export function vendorKeys(names, file = path.join(STATE, 'vendors.local.json'), why = 'this start') {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    // missing or not JSON: refused below, naming the file only
+  }
+  const missing = names.filter((n) => typeof parsed?.[n] !== 'string' || parsed[n].trim() === '');
+  if (missing.length) throw new Error(`${why} needs ${missing.join(', ')} in ${file} (the owner's keys, sealed onto this box)`);
+  return Object.fromEntries(names.map((n) => [n, parsed[n].trim()]));
+}
 
 // ── Start / status / stop ───────────────────────────────────────────────────
 
@@ -2166,14 +2211,48 @@ async function pinOpsFounders() {
   await startNodeService(serviceDefs(readJson(P.secrets)).find((d) => d.name === 'ops'));
 }
 
-export async function startCustomer({ stop = stopForNewBuild } = {}) {
+/**
+ * What a start does with a banner site's own running process (pure): `ready` when its page answers 200 with today's
+ * BANNER_TEXT; `restart` when it answers but with another banner, so a process started before the banner's text changed
+ * keeps no stale page up (the status table would call it DOWN, #10863); `start` when it is not running or not answering.
+ */
+export function bannerSiteDecision({ owned, status, text }, banner = BANNER_TEXT) {
+  if (!owned || status !== 200) return 'start';
+  return text.includes(banner) ? 'ready' : 'restart';
+}
+
+/**
+ * True when the site's own process already serves today's page; stops it (and waits for its port) when it serves a stale
+ * banner. `io` stands in for the process checks, the page read and the stop in a test.
+ */
+export async function bannerSiteReady(name, rec, url, port, io = {}) {
+  const { alive = ownedAlive, get = httpGet, stop = stopProc, open = portOpen } = io;
+  const owned = alive(rec);
+  const res = owned ? await get(url, 2000) : { status: 0, text: '' };
+  const decision = bannerSiteDecision({ owned, ...res });
+  if (decision === 'ready') return true;
+  if (decision === 'restart') {
+    say(`  ${name}: restarting, its page lacks the current TEST banner`);
+    await stop(name, rec);
+    for (let i = 0; i < 50 && (await open(port)); i++) await sleep(200);
+  }
+  return false;
+}
+
+export async function startCustomer({ stop = stopForNewBuild, ready = bannerSiteReady } = {}) {
   const build = currentBuild('customerBuild');
   await stop('customer', readProcs().customer, build, PORTS.customer);
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
-  if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
+  if (await ready('customer', procs.customer, url, PORTS.customer)) return;
   if (await portOpen(PORTS.customer)) portTaken(PORTS.customer, 'customer');
-  const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
+  const env = {
+    ...baseEnv(),
+    CUSTOMER_WS_URL: customerWsUpstream(),
+    ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}),
+    // The page's connect-src names the test network's read endpoint when the venue is the live one (customerSecurityHeaders).
+    ...(process.env.LOCAL_STACK_USER_VENUE ? { LOCAL_STACK_USER_VENUE: process.env.LOCAL_STACK_USER_VENUE } : {}),
+  };
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
 }
@@ -2204,6 +2283,9 @@ async function startRailStatements() {
  * its keys live only in it and its own state file (test-wallet-provider.json, mode 0600), and passkey assertions are accepted only from the Customer app's own origins.
  */
 async function startTestWalletProvider() {
+  // It serves the package code it loaded, so a new build restarts it, as a service's does (stopForNewBuild).
+  const build = currentBuild('backendBuild');
+  await stopForNewBuild('test-wallet-provider', readProcs()['test-wallet-provider'], build, PORTS['test-wallet-provider']);
   const procs = readProcs();
   const url = `${urlOf('test-wallet-provider')}/health`;
   if (ownedAlive(procs['test-wallet-provider']) && (await httpGet(url, 2000)).status === 200) return;
@@ -2211,8 +2293,9 @@ async function startTestWalletProvider() {
   const pid = startProc(
     'test-wallet-provider',
     [process.execPath, SCRIPT, '__serve-test-wallet-provider'],
-    { ...baseEnv(), APP_ENV: 'dev' },
+    { ...baseEnv(), APP_ENV: 'dev', ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}) },
     REPO,
+    { build },
   );
   await waitHealthy('test-wallet-provider', url, pid, 20_000);
 }
@@ -2231,11 +2314,18 @@ export function userVenueOn(env = process.env) {
 
 /** The LOCAL TEST venue simulator (local-test-venue.mjs), for svc-trade's user-venue door. TEST figures only. */
 async function startTestVenue(name = 'test-venue') {
+  // A venue serves the adapter code it loaded (packages/venue-hyperliquid among it), so a new build restarts it, as a
+  // service's does: a long-lived beta otherwise kept a venue from before a fix while reporting the newer commit.
+  const build = currentBuild('backendBuild');
+  await stopForNewBuild(name, readProcs()[name], build, PORTS[name]);
   const procs = readProcs();
   const url = `${urlOf(name)}/health`;
   // Which venue and source this start wants: a running one that answers for another (the simulator where
   // Hyperliquid is wanted, another recording or trader) is stopped and started again, never kept.
   const kind = userVenueKind(process.env.LOCAL_STACK_USER_VENUE) ?? '';
+  // The live test network is the hosted beta's alone (#11061): refused here, before anything starts, and again by the venue.
+  const liveRefused = liveTestNetworkRefusal(kind, process.env);
+  if (liveRefused) fail(liveRefused, 2);
   let hl;
   try {
     hl = hlSource(process.env);
@@ -2275,9 +2365,10 @@ async function startTestVenue(name = 'test-venue') {
     // The Hyperliquid recording and the address it is for; blank: none. Never a key.
     LOCAL_STACK_HL_RECORDING: hl.recording ?? '',
     LOCAL_STACK_HL_TRADER: hl.trader ?? '',
+    [LIVE_TEST_NETWORK_SWITCH]: process.env[LIVE_TEST_NETWORK_SWITCH] ?? '',
   };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
-  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
+  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO, { build });
   await waitHealthy(name, url, pid, 20_000);
 }
 
@@ -2297,12 +2388,12 @@ export function venueAnswersFor(healthText, kind, hl) {
 }
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
-export async function startInvitation({ stop = stopForNewBuild } = {}) {
+export async function startInvitation({ stop = stopForNewBuild, ready = bannerSiteReady } = {}) {
   const build = currentBuild('invitationBuild');
   await stop('invitation', readProcs().invitation, build, PORTS.invitation);
   const procs = readProcs();
   const url = `${INVITATION_ORIGIN}/`;
-  if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
+  if (await ready('invitation', procs.invitation, url, PORTS.invitation)) return;
   if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
   if (await portOpen(PORTS.invitation)) portTaken(PORTS.invitation, 'invitation');
   const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO, { build });
@@ -2325,11 +2416,12 @@ function writeApexStandIn() {
   );
 }
 
-async function startApex() {
+export async function startApex({ ready = bannerSiteReady } = {}) {
   const procs = readProcs();
   const url = `${APEX_ORIGIN}/`;
+  const serving = await ready('apex', procs.apex, url, PORTS.apex);
   writeApexStandIn();
-  if (ownedAlive(procs.apex) && (await httpGet(url, 2000)).status === 200) return;
+  if (serving) return;
   if (await portOpen(PORTS.apex)) portTaken(PORTS.apex, 'apex');
   const pid = startProc('apex', [process.execPath, SCRIPT, '__serve-apex'], baseEnv(), REPO);
   await waitHealthy('apex', url, pid, 20_000);
@@ -2525,19 +2617,18 @@ async function healthTable({ gateMarket = false } = {}) {
     ]);
   }
   const store = await httpGet(`${urlOf('video-store')}/health`, 2500);
-  rows.push([
-    'video-store',
-    PORTS['video-store'],
-    procs['video-store']?.pid ?? '-',
-    store.status === 200 ? 'ok (TEST)' : `DOWN (${store.status})`,
-  ]);
+  rows.push(
+    siteRow('video-store', PORTS['video-store'], procs['video-store']?.pid, store.status === 200 ? 'ok (TEST)' : `DOWN (${store.status})`),
+  );
   const statements = await httpGet(`${urlOf('rail-statements')}/health`, 2500);
-  rows.push([
-    'rail-statements',
-    PORTS['rail-statements'],
-    procs['rail-statements']?.pid ?? '-',
-    statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
-  ]);
+  rows.push(
+    siteRow(
+      'rail-statements',
+      PORTS['rail-statements'],
+      procs['rail-statements']?.pid,
+      statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
+    ),
+  );
   // The TEST adapters behind a service's outside door: each a row of its own, so the table names every port the stack's
   // marker holds. One this start left off (the user-venue switch, or an `--only` without it) reads "off", which doesn't fail.
   // A venue's record outlives its process (a stop keeps it), so a stopped venue the switch doesn't ask for is off too;
@@ -2545,26 +2636,32 @@ async function healthTable({ gateMarket = false } = {}) {
   const wanted = adaptersWanted();
   for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) rows.push(await adapterHealthRow(name, { procs, wanted }));
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
-  rows.push([
-    'customer',
-    PORTS.customer,
-    procs.customer?.pid ?? '-',
-    cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
-  ]);
+  rows.push(
+    siteRow(
+      'customer',
+      PORTS.customer,
+      procs.customer?.pid,
+      cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
+    ),
+  );
   const invitation = await httpGet(`${INVITATION_ORIGIN}/`, 2500);
-  rows.push([
-    'invitation',
-    PORTS.invitation,
-    procs.invitation?.pid ?? '-',
-    invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
-  ]);
+  rows.push(
+    siteRow(
+      'invitation',
+      PORTS.invitation,
+      procs.invitation?.pid,
+      invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
+    ),
+  );
   const apex = await httpGet(`${APEX_ORIGIN}/`, 2500);
-  rows.push([
-    'apex',
-    PORTS.apex,
-    procs.apex?.pid ?? '-',
-    apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
-  ]);
+  rows.push(
+    siteRow(
+      'apex',
+      PORTS.apex,
+      procs.apex?.pid,
+      apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
+    ),
+  );
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   const teamCert = path.join(P.tls, 'team-tls.crt');
   const teamTlsOk = fs.existsSync(teamCert) && (await teamTlsAnswers(teamCert, 4000));
@@ -2598,8 +2695,10 @@ export async function serviceHealthRow(
     chain,
     read = () => settledHealth(() => httpGet(`${urlOf(n)}/health`, 2500), { alive: () => ownedAlive(procs[n]) }),
     halt = indexerHalt,
+    off = profileOff,
   },
 ) {
+  if (off(n)) return [`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', PROFILE_OFF];
   const r = await read();
   const halted = r.status === 200 && n === 'indexer' ? await halt() : null;
   const absent = r.status !== 200 ? absentWhy(n, chain) : null;
@@ -2607,11 +2706,17 @@ export async function serviceHealthRow(
   return [`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state];
 }
 
-/** Which TEST adapters this start asks for: the venues by the user-venue switch, the wallet provider always. */
+/** Which TEST adapters this start asks for: the venues by the user-venue switch, the wallet provider unless the profile leaves it off. */
 export function adaptersWanted(env = process.env) {
   const venues = userVenueOn(env) ? userVenueCount(env.LOCAL_STACK_USER_VENUE) : 0;
-  return { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
+  return { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': !profileOff('test-wallet-provider', env) };
 }
+
+/** A health row's state for a process LOCAL_STACK_PROFILE leaves off; healthAllOk reads it as off, which doesn't fail. */
+export const PROFILE_OFF = 'off (not in this profile)';
+
+/** A site's or TEST stand-in's row: off when the profile leaves it off, else what `state` says. */
+const siteRow = (name, port, pid, state) => [name, port, pid ?? '-', profileOff(name.split(' ')[0]) ? PROFILE_OFF : state];
 
 /**
  * A TEST adapter's health row. One this start never recorded, or a stopped one the switch doesn't ask for (a venue's
@@ -2962,9 +3067,14 @@ async function cmdStart(flags) {
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
   // A first start without the core services leaves a stack the journey helpers refuse (assertActiveLocalStack).
   const only = onlyFlag(flags);
-  const missingCore = DEFAULT_SERVICES.filter((n) => only && !only.includes(n));
-  if (missingCore.length && !DEFAULT_SERVICES.some((n) => ownedAlive(readProcs()[n])))
-    fail(`refusing: the journeys need ${DEFAULT_SERVICES.join(',')} running; add ${missingCore.join(',')} to --only`, 2);
+  // LOCAL_STACK_PROFILE (local-stack-profile.mjs): a process the profile leaves off is never started, whatever --only says.
+  const on = (name) => !profileOff(name);
+  const core = DEFAULT_SERVICES.filter(on);
+  const missingCore = core.filter((n) => only && !only.includes(n));
+  if (missingCore.length && !core.some((n) => ownedAlive(readProcs()[n])))
+    fail(`refusing: the journeys need ${core.join(',')} running; add ${missingCore.join(',')} to --only`, 2);
+  const profile = stackProfile();
+  if (profile) say(`  profile ${profile.name}: ${[...profile.on].join(', ')}; every other service is off`);
   const secrets = loadOrCreateSecrets();
   // Each stack starts with no recorded CSP violations, so `csp-report --fail` speaks only of this run.
   fs.rmSync(P.cspViolations, { force: true });
@@ -2994,12 +3104,12 @@ async function cmdStart(flags) {
   }
   adoptEnvCustomerDist();
   ensureNatsBinary();
-  const admin = adminWantedBy(flags, only, readText(P.adminWanted));
+  const admin = adminWantedBy(flags, only, readText(P.adminWanted)) && on('admin');
   writePrivate(P.adminWanted, `${admin ? 'on' : 'off'}\n`);
   ensureBuilt(flags.includes('--rebuild'), { admin });
   ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
-  const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
+  const wanted = serviceDefs(secrets).filter((d) => (!only || only.includes(d.name)) && on(d.name));
   // Migrate only what is about to start: a service that is already running on the current build was migrated when it
   // started; one on another build is restarted onto this one (stopForNewBuild), so its new migrations run first.
   const backendBuild = currentBuild('backendBuild');
@@ -3045,9 +3155,9 @@ async function cmdStart(flags) {
     fail(err instanceof Error ? err.message : String(err));
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
-  if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
+  if (on('video-store') && (!only || only.includes('video-store') || only.includes('academy'))) await startVideoStore(secrets);
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
-  if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
+  if (on('rail-statements') && (!only || only.includes('rail-statements') || only.includes('ledger'))) await startRailStatements();
   // Trade's env points at the TEST venue only while the setting is on, so `--only trade` starts it too.
   if (userVenueOn() && (!only || only.includes('trade'))) {
     await startTestVenue();
@@ -3055,9 +3165,10 @@ async function cmdStart(flags) {
     if (userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2) await startTestVenue('test-venue-b');
   }
   // Protocol's env points at the TEST wallet provider, so `--only protocol` starts it too.
-  if (!only || only.includes('test-wallet-provider') || only.includes('protocol')) await startTestWalletProvider();
+  if (on('test-wallet-provider') && (!only || only.includes('test-wallet-provider') || only.includes('protocol')))
+    await startTestWalletProvider();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
-  await startServices(withRenewed(wanted, serviceDefs(secrets), renewed));
+  await startServices(withRenewed(wanted, serviceDefs(secrets), renewed).filter((d) => on(d.name)));
   if (agentsEmpty || agentsEmptyExtra) emptyAgentsCatalogue(secrets);
   try {
     await ensureLocalTestFounders();
@@ -3067,9 +3178,9 @@ async function cmdStart(flags) {
   }
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
-  if (!only || only.includes('customer')) await startCustomer();
-  if (!only || only.includes('invitation')) await startInvitation();
-  if (!only || only.includes('apex')) await startApex();
+  if (on('customer') && (!only || only.includes('customer'))) await startCustomer();
+  if (on('invitation') && (!only || only.includes('invitation'))) await startInvitation();
+  if (on('apex') && (!only || only.includes('apex'))) await startApex();
   if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (admin && (!only || only.includes('admin'))) await startAdmin(secrets);
   if (admin && (!only || only.includes('admin') || only.includes('team-tls'))) await startTeamTls();
@@ -3353,6 +3464,8 @@ function indexWithBanner(dist, site) {
 
 /** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
 const API_SECURITY = apiSecurityHeaders();
+/** The Hyperliquid test network's API origin (packages/venue-hyperliquid `HL_TESTNET_API_URL`), its public `info` reads. */
+export const HL_TESTNET_READ_ORIGIN = 'https://api.hyperliquid-testnet.xyz';
 /** Where the Customer app's browser sends Content-Security-Policy violation reports on this stack. */
 const CSP_REPORT_PATH = '/__csp-report';
 
@@ -3361,12 +3474,15 @@ const CSP_REPORT_PATH = '/__csp-report';
  * TEST video store standing in for CUSTOMER_STORAGE_ORIGIN and a report-uri so every violation is recorded. Journeys
  * therefore run under the policy the deployed app has, and `csp-report --fail` turns any violation red.
  */
-export function customerSecurityHeaders() {
+export function customerSecurityHeaders(env = process.env) {
   // connect-src: the TEST sandbox address (IDENTITY_SANDBOX_BASE_URL, the edge's sandbox host) stands in for
   // CUSTOMER_SANDBOX_API_ORIGIN, so the API explorer can send a sandbox key's request there (J-developer-15 #7).
+  // On the live Hyperliquid test network (LOCAL_STACK_USER_VENUE=hl-testnet), the desk reads the person's own fills,
+  // balances and positions from their own browser at the test network's read endpoint, and nowhere else.
+  const walletReads = userVenueKind(env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? ` ${HL_TESTNET_READ_ORIGIN}` : '';
   return securityHeaders({
     mediaSrc: `'self' blob: ${urlOf('video-store')}`,
-    connectSrc: `'self' http://localhost:${PORTS.edge}`,
+    connectSrc: `'self' http://localhost:${PORTS.edge}${walletReads}`,
     reportUri: CSP_REPORT_PATH,
   });
 }
@@ -3423,9 +3539,20 @@ function proxyHeaders(req, { upgrade = false } = {}) {
     if (lk.startsWith('x-intafaced-') || lk.startsWith('x-service-')) continue; // only Edge may mint these
     headers[k] = v;
   }
-  headers['x-forwarded-for'] = req.socket.remoteAddress ?? HOST;
+  headers['x-forwarded-for'] = forwardedFor(req.headers['x-forwarded-for'], req.socket.remoteAddress ?? HOST, publicOrigin() !== null);
   headers['x-forwarded-proto'] = 'http';
   return headers;
+}
+
+/**
+ * The X-Forwarded-For this server sends Edge and svc-ws. A stack opened on a public name (LOCAL_STACK_PUBLIC_ORIGIN, the
+ * hosted beta) sits behind its own front on loopback (tooling/beta/beta-front.mjs), which writes the caller's address:
+ * this server appends its own peer after it, and Edge and svc-ws trust only loopback hops (EDGE_TRUST_PROXY,
+ * WS_TRUST_PROXY), so each caller keeps their own budget (#11027). Any other stack is reached directly: its peer alone.
+ */
+export function forwardedFor(incoming, peer, behindFront) {
+  const prior = (Array.isArray(incoming) ? incoming.join(', ') : String(incoming ?? '')).trim();
+  return behindFront && prior ? `${prior}, ${peer}` : peer;
 }
 
 function serveCustomer(port = PORTS.customer, site = SITES.customer) {
@@ -5120,7 +5247,7 @@ async function runCli() {
       host: HOST,
       port: PORTS['test-wallet-provider'],
       appEnv: process.env.APP_ENV,
-      origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN],
+      origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, ...(publicOrigin() ? [publicOrigin()] : [])],
       stateFile: path.join(STATE, 'test-wallet-provider.json'),
       // The TEST chain, for the page's reads and the person's own signed transactions (J-wallet-24); down: none.
       rpcUrl: `http://${HOST}:${CHAIN_PORTS.anvil}`,

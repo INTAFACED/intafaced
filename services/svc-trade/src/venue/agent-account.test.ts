@@ -117,8 +117,9 @@ describe('the agent account on the TEST venue', () => {
       stepUp: su.check,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
-      // Blank: its one market order is on a perpetual, which the owner's price protection does not bound.
-      slippageCapBps: null,
+      // Set so perpetual market opens are allowed under the slippage cap rule (J-derivatives-02 #5).
+      slippageCapBps: 50,
+      closeSlippageBps: 1000,
       now: () => new Date(),
     });
     accounts = new AgentAccounts({
@@ -188,6 +189,7 @@ describe('the agent account on the TEST venue', () => {
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
     });
     accounts = new AgentAccounts({
@@ -211,6 +213,7 @@ describe('the agent account on the TEST venue', () => {
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
     });
     accounts = new AgentAccounts({

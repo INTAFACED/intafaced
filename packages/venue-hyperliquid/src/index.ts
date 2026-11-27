@@ -9,3 +9,4 @@ export * from './venue.js';
 export * from './recorded.js';
 export * from './http-server.js';
 export * from './recorded-order.js';
+export * from './wallet-reads.js';

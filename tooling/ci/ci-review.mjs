@@ -55,7 +55,7 @@ import { reachesLook } from './ci-affected.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
 import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
 import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
-import { countCall } from './api-count.mjs';
+import { countCall, fetchFailure } from './api-count.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -516,12 +516,51 @@ const sectionPath = (s) => {
 };
 
 /**
+ * A hunk over `cap` that only adds lines (a new file's one hunk is one: `@@ -0,0 +1,N @@`) as several hunks between its
+ * lines, each under `header` and at most `cap` bytes, each a valid hunk at the same old position: `@@ -O,0 +n,k @@`. Its
+ * lines, joined, are the hunk's byte for byte. Null for any other hunk (a removed or context line, a line alone over
+ * `cap`): it stays too large. (Failure it prevents: #10910, a venue recording's new file of 931,787 bytes in one hunk.)
+ */
+function splitAddedHunk(header, hunk, cap) {
+  const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,\d+)? @@[^\n]*\n/.exec(hunk);
+  if (!m || m[2] !== '0') return null;
+  const body = hunk.slice(m[0].length).match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  // `\ No newline at end of file` belongs to the line before it, so it stays with that line.
+  const rows = [];
+  for (const l of body) {
+    if (l.startsWith('+')) rows.push(l);
+    else if (l.startsWith('\\') && rows.length) rows[rows.length - 1] += l;
+    else return null;
+  }
+  const out = [];
+  let start = Number(m[3]);
+  let cur = [];
+  const close = () => {
+    out.push(`${header}@@ -${m[1]},0 +${start},${cur.length} @@\n${cur.join('')}`);
+    start += cur.length;
+    cur = [];
+  };
+  for (const r of rows) {
+    const next = Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},${cur.length + 1} @@\n${cur.join('')}${r}`);
+    if (next > cap) {
+      if (!cur.length) return null;
+      close();
+      if (Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},1 @@\n${r}`) > cap) return null;
+    }
+    cur.push(r);
+  }
+  if (cur.length) close();
+  return out;
+}
+
+/**
  * A diff over MAX_DIFF_BYTES in parts of at most `cap` bytes, in the diff's own order (so a service's files stay
  * together): whole files where they fit, a larger file between its hunks, each piece under its own file header. Nothing
  * is cut or left out. The sections `first` picks (the test part's own files) come first and close their own parts, so
  * when they fit one call, the first part is exactly the diff the test part judges and the one combined call carries it
- * once. Returns { parts }, or { tooLarge } when one hunk alone is over the cap, a file over it has no hunk
- * to split at, or it would take more than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
+ * once. A hunk over the cap that only adds lines splits between its lines (splitAddedHunk). Returns { parts }, or
+ * { tooLarge } when any other hunk alone is over the cap, a file over it has no hunk to split at, or it would take more
+ * than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
  * were the cap alone, 21 on intafaced #7728, a PR of about 420 to 560 KB; project-state #2065.)
  */
 export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, first = () => false) {
@@ -535,9 +574,16 @@ export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, firs
       .slice(at)
       .split(/^(?=@@ )/m)
       .map((h) => header + h);
-    const big = units.find((u) => Buffer.byteLength(u) > cap);
-    if (big) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(big)} bytes, over ${cap}` };
-    return { units };
+    const out = [];
+    for (const u of units) {
+      if (Buffer.byteLength(u) <= cap) out.push(u);
+      else {
+        const lines = splitAddedHunk(header, u.slice(header.length), cap);
+        if (!lines) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(u)} bytes, over ${cap}` };
+        out.push(...lines);
+      }
+    }
+    return { units: out };
   };
   const sections = diffSections(diff);
   const parts = [];
@@ -564,7 +610,7 @@ export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, firs
 export function partNote(parts, k, bytes) {
   const files = parts.map((p, i) => `part ${i + 1}: ${[...new Set(diffSections(p).map(sectionPath))].join(', ')}`);
   return [
-    `This pull request's diff is ${bytes} bytes, over the ${MAX_DIFF_BYTES} one call reviews, so the job's code reviews it in ${parts.length} parts, one call each, split between files (a larger file between its hunks, each under its file header); nothing is cut or left out, and the review's verdict is FAIL when any part's is. This is part ${k} of ${parts.length}: judge the change in this part against the brief, and never fail it for being a part. The files in each part, as the diff names them (untrusted):`,
+    `This pull request's diff is ${bytes} bytes, over the ${MAX_DIFF_BYTES} one call reviews, so the job's code reviews it in ${parts.length} parts, one call each, split between files (a larger file between its hunks, and a hunk that only adds lines between its lines, each under its file header); nothing is cut or left out, and the review's verdict is FAIL when any part's is. This is part ${k} of ${parts.length}: judge the change in this part against the brief, and never fail it for being a part. The files in each part, as the diff names them (untrusted):`,
     ...files,
   ].join('\n');
 }
@@ -970,6 +1016,8 @@ async function getText(path, accept, token = process.env.GH_TOKEN) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
+  }).catch((e) => {
+    throw new Error(fetchFailure(path, e));
   });
   countCall(res);
   const text = await res.text();
@@ -1641,6 +1689,47 @@ export function clearedLines(cleared) {
   return ['', '### Checked and cleared', '', ...cleared.map((c) => `  * ${String(c).replace(/\s+/g, ' ')}`)];
 }
 
+/** The first line of the comment that carries a review's notes to its pull request (#9357). */
+export const NOTES_MARK = '<!-- ci-review-notes -->';
+
+/** A review's non-blocking notes: each finding that starts `note:`, as the reviewer wrote it. */
+export const notesOf = (findings) => (findings ?? []).filter((f) => typeof f === 'string' && /^note:/i.test(f.trim()));
+
+/**
+ * The comment that carries a head's notes to its pull request (#9357): a note written only into the run's summary
+ * reached nobody once the review PASSed, so the problems it named merged (#8823's, #8712's and #8940's notes, now
+ * #9352 to #9355). Posted where the builder's watch wakes; the builder answers each in the PR body, as findings are
+ * (AGENTS.md, How work flows 5). A mention in a note is broken, so it notifies nobody.
+ */
+export function notesComment({ head, notes, run }) {
+  const quiet = (n) =>
+    String(n)
+      .replace(/\s+/g, ' ')
+      .replace(/@(?=[A-Za-z0-9])/g, '@\u200b');
+  return [
+    NOTES_MARK,
+    `**CI review notes on ${head}**: not blocking, and not read by any check. Answer each in the PR body before merge, fixed, or why not, as you answer findings (AGENTS.md, How work flows 5). A real product problem a note names that this PR doesn't fix gets its own \`bug\` issue.`,
+    '',
+    ...notes.map((n) => `- ${quiet(n)}`),
+    ...(run ? ['', `From the CI review run ${run}.`] : []),
+  ].join('\n');
+}
+
+/** The notes job: post the review's notes (env NOTES, a JSON list) on pull request PR_NUMBER, once per head. */
+function cmdNotes() {
+  const { REPO, PR_NUMBER, HEAD_SHA, RUN_URL } = process.env;
+  const notes = notesOf(JSON.parse(process.env.NOTES || '[]'));
+  if (notes.length === 0) return console.log('no notes on this head: nothing to post');
+  const gh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+  const mine = `${NOTES_MARK}\n**CI review notes on ${HEAD_SHA}**`;
+  const posted = gh(['api', '--paginate', `repos/${REPO}/issues/${PR_NUMBER}/comments`, '--jq', '.[].body']);
+  // A re-run of the same head's review posts nothing new: the head's notes are already on the pull request.
+  if (posted.includes(mine)) return console.log(`notes on ${HEAD_SHA} are already on #${PR_NUMBER}`);
+  const body = notesComment({ head: HEAD_SHA, notes, run: RUN_URL });
+  gh(['api', '-X', 'POST', `repos/${REPO}/issues/${PR_NUMBER}/comments`, '--input', '-'], JSON.stringify({ body }));
+  console.log(`posted ${notes.length} note(s) on #${PR_NUMBER}`);
+}
+
 /** The FAILs in a row at which the judge says to stop fixing (pstack principle-attack-the-premise: two fixes failed). */
 export const PREMISE_AT = 3;
 
@@ -1752,6 +1841,9 @@ async function cmdJudge(dir) {
   lines.push(...premise);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
   console.log(lines.join('\n'));
+  // The notes leave the run for the notes job, which posts them on the pull request (#9357). One JSON line.
+  const notes = notesOf(v.findings);
+  if (notes.length && process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `notes=${JSON.stringify(notes)}\n`);
   if (v.verdict !== 'PASS') {
     // The classes only: no finding's text, so nothing in it can change how the census reads this run (its classOf).
     console.error(`::error title=${CLASSES_TITLE}::${findingClasses(v.findings).join(' ') || 'other'}`);
@@ -1800,7 +1892,8 @@ async function main() {
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
   if (cmd === 'premise') return cmdPremise(dir, process.argv[4]);
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head]');
+  if (cmd === 'notes') return cmdNotes();
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head] | notes');
   process.exit(2);
 }
 

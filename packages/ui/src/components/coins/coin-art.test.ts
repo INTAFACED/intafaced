@@ -10,8 +10,21 @@ const manifest = JSON.parse(readFileSync(`${dir}/manifest.json`, 'utf8')) as {
 };
 
 describe('coin manifest', () => {
-  it('lists exactly BTC, ETH, USDT, USDC and IFC', () => {
-    expect(Object.keys(manifest.assets).sort()).toEqual(['BTC', 'ETH', 'IFC', 'USDC', 'USDT']);
+  it('lists exactly the supported assets: the launch catalogue and the venue coins the beta shows', () => {
+    expect(Object.keys(manifest.assets).sort()).toEqual([
+      'ARB',
+      'AVAX',
+      'BTC',
+      'DOGE',
+      'ETH',
+      'HYPE',
+      'IFC',
+      'LINK',
+      'SUI',
+      'USDC',
+      'USDT',
+      'XRP',
+    ]);
   });
 
   it('records source and licence for every asset, and a commit for every copied file', () => {
@@ -29,7 +42,7 @@ describe('coin manifest', () => {
 
   it('generated art is in sync with the SVG files', () => {
     expect(readFileSync(`${dir}/coin-art.generated.ts`, 'utf8')).toBe(renderCoinArt(dir));
-    expect(Object.keys(coinArt).sort()).toEqual(['BTC', 'ETH', 'USDC', 'USDT']);
+    expect(Object.keys(coinArt).sort()).toEqual(['ARB', 'AVAX', 'BTC', 'DOGE', 'ETH', 'HYPE', 'LINK', 'SUI', 'USDC', 'USDT', 'XRP']);
   });
 
   it('SVG files contain no script, event handler or external reference', () => {

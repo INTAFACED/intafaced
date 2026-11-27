@@ -1,6 +1,8 @@
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
+import './exchange-desk.css';
 import { usePreferences } from '../../../shared/preferences';
+import { maintenanceOf } from '../../../shared/market-maintenance';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import { draftId, keys, type OrderIntent, type VenueMarket, type VenueOrder, type VenueUp } from '../../../features/trade/venue-api';
 import {
@@ -28,7 +30,7 @@ import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useDeviceSetting } from '../../../features/trade/hooks';
 import { ChartTrade, clickAmountOk, type ChartPick, type RefusedChartType } from './ChartTrade';
-import { OneClickBar, type CancelOutcome } from './OneClick';
+import { OneClickBar, cancelOutcome, type CancelOutcome } from './OneClick';
 import type { LadderPick } from './OrderFlow';
 import { DEFAULT_DOM, isDomSetting, type DomSetting } from './order-flow';
 import { flowCopy } from './order-flow-copy';
@@ -38,7 +40,7 @@ import { flowMarketOf } from './venue-flow';
 import { spotVenueCopy } from './venue-copy';
 import { VenueMarketPanel } from './VenueMarketData';
 import { VenueChartOrders } from './VenueChartOrders';
-import { NotOfferedTypes, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
+import { NotOfferedTypes, TicketSideSwitch, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
 import { VenueConditionalOrders } from './VenueConditionalOrders';
 import { VenueMarketRules } from './VenueMarketRules';
 import { VenueCancelMany, VenueEditOrder } from './VenueOrderChanges';
@@ -59,6 +61,7 @@ import { useTradeAccess } from './venue-access';
 import { FeeCurrencyRow } from './VenueReviewRows';
 import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
+import { VenueDeskTicker, venueMaintenanceLine } from './VenueDeskTicker';
 import { PendingCheck } from './VenuePending';
 import { useCancelledOrders, useFilledOrders } from './venue-order-reads';
 
@@ -82,6 +85,7 @@ export function VenueSpotDesk({
   const { run, resend, keptSignature } = useVenueActions(owner);
   const access = useTradeAccess();
   const [type, setType] = useState<VenueOrderType>('limit');
+  const [ticketSide, setTicketSide] = useState<VenueSide>('buy');
   const [tif, setTif] = useState<DeskTif>('GTC');
   // Good till date (J-cex-spot-03 #7): the expiry the person picks, as the field holds it; a past time places nothing.
   const [expiry, setExpiry] = useState('');
@@ -137,7 +141,22 @@ export function VenueSpotDesk({
   const spreadSet = best.data?.spreadLimitBps?.known === true;
   const capSet = cap?.known === true && spreadSet;
 
-  const offeredTypes = market.orderTypes.filter((x): x is VenueOrderType => x === 'limit' || x === 'market');
+  const openingWindowEndsMs = market.openingWindowEndsAt ? Date.parse(market.openingWindowEndsAt) : Number.NaN;
+  const openingWindowActive = !Number.isNaN(openingWindowEndsMs) && openingWindowEndsMs > Date.now();
+  const higherRisk = market.zone === 'higher_risk';
+  const maintenance = maintenanceOf(market.upcomingMaintenance);
+  const marketDisabledReason =
+    market.status === 'limit_only'
+      ? t('Mode limit only reason')
+      : openingWindowActive
+        ? t('Opening window reason')
+        : higherRisk
+          ? t('Higher risk zone reason')
+          : null;
+  const offeredTypes = market.orderTypes.filter(
+    (x): x is VenueOrderType => (x === 'limit' || x === 'market') && !(x === 'market' && marketDisabledReason !== null),
+  );
+  const activeType: VenueOrderType = offeredTypes.includes(type) ? type : 'limit';
   const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
   const feeLine = v('Fee line spot', {
     symbol: market.symbol,
@@ -192,6 +211,7 @@ export function VenueSpotDesk({
   const pick = (side: VenueSide, kind: VenueOrderType, price: string, amount: string) => {
     if (!offeredTypes.includes(kind)) return;
     setType(kind);
+    setTicketSide(side);
     const worstNow = kind === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null;
     (side === 'buy' ? buyHandle : sellHandle).current?.pick({
       type: kind,
@@ -204,6 +224,9 @@ export function VenueSpotDesk({
   const onLadderPick = (p: LadderPick) =>
     pick(p.side, 'limit', p.price, clickAmountOk(clickAmount, market.lotSize) ? clickAmount.trim() : '');
   const onChartTrade = (p: ChartPick) => pick(p.side, p.type, p.price, p.amount);
+  // A book level or a print clicked: its price on both limit tickets, the sizes kept, nothing sent.
+  const onPickPrice = (at: string) =>
+    offeredTypes.includes('limit') && (setType('limit'), buyHandle.current?.price(at), sellHandle.current?.price(at));
   // An order placed on the chart itself (J-charts-desk-15): its key kept as the ticket's are, so the desk's Cancel names it.
   const chartPlaced = (intent: OrderIntent, answer: ActionResult) => {
     if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
@@ -270,6 +293,7 @@ export function VenueSpotDesk({
     <div data-testid="venue-centre" className="lt-stack">
       <VenueMarketPanel
         market={market}
+        onPickPrice={onPickPrice}
         test={status.test}
         venueName={status.venue.displayName}
         chartTools={
@@ -345,22 +369,30 @@ export function VenueSpotDesk({
       ) : null}
     </div>
   );
+  const maintenanceLine = venueMaintenanceLine(maintenance, t);
   const ticket = (
     <div className="lt-stack">
       <div data-testid="dk-order" className="lt-panel">
+        {maintenance && maintenanceLine ? (
+          <p className="lt-note" role="status" data-testid="dk-maintenance">
+            {maintenanceLine}
+            {maintenance.endsAt === null ? ` · ${t('End time not set')}` : ''}
+          </p>
+        ) : null}
+        <TicketSideSwitch side={ticketSide} onSide={setTicketSide} />
         <div className="lt-panel-head">
           <Tabs
             id="venue-type"
             label={t('Order type')}
             items={offeredTypes.map((x) => ({ value: x, label: x === 'limit' ? d('Limit') : d('Market') }))}
-            value={type}
+            value={activeType}
             onChange={(value) => setType(value as VenueOrderType)}
           />
-          <NotOfferedTypes market={market} />
+          <NotOfferedTypes market={market} marketDisabledReason={marketDisabledReason} />
         </div>
         <div className="lt-row">
-          {type === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
-          {type === 'limit' && tif === 'GTD' ? (
+          {activeType === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
+          {activeType === 'limit' && tif === 'GTD' ? (
             <label className="lt-field">
               <span>{t('Expires')}</span>
               <DateInput
@@ -379,14 +411,15 @@ export function VenueSpotDesk({
           ) : null}
           <VenueSelfTradeSelect market={market} />
         </div>
-        <TabPanel id="venue-type" value={type} current={type}>
+        <TabPanel id="venue-type" value={activeType} current={activeType}>
           <div className="lt-stack">
             {(['buy', 'sell'] as const).map((side) => (
               <VenueSideForm
                 key={`${side}:${owner ?? ''}`}
+                hidden={side !== ticketSide}
                 side={side}
-                type={type}
-                tif={type === 'limit' ? tif : 'GTC'}
+                type={activeType}
+                tif={activeType === 'limit' ? tif : 'GTC'}
                 expireAt={expireAt}
                 protectionBps={cap?.known ? cap.value : null}
                 market={market}
@@ -394,7 +427,9 @@ export function VenueSpotDesk({
                 owner={owner}
                 access={access}
                 account={account}
-                worst={type === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null}
+                worst={
+                  activeType === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null
+                }
                 capSet={capSet}
                 run={run}
                 onPlaced={placed}
@@ -407,42 +442,45 @@ export function VenueSpotDesk({
         </TabPanel>
       </div>
       <VenueConditionalOrders market={market} owner={owner} venueName={status.venue.displayName} />
-      <div className="lt-stack" data-testid="venue-side">
-        <FeeCurrencyRow />
-        <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-        <VenueAccountPanel
-          status={status}
-          market={market}
-          balances={account.balances.data}
-          onDeposit={() => setDialog('deposit')}
-          onWithdraw={() => setDialog('withdraw')}
-          onFlatten={(amount) => {
-            setType('market');
-            flattenHandle.current?.flatten(
-              amount,
-              cap?.known ? slippageLimit('sell', best.data?.value ?? null, cap.value, market.tickSize) : null,
-            );
-          }}
-          withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
-        />
-        {owner && <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />}
-        {owner && pending.length > 0 ? (
-          <section className="lt-panel" data-testid="venue-pending" aria-label={t('Pending title')}>
-            <h2 className="lt-panel-title">{t('Pending title')}</h2>
-            {pending.map((entry) => (
-              <PendingCheck key={entry.clientOrderId} owner={owner} entry={entry} onFound={onFound} onSendAgain={sendAgain} />
-            ))}
-            <p className="lt-note" role="status">
-              {t('Pending wait')}
-            </p>
-          </section>
-        ) : found ? (
-          <p className="lt-note" role="status" data-testid="venue-pending-found">
-            {found}
+    </div>
+  );
+  const accountSide = (
+    <div className="lt-stack" data-testid="venue-side">
+      <FeeCurrencyRow />
+      <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+      <VenueAccountPanel
+        status={status}
+        market={market}
+        balances={account.balances.data}
+        onDeposit={() => setDialog('deposit')}
+        onWithdraw={() => setDialog('withdraw')}
+        onFlatten={(amount) => {
+          setType('market');
+          setTicketSide('sell');
+          flattenHandle.current?.flatten(
+            amount,
+            cap?.known ? slippageLimit('sell', best.data?.value ?? null, cap.value, market.tickSize) : null,
+          );
+        }}
+        withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
+      />
+      {owner && <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />}
+      {owner && pending.length > 0 ? (
+        <section className="lt-panel" data-testid="venue-pending" aria-label={t('Pending title')}>
+          <h2 className="lt-panel-title">{t('Pending title')}</h2>
+          {pending.map((entry) => (
+            <PendingCheck key={entry.clientOrderId} owner={owner} entry={entry} onFound={onFound} onSendAgain={sendAgain} />
+          ))}
+          <p className="lt-note" role="status">
+            {t('Pending wait')}
           </p>
-        ) : null}
-        <VenueMarketRules market={market} venueName={status.venue.displayName} />
-      </div>
+        </section>
+      ) : found ? (
+        <p className="lt-note" role="status" data-testid="venue-pending-found">
+          {found}
+        </p>
+      ) : null}
+      <VenueMarketRules market={market} venueName={status.venue.displayName} />
     </div>
   );
   const bottom = (
@@ -522,21 +560,26 @@ export function VenueSpotDesk({
   );
   // No market list or book column: the market panel holds ticker, chart, book and tape; the ticket and account beside it.
   return (
-    <div data-testid="if-desk" data-market={market.symbol} data-venue="on">
+    <div className="xd" data-testid="if-desk" data-market={market.symbol} data-venue="on">
       <DeskTemplate
         title={d('Spot desk')}
         mode="pro"
         state={{ kind: 'ready' }}
-        arrangement={{ columns: [{ region: 'chart', width: 'minmax(0, 1fr)' }] }}
         instrument={
           <>
             <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
+            <VenueDeskTicker market={market} timeZone={timeZone} />
             <ActionLimitWarning venueName={status.venue.displayName} />
           </>
         }
         chart={chartColumn}
         ticket={ticket}
-        orders={bottom}
+        orders={
+          <div className="xd-under">
+            {bottom}
+            {accountSide}
+          </div>
+        }
       />
       {dialog === 'deposit' && owner ? <DepositDialog route={route} test={status.test} onClose={() => setDialog(null)} /> : null}
       {dialog === 'withdraw' && owner ? (
@@ -553,10 +596,4 @@ export function VenueSpotDesk({
       ) : null}
     </div>
   );
-}
-
-/** What one signed venue cancel came to, as one-click cancel reports it: a doubtful answer is never retried. */
-function cancelOutcome(answer: ActionResult): CancelOutcome {
-  if (answer.kind === 'outcome') return answer.outcome.accepted ? 'done' : 'refused';
-  return answer.kind === 'unknown' ? 'uncertain' : 'refused';
 }

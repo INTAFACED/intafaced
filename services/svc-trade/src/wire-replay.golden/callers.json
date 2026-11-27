@@ -201,6 +201,9 @@
   { "path": "copy.skipLog", "type": "query", "caller": "scope" },
   { "path": "copy.stop", "type": "mutation", "caller": "scope" },
   { "path": "copy.unfollow", "type": "mutation", "caller": "scope" },
+  { "path": "dailyLoss.get", "type": "query", "caller": "scope" },
+  { "path": "dailyLoss.off", "type": "mutation", "caller": "scope" },
+  { "path": "dailyLoss.set", "type": "mutation", "caller": "scope" },
   { "path": "fills.forOrder", "type": "query", "caller": "scope" },
   { "path": "fills.mine", "type": "query", "caller": "scope" },
   { "path": "forex.assertProductionListing", "type": "mutation", "caller": "scope" },
@@ -208,6 +211,7 @@
   { "path": "forex.settlementStatus", "type": "query", "caller": "scope" },
   { "path": "futures.policy", "type": "query", "caller": "public" },
   { "path": "health", "type": "query", "caller": "public" },
+  { "path": "journal.closedTrades", "type": "query", "caller": "scope" },
   { "path": "markets.get", "type": "query", "caller": "public" },
   { "path": "markets.list", "type": "query", "caller": "public" },
   { "path": "options.catalogue", "type": "query", "caller": "scope" },
@@ -254,5 +258,6 @@
   { "path": "standing.execute", "type": "mutation", "caller": "service" },
   { "path": "standing.quote", "type": "mutation", "caller": "service" },
   { "path": "support.tradeSummary", "type": "query", "caller": "service" },
+  { "path": "venue.deskSnapshot", "type": "mutation", "caller": "service" },
   { "path": "venue.ownActivity", "type": "mutation", "caller": "service" }
 ]

@@ -17,12 +17,12 @@ vi.mock('../ui/PortalReview', async () => {
     ),
   };
 });
-// The invoice's own page confirms through the kit's review (`../volt/Review`): drawn in place the same way.
+// The invoice's own page and create form confirm through the kit's review (`../volt/Review`): drawn in place the same way.
 vi.mock('../volt/Review', async () => {
   const { ExactMoneyScope } = await import('../ui/ExactMoneyScope');
   return {
-    Review: ({ review, title }: { review?: ReactNode; title: string }) => (
-      <div data-review={title}>
+    Review: ({ review, title, disabled }: { review?: ReactNode; title: string; disabled?: boolean }) => (
+      <div data-review={title} data-disabled={disabled ? '' : undefined}>
         <ExactMoneyScope>{review}</ExactMoneyScope>
       </div>
     ),

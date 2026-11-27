@@ -64,6 +64,7 @@ import {
   type UserVenueLongShort,
   type UserVenueMarginTier,
   type UserVenueCollateral,
+  type UserVenuePriceBand,
   type UserVenueMarketMargin,
   type UserVenueMarketEvent,
   type UserVenueSettlement,
@@ -344,11 +345,18 @@ export interface SimMarketConfig {
     readonly homeMarket: string;
     readonly offHoursMode?: string;
     readonly offHoursBand?: string;
-    readonly offHoursBandBps: number;
-    readonly offHoursMaxLeverageBps: number;
+    readonly offHoursBandBps?: number;
+    readonly offHoursMaxLeverageBps?: number;
     readonly offHoursRule?: string;
+    readonly closedRule?: string;
+    readonly closedAtStart?: boolean;
     readonly reopensAfterMs?: number;
   };
+  /** Opening window end (limit orders only until then, J-cex-spot-14 #7). */
+  readonly openingWindowEndsAt?: Date | null;
+  /** Higher-risk zone and per-order quote cap (J-cex-spot-14 #7). */
+  readonly zone?: 'higher_risk' | null;
+  readonly zoneOrderCap?: Amount | null;
   /**
    * Set on a market whose deployer keeps its own margin account for it (a HIP-3 deployer's margin, apart from the main
    * account): its name, collateral asset and margin mode. Orders on it draw on that account only.
@@ -722,6 +730,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly sessionUnpublished = new Set<string>();
   /** Session markets whose home market is closed: the mark when it closed, and the reopen time the venue published. */
   private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
+  /** Session markets whose session is fully closed (no orders queued, J-cex-spot-14 #6). */
+  private readonly closedSessions = new Map<string, { reopensAt: Date | null }>();
+  /** Monotonic book sequence per market, bumped on every resting-book change (J-cex-spot-14 #8). */
+  private readonly bookSequence = new Map<string, number>();
   private readonly accounts = new Map<string, AccountState>();
   /** The venue's published fee tiers and how it counts volume (J-cex-spot-10 #2 #6). */
   private feeSchedule: VenueFeeTiers = { tiers: null, volumeAsset: 'USDC', volumeDays: 14 };
@@ -755,6 +767,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderNotional: Amount | null;
       minOrderNotional: Amount | null;
       priceBandBps: Amount | null;
+      /** TEST dynamic price range override (J-derivatives-02 #8): active width and reason while widened, null when usual. */
+      dynamicBand: { widthBps: Amount; reason: string } | null;
       maxOpenOrders: number | null;
     }
   >();
@@ -837,7 +851,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     for (const market of options.markets) {
       this.marketsBySymbol.set(market.symbol, market);
       this.resting.set(market.symbol, []);
+      this.bookSequence.set(market.symbol, 1);
       this.triggers.set(market.symbol, []);
+      if (market.session?.closedAtStart) {
+        const after = market.session.reopensAfterMs;
+        this.closedSessions.set(market.symbol, {
+          reopensAt: after === undefined ? null : new Date(this.clock().getTime() + after),
+        });
+      }
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
       if (market.kind === 'perpetual' && market.markPrice !== undefined) this.indexes.set(market.symbol, market.markPrice);
       this.samplePrices(market.symbol);
@@ -847,6 +868,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         maxOrderNotional: market.maxOrderNotional ?? null,
         minOrderNotional: market.minOrderNotional ?? null,
         priceBandBps: market.priceBandBps ?? null,
+        dynamicBand: null,
         maxOpenOrders: market.maxOpenOrders ?? null,
       });
       if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
@@ -863,7 +885,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
     this.marketsBySymbol.set(market.symbol, market);
     this.resting.set(market.symbol, []);
+    this.bookSequence.set(market.symbol, 1);
     this.triggers.set(market.symbol, []);
+    if (market.session?.closedAtStart) {
+      const after = market.session.reopensAfterMs;
+      this.closedSessions.set(market.symbol, {
+        reopensAt: after === undefined ? null : new Date(this.clock().getTime() + after),
+      });
+    }
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
     if (market.kind === 'perpetual' && market.markPrice !== undefined) this.indexes.set(market.symbol, market.markPrice);
     this.samplePrices(market.symbol);
@@ -873,6 +902,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderNotional: market.maxOrderNotional ?? null,
       minOrderNotional: market.minOrderNotional ?? null,
       priceBandBps: market.priceBandBps ?? null,
+      dynamicBand: null,
       maxOpenOrders: market.maxOpenOrders ?? null,
     });
     if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
@@ -1020,6 +1050,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (limits.minOrderNotional !== undefined) state.minOrderNotional = limits.minOrderNotional;
     if (limits.priceBandBps !== undefined) state.priceBandBps = limits.priceBandBps;
     if (limits.maxOpenOrders !== undefined) state.maxOpenOrders = limits.maxOpenOrders;
+  }
+
+  /**
+   * TEST control: widen a market's dynamic price range with the venue's reason (J-derivatives-02 #8), or pass `null` to
+   * return to its usual `priceBandBps`. Changes no resting order.
+   */
+  setDynamicPriceBand(symbol: string, band: { widthBps: Amount; reason: string } | null): void {
+    this.market(symbol);
+    if (band !== null && compare(band.widthBps, ZERO) <= 0)
+      refuse(this.venue.id, 'venue_rejected', 'dynamic price band width must be positive');
+    const state = this.marketState.get(symbol);
+    if (state) state.dynamicBand = band;
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
@@ -1258,19 +1300,30 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * Close a session market's home market (`off_hours`: the venue's off-hours rule applies from now, the band around the
-   * mark at this moment) or open it again. A market with no home market has no session to switch: refuses `not_offered`.
+   * mark at this moment; `closed`: session shut with no orders queued) or open it again. A market with no home market
+   * has no session to switch: refuses `not_offered`.
    */
-  setSession(symbol: string, state: 'open' | 'off_hours'): void {
+  setSession(symbol: string, state: 'open' | 'off_hours' | 'closed'): void {
     const market = this.market(symbol);
     if (!market.session) refuse(this.venue.id, 'not_offered', `${symbol} has no home market on ${this.venue.displayName}`);
     if (state === 'open') {
       this.offHours.delete(symbol);
+      this.closedSessions.delete(symbol);
       return;
     }
+    const after = market.session.reopensAfterMs;
+    if (state === 'closed') {
+      this.offHours.delete(symbol);
+      if (this.closedSessions.has(symbol)) return;
+      this.closedSessions.set(symbol, {
+        reopensAt: after === undefined ? null : new Date(this.clock().getTime() + after),
+      });
+      return;
+    }
+    this.closedSessions.delete(symbol);
     if (this.offHours.has(symbol)) return;
     const closedMark = this.marks.get(symbol);
     if (closedMark === undefined) throw new Error(`TEST simulator: ${symbol} has no mark to hold its off-hours band to`);
-    const after = market.session.reopensAfterMs;
     this.offHours.set(symbol, {
       closedMark,
       reopensAt: after === undefined ? null : new Date(this.clock().getTime() + after),
@@ -1373,7 +1426,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
       minOrderNotional: this.marketState.get(m.symbol)!.minOrderNotional,
-      priceBandBps: this.marketState.get(m.symbol)!.priceBandBps,
+      priceBandBps: this.marketState.get(m.symbol)?.dynamicBand?.widthBps ?? this.marketState.get(m.symbol)?.priceBandBps ?? null,
+      priceBand: this.priceBandOf(m),
       maxOpenOrders: this.marketState.get(m.symbol)!.maxOpenOrders,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
       listedBy: published(m.listedBy),
@@ -1400,6 +1454,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       // One rate only where the market has no tiers: with tiers, a position's rate is its tier's.
       maintenanceMarginRate: published(m.kind === 'perpetual' && !m.marginTiers ? m.maintenanceMarginRate : undefined),
       collateral: published(m.collateral),
+      openingWindowEndsAt: m.openingWindowEndsAt ?? null,
+      zone: m.zone ?? null,
+      zoneOrderCap: m.zoneOrderCap ?? null,
     }));
     return this.asOf(list);
   }
@@ -1519,6 +1576,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     prints.sort((a, b) => a.tradedAt.getTime() - b.tradedAt.getTime());
     if (prints.length > PRINTS_KEPT) prints.splice(0, prints.length - PRINTS_KEPT);
     this.prints.set(market.symbol, prints);
+    this.bumpBook(market.symbol);
     return entries.length;
   }
 
@@ -1539,7 +1597,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       }
       return out;
     };
-    return this.asOf({ symbol, bids: levels('buy'), asks: levels('sell') });
+    return this.asOf({ symbol, bids: levels('buy'), asks: levels('sell'), sequence: this.bookSequence.get(symbol) ?? 1 });
   }
 
   async preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
@@ -1633,12 +1691,42 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           marginMode: setting.marginMode,
         };
       }
+      let riskTier: NonNullable<VenueOrderPreview['perpetual']>['riskTier'] = null;
+      if (market.marginTiers?.length) {
+        const orderSide = intent.side === 'buy' ? 'long' : 'short';
+        const same = held && held.size !== ZERO && held.side === orderSide;
+        const current = same ? market.marginTiers.indexOf(tierOf(market.marginTiers, mul(held.size, held.entryPrice, 'ceil'))) + 1 : null;
+        if (intent.reduceOnly) {
+          const tier = market.marginTiers[(current ?? 1) - 1] ?? market.marginTiers[0];
+          if (tier) {
+            riskTier = {
+              current,
+              projected: current ?? 1,
+              maxLeverageBps: tier.maxLeverageBps,
+              maintenanceRate: tier.maintenanceRate,
+              confirmRequired: false,
+            };
+          }
+        } else {
+          const notional = mul(add(same ? held.size : ZERO, intent.amount), intent.price, 'ceil');
+          const tier = tierOf(market.marginTiers, notional);
+          const projected = market.marginTiers.indexOf(tier) + 1;
+          riskTier = {
+            current,
+            projected,
+            maxLeverageBps: tier.maxLeverageBps,
+            maintenanceRate: tier.maintenanceRate,
+            confirmRequired: projected > (current ?? 1),
+          };
+        }
+      }
       perpetual = {
         leverageBps: setting.leverageBps,
         marginMode: setting.marginMode,
         initialMargin: { known: true, value: initialMargin },
         // No position left after a full close: there is no liquidation price to publish.
         liquidationPrice: after ? this.liquidationPrice(market, after) : { known: false },
+        riskTier,
       };
     }
 
@@ -3355,10 +3443,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   private sessionOf(market: SimMarketConfig): UserVenueSession {
     const session = market.session!;
-    const closed = this.offHours.get(market.symbol);
+    const shut = this.closedSessions.get(market.symbol);
+    const off = this.offHours.get(market.symbol);
+    const state: UserVenueSession['state'] = shut ? 'closed' : off ? 'off_hours' : 'open';
+    const reopensAt = shut?.reopensAt ?? off?.reopensAt ?? null;
     if (this.sessionUnpublished.has(market.symbol)) {
       return {
-        state: closed ? 'off_hours' : 'open',
+        state,
         homeMarket: session.homeMarket,
         offHoursMode: { known: false },
         offHoursBand: { known: false },
@@ -3368,13 +3459,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       };
     }
     return {
-      state: closed ? 'off_hours' : 'open',
+      state,
       homeMarket: session.homeMarket,
       offHoursMode: published(session.offHoursMode),
       offHoursBand: published(session.offHoursBand),
-      offHoursMaxLeverageBps: session.offHoursMaxLeverageBps,
-      reopensAt: closed?.reopensAt ?? null,
-      offHoursRule: published(session.offHoursRule),
+      offHoursMaxLeverageBps: session.offHoursMaxLeverageBps ?? null,
+      reopensAt,
+      offHoursRule: published(shut ? (session.closedRule ?? session.offHoursRule) : session.offHoursRule),
     };
   }
 
@@ -3390,11 +3481,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const words = (why: string) =>
       (!this.sessionUnpublished.has(market.symbol) && session.offHoursRule) || `${market.symbol}'s home market is closed: ${why}`;
     if (intent.type === 'market') refuse(this.venue.id, 'market_off_hours', words('no market orders until it reopens'));
-    if (leverageBps > session.offHoursMaxLeverageBps)
+    if (session.offHoursMaxLeverageBps !== undefined && leverageBps > session.offHoursMaxLeverageBps)
       refuse(this.venue.id, 'market_off_hours', words(`at most ${session.offHoursMaxLeverageBps / 10_000}x off hours`));
-    const reach = div(mul(closed.closedMark, parseAmount(String(session.offHoursBandBps))), BPS, 'floor');
-    if (compare(intent.price, add(closed.closedMark, reach)) > 0 || compare(intent.price, sub(closed.closedMark, reach)) < 0)
-      refuse(this.venue.id, 'market_off_hours', words('the price is outside the off-hours band'));
+    if (session.offHoursBandBps !== undefined) {
+      const reach = div(mul(closed.closedMark, parseAmount(String(session.offHoursBandBps))), BPS, 'floor');
+      if (compare(intent.price, add(closed.closedMark, reach)) > 0 || compare(intent.price, sub(closed.closedMark, reach)) < 0)
+        refuse(this.venue.id, 'market_off_hours', words('the price is outside the off-hours band'));
+    }
   }
 
   /** The cap's refusal, in the venue's words: the market and the most it allows. */
@@ -3490,6 +3583,28 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (own.status === 'cancel_only')
       refuse(this.venue.id, 'market_cancel_only', `${market.symbol} takes cancels only on ${this.venue.displayName}`);
     if (own.status === 'delisted') refuse(this.venue.id, 'market_delisted', `${market.symbol} is delisted on ${this.venue.displayName}`);
+    if (this.closedSessions.has(market.symbol))
+      refuse(
+        this.venue.id,
+        'market_closed',
+        market.session?.closedRule ?? `${market.symbol} is closed on ${this.venue.displayName}. Orders are not queued while it is closed`,
+      );
+    if (own.status === 'limit_only' && intent.type === 'market')
+      refuse(this.venue.id, 'market_limit_only', `${market.symbol} takes limit orders only on ${this.venue.displayName}`);
+    if (market.openingWindowEndsAt && this.clock().getTime() < market.openingWindowEndsAt.getTime() && intent.type === 'market')
+      refuse(this.venue.id, 'opening_window', `${market.symbol} takes limit orders only until its opening window ends`);
+    if (market.zone === 'higher_risk' && intent.type === 'market')
+      refuse(this.venue.id, 'higher_risk_zone', `${market.symbol} is in the higher-risk zone, which takes limit orders only`);
+    if (
+      market.zone === 'higher_risk' &&
+      market.zoneOrderCap != null &&
+      compare(mul(intent.amount, intent.price, 'ceil'), market.zoneOrderCap) > 0
+    )
+      refuse(
+        this.venue.id,
+        'zone_cap_exceeded',
+        `${market.symbol} is in the higher-risk zone: orders are capped at ${formatAmount(market.zoneOrderCap)} ${market.quoteAsset}`,
+      );
     if (own.maxOrderQty !== null && compare(intent.amount, own.maxOrderQty) > 0)
       refuse(this.venue.id, 'order_above_venue_max', `size is above the largest order on ${market.symbol}`);
     if (own.maxOrderNotional !== null && compare(mul(intent.amount, intent.price, 'ceil'), own.maxOrderNotional) > 0)
@@ -3818,6 +3933,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         balance.locked = sub(balance.locked, freed);
         balance.free = add(balance.free, freed);
         resting.order = { ...o, amount: add(o.filled, intent.amount), remaining: intent.amount, locked: sub(o.locked, freed) };
+        this.bumpBook(intent.symbol);
         return accepted(resting.order.venueOrderId, resting.order);
       }
       case 'withdraw': {
@@ -4305,6 +4421,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         this.release(order, 'canceled');
       } else {
         this.bookOf(market.symbol).push(order);
+        this.bumpBook(market.symbol);
       }
     }
     return accepted(order.order.venueOrderId, order.order);
@@ -4368,6 +4485,32 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * book's reference price, as a venue values a market order; with no reference, at its bound. A trigger order's limit
    * price is checked against the band when it triggers, not when it is placed, so the band leaves it alone here.
    */
+  private priceBandOf(market: SimMarketConfig): MaybeKnown<UserVenuePriceBand> {
+    const own = this.marketState.get(market.symbol);
+    if (!own) return { known: false };
+    const widthBps = own.dynamicBand?.widthBps ?? own.priceBandBps;
+    if (widthBps === null) return { known: false };
+    let bid: Amount | null = null;
+    let ask: Amount | null = null;
+    for (const o of this.bookOf(market.symbol)) {
+      if (o.order.side === 'buy' && (bid === null || compare(o.order.price, bid) > 0)) bid = o.order.price;
+      if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
+    }
+    const bookMid = bid !== null && ask !== null ? div(add(bid, ask), parseAmount('2'), 'floor') : (bid ?? ask);
+    const bandReference = bookMid ?? (market.kind === 'perpetual' ? (this.marks.get(market.symbol) ?? null) : null);
+    if (bandReference === null) return { known: false };
+    const reach = div(mul(bandReference, widthBps, 'floor'), BPS, 'floor');
+    const bandLow = max(ZERO, sub(bandReference, reach));
+    const bandHigh = add(bandReference, reach);
+    const usualWidthBps = own.priceBandBps ?? widthBps;
+    const widened = own.dynamicBand !== null && compare(widthBps, usualWidthBps) > 0;
+    const reason = widened && own.dynamicBand ? own.dynamicBand.reason : null;
+    return {
+      known: true,
+      value: { widthBps, usualWidthBps, bandReference, bandLow, bandHigh, widened, reason },
+    };
+  }
+
   private checkPublishedRules(state: AccountState, market: SimMarketConfig, intent: PlaceUserOrderIntent): void {
     const own = this.marketState.get(market.symbol)!;
     const quote = market.quoteAsset;
@@ -4386,15 +4529,17 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         `the order's value is below the smallest order on ${market.symbol}, ${formatAmount(own.minOrderNotional)} ${quote}`,
       );
     }
-    if (own.priceBandBps !== null && intent.type === 'limit' && !intent.trigger && reference !== null) {
-      const reach = div(mul(reference, own.priceBandBps, 'floor'), BPS, 'floor');
-      const low = sub(reference, reach);
-      const high = add(reference, reach);
+    const effectiveBandBps = own.dynamicBand?.widthBps ?? own.priceBandBps;
+    const bandRef = reference ?? (market.kind === 'perpetual' ? (this.marks.get(market.symbol) ?? null) : null);
+    if (effectiveBandBps !== null && intent.type === 'limit' && !intent.trigger && bandRef !== null) {
+      const reach = div(mul(bandRef, effectiveBandBps, 'floor'), BPS, 'floor');
+      const low = max(ZERO, sub(bandRef, reach));
+      const high = add(bandRef, reach);
       if (compare(intent.price, low) < 0 || compare(intent.price, high) > 0) {
         refuse(
           this.venue.id,
           'price_outside_venue_band',
-          `${market.symbol} takes limit prices from ${formatAmount(low)} to ${formatAmount(high)} ${quote} right now (within ${formatAmount(own.priceBandBps)} bps of ${formatAmount(reference)})`,
+          `${market.symbol} takes limit prices from ${formatAmount(low)} to ${formatAmount(high)} ${quote} right now (within ${formatAmount(effectiveBandBps)} bps of ${formatAmount(bandRef)})`,
         );
       }
     }
@@ -4412,6 +4557,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   private bookOf(symbol: string): OrderState[] {
     return this.resting.get(symbol) as OrderState[];
+  }
+
+  private bumpBook(symbol: string): void {
+    this.bookSequence.set(symbol, (this.bookSequence.get(symbol) ?? 1) + 1);
   }
 
   /** One fill between a resting maker and an incoming taker at the maker's price. */
@@ -4485,6 +4634,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     });
     if (prints.length > PRINTS_KEPT) prints.splice(0, prints.length - PRINTS_KEPT);
     this.prints.set(market.symbol, prints);
+    this.bumpBook(market.symbol);
     // An oracle market's mark is the oracle price: a fill does not move it.
     if (market.kind === 'perpetual' && !market.oracle) {
       this.marks.set(market.symbol, price);
@@ -4695,6 +4845,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (o.order.remaining === ZERO || !isLive(o)) return;
     if (o.order.type === 'limit') {
       this.bookOf(market.symbol).push(o);
+      this.bumpBook(market.symbol);
       return;
     }
     if (o.order.filled === ZERO) {
@@ -5012,7 +5163,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     order.order = { ...order.order, locked: ZERO, status, ...(cancelReason ? { cancelReason } : {}) };
     const book = this.bookOf(o.symbol);
     const at = book.indexOf(order);
-    if (at >= 0) book.splice(at, 1);
+    if (at >= 0) {
+      book.splice(at, 1);
+      this.bumpBook(o.symbol);
+    }
     const waiting = this.triggers.get(o.symbol) ?? [];
     const w = waiting.indexOf(order);
     if (w >= 0) waiting.splice(w, 1);

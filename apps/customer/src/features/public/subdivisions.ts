@@ -1,8 +1,9 @@
 /**
  * The provinces and territories /register asks for (ISO 3166-2), for the countries where a block covers part of the
- * country only: Canada (Ontario) and Ukraine (Crimea, Sevastopol, Donetsk, Luhansk). Names in English, as ISO publishes
- * them. The list says nothing about which region is blocked: svc-identity decides that from its own lists, and refuses
- * a country it needs a province for with `identity.subdivision_required` whether or not this page lists one.
+ * country only: Canada (Ontario) and Ukraine (Crimea, Sevastopol, Donetsk, Luhansk, Kherson, Zaporizhzhia). Names in
+ * English, as ISO publishes them. The list says nothing about which region is blocked: svc-identity decides that from
+ * its own lists, and refuses a country it needs a province for with `identity.subdivision_required` whether or not this
+ * page lists one.
  */
 const SUBDIVISIONS: Readonly<Record<string, ReadonlyArray<readonly [code: string, name: string]>>> = {
   CA: [

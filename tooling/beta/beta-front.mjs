@@ -15,6 +15,10 @@
  *   - Location answers on the loopback origin point back at the public origin.
  *   - WebSocket upgrades get the same request rewrites.
  *   - Cloudflare Access's token (Cf-Access-Jwt-Assertion, the CF_Authorization cookie) never reaches the stack.
+ *   - X-Forwarded-For becomes the caller's own address, from Cloudflare's Cf-Connecting-Ip (which Cloudflare sets on
+ *     every request it passes, over anything the caller sent), else this front's TCP peer; every forwarding header the
+ *     caller sent is dropped. The stack trusts this one hop on loopback (EDGE_TRUST_PROXY, WS_TRUST_PROXY), so each
+ *     tester has their own rate-limit bucket and per-IP socket budget, and nobody can name another address (#11027).
  *   - The mailbox gets the viewer's token (VIEWER_HEADER), read from the Access token, and shows only the mail of the
  *     TEST addresses that start with it, so each person sees only the codes for the accounts they created (owner
  *     decision project-state#3903). No Access token, no mailbox. The tunnel already refused any request whose Access
@@ -81,15 +85,31 @@ function withoutAccessCookie(cookie) {
   return kept.length ? kept.join('; ') : null;
 }
 
-/** Request headers for the app upstream. `upgrade` keeps Connection/Upgrade for a WebSocket handshake. */
-export function appRequestHeaders(headers, { upgrade = false } = {}) {
+/** Forwarding headers only this front writes: whatever a caller sends under these names is dropped. */
+const FORWARDING = new Set(['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-forwarded-port', 'x-real-ip', 'forwarded']);
+
+/** The caller's own address: Cloudflare's Cf-Connecting-Ip when it is one IP address, else this front's TCP peer. */
+function callerAddress(headers, peer) {
+  const cf = String(headers['cf-connecting-ip'] ?? '').trim();
+  if (net.isIP(cf)) return cf;
+  return peer && net.isIP(peer) ? peer : null;
+}
+
+/**
+ * Request headers for the app upstream. `upgrade` keeps Connection/Upgrade for a WebSocket handshake; `peer` is this
+ * front's TCP peer (cloudflared's address), the caller's address when Cloudflare named none.
+ */
+export function appRequestHeaders(headers, { upgrade = false, peer = null } = {}) {
   const out = {};
   for (const [k, v] of Object.entries(headers)) {
     const lk = k.toLowerCase();
     if (!upgrade && HOP.has(lk)) continue;
     if (lk === 'cf-access-jwt-assertion') continue;
+    if (FORWARDING.has(lk)) continue;
     out[lk] = v;
   }
+  const caller = callerAddress(out, peer);
+  if (caller) out['x-forwarded-for'] = caller;
   out.host = APP.upstreamHost;
   if (out.origin === PUBLIC_ORIGIN) out.origin = APP.upstreamOrigin;
   if (typeof out.referer === 'string' && (out.referer === PUBLIC_ORIGIN || out.referer.startsWith(`${PUBLIC_ORIGIN}/`)))
@@ -218,7 +238,7 @@ export function frontApp({ upstream = APP.upstream, statusFile = STATUS_FILE, ca
     const page = wantsPage(req);
     const hold = holdOf(status());
     if (page && hold) return sendHold(req, res, hold);
-    const headers = appRequestHeaders(req.headers);
+    const headers = appRequestHeaders(req.headers, { peer: req.socket.remoteAddress });
     if (page) delete headers['accept-encoding']; // the page comes back plain, so the watch script can be added
     const up = http.request({ host: '127.0.0.1', port: upstream, method: req.method, path: req.url, headers }, (ur) => {
       const out = responseHeaders(ur);
@@ -249,7 +269,7 @@ export function frontApp({ upstream = APP.upstream, statusFile = STATUS_FILE, ca
     if (!APP_HOSTS.has(req.headers.host ?? ''))
       return socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
     const upSocket = net.connect(upstream, '127.0.0.1', () => {
-      const headers = appRequestHeaders(req.headers, { upgrade: true });
+      const headers = appRequestHeaders(req.headers, { upgrade: true, peer: req.socket.remoteAddress });
       const lines = [`${req.method} ${req.url} HTTP/1.1`];
       for (const [k, v] of Object.entries(headers)) for (const one of [].concat(v)) lines.push(`${k}: ${one}`);
       upSocket.write(`${lines.join('\r\n')}\r\n\r\n`);

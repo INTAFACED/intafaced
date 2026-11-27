@@ -1,15 +1,24 @@
 import { useMemo } from 'react';
-import { venueMarketStatesSchema, type VenueMarketState, type VenueMarketStates } from '@intafaced/contracts/trade-venue-door';
+import {
+  venueMarketStatesSchema,
+  venueTickersReadSchema,
+  type VenueMarketState,
+  type VenueMarketStates,
+  type VenueTickerRow,
+  type VenueTickersRead,
+} from '@intafaced/contracts/trade-venue-door';
+import { maintenanceOf, type MaintenanceWindowSoon } from '../shared/market-maintenance';
 import { useDataEnv, useSource } from './hooks';
 import type { Fetcher } from './poll';
-import type { ListingState, Loadable, MarketRow } from './types';
+import type { ListingState, Loadable, MarketRow, TickerRow } from './types';
 
-export type { VenueMarketState, VenueMarketStates };
+export type { VenueMarketState, VenueMarketStates, VenueTickersRead };
 
 /**
- * The venue's own market states (J-cex-spot-14 #1 #2): svc-trade's public `GET /api/v1/venue/market-states`, each market
- * we show with the venue's trading state and session and our listing beside them. Where the deployment's venue door is
- * off the read refuses `trade.user_venue_off`, and the screens keep reading what they read today.
+ * The venue's own market states (J-cex-spot-14 #1 #2 #5 #6 #7): svc-trade's public `GET /api/v1/venue/market-states`,
+ * each market we show with the venue's trading state, session, opening window, zone, our listing and upcoming
+ * maintenance beside them. Where the deployment's venue door is off the read refuses `trade.user_venue_off`, and the
+ * screens keep reading what they read today.
  */
 export const VENUE_DOOR_OFF = 'trade.user_venue_off';
 
@@ -26,16 +35,50 @@ export function useVenueMarketStates(): Loadable<VenueMarketStates> {
   );
 }
 
+/**
+ * The venue's own prices on each spot market it lists (J-cex-spot-14 #8): svc-trade's public `GET /api/v1/venue/tickers`,
+ * the last print, best bid and ask and the 24h range and volume from the venue's own book and tape. Re-read on the same
+ * 30 seconds as the market states.
+ */
+export function useVenueTickers(): Loadable<VenueTickersRead> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(() => {
+      const fetcher: Fetcher<VenueTickersRead> = (signal) => env.api.rest('/venue/tickers', venueTickersReadSchema, { signal });
+      return env.poller.source('venue-tickers', fetcher, { intervalMs: INTERVAL_MS });
+    }, [env]),
+  );
+}
+
+/** A venue ticker as a markets-list price row: what the venue publishes, and null (never zero) for what it does not. */
+export function venueTickerRow(t: VenueTickerRow): TickerRow {
+  return {
+    symbol: t.symbol,
+    last: t.last,
+    bid: t.bid,
+    ask: t.ask,
+    open24h: null,
+    high24h: t.high,
+    low24h: t.low,
+    change24h: null,
+    changePct24h: null,
+    baseVolume24h: t.baseVolume,
+    quoteVolume24h: t.quoteVolume,
+    windowStart: null,
+    source: 'server',
+  };
+}
+
 /** True when the read says the venue door is off here: the own-engine reads stand. */
 export const venueDoorOff = (load: Loadable<unknown>): boolean => load.status === 'refused' && load.code === VENUE_DOOR_OFF;
 
 /** A trading mode /status has words for: the one that decides what a new order on this market meets now. */
-export type VenueModeKey = 'OPEN' | 'PRELAUNCH' | 'HALTED' | 'CANCEL_ONLY' | 'REDUCE_ONLY' | 'DELISTING';
+export type VenueModeKey = 'OPEN' | 'PRELAUNCH' | 'LIMIT_ONLY' | 'HALTED' | 'CANCEL_ONLY' | 'REDUCE_ONLY' | 'DELISTING';
 
 /**
  * A market's trading mode now, from the venue's own state and our listing, the stricter first: our stop, delisting or
- * opening time refuses a new order whatever the venue says; then the venue's own state; then our close-only routing.
- * `null` when the venue reports no state for it: never assumed open.
+ * opening time refuses a new order whatever the venue says; then the venue's own state or closed session; then our
+ * close-only routing. `null` when the venue reports no state for it: never assumed open.
  */
 export function venueModeOf(m: VenueMarketState): VenueModeKey | null {
   if (m.listing.delisted || m.status === 'delisted') return 'DELISTING';
@@ -44,6 +87,8 @@ export function venueModeOf(m: VenueMarketState): VenueModeKey | null {
   if (m.status === null) return null;
   if (m.status === 'halted') return 'HALTED';
   if (m.status === 'cancel_only') return 'CANCEL_ONLY';
+  if (m.session.known && m.session.value.state === 'closed') return 'HALTED';
+  if (m.status === 'limit_only') return 'LIMIT_ONLY';
   if (m.listing.routing === 'close_only') return 'REDUCE_ONLY';
   return 'OPEN';
 }
@@ -71,4 +116,34 @@ export function venueMarketRow(m: VenueMarketState): MarketRow {
     listing,
     delistsAt: m.listing.delistsAt,
   };
+}
+
+/** Session and maintenance status per venue market for MarketsList (J-cex-spot-14 #5 #6). */
+export function venueListingStatuses(states: VenueMarketStates): Readonly<
+  Record<
+    string,
+    {
+      separateFromSpot: boolean;
+      sessionOpen: boolean | null;
+      opensAt: number | null;
+      maintenance: MaintenanceWindowSoon | null;
+    }
+  >
+> {
+  const out: Record<
+    string,
+    { separateFromSpot: boolean; sessionOpen: boolean | null; opensAt: number | null; maintenance: MaintenanceWindowSoon | null }
+  > = {};
+  for (const m of states.value.markets) {
+    const sess = m.session.known ? m.session.value : null;
+    const shut = sess?.state === 'closed';
+    const reopens = shut && sess?.reopensAt ? Date.parse(sess.reopensAt) : Number.NaN;
+    out[m.symbol] = {
+      separateFromSpot: false,
+      sessionOpen: sess ? !shut : null,
+      opensAt: Number.isNaN(reopens) ? null : reopens,
+      maintenance: maintenanceOf(m.upcomingMaintenance),
+    };
+  }
+  return out;
 }

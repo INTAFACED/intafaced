@@ -43,6 +43,10 @@ import {
   HISTORY_FILE,
   HISTORY_ARTIFACT,
   JOURNEYS_ARTIFACT,
+  betaLane,
+  isBetaPull,
+  TESTER_PATH,
+  BETA_GATE,
 } from './journey-verdict.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -1446,6 +1450,10 @@ function cli({ ref, target, priorIncomplete = false, state = 'unexpected' }) {
   const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
   delete env.GITHUB_REF;
   delete env.JOURNEYS_TARGET;
+  // Run on a beta/ pull request, CI's own GITHUB_EVENT_NAME and GITHUB_HEAD_REF would put this CLI in the beta lane, and
+  // the red it must show would be excused (#10875's Doctrine gates, 25 Nov): the test sets the run it means.
+  delete env.GITHUB_EVENT_NAME;
+  delete env.GITHUB_HEAD_REF;
   if (ref) env.GITHUB_REF = ref;
   return spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8' }).status;
 }
@@ -1921,4 +1929,154 @@ test("#10704: the verdict's own run lists hidden-screen steps in notOnBeta, apar
   assert.match(broken.out.betaUnread, /no dist|Command failed/);
   assert.match(broken.stdout, /On a screen the hosted beta hides: unknown/);
   assert.match(broken.stdout, /no step of this run is known to be on the beta/);
+});
+
+// The beta lane (project-state decision PRs #4060 and #4061): on a beta pull request's run, a red holds it only when it
+// is money, on the tester path, or an Order 1 step on a screen the beta shows; every other pull request, main's runs and
+// an unread beta rule judge every step as before.
+test('the beta lane: which pull requests are beta ones', () => {
+  assert.equal(BETA_GATE, 'lane');
+  assert.deepEqual([...TESTER_PATH].sort(), ['cex-spot', 'charts-desk', 'derivatives', 'home-ia', 'identity', 'portfolio', 'wallet']);
+  assert.equal(isBetaPull({ headRef: 'beta/home' }), true);
+  assert.equal(isBetaPull({ headRef: 'beta/home', headRepo: 'INTAFACED/intafaced', repo: 'INTAFACED/intafaced' }), true);
+  assert.equal(isBetaPull({ headRef: 'beta/home', headRepo: 'someone/fork', repo: 'INTAFACED/intafaced' }), false, 'a fork never');
+  for (const headRef of ['fix/beta/home', 'j/J-home-ia-01', 'main', '', undefined])
+    assert.equal(isBetaPull({ headRef }), false, String(headRef));
+});
+
+test('the beta lane: only a known non-money step off the tester path, and outside Order 1 or on a hidden screen', () => {
+  const beta = { steps: [{ step: 'J-o1-01#2', paths: ['/h'] }] };
+  const guard = {
+    'J-o2-01#1': false,
+    'J-o1-01#1': false,
+    'J-o1-01#2': false,
+    'J-identity-01#1': false,
+    'J-bank-05#1': true,
+    'J-x-01#1': false,
+  };
+  const modules = { 'J-o2-01': 'agents', 'J-o1-01': 'agents', 'J-identity-01': 'identity', 'J-bank-05': 'bank' };
+  const orders = { 'J-o2-01': 2, 'J-o1-01': 1, 'J-identity-01': 1, 'J-bank-05': 2 };
+  const lane = (over = {}) => betaLane({ beta, guard, modules, orders, ...over });
+  const off = (over) => Object.keys(guard).filter((k) => lane(over).has(k));
+  // J-o1-01#1: Order 1 on a screen the beta shows; J-identity-01: tester path; J-bank-05: money; J-x-01: unknown journey.
+  assert.deepEqual(off(), ['J-o2-01#1', 'J-o1-01#2']);
+  assert.equal(lane().has('J-o2-01#7'), false, 'a step the guard does not know is money');
+  assert.equal(
+    lane().has(testKey('J-o2-01.pw.mjs', 'starts: x')),
+    true,
+    'a test with no step title of an all-non-money journey off the path',
+  );
+  assert.equal(lane().has(testKey('J-o1-01.pw.mjs', 'starts: x')), false, 'one of an Order 1 journey gates');
+  assert.equal(lane().has(testKey('J-bank-05.pw.mjs', 'starts: x')), false, 'one of a money journey gates');
+  assert.deepEqual(off({ beta: { steps: [], unread: 'no dist' } }), [], 'an unread rule: everything gates');
+  assert.deepEqual(off({ beta: undefined }), []);
+  assert.deepEqual(off({ mode: 'full' }), [], "BETA_GATE 'full' switches it back");
+});
+
+test('the beta lane in judge: a non-money red it names is listed apart; a money red never is', () => {
+  const named = readReport(report(ok('J-a-01 #1'), ok('J-a-01 #2')));
+  const newest = readReport(report(bad('J-a-01 #1'), bad('J-a-01 #2')));
+  const money = { 'J-a-01#1': false, 'J-a-01#2': true };
+  const v = judge({ newest, named, baseline: { run: { number: 1 }, steps: [] }, money, offBeta: new Set(['J-a-01#1', 'J-a-01#2']) });
+  assert.deepEqual(
+    v.red.map((r) => r.step),
+    ['J-a-01#2'],
+    'the money step still gates, even if named',
+  );
+  assert.deepEqual(v.offBeta, [{ step: 'J-a-01#1', why: 'failing, not in the baseline', money: false }]);
+  const none = judge({ newest, named, baseline: { run: { number: 1 }, steps: [] }, money });
+  assert.deepEqual(
+    none.red.map((r) => r.step),
+    ['J-a-01#1', 'J-a-01#2'],
+    'without the lane both are red',
+  );
+});
+
+test('the beta lane, planted faults through the verdict itself: outside the beta holds nothing; money, tester path, Order 1 shown, other branches, main and an unread rule hold', () => {
+  const verdict = fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url));
+  const journeys = [
+    { id: 'J-algo-dev-01', module: 'algo-dev', order: 2, steps: [{ n: 1, slices: ['AD-01'] }] },
+    { id: 'J-agents-01', module: 'agents', order: 1, steps: [{ n: 1, slices: ['AG-01'] }] },
+    { id: 'J-identity-01', module: 'identity', order: 1, steps: [{ n: 1, slices: ['ID-01'] }] },
+    ...bankSteps(1).map((j) => ({ ...j, order: 1 })),
+  ];
+  const slices = [
+    { id: 'AD-01', touches: ['customer: algo'] },
+    { id: 'AG-01', touches: ['customer: agents'] },
+    { id: 'ID-01', touches: ['customer: identity'] },
+    ...bankSlices,
+  ];
+  const hides =
+    "import { readFileSync } from 'node:fs'; const p = JSON.parse(readFileSync(0, 'utf8')); process.stdout.write(JSON.stringify({ hidden: p.filter((x) => x.startsWith('/hidden')) }));";
+  const step = (title, file, status, paths) => ({
+    title,
+    file,
+    tests: [{ status, annotations: [{ type: 'beta screens', description: JSON.stringify(paths) }] }],
+  });
+  const run = ({ fail, paths = ['/home'], rule = hides, branch = 'beta/home', event = 'pull_request', ref }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'verdict-lane-'));
+    try {
+      mkdirSync(join(dir, 'docs/roadmap'), { recursive: true });
+      mkdirSync(join(dir, 'services/svc-bank'), { recursive: true });
+      mkdirSync(join(dir, 'history'));
+      writeFileSync(join(dir, 'docs/roadmap/journeys.json'), JSON.stringify(journeys));
+      writeFileSync(join(dir, 'docs/roadmap/slices.json'), JSON.stringify(slices));
+      writeFileSync(join(dir, 'services/svc-bank/package.json'), JSON.stringify(bankManifests.get('services/svc-bank')));
+      writeFileSync(join(dir, 'rule.mjs'), rule);
+      const f = (name, body) => (writeFileSync(join(dir, name), JSON.stringify(body)), join(dir, name));
+      const all = [
+        ['J-algo-dev-01 #1', 'J-algo-dev-01.pw.mjs'],
+        ['J-agents-01 #1', 'J-agents-01.pw.mjs'],
+        ['J-identity-01 #1', 'J-identity-01.pw.mjs'],
+        ['J-bank-05 #1', bankFile],
+      ];
+      const rep = (failing) => ({
+        suites: all.map(([title, file]) => ({
+          file,
+          specs: [step(title, file, title === failing ? 'unexpected' : 'expected', title === failing ? paths : ['/home'])],
+        })),
+      });
+      const env = { ...process.env, GITHUB_STEP_SUMMARY: '', GITHUB_EVENT_NAME: event, GITHUB_HEAD_REF: branch };
+      delete env.JOURNEYS_TARGET;
+      delete env.GITHUB_REF;
+      if (ref) env.GITHUB_REF = ref;
+      const args = [verdict, '--report', f('report.json', rep(fail)), '--named-report', f('named.json', rep(null))];
+      args.push('--history-dir', join(dir, 'history'), '--baseline', f('baseline.json', baseline1719));
+      args.push('--set-aside-out', join(dir, 'set-aside.json'), '--beta-rule', join(dir, 'rule.mjs'));
+      const r = spawnSync(process.execPath, args, { cwd: dir, env, encoding: 'utf8' });
+      return { ...r, out: JSON.parse(readFileSync(join(dir, 'set-aside.json'), 'utf8')) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const outside = run({ fail: 'J-algo-dev-01 #1' });
+  assert.equal(outside.status, 0, `an Order 2 non-money step's red holds no beta pull request: ${outside.stdout}${outside.stderr}`);
+  assert.match(
+    outside.stdout,
+    /### Outside the beta's own journeys, not holding this beta pull request: 1\n\n[^\n]*\n\n- J-algo-dev-01#1: failing, not in the baseline$/m,
+    'still listed',
+  );
+  const hiddenO1 = run({ fail: 'J-agents-01 #1', paths: ['/hidden/room'] });
+  assert.equal(hiddenO1.status, 0, 'an Order 1 non-money step on a hidden screen holds nothing');
+  assert.deepEqual(hiddenO1.out.notOnBeta, [{ step: 'J-agents-01#1', paths: ['/hidden/room'] }], 'and is still not proven');
+  assert.equal(run({ fail: 'J-agents-01 #1' }).status, 1, 'an Order 1 step on a screen the beta shows blocks');
+  const tester = run({ fail: 'J-identity-01 #1', paths: ['/hidden/room'] });
+  assert.equal(tester.status, 1, 'a failing tester-path (sign-in) step blocks, even on a hidden screen');
+  assert.match(tester.stdout, /^- J-identity-01#1: failing, not in the baseline$/m);
+  const moneyShown = run({ fail: 'J-bank-05 #1' });
+  assert.equal(moneyShown.status, 1, 'a failing money step on a beta screen blocks');
+  assert.match(moneyShown.stdout, /^- J-bank-05#1 \(money\): failing, not in the baseline$/m);
+  assert.equal(run({ fail: 'J-bank-05 #1', paths: ['/hidden/room'] }).status, 1, 'a failing money step on a hidden screen blocks too');
+  const unread = run({ fail: 'J-algo-dev-01 #1', rule: "throw new Error('no dist');" });
+  assert.equal(unread.status, 1, 'an unread beta rule: everything gates as before');
+  assert.match(unread.out.betaUnread, /no dist|Command failed/);
+  assert.equal(run({ fail: 'J-algo-dev-01 #1', branch: 'fix/10883' }).status, 1, 'a pull request off a beta branch is judged as before');
+  assert.equal(run({ fail: 'J-algo-dev-01 #1', event: 'workflow_dispatch' }).status, 1, 'a run by hand is judged as before');
+  const main = run({ fail: 'J-algo-dev-01 #1', ref: 'refs/heads/main', event: 'push', branch: '' });
+  assert.equal(main.status, 1, "main's own run judges every step as before");
+  assert.deepEqual(
+    [main.out.notOnBeta, main.out.notProven],
+    [outside.out.notOnBeta, outside.out.notProven],
+    'what the proof count reads is the same with the lane and without it',
+  );
 });

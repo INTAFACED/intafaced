@@ -32,6 +32,12 @@ export const publicFeeScheduleSchema = z.object({
     }),
   ),
   tiers: z.array(z.string().min(1)).min(1),
+  /**
+   * Whether our own spot order book runs. `false`: every order is placed on the venue and pays the venue's rates, so this
+   * schedule is not what a fill pays and the pages say so instead of showing it as a second rate. Absent (a
+   * service from before the field) reads as on, as the pages always did.
+   */
+  ownBook: z.boolean().optional(),
 });
 
 export type PublicFeeSchedule = z.infer<typeof publicFeeScheduleSchema>;
@@ -46,6 +52,11 @@ export const publicFeesFetcher =
     const result = await api.rest('/fees/published', publicFeeScheduleSchema, { signal });
     return !result.ok && result.code === FEE_SCHEDULE_BLANK ? { ok: true, data: null } : result;
   };
+
+/** Whether this schedule is what an order pays: not when our own order book is off and every order goes to the venue. */
+export function scheduleCharges(schedule: PublicFeeSchedule): boolean {
+  return schedule.ownBook !== false;
+}
 
 /** 8 bps as the page writes it: "0.08%". Integer basis points only, so no float ever touches the rate. */
 export function bpsAsPercent(bps: number): string {

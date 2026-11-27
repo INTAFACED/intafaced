@@ -5,8 +5,10 @@
  *     pnpm --filter @intafaced/venue-hyperliquid testnet:send
  *
  * Run by the dispatch-only workflow `.github/workflows/hl-testnet-send.yml`, which passes the funded account's key from
- * the `HL_TESTNET_TRADER_KEY` secret. Hyperliquid's testnet faucet pays only addresses that have deposited on mainnet,
- * so a fresh testnet address (a box's platform key, a tester's wallet: intafaced#10204) gets its TEST USDC this way.
+ * the `HL_TESTNET_TRADER_KEY` secret. Hyperliquid's testnet faucet (`claimDrip`, keyless) pays 1,000 once per address
+ * that exists on mainnet, so a fresh testnet address (a box's platform key, a tester's wallet: intafaced#10204) gets
+ * its TEST USDC this way. The funder qualified and spent its one claim on 19 Nov 2026; the faucet does not refill it
+ * (tooling/beta/beta-testnet.mjs, "How the funder refills").
  *
  * 1. Refuses before anything is sent (exit 2): a URL that isn't the testnet's, APP_ENV other than dev or test, a key
  *    that isn't 32-byte hex, a destination that isn't a 0x address or is the funder itself, an amount that isn't a
@@ -15,7 +17,10 @@
  * 3. Signs a user-signed `spotSend` of USDC (the token named by the venue's own spotMeta) and posts it. A unified
  *    account refuses `spotSend`; then `usdSend`, then `sendAsset` spot to spot, each only after the destination reads
  *    unchanged.
- * 4. Reads the destination's spot USDC again until it has risen by the amount, or a short wait runs out.
+ *    A destination in the venue's default account mode keeps perps margin apart from spot, and only perps USDC margins
+ *    an order or qualifies a builder; so to such a destination the USDC goes to its perps balance (`usdSend`, then
+ *    `sendAsset` spot to perps), and to a unified one (one balance for both) to spot, as above.
+ * 4. Reads the destination's USDC there again until it has risen by the amount, or a short wait runs out.
  * Prints only addresses, amounts and the venue's answers. The key is never printed, logged or written.
  */
 import { pathToFileURL } from 'node:url';
@@ -38,7 +43,7 @@ import {
 import { isHexKey } from './live-settings.js';
 import { postExchange } from './testnet-setup.js';
 
-/** The most one run may send. TEST USDC on the testnet only; the faucet pays 1,000 per mainnet-funded address. */
+/** The most one run may send. TEST USDC on the testnet only; the faucet pays 1,000 once per mainnet address. */
 export const MAX_SEND_USDC = parseAmount('500');
 
 export interface SendDeps {
@@ -102,6 +107,21 @@ export async function spotUsdcFree(fetchImpl: FetchLike, baseUrl: string, user: 
   return sub(parseAmount(row.total), typeof row.hold === 'string' ? parseAmount(row.hold) : ZERO);
 }
 
+/** Free perps USDC (withdrawable) of `user` on the testnet. */
+export async function perpUsdcFree(fetchImpl: FetchLike, baseUrl: string, user: string): Promise<Amount> {
+  const state = (await info(fetchImpl, baseUrl, { type: 'clearinghouseState', user })) as { withdrawable?: unknown };
+  return typeof state.withdrawable === 'string' ? parseAmount(state.withdrawable) : ZERO;
+}
+
+/**
+ * Whether `user`'s USDC must land in perps: true in the venue's default account mode, where spot USDC margins nothing.
+ * A unified (or portfolio-margin) account margins from spot, so it gets spot USDC.
+ */
+export async function wantsPerps(fetchImpl: FetchLike, baseUrl: string, user: string): Promise<boolean> {
+  const mode = await info(fetchImpl, baseUrl, { type: 'userAbstraction', user });
+  return mode === 'default' || mode === null || mode === undefined;
+}
+
 /** The venue's own name for spot USDC, `USDC:<tokenId>`, from spotMeta. */
 async function usdcToken(fetchImpl: FetchLike, baseUrl: string): Promise<string> {
   const meta = (await info(fetchImpl, baseUrl, { type: 'spotMeta' })) as { tokens?: { name?: unknown; tokenId?: unknown }[] };
@@ -136,15 +156,20 @@ export async function runSend(deps: SendDeps): Promise<SendExit> {
   let fromBefore: Amount;
   let toBefore: Amount;
   let token: string;
+  let toPerps: boolean;
+  let destination: (user: string) => Promise<Amount>;
   try {
     fromBefore = await spotUsdcFree(fetchImpl, baseUrl, from);
-    toBefore = await spotUsdcFree(fetchImpl, baseUrl, inputs.to);
+    toPerps = await wantsPerps(fetchImpl, baseUrl, inputs.to);
+    destination = (user) => (toPerps ? perpUsdcFree : spotUsdcFree)(fetchImpl, baseUrl, user);
+    toBefore = await destination(inputs.to);
     token = await usdcToken(fetchImpl, baseUrl);
   } catch (error) {
     err(`testnet send stopped: could not read the venue (${(error as Error).message}); nothing was sent.`);
     return 1;
   }
-  out(`before: funder ${formatAmount(fromBefore)} spot USDC free, destination ${formatAmount(toBefore)}`);
+  const where = toPerps ? 'perps' : 'spot';
+  out(`before: funder ${formatAmount(fromBefore)} spot USDC free, destination ${formatAmount(toBefore)} ${where}`);
   if (compare(fromBefore, inputs.amount) < 0) {
     err(
       `testnet send refused: the funder holds ${formatAmount(fromBefore)} spot USDC free, less than ${inputs.amountText}; nothing was sent.`,
@@ -155,14 +180,22 @@ export async function runSend(deps: SendDeps): Promise<SendExit> {
   // A unified account (one balance for spot and perps) refuses `spotSend`, and Hyperliquid's docs do not list which
   // transfer it allows. So each form is tried in turn, moving on only when the venue refuses it for the account mode,
   // and only after reading that the destination has not been credited: a refused form moves nothing.
+  // `spotSend` lands in spot only, so a perps destination skips it; `sendAsset` names the destination's balance ('' is perps).
   const forms: { name: string; build: (n: bigint) => ReturnType<typeof spotSendAction> }[] = [
-    { name: 'spotSend', build: (n) => spotSendAction(inputs.to, token, inputs.amountText, n) },
+    ...(toPerps ? [] : [{ name: 'spotSend', build: (n: bigint) => spotSendAction(inputs.to, token, inputs.amountText, n) }]),
     { name: 'usdSend', build: (n) => usdSendAction(inputs.to, inputs.amountText, n) },
     {
       name: 'sendAsset',
       build: (n) =>
         sendAssetAction(
-          { destination: inputs.to, sourceDex: 'spot', destinationDex: 'spot', token, amount: inputs.amountText, fromSubAccount: '' },
+          {
+            destination: inputs.to,
+            sourceDex: 'spot',
+            destinationDex: toPerps ? '' : 'spot',
+            token,
+            amount: inputs.amountText,
+            fromSubAccount: '',
+          },
           n,
         ),
     },
@@ -172,7 +205,7 @@ export async function runSend(deps: SendDeps): Promise<SendExit> {
     if (form !== forms[0]) {
       let now: Amount;
       try {
-        now = await spotUsdcFree(fetchImpl, baseUrl, inputs.to);
+        now = await destination(inputs.to);
       } catch (error) {
         err(`testnet send stopped: could not re-read the destination (${(error as Error).message}); not trying ${form.name}.`);
         return 1;
@@ -207,7 +240,7 @@ export async function runSend(deps: SendDeps): Promise<SendExit> {
   let toAfter = toBefore;
   for (let i = 0; i < 10; i += 1) {
     try {
-      toAfter = await spotUsdcFree(fetchImpl, baseUrl, inputs.to);
+      toAfter = await destination(inputs.to);
     } catch {
       // read again below
     }
@@ -220,7 +253,7 @@ export async function runSend(deps: SendDeps): Promise<SendExit> {
   } catch {
     fromAfter = '?';
   }
-  out(`after: funder ${fromAfter} spot USDC free, destination ${formatAmount(toAfter)}`);
+  out(`after: funder ${fromAfter} spot USDC free, destination ${formatAmount(toAfter)} ${where}`);
   if (compare(toAfter, want) < 0) {
     err(`testnet send: the venue said ok but the destination shows ${formatAmount(toAfter)}, not ${formatAmount(want)}, after 10 reads.`);
     return 1;

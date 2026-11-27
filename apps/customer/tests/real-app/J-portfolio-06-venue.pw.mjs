@@ -97,6 +97,17 @@ async function openMoney(page, { fresh = true } = {}) {
   await expect(page.getByTestId('source-venue').locator('tr[data-asset="USDT"]')).toBeVisible({ timeout: 30_000 });
 }
 
+/**
+ * Opens the venue panel's "How this is worked out" fold on Assets, where what the venue account held then and now sits
+ * off the face (the owner's pick A): a person opens it to compare, and a closed fold hides its controls.
+ */
+async function openVenueFold(page) {
+  const fold = page.getByTestId('source-venue-worked-out');
+  await expect(fold).toBeVisible({ timeout: 30_000 });
+  if ((await fold.getAttribute('open')) === null) await fold.locator('summary').click();
+  await expect(fold).toHaveAttribute('open', '');
+}
+
 test.beforeAll(async ({ browser }) => {
   if (process.env.JOURNEY_RUN_ID && run.read().account) return;
   test.setTimeout(300_000);
@@ -211,6 +222,10 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, s
     timeout: 30_000,
   });
 
+  // The allocation sits in its own fold under the three tiles (the owner's Money target, 25 Nov): open it to read it.
+  const allocation = page.getByTestId('assets-allocation-fold');
+  await expect(allocation).toBeAttached({ timeout: 30_000 });
+  if ((await allocation.getAttribute('open')) === null) await allocation.locator('summary').click();
   const card = page.getByRole('region', { name: 'Where your money is', exact: true });
   await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card).toHaveAttribute('data-total-usd', fromUnits(total));
@@ -298,6 +313,7 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
   expect(fillsBefore.length).toBe(1);
 
   await openMoney(page);
+  await openVenueFold(page);
   const card = page.getByRole('region', { name: 'What you hold, then and now', exact: true });
   await card.getByRole('group', { name: 'Compare with', exact: true }).getByRole('button', { name: '7 days ago', exact: true }).click();
   await expect(card.getByRole('button', { name: '7 days ago', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -347,6 +363,7 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
   expect(between).toBeLessThanOrEqual(secondFillAt);
   await page.clock.setFixedTime(new Date(between + DAY));
   await openMoney(page, { fresh: false });
+  await openVenueFold(page);
   const day = page.getByRole('region', { name: 'What you hold, then and now', exact: true });
   await day.getByRole('group', { name: 'Compare with', exact: true }).getByRole('button', { name: '24 hours ago', exact: true }).click();
   await expect(day.getByRole('button', { name: '24 hours ago', exact: true })).toHaveAttribute('aria-pressed', 'true');

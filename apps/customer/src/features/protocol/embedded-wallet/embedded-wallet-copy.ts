@@ -5,6 +5,9 @@ import { defineCopy } from '../../../shared/i18n';
 // the region's own reason, which is the owner's words on the per-country switch.
 const en = {
   title: 'My wallet',
+  // The wallet's name where a room offers to connect a browser wallet ("Connect {name}").
+  announceName: 'INTAFACED wallet',
+  announceNameTest: 'INTAFACED wallet (TEST)',
   description: 'Your own self-custody wallet, made with a passkey. No seed phrase to write down.',
   backToWallet: 'Wallet',
   stepCreate: 'Create',
@@ -102,6 +105,8 @@ const en = {
   passkeyTitle: 'Your passkey check did not pass',
   passkeyBody:
     'Nothing was signed or sent. On a new device, use a passkey saved for this wallet or your recovery passkey; a device without one cannot sign.',
+  busyTitle: 'Your wallet provider is at its signing limit',
+  busyBody: '{provider} has reached its signing limit, which you cannot fix from here. Nothing was signed or sent. Try again later.',
   refusedTitle: 'Your wallet provider refused',
   refusedBody: '{provider} did not accept the passkey check. Nothing was signed or sent.',
   chainTitle: 'The chain refused this transaction',

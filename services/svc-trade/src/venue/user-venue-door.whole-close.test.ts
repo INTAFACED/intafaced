@@ -92,7 +92,8 @@ describe('UserVenueDoor: one whole take profit and one whole stop loss (J-deriva
       builder: BUILDER,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['ETH-PERP'])),
-      slippageCapBps: null,
+      slippageCapBps: 50,
+      closeSlippageBps: 1000,
     });
     await run({ kind: 'approve_builder_fee', builder: BUILDER.address, maxFeeBps: a('1') }, `builder:${owner}:jd4`);
     await run({ kind: 'update_leverage', symbol: 'ETH-PERP', leverageBps: 50_000, marginMode: 'isolated' }, `leverage:${owner}:jd4`);

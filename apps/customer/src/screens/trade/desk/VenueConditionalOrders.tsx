@@ -12,11 +12,11 @@ import {
 } from '../../../features/trade/venue-api';
 import { VENUE_POLL_MS, outcomeText, useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
-import { refusalOf, useSignPrepared, type Refusal } from '../futures/VenueProtect';
+import { refusalOf, useExitSigner, useSignPrepared, type Refusal } from '../futures/VenueProtect';
 import { canonical } from '../futures/venue-protect-logic';
 import { Button } from '@intafaced/ui/lit';
 import { spotConditionalCopy } from './spot-conditional-copy';
-import { SPOT_FIELDS, legsOutOfOrder, optionalField, spotClientId, type SpotField } from './spot-conditional-logic';
+import { ENTRY_KINDS, SPOT_FIELDS, legsOutOfOrder, optionalField, spotClientId, type SpotField } from './spot-conditional-logic';
 
 type CT = ReturnType<typeof spotConditionalCopy.useCopy>['t'];
 
@@ -65,6 +65,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
   const sign = useSignPrepared(owner);
+  const personSigner = useExitSigner(owner);
   const [kind, setKind] = useState<SpotConditionalKind>('stop_limit');
   const [side, setSide] = useState<'buy' | 'sell'>('sell');
   const [tif, setTif] = useState<'GTC' | 'IOC'>('GTC');
@@ -140,6 +141,13 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
     setOutcome(null);
     const req = request();
     if ('message' in req) return setRefusal(req);
+    // The person's own order here (a stop the venue holds, an entry) is signed as any order: by the desk's trading session
+    // key where the venue needs one; with no session there, the desk's refusal and nothing is prepared.
+    if (engine === 'venue' || ENTRY_KINDS.has(kind)) {
+      const chosen = personSigner();
+      if ('refusal' in chosen) return setRefusal(chosen.refusal);
+      req.signer = chosen.signer;
+    }
     busy.current = true;
     try {
       const created = await venue.createSpotOrder(req);
@@ -171,7 +179,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
           <Button
             key={k}
             size="sm"
-            tone={kind === k ? 'primary' : 'secondary'}
+            tone={kind === k ? 'secondary' : 'quiet'}
             aria-pressed={kind === k}
             onClick={() => {
               setKind(k);
@@ -188,7 +196,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
           <Button
             key={x}
             size="sm"
-            tone={side === x ? 'primary' : 'secondary'}
+            tone={side === x ? 'secondary' : 'quiet'}
             aria-pressed={side === x}
             onClick={() => {
               setSide(x);
@@ -226,7 +234,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
       {kind === 'bracket' || kind === 'oto' ? (
         <div role="group" aria-label={t('Entry tif')} className="lt-row">
           {(['GTC', 'IOC'] as const).map((x) => (
-            <Button key={x} size="sm" tone={tif === x ? 'primary' : 'secondary'} aria-pressed={tif === x} onClick={() => setTif(x)}>
+            <Button key={x} size="sm" tone={tif === x ? 'secondary' : 'quiet'} aria-pressed={tif === x} onClick={() => setTif(x)}>
               {t(`tif_${x}`)}
             </Button>
           ))}
@@ -236,7 +244,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
         <Button tone="secondary" onClick={() => void doReview()}>
           {t('Review')}
         </Button>
-        <Button tone="primary" onClick={() => void place()}>
+        <Button tone="secondary" onClick={() => void place()}>
           {t('Place')}
         </Button>
       </div>

@@ -37,7 +37,10 @@ const watch = argv.includes('--watch');
 const tool = (rel) => import(pathToFileURL(path.join(checkout, rel)).href);
 const gates = await tool('tooling/scripts/local-test-gates.mjs');
 const { planRestingBuy } = await tool('tooling/scripts/local-test-world.mjs');
-const { localEmailOutboxPath } = await tool('tooling/scripts/local-test-state.mjs');
+const { localEmailOutboxPath, stackCustodyOff } = await tool('tooling/scripts/local-test-state.mjs');
+// Custody off (the beta's stack, as launch runs it, #11019): our own order book is off, so the minute ends on the grant
+// being recorded, kept at the TEST partner, not on a TEST order on our own book.
+const custodyOff = stackCustodyOff();
 const { LOCAL_TEST_DEVICE_KEY } = await tool('tooling/scripts/local-test-device.mjs');
 
 const t0 = Date.now();
@@ -170,7 +173,8 @@ const paths = {
 let mailbox = null;
 let stopLoop = null;
 if (watch) {
-  mailbox = serveMailbox(paths, 0);
+  // The invited flow as it runs once invites open: on the TEST wallet provider the mailbox refuses a new invitee (#11092).
+  mailbox = serveMailbox(paths, 0, { walletProvider: 'turnkey' });
   await new Promise((r) => mailbox.once('listening', r));
   stopLoop = invitedLoop(paths, { script: path.join(HERE, 'beta-invited.mjs') }); // this branch's pass, before it is on main
 }
@@ -200,9 +204,17 @@ try {
   mark(`uninvited ${uninvited.email} signed up and requested Full`);
 
   let order = null;
+  const grantedNow = () => {
+    try {
+      return Boolean(JSON.parse(fs.readFileSync(paths.granted, 'utf8'))[invited.userId]);
+    } catch {
+      return false;
+    }
+  };
   for (;;) {
     const s = tierOf(invited);
-    if (s.full) {
+    if (s.full && custodyOff && grantedNow()) break;
+    if (s.full && !custodyOff) {
       order = await placeOrder(invited);
       if (order.ok) break;
     }
@@ -211,10 +223,12 @@ try {
   }
   const took = Math.round((Date.now() - requested) / 100) / 10;
   check(tierOf(invited).full, `invited: Full approved by the stack's TEST approvers, no operator step`);
-  check(
-    Boolean(order?.ok),
-    `invited: a TEST order placed ${took} s after the Full request (order ${order?.order ?? `refused: ${order?.status} ${order?.why}`})`,
-  );
+  if (custodyOff) check(grantedNow(), `invited: the TEST grant recorded ${took} s after the Full request (custody off: no own-book order)`);
+  else
+    check(
+      Boolean(order?.ok),
+      `invited: a TEST order placed ${took} s after the Full request (order ${order?.order ?? `refused: ${order?.status} ${order?.why}`})`,
+    );
   check(took <= 60, `invited: within a minute (${took} s)`);
   const granted = JSON.parse(fs.readFileSync(paths.granted, 'utf8'));
   check(granted[invited.userId]?.amount === GRANT.amount, `invited: ${GRANT.amount} TEST ${GRANT.asset} granted once`);
@@ -246,8 +260,10 @@ try {
   const u = tierOf(uninvited);
   check(!u.full && u.pending, 'uninvited: Full still waits, nobody approved it');
   check(!granted[uninvited.userId], 'uninvited: no TEST funds');
-  const refused = await placeOrder(uninvited).catch((e) => ({ ok: false, why: e.message }));
-  check(!refused.ok, `uninvited: the same TEST order is refused (${refused.status ?? ''} ${refused.why ?? ''})`.trim());
+  if (!custodyOff) {
+    const refused = await placeOrder(uninvited).catch((e) => ({ ok: false, why: e.message }));
+    check(!refused.ok, `uninvited: the same TEST order is refused (${refused.status ?? ''} ${refused.why ?? ''})`.trim());
+  }
 } catch (err) {
   check(false, `stopped: ${err.message}`);
 } finally {

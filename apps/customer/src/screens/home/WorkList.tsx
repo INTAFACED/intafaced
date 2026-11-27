@@ -52,9 +52,12 @@ export function WorkList({
   hidden,
   testId,
   onShown,
+  quietTitle = false,
 }: {
   hidden: boolean;
   testId?: string;
+  /** Inside Home A's "Your next step" card, whose heading names it: the list keeps its own name for screen readers only. */
+  quietTitle?: boolean;
   onShown?: (shown: NeedsYouShown | null) => void;
 }) {
   const { t } = homeCopy.useCopy();
@@ -74,7 +77,9 @@ export function WorkList({
   useEffect(() => () => report.current?.(null), []);
   return (
     <section data-testid={testId} className="lt-stack" aria-labelledby="home-work-title">
-      <h2 id="home-work-title">{t('Needs you')}</h2>
+      <h2 id="home-work-title" data-sr-only={quietTitle ? '' : undefined}>
+        {t('Needs you')}
+      </h2>
       <Body list={list} hidden={hidden} retry={retry} />
     </section>
   );

@@ -49,6 +49,13 @@ const ref = () => `84532:0x${randomBytes(32).toString('hex')}:0`;
 const traderOwner = (name) => otherTraderKey(name).address.toLowerCase();
 
 const sellForm = (page) => page.locator('form[data-testid="dk-form"][data-side="sell"]');
+/** The ticket shows one side at a time, as the perps desk does: choose it first. */
+const pickSide = (page, side) =>
+  page
+    .getByTestId('dk-order')
+    .getByRole('group', { name: 'Buy or sell', exact: true })
+    .getByRole('button', { name: side === 'buy' ? 'Buy' : 'Sell', exact: true })
+    .click();
 const orderTab = (page, name) => page.getByTestId('dk-order').locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 const line = (scope, name) => scope.locator(`[data-line="${name}"]`);
 
@@ -290,6 +297,7 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
 
     // A maker limit: a sell at 150 rests above every bid. Reviewed: the preview's own rates, role and fees, each named.
     await orderTab(page, 'Limit').click();
+    await pickSide(page, 'sell');
     await sellForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('150');
     const maker = await previewOn(page, () => sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1'));
     expect(maker.value).toMatchObject({
@@ -429,8 +437,27 @@ test(`${J} #2 opens the public fee page: the venue's schedule and our builder fe
     expect(caps('perpetual')).toEqual(['0.1%']);
     await expect(section.locator('[data-fees="builder-cap"]')).toContainText('0.1% on perpetuals');
   }
-  // The network fee for sending a coin out is its own line, never inside a trading rate.
-  await expect(page.locator('[data-fees="network"]')).toContainText('Network fee on withdrawals');
+  // What taking USDC out of the venue costs, as the venue publishes it before anything is signed, beside the rates. Its
+  // network fee is the step's separate line: its own row in the withdrawal list, never inside a trading rate. Our own
+  // custodial "Network fee on withdrawals" line shows only while our own book runs (fees-page.render.test.tsx), and
+  // this file's person holds their money on the venue, so the venue's line is the one they pay.
+  const terms = (await testVenue('/withdrawal-terms', { asset: 'USDC' })).body.value;
+  const out = section.locator('[data-fees="withdrawal"]');
+  await expect(out.locator('h3')).toHaveText('Taking USDC out to your wallet');
+  await expect(out.locator('[data-cell="withdrawal-fee"]')).toHaveText(
+    terms.fee.known
+      ? `The venue’s withdrawal fee: ${terms.fee.value} USDC`
+      : 'The venue’s withdrawal fee: not published before you send. Each withdrawal shows the fee the venue took.',
+  );
+  await expect(out.locator('[data-cell="withdrawal-network-fee"]')).toHaveText(
+    terms.networkFee.known ? `Network fee: ${terms.networkFee.value} USDC` : 'Network fee: not published by the venue.',
+  );
+  await expect(section.locator('[data-fees="venue-markets"]').getByText('Network fee', { exact: false })).toHaveCount(0);
+  await expect(out.locator('[data-cell="withdrawal-arrival"]')).toHaveText(
+    terms.arrivalSeconds === null
+      ? 'Arrival time: not published by the venue.'
+      : `Arrives in about ${Math.max(1, Math.ceil(terms.arrivalSeconds / 60))} min, as the venue says.`,
+  );
 });
 
 test(`${J} #3 trades where our builder fee is not set: refused "builder fee not set" before signing`, async ({ page }) => {
@@ -447,6 +474,7 @@ test(`${J} #3 trades where our builder fee is not set: refused "builder fee not 
     const asked = wallet.requests.length;
     // A limit sell: it would carry our builder fee, which is blank. The ticket says so in words; nothing can be sent.
     await orderTab(page, 'Limit').click();
+    await pickSide(page, 'sell');
     await sellForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('150');
     await sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1');
     const refused = page.getByTestId('venue-ticket-refused');
@@ -816,6 +844,7 @@ test(`${J} #10 receives a fee-change notice before a new schedule version takes 
     await expect.poll(async () => sameDecimal(await fill1Row.locator('[data-cell="venue-fee"]').innerText(), fee1Venue)).toBe(true);
 
     await orderTab(page, 'Limit').click();
+    await pickSide(page, 'sell');
     await sellForm(page).getByRole('textbox', { name: 'Price', exact: true }).fill('150');
     const nextPreview = await previewOn(page, () => sellForm(page).getByRole('textbox', { name: 'Amount', exact: true }).fill('1'));
     const fee2Builder = fromUnits((toUnits('150') * toUnits('3')) / toUnits('10000'));

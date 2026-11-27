@@ -1,6 +1,7 @@
 import { compare, formatAmount, mul, type Amount } from '@intafaced/ledger-client/money';
 import type { EventBus } from '@intafaced/events';
-import { isTestVenue, type PlaceUserOrderIntent, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
+import type { UpcomingMaintenance } from '@intafaced/contracts/market-maintenance';
+import { isTestVenue, venueSymbolBody, type PlaceUserOrderIntent, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
 import type { VenueLimitVersion, VenueListingStore, VenueListingVersion, VenueRoutingState } from './venue-listing-store.js';
 
 /**
@@ -49,7 +50,10 @@ export interface ShownListing {
   readonly maxOrderNotional: Amount | null;
 }
 
-export type ListedVenueMarket = UserVenueMarket & { readonly listing: ShownListing };
+export type ListedVenueMarket = UserVenueMarket & {
+  readonly listing: ShownListing;
+  readonly upcomingMaintenance?: UpcomingMaintenance;
+};
 
 export interface VenueRoutingGate {
   /** The venue markets we show, each with our listing; a market with no approved listing is not in the map. */
@@ -139,7 +143,7 @@ export function parseTestListings(raw: string | undefined): readonly string[] {
   if (text === '') return [];
   const symbols = text.split(',').map((s) => s.trim());
   for (const s of symbols) {
-    if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(s)) {
+    if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(venueSymbolBody(s))) {
       throw new Error(`TRADE_USER_VENUE_TEST_LISTINGS must be a comma list of venue symbols, got ${JSON.stringify(raw)}`);
     }
   }
@@ -192,6 +196,29 @@ export async function seedTestListings(
       recordedAt: now,
     });
     if (outcome === 'written') written.push(symbol);
+  }
+  // A market this seed listed and no longer names is delisted from now, once, by the same stack ids: a stack whose
+  // database is kept (the beta) never keeps showing a market its seed dropped. A listing whose latest version an
+  // operator wrote, or one already delisted, is left as it is.
+  const named = new Set(symbols);
+  for (const latest of await store.latestListings(venue.venue.id)) {
+    if (named.has(latest.symbol) || latest.proposerId !== LOCAL_TEST_SEED_OPERATOR || latest.delistsAt !== null) continue;
+    const version = latest.version + 1;
+    await store.appendListing({
+      venueId: venue.venue.id,
+      symbol: latest.symbol,
+      version,
+      change: 'delisting',
+      opensAt: latest.opensAt,
+      delistsAt: now,
+      routing: latest.routing,
+      approvalId: `test-stack-delisting:${venue.venue.id}:${latest.symbol}:${version}`,
+      proposerId: LOCAL_TEST_SEED_OPERATOR,
+      approverId: LOCAL_TEST_SEED_APPROVER,
+      executorId: LOCAL_TEST_SEED_OPERATOR,
+      reason: 'LOCAL TEST seed: no longer in the TEST stack seed',
+      recordedAt: now,
+    });
   }
   return written;
 }

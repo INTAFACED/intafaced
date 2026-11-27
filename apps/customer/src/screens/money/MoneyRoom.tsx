@@ -1,5 +1,6 @@
 // volt-room: /money
 import type { ReactNode } from 'react';
+import { PageColumn, PageGrid } from '@intafaced/ui/lit';
 import { OverviewTemplate, type OverviewProps } from '@intafaced/ui/lit/templates';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { usePreferences } from '../../shared/preferences';
@@ -25,22 +26,18 @@ export type MoneyOverviewProps = Omit<OverviewProps, 'state' | 'mode'> & {
   hero: ReactNode;
 };
 
-/** Links to the live Money helper rooms reachable from Assets on the hosted beta (J-wallet-01 #3 and #5). */
+/**
+ * The one quiet link at the top of Assets: the supported assets and networks (J-wallet-01 #5). Money in is the Deposit
+ * key beside the total, so the room bar repeats none of it. The link reads short on the face; its name is the list's full
+ * name, which starts with the words shown.
+ */
 export function MoneyRoomLinks() {
   const { t } = whereCopy.useCopy();
-  const links = [
-    ...(!isHiddenPath('/bank/ramps/new') ? [{ href: '/bank/ramps/new', label: t('Add money') }] : []),
-    ...(!isHiddenPath('/uc/assets') ? [{ href: '/uc/assets', label: t('Supported assets') }] : []),
-  ];
-  if (links.length === 0) return null;
+  if (isHiddenPath('/uc/assets')) return null;
   return (
-    <div className="lt-actions">
-      {links.map((link) => (
-        <a key={link.href} className="lt-button lt-button-secondary" href={link.href}>
-          {link.label}
-        </a>
-      ))}
-    </div>
+    <a className="lt-hint" href="/uc/assets" aria-label={t('Supported assets')}>
+      {t('Supported assets short')}
+    </a>
   );
 }
 
@@ -48,4 +45,50 @@ export function MoneyRoomLinks() {
 export function MoneyOverview({ state = { kind: 'ready' }, ...props }: MoneyOverviewProps) {
   const { layoutMode } = usePreferences();
   return <OverviewTemplate {...props} state={state} mode={layoutMode === 'pro' ? 'pro' : 'simple'} />;
+}
+
+/**
+ * Assets with the venue door on, on the kit's page grid as the owner's Money target draws it (25 Nov: "Yes, the
+ * competitive front is much better"): the page fills the screen with the kit's gutter; the total, its keys and the three
+ * tiles across the page; then the main column (each source, activity) and the side column (moving now, withdrawal
+ * addresses, the connected wallet, emergency), 8 to 4; one column under 64rem. The room's name stays the page's one
+ * heading for assistive tech, off the face (`titleHidden`), where the total line opens the page.
+ */
+export function AssetsPage({
+  title,
+  titleHidden,
+  description,
+  roomAction,
+  hero,
+  sections,
+  watching,
+}: {
+  title: string;
+  titleHidden?: boolean;
+  description?: ReactNode;
+  roomAction?: ReactNode;
+  hero: ReactNode;
+  sections?: ReactNode;
+  watching?: ReactNode;
+}) {
+  return (
+    <PageGrid layout="split" data-template="assets">
+      <PageColumn span="all">
+        {titleHidden ? (
+          <h1 className="lt-sr">{title}</h1>
+        ) : (
+          <header className="lt-title-row">
+            <div>
+              <h1 className="lt-title">{title}</h1>
+              {description ? <p className="lt-description">{description}</p> : null}
+            </div>
+            {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
+          </header>
+        )}
+        {hero}
+      </PageColumn>
+      <PageColumn>{sections}</PageColumn>
+      <PageColumn>{watching}</PageColumn>
+    </PageGrid>
+  );
 }

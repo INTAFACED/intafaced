@@ -33,6 +33,7 @@ import {
   type ActionResult,
 } from '../venue/VenueKit';
 import { venueCopy } from '../venue/venue-copy';
+import { DeskSessionLine, DeskSessionProvider } from '../venue/VenueSession';
 import { ProductSwitch } from './FuturesOrdersRoom';
 import { venueOrdersCopy } from './venue-orders-copy';
 import './orders.css';
@@ -187,7 +188,20 @@ function VenueOrdersFrame({
       <Page eyebrow={t('eyebrow')} title={title} actions={actions}>
         <TestMark test={test} />
         <WalletBar />
-        <Owned>{(owner) => children({ owner, test, venueName, cancelsPerAction })}</Owned>
+        <Owned>
+          {(owner) =>
+            mode.status.available ? (
+              // A venue whose orders a trading session's key signs (status `tradesSignedBy`): cancels and changes here
+              // sign with this tab's session key, and the session panel says its state.
+              <DeskSessionProvider owner={owner} status={mode.status}>
+                <DeskSessionLine />
+                {children({ owner, test, venueName, cancelsPerAction })}
+              </DeskSessionProvider>
+            ) : (
+              children({ owner, test, venueName, cancelsPerAction })
+            )
+          }
+        </Owned>
       </Page>
     </VenueFrame>
   );

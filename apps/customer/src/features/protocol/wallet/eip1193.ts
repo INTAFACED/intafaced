@@ -23,7 +23,11 @@ export type SignResult =
   | { status: 'signed'; signature: string }
   | { status: 'sent'; hash: string }
   | { status: 'rejected' }
-  | { status: 'failed'; reason: 'timeout' | 'wallet_error' | 'chain_mismatch' | 'not_connected' | 'invalid_request'; message: string };
+  | {
+      status: 'failed';
+      reason: 'timeout' | 'wallet_error' | 'busy' | 'chain_mismatch' | 'not_connected' | 'invalid_request';
+      message: string;
+    };
 
 export type SignRequest =
   | { kind: 'typedData'; typedData: TypedDataDocument }
@@ -58,6 +62,12 @@ export interface TypedDataDocument {
 const REJECTED_CODES = new Set([4001, 'ACTION_REJECTED']);
 export function isRejection(error: unknown): boolean {
   return typeof error === 'object' && error !== null && REJECTED_CODES.has((error as { code?: number | string }).code as number);
+}
+
+/** EIP-1474's "limit exceeded": the wallet's provider is over its own signing limit, not the person's doing. */
+const LIMIT_EXCEEDED = -32005;
+function isLimitExceeded(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === LIMIT_EXCEEDED;
 }
 
 export const SIGN_TIMEOUT_MS = 120_000;
@@ -117,6 +127,13 @@ export async function runSignRequest(
         : { status: 'failed', reason: 'wallet_error', message: 'The wallet returned no transaction hash.' };
     } catch (error) {
       if (isRejection(error)) return { status: 'rejected' };
+      if (isLimitExceeded(error))
+        return {
+          status: 'failed',
+          reason: 'busy',
+          message:
+            'The wallet provider has reached its signing limit, which you cannot fix from here. Nothing was signed or sent. Try again later.',
+        };
       return {
         status: 'failed',
         reason: 'wallet_error',

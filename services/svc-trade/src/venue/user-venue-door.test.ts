@@ -13,7 +13,7 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import { creditDepositLogs, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
-import { HttpUserVenue, readDepositRoute } from './http-user-venue.js';
+import { HttpUserVenue, readDepositRoute, readWalletReads } from './http-user-venue.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
@@ -206,6 +206,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       stepUp: opts.stepUp ?? stepUp('approve').check,
       builder: opts.builder === undefined ? BUILDER : opts.builder,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: opts.now ?? (() => new Date()),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -229,7 +230,15 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
   it('prepare → sign (viem, fixed key) → submit → read, with our builder fee from the owner value', async () => {
     const { d } = door();
     const status = await d.status();
-    expect(status).toMatchObject({ enabled: true, available: true, test: true, label: 'TEST', chainId: 84532 });
+    // The simulator's orders name the wallet's own chain, so the owner's wallet signs them (no trading session needed).
+    expect(status).toMatchObject({
+      enabled: true,
+      available: true,
+      test: true,
+      label: 'TEST',
+      chainId: 84532,
+      tradesSignedBy: 'owner_wallet',
+    });
 
     // The builder fee approval first (owner-signed), keyed by the caller's own business key.
     const approve = await d.prepare(principal, {
@@ -292,6 +301,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       stepUp: stepUp('approve').check,
       builder: BUILDER,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -467,6 +477,30 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     });
     await expect(unlisted(43)).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
     expect(markets).toHaveBeenCalledTimes(2);
+  });
+
+  it('reading markets() never resets the 5s miss-reread window for a market added right afterwards', async () => {
+    let t = Date.UTC(2026, 10, 9, 12);
+    const { d } = door({ builder: null, now: () => new Date(t) });
+    const venue = await d.venue();
+    const listed = venue.markets.bind(venue);
+    const markets = vi.spyOn(venue, 'markets');
+    // Prime marketList at t, then advance past the 5s miss window and call d.markets() (e.g. svc-ws polling /tickers).
+    await d.preview(principal, owner, order(44, { price: a('50000') }));
+    expect(markets).toHaveBeenCalledTimes(1);
+    t += 10_000;
+    await d.markets();
+    expect(markets).toHaveBeenCalledTimes(2);
+    // 1s after d.markets(), a brand-new market appears on the venue; preview must still re-read and find it.
+    t += 1_000;
+    markets.mockImplementationOnce(async (account) => {
+      const list = await listed(account);
+      return { ...list, value: [...list.value, { ...list.value.find((m) => m.symbol === 'BTC-USDC')!, symbol: 'FRESH-USDC' }] };
+    });
+    await expect(d.preview(principal, owner, order(45, { symbol: 'FRESH-USDC', side: 'sell' }))).rejects.toMatchObject({
+      refusal: { code: 'builder_fee_not_published' },
+    });
+    expect(markets).toHaveBeenCalledTimes(3);
   });
 
   it('blank builder fee: every order that would carry one refuses builder_fee_not_published, nothing stored; a spot buy carries none and goes ahead', async () => {
@@ -673,12 +707,48 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       stepUp: stepUp('approve').check,
       builder: BUILDER,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });
 
   it('status names the venue’s deposit route: where the customer’s own wallet sends the token', async () => {
-    expect(await door().status()).toMatchObject({ enabled: true, available: true, label: 'TEST', deposit: ROUTE });
+    // The simulator names no wallet reads: every read of the account comes through the door.
+    expect(await door().status()).toMatchObject({ enabled: true, available: true, label: 'TEST', deposit: ROUTE, walletReads: null });
+  });
+
+  it('status names where the browser reads the person’s own wallet when the venue names it, and only a well-formed one', async () => {
+    const named = { baseUrl: 'https://api.hyperliquid-testnet.xyz', perpDexs: ['xyz'] };
+    const withReads = (walletReads: unknown) =>
+      new UserVenueDoor({
+        connect: () =>
+          HttpUserVenue.connect({
+            baseUrl: url,
+            timeoutMs: 2000,
+            fetch: async (input, init) => {
+              const res = await fetch(input, init);
+              if (new URL(String(input)).pathname !== '/venue') return res;
+              const body = (await res.json()) as Record<string, unknown>;
+              return new Response(JSON.stringify({ ...body, walletReads }), { status: res.status });
+            },
+          }),
+        appEnv: 'test',
+        store: new InMemoryPreparedActionStore(),
+        stepUp: stepUp('approve').check,
+        builder: BUILDER,
+        slippageCapBps: null,
+        closeSlippageBps: 1000,
+        listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+        now: () => new Date(),
+      });
+    expect(await withReads(named).status()).toMatchObject({ available: true, walletReads: named });
+    expect(await withReads({ baseUrl: 'http://api.hyperliquid-testnet.xyz', perpDexs: [] }).status()).toMatchObject({ walletReads: null });
+    expect(readWalletReads(named)).toEqual(named);
+    expect(readWalletReads(null)).toBeNull();
+    expect(readWalletReads({ baseUrl: 'https://api.hyperliquid-testnet.xyz/info', perpDexs: [] })).toBeNull();
+    expect(readWalletReads({ baseUrl: 'https://api.hyperliquid-testnet.xyz' })).toBeNull();
+    expect(readWalletReads({ baseUrl: 'https://api.hyperliquid-testnet.xyz', perpDexs: ['XYZ'] })).toBeNull();
+    expect(readWalletReads({ baseUrl: 'https://a.b;connect-src *', perpDexs: [] })).toBeNull();
   });
 
   it('a withdrawal reads back over HTTP pending, then done, with the venue fee and the network fee or "not known"', async () => {

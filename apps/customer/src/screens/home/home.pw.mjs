@@ -52,7 +52,12 @@ const venueBalances = (...totals) => ({
   value: totals.map((total) => ({ asset: 'USDC', free: total, locked: '0', total })),
 });
 // An established account by default: verified, a passkey, an alert, money at the venue and a trade, so Get started is out of the way.
+/** The venue's market reads where its door is off: they refuse, and Home's markets are our own book's. */
+const VENUE_OFF = { status: 404, json: { code: 'NotFound', message: 'the user-venue door is off', intafacedCode: 'trade.user_venue_off' } };
 const defaults = {
+  // The venue door is off here, as on a deployment with no venue: the markets catalogue reads ours.
+  'venue/market-states': VENUE_OFF,
+  'venue/tickers': VENUE_OFF,
   markets: () => markets,
   tickers: () => tickers(),
   balance: () => balances(),
@@ -969,5 +974,56 @@ test('with four markets or fewer, Top movers is left out because it would repeat
   await expect(page.getByTestId('home-card').first()).toBeVisible();
   expect(await page.getByTestId('home-card').count()).toBe(3);
   await expect(page.getByTestId('home-pills')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Top movers' })).toHaveCount(0);
+});
+
+test("with the venue on, Home's markets are the venue's at the venue's prices, as the Markets list shows them", async ({ page }) => {
+  // TEST figures. One venue spot market and one perpetual; the venue door is on, so our own book's BTC-USDT at 67,812.40
+  // and its movers are not shown beside it.
+  const listing = { opensAt: '2026-11-24T09:00:00.000Z', delistsAt: null, routing: 'show', open: true, delisted: false };
+  const venueMarket = (symbol, kind, baseAsset) => ({
+    symbol,
+    kind,
+    baseAsset,
+    quoteAsset: 'USDC',
+    tickSize: '0.1',
+    lotSize: '0.001',
+    status: 'trading',
+    session: { known: false },
+    listing,
+  });
+  const asOf = { venueId: 'test-venue-sim', asOf: '2026-11-24T10:00:00.000Z' };
+  await mock(page, {
+    'venue/market-states': () => ({
+      ...asOf,
+      value: {
+        venue: { id: 'v', displayName: 'TEST' },
+        markets: [venueMarket('BTC-USDC', 'spot', 'BTC'), venueMarket('ETH-PERP', 'perpetual', 'ETH')],
+        test: true,
+      },
+    }),
+    'venue/tickers': () => ({
+      ...asOf,
+      test: true,
+      value: {
+        'BTC-USDC': {
+          symbol: 'BTC-USDC',
+          last: '97000.5',
+          high: '98000',
+          low: '96000',
+          baseVolume: '12.5',
+          quoteVolume: '1212500',
+          bid: '97000',
+          ask: '97001',
+          spread: '1',
+        },
+      },
+    }),
+  });
+  await open(page);
+  await expect(page.getByTestId('home-card')).toHaveCount(1);
+  await expect(page.getByTestId('home-card')).toContainText('BTC');
+  await expect(page.getByTestId('home-card')).toContainText('$97,000.5');
+  await expect(page.getByTestId('home-card')).not.toContainText('67,812');
   await expect(page.getByRole('heading', { name: 'Top movers' })).toHaveCount(0);
 });

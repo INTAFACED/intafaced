@@ -37,11 +37,13 @@ import { EXPLORER_LIVE_WRITE_REFUSED, explorerLiveWrite } from './explorer-guard
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { keyCallReport, presentedKeyHash, replyErrorCode, reportKeyCall } from './key-call-log.js';
+import { registerAccountCallLog, rememberCaller } from './account-call-log.js';
 import { normalizeIp } from './request-client-ip.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
 import { statusBadgeHeaders } from './status-badge-proxy.js';
+import { historyDownloadHeaders, isBinaryHistoryReply } from './history-download-proxy.js';
 import { idempotencyHeaders } from './idempotency-headers.js';
 import { advisoriesFor, advisoryReplyHeaders, negotiateApiVersion, versionReplyHeaders } from './api-version.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
@@ -434,6 +436,9 @@ await app.register(async (api) => {
     return payload;
   });
 
+  // An account's call line: each reply to a signed-in person's call is logged by account id (`account-call-log.ts`).
+  registerAccountCallLog(api);
+
   api.all('/api/*', async (req, reply) => {
     // The same resolver the onRequest guards read, so the proxy forwards exactly the path they judged. Null (a path
     // not in normal form, or one with no single answer) was already refused there; refused here too as a belt.
@@ -551,6 +556,7 @@ await app.register(async (api) => {
     // signing-key mismatch, and a spike in `anonymous` is a front-end that stopped
     // attaching the header. An availability panel that merges them shows neither.
     markAuthOutcome(req, exchanged.rejected ? 'refused' : exchanged.principal ? 'authenticated' : 'anonymous');
+    rememberCaller(req, exchanged.principal);
 
     // The API explorer never writes with a live key (DV-console-01): its tagged write is refused before anything else.
     if (explorerLiveWrite(req.method, req.headers, exchanged.principal)) {
@@ -685,11 +691,14 @@ await app.register(async (api) => {
           return reply.code(502).send({ error: userCopy('edge.upstream_unavailable'), code: 'edge.upstream_unavailable' });
         }
 
-        const text = await response.text();
+        const binaryHistory = isBinaryHistoryReply(url.pathname, response.headers.get('content-type'));
+        // Kept as `text` for reply-envelope.test.ts's source pin (string for JSON/text, Buffer for binary history gzip).
+        const text = binaryHistory ? Buffer.from(await response.arrayBuffer()) : await response.text();
         const forwarded: Record<string, string | string[]> = {
           ...forwardUpstreamResponseHeaders(url.pathname, response.headers),
           ...hostedCheckoutHeaders(url.pathname, response.headers),
           ...statusBadgeHeaders(url.pathname, response.headers),
+          ...historyDownloadHeaders(url.pathname, response.headers),
           ...idempotencyHeaders(url.pathname, response.headers),
         };
         // Only checkout paths fetch with `redirect: 'manual'`; anywhere else a 3xx that reached here passes as before.

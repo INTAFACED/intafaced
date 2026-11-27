@@ -2,9 +2,7 @@ import { createContext, useContext, useEffect, useId, useRef, type ReactNode } f
 import type { ApiResult } from '../../../shared/api';
 import { MoneyDisplay } from './presentation';
 import { Button, StateBlock } from '@intafaced/ui';
-import { EmptyState } from '../ui-kit';
 import { DateTime } from './ui/DateTime';
-import type { ListState } from './hooks';
 import { activeHalts, type PayoutState } from './model';
 import { portalCopy } from './copy';
 import { StatusChip } from './ui/StatusChip';
@@ -96,52 +94,6 @@ export function PortalFailure({ result, retry, notLive }: { result: Failed; retr
   );
 }
 
-/** Loading, refused and empty for a paged list; the rows themselves come from `children`. */
-export function ListShell<T>({
-  state,
-  empty,
-  retry,
-  children,
-}: {
-  state: ListState<T>;
-  empty: { title: string; body: string; action?: ReactNode };
-  retry: () => void;
-  children: (items: T[]) => ReactNode;
-}) {
-  if (state.status === 'loading') return <PortalLoading />;
-  if (state.status === 'failed') return <PortalFailure result={state.failure} retry={retry} />;
-  if (state.items.length === 0)
-    return (
-      <EmptyState title={empty.title} action={empty.action}>
-        {empty.body}
-      </EmptyState>
-    );
-  return <>{children(state.items)}</>;
-}
-
-/** Row count and "Load more" (B3). The count says "so far" while another page exists, so it is never read as a total. */
-export function MoreFooter<T>({ state, onMore }: { state: Extract<ListState<T>, { status: 'ready' }>; onMore: () => void }) {
-  const { t } = portalCopy.useCopy();
-  const failed = typeof state.more === 'object';
-  return (
-    <div className="pp-more">
-      <p className="lt-muted" role="status">
-        {state.hasMore ? t('rowsSoFar', { count: state.items.length }) : t('rowsAll', { count: state.items.length })}
-      </p>
-      {state.hasMore && (
-        <Button variant="secondary" onClick={onMore} disabled={state.more === 'loading'}>
-          {state.more === 'loading' ? t('loadingMore') : failed ? t('tryAgain') : t('loadMore')}
-        </Button>
-      )}
-      {failed && (
-        <p className="error-text" role="alert">
-          {refusalText(state.more as Failed)}
-        </p>
-      )}
-    </div>
-  );
-}
-
 /** One line per asset. Two assets are never added together; an empty list is "nothing yet", not zero. */
 export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[]; emptyLabel?: string }) {
   const { t } = portalCopy.useCopy();
@@ -174,8 +126,6 @@ export function Chip({ kind, value }: { kind: ChipKind; value: string }) {
   return <StatusChip entity={kind} value={value} />;
 }
 
-export { Timeline, type TimelineEvent as TimelineItem } from './ui/Timeline';
-
 export function SelectField({
   label,
   value,
@@ -203,14 +153,6 @@ export function SelectField({
       </select>
       {hint && <small>{hint}</small>}
     </label>
-  );
-}
-
-export function BackLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <a className="text-link pp-back" href={href}>
-      ← {children}
-    </a>
   );
 }
 
@@ -251,14 +193,6 @@ export function Gate<T>({
 export function NotConfigured({ children }: { children?: ReactNode }) {
   const { t } = portalCopy.useCopy();
   return <span className="pp-notconf">{children ?? t('notConfigured')}</span>;
-}
-export function TestTag() {
-  const { t } = portalCopy.useCopy();
-  return (
-    <span className="pp-test" title={t('testValueTip')}>
-      {t('testValue')}
-    </span>
-  );
 }
 
 /** Operation pauses (B11): which operation is paused and since when. An unreadable pause store counts as paused. */

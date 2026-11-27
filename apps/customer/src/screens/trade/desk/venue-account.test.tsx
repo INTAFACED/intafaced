@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { SessionProvider } from '../../../features/session/session';
 import { WalletProvider } from '../../../features/protocol/wallet/WalletProvider';
 import type { DiscoveredWallet } from '../../../features/protocol/wallet/eip1193';
 import type { AsOf, VenueBalance, VenueMarket, VenueUp } from '../../../features/trade/venue-api';
@@ -101,17 +102,19 @@ describe('VenueAccountPanel stays inside the narrow desk ticket column', () => {
     installConnectedWallet(WIDE_ADDR);
     await act(async () => {
       root.render(
-        <WalletProvider>
-          <VenueAccountPanel
-            status={STATUS}
-            market={MARKET}
-            balances={BALANCES}
-            onDeposit={() => undefined}
-            onWithdraw={() => undefined}
-            onFlatten={() => undefined}
-            withdrawal={null}
-          />
-        </WalletProvider>,
+        <SessionProvider>
+          <WalletProvider>
+            <VenueAccountPanel
+              status={STATUS}
+              market={MARKET}
+              balances={BALANCES}
+              onDeposit={() => undefined}
+              onWithdraw={() => undefined}
+              onFlatten={() => undefined}
+              withdrawal={null}
+            />
+          </WalletProvider>
+        </SessionProvider>,
       );
     });
     const addr = host.querySelector('[data-testid="venue-wallet-address"]');
@@ -130,17 +133,19 @@ describe('VenueAccountPanel stays inside the narrow desk ticket column', () => {
     installConnectedWallet(WIDE_ADDR);
     await act(async () => {
       root.render(
-        <WalletProvider>
-          <VenueAccountPanel
-            status={STATUS}
-            market={MARKET}
-            balances={BALANCES}
-            onDeposit={() => undefined}
-            onWithdraw={() => undefined}
-            onFlatten={() => undefined}
-            withdrawal={null}
-          />
-        </WalletProvider>,
+        <SessionProvider>
+          <WalletProvider>
+            <VenueAccountPanel
+              status={STATUS}
+              market={MARKET}
+              balances={BALANCES}
+              onDeposit={() => undefined}
+              onWithdraw={() => undefined}
+              onFlatten={() => undefined}
+              withdrawal={null}
+            />
+          </WalletProvider>
+        </SessionProvider>,
       );
     });
     const account = host.querySelector('[data-testid="venue-account"]');

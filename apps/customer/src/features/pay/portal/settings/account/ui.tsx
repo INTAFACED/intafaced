@@ -1,9 +1,6 @@
 import type { ReactNode } from 'react';
-import { Button } from '@intafaced/ui';
-import { EmptyState } from '../../../ui-kit';
+import { Empty, LinkButton, NotLive } from '../../volt/parts';
 import { accountCopy } from './copy';
-import { NotLiveCard } from '../../chrome/NotLiveCard';
-import './account.css';
 
 /**
  * A part of a page that cannot work yet, for a reason outside the page. `reason` names what it is waiting for
@@ -13,16 +10,16 @@ import './account.css';
  */
 export function Blocker({ reason, title, needs, children }: { reason: string; title?: string; needs?: string; children?: ReactNode }) {
   return (
-    <NotLiveCard reason={reason} title={title} needs={needs}>
+    <NotLive reason={reason} title={title} needs={needs}>
       {children}
-    </NotLiveCard>
+    </NotLive>
   );
 }
 
 /** Setup belongs to the account owner. A team member who opens it is told so, instead of being led into steps they cannot finish. */
 export function OwnerSetsUp() {
   const { t } = accountCopy.useCopy();
-  return <EmptyState title={t('ownerSetsUpTitle')}>{t('ownerSetsUpBody')}</EmptyState>;
+  return <Empty title={t('ownerSetsUpTitle')}>{t('ownerSetsUpBody')}</Empty>;
 }
 
 /**
@@ -32,15 +29,15 @@ export function OwnerSetsUp() {
 export function TwoStepFirst() {
   const { t } = accountCopy.useCopy();
   return (
-    <EmptyState
+    <Empty
       title={t('twoStepFirstTitle')}
       action={
-        <Button variant="primary" nativeButton={false} role="link" render={<a href="/settings/security" />}>
+        <LinkButton href="/settings/security" tone="primary">
           {t('twoStepFirstAction')}
-        </Button>
+        </LinkButton>
       }
     >
       {t('twoStepFirstBody')}
-    </EmptyState>
+    </Empty>
   );
 }

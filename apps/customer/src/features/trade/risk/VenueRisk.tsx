@@ -10,6 +10,7 @@ import { useAsk } from '../../../screens/trade/desk/VenueOrderChanges';
 import type { VenueMode } from '../use-venue-mode';
 import { draftId, keys, type VenuePosition, type VenueUp } from '../venue-api';
 import { VENUE_POLL_MS } from '../venue/poll';
+import { DeskSessionLine, DeskSessionProvider } from '../venue/VenueSession';
 import { OutcomeLine, TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { keepsDraft, useOwner, useVenueActions, useVenueApi, type ActionResult, type RunAction } from '../venue/VenueKit';
 import {
@@ -68,7 +69,14 @@ function Owned({ status, t }: { status: VenueUp; t: T }) {
         <p data-testid="risk-venue-connect">{t('venueConnect')}</p>
       </Section>
     );
-  return <Account owner={owner} status={status} t={t} />;
+  // A venue whose orders a trading session's key signs (status `tradesSignedBy`): Cancel all and each close sign with
+  // this tab's session key, and the session panel says its state.
+  return (
+    <DeskSessionProvider owner={owner} status={status}>
+      <DeskSessionLine />
+      <Account owner={owner} status={status} t={t} />
+    </DeskSessionProvider>
+  );
 }
 
 function Account({ owner, status, t }: { owner: string; status: VenueUp; t: T }) {
@@ -170,6 +178,7 @@ function Account({ owner, status, t }: { owner: string; status: VenueUp; t: T })
             signing={signing}
             onDone={reload}
             builder={status.builder}
+            closeSlippageBps={status.closeSlippageBps ?? null}
             futuresOff={futuresOff}
             t={t}
           />
@@ -189,6 +198,7 @@ function Reduce({
   signing,
   onDone,
   builder,
+  closeSlippageBps,
   futuresOff,
   t,
 }: {
@@ -201,6 +211,8 @@ function Reduce({
   onDone: () => void;
   /** Our builder fee, which every order on the venue carries; an account that has not approved it signs the approval first. */
   builder: VenueUp['builder'];
+  /** The owner's close tolerance (status `closeSlippageBps`): null is blank, and svc-trade refuses every close. */
+  closeSlippageBps: number | null;
   /** The venue lists no futures contract for this account. */
   futuresOff: boolean;
   t: T;
@@ -264,7 +276,7 @@ function Reduce({
           side: p.side === 'long' ? 'sell' : 'buy',
           type: 'limit',
           amount: p.size,
-          price: closeWorstPrice(p, tickOf(p.symbol)!),
+          price: closeWorstPrice(p, tickOf(p.symbol)!, closeSlippageBps),
           timeInForce: 'IOC',
           reduceOnly: true,
           clientOrderKey: keys.close(owner, p.symbol, row.id),

@@ -1,4 +1,5 @@
 import { VENUE_SPOT_OTHER_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
+import { venueBound } from '@intafaced/contracts/venue-price';
 import { formatAmount, parseAmount } from '../../../shared/money';
 import {
   canonicalDecimal,
@@ -30,7 +31,8 @@ export function shortAddress(address: string): string {
 
 /**
  * A market order's worst price from the venue's best prices and the owner's protection `bps` (never a default): a buy
- * pays at most the best ask plus `bps`, up to the tick; a sell at least the best bid less `bps`, down. Null with no price.
+ * pays at most the best ask plus `bps`, a sell at least the best bid less `bps`, on the venue's price rule rounded toward
+ * the market (`venueBound`, the one svc-trade bounds with). Null with no price.
  */
 export function slippageLimit(side: VenueSide, best: VenueBestPrices | null, bps: string, tick: string): string | null {
   const reference = side === 'buy' ? best?.ask : best?.bid;
@@ -42,9 +44,9 @@ export function slippageLimit(side: VenueSide, best: VenueBestPrices | null, bps
   if (price <= 0n || step <= 0n || ratio < 0n) return null;
   // Scaled bigint times a scaled ratio: divide by the scale of `one` to stay in the same units.
   const moved = side === 'buy' ? (price * (one + ratio)) / one : (price * (one - ratio)) / one;
-  const ticks = side === 'buy' ? (moved + step - 1n) / step : moved / step;
-  const limit = ticks * step;
-  return limit > 0n ? formatAmount(limit) : null;
+  if (moved <= 0n) return null;
+  const limit = venueBound(side, { moved: formatAmount(moved), reference: formatAmount(price), tick });
+  return parseAmount(limit) > 0n ? limit : null;
 }
 
 /** What the ticket holds for one side. `tif` is a limit's time in force (good till cancelled when absent). */

@@ -1,29 +1,26 @@
-import './money.css';
 import './refusals';
 import type { ReactNode } from 'react';
-import { Requires } from '../access/MerchantAccess';
-import { WithAccount } from '../access/WithAccount';
 import type { RoomDef, RoomTable } from '../rooms-model';
+import { LinkButton } from '../volt/parts';
 import { ApprovalsRoom } from './Approvals';
-import { LinkButton } from './common';
 import { mc } from './copy';
-import { ConversionNew } from './Conversion';
+import { ConversionNewRoom } from './Conversion';
 import { ConversionOrderRoom, ConversionRoom } from './ConversionOrders';
 import { DestinationsRoom } from './Destinations';
 import { LimitsRoom } from './Limits';
 import { MerchantMoney } from './Money';
 import { PayoutRoom, PayoutsRoom } from './Payouts';
-import { PayoutNew } from './PayoutNew';
+import { PayoutNewRoom } from './PayoutNew';
 import { PricingRoom } from './Pricing';
-import { RefundNew } from './RefundNew';
+import { RefundNewRoom } from './RefundNew';
 import { RefundRoom, RefundsRoom } from './Refunds';
 import { SettlementRoom, SettlementsRoom } from './Settlements';
 import { StatementRoom } from './Statement';
-import { TopUp } from './TopUp';
+import { TopUpRoom } from './TopUp';
 
 const t = mc.t;
 const go = (href: string, label: string, primary = false): ReactNode => (
-  <LinkButton href={href} variant={primary ? 'primary' : 'secondary'}>
+  <LinkButton href={href} tone={primary ? 'primary' : 'secondary'}>
     {label}
   </LinkButton>
 );
@@ -31,15 +28,8 @@ const go = (href: string, label: string, primary = false): ReactNode => (
 const conversionNew: RoomDef = {
   header: () => ({ title: t('pageConvertNew'), purpose: t('purposeConvertNew'), action: go('/pay/conversion', t('pageConversion')) }),
   here: '/pay/conversion',
-  render: (_route, { portal }) => (
-    <WithAccount>
-      {({ merchantId }) => (
-        <Requires need="payout.approve">
-          <ConversionNew portal={portal} merchantId={merchantId} />
-        </Requires>
-      )}
-    </WithAccount>
-  ),
+  ownTitle: true,
+  render: (_route, { portal }) => <ConversionNewRoom portal={portal} />,
 };
 
 const refundsHeader: RoomDef['header'] = (route) =>
@@ -58,19 +48,12 @@ const refunds: RoomDef = {
     route.room === 'refund' ? <RefundRoom portal={portal} refundId={route.param!} /> : <RefundsRoom portal={portal} />,
 };
 
-/** A new refund is a flow page: the frame keeps its heading. */
+/** A new refund draws its own title row on the flow template. */
 const refundNew: RoomDef = {
   header: refundsHeader,
   here: '/pay/refunds',
-  render: (_route, { portal, authority }) => (
-    <WithAccount>
-      {({ merchantId }) => (
-        <Requires need="owner">
-          <RefundNew portal={portal} merchantId={merchantId} authority={authority} />
-        </Requires>
-      )}
-    </WithAccount>
-  ),
+  ownTitle: true,
+  render: (_route, { portal, authority }) => <RefundNewRoom portal={portal} authority={authority} />,
 };
 
 export const moneyRooms: RoomTable = {
@@ -104,15 +87,8 @@ export const moneyRooms: RoomTable = {
   'money-top-up': {
     header: () => ({ title: t('pageTopUp'), purpose: t('purposeTopUp'), action: go('/pay/money', t('pageMoney')) }),
     here: '/pay/money',
-    render: (_route, { portal }) => (
-      <WithAccount>
-        {({ merchantId }) => (
-          <Requires need="payments.read">
-            <TopUp portal={portal} merchantId={merchantId} />
-          </Requires>
-        )}
-      </WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <TopUpRoom portal={portal} />,
   },
   refunds,
   'refund-new': refundNew,
@@ -140,15 +116,8 @@ export const moneyRooms: RoomTable = {
       action: go('/pay/payouts/destinations', t('pageDestinations')),
     }),
     here: '/pay/payouts',
-    render: (_route, { portal }) => (
-      <WithAccount>
-        {({ merchantId }) => (
-          <Requires need="payout.request">
-            <PayoutNew portal={portal} merchantId={merchantId} />
-          </Requires>
-        )}
-      </WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <PayoutNewRoom portal={portal} />,
   },
   'payout-destinations': {
     header: () => ({

@@ -10,6 +10,13 @@ import { NativeL3Hub } from './depth/l3-hub.js';
 import { DepthPoller } from './depth/poller.js';
 import { HttpMarketRegistry, UnionMarketRegistry } from './depth/registry.js';
 import { HttpDepthSource } from './depth/source.js';
+import {
+  VenueMarketRegistry,
+  VenueOrEngineCandleSource,
+  VenueOrEngineDepthSource,
+  VenueOrEngineMarketDirectory,
+  VenueOrEngineTickerSource,
+} from './venue-source.js';
 import { registerRoutes } from './routes.js';
 import { TradeHub } from './trade/hub.js';
 import { subscribeTradeTape } from './trade/source.js';
@@ -84,7 +91,9 @@ registerProcessHooks(
  * credential snapshots; this process posts no ledger transactions.
  */
 
-const source = new HttpDepthSource({ baseUrl: env.MATCHING_URL });
+const engineSource = new HttpDepthSource({ baseUrl: env.MATCHING_URL });
+const venueFeed = { tradeUrl: env.TRADE_URL };
+const source = new VenueOrEngineDepthSource(engineSource, venueFeed);
 
 /** Chosen by INTAFACED_SBE_JAVA alone, never the package's synchronous fallback build (sbe-runtime.ts, #7554). */
 const sbe = serviceSbeCodec(env.INTAFACED_SBE_JAVA);
@@ -130,6 +139,7 @@ if (!sbe.linked) {
  */
 const registry = new UnionMarketRegistry(
   [
+    { name: 'svc-trade-venue', registry: new VenueMarketRegistry({ ...venueFeed, log: app.log }) },
     { name: 'svc-trade', registry: new HttpMarketRegistry({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT }) },
     { name: 'svc-matching', registry: source },
   ],
@@ -209,12 +219,15 @@ const tradeHub = new TradeHub(
  * hubs above; tickers and candles have hubs of their own, fed by svc-trade's
  * public REST (`TRADE_URL`, no credential) only while somebody is subscribed.
  */
-const marketDirectory = new HttpMarketDirectory({
-  baseUrl: env.TRADE_URL,
-  marketsLimit: env.WS_MARKETS_LIST_LIMIT,
-  ttlMs: env.WS_MARKETS_REFRESH_MS,
-  log: app.log,
-});
+const marketDirectory = new VenueOrEngineMarketDirectory(
+  new HttpMarketDirectory({
+    baseUrl: env.TRADE_URL,
+    marketsLimit: env.WS_MARKETS_LIST_LIMIT,
+    ttlMs: env.WS_MARKETS_REFRESH_MS,
+    log: app.log,
+  }),
+  { ...venueFeed, log: app.log },
+);
 
 const tickerHub = new TickerHub(
   {
@@ -242,8 +255,14 @@ const muxPoller = new MuxPoller(
   {
     tickers: tickerHub,
     candles: candleHub,
-    tickerSource: new HttpTickerSource({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT, log: app.log }),
-    candleSource: new HttpCandleSource({ baseUrl: env.TRADE_URL, log: app.log }),
+    tickerSource: new VenueOrEngineTickerSource(
+      new HttpTickerSource({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT, log: app.log }),
+      { ...venueFeed, log: app.log },
+    ),
+    candleSource: new VenueOrEngineCandleSource(new HttpCandleSource({ baseUrl: env.TRADE_URL, log: app.log }), {
+      ...venueFeed,
+      log: app.log,
+    }),
     directory: marketDirectory,
   },
   { tickerPollMs: env.WS_TICKER_POLL_MS, candlePollMs: env.WS_CANDLE_POLL_MS, flushMs: 250 },
@@ -533,6 +552,7 @@ const gateway = createWebSocketGateway({
   enabled: isEnabled,
   admitNewConnection: () => newConnections.admit(),
   admitAddress: (address) => perIp.admit(address),
+  trustedProxies: env.WS_TRUST_PROXY,
   sbeConsumers,
   sbe,
 });
@@ -552,6 +572,7 @@ const privateGateway = createPrivateWebSocketGateway({
   tradeCancel: new HttpTradeCancelPort({ baseUrl: env.TRADE_URL }),
   authority,
   customerOrigins,
+  trustedProxies: env.WS_TRUST_PROXY,
   positions: positionsStream,
 });
 
@@ -564,6 +585,7 @@ const dropCopyGateway = createDropCopyWebSocketGateway({
   tokens: privateTokens,
   authority,
   customerOrigins,
+  trustedProxies: env.WS_TRUST_PROXY,
 });
 
 poller.start();

@@ -41,7 +41,13 @@ export function WalletBar() {
           </div>
         </>
       ) : wallet.wallets.length === 0 ? (
-        <p className="lt-hint">{t('No wallet')}</p>
+        <>
+          <p className="lt-hint">{t('No wallet')}</p>
+          {/* With no browser wallet, the person makes the app's own here; it then shows above as a wallet to connect. */}
+          <a className="lt-link" href="/wallet/embedded" data-testid="venue-wallet-make">
+            {t('Make wallet')}
+          </a>
+        </>
       ) : (
         <div className="lt-actions">
           {wallet.wallets.map((entry) => (

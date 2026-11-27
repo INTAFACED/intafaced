@@ -17,6 +17,7 @@ import {
 } from '../../features/trade/venue/VenueKit';
 import { draftId, keys, type VenueOrder } from '../../features/trade/venue-api';
 import { venueCopy } from '../../features/trade/venue/venue-copy';
+import { DeskSessionLine, DeskSessionProvider } from '../../features/trade/venue/VenueSession';
 import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from '../trade/desk/OrderTables';
@@ -186,7 +187,16 @@ function VenueOrders({ mode }: { mode: Extract<VenueMode, { mode: 'on' }> }) {
 
 function VenueOrdersBody({ status }: { status: Extract<VenueMode, { mode: 'on' }>['status'] }) {
   const owner = useOwner();
-  return owner ? <OwnerVenueOrders owner={owner} status={status} /> : null;
+  if (!owner) return null;
+  if (!status.available) return <OwnerVenueOrders owner={owner} status={status} />;
+  // A venue whose orders a trading session's key signs (status `tradesSignedBy`): a cancel here signs with this tab's
+  // session key, and the session panel says its state.
+  return (
+    <DeskSessionProvider owner={owner} status={status}>
+      <DeskSessionLine />
+      <OwnerVenueOrders owner={owner} status={status} />
+    </DeskSessionProvider>
+  );
 }
 
 function OwnerVenueOrders({ owner, status }: { owner: string; status: Extract<VenueMode, { mode: 'on' }>['status'] }) {

@@ -62,6 +62,24 @@ describe('/fees', () => {
     expect(html).toContain('Network fee on withdrawals: not set here');
   });
 
+  it('with our own book off, shows no rate of ours and names the venue as the only one a fill pays', () => {
+    const html = renderToString(<FeesView load={ready({ ...schedule, ownBook: false })} venue={<p>VENUE</p>} />);
+    expect(html).toContain('VENUE');
+    expect(html).toContain('data-fees="own-book-off"');
+    expect(html).toContain('Every order is placed on the venue');
+    expect(html).not.toContain('data-pair-group');
+    expect(html).not.toContain('Schedule version');
+    expect(html).not.toContain('Network fee on withdrawals: not set here');
+    expect(html).not.toMatch(/\d\.\d\d%/);
+  });
+
+  it('a service from before the field reads as our own book on', () => {
+    const { ownBook: _absent, ...older } = { ...schedule, ownBook: undefined };
+    const html = renderToString(<FeesView load={ready(older)} />);
+    expect(html).toContain('data-pair-group="all-others"');
+    expect(html).not.toContain('data-fees="own-book-off"');
+  });
+
   it('an unpublished schedule says so and shows no rate', () => {
     const html = renderToString(<FeesView load={ready(null)} />);
     expect(html).toContain('The trading fee schedule is not set');

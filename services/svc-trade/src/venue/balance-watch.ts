@@ -1,14 +1,16 @@
 import { add, formatAmount, isNegative, isZero, mul, neg, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import type { Payload } from '@intafaced/events';
-import type {
-  UserVenue,
-  UserVenueAccount,
-  UserVenueArrival,
-  UserVenueBalance,
-  UserVenueFill,
-  UserVenueMarket,
+import {
+  VenueRefusalError,
+  type UserVenue,
+  type UserVenueAccount,
+  type UserVenueArrival,
+  type UserVenueBalance,
+  type UserVenueFill,
+  type UserVenueMarket,
 } from '@intafaced/venue-contracts';
 import type { BalanceWatchCursor, BalanceWatchStore } from './balance-watch-store.js';
+import type { AccountPace } from './account-pace.js';
 import type { OwnerSignedAccount } from './prepared-action-store.js';
 
 /**
@@ -185,6 +187,29 @@ function balanceStep(input: {
 
 const maxDate = (a: Date, b: Date) => (a.getTime() >= b.getTime() ? a : b);
 
+/** True when every asset's total in the reading is the one last reported (an asset absent from either counts as zero). */
+function sameTotals(before: ReadonlyMap<string, Amount>, balances: readonly UserVenueBalance[]): boolean {
+  const now = new Map(balances.map((b) => [b.asset, b.total]));
+  for (const asset of new Set([...before.keys(), ...now.keys()]))
+    if ((before.get(asset) ?? ZERO) !== (now.get(asset) ?? ZERO)) return false;
+  return true;
+}
+
+/**
+ * The venue's credits from outside, or null when it reads none: a venue that refuses the read `not_offered` (Hyperliquid's
+ * test network) reads none, and its changes are named by fills or published as `other`. Without this, every reading of
+ * such a venue failed, its cursor was never written, and each tick read the account's fills again.
+ */
+async function readArrivals(venue: UserVenue, account: UserVenueAccount): Promise<readonly UserVenueArrival[] | null> {
+  if (!venue.arrivals) return null;
+  try {
+    return (await venue.arrivals(account)).value;
+  } catch (err) {
+    if (err instanceof VenueRefusalError && err.refusal.code === 'not_offered') return null;
+    throw err;
+  }
+}
+
 export interface VenueBalanceWatchDeps {
   readonly venue: () => Promise<UserVenue>;
   /** Every person's accounts on this venue their own wallet signed for. */
@@ -193,13 +218,21 @@ export interface VenueBalanceWatchDeps {
   /** Publish one change to one person, under its business key. */
   readonly publish: (userId: string, change: VenueBalanceChange) => Promise<void>;
   readonly now: () => Date;
+  /**
+   * How many accounts a tick may read, a minute's worth at a time: on a venue that limits the box by weight a
+   * minute, the watch's spend stays the same however many accounts there are. Omitted: every account on every tick.
+   */
+  readonly pace?: AccountPace;
 }
 
 export class VenueBalanceWatch {
   constructor(private readonly deps: VenueBalanceWatchDeps) {}
 
-  /** One reading of every watched account. An account whose reading fails is read again on the next tick. */
-  async tick(): Promise<{ accounts: number; published: number; failed: number }> {
+  /**
+   * One reading of every watched account, or with a pace of the accounts it hands out. An account whose reading fails is
+   * read again on the next tick, or with a pace in the next round.
+   */
+  async tick(): Promise<{ accounts: number; read: number; published: number; failed: number }> {
     const venue = await this.deps.venue();
     const venueId = venue.venue.id;
     const owners = new Map<string, { account: UserVenueAccount; users: string[] }>();
@@ -210,11 +243,12 @@ export class VenueBalanceWatch {
       if (!entry.users.includes(a.userId)) entry.users.push(a.userId);
       owners.set(k, entry);
     }
-    if (owners.size === 0) return { accounts: 0, published: 0, failed: 0 };
+    const due = this.deps.pace ? this.deps.pace.take([...owners.values()], (e) => accountTag(e.account)).due : [...owners.values()];
+    if (due.length === 0) return { accounts: owners.size, read: 0, published: 0, failed: 0 };
     const markets = (await venue.markets(null)).value;
     let published = 0;
     let failed = 0;
-    for (const { account, users } of owners.values()) {
+    for (const { account, users } of due) {
       try {
         published += await this.readOne({ venue, account, users, markets });
       } catch (err) {
@@ -224,7 +258,7 @@ export class VenueBalanceWatch {
         );
       }
     }
-    return { accounts: owners.size, published, failed };
+    return { accounts: owners.size, read: due.length, published, failed };
   }
 
   private async readOne(input: {
@@ -237,17 +271,12 @@ export class VenueBalanceWatch {
     const now = this.deps.now();
     const cursor = await this.deps.store.read(account);
     const since = cursor ? cursor.fillsSince : new Date(now.getTime() - BALANCE_WATCH_FILL_OVERLAP_MS);
-    const [balances, arrivals, fills] = await Promise.all([
-      venue.balances(account),
-      venue.arrivals ? venue.arrivals(account) : Promise.resolve(null),
-      venue.fills(account, since),
-    ]);
-    const step = balanceStep({
-      account,
-      cursor,
-      reading: { balances: balances.value, arrivals: arrivals?.value ?? null, fills: fills.value, markets },
-      now,
-    });
+    const balances = (await venue.balances(account)).value;
+    // Totals that did not move have no record to name: the records (a fill read weighs ten balance reads on Hyperliquid)
+    // are read only for the first reading and a reading whose totals moved. A record seen later is still named by its id.
+    if (cursor && sameTotals(cursor.totals, balances)) return 0;
+    const [arrivals, fills] = await Promise.all([readArrivals(venue, account), venue.fills(account, since)]);
+    const step = balanceStep({ account, cursor, reading: { balances, arrivals, fills: fills.value, markets }, now });
     for (const change of step.changes) for (const userId of users) await this.deps.publish(userId, change);
     await this.deps.store.write(account, step.next, step.newlySeen);
     return step.changes.length * users.length;

@@ -62,7 +62,7 @@
  *
  * Full names what the change can reach, never what a pull request runs: no pull request runs the full suite. A full
  * change, or a pick past PR_MAX_FILES, runs the bounded set (pullPick: its changed and named journeys, the map's
- * always-run list and the CANARY), in at most 30 shards (journey-shards.mjs PR_MAX_SHARDS); main's full run after the
+ * always-run list and the CANARY), in at most 60 shards (journey-shards.mjs PR_MAX_SHARDS); main's full run after the
  * merge judges the rest, as OWNER 249 (3) says. The seal holds the pull request to the same set.
  *
  *   node tooling/ci/journey-touch.mjs --base origin/main     (this checkout's branch against a base; prints what to run)
@@ -72,6 +72,10 @@
  *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand, or
  *                                                              this pull request's earlier run, on that head already run;
  *                                                              real-app-journeys.yml's reuse step)
+ *   node tooling/ci/journey-touch.mjs --carried             (env HEAD_SHA, PR_NUMBER, GITHUB_HEAD_REF: JSON { heads, stop,
+ *                                                              lines }: the earlier commits whose journeys runs count for
+ *                                                              the head, journey-carry.mjs, and this pull request's runs
+ *                                                              still going on any other commit; real-app-journeys.yml)
  *   node tooling/ci/journey-touch.mjs --fallback            (the CANARY's files: a pull request's run whose paths can't
  *                                                              be judged; real-app-journeys.yml's pick step)
  *   node tooling/ci/journey-touch.mjs --dispatch            (env JOURNEYS_TARGET: a run by hand's input with every file of
@@ -105,9 +109,12 @@ import {
 } from './journey-reach-map.mjs';
 import { countCall } from './api-count.mjs';
 import { reachesLook } from './look-paths.mjs';
+import { carriedHeads, supersededRuns } from './journey-carry.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
+/** A venue journey's Hyperliquid recording, by its journey file's name (hl-venue-daily.mjs optIn). */
+export const HL_RECORDING = /^packages\/venue-hyperliquid\/recordings\/(J-[A-Za-z0-9._-]+-venue)\.json$/;
 
 /** A changed path as printed in a log line: a pull request names its own paths, so a control character (a newline that
  *  would start a workflow command) is shown as `?`, never written. */
@@ -118,10 +125,14 @@ export const printable = (p) => String(p).replace(/[\u0000-\u001f\u007f]/g, '?')
 export const JOURNEY_CI = [
   'tooling/ci/journey-seal.mjs',
   'tooling/ci/journey-touch.mjs',
+  // Which earlier commits' journeys runs count for a head (#11076): the seal and the touch job read it.
+  'tooling/ci/journey-carry.mjs',
+  'tooling/ci/journey-carry.test.mjs',
   'tooling/ci/journey-verdict.mjs',
   'tooling/ci/journey-verdict.test.mjs',
   // The hosted beta's rule the verdict runs (notOnBeta).
   'tooling/ci/beta-hides.mjs',
+  'tooling/ci/beta-proof-held.json',
   // The scoreboard's shard download ("Merge the shards").
   'tooling/ci/shard-download.mjs',
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
@@ -411,6 +422,8 @@ export const STACK_CANARY = 'tooling/scripts/local-test-stack.mjs';
  * shard proves it starts; these prove it still serves other areas. One missing at the head makes the change full.
  */
 export const CANARY = [
+  // J-cex-spot-01 #10 on Hyperliquid's test network: on the simulator until its recording lands, then replayed.
+  'J-cex-spot-01-hl-venue.pw.mjs',
   'J-cex-spot-01.pw.mjs',
   'J-home-ia-01-venue.pw.mjs',
   'J-home-ia-01.pw.mjs',
@@ -491,6 +504,12 @@ function kindOf(p) {
       kind: 'full',
       why: 'a run file that holds no journey steps (a look sweep), which no report lists, so only a clean full run shows it broke nothing',
     };
+  // A venue journey's Hyperliquid recording is read only by the journey file named after it (hl-venue-daily.mjs optIn
+  // holds the name), so a change to it runs that file. (Failure it prevents: #10910, the daily run's recordings, ran
+  // only the CANARY, since a product path no recorded run narrows, and never the two files that replay them.)
+  const recording = HL_RECORDING.exec(p);
+  if (recording && JOURNEY_TEST.test(`apps/customer/tests/real-app/${recording[1]}.pw.mjs`))
+    return { kind: 'file', file: `${recording[1]}.pw.mjs` };
   if (JOURNEY_CI.includes(p)) return { kind: 'full', why: 'a check the journeys run uses (JOURNEY_CI)' };
   if (FACTORY_SCRIPTS.includes(p)) return { kind: 'none' };
   for (const [re, why] of FULL_RULES) if (re.test(p)) return { kind: 'full', why };
@@ -610,7 +629,7 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
 /**
  * The most journey files a pull request's own run takes. A pick past it runs the bounded set instead (pullPick). About
  * 100 files are about 240 minutes of journeys (main's full run: about 891 minutes over some 365 files), which
- * journey-shards.mjs packs into its PR_MAX_SHARDS of 30 at about 10 minutes a shard.
+ * journey-shards.mjs packs into its PR_MAX_SHARDS of 60 at about 10 minutes a shard.
  */
 export const PR_MAX_FILES = 100;
 
@@ -737,8 +756,7 @@ export const SHARD_JOB = /^Journeys \(shard \d+ of \d+\)$/;
  * pull request's own run leaves them out. A run counts when it is this repository's, dispatched by hand on `sha`, and
  * targeted: its title (DISPATCH_TITLE) names journey files, each a journey file at the head (`journeyFiles`, a Set; null:
  * none counts). A full run by hand never counts: it may be deferred and run nothing for now (main-first.mjs), it fails
- * fast on unbuilt steps where a pull request's run keeps the ordinary limits, and one still going is cancelled by the
- * pull request's run, which shares its concurrency group. A targeted run still going counts (the seal waits for it); a
+ * fast on unbuilt steps where a pull request's run keeps the ordinary limits. A targeted run still going counts (the seal waits for it); a
  * finished one counts only when its shards ran (`ranShards`, a Set of run ids with a finished shard job), never when it
  * was cancelled or skipped or stopped before its shards. The seal still reads every run on the head by its report
  * (journey-seal.mjs), so a red there stands. Returns Map(file → run id).
@@ -993,12 +1011,18 @@ export function firstPullRunAt(runs, self, workflow = '.github/workflows/real-ap
 }
 
 /** --reuse: the pull request run's target after reusableRuns (env TARGET, HEAD_SHA, GITHUB_REPOSITORY, GH_TOKEN), as
- *  JSON { target, mode, why }. Any read that fails leaves the target as it was (never fewer journeys). */
+ *  JSON { target, mode, why, waits }. This pull request's runs on an earlier commit whose runs count for the head (env
+ *  CARRIED, the --carried step's heads; journey-carry.mjs) cover what they run as one on the head would; `waits` lists
+ *  those still going, which this run waits for before it ends, so the seal it starts reads them finished. Any read that
+ *  fails leaves the target as it was (never fewer journeys). */
 function reuseMain() {
   const target = process.env.TARGET ?? '';
   const sha = process.env.HEAD_SHA ?? '';
   const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
   let out = { target, mode: 'run', why: '' };
+  // This pull request's runs still going on an earlier commit whose runs count for the head, that a file left out
+  // here comes from: this run waits for them before it ends (real-app-journeys.yml "Wait for the runs this head carries").
+  const going = new Map();
   try {
     if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('no head');
     const runs = JSON.parse(
@@ -1039,6 +1063,7 @@ function reuseMain() {
             target: '',
             mode: 'none',
             why: `run ${cover.full}, this pull request's own run on this exact head, already runs the full suite, so this run runs nothing`,
+            waits: [],
           }),
         );
         return;
@@ -1048,6 +1073,35 @@ function reuseMain() {
           reused.set(f, id);
           how = "by hand or by this pull request's earlier run";
         }
+      // Its runs on earlier commits whose runs count for this head (#11076): the seal reads them as runs on the head.
+      for (const c of String(process.env.CARRIED ?? '')
+        .split(/\s+/)
+        .filter((x) => /^[0-9a-f]{40}$/.test(x) && x !== sha)) {
+        const runsThere = pullRunsOnHead(repo, c);
+        const had = pullRunsCover(runsThere, { sha: c, repo, pr, self, picks: readPicks(repo, c, runsThere, self), journeyFiles, named });
+        const statusOf = new Map(runsThere.map((r) => [r.id, r.status]));
+        const use = (id) => {
+          if (statusOf.get(id) !== 'completed') going.set(id, c);
+        };
+        if (had.full) {
+          use(had.full);
+          console.log(
+            JSON.stringify({
+              target: '',
+              mode: 'none',
+              why: `run ${had.full} on ${c.slice(0, 10)}, whose runs count for this head (nothing a journeys run executes changed since), runs the full suite, so this run runs nothing`,
+              waits: [...going.keys()].map(Number),
+            }),
+          );
+          return;
+        }
+        for (const [f, id] of had.files)
+          if (!reused.has(f)) {
+            reused.set(f, id);
+            use(id);
+            how = `by this pull request's run on ${c.slice(0, 10)}, whose runs count for this head (nothing a journeys run executes changed since),`;
+          }
+      }
     } catch (e) {
       console.error(`this pull request's earlier runs on this head couldn't be read (${printable(e.message).slice(0, 200)})`);
     }
@@ -1055,7 +1109,75 @@ function reuseMain() {
   } catch (e) {
     out.why = `the runs by hand on this head couldn't be read (${printable(e.message).slice(0, 200)}), so nothing is left out`;
   }
-  console.log(JSON.stringify(out));
+  // Only the runs a file left out here comes from are waited for.
+  const left = new Set(String(target).split(/\s+/).filter(Boolean));
+  for (const f of String(out.target ?? '').split(/\s+/)) left.delete(f);
+  console.log(JSON.stringify({ ...out, waits: left.size ? [...going.keys()].map(Number) : [] }));
+}
+
+/**
+ * --carried: the earlier commits of this pull request whose journeys runs count for its head (journey-carry.mjs
+ * carriedHeads), and its runs still going on any other commit, which this run stops (supersededRuns) when its head is
+ * still the pull request's head. JSON { heads, stop, lines }; anything unreadable carries nothing and stops nothing.
+ */
+async function carriedMain() {
+  const sha = process.env.HEAD_SHA ?? '';
+  const pr = Number(process.env.PR_NUMBER);
+  const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+  const branch = process.env.GITHUB_HEAD_REF ?? '';
+  const self = Number(process.env.GITHUB_RUN_ID);
+  const json = (p) => JSON.parse(ghApi(p));
+  let carry = { heads: [], lines: [] };
+  let stop = [];
+  try {
+    if (!/^[0-9a-f]{40}$/.test(sha) || !(pr > 0)) throw new Error('no head or pull request');
+    const commits = [];
+    for (let page = 1; page <= 3; page++) {
+      const got = json(`repos/${repo}/pulls/${pr}/commits?per_page=100&page=${page}`);
+      if (!Array.isArray(got)) throw new Error('its commits: not a list');
+      commits.push(...got.map((c) => c?.sha));
+      if (got.length < 100) break;
+    }
+    // The git blob at the path, never what a symlink points to (the contents API follows a link; #11098 review).
+    const [owner, name] = repo.split('/');
+    const text = (path, ref) => {
+      try {
+        countCall();
+        const got = JSON.parse(
+          execFileSync(
+            'gh',
+            [
+              'api',
+              'graphql',
+              '-f',
+              'query=query($o: String!, $n: String!, $e: String!) { repository(owner: $o, name: $n) { object(expression: $e) { ... on Blob { text isTruncated isBinary } } } }',
+              '-F',
+              `o=${owner}`,
+              '-F',
+              `n=${name}`,
+              '-F',
+              `e=${ref}:${path}`,
+            ],
+            { encoding: 'utf8', maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] },
+          ),
+        );
+        const b = got?.data?.repository?.object;
+        return typeof b?.text === 'string' && !b.isTruncated && !b.isBinary ? b.text : null;
+      } catch {
+        return null;
+      }
+    };
+    carry = await carriedHeads({ head: sha, commits, compare: (a, b) => json(`repos/${repo}/compare/${a}...${b}?per_page=250`), text });
+    if (json(`repos/${repo}/pulls/${pr}`)?.head?.sha === sha && branch) {
+      const runs = json(
+        `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=${encodeURIComponent(branch)}&event=pull_request&per_page=100`,
+      ).workflow_runs;
+      stop = supersededRuns(runs, { head: sha, carried: carry.heads, complete: carry.complete, self, repo, branch });
+    }
+  } catch (e) {
+    carry.lines.push(`could not be read (${printable(String(e?.message ?? e)).slice(0, 200)}): nothing carried`);
+  }
+  console.log(JSON.stringify({ heads: carry.heads, stop, lines: carry.lines.map(printable) }));
 }
 
 /** This workflow's pull request runs on `sha` (GH_TOKEN). */
@@ -1097,6 +1219,7 @@ function readPicks(repo, sha, runs, self) {
 async function main() {
   const args = process.argv.slice(2);
   if (args[0] === '--reuse') return reuseMain();
+  if (args[0] === '--carried') return carriedMain();
   if (args[0] === '--dispatch') return console.log(dispatchTarget(process.env.JOURNEYS_TARGET, checkoutJourneyFiles()));
   // --fallback: the CANARY with every file of each of its journeys, for a pull request's run when its paths can't be
   // read or judged (real-app-journeys.yml's pick step): never the full suite.

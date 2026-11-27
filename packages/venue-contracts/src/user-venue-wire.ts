@@ -51,9 +51,15 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
-  // UserVenueMarket's smallest order value and price band (J-cex-spot-04), null where the venue publishes none
+  // UserVenueMarket's smallest order value, price band and higher-risk zone order cap (J-cex-spot-04, J-cex-spot-14 #7, J-derivatives-02 #5 #8), null where the venue publishes none
   'minOrderNotional',
   'priceBandBps',
+  'zoneOrderCap',
+  'widthBps',
+  'usualWidthBps',
+  'bandReference',
+  'bandLow',
+  'bandHigh',
   // UserVenueOpenInterest (J-derivatives-27 #8): the deployer's cap, null where it sets none
   'capSize',
   // UserVenueMarketEvent (J-derivatives-27 #9 #10)
@@ -152,6 +158,8 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'maxOrderNotional',
   'minOrderNotional',
   'priceBandBps',
+  'zoneOrderCap',
+  'widthBps',
   'capSize',
   // VenueFundingRow.premium (J-derivatives-08 #6): null where the venue publishes none, and its annualised rate
   'premium',
@@ -214,6 +222,8 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueStakingAccount (J-cex-spot-21 #7 #8)
   'arrivesAt',
   'rewardedAt',
+  // UserVenueMarket opening window end (J-cex-spot-14 #7)
+  'openingWindowEndsAt',
 ]);
 
 /**

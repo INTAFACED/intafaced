@@ -1,8 +1,8 @@
 // volt-room: /login
 // volt-room: /login/returnUrl/:returnUrl
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Field, Logo } from '@intafaced/ui/lit';
-import { FlowTemplate, SelectField } from '@intafaced/ui/lit/templates';
+import { Button, Display, Field, Logo, PageColumn, PageGrid, Surface, WalletCard } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
 import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
 import { TesterBuild } from './TesterBuild';
@@ -567,13 +567,15 @@ export function AuthForm({ register }: { register: boolean }) {
       ? recoveryLanguageFor('title')
       : publicLanguageFor('SIGN IN');
   const flow = (
-    <FlowTemplate
-      title={roomTitleText}
-      titleLang={roomTitleLang}
-      description={ownFreeze || spentCode ? undefined : register ? p('GET STARTED') : p('SIGN IN')}
-      state={{ kind: 'ready' }}
-      step={
-        <div className="lt-stack" data-testid="auth-form" lang={publicLanguageFor('SIGN IN')}>
+    <PageGrid layout="even" data-template="sign-in" data-stage="start">
+      <PageColumn>
+        <Surface className="lt-stack lt-auth-panel" data-testid="auth-form" lang={publicLanguageFor('SIGN IN')}>
+          <header className="lt-stack">
+            <h1 className="lt-title" lang={roomTitleLang}>
+              {roomTitleText}
+            </h1>
+            {ownFreeze || spentCode ? null : <p className="lt-description">{register ? p('GET STARTED') : <Copy k="method" />}</p>}
+          </header>
           {journal.records.length > 0 && (
             <div className="lt-stack">
               <p className="lt-muted">
@@ -723,9 +725,21 @@ export function AuthForm({ register }: { register: boolean }) {
             <>
               <form ref={form} className="lt-stack" onSubmit={submit}>
                 {!register && (
-                  <p className="lt-muted">
-                    <Copy k="method" />
-                  </p>
+                  <Button tone="primary" size="lg" block disabled={pending || restoring} onClick={() => void run('options')}>
+                    <svg
+                      aria-hidden="true"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    >
+                      <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 10v1M15 10v1M12 10v4h-1M9.5 16.5a3.5 3.5 0 0 0 5 0" />
+                    </svg>
+                    {p('Use a passkey')}
+                  </Button>
                 )}
                 {register && (
                   <Field
@@ -797,16 +811,9 @@ export function AuthForm({ register }: { register: boolean }) {
                     onChange={(event) => sameRender() && setTotp(event.target.value)}
                   />
                 )}
-                <div className="lt-actions">
-                  <Button tone="primary" type="submit" disabled={pending || restoring}>
-                    {pending ? p('Connecting…') : register ? p('Create account') : p('Sign in')}
-                  </Button>
-                  {!register && (
-                    <Button tone="secondary" disabled={pending || restoring} onClick={() => void run('options')}>
-                      {p('Use a passkey')}
-                    </Button>
-                  )}
-                </div>
+                <Button tone={register ? 'primary' : 'secondary'} size="lg" block type="submit" disabled={pending || restoring}>
+                  {pending ? p('Connecting…') : register ? p('Create account') : p('Sign in')}
+                </Button>
                 {result && !result.ok && (
                   <div lang="und">
                     {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
@@ -910,7 +917,6 @@ export function AuthForm({ register }: { register: boolean }) {
                   </a>
                 )}
               </form>
-              {!register && <TesterBuild />}
               {!register && <CodeSignIn />}
               {!register && walletStopped && (
                 <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
@@ -920,35 +926,33 @@ export function AuthForm({ register }: { register: boolean }) {
               {!register && <SocialSignIn onWallet={walletSignIn} />}
             </>
           )}
-        </div>
-      }
-      summary={
-        <div className="lt-stack" lang={publicLanguageFor('SIGN IN')}>
-          <Logo variant="mark" size={48} lit />
-          <p className="lt-hint">{p('YOUR ACCOUNT, CONNECTED')}</p>
-          <p>
-            <strong>
-              {register ? (
-                <>
-                  {p('Make your')} {p('next move.')}
-                </>
-              ) : (
-                <>
-                  {p('Welcome')} {p('back.')}
-                </>
-              )}
-            </strong>
-          </p>
-          <p className="lt-muted">
+        </Surface>
+      </PageColumn>
+      <PageColumn>
+        <Surface className="lt-stack lt-auth-stage" lang={publicLanguageFor('SIGN IN')}>
+          <WalletCard mark={<Logo variant="wordmark" size={18} />} label={p('YOUR ACCOUNT, CONNECTED')} value={p('Use a passkey')} />
+          <Display as="h2">
+            {register ? (
+              <>
+                {p('Make your')} {p('next move.')}
+              </>
+            ) : (
+              <>
+                {p('Welcome')} {p('back.')}
+              </>
+            )}
+          </Display>
+          <p className="lt-description">
             {p('Money, trading and payments.')} {p('One place to keep perspective.')}
           </p>
           <LanguageMenu
             keptIn={userId ? (accountStatus === 'not-saved' ? 'not-saved' : 'account') : 'browser'}
             onSelect={(language) => savePreferences({ language })}
           />
-        </div>
-      }
-    />
+          {!register && <TesterBuild />}
+        </Surface>
+      </PageColumn>
+    </PageGrid>
   );
   return spentCode ? (
     <div role="status" data-testid="recovery-code-used">

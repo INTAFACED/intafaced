@@ -74,6 +74,7 @@ function desk(opts: { now?: () => Date; windowMs?: number | null; enabled?: bool
     stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
     builder: BUILDER,
     slippageCapBps: 50,
+    closeSlippageBps: 1000,
     spreadLimitBps: 100,
     now,
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),
@@ -260,6 +261,49 @@ describe('venue Convert: accepting signs one swap', () => {
     expect(resting[0]).toMatchObject({ price: a('30000'), timeInForce: 'GTC', status: 'open' });
     const history = await converts.history(door, principal, owner);
     expect(history.conversions.find((c) => c.actionKey === first.actionKey)).toMatchObject({ kind: 'limit', state: 'resting' });
+  });
+
+  it("on a venue whose trades a session key signs, a quote's swap and a limit convert are prepared for the person's session key, which signs them", async () => {
+    const { door, converts } = desk();
+    // The person's trading session key, approved on the venue by their wallet (as session-key.ts starts one).
+    const session = privateKeyToAccount(keccak256(toHex(`intafaced TEST convert session ${nextKey()}`)));
+    const agent = session.address.toLowerCase();
+    const approve = await door.prepare(principal, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_agent', agentAddress: agent, agentName: 'desk', validUntil: null },
+      actionKey: `agent-approve:${USER}:${nextKey()}`,
+    });
+    expect((await door.submit(principal, approve.actionKey, await sign(approve.prepared))).outcome).toMatchObject({ accepted: true });
+    const bySession = async (prepared: PreparedVenueAction) => {
+      const t = prepared.typedData as TestVenueTypedData;
+      const signature = await session.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+      return { digest: prepared.digest, signature, signedBy: agent };
+    };
+    const signer = { role: 'agent', address: agent } as const;
+
+    const q = await converts.quote(door, principal, { owner, from: 'USDC', to: 'BTC', amount: a('100'), quoteKey: nextKey() });
+    const swap = await converts.accept(door, principal, { owner, quoteId: q.quoteId, signer });
+    expect(swap.prepared.signer).toEqual(signer);
+    const swapped = await converts.submit(door, principal, { actionKey: swap.actionKey, signature: await bySession(swap.prepared) });
+    expect(swapped.outcome).toMatchObject({ definite: true, accepted: true });
+
+    const ask = { owner, from: 'USDC', to: 'BTC', amount: a('100'), price: a('30000'), limitKey: `limit-${nextKey()}`, signer };
+    const limit = await converts.limit(door, principal, ask);
+    expect(limit.prepared.signer).toEqual(signer);
+    const rested = await converts.submit(door, principal, { actionKey: limit.actionKey, signature: await bySession(limit.prepared) });
+    expect(rested.outcome).toMatchObject({ definite: true, accepted: true });
+
+    // The wallet stays the default, and a signer that is neither is refused before anything is prepared.
+    const q2 = await converts.quote(door, principal, { owner, from: 'USDC', to: 'BTC', amount: a('100'), quoteKey: nextKey() });
+    expect((await converts.accept(door, principal, { owner, quoteId: q2.quoteId })).prepared.signer).toEqual({
+      role: 'owner',
+      address: owner,
+    });
+    const q3 = await converts.quote(door, principal, { owner, from: 'USDC', to: 'BTC', amount: a('100'), quoteKey: nextKey() });
+    await expect(
+      converts.accept(door, principal, { owner, quoteId: q3.quoteId, signer: { role: 'builder', address: agent } as never }),
+    ).rejects.toMatchObject({ code: 'trade.venue_request_invalid', status: 400 });
   });
 });
 

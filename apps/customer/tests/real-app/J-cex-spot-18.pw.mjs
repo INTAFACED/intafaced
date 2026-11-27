@@ -7,7 +7,9 @@ import { ownOrderFills, placeOwnOrder } from './own-book.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { api, bestPrices, fromUnits, journeyState, times, toUnits, tool } from './stack.mjs';
-import { openVenuePage, otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { connectWhenAsked } from './dex.mjs';
+import { installTestWallet } from './test-wallet.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-cex-spot-18 "I look up a customer's routed order, and later reconcile or bust a trade on our own book", in the
 // running app and the founder console. One test per step, titled "J-cex-spot-18 #<n>". The support agent is founder B
@@ -247,10 +249,23 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
   const operatorRows = page.getByRole('region', { name: 'Venue fills', exact: true }).getByTestId('venue-read-fill');
   await expect(operatorRows).toHaveCount(truth.fills.length);
   const operatorFills = await operatorRows.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill-id')).sort());
-  // The customer's own order page, on their own wallet, says the same.
+  // The customer reaches their own order page from /trade/orders (reached from the menus) on their own wallet: it says the same.
   const context = await browser.newContext();
   const theirs = await context.newPage();
-  await openVenuePage(theirs, customer, `/trade/orders/${routed}`, walletKey);
+  const { chainId } = await venueInfo();
+  const wallet = await installTestWallet(theirs, { chainId, privateKey: walletKey });
+  await signIn(theirs, customer);
+  await theirs.goto('/trade/orders');
+  await theirs
+    .getByRole('group', { name: 'Which orders', exact: true })
+    .getByRole('button', { name: 'Connected wallet', exact: true })
+    .click();
+  await expect(theirs).toHaveURL(/product=venue/);
+  const address = theirs.getByTestId('venue-wallet-address');
+  await connectWhenAsked(theirs, address);
+  await expect(address).toHaveText(wallet.address.toLowerCase());
+  await theirs.getByTestId('venue-history').locator(`a[href="/trade/orders/${routed}"]`).click();
+  await expect(theirs).toHaveURL(new RegExp(`/trade/orders/${routed}$`));
   const mine = theirs.getByTestId('venue-order');
   await expect(mine.getByTestId('venue-order-heading').locator('[data-cell="status"]')).toHaveText(operatorStatus);
   await expect(mine.getByTestId('venue-order-fill')).toHaveCount(truth.fills.length);

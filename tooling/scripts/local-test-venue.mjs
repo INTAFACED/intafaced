@@ -161,7 +161,10 @@ export async function serveTestVenue({
   id = null,
   kind = 'sim',
   hl = { recording: null, trader: null },
+  env = process.env,
 }) {
+  const refused = liveTestNetworkRefusal(kind, env);
+  if (refused) throw new Error(refused);
   if (!second && (kind === 'hl-recorded' || kind === 'hl-testnet'))
     return serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind, ...hl });
   if (!fs.existsSync(VENUE_SIM_DIST)) {
@@ -193,6 +196,23 @@ export async function serveTestVenue({
   if (deposit) await sim.startChainDeposits({ sim: started.sim, route: deposit, rpcUrl, log });
   log({ msg: 'test-venue.listening', label: 'TEST', url: started.url, chainId: started.sim.chainId, seeded: seeded.orders, deposit });
   return started;
+}
+
+/**
+ * The switch beside `LOCAL_STACK_USER_VENUE=hl-testnet` that lets a stack reach the live Hyperliquid test network
+ * (#11061). Builders' and CI's stacks share the hosted beta's box and IP, whose read budget the live network meters
+ * (one live desk spent about 880 of its 1,200 weight a minute, #11045), so only the beta host (tooling/beta/beta-host.mjs)
+ * and the daily live run (.github/workflows/hl-venue-daily.yml) set it. A stack without it replays a recording instead.
+ */
+export const LIVE_TEST_NETWORK_SWITCH = 'LOCAL_STACK_LIVE_TEST_NETWORK';
+
+/** Why this venue kind may not start with this environment, or null: `hl-testnet` needs the switch exactly `on`. */
+export function liveTestNetworkRefusal(kind, env) {
+  if (kind !== 'hl-testnet' || (env[LIVE_TEST_NETWORK_SWITCH] ?? '').trim() === 'on') return null;
+  return (
+    `LOCAL_STACK_USER_VENUE=hl-testnet reaches the live Hyperliquid test network, which only the hosted beta and the ` +
+    `daily live run read from this box: set ${LIVE_TEST_NETWORK_SWITCH}=on beside it only there; elsewhere use hl-recorded (#11061)`
+  );
 }
 
 /**
@@ -242,12 +262,19 @@ async function serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind, re
     };
   }
   const source = { kind, recording, trader, misses: () => misses() };
-  const started = await hl.startHyperliquidVenueServer({ host, port, appEnv, betaPosture, source, ...(fetch ? { fetch } : {}) });
+  // On the live test network the venue also lists the HIP-3 DEX that carries its stock, index and gold
+  // perpetuals (`xyz`, the one such DEX the test network trades). A recording holds no answer for its reads, so a
+  // replay lists the main DEX only.
+  const perpDexs = kind === 'hl-testnet' ? HL_TESTNET_PERP_DEXS : [];
+  const started = await hl.startHyperliquidVenueServer({ host, port, appEnv, betaPosture, source, perpDexs, ...(fetch ? { fetch } : {}) });
   process.stdout.write(
     `${JSON.stringify({ msg: 'test-venue.listening', label: 'TEST', url: started.url, venue: started.venue.venue.id, kind, recording, trader })}\n`,
   );
   return started;
 }
+
+/** The HIP-3 perp DEXs the live test network venue lists beside the main one. */
+const HL_TESTNET_PERP_DEXS = Object.freeze(['xyz']);
 
 /** Where the Hyperliquid recordings live: one per journey file, `<name>.json`. */
 const HL_RECORDINGS_DIR = path.join(REPO, 'packages', 'venue-hyperliquid', 'recordings');

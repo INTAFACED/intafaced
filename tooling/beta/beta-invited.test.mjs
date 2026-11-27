@@ -9,6 +9,7 @@ import {
   GRANT,
   MAX_FUNDED_PER_PERSON,
   PARTNER_FUND_ID,
+  INVITED_RECENT_MS,
   TOKEN_RE,
   grantRef,
   invitedOwner,
@@ -78,6 +79,38 @@ test('TEST funds are capped: once per account, at most MAX_FUNDED_PER_PERSON acc
   assert.match(grantRef('2f1c7a3e-0000-4000-8000-000000000000'), /^[A-Za-z0-9-]{4,64}$/); // local:fund's --ref rule
 });
 
+test("the agents' own invite is funded past the per-person cap; every other person stays capped (#11104)", () => {
+  // Every walk, plant and ready check signs up anew under the agents' one invite (project-state tooling/beta/kit.mjs).
+  // With the cap's three places spent on 24-25 Nov, the 27 Nov walk's verified account (`<token>.walk@`) was approved
+  // and given nothing, so Home and Money showed no balance.
+  const agents = viewerToken('zenyoda@example.com');
+  const both = new Set([alice, agents]);
+  const spent = (token) => Object.fromEntries(Array.from({ length: MAX_FUNDED_PER_PERSON }, (_, i) => [`old-${token}-${i}`, { token }]));
+  const granted = { ...spent(agents), ...spent(alice) };
+  const users = [
+    { id: 'walk', email: `${agents}.walk@local-test.invalid` },
+    { id: 'ready', email: `${agents}.ready202611271030@local-test.invalid` },
+    { id: 'demo', email: `${agents}.demo1@local-test.invalid` },
+    { id: 'alice', email: `${alice}.walk202611271015@local-test.invalid` },
+  ];
+  const approved = full(...users.map((u) => u.id));
+  assert.deepEqual(
+    planPass({ users, approved, pending: [], tokens: both, granted }).fund.map((f) => f.userId),
+    ['walk', 'ready', 'demo'],
+  );
+  // Still once per account.
+  assert.deepEqual(
+    planPass({
+      users,
+      approved,
+      pending: [],
+      tokens: both,
+      granted: { ...granted, walk: { token: agents }, ready: { token: agents }, demo: { token: agents } },
+    }).fund,
+    [],
+  );
+});
+
 test("a granted account's TEST funds are kept at the TEST partner on every pass, as that person, while signed in (#10632)", () => {
   const granted = {
     u1: { token: alice, amount: GRANT.amount },
@@ -112,6 +145,21 @@ test('the mailbox records each Access viewer once, privately, and never a malfor
   assert.equal(recordInvited(file, 'not a token'), false);
   assert.deepEqual([...readInvited(file)], [alice]);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test("the invited list keeps each viewer's last view; only a view in the last 24 hours counts as on (#11046)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-invited-'));
+  const file = betaPaths(dir).invited;
+  const now = Date.parse('2026-11-27T06:52:00Z');
+  const since = now - INVITED_RECENT_MS;
+  assert.equal(INVITED_RECENT_MS, 24 * 3_600_000);
+  assert.equal(recordInvited(file, alice, new Date(now - 25 * 3_600_000)), true);
+  assert.equal(readInvited(file, { seenSince: since }).size, 0, 'seen 25 hours ago: nobody is on');
+  assert.deepEqual([...readInvited(file)], [alice], 'still on the invite list for the invited pass');
+  assert.equal(recordInvited(file, alice, new Date(now - 3_600_000)), false, 'a repeat view is not a new viewer');
+  assert.deepEqual([...readInvited(file, { seenSince: since })], [alice], 'the repeat view an hour ago counts');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).tokens[alice], new Date(now - 3_600_000).toISOString());
   fs.rmSync(dir, { recursive: true });
 });
 

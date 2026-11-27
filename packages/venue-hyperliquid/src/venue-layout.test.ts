@@ -41,9 +41,6 @@ const ORDER: PlaceUserOrderIntent = {
 
 /** A well-formed intent of every kind NOT_OFFERED names: a kind added there fails to compile until it is here too. */
 const NOT_OFFERED_INTENTS: { readonly [K in keyof typeof NOT_OFFERED]: Extract<VenueIntent, { kind: K }> } = {
-  revoke_agent: { kind: 'revoke_agent', agentAddress: SUB },
-  amend_order: { kind: 'amend_order', symbol: 'ETH-PERP', venueClientOrderId: '0x01', amount: a('1'), price: a('1') },
-  replace_order: { kind: 'replace_order', symbol: 'ETH-PERP', venueClientOrderId: '0x01', order: ORDER },
   cancel_orders: { kind: 'cancel_orders', orders: [{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }] },
   schedule_cancel: { kind: 'schedule_cancel', timeoutSec: 60, time: null },
   create_sub_account: { kind: 'create_sub_account', name: 'TEST sub', subAccountKey: 'sub:owner:1' },
@@ -71,7 +68,6 @@ const NOT_OFFERED_INTENTS: { readonly [K in keyof typeof NOT_OFFERED]: Extract<V
     changeKey: 'change:owner:1',
   },
   place_orders: { kind: 'place_orders', orders: [ORDER], actionKey: 'action:owner:1' },
-  spot_perps_transfer: { kind: 'spot_perps_transfer', direction: 'perps_to_spot', asset: 'USDC', amount: a('1'), moveKey: 'move:owner:3' },
   set_account_mode: { kind: 'set_account_mode', mode: 'unified', changeKey: 'change:owner:2' },
   set_position_mode: { kind: 'set_position_mode', symbol: 'ETH-PERP', mode: 'hedge', changeKey: 'change:owner:3' },
   move_position: { kind: 'move_position', subAccount: SUB, direction: 'into_sub_account', symbol: 'ETH-PERP', moveKey: 'move:owner:7' },

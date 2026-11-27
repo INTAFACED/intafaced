@@ -34,13 +34,22 @@ export function roomName(route) {
 
 /**
  * Where a report row's page lives, from its target name: the kit gallery (`kit table`), the founder console
- * (`admin /x`) or a Customer room (`/status`); with its baseline folder and room, as the runner names them.
+ * (`admin /x`), a Customer room (`/status`) or a key room on the demo world with the venue on (`venue /trade`); with its
+ * baseline folder and room, as the runner names them.
  */
 export function placeOf(target) {
   if (target.startsWith('kit ')) return { surface: 'kit', baselines: 'packages/ui/look-baselines', room: `kit-${target.slice(4)}` };
   if (target.startsWith('admin /'))
     return { surface: 'admin', baselines: 'apps/admin/look-baselines', room: `admin-${roomName(target.slice(6))}` };
   if (target.startsWith('/')) return { surface: 'customer', baselines: 'apps/customer/look-baselines', room: roomName(target) };
+  // A key room on the demo world, venue on (`venue /trade`, `venue signed-out /`): the beta's own code path.
+  const venue = /^venue (signed-out )?(\/.*)$/.exec(target);
+  if (venue)
+    return {
+      surface: 'customer',
+      baselines: 'apps/customer/look-baselines',
+      room: `venue-${venue[1] ? 'signed-out-' : ''}${roomName(venue[2])}`,
+    };
   return { surface: 'other', baselines: null, room: null };
 }
 

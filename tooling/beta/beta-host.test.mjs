@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { userVenueKind } from '../scripts/local-test-venue.mjs';
+import { liveTestNetworkRefusal, userVenueKind } from '../scripts/local-test-venue.mjs';
 import opsService from '../scripts/local-stack-services/ops.mjs';
+import tradeService from '../scripts/local-stack-services/trade.mjs';
 import { GRANT } from './beta-invited.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,13 +9,18 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   ANVIL_IMAGE,
+  BETA_CUSTODY,
   BETA_LINK,
   BETA_OWN_HOSTS,
   BETA_SLOT,
+  BETA_WALLET_PROVIDER,
+  invitesRefused,
+  serveMailbox,
+  statusLine,
   MAILBOX_PORT,
-  UPDATE_EVERY_MS,
   anvilLauncher,
   betaPaths,
+  recordLimits,
   decide,
   ensureAnvil,
   environEntries,
@@ -28,6 +34,7 @@ import {
   mailboxRows,
   outsideAddresses,
   reservedHost,
+  selfRestart,
   stackEnv,
   stopCommands,
   unitText,
@@ -108,6 +115,7 @@ test('fundsCheck passes a stack whose every route stays on this machine and whos
   });
   assert.equal(r.ok, true, r.lines.join('\n'));
   assert.match(r.lines.join('\n'), /2 of 2 running processes/);
+  assert.match(r.lines.join('\n'), /the 2 running processes: edge, ledger/, 'status names each running process and their count');
 });
 
 test('fundsCheck fails on a route off the machine, naming the process, key and host', () => {
@@ -142,6 +150,41 @@ test("the beta's own round passes the stack's TEST official-channel list, which 
     const r = fundsCheck({ records, readEnviron: () => environ({ ...support, OTHER_URL: off }), page: PAGE, allow: BETA_OWN_HOSTS });
     assert.equal(r.ok, false, off);
   }
+});
+
+test("the beta's stack runs the custody layer off, as launch does, and its check fails any process that runs it otherwise (#11019)", async () => {
+  // The beta's settings start every carrier off together (local-test-state.mjs startCustodyLayer), and win over a shell.
+  assert.equal(BETA_CUSTODY, 'off');
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_CUSTODY_LAYER, 'off');
+  assert.equal(stackEnv(betaPaths('/home/x'), { LOCAL_STACK_CUSTODY_LAYER: 'on' }).LOCAL_STACK_CUSTODY_LAYER, 'off');
+  const { startCustodyLayer } = await import('../scripts/local-test-state.mjs');
+  assert.equal(startCustodyLayer(stackEnv(betaPaths('/home/x'), {})), 'off');
+  const ok = () => environ({ A: 'http://127.0.0.1:1' });
+  const off = {
+    ledger: { pid: 1, custodyLayer: 'off' },
+    bank: { pid: 2, custodyLayer: 'off' },
+    trade: { pid: 3, custodyLayer: 'off' },
+    edge: { pid: 4 },
+  };
+  const pass = fundsCheck({ records: off, readEnviron: ok, page: PAGE, custody: BETA_CUSTODY });
+  assert.equal(pass.ok, true, pass.lines.join('\n'));
+  assert.ok(pass.lines.includes('ok   ledger, bank, trade: LEDGER_CUSTODY_LAYER off, as launch runs it'), pass.lines.join('\n'));
+  // The beta as it ran before #11019: every carrier on.
+  const on = Object.fromEntries(Object.entries(off).map(([k, v]) => [k, v.custodyLayer ? { ...v, custodyLayer: 'on' } : v]));
+  const before = fundsCheck({ records: on, readEnviron: ok, page: PAGE, custody: BETA_CUSTODY });
+  assert.equal(before.ok, false);
+  assert.ok(before.lines.includes('FAIL trade (pid 3): runs LEDGER_CUSTODY_LAYER on, not off as launch does'), before.lines.join('\n'));
+  // One carrier left on, a ledger with no recorded switch (read as on), or no ledger at all: each a finding.
+  assert.equal(
+    fundsCheck({ records: { ...off, trade: { pid: 3, custodyLayer: 'on' } }, readEnviron: ok, page: PAGE, custody: 'off' }).ok,
+    false,
+  );
+  const unrecorded = fundsCheck({ records: { ...off, ledger: { pid: 1 } }, readEnviron: ok, page: PAGE, custody: 'off' });
+  assert.ok(unrecorded.lines.includes('FAIL ledger (pid 1): runs LEDGER_CUSTODY_LAYER unrecorded (on), not off as launch does'));
+  const { ledger: _ledger, ...noLedger } = off;
+  assert.equal(fundsCheck({ records: noLedger, readEnviron: ok, page: PAGE, custody: 'off' }).ok, false);
+  // Another stack's check (`check --state`) asks for no switch: its custody is its own.
+  assert.equal(fundsCheck({ records: on, readEnviron: ok, page: PAGE }).ok, true);
 });
 
 test('fundsCheck fails closed: no process, no readable process, no page, or a page with no TEST banner', () => {
@@ -279,20 +322,15 @@ test('decide: no screening file builds nothing; a moved main updates; the same c
   assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
 });
 
-test('decide: a moved main updates at most once every 2 hours; between, the round only launches', () => {
-  const now = Date.parse('2026-11-23T08:00:00Z');
-  const ago = (ms) => new Date(now - ms).toISOString();
-  assert.equal(UPDATE_EVERY_MS, 2 * 3600_000);
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(30 * 60_000), now }), 'launch');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS - 1), now }), 'launch');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS), now }), 'update');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: undefined, now }), 'update');
-  assert.equal(decide({ screening: false, head: 'a', target: 'b', updatedAt: ago(1), now }), 'blocked');
+test('decide: every round moves to a moved main; the same commit only launches', () => {
+  assert.equal(decide({ screening: true, head: 'a', target: 'b' }), 'update');
+  assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
+  assert.equal(decide({ screening: false, head: 'a', target: 'b' }), 'blocked');
 });
 
 test('the page names the commit served, and the newer main it waits for', () => {
   const html = mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'bbbbbbbbb222' } });
-  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta updates at most every 2 hours\)/);
+  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta moves to it in its next round\)/);
   assert.doesNotMatch(mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'aaaaaaaaa111' } }), /main is at/);
 });
 
@@ -340,6 +378,30 @@ test('the service keeps the supervisor running from the beta checkout and leaves
   assert.match(unit, /KillMode=process/);
 });
 
+test('a new copy of the supervisor starts at once, so the TEST mailbox is never down for the restart delay (#10888)', () => {
+  // Exiting left systemd's RestartSec=60 between the old copy and the new one: the mailbox (MAILBOX_PORT) refused
+  // every tester waiting for a sign-up code for that minute. Under its own unit, the supervisor asks systemd to
+  // restart it now; run by hand, it exits as before.
+  const calls = [];
+  const systemctl =
+    (pid) =>
+    (...args) => {
+      calls.push(args);
+      if (args[0] === 'show') return { status: 0, stdout: `MainPID=${pid}\n` };
+      return { status: 0, stdout: '' };
+    };
+  assert.equal(selfRestart({ pid: 4242, systemctl: systemctl(4242) }), 'restart');
+  assert.deepEqual(calls.at(-1), ['restart', '--no-block', 'intafaced-beta.service']);
+
+  calls.length = 0;
+  assert.equal(selfRestart({ pid: 4242, systemctl: systemctl(999) }), 'exit', 'run by hand, not as the unit');
+  assert.ok(!calls.some((a) => a[0] === 'restart'));
+
+  const refused = (...args) => (args[0] === 'show' ? { status: 0, stdout: 'MainPID=4242\n' } : { status: 1, stdout: '' });
+  assert.equal(selfRestart({ pid: 4242, systemctl: refused }), 'exit', 'a refused restart falls back to exiting');
+  assert.equal(selfRestart({ pid: 4242, systemctl: () => ({ status: 1, stdout: '' }) }), 'exit', 'no systemd');
+});
+
 test('reserved names never reach a service, so they pass; a real host that only looks like one does not', () => {
   // What a real stack held on 22 Nov: svc-mining-pool, svc-pay and svc-ops settings on reserved names.
   for (const h of [
@@ -374,6 +436,13 @@ test("the beta's Customer build shows only rooms finished in Volt; the switch is
     'the beta wins over a shell',
   );
   assert.equal(userVenueKind(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE), 'hl-testnet');
+  // The live test network is the beta's alone (#11061): its stack sets the switch a builder's stack lacks, and the beta
+  // wins over a shell, so the venue process's refusal (local-test-venue.mjs liveTestNetworkRefusal) never stops the beta.
+  for (const shell of [{}, { LOCAL_STACK_LIVE_TEST_NETWORK: 'off' }]) {
+    const beta = stackEnv(betaPaths('/home/x'), shell);
+    assert.equal(beta.LOCAL_STACK_LIVE_TEST_NETWORK, 'on');
+    assert.equal(liveTestNetworkRefusal(userVenueKind(beta.LOCAL_STACK_USER_VENUE), beta), null);
+  }
   // The journeys' TEST markets stay off the beta's board (#10599): the stack's switch (local-stack-services/trade.mjs)
   // reads exactly 'off', and the beta wins over a shell.
   assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_TEST_MARKETS, 'off');
@@ -410,6 +479,38 @@ test("the beta's Customer build shows only rooms finished in Volt; the switch is
   } finally {
     if (prevVal === undefined) delete process.env.LOCAL_STACK_VALUATION_PRICES;
     else process.env.LOCAL_STACK_VALUATION_PRICES = prevVal;
+  }
+});
+
+test("the beta's balance watch reads the test network every 15 s, inside its 1200 weight a minute per IP; the TEST venue keeps the engine's second", () => {
+  const tradeEnv = (venue) => {
+    const prev = process.env.LOCAL_STACK_USER_VENUE;
+    try {
+      process.env.LOCAL_STACK_USER_VENUE = venue;
+      return tradeService({
+        c: () => ({}),
+        secrets: {},
+        dbUrl: () => 'postgres://127.0.0.1/db',
+        urlOf: (n) => `http://127.0.0.1/${n}`,
+        PORTS: { trade: 1 },
+        P: { data: '/tmp/beta-data', root: '/tmp/beta', state: '/tmp/beta-state' },
+        TEST_FUTURES_LADDER_POLICY: '',
+      }).env();
+    } finally {
+      if (prev === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+      else process.env.LOCAL_STACK_USER_VENUE = prev;
+    }
+  };
+  const beta = tradeEnv(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE);
+  assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, '15000');
+  assert.equal(beta.TRADE_PROTECTION_ENGINE_INTERVAL_MS, '1000');
+  for (const venue of ['on', 'hl-recorded']) assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, undefined, venue);
+  // The beta's background readers read a set number of accounts a minute in turn, so their weight does not grow with them.
+  assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, '24');
+  assert.equal(beta.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, '6');
+  for (const venue of ['on', 'hl-recorded']) {
+    assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, undefined, venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, undefined, venue);
   }
 });
 
@@ -473,4 +574,118 @@ test("the beta runs its TEST chain with the journeys' pinned anvil image, so the
   );
   assert.equal(fs.existsSync(paths.anvil), false);
   assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, undefined);
+});
+
+test("passkeys and wallet messages work on the beta's public name: svc-identity's relying party is its host, svc-protocol accepts its origin, and the TEST funds check still passes", async () => {
+  const { localTestServiceEnvs, PLAN_SECRETS, publicOrigin } = await import('../scripts/local-test-stack.mjs');
+  const origin = stackEnv(betaPaths('/home/x'), { LOCAL_STACK_PUBLIC_ORIGIN: 'https://other.example.com' }).LOCAL_STACK_PUBLIC_ORIGIN;
+  assert.equal(origin, 'https://beta.intafaced.com', 'the beta wins over a shell');
+  const identityEnv = () => localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'identity').env;
+  const prior = process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+  try {
+    delete process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+    assert.equal(identityEnv().WEBAUTHN_RP_ID, 'localhost', 'unset: the stack keeps its localhost relying party');
+    process.env.LOCAL_STACK_PUBLIC_ORIGIN = origin;
+    const identity = identityEnv();
+    assert.equal(identity.WEBAUTHN_RP_ID, 'beta.intafaced.com');
+    assert.equal(identity.WEBAUTHN_ORIGIN, 'https://beta.intafaced.com');
+    assert.deepEqual(
+      outsideAddresses(Object.entries(identity), BETA_OWN_HOSTS).filter((a) => a.key.startsWith('WEBAUTHN')),
+      [],
+    );
+    // Connect to the venue signs a wallet message naming the page's origin (protocol.wallet_session_origin_unlisted).
+    const protocol = localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'protocol').env;
+    assert.ok(protocol.PROTOCOL_WALLET_SESSION_ORIGINS.split(',').includes('https://beta.intafaced.com'));
+    assert.ok(
+      protocol.PROTOCOL_WALLET_SESSION_ORIGINS.split(',').some((o) => /^http:\/\/localhost:\d+$/.test(o)),
+      'the stack keeps its own',
+    );
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+    else process.env.LOCAL_STACK_PUBLIC_ORIGIN = prior;
+  }
+  for (const bad of ['http://beta.intafaced.com', 'https://beta.intafaced.com/', 'https://beta.intafaced.com/app', 'beta.intafaced.com'])
+    assert.throws(() => publicOrigin({ LOCAL_STACK_PUBLIC_ORIGIN: bad }), /LOCAL_STACK_PUBLIC_ORIGIN must be one https origin/, bad);
+});
+
+test('recordLimits keeps the four outside limits in status.json and says a new warning once in round.log (#11063)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-limits-host-'));
+  const paths = betaPaths(root);
+  fs.mkdirSync(path.join(paths.state, 'logs'), { recursive: true });
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: 'abc', at: '2026-11-27T09:00:00.000Z' }));
+  fs.writeFileSync(paths.testnet, JSON.stringify({ funder: '0x47e03ee499ba8efff97d8e6459ae2c64e8b28dc6', accounts: {} }));
+  // svc-protocol's log, with no signature at the owner's provider in it (#11063).
+  fs.writeFileSync(path.join(paths.state, 'logs', 'protocol.log'), '{"level":30,"time":1,"msg":"request completed"}\n');
+  const deps = { spotFree: async () => '68', seatLimit: '' };
+  const limits = await recordLimits(paths, deps);
+  assert.deepEqual(
+    limits.map((l) => l.name),
+    ['wallet-provider', 'funder', 'venue-weight', 'login-seats'],
+  );
+  const s = JSON.parse(fs.readFileSync(paths.status, 'utf8'));
+  assert.equal(s.state, 'up', "the round's own fields stay");
+  assert.equal(s.at, '2026-11-27T09:00:00.000Z');
+  assert.deepEqual(s.limits, limits);
+  // On the TEST wallet provider (BETA_WALLET_PROVIDER, #11092) with no signature at the owner's provider in svc-protocol's
+  // log, the provider's limit is ok.
+  assert.match(s.limitsLine, /^limits: warn \(funder\); unread \(venue-weight, login-seats\); ok \(wallet-provider\)$/);
+  await recordLimits(paths, deps);
+  const warned = fs
+    .readFileSync(paths.log, 'utf8')
+    .split('\n')
+    .filter((l) => l.includes('limit: warn'));
+  assert.equal(warned.length, 1, 'the same warning is said once');
+  assert.match(warned[0], /covers 2 testers/);
+});
+
+// #11092: the beta's own runs used the wallet provider's free signatures up. Until testers are invited, its new wallets
+// are made at the labelled TEST provider, status names which provider is on, and a new invitee is refused meanwhile.
+test('until testers are invited the beta makes new wallets at the TEST provider, one setting the stack and status read (#11092)', () => {
+  assert.equal(BETA_WALLET_PROVIDER, 'test');
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET, BETA_WALLET_PROVIDER);
+  assert.equal(
+    stackEnv(betaPaths('/home/x'), { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey' }).LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET,
+    'test',
+  );
+  const sha = 'a'.repeat(40);
+  assert.match(statusLine({ state: 'up', sha, walletProvider: 'test' }), /new wallets at the TEST provider; invites refused/);
+  assert.match(statusLine({ state: 'up', sha, walletProvider: 'turnkey' }), /new wallets at the owner's wallet provider/);
+  assert.doesNotMatch(statusLine({ state: 'up', sha, walletProvider: 'turnkey' }), /invites refused/);
+  assert.match(invitesRefused('test'), /TEST wallet provider/);
+  assert.equal(invitesRefused('turnkey'), null);
+});
+
+test('while the TEST provider is on, a new invitee is refused at the mailbox and never recorded; one already invited is served (#11092)', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-invite-'));
+  const paths = betaPaths(home);
+  fs.mkdirSync(path.dirname(paths.invited), { recursive: true });
+  const known = 'zen-yoda-0123456789';
+  const fresh = 'new-tester-abcdef0123';
+  fs.writeFileSync(paths.invited, JSON.stringify({ tokens: { [known]: new Date().toISOString() } }));
+  const open = (server) => new Promise((r) => server.on('listening', () => r(server.address().port)));
+  const view = (port, token) => fetch(`http://127.0.0.1:${port}/`, { headers: { 'x-beta-viewer': token } });
+  const closed = serveMailbox(paths, 0);
+  try {
+    const port = await open(closed);
+    const refused = await view(port, fresh);
+    assert.equal(refused.status, 403);
+    assert.match(await refused.text(), /not open to new testers yet/);
+    assert.ok(!Object.hasOwn(JSON.parse(fs.readFileSync(paths.invited, 'utf8')).tokens, fresh), 'a refused invitee is never recorded');
+    const served = await view(port, known);
+    assert.equal(served.status, 200, "one already invited (the agents' walk) keeps its mailbox");
+    assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 200, "the box's own loopback reads every row");
+  } finally {
+    closed.close();
+  }
+  const opened = serveMailbox(paths, 0, { walletProvider: 'turnkey' });
+  try {
+    const port = await open(opened);
+    assert.equal((await view(port, fresh)).status, 200);
+    assert.ok(
+      Object.hasOwn(JSON.parse(fs.readFileSync(paths.invited, 'utf8')).tokens, fresh),
+      'on the real provider the invitee is recorded',
+    );
+  } finally {
+    opened.close();
+  }
 });

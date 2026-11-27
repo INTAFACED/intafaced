@@ -18,6 +18,9 @@ export const feeTierCopy = defineCopy('public-fee-tier', {
   tierFromTrial: 'From your VIP trial, until {time}. A new order keeps this tier, and so do its fills.',
   tierNoSnapshot: 'No snapshot has counted your volume yet, so you are on the regular tier.',
   thresholdsNotSet: 'Thresholds not set. Every account is on the regular tier.',
+  ownBookOffTitle: 'Your tier is the venue’s',
+  ownBookOffBody:
+    'Every order is placed on the venue, which sets your tier by the volume it counts, shown above. Our own volume tiers count trades on our own order book, which is off, so they count nothing.',
   firstTitle: 'You trade at the regular rates',
   firstBody: 'This page follows your 30-day trading volume and the tier it reaches at each snapshot, with what each tier gives you.',
   firstPointVolume: 'Your 30-day volume, counted from your fills',

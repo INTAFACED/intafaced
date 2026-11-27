@@ -24,7 +24,11 @@ export function useAsOfText(): (iso: string) => string {
     (iso: string) => {
       let text: string;
       try {
-        text = new Intl.DateTimeFormat('en-GB', { timeZone, dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso));
+        // The setting is a choice ('device', 'UTC', 'UTC+8'), not a zone name: the device's own clock unless one was
+        // picked, which is then named (Intl refuses 'device', and the raw ISO string used to show in its place).
+        const zone = timeZone === 'UTC' ? 'UTC' : timeZone === 'UTC+8' ? 'Etc/GMT-8' : undefined;
+        text = new Intl.DateTimeFormat('en-GB', { timeZone: zone, dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso));
+        if (zone) text = `${text} ${timeZone}`;
       } catch {
         text = iso;
       }

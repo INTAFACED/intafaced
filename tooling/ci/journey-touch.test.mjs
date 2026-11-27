@@ -128,6 +128,20 @@ test('pathKind: what needs the full run, what touches only its own journey file,
     kind: 'file',
     file: 'J-ops-console-02-documents.pw.mjs',
   });
+  // A venue journey's recording runs the file named after it; any other recording stays a product path.
+  assert.deepEqual(pathKind('packages/venue-hyperliquid/recordings/J-cex-spot-04-hl-venue.json'), {
+    kind: 'file',
+    file: 'J-cex-spot-04-hl-venue.pw.mjs',
+  });
+  for (const p of ['packages/venue-hyperliquid/recordings/order-btc-perp.json', 'packages/venue-hyperliquid/recordings/J-x-venue.ts'])
+    assert.equal(pathKind(p).kind, 'full', p);
+  assert.deepEqual(
+    journeyTouch([
+      'packages/venue-hyperliquid/recordings/J-cex-spot-04-hl-venue.json',
+      'packages/venue-hyperliquid/recordings/J-derivatives-01-hl-venue.json',
+    ]).files,
+    ['J-cex-spot-04-hl-venue.pw.mjs', 'J-derivatives-01-hl-venue.pw.mjs'],
+  );
   // A look sweep holds no journey steps, so no report's `ran` lists it: a files verdict could never seal it.
   assert.equal(pathKind('apps/customer/tests/real-app/look-sweep-390.pw.mjs').kind, 'full');
   assert.equal(pathKind('apps/customer/tests/real-app/registry-blockers.pw.mjs').kind, 'full');
@@ -531,7 +545,7 @@ test('planted 1: a shared-setup pull request whose run misses its bounded set fa
   const bad = await seal({ files, runs: [run(1)], reports: { 1: partial } });
   assert.equal(bad.ok, false);
   assert.equal(bad.fullOk, false);
-  assert.match(bad.lines.join('\n'), /no finished Real-app journeys run on this exact head ran J-cex-spot-01\.pw\.mjs/);
+  assert.match(bad.lines.join('\n'), /no finished Real-app journeys run on this exact head ran [^;]*J-cex-spot-01\.pw\.mjs/);
   const good = await seal({ files, runs: [run(1)], reports: { 1: canaryRun } });
   assert.equal(good.ok, true, good.lines.join('\n'));
   assert.doesNotMatch(good.lines.join('\n'), /full run: /);
@@ -1158,7 +1172,7 @@ test('--json --files-from: a pull request file list, judged against this checkou
 // fell back to the CANARY while the seal demanded the bounded set (#9640). Run from an empty folder: the import cycle is
 // the same, and no tree is scanned, so the test costs well under a second of the tooling-tests gate's budget.
 test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
-  const path = 'tooling/design/volt-count.mjs';
+  const path = 'tooling/design/volt-prune.mjs';
   assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI imports tooling-reach.mjs`);
   const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
   writeFileSync(join(dir, 'changed.txt'), `${path}\n`);
@@ -1632,7 +1646,13 @@ test("real-app-journeys.yml's one-run-per-head step: off a pull request, or when
     mkdirSync(base, { recursive: true });
     const says = (json) => writeFileSync(join(base, 'journey-touch.mjs'), `console.log(${JSON.stringify(JSON.stringify(json))})`);
     says({ target: '', mode: 'none', why: 'covered' });
-    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '' });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '', waits: '' });
+    // A run on an earlier commit whose runs count for the head covers it, still going: this run waits for it (#11076).
+    says({ target: '', mode: 'none', why: 'carried', waits: [45963553721] });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '', waits: '45963553721' });
+    // Planted: a wait that is not a run id never reaches the outputs.
+    says({ target: '', mode: 'none', why: 'carried', waits: ['1; rm -rf /', 7] });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '', waits: '7' });
     // Planted: a target that is not journey file names never reaches the outputs; the pick stands.
     says({ target: 'J-a-01.pw.mjs\nmode=none', mode: 'run', why: '' });
     assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'run', target: 'J-a-01.pw.mjs' });
@@ -1685,9 +1705,12 @@ test('15 Nov: a run by hand that names one file of a journey runs every file of 
   assert.equal(dispatchTarget('J-derivatives-02.pw.mjs', head), 'J-derivatives-02.pw.mjs', 'a one-file journey stays one file');
   assert.equal(dispatchTarget('nope.txt', head), 'nope.txt', 'a name that is no journey file stays, so the run refuses it');
   assert.equal(dispatchTarget('', head), '');
-  // At this checkout: the real derivatives-01 pair.
+  // At this checkout: the real derivatives-01 files, its Hyperliquid file included.
   const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
-  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(
+    dispatchTarget('J-derivatives-01.pw.mjs', real),
+    'J-derivatives-01-hl-venue.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+  );
 });
 
 test('20 Nov: a run by hand given a bare journey id runs every file of that journey (run 44808167679, #9286)', () => {
@@ -1980,7 +2003,7 @@ test('pullPick: a change that draws a Customer room runs every journey the map r
   assert.match(pullPick([table], over, { reach: wide }).room, /draws a Customer room or kit part .*all 101 journey files/);
   assert.ok(pullPick(['services/svc-bank/src/a.ts'], over, { reach: wide }).files.length <= PR_MAX_FILES);
   // A test of the room draws nothing: a journey test or a unit test beside a full path keeps the bounded set.
-  assert.equal(roomReach(['apps/customer/src/app/volt-count.test.ts', 'Cargo.lock'], reach), null);
+  assert.equal(roomReach(['apps/customer/src/app/beta-volt.test.ts', 'Cargo.lock'], reach), null);
 });
 
 test("the lint config, the lint plugins and the agents' files run no journeys; a crate is its service (project-state#3377 item 3)", () => {
@@ -2051,7 +2074,7 @@ test("real-app-journeys.yml: a pull request's run is never the full suite", () =
 
 // The bar of project-state#3377: every pull request merged on 19 Nov 2026 (147, fixtures/journey-touch-19-nov.json),
 // replayed through the touch job's rules with the committed map and this checkout's journey files: none would run the
-// full suite or need more than PR_MAX_SHARDS (30) shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
+// full suite or need more than PR_MAX_SHARDS (60) shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
 // file), each still runs every journey it names, and a planted copy of the old rule (journeyTouch alone) fails.
 test('replay, 19 Nov 2026: no merged pull request picks the full suite or more than PR_MAX_SHARDS shards, and each keeps the journeys it names', async () => {
   const { loadMap } = await import('./journey-reach-map.mjs');

@@ -17,9 +17,11 @@ export type ReadMarketTerm =
   | 'lotSize'
   | 'minOrderNotional'
   | 'maxOpenOrders'
+  | 'status'
   | 'makerFeeBps'
   | 'takerFeeBps'
-  | 'builderFeeCapBps';
+  | 'builderFeeCapBps'
+  | 'triggerSources';
 
 export type ReadMarketTerms = Pick<UserVenueMarket, ReadMarketTerm>;
 
@@ -53,13 +55,13 @@ export const DEFAULT_MAX_OPEN_ORDERS = 1000;
  */
 export function unreadMarketTerms(): Omit<UserVenueMarket, ReadMarketTerm> {
   return {
-    // The listing drops delisted markets and reports no halt or cancel-only state, nor a largest order: none is guessed.
-    status: null,
+    // No largest order is published: none is guessed.
     maxOrderQty: null,
     maxOrderNotional: null,
     // Hyperliquid publishes no figure for its price band (error-responses docs state only "order too far from reference
     // price"), so it stays null and is left to Hyperliquid to enforce (J-cex-spot-04 #6).
     priceBandBps: null,
+    priceBand: { known: false },
     // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours, feed state and home-market session
     // are not read from the info API by this adapter yet: each is not known, never guessed.
     listedBy: { known: false },

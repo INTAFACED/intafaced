@@ -40,7 +40,7 @@ function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: 
   );
 }
 
-export function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
+function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { requestedLocale } = payCopy.useCopy();
   const authored = payAuthoredMessage(result);
   return (
@@ -156,7 +156,7 @@ export function PayDetails({ values }: { values: [string, ReactNode, string?][] 
     </dl>
   );
 }
-export function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
+function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
   const viewport = useRef<HTMLSpanElement>(null);
   const digits = useRef<HTMLSpanElement>(null);
   const overflows = useOverflows(viewport, digits, value);

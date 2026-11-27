@@ -35,7 +35,8 @@ export function presentActionFailure<T extends Extract<ApiResult<unknown>, { ok:
   return result;
 }
 
-function paperRefusal() {
+/** The refusal every write in a More room's simulated view answers with, before any request. */
+export function paperRefusal() {
   return presentActionFailure(
     { ok: false as const, reason: 'forbidden' as const, code: 'more.paper_view', message: moreRoomRoutesCopy.t('paperRefused') },
     (locale) => {
