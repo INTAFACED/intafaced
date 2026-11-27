@@ -180,7 +180,7 @@ const SCREENING_FAIL_CLOSED_ENV: &str = "INTAFACED_SCREENING_FAIL_CLOSED";
 const UNRESOLVED_REGION: &str = "XX";
 
 /// `SANCTIONED_LIST_ROWS` (`packages/config/src/screening.ts`): unsigned, so used only when APP_ENV is dev or test.
-const SANCTIONED_LIST_ROWS: [(&str, &str); 10] = [
+const SANCTIONED_LIST_ROWS: [(&str, &str); 8] = [
     (
         "CU",
         "Cuba: comprehensively sanctioned (OFAC Cuba sanctions)",
@@ -212,14 +212,6 @@ const SANCTIONED_LIST_ROWS: [(&str, &str); 10] = [
     (
         "UA-09",
         "Luhansk region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)",
-    ),
-    (
-        "UA-65",
-        "Kherson region of Ukraine: not served, as its occupied areas are under Ukraine-/Russia-related sanctions",
-    ),
-    (
-        "UA-23",
-        "Zaporizhzhia region of Ukraine: not served, as its occupied areas are under Ukraine-/Russia-related sanctions",
     ),
 ];
 const SANCTIONED_ROWS_SOURCE_UNSIGNED: &str = "config:SANCTIONED_LIST_ROWS (unsigned, agents' reading, not Hyperliquid's text; dev/test only)";
