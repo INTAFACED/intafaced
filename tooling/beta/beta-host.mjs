@@ -654,6 +654,7 @@ const limitPaths = (paths) => ({
   testnet: paths.testnet,
   invited: paths.invited,
   venueLog: path.join(paths.state, 'logs', 'test-venue.log'),
+  protocolLog: path.join(paths.state, 'logs', 'protocol.log'),
 });
 
 /**

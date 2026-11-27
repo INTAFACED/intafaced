@@ -106,3 +106,22 @@ export const protocolEmbeddedWalletCreateOutputSchema = z.object({
 
 /** The business key one person's embedded wallet is made under. One per person, ever. */
 export const embeddedWalletKey = (personId: string) => `wallet:embedded:${personId}`;
+
+/**
+ * How one signature request at the owner's wallet provider ended, as the person's own page saw it. The page
+ * signs at the provider directly, so this is the only way the stack learns that the provider has started refusing:
+ * `signed` it signed; `quota` it answered 429, over its signing limit, which the person cannot fix; `refused` any other
+ * refusal; `down` no answer or a server error. Nothing about the payload, the signature or the passkey travels.
+ */
+export const EMBEDDED_PROVIDER_OUTCOMES = ['signed', 'quota', 'refused', 'down'] as const;
+export type EmbeddedProviderOutcome = (typeof EMBEDDED_PROVIDER_OUTCOMES)[number];
+
+export const protocolEmbeddedWalletOutcomeInputSchema = z.object({
+  outcome: z.enum(EMBEDDED_PROVIDER_OUTCOMES),
+  /** The provider's HTTP status, or null when it did not answer. */
+  status: z.number().int().min(100).max(599).nullable(),
+});
+export const protocolEmbeddedWalletOutcomeOutputSchema = z.object({
+  /** False when the person has no wallet at a provider outside the stack, so there was nothing to count. */
+  recorded: z.boolean(),
+});

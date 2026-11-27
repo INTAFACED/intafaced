@@ -1,4 +1,8 @@
-import type { EmbeddedWalletPasskey, ProtocolEmbeddedWalletProvider } from '@intafaced/contracts/protocol-embedded-wallet';
+import type {
+  EmbeddedProviderOutcome,
+  EmbeddedWalletPasskey,
+  ProtocolEmbeddedWalletProvider,
+} from '@intafaced/contracts/protocol-embedded-wallet';
 import {
   getAddress,
   hashMessage,
@@ -268,6 +272,12 @@ export interface OwnerProviderWallet {
   providerWalletId: string;
 }
 
+/**
+ * Tells the stack how one signature request at the owner's provider ended: the page signs there directly, so
+ * this is how the beta's status sees the provider refusing. It never waits on the answer and never changes the result.
+ */
+export type OutcomeReport = (outcome: EmbeddedProviderOutcome, status: number | null) => void;
+
 type Fetcher = (url: string, init: { method: 'POST'; headers: Record<string, string>; body: string }) => Promise<Response>;
 
 const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -307,8 +317,16 @@ export function ownerProviderClient(
     create?: typeof createWalletPasskey;
     assert?: typeof assertWalletPasskey;
     fetch?: Fetcher;
+    report?: OutcomeReport;
   } = {},
 ): EmbeddedWalletClient {
+  const report: OutcomeReport = (outcome, status) => {
+    try {
+      deps.report?.(outcome, status);
+    } catch {
+      /* a report that fails changes nothing for the person */
+    }
+  };
   const unsupported = async () => ({ ok: false as const, failure: 'unsupported' as const });
   const assert = deps.assert ?? assertWalletPasskey;
   const send: Fetcher = deps.fetch ?? ((url, init) => fetch(url, { ...init, credentials: 'omit' }));
@@ -350,21 +368,40 @@ export function ownerProviderClient(
         body,
       });
     } catch {
+      report('down', null);
       return { ok: false, failure: 'down' };
     }
-    if (res.status >= 500) return { ok: false, failure: 'down' };
-    if (res.status === 429) return { ok: false, failure: 'busy' };
-    if (res.status !== 200) return { ok: false, failure: 'refused' };
+    if (res.status >= 500) {
+      report('down', res.status);
+      return { ok: false, failure: 'down' };
+    }
+    // The provider answers 429 when the owner's plan is over its signing quota.
+    if (res.status === 429) {
+      report('quota', 429);
+      return { ok: false, failure: 'busy' };
+    }
+    if (res.status !== 200) {
+      report('refused', res.status);
+      return { ok: false, failure: 'refused' };
+    }
     let answer: unknown;
     try {
       answer = await res.json();
     } catch {
+      report('down', res.status);
       return { ok: false, failure: 'down' };
     }
     const activity = (answer as { activity?: { status?: unknown; result?: { signRawPayloadResult?: unknown } } } | null)?.activity;
-    if (activity?.status !== 'ACTIVITY_STATUS_COMPLETED') return { ok: false, failure: 'refused' };
+    if (activity?.status !== 'ACTIVITY_STATUS_COMPLETED') {
+      report('refused', res.status);
+      return { ok: false, failure: 'refused' };
+    }
     const signature = joinSignature(activity.result?.signRawPayloadResult);
-    if (!signature) return { ok: false, failure: 'down' };
+    if (!signature) {
+      report('down', res.status);
+      return { ok: false, failure: 'down' };
+    }
+    report('signed', res.status);
     let signer: string;
     try {
       signer = await recover(signature);
@@ -400,8 +437,9 @@ export function ownerProviderClient(
 export function embeddedWalletClient(
   provider: ProtocolEmbeddedWalletProvider | null,
   wallet: OwnerProviderWallet | null = null,
+  report?: OutcomeReport,
 ): EmbeddedWalletClient | null {
   if (provider?.id === 'test' && provider.test) return testProviderClient();
-  if (provider?.id === 'turnkey' && !provider.test) return ownerProviderClient({ wallet });
+  if (provider?.id === 'turnkey' && !provider.test) return ownerProviderClient({ wallet, ...(report ? { report } : {}) });
   return null;
 }
