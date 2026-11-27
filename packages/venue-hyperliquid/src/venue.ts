@@ -696,6 +696,10 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
           };
         }
         if (order.status === 'canceled') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
+        // The venue said success, but its record still lists the order live: the read lags the cancel. Never hand
+        // that back as the answer, which would read "Open" after Cancel; the next read of the venue has the detail.
+        if (line.kind === 'accepted' && (order.status === 'open' || order.status === 'partially_filled'))
+          return { definite: true, accepted: true, venueRef: order.venueOrderId, order: null, asOf };
         if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
         return {
           definite: true,
