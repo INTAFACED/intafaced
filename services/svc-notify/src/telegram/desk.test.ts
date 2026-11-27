@@ -1,5 +1,5 @@
 /**
- * The launch desk's read-only Telegram alerts (#11073), at the lowest layer: the desk with its in-memory store, a recording
+ * The launch desk's read-only Telegram alerts, at the lowest layer: the desk with its in-memory store, a recording
  * transport and a desk reader the test drives. What the issue asks, one test each:
  *
  * - each alert fires once at its threshold: a fill once per fill, the 80% and 90% margin-use warnings once per crossing,
