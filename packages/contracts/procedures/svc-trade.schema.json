@@ -15029,6 +15029,817 @@
         }
       ]
     },
+    "trade.dailyLoss.get": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "dailyLoss.get",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.daily_loss_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.daily_loss_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["owner"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["advisory", "blocking"]
+                  },
+                  "limit": {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  }
+                },
+                "required": ["mode", "limit"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "terms": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": ["advisory", "blocking"]
+                          },
+                          "limit": {
+                            "type": "string",
+                            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["mode", "limit"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["terms", "effectiveAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "today": {
+            "type": "object",
+            "properties": {
+              "loss": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "since": {
+                "type": "string"
+              },
+              "reached": {
+                "type": "boolean"
+              }
+            },
+            "required": ["loss", "since", "reached"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["venue", "owner", "asset", "active", "pending", "today"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": 7
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.dailyLoss.off": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "dailyLoss.off",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.daily_loss_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.daily_loss_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["owner"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["advisory", "blocking"]
+                  },
+                  "limit": {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  }
+                },
+                "required": ["mode", "limit"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "terms": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": ["advisory", "blocking"]
+                          },
+                          "limit": {
+                            "type": "string",
+                            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["mode", "limit"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["terms", "effectiveAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "today": {
+            "type": "object",
+            "properties": {
+              "loss": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "since": {
+                "type": "string"
+              },
+              "reached": {
+                "type": "boolean"
+              }
+            },
+            "required": ["loss", "since", "reached"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["venue", "owner", "asset", "active", "pending", "today"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.dailyLoss.set": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "dailyLoss.set",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.daily_loss_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.daily_loss_request_invalid": "BAD_REQUEST",
+        "trade.daily_loss_field_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "limit": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["advisory", "blocking"]
+          }
+        },
+        "required": ["owner", "limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["advisory", "blocking"]
+                  },
+                  "limit": {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  }
+                },
+                "required": ["mode", "limit"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "terms": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": ["advisory", "blocking"]
+                          },
+                          "limit": {
+                            "type": "string",
+                            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["mode", "limit"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["terms", "effectiveAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "today": {
+            "type": "object",
+            "properties": {
+              "loss": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "since": {
+                "type": "string"
+              },
+              "reached": {
+                "type": "boolean"
+              }
+            },
+            "required": ["loss", "since", "reached"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["venue", "owner", "asset", "active", "pending", "today"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "limit": "250"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "limit": "100.5",
+            "mode": "blocking"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "limit": "100",
+            "mode": "hard"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        }
+      ]
+    },
+    "trade.journal.closedTrades": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "journal.closedTrades",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.journal_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.journal_request_invalid": "BAD_REQUEST",
+        "trade.venue_sub_account_not_own": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "subAccount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": ["owner", "since", "limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "subAccount": {
+            "type": ["string", "null"]
+          },
+          "since": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string"
+          },
+          "trades": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tradeId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["long", "short"]
+                },
+                "openedAt": {
+                  "type": "string"
+                },
+                "closedAt": {
+                  "type": "string"
+                },
+                "entryPrice": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "exitPrice": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "fees": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "feeAsset": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "grossPnl": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "netPnl": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "plannedStop": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "plannedTarget": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rMultiple": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "maePrice": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "mae": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "mfePrice": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "mfe": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "candleInterval": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "disciplined": {
+                  "type": "object",
+                  "properties": {
+                    "exit": {
+                      "type": "string",
+                      "enum": ["stop", "target", "unresolved", "no_plan"]
+                    },
+                    "exitPrice": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "netPnl": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["exit", "exitPrice", "netPnl"],
+                  "additionalProperties": false
+                },
+                "fillIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "tradeId",
+                "symbol",
+                "side",
+                "openedAt",
+                "closedAt",
+                "entryPrice",
+                "exitPrice",
+                "size",
+                "fees",
+                "feeAsset",
+                "grossPnl",
+                "netPnl",
+                "plannedStop",
+                "plannedTarget",
+                "rMultiple",
+                "maePrice",
+                "mae",
+                "mfePrice",
+                "mfe",
+                "candleInterval",
+                "disciplined",
+                "fillIds"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "netPnl": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "disciplinedCount": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "actualNetPnlOfDisciplined": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "disciplinedNetPnl": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              }
+            },
+            "required": ["count", "netPnl", "disciplinedCount", "actualNetPnlOfDisciplined", "disciplinedNetPnl"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["venue", "owner", "subAccount", "since", "asOf", "trades", "totals"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "since": "2026-11-01T00:00:00.000Z",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "since": "yesterday",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "since": "2026-11-01T00:00:00.000Z",
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "trade.otc.accept": {
       "service": "svc-trade",
       "module": "trade",

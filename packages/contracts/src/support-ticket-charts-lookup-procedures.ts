@@ -21,7 +21,13 @@ export const SUPPORT_TICKET_CHARTS_LOOKUP = defineProcedure({
   refusals: {},
   input: supportChartsLookupInputSchema,
   output: supportChartsLookupSchema,
-  outputChecks: { desk_workspace_holds: { at: 'output.layouts|0.items[].desk', says: 'each widget once' } },
+  outputChecks: {
+    desk_workspace_holds: { at: 'output.layouts|0.items[].desk', says: 'each widget once; a linked panel is on the desk' },
+    desk_links_hold: {
+      at: 'output.layouts|0.items[].desk.links',
+      says: "each member's group carries a market; each group has a member",
+    },
+  },
   samples: [
     { verdict: 'accept', input: { ticketId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },

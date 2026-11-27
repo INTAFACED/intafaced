@@ -137,6 +137,17 @@ const en = {
   contractTick: 'I checked this address can receive TEST USDC on this network',
   destinationTitle: 'Check where the withdrawal goes',
   destinationBody: 'Enter an address on this network, and tick the box if it is a contract. Nothing was sent.',
+  linkNone:
+    'Connected in this browser only. Your account has no record of this wallet, so nothing is sent to it. Connect it once by signing.',
+  linkNoneAction: 'Connect to my account',
+  linkExpired: 'This wallet’s connection to your account has expired, so nothing is sent to it until it signs again.',
+  linkExpiredAction: 'Sign again',
+  linkLive: 'Connected to your account.',
+  linkBlocked: 'This wallet is on the sanctions list, so your account cannot use it.',
+  linkUnread: 'Your account’s record of this wallet could not be read.',
+  linkHidden: 'Connecting a wallet to your account is not in this build.',
+  networkWrong: 'This wallet is on another network. Connecting it to your account signs on {name}: switch it here first.',
+  switchNetwork: 'Switch network',
   otherTitle: 'That did not go through',
   otherBody: 'Nothing was connected or sent. Try again in a moment.',
 } as const;
