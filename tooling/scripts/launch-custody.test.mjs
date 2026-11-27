@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   FROZEN_CUSTODY_LAYER,
   LAUNCH_CUSTODY_LAYER,
+  NOT_YET_OFF,
   fileCustody,
   journeyIdOf,
   launchJourneyIds,
@@ -16,6 +17,7 @@ import {
 } from './launch-custody.mjs';
 import { BETA_CUSTODY } from '../beta/beta-host.mjs';
 import { startCustodyLayer } from './local-test-state.mjs';
+import { JOURNEY_DIR, journeyFiles } from './journey-shards.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -59,9 +61,20 @@ test("the real journeys list has a launch desk, and the command prints a shard's
   const ids = readLaunchJourneyIds();
   assert.ok(ids.has('J-cex-spot-01') && ids.has('J-wallet-01') && ids.has('J-identity-01'), [...ids].join(' '));
   const run = (files) => spawnSync('node', ['tooling/scripts/launch-custody.mjs', '--files', files], { cwd: ROOT, encoding: 'utf8' });
-  assert.equal(run('J-cex-spot-01.pw.mjs J-identity-01.pw.mjs').stdout, 'off\n');
+  assert.equal(run('J-cex-spot-01.pw.mjs J-wallet-01.pw.mjs').stdout, 'off\n');
   assert.equal(run('J-p2p-01.pw.mjs').stdout, 'on\n');
   const mixed = run('J-cex-spot-01.pw.mjs J-p2p-01.pw.mjs');
   assert.equal(mixed.status, 1);
   assert.match(mixed.stderr, /::error::one shard mixes custody/);
+});
+
+test("a launch-desk file still failing custody off keeps today's switch, and every such entry is a launch-desk file (#11102)", () => {
+  const ids = new Set(['J-a-1']);
+  assert.equal(fileCustody('J-a-1.pw.mjs', ids, new Set(['J-a-1.pw.mjs'])), 'on');
+  assert.equal(fileCustody('apps/customer/tests/real-app/J-a-1.pw.mjs', ids, new Set(['J-a-1.pw.mjs'])), 'on');
+  assert.equal(fileCustody('J-a-1-venue.pw.mjs', ids, new Set(['J-a-1.pw.mjs'])), 'off');
+  const launch = readLaunchJourneyIds();
+  const files = new Set(journeyFiles(path.join(ROOT, JOURNEY_DIR)));
+  const stale = [...NOT_YET_OFF].filter((f) => !files.has(f) || !launch.has(journeyIdOf(f)));
+  assert.deepEqual(stale, [], 'NOT_YET_OFF names a file that is gone or no launch-desk file: delete it from the list');
 });

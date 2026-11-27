@@ -7,7 +7,7 @@
 // The launch desk is every Order 1 journey of docs/roadmap/journeys.json (Order 1 is the launch wedge,
 // tooling/scripts/roadmap.mjs; a journey marked later for custody is never Order 1). Every other journey is frozen until
 // launch and keeps today's setting, the stack's default (local-test-state.mjs startCustodyLayer: on). A file that names no
-// journey (menu-reach, registry-blockers) keeps it too.
+// journey (menu-reach, registry-blockers) keeps it too, and so does a launch-desk file in NOT_YET_OFF until it is fixed.
 //
 // Usage: node tooling/scripts/launch-custody.mjs --files "<journey files>"
 // Prints `off` when every file is a launch-desk file, `on` when none is; a mix exits 1, naming the files, since one
@@ -22,6 +22,44 @@ export const LAUNCH_CUSTODY_LAYER = 'off';
 export const FROZEN_CUSTODY_LAYER = 'on';
 /** The order that is the launch desk in docs/roadmap/journeys.json. */
 export const LAUNCH_ORDER = 1;
+
+/**
+ * Launch-desk files that still fail with custody off, so they run on today's switch until fixed (#11102). Read from
+ * three targeted runs of every Order 1 journey with custody off (45977414925, 45977419967, 45977425153): each file here
+ * holds a test that passed on main's run 45972466244 and failed custody off; every other launch-desk file passed whole.
+ * The list only shrinks: launch-custody.test.mjs fails an entry that is no launch-desk file, and a file leaves the list
+ * once a journeys run shows it passing custody off. Nothing new is added here: a launch-desk file that fails custody off
+ * is fixed.
+ */
+export const NOT_YET_OFF = new Set([
+  'J-agents-01.pw.mjs',
+  'J-agents-02.pw.mjs',
+  'J-agents-08.pw.mjs',
+  'J-cex-spot-03.pw.mjs',
+  'J-cex-spot-10.pw.mjs',
+  'J-cex-spot-15-algo.pw.mjs',
+  'J-cex-spot-15-api.pw.mjs',
+  'J-cex-spot-18.pw.mjs',
+  'J-charts-desk-01.pw.mjs',
+  'J-charts-desk-14.pw.mjs',
+  'J-derivatives-01-hl-venue.pw.mjs',
+  'J-derivatives-01.pw.mjs',
+  'J-derivatives-01-venue.pw.mjs',
+  'J-derivatives-02.pw.mjs',
+  'J-derivatives-04.pw.mjs',
+  'J-derivatives-05.pw.mjs',
+  'J-derivatives-06.pw.mjs',
+  'J-home-ia-01.pw.mjs',
+  'J-home-ia-11.pw.mjs',
+  'J-identity-01.pw.mjs',
+  'J-identity-13.pw.mjs',
+  'J-identity-22.pw.mjs',
+  'J-ops-console-02-customer-record.pw.mjs',
+  'J-portfolio-01.pw.mjs',
+  'J-portfolio-03.pw.mjs',
+  'J-support-public-20.pw.mjs',
+  'J-support-public-20-venue.pw.mjs',
+]);
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const JOURNEYS_JSON = path.join(ROOT, 'docs/roadmap/journeys.json');
@@ -44,9 +82,13 @@ export function readLaunchJourneyIds(file = JOURNEYS_JSON) {
   return launchJourneyIds(JSON.parse(fs.readFileSync(file, 'utf8')));
 }
 
-/** The custody switch a journey file's stack runs: LAUNCH_CUSTODY_LAYER for a launch-desk journey, else today's. */
-export function fileCustody(file, launchIds) {
-  return launchIds.has(journeyIdOf(file)) ? LAUNCH_CUSTODY_LAYER : FROZEN_CUSTODY_LAYER;
+/**
+ * The custody switch a journey file's stack runs: LAUNCH_CUSTODY_LAYER for a launch-desk journey's file, else today's,
+ * and today's for a launch-desk file still in `notYet` (NOT_YET_OFF).
+ */
+export function fileCustody(file, launchIds, notYet = NOT_YET_OFF) {
+  const name = String(file).split('/').pop();
+  return launchIds.has(journeyIdOf(file)) && !notYet.has(name) ? LAUNCH_CUSTODY_LAYER : FROZEN_CUSTODY_LAYER;
 }
 
 /** The one switch a shard of `files` runs; throws naming both kinds when they mix. Pure, for the tests. */
