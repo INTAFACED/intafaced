@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { consumeMenuSpotNavigation, defaultDeskPair } from '../../../app/navigation';
 import { useResource } from '../../../shared/resource';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
-import type { VenueMarket } from '../../../features/trade/venue-api';
+import type { VenueMarket, VenueUp } from '../../../features/trade/venue-api';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import { VenueFrame, useOwner, useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { DeskSessionProvider } from '../../../features/trade/venue/VenueSession';
@@ -61,7 +61,6 @@ export function VenueSpotGate({
   const v = venueCopy.useCopy().t;
   const d = deskCopy.useCopy().t;
   const venue = useVenueApi();
-  const owner = useOwner();
   const markets = useResource((signal) => venue.markets(signal), 'venue-markets');
   const symbol = venueSymbolOf(pair);
   const [fromMenu] = useState(consumeMenuSpotNavigation);
@@ -130,10 +129,23 @@ export function VenueSpotGate({
   }
   return (
     <VenueFrame mode={mode}>
-      {/* A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's key. */}
-      <DeskSessionProvider owner={owner} status={mode.status}>
+      <SpotDeskSession status={mode.status}>
         <VenueSpotDesk status={mode.status} market={market} markets={r.status === 'ready' ? r.data.value : [market]} />
-      </DeskSessionProvider>
+      </SpotDeskSession>
     </VenueFrame>
+  );
+}
+
+/**
+ * A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's key. The
+ * owner is read here, inside VenueFrame, whose WalletProvider holds the wallet the person connects on the desk; read
+ * above it, it is the app's outer wallet, never connected, and the session panel never shows.
+ */
+function SpotDeskSession({ status, children }: { status: VenueUp; children: React.ReactNode }) {
+  const owner = useOwner();
+  return (
+    <DeskSessionProvider owner={owner} status={status}>
+      {children}
+    </DeskSessionProvider>
   );
 }
