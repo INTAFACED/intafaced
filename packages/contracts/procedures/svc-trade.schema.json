@@ -18159,9 +18159,20 @@
                           "margin": {
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d+)?$"
+                          },
+                          "liquidationPrice": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^-?\\d+(\\.\\d+)?$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
-                        "required": ["symbol", "side", "size", "entryPrice", "markPrice", "unrealisedPnl", "margin"],
+                        "required": ["symbol", "side", "size", "entryPrice", "markPrice", "unrealisedPnl", "margin", "liquidationPrice"],
                         "additionalProperties": false
                       }
                     }
@@ -18245,9 +18256,54 @@
                 },
                 "required": ["asset", "realisedPnl", "fees", "profit"],
                 "additionalProperties": false
+              },
+              "dayStart": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "today": {
+                "type": "object",
+                "properties": {
+                  "asset": {
+                    "type": "string"
+                  },
+                  "realisedPnl": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d+)?$"
+                  },
+                  "fees": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d+)?$"
+                  },
+                  "profit": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d+)?$"
+                  }
+                },
+                "required": ["asset", "realisedPnl", "fees", "profit"],
+                "additionalProperties": false
               }
             },
-            "required": ["state", "test", "asOf", "weekStart", "accounts", "fills", "week"],
+            "required": ["state", "test", "asOf", "weekStart", "accounts", "fills", "week", "dayStart", "today"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "const": "unreadable"
+              },
+              "venue": {
+                "type": "string",
+                "minLength": 1
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["state", "venue", "test"],
             "additionalProperties": false
           }
         ]

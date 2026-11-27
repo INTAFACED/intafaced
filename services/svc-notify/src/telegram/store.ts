@@ -10,6 +10,8 @@ import { z } from 'zod';
 export interface TelegramLink {
   readonly userId: string;
   readonly chatId: string;
+  /** The chat's handle as Telegram reported it when the code was sent; null where it sent none. */
+  readonly handle: string | null;
   readonly linkedAt: Date;
 }
 
@@ -36,7 +38,7 @@ export interface TelegramStore {
   /** Stores a code's digest for the person, replacing any code of theirs not yet used. */
   putCode(userId: string, digest: string, expiresAt: Date): Promise<void>;
   /** Uses a code once: a code that is unknown, expired or already used is `invalid`; a chat linked to someone else is `chat_taken`. */
-  redeemCode(digest: string, chatId: string, now: Date): Promise<RedeemOutcome>;
+  redeemCode(digest: string, chatId: string, handle: string | null, now: Date): Promise<RedeemOutcome>;
   linkByChat(chatId: string): Promise<TelegramLink | null>;
   linkByUser(userId: string): Promise<TelegramLink | null>;
   links(): Promise<readonly TelegramLink[]>;
@@ -66,13 +68,13 @@ export class MemoryTelegramStore implements TelegramStore {
     this.codes.set(digest, { userId, expiresAt });
   }
 
-  async redeemCode(digest: string, chatId: string, now: Date): Promise<RedeemOutcome> {
+  async redeemCode(digest: string, chatId: string, handle: string | null, now: Date): Promise<RedeemOutcome> {
     const code = this.codes.get(digest);
     if (!code || code.expiresAt.getTime() <= now.getTime()) return { ok: false, reason: 'invalid' };
     const holder = await this.linkByChat(chatId);
     if (holder && holder.userId !== code.userId) return { ok: false, reason: 'chat_taken' };
     this.codes.delete(digest);
-    const link = { userId: code.userId, chatId, linkedAt: now };
+    const link = { userId: code.userId, chatId, handle, linkedAt: now };
     this.byUser.set(code.userId, link);
     return { ok: true, link };
   }
@@ -142,12 +144,17 @@ export class MemoryTelegramStore implements TelegramStore {
   }
 }
 
-const LinkRow = z.object({ user_id: z.string(), chat_id: z.string(), linked_at: z.coerce.date() });
+const LinkRow = z.object({ user_id: z.string(), chat_id: z.string(), chat_handle: z.string().nullable(), linked_at: z.coerce.date() });
 const UserRow = z.object({ user_id: z.string() });
 const TargetRow = z.object({ profit_target: z.string() });
 const MarkRow = z.object({ episode: z.number().int(), armed: z.boolean() });
 const AlertRow = z.object({ user_id: z.string(), alert_key: z.string(), text: z.string() });
-const linkOf = (r: z.infer<typeof LinkRow>): TelegramLink => ({ userId: r.user_id, chatId: r.chat_id, linkedAt: r.linked_at });
+const linkOf = (r: z.infer<typeof LinkRow>): TelegramLink => ({
+  userId: r.user_id,
+  chatId: r.chat_id,
+  handle: r.chat_handle,
+  linkedAt: r.linked_at,
+});
 const firstLink = (rows: unknown): TelegramLink | null => {
   const [row] = LinkRow.array().parse(rows);
   return row ? linkOf(row) : null;
@@ -165,7 +172,7 @@ export class PostgresTelegramStore implements TelegramStore {
       ON CONFLICT (user_id) DO UPDATE SET digest = EXCLUDED.digest, expires_at = EXCLUDED.expires_at, created_at = now()`;
   }
 
-  async redeemCode(digest: string, chatId: string, now: Date): Promise<RedeemOutcome> {
+  async redeemCode(digest: string, chatId: string, handle: string | null, now: Date): Promise<RedeemOutcome> {
     const out: RedeemOutcome = await this.sql
       .begin(async (tx): Promise<RedeemOutcome> => {
         const [code] = UserRow.array().parse(
@@ -180,9 +187,9 @@ export class PostgresTelegramStore implements TelegramStore {
         await tx`DELETE FROM notify.telegram_links WHERE user_id = ${code.user_id}`;
         const link = firstLink(
           await tx`
-          INSERT INTO notify.telegram_links (user_id, chat_id, linked_at) VALUES (${code.user_id}, ${chatId}, ${now})
+          INSERT INTO notify.telegram_links (user_id, chat_id, chat_handle, linked_at) VALUES (${code.user_id}, ${chatId}, ${handle}, ${now})
           ON CONFLICT DO NOTHING
-          RETURNING user_id, chat_id, linked_at`,
+          RETURNING user_id, chat_id, chat_handle, linked_at`,
         );
         if (!link) throw new ChatTakenRace();
         return { ok: true, link };
@@ -196,16 +203,16 @@ export class PostgresTelegramStore implements TelegramStore {
   }
 
   async linkByChat(chatId: string): Promise<TelegramLink | null> {
-    return firstLink(await this.sql`SELECT user_id, chat_id, linked_at FROM notify.telegram_links WHERE chat_id = ${chatId}`);
+    return firstLink(await this.sql`SELECT user_id, chat_id, chat_handle, linked_at FROM notify.telegram_links WHERE chat_id = ${chatId}`);
   }
 
   async linkByUser(userId: string): Promise<TelegramLink | null> {
-    return firstLink(await this.sql`SELECT user_id, chat_id, linked_at FROM notify.telegram_links WHERE user_id = ${userId}`);
+    return firstLink(await this.sql`SELECT user_id, chat_id, chat_handle, linked_at FROM notify.telegram_links WHERE user_id = ${userId}`);
   }
 
   async links(): Promise<readonly TelegramLink[]> {
     return LinkRow.array()
-      .parse(await this.sql`SELECT user_id, chat_id, linked_at FROM notify.telegram_links ORDER BY user_id`)
+      .parse(await this.sql`SELECT user_id, chat_id, chat_handle, linked_at FROM notify.telegram_links ORDER BY user_id`)
       .map(linkOf);
   }
 
@@ -264,4 +271,26 @@ export class PostgresTelegramStore implements TelegramStore {
     await this.sql`
       UPDATE notify.telegram_alerts SET sent_at = ${at} WHERE user_id = ${userId} AND alert_key = ${alertKey} AND sent_at IS NULL`;
   }
+}
+
+/**
+ * The TEST age door's subject (J-charts-desk-21 #1): a person's unused link code, made `ms` older, so its five minutes
+ * pass as if waited out. The id is the person's user id; their code's own times move back together. Null with no code.
+ */
+export function ageTelegramLinkCode(sql: Sql): (id: string, ms: number) => Promise<Record<string, string | null> | null> {
+  return async (id, ms) => {
+    const rows = z
+      .object({ created_at: z.coerce.date(), expires_at: z.coerce.date() })
+      .array()
+      .parse(
+        await sql`
+          UPDATE notify.telegram_link_codes
+          SET created_at = created_at - make_interval(secs => ${ms / 1000}),
+              expires_at = expires_at - make_interval(secs => ${ms / 1000})
+          WHERE user_id = ${id}
+          RETURNING created_at, expires_at`,
+      );
+    const row = rows[0];
+    return row ? { createdAt: row.created_at.toISOString(), expiresAt: row.expires_at.toISOString() } : null;
+  };
 }

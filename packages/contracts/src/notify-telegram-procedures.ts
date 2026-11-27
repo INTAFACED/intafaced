@@ -18,10 +18,28 @@ export const NOTIFY_TELEGRAM_OFF_REASON = z.enum(['notify.telegram_token_unset',
 
 const decimal = z.string().regex(/^\d+(\.\d+)?$/);
 
+/** How long a link code works: five minutes from when it is issued. */
+export const NOTIFY_TELEGRAM_LINK_CODE_MINUTES = 5;
+
+/** The bot people send the code to, as the deployment names it (`@handle`); `null` where none is named. */
+const bot = z.string().max(64).nullable();
+/** A TEST bot on a test stack: everything it sends is labelled TEST. */
+const test = z.boolean();
+
 export const notifyTelegramStatusSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('off'), reason: NOTIFY_TELEGRAM_OFF_REASON }).strict(),
-  z.object({ state: z.literal('unlinked'), profitTarget: decimal.nullable() }).strict(),
-  z.object({ state: z.literal('linked'), linkedAt: z.string().datetime(), profitTarget: decimal.nullable() }).strict(),
+  z.object({ state: z.literal('unlinked'), bot, test, profitTarget: decimal.nullable() }).strict(),
+  z
+    .object({
+      state: z.literal('linked'),
+      bot,
+      test,
+      linkedAt: z.string().datetime(),
+      /** The linked chat's handle as Telegram reported it when the code was sent (`@name`, else the chat's first name). */
+      handle: z.string().max(64).nullable(),
+      profitTarget: decimal.nullable(),
+    })
+    .strict(),
 ]);
 export type NotifyTelegramStatus = z.infer<typeof notifyTelegramStatusSchema>;
 
@@ -40,8 +58,8 @@ export const NOTIFY_TELEGRAM_STATUS = defineProcedure({
 });
 
 /**
- * A new one-time link code: the person sends `command` to the bot from the chat they want linked. It works once, until
- * `expiresAt`, and a newer code replaces it. Only its digest is stored.
+ * A new one-time link code: the person sends `command` to the bot from the chat they want linked. It works once, for
+ * `NOTIFY_TELEGRAM_LINK_CODE_MINUTES` until `expiresAt`, and a newer code replaces it. Only its digest is stored.
  */
 export const NOTIFY_TELEGRAM_LINK_CODE = defineProcedure({
   ...base,
@@ -49,7 +67,7 @@ export const NOTIFY_TELEGRAM_LINK_CODE = defineProcedure({
   kind: 'mutation',
   path: 'telegram.linkCode',
   access: WRITE,
-  refusals: { ...OFF, 'notify.verify_ttl_unset': 'PRECONDITION_FAILED' },
+  refusals: OFF,
   input: NO_INPUT,
   output: z.object({ code: z.string().min(16), command: z.string(), expiresAt: z.string().datetime() }).strict(),
   samples: [{ verdict: 'accept' }],

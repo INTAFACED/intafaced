@@ -25,7 +25,6 @@ const OFF_DESK = () =>
     store: new MemoryTelegramStore(),
     transport: null,
     reader: { read: async () => ({ state: 'off' }) },
-    linkCodeTtlMinutes: undefined,
   });
 
 /** `telegram.*`: the account settings' side of the read-only Telegram desk alerts (telegram/desk.ts). */

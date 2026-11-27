@@ -5,10 +5,11 @@
  * Which accounts: those whose owner wallet signed an action this person prepared through the door
  * (`PreparedActionStore.ownerSignedAccounts`). What: each account's perpetual positions, its margin use from the venue's
  * own margin summary, the perpetual fills since the asked time and the week's realised profit, as the venue reports them
- * at the moment of the call. Nothing is stored and the ledger posts nothing.
+ * at the moment of the call, with today's and the week's realised result. The venue refusing a read answers `unreadable`
+ * with its name. Nothing is stored and the ledger posts nothing.
  */
 import { add, compare, div, formatAmount, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
-import { isTestVenue, type UserVenue, type UserVenueAccount, type UserVenueFill } from '@intafaced/venue-contracts';
+import { isTestVenue, VenueRefusalError, type UserVenue, type UserVenueAccount, type UserVenueFill } from '@intafaced/venue-contracts';
 import type { tradeDeskSnapshotSchema, TradeDeskSnapshotInput } from '@intafaced/contracts/trade-desk-snapshot';
 import type { z } from 'zod';
 import type { PreparedActionStore } from './prepared-action-store.js';
@@ -23,6 +24,11 @@ export function weekStartOf(at: Date): Date {
   const midnight = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
   const sinceMonday = (at.getUTCDay() + 6) % 7;
   return new Date(midnight - sinceMonday * DAY_MS);
+}
+
+/** 00:00 UTC of the day holding `at`. */
+export function dayStartOf(at: Date): Date {
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
 }
 
 /** `used` over `value` in percent, floored to two places; null with no value above zero to divide by. */
@@ -46,6 +52,19 @@ export async function readDeskSnapshot(deps: {
 }): Promise<DeskSnapshot> {
   if (!deps.venue) return { state: 'off' };
   const venue = await deps.venue();
+  try {
+    return await readOpen(venue, deps);
+  } catch (err) {
+    // The venue is known but did not answer: name it, so the person is never shown no positions.
+    if (err instanceof VenueRefusalError) return { state: 'unreadable', venue: venue.venue.displayName, test: isTestVenue(venue.venue) };
+    throw err;
+  }
+}
+
+async function readOpen(
+  venue: UserVenue,
+  deps: { store: PreparedActionStore; input: TradeDeskSnapshotInput; now: () => Date },
+): Promise<DeskSnapshot> {
   const venueId = venue.venue.id;
   const weekStart = weekStartOf(deps.now());
   const since = new Date(deps.input.since);
@@ -85,19 +104,24 @@ export async function readDeskSnapshot(deps: {
         markPrice: formatAmount(p.markPrice),
         unrealisedPnl: formatAmount(p.unrealisedPnl),
         margin: formatAmount(p.margin),
+        liquidationPrice: p.liquidationPrice.known ? formatAmount(p.liquidationPrice.value) : null,
       })),
     });
     for (const f of fills.value) if (!spot.has(f.symbol)) perpFills.push(f);
   }
   perpFills.sort((a, b) => a.filledAt.getTime() - b.filledAt.getTime() || a.fillId.localeCompare(b.fillId));
 
-  let realised = ZERO;
-  let fees = ZERO;
-  for (const f of perpFills) {
-    if (f.filledAt.getTime() < weekStart.getTime()) continue;
-    if (f.realisedPnl !== null) realised = add(realised, f.realisedPnl);
-    fees = add(fees, add(f.venueFee, f.builderFee));
-  }
+  const dayStart = dayStartOf(deps.now());
+  const span = (start: Date) => {
+    let realised = ZERO;
+    let fees = ZERO;
+    for (const f of perpFills) {
+      if (f.filledAt.getTime() < start.getTime()) continue;
+      if (f.realisedPnl !== null) realised = add(realised, f.realisedPnl);
+      fees = add(fees, add(f.venueFee, f.builderFee));
+    }
+    return { asset, realisedPnl: formatAmount(realised), fees: formatAmount(fees), profit: formatAmount(sub(realised, fees)) };
+  };
 
   return {
     state: 'read',
@@ -118,6 +142,8 @@ export async function readDeskSnapshot(deps: {
         feeAsset: f.feeAsset,
         filledAt: f.filledAt.toISOString(),
       })),
-    week: { asset, realisedPnl: formatAmount(realised), fees: formatAmount(fees), profit: formatAmount(sub(realised, fees)) },
+    week: span(weekStart),
+    dayStart: dayStart.toISOString(),
+    today: span(dayStart),
   };
 }
