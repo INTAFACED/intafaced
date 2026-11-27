@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// #11106: a trader with no wallet connected (so no trading session) pressed Long or Short on the futures desk and saw
-// nothing: no size, leverage, margin or fee. The desk shows the order form with the venue's fee rates and one clear
+// A trader with no wallet connected (so no trading session) sees the futures order form, never an empty space:
+// size, leverage, margin and fee. The desk shows the order form with the venue's fee rates and one clear
 // action, connect the wallet, before any session exists. The figures below are TEST.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -135,7 +135,7 @@ function type(label: string, value: string) {
   });
 }
 
-describe('#11106 the futures order form before any wallet or session', () => {
+describe('the futures order form before any wallet or session', () => {
   it('shows size, leverage, the order value, margin and fee at the venue rates, and one action: make a wallet', () => {
     render();
     const form = host.querySelector('[data-testid="venue-ticket-preview"]');

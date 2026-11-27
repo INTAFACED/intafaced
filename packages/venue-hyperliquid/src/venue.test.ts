@@ -1116,8 +1116,8 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect(listed).toContainEqual(['BTC-PERP', 'trading']);
   });
 
-  // #11106: the contract strip (J-derivatives-01 #4) read "not published by this venue" for BTC-PERP while the venue
-  // published its mark and funding: one contract is one unit of the coin, the mark is `metaAndAssetCtxs`' `markPx` and
+  // The contract strip (J-derivatives-01 #4) carries what the venue publishes for a perpetual, never "not published":
+  // one contract is one unit of the coin, the mark is `metaAndAssetCtxs`' `markPx` and
   // the funding is `predictedFundings`' own `HlPerp` entry (rate, interval, next payment).
   it('markets: a perp carries the venue contract size, mark and funding; a coin it publishes no funding for, and spot, stay not known', async () => {
     const fake = fakeVenue();
