@@ -31204,7 +31204,7 @@
         "crossMaintenanceMarginUsed": "0.0",
         "withdrawable": "110.0",
         "assetPositions": [],
-        "time": 1795599930231
+        "time": 1795746988752
       },
       "source": "testnet"
     },
@@ -31255,7 +31255,7 @@
         "crossMaintenanceMarginUsed": "0.0",
         "withdrawable": "110.0",
         "assetPositions": [],
-        "time": 1795599933247
+        "time": 1795746991715
       },
       "source": "testnet"
     },
@@ -31282,19 +31282,7 @@
         "crossMaintenanceMarginUsed": "0.0",
         "withdrawable": "110.0",
         "assetPositions": [],
-        "time": 1795599936115
-      },
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "spotClearinghouseState",
-        "user": "0x116d8f7751e72306d499dd61ae826e46a726c632"
-      },
-      "status": 200,
-      "answer": {
-        "balances": []
+        "time": 1795746994740
       },
       "source": "testnet"
     },
@@ -31333,7 +31321,58 @@
         "crossMaintenanceMarginUsed": "0.0",
         "withdrawable": "110.0",
         "assetPositions": [],
-        "time": 1795599939236
+        "time": 1795746997759
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "0x116d8f7751e72306d499dd61ae826e46a726c632"
+      },
+      "status": 200,
+      "answer": {
+        "balances": []
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x116d8f7751e72306d499dd61ae826e46a726c632"
+      },
+      "status": 200,
+      "answer": {
+        "marginSummary": {
+          "accountValue": "110.0",
+          "totalNtlPos": "0.0",
+          "totalRawUsd": "110.0",
+          "totalMarginUsed": "0.0"
+        },
+        "crossMarginSummary": {
+          "accountValue": "110.0",
+          "totalNtlPos": "0.0",
+          "totalRawUsd": "110.0",
+          "totalMarginUsed": "0.0"
+        },
+        "crossMaintenanceMarginUsed": "0.0",
+        "withdrawable": "110.0",
+        "assetPositions": [],
+        "time": 1795747000824
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "0x116d8f7751e72306d499dd61ae826e46a726c632"
+      },
+      "status": 200,
+      "answer": {
+        "balances": []
       },
       "source": "testnet"
     },
@@ -31346,7 +31385,7 @@
       "status": 200,
       "answer": {
         "coin": "@50",
-        "time": 1795599941367,
+        "time": 1795747001639,
         "levels": [
           [],
           [
@@ -31379,18 +31418,6 @@
       "status": 200,
       "answer": {
         "dailyUserVlm": [
-          {
-            "date": "2026-11-11",
-            "userCross": "0.0",
-            "userAdd": "0.0",
-            "exchange": "6867483.6100000003"
-          },
-          {
-            "date": "2026-11-12",
-            "userCross": "0.0",
-            "userAdd": "0.0",
-            "exchange": "5517942.2400000002"
-          },
           {
             "date": "2026-11-13",
             "userCross": "0.0",
@@ -31467,7 +31494,19 @@
             "date": "2026-11-25",
             "userCross": "0.0",
             "userAdd": "0.0",
-            "exchange": "2169669.6899999999"
+            "exchange": "5405167.6299999999"
+          },
+          {
+            "date": "2026-11-26",
+            "userCross": "0.0",
+            "userAdd": "0.0",
+            "exchange": "6570513.0999999996"
+          },
+          {
+            "date": "2026-11-27",
+            "userCross": "0.0",
+            "userAdd": "0.0",
+            "exchange": "480644.75"
           }
         ],
         "feeSchedule": {
@@ -31592,7 +31631,7 @@
       "status": 200,
       "answer": {
         "coin": "@50",
-        "time": 1795599941367,
+        "time": 1795747001639,
         "levels": [
           [],
           [
@@ -31614,6 +31653,69 @@
           ]
         ]
       },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": {
+        "marginSummary": {
+          "accountValue": "0.0",
+          "totalNtlPos": "0.0",
+          "totalRawUsd": "0.0",
+          "totalMarginUsed": "0.0"
+        },
+        "crossMarginSummary": {
+          "accountValue": "0.0",
+          "totalNtlPos": "0.0",
+          "totalRawUsd": "0.0",
+          "totalMarginUsed": "0.0"
+        },
+        "crossMaintenanceMarginUsed": "0.0",
+        "withdrawable": "0.0",
+        "assetPositions": [],
+        "time": 1795747002253
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": {
+        "balances": [
+          {
+            "coin": "USDC",
+            "token": 0,
+            "total": "225.0",
+            "hold": "0.0",
+            "entryNtl": "0.0"
+          }
+        ],
+        "tokenToAvailableAfterMaintenance": [
+          [
+            0,
+            "225.0"
+          ]
+        ]
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "frontendOpenOrders",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": [],
       "source": "testnet"
     },
     {
@@ -31760,13 +31862,85 @@
     {
       "path": "/info",
       "request": {
+        "type": "extraAgents",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": [],
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
         "type": "userFillsByTime",
         "user": "<trader>",
-        "startTime": 1794995141423,
+        "startTime": 1795142201772,
         "aggregateByTime": false
       },
       "status": 200,
       "answer": [],
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "frontendOpenOrders",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": [],
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "candleSnapshot",
+        "req": {
+          "coin": "@50",
+          "interval": "15m",
+          "startTime": 1795531002285,
+          "endTime": 1795747002285
+        }
+      },
+      "status": 200,
+      "answer": [],
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "maxBuilderFee",
+        "user": "<trader>",
+        "builder": "0x116d8f7751e72306d499dd61ae826e46a726c632"
+      },
+      "status": 200,
+      "answer": 0,
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": {
+        "balances": [
+          {
+            "coin": "USDC",
+            "token": 0,
+            "total": "225.0",
+            "hold": "0.0",
+            "entryNtl": "0.0"
+          }
+        ],
+        "tokenToAvailableAfterMaintenance": [
+          [
+            0,
+            "225.0"
+          ]
+        ]
+      },
       "source": "testnet"
     },
     {
@@ -31792,44 +31966,8 @@
         "crossMaintenanceMarginUsed": "0.0",
         "withdrawable": "0.0",
         "assetPositions": [],
-        "time": 1795599941948
+        "time": 1795747002816
       },
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "spotClearinghouseState",
-        "user": "<trader>"
-      },
-      "status": 200,
-      "answer": {
-        "balances": [
-          {
-            "coin": "USDC",
-            "token": 0,
-            "total": "260.0",
-            "hold": "0.0",
-            "entryNtl": "0.0"
-          }
-        ],
-        "tokenToAvailableAfterMaintenance": [
-          [
-            0,
-            "260.0"
-          ]
-        ]
-      },
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "extraAgents",
-        "user": "<trader>"
-      },
-      "status": 200,
-      "answer": [],
       "source": "testnet"
     },
     {
@@ -31840,54 +31978,6 @@
       },
       "status": 200,
       "answer": [],
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "candleSnapshot",
-        "req": {
-          "coin": "@50",
-          "interval": "15m",
-          "startTime": 1795383941951,
-          "endTime": 1795599941951
-        }
-      },
-      "status": 200,
-      "answer": [],
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "frontendOpenOrders",
-        "user": "<trader>"
-      },
-      "status": 200,
-      "answer": [],
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "maxBuilderFee",
-        "user": "<trader>",
-        "builder": "0x116d8f7751e72306d499dd61ae826e46a726c632"
-      },
-      "status": 200,
-      "answer": 0,
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "spotClearinghouseState",
-        "user": "0x116d8f7751e72306d499dd61ae826e46a726c632"
-      },
-      "status": 200,
-      "answer": {
-        "balances": []
-      },
       "source": "testnet"
     },
     {
@@ -31913,7 +32003,19 @@
         "crossMaintenanceMarginUsed": "0.0",
         "withdrawable": "110.0",
         "assetPositions": [],
-        "time": 1795599942305
+        "time": 1795747003836
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "0x116d8f7751e72306d499dd61ae826e46a726c632"
+      },
+      "status": 200,
+      "answer": {
+        "balances": []
       },
       "source": "testnet"
     },
@@ -31929,7 +32031,7 @@
           {
             "coin": "USDC",
             "token": 0,
-            "total": "260.0",
+            "total": "225.0",
             "hold": "0.0",
             "entryNtl": "0.0"
           }
@@ -31937,7 +32039,7 @@
         "tokenToAvailableAfterMaintenance": [
           [
             0,
-            "260.0"
+            "225.0"
           ]
         ]
       },
@@ -31966,7 +32068,126 @@
         "crossMaintenanceMarginUsed": "0.0",
         "withdrawable": "0.0",
         "assetPositions": [],
-        "time": 1795599942459
+        "time": 1795747003939
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "l2Book",
+        "coin": "@50"
+      },
+      "status": 200,
+      "answer": {
+        "coin": "@50",
+        "time": 1795747003734,
+        "levels": [
+          [],
+          [
+            {
+              "px": "6100.0",
+              "sz": "19.0",
+              "n": 1
+            },
+            {
+              "px": "6150.0",
+              "sz": "2.0",
+              "n": 1
+            },
+            {
+              "px": "6200.0",
+              "sz": "2.0",
+              "n": 1
+            }
+          ]
+        ]
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "l2Book",
+        "coin": "@50"
+      },
+      "status": 200,
+      "answer": {
+        "coin": "@50",
+        "time": 1795747004295,
+        "levels": [
+          [],
+          [
+            {
+              "px": "6100.0",
+              "sz": "19.0",
+              "n": 1
+            },
+            {
+              "px": "6150.0",
+              "sz": "2.0",
+              "n": 1
+            },
+            {
+              "px": "6200.0",
+              "sz": "2.0",
+              "n": 1
+            }
+          ]
+        ]
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": {
+        "marginSummary": {
+          "accountValue": "0.0",
+          "totalNtlPos": "0.0",
+          "totalRawUsd": "0.0",
+          "totalMarginUsed": "0.0"
+        },
+        "crossMarginSummary": {
+          "accountValue": "0.0",
+          "totalNtlPos": "0.0",
+          "totalRawUsd": "0.0",
+          "totalMarginUsed": "0.0"
+        },
+        "crossMaintenanceMarginUsed": "0.0",
+        "withdrawable": "0.0",
+        "assetPositions": [],
+        "time": 1795747004551
+      },
+      "source": "testnet"
+    },
+    {
+      "path": "/info",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": {
+        "balances": [
+          {
+            "coin": "USDC",
+            "token": 0,
+            "total": "225.0",
+            "hold": "0.0",
+            "entryNtl": "0.0"
+          }
+        ],
+        "tokenToAvailableAfterMaintenance": [
+          [
+            0,
+            "225.0"
+          ]
+        ]
       },
       "source": "testnet"
     },
@@ -31983,120 +32204,23 @@
     {
       "path": "/info",
       "request": {
-        "type": "clearinghouseState",
+        "type": "extraAgents",
         "user": "<trader>"
       },
       "status": 200,
-      "answer": {
-        "marginSummary": {
-          "accountValue": "0.0",
-          "totalNtlPos": "0.0",
-          "totalRawUsd": "0.0",
-          "totalMarginUsed": "0.0"
-        },
-        "crossMarginSummary": {
-          "accountValue": "0.0",
-          "totalNtlPos": "0.0",
-          "totalRawUsd": "0.0",
-          "totalMarginUsed": "0.0"
-        },
-        "crossMaintenanceMarginUsed": "0.0",
-        "withdrawable": "0.0",
-        "assetPositions": [],
-        "time": 1795599943735
-      },
+      "answer": [],
       "source": "testnet"
     },
     {
       "path": "/info",
       "request": {
-        "type": "spotClearinghouseState",
-        "user": "<trader>"
+        "type": "userFillsByTime",
+        "user": "<trader>",
+        "startTime": 1795142201772,
+        "aggregateByTime": false
       },
       "status": 200,
-      "answer": {
-        "balances": [
-          {
-            "coin": "USDC",
-            "token": 0,
-            "total": "260.0",
-            "hold": "0.0",
-            "entryNtl": "0.0"
-          }
-        ],
-        "tokenToAvailableAfterMaintenance": [
-          [
-            0,
-            "260.0"
-          ]
-        ]
-      },
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "l2Book",
-        "coin": "@50"
-      },
-      "status": 200,
-      "answer": {
-        "coin": "@50",
-        "time": 1795599943429,
-        "levels": [
-          [],
-          [
-            {
-              "px": "6100.0",
-              "sz": "19.0",
-              "n": 1
-            },
-            {
-              "px": "6150.0",
-              "sz": "2.0",
-              "n": 1
-            },
-            {
-              "px": "6200.0",
-              "sz": "2.0",
-              "n": 1
-            }
-          ]
-        ]
-      },
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "l2Book",
-        "coin": "@50"
-      },
-      "status": 200,
-      "answer": {
-        "coin": "@50",
-        "time": 1795599943940,
-        "levels": [
-          [],
-          [
-            {
-              "px": "6100.0",
-              "sz": "19.0",
-              "n": 1
-            },
-            {
-              "px": "6150.0",
-              "sz": "2.0",
-              "n": 1
-            },
-            {
-              "px": "6200.0",
-              "sz": "2.0",
-              "n": 1
-            }
-          ]
-        ]
-      },
+      "answer": [],
       "source": "testnet"
     },
     {
@@ -32243,91 +32367,6 @@
     {
       "path": "/info",
       "request": {
-        "type": "userFillsByTime",
-        "user": "<trader>",
-        "startTime": 1794995141423,
-        "aggregateByTime": false
-      },
-      "status": 200,
-      "answer": [],
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "clearinghouseState",
-        "user": "<trader>"
-      },
-      "status": 200,
-      "answer": {
-        "marginSummary": {
-          "accountValue": "0.0",
-          "totalNtlPos": "0.0",
-          "totalRawUsd": "0.0",
-          "totalMarginUsed": "0.0"
-        },
-        "crossMarginSummary": {
-          "accountValue": "0.0",
-          "totalNtlPos": "0.0",
-          "totalRawUsd": "0.0",
-          "totalMarginUsed": "0.0"
-        },
-        "crossMaintenanceMarginUsed": "0.0",
-        "withdrawable": "0.0",
-        "assetPositions": [],
-        "time": 1795599944195
-      },
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "spotClearinghouseState",
-        "user": "<trader>"
-      },
-      "status": 200,
-      "answer": {
-        "balances": [
-          {
-            "coin": "USDC",
-            "token": 0,
-            "total": "260.0",
-            "hold": "0.0",
-            "entryNtl": "0.0"
-          }
-        ],
-        "tokenToAvailableAfterMaintenance": [
-          [
-            0,
-            "260.0"
-          ]
-        ]
-      },
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "extraAgents",
-        "user": "<trader>"
-      },
-      "status": 200,
-      "answer": [],
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "frontendOpenOrders",
-        "user": "<trader>"
-      },
-      "status": 200,
-      "answer": [],
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
         "type": "maxBuilderFee",
         "user": "<trader>",
         "builder": "0x116d8f7751e72306d499dd61ae826e46a726c632"
@@ -32343,51 +32382,12 @@
         "req": {
           "coin": "@50",
           "interval": "15m",
-          "startTime": 1795383944691,
-          "endTime": 1795599944691
+          "startTime": 1795531005092,
+          "endTime": 1795747005092
         }
       },
       "status": 200,
       "answer": [],
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "clearinghouseState",
-        "user": "0x116d8f7751e72306d499dd61ae826e46a726c632"
-      },
-      "status": 200,
-      "answer": {
-        "marginSummary": {
-          "accountValue": "110.0",
-          "totalNtlPos": "0.0",
-          "totalRawUsd": "110.0",
-          "totalMarginUsed": "0.0"
-        },
-        "crossMarginSummary": {
-          "accountValue": "110.0",
-          "totalNtlPos": "0.0",
-          "totalRawUsd": "110.0",
-          "totalMarginUsed": "0.0"
-        },
-        "crossMaintenanceMarginUsed": "0.0",
-        "withdrawable": "110.0",
-        "assetPositions": [],
-        "time": 1795599945268
-      },
-      "source": "testnet"
-    },
-    {
-      "path": "/info",
-      "request": {
-        "type": "spotClearinghouseState",
-        "user": "0x116d8f7751e72306d499dd61ae826e46a726c632"
-      },
-      "status": 200,
-      "answer": {
-        "balances": []
-      },
       "source": "testnet"
     }
   ]
