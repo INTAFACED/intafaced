@@ -612,6 +612,8 @@ test('a move to a main that changes the supervisor is launched by the new copy, 
   const moved = fakes(paths3, { head: NEW, target: THIRD, checkFor: (sha) => (sha === NEW ? bad : PASS) });
   const stays = await round(paths3, { ...moved.io, newer: () => false });
   assert.notEqual(stays.refused?.sha, THIRD, 'the newer main is not refused');
+  assert.equal(stays.sha, NEW, 'the plain relaunch of the handed-over commit ran, no move');
+  assert.ok(!steps(moved.seen).includes('checkout'), 'the checkout never moved, so this is not the update path');
 });
 
 test('a moved commit that fails its check goes back to the last good commit, which it refuses until main moves past it', async () => {
