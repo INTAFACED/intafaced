@@ -27,7 +27,7 @@ import { frontApp, holdOf } from './beta-front.mjs';
 const OLD = 'a'.repeat(40);
 /** The marker a launch on the beta's own settings writes (BETA_STACK_SETTINGS). */
 const SETTINGS =
-  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey LOCAL_STACK_CUSTODY_LAYER=off';
+  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_LIVE_TEST_NETWORK=on LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey LOCAL_STACK_CUSTODY_LAYER=off';
 const NEW = 'b'.repeat(40);
 const PASS = { ok: true, lines: ['ok   the Customer page carries the TEST banner ("TEST FUNDS")'] };
 

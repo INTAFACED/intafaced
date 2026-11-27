@@ -2156,7 +2156,7 @@ console.log('local-test-stack: customer folder override checks passed');
   let started = null;
   await assert.rejects(
     (async () => {
-      started = await serveTestVenue({ host: '127.0.0.1', port: 0, appEnv: 'dev', kind: 'hl-testnet' });
+      started = await serveTestVenue({ host: '127.0.0.1', port: 0, appEnv: 'dev', kind: 'hl-testnet', env: {} });
     })(),
     /LOCAL_STACK_LIVE_TEST_NETWORK=on/,
   );
