@@ -111,6 +111,9 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         makerFeeBps: fee(m.kind === 'spot' ? 'userSpotAddRate' : 'userAddRate'),
         takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
         builderFeeCapBps: { known: true, value: BUILDER_FEE_CAP_BPS[m.kind] },
+        // "Stop orders" and "take profit orders" are "triggered when the mark price reaches the trigger price", on
+        // perpetuals (Hyperliquid's order-types page, read 27 Nov 2026); a spot market takes none here.
+        triggerSources: m.kind === 'perpetual' ? ['mark'] : [],
         // The venue's own word on it: `meta` and `spotMeta` list the markets Hyperliquid trades and flag a delisted perp
         // (`isDelisted`, dropped by `loadMarkets`); it publishes no halt, limit-only or cancel-only state, so a listed
         // market is trading. Never null here, which a reader takes as not known (and the markets list as not open).
@@ -362,6 +365,7 @@ export abstract class HyperliquidReads extends HyperliquidCore {
             : ('stop' as const)
           : ('user' as const);
     return {
+      ...triggerOf(raw, resolved),
       venueOrderId: raw.oid !== undefined ? String(int(raw.oid, 'oid')) : null,
       venueClientOrderId: typeof raw.cloid === 'string' ? raw.cloid.toLowerCase() : null,
       symbol: m?.symbol ?? coin,
@@ -717,6 +721,31 @@ function compareTid(x: string, y: string): number {
  */
 export function withCancelReason<T extends Pick<UserVenueOrder, 'cancelReason'>>(order: T, venueStatus: string): T {
   return venueStatus === 'selfTradeCanceled' ? { ...order, cancelReason: 'self_trade' } : order;
+}
+
+/**
+ * A trigger order's trigger as the venue reports it: `isTrigger` with its `triggerPx`, judged on the mark price;
+ * a take profit by its `orderType` ("Take Profit Market", "Take Profit Limit"), else a stop loss. It is `waiting` while the
+ * order is open and was not triggered (`triggered`, or a status past open), `failed` when the venue rejected it. An
+ * ordinary order, or a trigger the venue reports without its price, carries none.
+ */
+function triggerOf(
+  raw: { readonly [key: string]: Json },
+  status: VenueOrderStatus,
+): Pick<UserVenueOrder, 'trigger'> | Record<string, never> {
+  if (raw.isTrigger !== true || typeof raw.triggerPx !== 'string') return {};
+  const orderType = typeof raw.orderType === 'string' ? raw.orderType : '';
+  const fired = raw.triggered === true || (status !== 'open' && status !== 'canceled' && status !== 'rejected');
+  return {
+    trigger: {
+      price: amt(raw.triggerPx, 'triggerPx'),
+      source: 'mark',
+      role: /take\s*profit/i.test(orderType) ? 'take_profit' : 'stop_loss',
+      state: status === 'rejected' ? 'failed' : fired ? 'triggered' : 'waiting',
+      triggeredAt: null,
+      failure: status === 'rejected' ? 'the venue rejected the order its trigger sent' : null,
+    },
+  };
 }
 
 /** The venue's order status words to ours. An unknown word is loud, never guessed. */
