@@ -25,6 +25,59 @@ const id = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, 'id');
 const symbol = z.string().regex(/^[A-Za-z0-9._-]{1,32}\/[A-Za-z0-9._:-]{1,32}$/, 'symbol');
 const at = z.string().datetime({ offset: true });
 
+/** The colour groups a desk panel may join. Names, not colours: the screen draws each from the kit's tokens. */
+export const DESK_LINK_COLOURS = ['red', 'green', 'blue', 'amber'] as const;
+export type DeskLinkColour = (typeof DESK_LINK_COLOURS)[number];
+/** The market kinds a link group may carry: the venue door's own. */
+export const DESK_LINK_MARKET_KINDS = ['spot', 'perpetual'] as const;
+
+const colour = z.enum(DESK_LINK_COLOURS);
+
+/** What a link group carries: the market every member shows. A perpetual's symbol may be its base alone. */
+export const deskLinkContextSchema = z
+  .object({
+    symbol: z.string().regex(/^[A-Za-z0-9._:-]{1,32}(\/[A-Za-z0-9._:-]{1,32})?$/, 'symbol'),
+    venue: id,
+    kind: z.enum(DESK_LINK_MARKET_KINDS),
+  })
+  .strict();
+export type DeskLinkContext = z.infer<typeof deskLinkContextSchema>;
+
+/**
+ * Panel link groups: each panel may join one colour group, and each group carries one market; a change in one
+ * member reaches every member of its group and none outside it (`apps/customer/src/screens/trade/desk/link-groups.ts`).
+ * Saved with the layout; the server only stores it.
+ */
+export const deskLinksSchema = z
+  .object({
+    members: z
+      .object({ markets: colour.optional(), chart: colour.optional(), book: colour.optional(), trades: colour.optional() })
+      .strict(),
+    groups: z
+      .object({
+        red: deskLinkContextSchema.optional(),
+        green: deskLinkContextSchema.optional(),
+        blue: deskLinkContextSchema.optional(),
+        amber: deskLinkContextSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict()
+  .refine(
+    (links) =>
+      DESK_WIDGET_IDS.every((panel) => {
+        const name = links.members[panel];
+        return name === undefined || links.groups[name] !== undefined;
+      }),
+    "each member's group carries a market",
+  )
+  .refine(
+    (links) =>
+      DESK_LINK_COLOURS.every((name) => links.groups[name] === undefined || DESK_WIDGET_IDS.some((panel) => links.members[panel] === name)),
+    'each group has a member',
+  );
+export type DeskLinks = z.infer<typeof deskLinksSchema>;
+
 /** The desk's widget workspace, as `apps/customer/src/screens/trade/desk/workspace.ts` draws it. Widths are rem. */
 export const deskWorkspaceSchema = z
   .object({
@@ -38,9 +91,14 @@ export const deskWorkspaceSchema = z
         trades: z.number().min(10).max(32).optional(),
       })
       .strict(),
+    links: deskLinksSchema.optional(),
   })
   .strict()
-  .refine((desk) => new Set(desk.order).size === desk.order.length, 'each widget once');
+  .refine((desk) => new Set(desk.order).size === desk.order.length, 'each widget once')
+  .refine(
+    (desk) => DESK_WIDGET_IDS.every((panel) => desk.links?.members[panel] === undefined || desk.order.includes(panel)),
+    'a linked panel is on the desk',
+  );
 
 export const deskLayoutSchema = z
   .object({

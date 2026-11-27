@@ -61,9 +61,13 @@ import { PUBLIC_ORIGIN } from './beta-front.mjs';
 import { INVITED_RECENT_MS, invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
 import { limitsLine, limitsReport, readLimits } from './beta-limits.mjs';
 import { liveDeps } from './beta-testnet.mjs';
+import { LAUNCH_CUSTODY_LAYER } from '../scripts/launch-custody.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
+// Launch's custody switch, which this file imports (BETA_STACK_SETTINGS): a change there restarts the supervisor too.
+const LAUNCH_CUSTODY_FILE = fileURLToPath(new URL('../scripts/launch-custody.mjs', import.meta.url));
+const selfHash = () => `${fileHash(SELF)}:${fileHash(LAUNCH_CUSTODY_FILE)}`;
 
 /** The beta's fixed slot. Slot n adds 1000 × n to every stack port (local-test-facts.mjs), so the link is stable. */
 export const BETA_SLOT = 3;
@@ -132,6 +136,27 @@ const BETA_CADENCE_SECONDS = 300;
 const BETA_USER_VENUE = 'hl-testnet';
 
 /**
+ * Where the beta makes each new tester's wallet, and the one place to switch it (#11092). `test`: the labelled TEST
+ * provider the stack runs on loopback, which spends nothing outside. `turnkey`: the owner's wallet provider, with his
+ * keys from the box's sealed vendors.local.json (a start without that file refuses, naming it). Its free plan's 25
+ * signatures a month went on our own walks, so until testers are invited the beta runs the TEST provider, and while it
+ * does the TEST mailbox refuses every new invitee (invitesRefused), so wave 0 cannot start on the stand-in. The owner
+ * buys the paid plan right before testers are invited (project-state#4094, 27 Nov); then this reads `turnkey`, and one
+ * walk passes on it before the first invite. A tester's existing wallet keeps signing where it was made, which
+ * svc-protocol's status names for that wallet. `beta-host.mjs status` names the provider on.
+ */
+export const BETA_WALLET_PROVIDER = 'test';
+
+/** Why a new invitee is refused on `provider`, or null when invites are open (the owner's provider is on). */
+export function invitesRefused(provider = BETA_WALLET_PROVIDER) {
+  return provider === 'turnkey'
+    ? null
+    : 'the beta is not open to new testers yet: its wallets are on the TEST wallet provider until the owner opens the invites (#11092)';
+}
+
+const PROVIDER_WORDS = { test: 'the TEST provider', turnkey: "the owner's wallet provider" };
+
+/**
  * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its public
  * name as the origin of what testers sign, its venue, no TEST listings on svc-trade's board, and svc-ops' labelled TEST
  * valuation price list. A passkey or wallet message signed on https://beta.intafaced.com names that origin, which the
@@ -143,21 +168,22 @@ const BETA_USER_VENUE = 'hl-testnet';
  * `valuation.prices` unpublished (`valuation.prices_unset`), so Home and Money show "No total" even after an invited
  * tester's 1,000 TEST USDT sits in their TEST partner account (#10632); with it, svc-ops publishes the ops profile's
  * labelled TEST price list (`test: true`, refused outside dev/test) so Home and Money total the partner balance.
- * `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey` makes each new tester's wallet at the owner's wallet provider, with the
- * owner's keys from the box's sealed vendors.local.json (a start without that file refuses, naming it); a tester who
- * already has a TEST wallet keeps it and signs at the TEST provider, which svc-protocol's status names for that wallet.
+ * `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET` is BETA_WALLET_PROVIDER, below.
  * `LOCAL_STACK_CUSTODY_LAYER=off` starts svc-ledger, svc-bank, svc-pay, svc-trade and svc-matching with the custody layer
  * off together, as the launch build runs them (docs/adr/2026-11-10-launch-money-model.md): our own order book is off, the
  * ledger holds no tester's money, and a tester's money is where launch keeps it, at the TEST partner and in their own
  * wallet on the venue's test network (#11019). The TEST funds check fails a process that runs it otherwise (BETA_CUSTODY).
+ * The value is launch's, read from its one home, which CI's launch-desk journeys read too (launch-custody.mjs, #11077).
  */
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
   LOCAL_STACK_USER_VENUE: BETA_USER_VENUE,
+  // The stack reaches the live test network only with this beside hl-testnet; builders' stacks on this box lack it (#11061).
+  LOCAL_STACK_LIVE_TEST_NETWORK: 'on',
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
-  LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey',
-  LOCAL_STACK_CUSTODY_LAYER: 'off',
+  LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: BETA_WALLET_PROVIDER,
+  LOCAL_STACK_CUSTODY_LAYER: LAUNCH_CUSTODY_LAYER,
 });
 /** The custody switch every process of the beta stack runs (BETA_STACK_SETTINGS), as launch does. */
 export const BETA_CUSTODY = BETA_STACK_SETTINGS.LOCAL_STACK_CUSTODY_LAYER;
@@ -570,8 +596,21 @@ ${body}
 }
 
 /** The TEST mailbox page's server, on `port` (MAILBOX_PORT on the beta). */
-export function serveMailbox(paths, port = MAILBOX_PORT) {
+export function serveMailbox(paths, port = MAILBOX_PORT, { walletProvider = BETA_WALLET_PROVIDER } = {}) {
+  const closed = invitesRefused(walletProvider);
   const server = http.createServer((req, res) => {
+    const viewer = req.headers['x-beta-viewer'];
+    // Every invitee opens the mailbox for their sign-up code, so while invites are closed a viewer not already invited
+    // (the agents' walk is) is refused here, never recorded, and so never approved or funded by the invited pass.
+    if (closed && viewer !== undefined && !readInvited(paths.invited).has(String(viewer))) {
+      const body = `${closed}\n`;
+      res.writeHead(403, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+        'content-length': Buffer.byteLength(body),
+      });
+      return void res.end(body);
+    }
     let text = '';
     try {
       text = fs.readFileSync(path.join(paths.state, 'email-outbox.log'), 'utf8');
@@ -579,7 +618,6 @@ export function serveMailbox(paths, port = MAILBOX_PORT) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' });
     // Through the public front, each viewer sees only their own addresses' mail (beta-front.mjs VIEWER_HEADER); on the
     // box's own loopback, without the header, every row.
-    const viewer = req.headers['x-beta-viewer'];
     // A viewer the front passed on came through Cloudflare Access, so is on the invite list (beta-invited.mjs).
     if (viewer !== undefined && recordInvited(paths.invited, String(viewer))) log(paths, `mailbox: a new invited viewer, ${viewer}`);
     const rows = mailboxRows(text);
@@ -611,7 +649,7 @@ function writeStatus(paths, status) {
   const tmp = `${paths.status}.${process.pid}.tmp`;
   fs.writeFileSync(
     tmp,
-    `${JSON.stringify({ link: BETA_LINK, mailbox: MAILBOX_LINK, at: new Date().toISOString(), ...status }, null, 2)}\n`,
+    `${JSON.stringify({ link: BETA_LINK, mailbox: MAILBOX_LINK, at: new Date().toISOString(), walletProvider: BETA_WALLET_PROVIDER, invitesRefused: invitesRefused(), ...status }, null, 2)}\n`,
   );
   fs.renameSync(tmp, paths.status);
 }
@@ -629,7 +667,7 @@ const limitPaths = (paths) => ({
  * is a line in round.log, once until it changes.
  */
 export async function recordLimits(paths, deps = {}) {
-  const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree, ...deps });
+  const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree, walletProvider: BETA_WALLET_PROVIDER, ...deps });
   const s = readJson(paths.status, null);
   if (s) {
     const said = new Set((s.limits ?? []).filter((l) => l.state === 'warn').map((l) => l.line));
@@ -704,13 +742,20 @@ export function decide({ screening, head, target, due = true, refused = null }) 
   return 'update';
 }
 
-/** One line for `beta-host.mjs status`: the state, the commit served, main's commit when it differs, and why. */
+/**
+ * One line for `beta-host.mjs status`: the state, the commit served, main's commit when it differs, why, and where new
+ * wallets are made (with invites refused while that is the TEST provider).
+ */
 export function statusLine(s) {
   const short = (sha) => String(sha ?? '').slice(0, 9);
   const parts = [`${s.state}: serves ${s.sha ? short(s.sha) : 'no commit yet'}`];
   if (s.mainAt && s.mainAt !== s.sha) parts.push(`main is at ${short(s.mainAt)}`);
   if (s.reason) parts.push(s.reason);
   if (s.why) parts.push(s.why);
+  if (s.walletProvider) {
+    parts.push(`new wallets at ${PROVIDER_WORDS[s.walletProvider] ?? s.walletProvider}`);
+    if (invitesRefused(s.walletProvider)) parts.push('invites refused');
+  }
   return parts.join('; ');
 }
 
@@ -1031,7 +1076,7 @@ export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling
 async function serve(paths) {
   const everyMin = Number(process.env.BETA_EVERY_MIN ?? 30);
   if (!Number.isFinite(everyMin) || everyMin < 5 || everyMin > 55) throw new Error('BETA_EVERY_MIN must be 5 to 55');
-  const mine = fileHash(SELF);
+  const mine = selfHash();
   serveMailbox(paths);
   invitedLoop(paths);
   for (;;) {
@@ -1057,12 +1102,12 @@ async function serve(paths) {
     }
     // The checkout's copy of this file moved with main: start the new one at once (selfRestart), else exit and let
     // systemd (Restart=always) start it.
-    if (SELF.startsWith(paths.checkout + path.sep) && fileHash(SELF) !== mine) {
+    if (SELF.startsWith(paths.checkout + path.sep) && selfHash() !== mine) {
       if (selfRestart() === 'restart') {
-        log(paths, 'serve: beta-host.mjs changed on main; systemd starts the new copy now');
+        log(paths, 'serve: beta-host.mjs or launch-custody.mjs changed on main; systemd starts the new copy now');
         // systemd stops this copy as its restart job runs; should it not, exit and Restart=always starts the new one.
         await new Promise((r) => setTimeout(r, 30_000));
-      } else log(paths, 'serve: beta-host.mjs changed on main; exiting so the new copy starts');
+      } else log(paths, 'serve: beta-host.mjs or launch-custody.mjs changed on main; exiting so the new copy starts');
       process.exit(0);
     }
     // A move asked for on demand (`beta-host.mjs move`) starts the next round within 15 seconds.
@@ -1236,7 +1281,7 @@ async function main(argv) {
   if (cmd === 'status') {
     const s = readJson(paths.status);
     // Each outside limit, read now rather than at the last round (#11063).
-    const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree });
+    const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree, walletProvider: BETA_WALLET_PROVIDER });
     console.log(`${limitsLine(limits)}\n${limitsReport(limits)}`);
     console.log(s ? `${statusLine(s)}\n${JSON.stringify(s, null, 2)}` : `no round yet (${paths.status})`);
     return;

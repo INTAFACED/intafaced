@@ -67,6 +67,7 @@ import {
 } from './venue-order-history.js';
 import type { FeeSaverSource } from './fee-saver-client.js';
 import type { VenueWalletReads } from './http-user-venue.js';
+import type { DailyLossGuard, DailyLossWarning } from './daily-loss-limit.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -303,7 +304,10 @@ export type UserVenueDoorCode =
   | 'trade.venue_adl_version_stale'
   // J-cex-spot-14 #9: venue market analytics window validation.
   | 'trade.analytics_window_unset'
-  | 'trade.analytics_window_invalid';
+  | 'trade.analytics_window_invalid'
+  // The person's own daily loss limit (daily-loss-limit.ts): reached with blocking on, or unreadable while blocking.
+  | 'trade.daily_loss_limit_reached'
+  | 'trade.daily_loss_unreadable';
 
 /**
  * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
@@ -335,6 +339,15 @@ export class UserVenueDoorError extends Error {
     this.name = 'UserVenueDoorError';
   }
 }
+
+/** A sent approval the venue definitely refused: nothing was approved, and its key only ever replays that refusal. */
+function refusedApproval(row: StoredVenueAction): boolean {
+  const o = row.lastOutcome;
+  return row.signature !== null && o?.definite === true && !o.accepted;
+}
+
+/** The key a fixed agent's approval was first prepared under: a retry's `:<n>` taken off (`fixedAgentApprovalKey`). */
+const approvalBase = (key: string) => key.replace(/:\d+$/, '');
 
 /** The longest Idempotency-Key header accepted (DV-auth-03). */
 export const IDEMPOTENCY_KEY_MAX = 255;
@@ -543,6 +556,11 @@ export interface UserVenueDoorDeps {
   readonly eligibility?: { readonly level: VenueEligibilityLevel | null };
   /** Published market maintenance windows from svc-notify (J-cex-spot-14 #5); absent in tests without notify. */
   readonly maintenanceBoard?: MarketMaintenanceBoard;
+  /**
+   * The person's own daily loss limit (daily-loss-limit.ts): at or past it, a fresh opening order the person prepares
+   * warns (advisory) or is refused (blocking); a reduce-only order is never held. Absent: no limit is checked.
+   */
+  readonly dailyLoss?: DailyLossGuard;
 }
 
 /**
@@ -642,6 +660,8 @@ export interface PreparedAnswer {
   readonly reused: boolean;
   readonly signed: boolean;
   readonly lastOutcome: VenueSubmitOutcome | null;
+  /** An advisory daily loss limit reached (or unreadable) on a fresh opening order: the order is still prepared. */
+  readonly warnings?: readonly DailyLossWarning[];
 }
 
 export interface SubmitAnswer {
@@ -1980,7 +2000,11 @@ export class UserVenueDoor {
     if (intent.kind === 'approve_agent') {
       const address = (intent.agentAddress ?? '').toLowerCase();
       const earlier = await this.deps.store.agentApprovals(principal.userId, address);
-      if (earlier.some((row) => row.businessKey !== key)) {
+      // A fixed agent's approval the venue definitely refused approved nothing: it never blocks the next try of
+      // the same approval (`fixedAgentApprovalKey`). A session key is never retried: its next Start takes a fresh key.
+      const retry = (row: StoredVenueAction) =>
+        !key.startsWith(SESSION_KEY_PREFIX) && refusedApproval(row) && approvalBase(row.businessKey) === approvalBase(key);
+      if (earlier.some((row) => row.businessKey !== key && !retry(row))) {
         throw new UserVenueDoorError(
           `${address} was approved as an agent before; a key is approved once and never again`,
           'trade.venue_session_key_reused',
@@ -2067,6 +2091,18 @@ export class UserVenueDoor {
     if (finalIntent.kind === 'amend_order' || finalIntent.kind === 'replace_order') await this.assertNoRaise(venue, account, finalIntent);
     await this.assertOneWholeClose(venue, account, finalIntent);
     finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));
+    // The person's own daily loss limit, on a fresh opening order of theirs. An agent account's orders keep its own
+    // daily-loss cap on its own sub-account (agent-orders.ts #18). Refused here, before the venue prepares anything.
+    const warnings =
+      this.deps.dailyLoss && !opts.agentAccount
+        ? await this.deps.dailyLoss.admit({
+            principal,
+            venue,
+            account,
+            intent: finalIntent,
+            kindOf: (symbol) => this.marketKind(venue, symbol),
+          })
+        : [];
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
     // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
@@ -2083,7 +2119,14 @@ export class UserVenueDoor {
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());
     // A concurrent prepare of the same key may have won the insert: the stored action is the one.
     if (stored.prepared.digest !== prepared.digest) return this.reuse(stored, account, signer, finalIntent);
-    return { actionKey: key, prepared: stored.prepared, reused: false, signed: false, lastOutcome: null };
+    return {
+      actionKey: key,
+      prepared: stored.prepared,
+      reused: false,
+      signed: false,
+      lastOutcome: null,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
   }
 
   /**
@@ -2164,6 +2207,22 @@ export class UserVenueDoor {
   /** The stored action under `actionKey`, or `null`: what the agent account reads back its own actions by. */
   async stored(principal: Principal, actionKey: string): Promise<StoredVenueAction | null> {
     return this.deps.store.find(principal.userId, actionKey);
+  }
+
+  /**
+   * The key a fixed agent's approval (one address per person, derived, never a new one) is prepared under now: `base` the
+   * first time; the same key while its approval is unsent, unanswered or accepted, so an accepted approval is never sent
+   * twice; and a new key, `base:<n>`, once the venue definitely refused the latest one, which approved nothing (a passing
+   * `agent_removal_pending` included). Each try's own key keeps answering its own stored outcome.
+   */
+  async fixedAgentApprovalKey(principal: Principal, agentAddress: string, base: string): Promise<string> {
+    const tries = (await this.deps.store.agentApprovals(principal.userId, agentAddress)).filter(
+      (row) => approvalBase(row.businessKey) === base,
+    );
+    const n = (key: string) => (key === base ? 1 : Number(key.slice(base.length + 1)));
+    const latest = tries.reduce<StoredVenueAction | null>((a, r) => (a === null || n(r.businessKey) > n(a.businessKey) ? r : a), null);
+    if (latest === null) return base;
+    return refusedApproval(latest) ? `${base}:${n(latest.businessKey) + 1}` : latest.businessKey;
   }
 
   /** Every stored action of this person under keys starting `prefix`: what a revoke reads the assistant's orders by (#12). */

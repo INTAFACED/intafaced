@@ -14,7 +14,7 @@
  *       account's pending basic or full request is approved by the stack's two TEST operators (local-test-gates.mjs,
  *       the same two-person door `verify` uses), and an invited account holding full gets GRANT once, through
  *       `local-test-stack.mjs fund` (the real ledger, what the stack's own exchange trades from), at most
- *       MAX_FUNDED_PER_PERSON accounts per person. The same GRANT is kept in that person's TEST partner account
+ *       MAX_FUNDED_PER_PERSON accounts per person (the agents' own invite, agentsInvite, past it). The same GRANT is kept in that person's TEST partner account
  *       (`testPartner.set({ custody: 'off' })`, `testPartner.fund`), where the launch model holds a person's money and
  *       which Home and Money read (#10632): on every pass, once per account and fund id, so a restart of svc-bank (which
  *       empties the TEST partner) puts it back. It is made as that person on their own live session; an account not
@@ -56,6 +56,16 @@ export function invitedOwner(email, tokens) {
   return tokens.has(token) && (local === token || local.length > token.length + 1) ? token : null;
 }
 
+/**
+ * The agents' own invite (#11104): the token every walk, plant and ready check signs up under, which starts with
+ * `zenyoda` (project-state tooling/beta/kit.mjs agentsToken). Each walk makes a new account, so the per-person cap spent
+ * its three places on 24-25 Nov and every later walk's verified account got nothing (27 Nov: Home and Money showed no
+ * balance). Its accounts are not counted against that cap for the grant, which a custody-off stack keeps only at the
+ * TEST partner, as the testnet step already exempts the ready check's accounts (beta-testnet.mjs judgeAccount, Nino's
+ * guide on project-state#4046, 25 Nov). Every other invited person stays capped.
+ */
+const agentsInvite = (token) => String(token ?? '').startsWith('zenyoda');
+
 /** The ledger reference of an account's one grant: fixed, so a second post of it is a no-op. */
 export const grantRef = (userId) => `beta-invite-${userId}`;
 /** The TEST partner's fund id of an account's grant: the partner pays it in once per person and fund id. */
@@ -88,7 +98,7 @@ export function planPass({ users, approved, pending, tokens, granted }) {
     const tiers = approved.get(u.id) ?? new Set();
     if (granted[u.id] || !(tiers.has('full') || tiers.has('institutional'))) continue;
     const n = perPerson.get(u.token) ?? 0;
-    if (n >= MAX_FUNDED_PER_PERSON) continue;
+    if (n >= MAX_FUNDED_PER_PERSON && !agentsInvite(u.token)) continue;
     perPerson.set(u.token, n + 1);
     fund.push({ userId: u.id, email: u.email, token: u.token });
   }

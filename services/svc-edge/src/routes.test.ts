@@ -183,6 +183,20 @@ describe('unwired upstreams refuse in staging/prod, fall back in dev', () => {
     expect(resolveUpstreamBase(pay, () => undefined, 'test')).toEqual({ base: 'http://localhost:4006' });
   });
 
+  it('refuses an upstream EDGE_UPSTREAMS_OFF names as unwired in every APP_ENV, even with its URL set (#11075)', () => {
+    const env = (name: string) =>
+      name === 'EDGE_UPSTREAMS_OFF' ? 'P2P_URL, PAY_URL' : name === 'PAY_URL' ? 'http://pay.internal:4006' : undefined;
+    for (const appEnv of ['dev', 'test', 'staging', 'prod']) expect(resolveUpstreamBase(pay, env, appEnv)).toEqual({ unwired: true });
+    const bank = UPSTREAMS.find((u) => u.prefix === '/api/bank')!;
+    expect(resolveUpstreamBase(bank, env, 'dev')).toEqual({ base: 'http://localhost:4009' });
+    const table = Object.fromEntries(readyRoutes(env).map((r) => [r.prefix, r]));
+    expect(table['/api/pay']?.configured).toBe(false);
+    // A name only counts whole: PAY_URLX turns nothing off.
+    expect(resolveUpstreamBase(pay, (name) => (name === 'EDGE_UPSTREAMS_OFF' ? 'PAY_URLX' : undefined), 'dev')).toEqual({
+      base: 'http://localhost:4006',
+    });
+  });
+
   it('lists configured vs absent on /ready without leaking URLs or saying wired', () => {
     const table = readyRoutes((name) => (name === 'PAY_URL' || name === 'IDENTITY_URL' ? 'http://secret.internal' : undefined));
     const byPrefix = Object.fromEntries(table.map((r) => [r.prefix, r]));

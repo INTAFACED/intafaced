@@ -93,7 +93,7 @@ every invited person opens the mailbox for their sign-up code. Every 15 seconds 
 address is a recorded token, or the token, a dot and more, at `local-test.invalid` has its pending Full (or Basic)
 request approved through the stack's two-person TEST door, and once it holds Full gets 1000 TEST USDT through the real
 ledger, once per account (a fixed ledger reference) and for at most 3 accounts per person
-(`~/.intafaced/beta/granted.json`). The same 1000 TEST USDT is kept in that account's TEST partner account, where the
+(`~/.intafaced/beta/granted.json`; the agents' own invite, whose walks each sign up anew, is not capped, #11104). The same 1000 TEST USDT is kept in that account's TEST partner account, where the
 launch model holds a person's money and which Home and Money read (#10632); every pass puts it back after an svc-bank
 restart, as that person, while they are signed in, and the beta starts svc-ops with `LOCAL_STACK_VALUATION_PRICES=test`
 (the ops profile's labelled TEST price list, `USDC=1,USDT=1`) so Home and Money value that holding with a TEST total.
@@ -127,6 +127,16 @@ provider and svc-protocol's wallet messages accept that origin. A sign-in passke
 **Known gaps on the public name:** the TEST bank pay-in's return link and the academy's videos point at the box's loopback. On a phone-width screen the desk's order-type
 tabs overlap, so "OTO" covers "Market".
 
+## Check a trading change on the test network, no browser
+
+`node tooling/beta/hl-drive.mjs <setup|status|spot|perp|move-stop|cancel|close|flatten>` on the box (#11060), under the
+user's systemd manager so the stack's tools can read its processes:
+`systemd-run --user --pipe --wait --quiet -p WorkingDirectory=$PWD node tooling/beta/hl-drive.mjs perp`. It signs in as
+its own TEST customer on the beta stack and sends what the desk sends through our doors, signed by a test key kept in
+`~/.intafaced/beta/hl-drive/` (mode 600), never printed. Each action prints our door's answer beside the venue's own
+record. It refuses any venue but Hyperliquid's test network. `setup` makes the account and key once; fund the printed
+address with `hl-testnet-send.yml`. The file's header lists each action's options.
+
 ## When it is not up
 
 - **`blocked`: no TEST screening file.** Edge refuses every call until a sanctions screening list is set, and no agent
@@ -144,8 +154,12 @@ tabs overlap, so "OTO" covers "Market".
   under `umask 077`, straight into `~/.intafaced/beta/state/vendors.local.json`; then delete the key and the download.
   Show only that each name is set, never a value. No service reads them until a start asks: svc-identity and
   svc-protocol with `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey`, svc-pay with `LOCAL_STACK_PAY_SCREENER=opensanctions`.
-  The beta sets the wallet provider's switch (`beta-host.mjs`, `BETA_STACK_SETTINGS`): each new tester's wallet is
-  made at his provider, and a tester who already has a TEST wallet keeps signing at the TEST provider. It leaves the
+  The beta's wallet provider is one setting, `BETA_WALLET_PROVIDER` in `beta-host.mjs` (#11092): `test` until testers
+  are invited, so our own walks spend none of his provider's free signatures, and while it is `test` the TEST mailbox
+  refuses every new invitee (403, never recorded, so never approved or funded) and `beta-host.mjs status` says
+  `new wallets at the TEST provider; invites refused`. To open the invites: the paid plan first (his), then
+  `BETA_WALLET_PROVIDER = 'turnkey'` in one PR, then one walk that passes on it before the first invite. A tester's
+  existing wallet keeps signing where it was made. It leaves the
   screening vendor's switch off: with the TEST list, the vendor clears no custodial send.
 - **`down`:** the reason names the step; the round's log is `~/.intafaced/beta/round.log`. The next round tries again.
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main

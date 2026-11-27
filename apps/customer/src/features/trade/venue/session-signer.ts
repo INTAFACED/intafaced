@@ -1,4 +1,4 @@
-import { freshKey, keyFor, type HeldKey, type SessionView, type SignResult, type TradingSessionApi } from '../../protocol';
+import { freshKey, joinLiveSession, keyFor, type HeldKey, type SessionView, type SignResult, type TradingSessionApi } from '../../protocol';
 import type { TypedDataDocument } from '../../protocol';
 import type { ApiResult } from '../../../shared/api';
 import { preparedAnswerSchema, walletTypedData, type SubmitAnswer, type VenueIntent } from '../venue-api';
@@ -83,6 +83,8 @@ export function sessionLine(current: SessionView | null, held: HeldKey | null): 
 // ── Starting a session ──────────────────────────────────────────────────────────────────────────────────────────────
 
 export type SessionStartResult =
+  /** The session is live under a key another of the person's tabs holds: this tab now holds it too, with no approval. */
+  | { readonly kind: 'joined' }
   /** The approval reached the venue: accepted, refused (with the venue's words), or with no definite answer yet. */
   | { readonly kind: 'sent'; readonly answer: 'accepted' | 'refused' | 'unknown'; readonly detail: string | null }
   /** svc-trade refused to prepare or send the approval; nothing was signed, or what was signed was not sent. */
@@ -110,15 +112,23 @@ export interface SessionStartDeps {
   readonly forget: () => void;
   readonly store?: Store | null;
   readonly make?: () => `0x${string}`;
+  /** Asks the person's other tabs for the live key at an address (trading-session.ts `keyFromOtherTab`). */
+  readonly join?: (address: string, session: string) => Promise<HeldKey | null>;
 }
 
 /**
  * Start (or finish starting) this sign-in's session, as the wallet room's trading session does: the key for an approval
  * still out is the same key, so a retry is the same approval and one prompt; an approval sent with no answer whose key
- * this tab does not hold is read back by sending the stored approval again, with no prompt; otherwise a fresh key. A key
- * svc-trade refuses as used before is forgotten, so the next press makes a new one.
+ * this tab does not hold is read back by sending the stored approval again, with no prompt; a session live under a key
+ * another of the person's tabs holds is joined, since a new key would take that tab's away (the venue keeps one per
+ * account); otherwise a fresh key. A key svc-trade refuses as used before is forgotten, so the next press makes a new one.
  */
 export async function startSession(d: SessionStartDeps): Promise<SessionStartResult> {
+  const joined = await joinLiveSession(d.userId, d.current, d.held, d.join);
+  if (joined) {
+    d.hold(joined);
+    return { kind: 'joined' };
+  }
   const use = keyFor(d.current, d.held);
   const readBack = use !== 'pending' && d.current?.state === 'approving';
   const key = use === 'pending' && d.held ? d.held : readBack ? null : freshKey(d.userId, d.store, d.make);

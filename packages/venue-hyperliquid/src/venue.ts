@@ -23,6 +23,7 @@ import {
 import {
   BPS_PER_X,
   PERP_COLLATERAL_ASSET,
+  PERP_QUOTE,
   WITHDRAW_DECIMALS,
   amt,
   arr,
@@ -405,7 +406,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const userSigned = (
       primaryType: UserSignedPrimaryType,
       type: string,
-      fields: Record<string, string>,
+      fields: Record<string, string | boolean>,
       nonceField: 'time' | 'nonce',
     ): BuiltAction => {
       const action: Record<string, MsgpackValue> = {
@@ -512,6 +513,31 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
           'withdraw3',
           { destination: intent.destination.toLowerCase(), amount: toWire(intent.amount) },
           'time',
+        );
+      }
+      case 'spot_perps_transfer': {
+        // The venue's `usdClassTransfer` (J-derivatives-29 #2): USDC between this account's own spot and perps balances,
+        // signed by the owner's wallet. The venue's sub-account form (" subaccount:<address>" in the amount) is not built.
+        if (account.subAccount !== null)
+          throw refusal(venueId, 'not_offered', 'a move between spot and perps on a sub-account is not offered by this adapter yet');
+        if (intent.asset !== PERP_QUOTE) throw refusal(venueId, 'venue_rejected', `only ${PERP_QUOTE} moves between spot and perps`);
+        if (compare(intent.amount, ZERO) <= 0) throw refusal(venueId, 'venue_rejected', 'a move must be positive');
+        const problem = sizeProblem(intent.amount, WITHDRAW_DECIMALS);
+        if (problem) throw refusal(venueId, 'venue_rejected', `move: ${problem}`);
+        const { mode } = (await this.accountMode(account)).value;
+        if (mode !== 'standard')
+          throw refusal(
+            venueId,
+            'venue_rejected',
+            mode === null
+              ? 'the account mode is not known, so a move between spot and perps is refused'
+              : `the account is in ${mode} mode, which holds one balance for each asset: there is nothing to move between spot and perps`,
+          );
+        return userSigned(
+          'HyperliquidTransaction:UsdClassTransfer',
+          'usdClassTransfer',
+          { amount: toWire(intent.amount), toPerp: intent.direction === 'spot_to_perps' },
+          'nonce',
         );
       }
       case 'approve_builder_fee': {

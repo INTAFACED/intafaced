@@ -100,6 +100,13 @@ test('the wallet provider is unread, with why, never ok: the page signs at the p
   assert.match(w.line, /directly/);
 });
 
+test('on the TEST wallet provider the limit says no outside signature is spent (#11092)', () => {
+  const w = walletProviderLimit('test');
+  assert.equal(w.state, 'ok');
+  assert.match(w.line, /TEST provider/);
+  assert.match(w.line, /no signature at the owner's provider/);
+});
+
 test('one line for the record names each limit and its state, worst first', () => {
   const line = limitsLine([
     { name: 'funder', state: 'warn', line: 'funder: x' },

@@ -84,6 +84,13 @@ export function clientRefusal(failure: ClientFailure, provider: ProtocolEmbedded
         body: t('downBody', { provider: name }),
         reference: 'wallet.embedded_provider_down',
       };
+    case 'busy':
+      return {
+        variant: 'unreachable',
+        title: t('busyTitle'),
+        body: t('busyBody', { provider: name }),
+        reference: 'wallet.embedded_provider_busy',
+      };
     case 'refused':
       return { variant: 'refused', title: t('refusedTitle'), body: t('refusedBody', { provider: name }), reference: 'provider_refused' };
     case 'unsupported':
