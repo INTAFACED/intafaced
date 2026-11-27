@@ -97,28 +97,62 @@ test("a launch-desk journey's custodial part file keeps today's switch; its othe
 // J-p2p-21 did, once #11129 stopped the world restore turning custody back on).
 const LEDGER_FUND_CALL = [/\bfund\(/, /['"]local-test-stack\.mjs['"]\s*,\s*['"]fund['"]/];
 const STACK_FUND_IMPORT = /import\s*\{[^}]*\bfund\b[^}]*\}\s*from\s*'\.\/stack\.mjs'/;
-const importsOf = (src, from) =>
-  [...src.matchAll(new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*'\\./${from.replace('.', '\\.')}'`, 'g'))].flatMap((m) =>
+/** The local names `src` binds to `names` exported by `./<from>`: named imports (with `as`), and `ns.<name>` of a namespace import. */
+const localNames = (src, from, names) => {
+  const mod = `'\\./${from.replace(/\./g, '\\.')}'`;
+  const named = [...src.matchAll(new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*${mod}`, 'g'))].flatMap((m) =>
     m[1]
       .split(',')
-      .map((n) => n.trim().split(/\s+as\s+/)[0])
-      .filter(Boolean),
+      .map((n) => n.trim().split(/\s+as\s+/))
+      .filter(([name]) => names.includes(name))
+      .map(([name, alias]) => alias ?? name),
   );
+  const spaces = [...src.matchAll(new RegExp(`import\\s*\\*\\s*as\\s+(\\w+)\\s*from\\s*${mod}`, 'g'))].flatMap((m) =>
+    names.map((n) => `${m[1]}.${n}`),
+  );
+  return [...named, ...spaces];
+};
+const calls = (code, name) => new RegExp(`(?<![\\w.])${name.replace('.', '\\.')}\\(`).test(code);
 
-/** The exported functions of a helper module whose own body funds through the ledger. Pure, for the tests. */
-function ledgerFunders(src) {
-  if (!STACK_FUND_IMPORT.test(src) && !LEDGER_FUND_CALL[1].test(src)) return [];
+/**
+ * The exported functions of a helper module whose own body funds through the ledger: it calls `fund`, the stack's fund
+ * command, or a function another helper exports that does (`helpers`, module file to its funding exports). Pure.
+ */
+function ledgerFunders(src, helpers = {}) {
+  const direct = STACK_FUND_IMPORT.test(src) || LEDGER_FUND_CALL[1].test(src);
+  const via = Object.entries(helpers).flatMap(([file, names]) => localNames(src, file, names));
+  if (!direct && via.length === 0) return [];
   return src
     .split(/^(?=export |function |async function |const |let )/m)
-    .map((part) => [/^export (?:async )?function\s+(\w+)|^export const\s+(\w+)/.exec(part), part])
-    .filter(([m, part]) => m && LEDGER_FUND_CALL.some((re) => re.test(part.replace(/^.*?\{/s, ''))))
+    .map((part) => [/^export (?:async )?function\s+(\w+)|^export const\s+(\w+)/.exec(part), part.replace(/^.*?\{/s, '')])
+    .filter(([m, body]) => m && ((direct && LEDGER_FUND_CALL.some((re) => re.test(body))) || via.some((n) => calls(body, n))))
     .map(([m]) => m[1] ?? m[2]);
 }
 
-/** Whether a journey file funds through the ledger, itself or through `helpers` (module file to its funding exports). */
+/** Every helper module of `dir` (file to its funding exports), followed through helpers that call helpers until none is added. */
+function fundingHelpers(dir) {
+  const sources = Object.fromEntries(
+    fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.mjs') && !f.endsWith('.pw.mjs') && f !== 'stack.mjs')
+      .map((f) => [f, fs.readFileSync(path.join(dir, f), 'utf8')]),
+  );
+  let helpers = {};
+  for (;;) {
+    const next = Object.fromEntries(
+      Object.entries(sources)
+        .map(([f, src]) => [f, ledgerFunders(src, helpers)])
+        .filter(([, names]) => names.length > 0),
+    );
+    if (JSON.stringify(next) === JSON.stringify(helpers)) return helpers;
+    helpers = next;
+  }
+}
+
+/** Whether a journey file funds through the ledger, itself or by calling a funding export of `helpers`. */
 function fundsThroughLedger(src, helpers = {}) {
   if (STACK_FUND_IMPORT.test(src) || LEDGER_FUND_CALL[1].test(src)) return true;
-  return Object.entries(helpers).some(([file, names]) => importsOf(src, file).some((n) => names.includes(n)));
+  return Object.entries(helpers).some(([file, names]) => localNames(src, file, names).some((n) => calls(src, n)));
 }
 
 test('a file that runs custody off never funds a customer through our ledger, which custody off refuses (#11159)', () => {
@@ -128,19 +162,20 @@ test('a file that runs custody off never funds a customer through our ledger, wh
   const helper =
     "import { api, fund } from './stack.mjs';\nexport async function rich(p) {\n  fund(p, 'USDT', '9');\n}\nexport function plain() {}\n";
   assert.deepEqual(ledgerFunders(helper), ['rich']);
-  assert.ok(fundsThroughLedger("import { plain, rich as r } from './h.mjs';", { 'h.mjs': ['rich'] }));
-  assert.ok(!fundsThroughLedger("import { plain } from './h.mjs';", { 'h.mjs': ['rich'] }));
+  assert.ok(fundsThroughLedger("import { plain, rich as r } from './h.mjs';\nawait r(p);", { 'h.mjs': ['rich'] }));
+  assert.ok(!fundsThroughLedger("import { plain } from './h.mjs';\nplain();", { 'h.mjs': ['rich'] }));
+  assert.ok(fundsThroughLedger("import * as h from './h.mjs';\nawait h.rich(p);", { 'h.mjs': ['rich'] }));
+  // A helper that funds through another helper is found too.
+  assert.deepEqual(
+    ledgerFunders("import { rich } from './h.mjs';\nexport async function setUp(p) {\n  await rich(p);\n}\n", { 'h.mjs': ['rich'] }),
+    ['setUp'],
+  );
 
   const launch = readLaunchJourneyIds();
   const dir = path.join(ROOT, JOURNEY_DIR);
-  const helpers = Object.fromEntries(
-    fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith('.mjs') && !f.endsWith('.pw.mjs') && f !== 'stack.mjs')
-      .map((f) => [f, ledgerFunders(fs.readFileSync(path.join(dir, f), 'utf8'))])
-      .filter(([, names]) => names.length > 0),
-  );
+  const helpers = fundingHelpers(dir);
   assert.ok(helpers['desk.mjs']?.includes('fundedTrader'), `the helpers that fund: ${JSON.stringify(helpers)}`);
+  assert.ok(helpers['agents.mjs']?.includes('agentsRun'), `agents.mjs funds through desk.mjs: ${JSON.stringify(helpers)}`);
   const funding = journeyFiles(dir).filter(
     (f) => fileCustody(f, launch) === LAUNCH_CUSTODY_LAYER && fundsThroughLedger(fs.readFileSync(path.join(dir, f), 'utf8'), helpers),
   );
