@@ -3,8 +3,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
-import { parseAmount } from '@intafaced/ledger-client/money';
-import { venueClientOrderId, type PreparedVenueAction } from '@intafaced/venue-contracts';
+import { formatAmount, mul, parseAmount, sub } from '@intafaced/ledger-client/money';
+import { encodeVenueWire, venueClientOrderId, type PreparedVenueAction } from '@intafaced/venue-contracts';
+import { breakevenAnswerSchema } from '@intafaced/contracts/trade-venue-door';
 import { seedTestVenue, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
@@ -544,5 +545,96 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       ).rejects.toMatchObject({ code: 'trade.close_slippage_unset' });
     }
     await flat();
+  });
+
+  it('#11070: one press moves the stop to the fee-adjusted breakeven, and the venue then holds exactly one reduce-only stop there', async () => {
+    await flat();
+    const account = await door.account(owner);
+    const fees = (await sim.markets(account)).value.find((m) => m.symbol === ETH)!;
+    // TEST rates: the venue charges 4.5 bps to a taker; our builder fee on this TEST door is 1 bp.
+    sim.setMarketFees(ETH, { makerFeeBps: { known: true, value: a('1.5') }, takerFeeBps: { known: true, value: a('4.5') } });
+    try {
+      const openedFrom = new Date(Date.now() - 1);
+      await long('2');
+      // Refused while the mark is under breakeven: the stop would fire at once.
+      await expect(p.breakeven(person, { owner, symbol: ETH, clientOrderId: id('be') })).rejects.toMatchObject({
+        code: 'trade.protection_wrong_side',
+      });
+      sim.setMark(ETH, a('3200'));
+      // A stop loss already rests from before.
+      const before = await p.create(person, base({ kind: 'stop_loss', quantity: '2', triggerPrice: '2900' }), REGION);
+      if (before.restsOn !== 'venue') throw new Error('expected the venue');
+      expect((await send(before)).outcome).toMatchObject({ accepted: true });
+
+      // One press: the old stop's cancel first (the venue holds one whole stop at a time), then, called again, the new one.
+      const clientOrderId = id('be');
+      const first = await p.breakeven(person, { owner, symbol: ETH, clientOrderId });
+      expect(first.steps.map((s) => s.does)).toEqual(['cancel_stop']);
+      expect(first.replaces).toEqual([before.prepared.venueClientOrderId!.toLowerCase()]);
+      expect(first.next).toBe('call_again');
+      for (const step of first.steps) expect((await send(step)).outcome).toMatchObject({ definite: true, accepted: true });
+      const press = await p.breakeven(person, { owner, symbol: ETH, clientOrderId });
+      expect(press.triggerPrice).toBe(first.triggerPrice);
+      expect(press.steps.map((s) => s.does)).toEqual(['place_stop']);
+      expect(press.next).toBe('done');
+      // The answer on the wire is the shared contract's.
+      for (const answer of [first, press]) expect(breakevenAnswerSchema.safeParse(encodeVenueWire(answer)).success).toBe(true);
+      expect(press.steps[0]!.prepared.intent).toMatchObject({
+        kind: 'place_order',
+        side: 'sell',
+        amount: a('2'),
+        reduceOnly: true,
+        trigger: { price: a(press.triggerPrice), source: 'mark', role: 'stop_loss' },
+      });
+
+      // Worked here from the venue's own records, not from the service: closing the whole position at the trigger nets
+      // zero or more after every fee, and one tick lower nets less than zero.
+      const position = (await sim.positions(account)).value.find((x) => x.symbol === ETH)!;
+      const paid = (await sim.fills(account, openedFrom)).value
+        .filter((f) => f.symbol === ETH)
+        .reduce((sum, f) => sum + f.venueFee + f.builderFee, 0n);
+      expect(press.openingFees).toBe(formatAmount(paid));
+      expect(press.closeFeeBps).toBe('5.5');
+      const nets = (price: bigint) =>
+        mul(sub(price, position.entryPrice), position.size) - paid - mul(mul(price, position.size), a('0.00055'));
+      expect(nets(a(press.triggerPrice)) >= 0n).toBe(true);
+      expect(nets(a(press.triggerPrice) - fees.tickSize) < 0n).toBe(true);
+
+      for (const step of press.steps) expect((await send(step)).outcome).toMatchObject({ definite: true, accepted: true });
+      const resting = (await sim.openOrders(account)).value.filter((o) => o.symbol === ETH && o.trigger);
+      expect(resting).toHaveLength(1);
+      expect(resting[0]).toMatchObject({
+        side: 'sell',
+        reduceOnly: true,
+        amount: a('2'),
+        trigger: { price: a(press.triggerPrice), role: 'stop_loss' },
+      });
+
+      // Pressed again: it already rests there alone, so nothing is prepared.
+      const again = await p.breakeven(person, { owner, symbol: ETH, clientOrderId: id('be') });
+      expect(again.steps).toEqual([]);
+      expect(again.triggerPrice).toBe(press.triggerPrice);
+    } finally {
+      sim.setMarketFees(ETH, { makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+      sim.setMark(ETH, a('3000'));
+      await flat();
+    }
+  });
+
+  it('#11070: refused in words with no position, or with a fee the venue does not report', async () => {
+    await flat();
+    expect((await refused(p.breakeven(person, { owner, symbol: ETH, clientOrderId: id('be') }))).code).toBe('trade.breakeven_no_position');
+    const account = await door.account(owner);
+    const fees = (await sim.markets(account)).value.find((m) => m.symbol === ETH)!;
+    sim.setMarketFees(ETH, { makerFeeBps: { known: false }, takerFeeBps: { known: false } });
+    try {
+      await long('1');
+      expect((await refused(p.breakeven(person, { owner, symbol: ETH, clientOrderId: id('be') }))).code).toBe(
+        'trade.breakeven_fees_unknown',
+      );
+    } finally {
+      sim.setMarketFees(ETH, { makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+      await flat();
+    }
   });
 });
