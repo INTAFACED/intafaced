@@ -16,6 +16,7 @@ import {
   venueRecord,
 } from './venue.mjs';
 import { ledgerUntouched, ledgerView } from './venue-door.mjs';
+import { connectWhenAsked } from './dex.mjs';
 
 // J-derivatives-35, "I set a daily loss limit that warns me or stops new trades, can't be loosened for 24 hours, and never
 // stops an exit", in the running app against the stack's TEST venue simulator. One test per step, titled
@@ -94,13 +95,34 @@ const form = (page) => page.getByTestId('daily-loss-form');
 const ticket = (page) => page.getByTestId('venue-ticket');
 const row = (page) => page.getByTestId('venue-positions').locator(`tr[data-symbol="${SYMBOL}"]`);
 
+/** The TEST wallet each page already has: a page installs it once, then only goes to the next room and reconnects. */
+const wallets = new WeakMap();
+
+/** Goes to `path` on a page whose wallet is installed, connecting it when the room asks. */
+async function goWithWallet(page, path) {
+  const wallet = wallets.get(page);
+  await page.goto(path);
+  const address = page.getByTestId('venue-wallet-address');
+  await connectWhenAsked(page, address);
+  await expect(address).toHaveText(wallet.address.toLowerCase());
+  return wallet;
+}
+
 async function openRules(page) {
+  if (wallets.has(page)) return goWithWallet(page, RULES);
   const s = state();
-  return openVenuePage(page, s.account, RULES, s.walletKey);
+  const wallet = await openVenuePage(page, s.account, RULES, s.walletKey);
+  wallets.set(page, wallet);
+  return wallet;
 }
 async function openDesk(page) {
-  const s = state();
-  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  let wallet;
+  if (wallets.has(page)) wallet = await goWithWallet(page, DESK);
+  else {
+    const s = state();
+    wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+    wallets.set(page, wallet);
+  }
   await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(SYMBOL, { timeout: 20_000 });
   return wallet;
 }
@@ -260,7 +282,7 @@ test(`${J} #2 sets a TEST limit of 100 USDC with "Warn me" and closes TEST trade
   await sheet.getByRole('button', { name: 'Back', exact: true }).click();
 
   // Risk rules shows today's loss from the venue, with its as-of time, against the limit.
-  await page.goto(RULES);
+  await openRules(page);
   const today = rules(page).getByTestId('daily-loss-today');
   const shownLoss = await today.getAttribute('data-loss', { timeout: 20_000 });
   const read = await limitView();
@@ -438,7 +460,7 @@ test(`${J} #5 raises the limit to TEST 300 USDC, then switches back to "Warn me"
   await ageRecord('trade', 'daily-loss-limit', owner, Math.min(DAY_MS, left + 1_000));
   const after = await limitView();
   expect(after).toMatchObject({ active: { mode: 'advisory', limit: '300' }, pending: null });
-  await page.goto(RULES);
+  await openRules(page);
   await expect(rules(page).getByTestId('daily-loss-state')).toHaveText('On: warn me once today’s loss reaches 300 USDC', {
     timeout: 20_000,
   });
