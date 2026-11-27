@@ -15742,6 +15742,71 @@
                   "required": ["exit", "exitPrice", "netPnl"],
                   "additionalProperties": false
                 },
+                "rules": {
+                  "type": "object",
+                  "properties": {
+                    "verdict": {
+                      "type": "string",
+                      "enum": ["kept", "no_stop", "widened_unreached", "capped", "stopped", "left_out"]
+                    },
+                    "netPnl": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "oneR": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "widenedStop": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dailyLoss": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "loss": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "asset": {
+                              "type": "string"
+                            },
+                            "warnedAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["limit", "loss", "asset", "warnedAt"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["verdict", "netPnl", "oneR", "widenedStop", "dailyLoss"],
+                  "additionalProperties": false
+                },
                 "fillIds": {
                   "type": "array",
                   "items": {
@@ -15771,6 +15836,7 @@
                 "mfe",
                 "candleInterval",
                 "disciplined",
+                "rules",
                 "fillIds"
               ],
               "additionalProperties": false
@@ -15800,9 +15866,13 @@
               "disciplinedNetPnl": {
                 "type": "string",
                 "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "rulesNetPnl": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
               }
             },
-            "required": ["count", "netPnl", "disciplinedCount", "actualNetPnlOfDisciplined", "disciplinedNetPnl"],
+            "required": ["count", "netPnl", "disciplinedCount", "actualNetPnlOfDisciplined", "disciplinedNetPnl", "rulesNetPnl"],
             "additionalProperties": false
           }
         },
