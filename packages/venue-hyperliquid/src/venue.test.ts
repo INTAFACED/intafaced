@@ -720,6 +720,13 @@ describe('outcome classification', () => {
     expect(await code(orderStatus({ error: 'Order must have minimum value of $10.' }))).toBe('venue_rejected');
   });
 
+  it('#11051: "User has pending agent removal" is agent_removal_pending, keeping the venue words', async () => {
+    const { outcome } = await submitWith(err('User has pending agent removal'));
+    if (!outcome.definite || outcome.accepted) throw new Error('expected a definite refusal');
+    expect(outcome.refusal.code).toBe('agent_removal_pending');
+    expect(outcome.refusal.detail).toBe('User has pending agent removal');
+  });
+
   it('a 4xx after the bytes went out is never a refusal: 403, 408, 409, 422 and 429 are read back', async () => {
     for (const status of [400, 403, 408, 409, 422, 429]) {
       const { outcome } = await submitWith({ status, body: status === 422 ? 'Failed to deserialize the JSON body' : 'proxy said no' });
