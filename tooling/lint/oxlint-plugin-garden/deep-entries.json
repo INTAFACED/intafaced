@@ -138,6 +138,7 @@
     "/trade/convert",
     "/trade/copy",
     "/trade/futures",
+    "/trade/journal",
     "/trade/margin",
     "/trade/markets/downloads",
     "/trade/news",
