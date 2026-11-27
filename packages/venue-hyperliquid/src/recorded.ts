@@ -97,11 +97,18 @@ const VOLATILE_KEYS = new Set(['nonce', 'time', 'startTime', 'endTime', 'expires
 const CLOID_RE = /^0x[0-9a-f]{32}$/i;
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
 
-/** One request a replay had no answer for: its path, the epoch it came in and its key. */
+/**
+ * One request a replay had no answer for: its path, the epoch it came in and its key. `otherAccount` is true only when
+ * the request is about an account (`user`) that is neither the run's trader nor any address the recording names, and
+ * that the replay was already asked about before the run's trader or any write came in: an account the stack held
+ * before this run did anything, so none of its steps can have made it. It is refused like any miss. An address first
+ * asked about once the run has started is never another account's, whatever it is.
+ */
 export interface ReplayMiss {
   readonly path: HlRecordedPath;
   readonly epoch: number;
   readonly key: string;
+  readonly otherAccount: boolean;
 }
 
 /** A replaying fetch, with every request it had no answer for. */
@@ -154,6 +161,12 @@ function pairCloids(recorded: unknown, current: unknown, into: Map<string, strin
   }
 }
 
+function addressesIn(value: unknown, into: Set<string>): void {
+  if (typeof value === 'string' && ADDRESS_RE.test(value)) into.add(value.toLowerCase());
+  else if (Array.isArray(value)) value.forEach((v) => addressesIn(v, into));
+  else if (isRecord(value)) Object.values(value).forEach((v) => addressesIn(v, into));
+}
+
 function cloidsIn(value: unknown, into: Set<string>): void {
   if (typeof value === 'string' && CLOID_RE.test(value)) into.add(value.toLowerCase());
   else if (Array.isArray(value)) value.forEach((v) => cloidsIn(v, into));
@@ -174,7 +187,9 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
   const reads = new Map<string, { epoch: number; call: HlRecordedCall }[]>();
   const writes: { key: string; call: HlRecordedCall }[] = [];
   const seen = new Set<string>();
+  const named = new Set<string>();
   for (const call of recording.calls) {
+    addressesIn(call.request, named);
     const key = requestKey(call.path, call.request, (c) => (seen.has(c) ? c : undefined));
     if (call.path === '/exchange') {
       writes.push({ key, call });
@@ -188,12 +203,18 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
   const toCurrent = new Map<string, string>();
   const toRecorded = new Map<string, string>();
   const misses: ReplayMiss[] = [];
+  /** Addresses asked about before the run's trader or any write came in: the stack's, not this run's. */
+  const earlier = new Set<string>();
+  let started = false;
   let epoch = 0;
   const replay = async (input: string, init: { body: string }) => {
     const path = pathOf(input);
     const parsed: unknown = JSON.parse(init.body);
     const request = hide(parsed);
     const key = requestKey(path, request, (c) => toRecorded.get(c));
+    const user = isRecord(request) && typeof request.user === 'string' ? request.user.toLowerCase() : null;
+    if (path === '/exchange' || user === TRADER) started = true;
+    if (!started && user !== null && ADDRESS_RE.test(user)) earlier.add(user);
     let found: HlRecordedCall | null = null;
     if (path === '/exchange') {
       const next = writes[epoch];
@@ -211,7 +232,8 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
       for (const entry of reads.get(key) ?? []) if (entry.epoch <= epoch) found = entry.call;
     }
     if (!found) {
-      misses.push({ path, epoch, key });
+      const otherAccount = user !== null && earlier.has(user) && !named.has(user);
+      misses.push({ path, epoch, key, otherAccount });
       throw new NotRecordedError(path, request);
     }
     const swapped = swapStrings(found.answer, (s) => (CLOID_RE.test(s) ? (toCurrent.get(s.toLowerCase()) ?? s) : s));
