@@ -2425,6 +2425,8 @@ import {
   TRADE_COPY_PLATFORM_PAUSES,
 } from './trade-copy-records.js';
 
+import { DAILY_LOSS_GET, DAILY_LOSS_SET, DAILY_LOSS_OFF } from './trade-daily-loss-procedures.js';
+
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
 
 import {
@@ -4989,6 +4991,8 @@ const part_trade_copy_records: readonly ProcedureRecord[] = [
   TRADE_COPY_PLATFORM_PAUSES,
 ];
 
+const part_trade_daily_loss_procedures: readonly ProcedureRecord[] = [DAILY_LOSS_GET, DAILY_LOSS_SET, DAILY_LOSS_OFF];
+
 const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD];
 
 const part_trade_otc_procedures: readonly ProcedureRecord[] = [
@@ -5354,6 +5358,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_convert_procedures,
   ...part_trade_copy_procedures,
   ...part_trade_copy_records,
+  ...part_trade_daily_loss_procedures,
   ...part_trade_grid_procedures,
   ...part_trade_otc_procedures,
   ...part_trade_recurring_procedures,

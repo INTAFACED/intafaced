@@ -67,6 +67,7 @@ import {
 } from './venue-order-history.js';
 import type { FeeSaverSource } from './fee-saver-client.js';
 import type { VenueWalletReads } from './http-user-venue.js';
+import type { DailyLossGuard, DailyLossWarning } from './daily-loss-limit.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -303,7 +304,10 @@ export type UserVenueDoorCode =
   | 'trade.venue_adl_version_stale'
   // J-cex-spot-14 #9: venue market analytics window validation.
   | 'trade.analytics_window_unset'
-  | 'trade.analytics_window_invalid';
+  | 'trade.analytics_window_invalid'
+  // The person's own daily loss limit (daily-loss-limit.ts): reached with blocking on, or unreadable while blocking.
+  | 'trade.daily_loss_limit_reached'
+  | 'trade.daily_loss_unreadable';
 
 /**
  * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
@@ -543,6 +547,11 @@ export interface UserVenueDoorDeps {
   readonly eligibility?: { readonly level: VenueEligibilityLevel | null };
   /** Published market maintenance windows from svc-notify (J-cex-spot-14 #5); absent in tests without notify. */
   readonly maintenanceBoard?: MarketMaintenanceBoard;
+  /**
+   * The person's own daily loss limit (daily-loss-limit.ts): at or past it, a fresh opening order the person prepares
+   * warns (advisory) or is refused (blocking); a reduce-only order is never held. Absent: no limit is checked.
+   */
+  readonly dailyLoss?: DailyLossGuard;
 }
 
 /**
@@ -642,6 +651,8 @@ export interface PreparedAnswer {
   readonly reused: boolean;
   readonly signed: boolean;
   readonly lastOutcome: VenueSubmitOutcome | null;
+  /** An advisory daily loss limit reached (or unreadable) on a fresh opening order: the order is still prepared. */
+  readonly warnings?: readonly DailyLossWarning[];
 }
 
 export interface SubmitAnswer {
@@ -2067,6 +2078,18 @@ export class UserVenueDoor {
     if (finalIntent.kind === 'amend_order' || finalIntent.kind === 'replace_order') await this.assertNoRaise(venue, account, finalIntent);
     await this.assertOneWholeClose(venue, account, finalIntent);
     finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));
+    // The person's own daily loss limit, on a fresh opening order of theirs. An agent account's orders keep its own
+    // daily-loss cap on its own sub-account (agent-orders.ts #18). Refused here, before the venue prepares anything.
+    const warnings =
+      this.deps.dailyLoss && !opts.agentAccount
+        ? await this.deps.dailyLoss.admit({
+            principal,
+            venue,
+            account,
+            intent: finalIntent,
+            kindOf: (symbol) => this.marketKind(venue, symbol),
+          })
+        : [];
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
     // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
@@ -2083,7 +2106,14 @@ export class UserVenueDoor {
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());
     // A concurrent prepare of the same key may have won the insert: the stored action is the one.
     if (stored.prepared.digest !== prepared.digest) return this.reuse(stored, account, signer, finalIntent);
-    return { actionKey: key, prepared: stored.prepared, reused: false, signed: false, lastOutcome: null };
+    return {
+      actionKey: key,
+      prepared: stored.prepared,
+      reused: false,
+      signed: false,
+      lastOutcome: null,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
   }
 
   /**

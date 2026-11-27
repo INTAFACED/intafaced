@@ -136,6 +136,7 @@ import { VenueBalanceWatch } from './venue/balance-watch.js';
 import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
 import { busRiskAlertNotices, VenueRiskAlerts } from './venue/risk-alerts.js';
 import { SqlRiskAlertStore } from './venue/risk-alerts-store.js';
+import { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -512,8 +513,17 @@ const stepUp = createStepUpCheck({
 });
 // The user-venue door, its router, our listings of its markets and the deposits read (src/venue/wire.ts).
 const userVenueWiring = wireUserVenue({ app, sql, bus, stepUp, perks, outS2s, doorS2s });
-const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes, venueConverts } =
-  userVenueWiring;
+const {
+  userVenueDoors,
+  userVenue,
+  userVenueRouter,
+  userVenueStore,
+  venueListings,
+  venueDelistingNotices,
+  venueSellQuotes,
+  venueConverts,
+  dailyLossStore,
+} = userVenueWiring;
 // The agents beside the door, each off with it (src/venue/agents-wire.ts).
 const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading, ownAgentRebalance } =
   wireVenueAgents({
@@ -579,6 +589,8 @@ const venueBalanceWatch = userVenue
   : null;
 // Margin and liquidation-risk alerts on a position on the person's own venue account (J-derivatives-06 #6 #7): one alert
 // per crossing of a level, published to svc-notify after its row is written, ticked with the protections. Off with the door.
+// The person's own daily loss limit: its settings (trade.dailyLoss.*); every door checks it (venue/wire.ts).
+const venueDailyLoss = userVenue ? new VenueDailyLossLimits({ door: userVenue, store: dailyLossStore, now: () => new Date() }) : null;
 const venueRiskAlerts = userVenue
   ? new VenueRiskAlerts({ door: userVenue, store: new SqlRiskAlertStore(sql), notices: busRiskAlertNotices(bus), now: () => new Date() })
   : null;
@@ -1003,6 +1015,7 @@ export const appRouter = createTradeRouter(
     now: () => new Date(),
   },
   venueRiskAlerts,
+  venueDailyLoss,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

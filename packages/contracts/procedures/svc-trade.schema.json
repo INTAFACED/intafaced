@@ -15029,6 +15029,502 @@
         }
       ]
     },
+    "trade.dailyLoss.get": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "dailyLoss.get",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.daily_loss_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.daily_loss_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["owner"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["advisory", "blocking"]
+                  },
+                  "limit": {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  }
+                },
+                "required": ["mode", "limit"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "terms": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": ["advisory", "blocking"]
+                          },
+                          "limit": {
+                            "type": "string",
+                            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["mode", "limit"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["terms", "effectiveAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "today": {
+            "type": "object",
+            "properties": {
+              "loss": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "since": {
+                "type": "string"
+              },
+              "reached": {
+                "type": "boolean"
+              }
+            },
+            "required": ["loss", "since", "reached"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["venue", "owner", "asset", "active", "pending", "today"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": 7
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.dailyLoss.off": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "dailyLoss.off",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.daily_loss_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.daily_loss_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["owner"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["advisory", "blocking"]
+                  },
+                  "limit": {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  }
+                },
+                "required": ["mode", "limit"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "terms": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": ["advisory", "blocking"]
+                          },
+                          "limit": {
+                            "type": "string",
+                            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["mode", "limit"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["terms", "effectiveAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "today": {
+            "type": "object",
+            "properties": {
+              "loss": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "since": {
+                "type": "string"
+              },
+              "reached": {
+                "type": "boolean"
+              }
+            },
+            "required": ["loss", "since", "reached"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["venue", "owner", "asset", "active", "pending", "today"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.dailyLoss.set": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "dailyLoss.set",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.daily_loss_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.daily_loss_request_invalid": "BAD_REQUEST",
+        "trade.daily_loss_field_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "limit": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["advisory", "blocking"]
+          }
+        },
+        "required": ["owner", "limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["advisory", "blocking"]
+                  },
+                  "limit": {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  }
+                },
+                "required": ["mode", "limit"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "terms": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": ["advisory", "blocking"]
+                          },
+                          "limit": {
+                            "type": "string",
+                            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["mode", "limit"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["terms", "effectiveAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "today": {
+            "type": "object",
+            "properties": {
+              "loss": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "since": {
+                "type": "string"
+              },
+              "reached": {
+                "type": "boolean"
+              }
+            },
+            "required": ["loss", "since", "reached"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["venue", "owner", "asset", "active", "pending", "today"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "limit": "250"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "limit": "100.5",
+            "mode": "blocking"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "limit": "100",
+            "mode": "hard"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        }
+      ]
+    },
     "trade.otc.accept": {
       "service": "svc-trade",
       "module": "trade",
