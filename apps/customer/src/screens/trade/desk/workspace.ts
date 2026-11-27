@@ -7,6 +7,8 @@
  * takes whatever space is left, so it has no width of its own.
  */
 
+import { deskLinksSchema, type DeskLinks } from '@intafaced/contracts/desk-layouts-preferences';
+
 export const WIDGET_IDS = ['markets', 'chart', 'book', 'trades'] as const;
 export type WidgetId = (typeof WIDGET_IDS)[number];
 export type SizedWidget = Exclude<WidgetId, 'chart'>;
@@ -22,6 +24,8 @@ export interface DeskLayout {
   readonly order: readonly WidgetId[];
   /** Width in rem of each shown widget except the chart. */
   readonly widths: Readonly<Partial<Record<SizedWidget, number>>>;
+  /** The panels' link groups (`link-groups.ts`); none when absent. */
+  readonly links?: DeskLinks;
 }
 
 export const WIDTH_MIN = 10;
@@ -79,7 +83,11 @@ export function isDeskLayout(value: unknown): value is DeskLayout {
     total += width;
     return true;
   });
-  return each && total <= FIXED_TOTAL_MAX;
+  if (!each || total > FIXED_TOTAL_MAX) return false;
+  // Link groups, when there are any, are the contract's shape and name only panels the desk shows.
+  if (layout.links === undefined) return true;
+  const links = deskLinksSchema.safeParse(layout.links);
+  return links.success && WIDGET_IDS.every((panel) => links.data.members[panel] === undefined || order.includes(panel));
 }
 
 /** Dropping one widget on another swaps their places; the rest stay where they are. */

@@ -52,6 +52,28 @@ describe('saved desk layouts: shape', () => {
   });
 });
 
+describe('saved desk layouts: panel link groups', () => {
+  const btc = { symbol: 'BTC/USDT', venue: 'test-venue', kind: 'spot' as const };
+  const withLinks = (links: unknown) => {
+    const one = layout('linked', 'Linked');
+    return { ...one, desk: { ...one.desk, links } };
+  };
+
+  it("stores each panel's colour group and the symbol, venue and market kind the group carries", () => {
+    const links = { members: { markets: 'red', chart: 'red', book: 'blue' }, groups: { red: btc, blue: { ...btc, symbol: 'ETH/USDT' } } };
+    const stored = value({ layouts: [withLinks(links)] as DeskLayoutsValue['layouts'] });
+    expect(stored.layouts[0]?.desk.links).toEqual(links);
+  });
+
+  it('refuses a member whose group carries nothing, a group with no member, a panel not on the desk, and an unknown colour', () => {
+    const refused = (links: unknown) => codeOf(() => value({ layouts: [withLinks(links)] as DeskLayoutsValue['layouts'] }));
+    expect(refused({ members: { chart: 'red' }, groups: {} })).toBe('identity.preferences_value_invalid');
+    expect(refused({ members: { chart: 'red' }, groups: { red: btc, blue: btc } })).toBe('identity.preferences_value_invalid');
+    expect(refused({ members: { trades: 'red' }, groups: { red: btc } })).toBe('identity.preferences_value_invalid');
+    expect(refused({ members: { chart: 'mauve' }, groups: { mauve: btc } })).toBe('identity.preferences_value_invalid');
+  });
+});
+
 describe('saved desk layouts: the owner limits', () => {
   it('a new layout needs the cap set, and stops at it', () => {
     expect(codeOf(() => checkDeskLayoutGrowth(value({ layouts: [layout('a')] }), null, NO_DESK_LAYOUT_LIMITS, NOW))).toBe(
