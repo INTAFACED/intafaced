@@ -38,7 +38,7 @@ export interface TelegramStore {
   /** Stores a code's digest for the person, replacing any code of theirs not yet used. */
   putCode(userId: string, digest: string, expiresAt: Date): Promise<void>;
   /** Uses a code once: a code that is unknown, expired or already used is `invalid`; a chat linked to someone else is `chat_taken`. */
-  redeemCode(digest: string, chatId: string, handle: string | null, now: Date): Promise<RedeemOutcome>;
+  redeemCode(digest: string, chat: { readonly chatId: string; readonly handle: string | null }, now: Date): Promise<RedeemOutcome>;
   linkByChat(chatId: string): Promise<TelegramLink | null>;
   linkByUser(userId: string): Promise<TelegramLink | null>;
   links(): Promise<readonly TelegramLink[]>;
@@ -68,7 +68,7 @@ export class MemoryTelegramStore implements TelegramStore {
     this.codes.set(digest, { userId, expiresAt });
   }
 
-  async redeemCode(digest: string, chatId: string, handle: string | null, now: Date): Promise<RedeemOutcome> {
+  async redeemCode(digest: string, { chatId, handle }: { chatId: string; handle: string | null }, now: Date): Promise<RedeemOutcome> {
     const code = this.codes.get(digest);
     if (!code || code.expiresAt.getTime() <= now.getTime()) return { ok: false, reason: 'invalid' };
     const holder = await this.linkByChat(chatId);
@@ -172,7 +172,7 @@ export class PostgresTelegramStore implements TelegramStore {
       ON CONFLICT (user_id) DO UPDATE SET digest = EXCLUDED.digest, expires_at = EXCLUDED.expires_at, created_at = now()`;
   }
 
-  async redeemCode(digest: string, chatId: string, handle: string | null, now: Date): Promise<RedeemOutcome> {
+  async redeemCode(digest: string, { chatId, handle }: { chatId: string; handle: string | null }, now: Date): Promise<RedeemOutcome> {
     const out: RedeemOutcome = await this.sql
       .begin(async (tx): Promise<RedeemOutcome> => {
         const [code] = UserRow.array().parse(

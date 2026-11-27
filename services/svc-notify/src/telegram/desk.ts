@@ -226,7 +226,7 @@ export class TelegramDesk {
 
   private async link(chatId: string, code: string | undefined, handle: string | null): Promise<string> {
     if (!code) return 'Send /start followed by the one-time code from Settings, Notifications in the app.';
-    const out = await this.deps.store.redeemCode(digestOf(code), chatId, handle, this.now());
+    const out = await this.deps.store.redeemCode(digestOf(code), { chatId, handle }, this.now());
     if (!out.ok)
       return out.reason === 'chat_taken'
         ? 'This chat is already linked to another account. Unlink it there first.'
@@ -345,12 +345,15 @@ function pnlText(desk: TradeDeskSnapshot): string {
 
 type DeskPosition = TradeDeskSnapshot['accounts'][number]['positions'][number];
 
-/** A decimal string as a bigint scaled by 10^18; the snapshot's decimals are already checked. */
-function scaled(raw: string): bigint {
-  const negative = raw.startsWith('-');
-  const [int = '0', frac = ''] = (negative ? raw.slice(1) : raw).split('.');
-  const v = BigInt(int) * 10n ** 18n + BigInt((frac + '0'.repeat(18)).slice(0, 18));
-  return negative ? -v : v;
+/** The four decimals as whole numbers on one shared count of decimal places, so they compare and multiply exactly. */
+function onOneScale(...values: string[]): bigint[] {
+  const places = Math.max(...values.map((v) => v.split('.')[1]?.length ?? 0));
+  return values.map((v) => {
+    const negative = v.startsWith('-');
+    const [int = '0', frac = ''] = (negative ? v.slice(1) : v).split('.');
+    const whole = BigInt(`${int}${frac.padEnd(places, '0')}`);
+    return negative ? -whole : whole;
+  });
 }
 
 const abs = (v: bigint) => (v < 0n ? -v : v);
@@ -362,15 +365,14 @@ const abs = (v: bigint) => (v < 0n ? -v : v);
 export function nearestLiquidation(positions: readonly DeskPosition[]): DeskPosition | null {
   let best: DeskPosition | null = null;
   for (const p of positions) {
-    if (p.liquidationPrice === null || scaled(p.markPrice) <= 0n) continue;
+    if (p.liquidationPrice === null || compareDecimalStrings(p.markPrice, '0') <= 0) continue;
     if (best === null || best.liquidationPrice === null) {
       best = p;
       continue;
     }
     // |mark - liq| / mark, compared without dividing.
-    const mine = abs(scaled(p.markPrice) - scaled(p.liquidationPrice)) * scaled(best.markPrice);
-    const theirs = abs(scaled(best.markPrice) - scaled(best.liquidationPrice)) * scaled(p.markPrice);
-    if (mine < theirs) best = p;
+    const [m1 = 0n, l1 = 0n, m2 = 0n, l2 = 0n] = onOneScale(p.markPrice, p.liquidationPrice, best.markPrice, best.liquidationPrice);
+    if (abs(m1 - l1) * m2 < abs(m2 - l2) * m1) best = p;
   }
   return best;
 }

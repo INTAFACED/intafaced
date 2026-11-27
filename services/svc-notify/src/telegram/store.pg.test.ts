@@ -43,7 +43,7 @@ if (!client) {
       const code = digest(randomUUID());
       await store.putCode(user, code, new Date(now.getTime() + 600_000));
       const chats = [`c-${randomUUID()}`, `c-${randomUUID()}`];
-      const outs = await Promise.all(chats.map((c) => store.redeemCode(code, c, '@jcd21', now)));
+      const outs = await Promise.all(chats.map((c) => store.redeemCode(code, { chatId: c, handle: '@jcd21' }, now)));
       expect(outs.filter((o) => o.ok)).toHaveLength(1);
       expect(outs.filter((o) => !o.ok)).toEqual([{ ok: false, reason: 'invalid' }]);
       expect((await store.linkByUser(user))?.linkedAt.toISOString()).toBe(now.toISOString());
@@ -56,8 +56,8 @@ if (!client) {
       const second = digest(randomUUID());
       await store.putCode(user, first, new Date(now.getTime() + 600_000));
       await store.putCode(user, second, new Date(now.getTime() + 600_000));
-      expect(await store.redeemCode(first, `c-${randomUUID()}`, null, now)).toEqual({ ok: false, reason: 'invalid' });
-      expect(await store.redeemCode(second, `c-${randomUUID()}`, null, new Date(now.getTime() + 600_000))).toEqual({
+      expect(await store.redeemCode(first, { chatId: `c-${randomUUID()}`, handle: null }, now)).toEqual({ ok: false, reason: 'invalid' });
+      expect(await store.redeemCode(second, { chatId: `c-${randomUUID()}`, handle: null }, new Date(now.getTime() + 600_000))).toEqual({
         ok: false,
         reason: 'invalid',
       });
@@ -69,8 +69,8 @@ if (!client) {
       const [ca, cb] = [digest(randomUUID()), digest(randomUUID())];
       await store.putCode(a, ca, new Date(now.getTime() + 600_000));
       await store.putCode(b, cb, new Date(now.getTime() + 600_000));
-      expect((await store.redeemCode(ca, chat, null, now)).ok).toBe(true);
-      expect(await store.redeemCode(cb, chat, null, now)).toEqual({ ok: false, reason: 'chat_taken' });
+      expect((await store.redeemCode(ca, { chatId: chat, handle: null }, now)).ok).toBe(true);
+      expect(await store.redeemCode(cb, { chatId: chat, handle: null }, now)).toEqual({ ok: false, reason: 'chat_taken' });
     });
 
     it('an alert key is raised once under concurrent sweeps, sent once, and unlinking drops the unsent', async () => {

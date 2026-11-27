@@ -97,6 +97,32 @@ async function say(chat, text) {
   return replies[0];
 }
 
+/** Proving nothing more is sent: the sweeps that would send a repeat run on their own clock, so the wait is real. */
+async function holdTwoSweeps() {
+  // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving no repeat is sent: svc-notify's sweep runs every 15 s on its own clock
+  await new Promise((resolve) => setTimeout(resolve, TWO_SWEEPS));
+}
+
+/**
+ * The TEST chat as the person sees it: every message the TEST bot wrote to it, newest last, on a page of its own (the
+ * chat is Telegram's screen, not the app's), for the step's picture. The text is the bot's outbox, written by svc-notify.
+ */
+async function showChat(context, chat) {
+  const page = await context.newPage();
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const bubbles = chatMessages(chat.id)
+    .map(
+      (t) =>
+        `<li style="white-space:pre-wrap;margin:0 0 12px;padding:10px 14px;background:#1f2a36;border-radius:12px;max-width:760px">${esc(t)}</li>`,
+    )
+    .join('');
+  await page.setContent(
+    `<!doctype html><html lang="en"><body style="margin:0;background:#0e1621;color:#e8eef4;font:15px/1.45 system-ui,sans-serif"><main style="padding:24px"><h1 style="font-size:18px;margin:0 0 4px">TEST chat with ${BOT}</h1><p style="margin:0 0 16px;color:#8fa3b8">@${chat.username} · TEST bot: these are the messages it wrote to this test stack's TEST chat, not sent to Telegram</p><ol style="list-style:none;padding:0;margin:0">${bubbles}</ol></main></body></html>`,
+  );
+  await expect(page.getByRole('heading', { name: `TEST chat with ${BOT}` })).toBeVisible();
+  return page;
+}
+
 /** Waits for the next alert of `kind` to `chatId` past the `seen` already counted; returns its text. */
 async function nextAlert(chatId, kind, seen) {
   await expect.poll(() => alertsTo(chatId, kind).length, { timeout: ALERT_WAIT, intervals: [1_000] }).toBeGreaterThan(seen);
@@ -209,7 +235,7 @@ test(`${J} #1 opens Settings, Notifications, presses Connect Telegram and sends 
 
   // A code valid for 5 minutes, to send to the TEST bot.
   const pressed = Date.now();
-  await card(page).getByRole('button', { name: 'Connect Telegram' }).click();
+  await card(page).getByRole('button', { name: 'Connect Telegram', exact: true }).click();
   const command = card(page).getByTestId('nf-telegram-command');
   await expect(command).toHaveText(/^\/start [0-9a-f]{64}$/);
   await expect(card(page).getByTestId('nf-telegram-code')).toContainText(`Send this message to ${BOT} in Telegram:`);
@@ -232,7 +258,7 @@ test(`${J} #1 opens Settings, Notifications, presses Connect Telegram and sends 
   await expect(card(page)).toHaveAttribute('data-state', 'unlinked');
 
   // A new code, sent once: Telegram shown linked, with the chat's handle.
-  await card(page).getByRole('button', { name: 'Connect Telegram' }).click();
+  await card(page).getByRole('button', { name: 'Connect Telegram', exact: true }).click();
   await expect(command).toHaveText(/^\/start [0-9a-f]{64}$/);
   const second = await command.innerText();
   expect(second).not.toBe(first);
@@ -258,7 +284,10 @@ test(`${J} #1 opens Settings, Notifications, presses Connect Telegram and sends 
   await stepPicture();
 });
 
-test(`${J} #2 a TEST order fills on the venue: one Telegram message with market, side, size, price and fee as the venue reports them, sent once`, async () => {
+test(`${J} #2 a TEST order fills on the venue: one Telegram message with market, side, size, price and fee as the venue reports them, sent once`, async ({
+  context,
+  stepPicture,
+}) => {
   test.setTimeout(240_000);
   const { chat, owner, walletKey, linkedAt } = run.read();
   if (!linkedAt) throw new Error(`${J} #1 linked no chat, so no fill can reach one`);
@@ -295,14 +324,18 @@ test(`${J} #2 a TEST order fills on the venue: one Telegram message with market,
   expect(feeAsset).toBe(fill.feeAsset);
 
   // Sent once: the sweeps that see the same fill again send nothing more.
-  await new Promise((resolve) => setTimeout(resolve, TWO_SWEEPS));
+  await holdTwoSweeps();
   expect(alertsTo(chat.id, 'Fill')).toHaveLength(seen + 1);
   const p = await positionOf(owner);
   expect(p).toMatchObject({ side: 'long', marginMode: 'isolated' });
   expect(p.liquidationPrice.known, 'the venue names the position’s liquidation price').toBe(true);
+  await stepPicture(await showChat(context, chat));
 });
 
-test(`${J} #3 the mark moves until the account's margin use passes 80 percent, then 90 percent (TEST): one warning at each, naming the margin use and the position nearest liquidation, from the venue; neither repeats while the level holds`, async () => {
+test(`${J} #3 the mark moves until the account's margin use passes 80 percent, then 90 percent (TEST): one warning at each, naming the margin use and the position nearest liquidation, from the venue; neither repeats while the level holds`, async ({
+  context,
+  stepPicture,
+}) => {
   test.setTimeout(600_000);
   const { chat, owner } = run.read();
   const start = await positionOf(owner);
@@ -344,16 +377,17 @@ test(`${J} #3 the mark moves until the account's margin use passes 80 percent, t
   // The level holds: the mark moves a little more against the long, still under 90%; no second 80% warning.
   await setMark(fromUnits(toUnits(at80) - toUnits('0.05')));
   expect(toUnits(marginUse(await summaryOf(owner))) < toUnits('90')).toBe(true);
-  await new Promise((resolve) => setTimeout(resolve, TWO_SWEEPS));
+  await holdTwoSweeps();
   expect(alertsTo(chat.id, 'Margin use 80%')).toHaveLength(1);
   expect(alertsTo(chat.id, 'Margin use 90%')).toHaveLength(0);
 
   const at90 = await warnsAt(90);
   await setMark(fromUnits(toUnits(at90) - toUnits('0.05')));
-  await new Promise((resolve) => setTimeout(resolve, TWO_SWEEPS));
+  await holdTwoSweeps();
   expect(alertsTo(chat.id, 'Margin use 80%')).toHaveLength(1);
   expect(alertsTo(chat.id, 'Margin use 90%')).toHaveLength(1);
   run.write({ markAt90: at90 });
+  await stepPicture(await showChat(context, chat));
 });
 
 test(`${J} #4 sends /positions and /pnl: the same positions and today's P&L as the desk shows, from the venue with its as-of time; a venue that can't be read is named, never shown as no positions`, async ({
@@ -416,7 +450,7 @@ test(`${J} #4 sends /positions and /pnl: the same positions and today's P&L as t
   );
   expect(open, pnl).not.toBeNull();
   expect(sameDecimal(open[1], await cell('unrealised'))).toBe(true);
-  await stepPicture();
+  await stepPicture(await showChat(page.context(), chat));
 
   // The venue can't be read (the TEST venue's down switch): it is named, and no figures or "no positions" are shown.
   try {
@@ -430,7 +464,10 @@ test(`${J} #4 sends /positions and /pnl: the same positions and today's P&L as t
   expect(await say(chat, '/positions')).toContain(`${PERP} ${p.side}`);
 });
 
-test(`${J} #5 sends /buy, /close and /cancel: "Trading is off in chat. Open INTAFACED to trade."; nothing is sent to the venue`, async () => {
+test(`${J} #5 sends /buy, /close and /cancel: "Trading is off in chat. Open INTAFACED to trade."; nothing is sent to the venue`, async ({
+  context,
+  stepPicture,
+}) => {
   test.setTimeout(120_000);
   const { chat, owner } = run.read();
   const since = new Date(Date.now() - 1000).toISOString();
@@ -444,6 +481,7 @@ test(`${J} #5 sends /buy, /close and /cancel: "Trading is off in chat. Open INTA
   const after = await positionOf(owner);
   expect(sameDecimal(after.size, position.size)).toBe(true);
   expect(after.side).toBe(position.side);
+  await stepPicture(await showChat(context, chat));
 });
 
 test(`${J} #6 presses Unlink in Settings, then sends /positions: Telegram shown unlinked; no further messages; the bot answers that the chat is not linked, with no figures`, async ({
@@ -454,7 +492,7 @@ test(`${J} #6 presses Unlink in Settings, then sends /positions: Telegram shown 
   const { chat, owner, walletKey } = run.read();
   await openSettings(page);
   await expect(card(page)).toHaveAttribute('data-state', 'linked');
-  await card(page).getByRole('button', { name: 'Unlink' }).click();
+  await card(page).getByRole('button', { name: 'Unlink', exact: true }).click();
   await expect(card(page).getByTestId('nf-telegram-note')).toHaveText('Telegram unlinked. Nothing more is sent to that chat.');
   await expect(card(page)).toHaveAttribute('data-state', 'unlinked', { timeout: 15_000 });
   await expect(stateLine(page)).toHaveText('Not linked.');
@@ -486,7 +524,7 @@ test(`${J} #6 presses Unlink in Settings, then sends /positions: Telegram shown 
     },
   });
   expect((await fillsSince(owner, since)).length, 'the venue filled the TEST sell').toBeGreaterThan(0);
-  await new Promise((resolve) => setTimeout(resolve, TWO_SWEEPS));
+  await holdTwoSweeps();
   expect(chatMessages(chat.id)).toHaveLength(count);
   await stepPicture();
 });

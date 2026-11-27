@@ -27,7 +27,7 @@ export function weekStartOf(at: Date): Date {
 }
 
 /** 00:00 UTC of the day holding `at`. */
-export function dayStartOf(at: Date): Date {
+function dayStartOf(at: Date): Date {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
 }
 
