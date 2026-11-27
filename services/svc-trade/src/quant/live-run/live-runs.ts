@@ -40,6 +40,7 @@ import {
   type LiveRunStatePolicy,
   type LiveRunStore,
 } from './store.js';
+import { venuePrice } from '../../venue/venue-price.js';
 
 /**
  * STOP, LIQUIDATE OR RECOVER A LIVE STRATEGY (J-algo-dev-07; AL-live-03, AL-live-04).
@@ -262,12 +263,6 @@ function amountOf(raw: unknown, field: string, unset: LiveRunCode): Amount {
   }
   if (compare(v, ZERO) <= 0) fail('quant.live_request_invalid', `${field} must be more than zero`, 400, { field });
   return v;
-}
-
-function toStep(v: Amount, step: Amount, dir: 'up' | 'down'): Amount {
-  const r = v % step;
-  if (r === ZERO) return v;
-  return dir === 'down' ? v - r : v - r + step;
 }
 
 /** The person this run belongs to, as the door knows them, for what the supervisor does with no request in hand. */
@@ -733,9 +728,10 @@ export class LiveRuns {
     const mid = await this.mid(venue, symbol);
     if (mid === null)
       fail('quant.order_rejected', `${symbol} has no two-sided book just now, so no worst price can be set; nothing was sent`, 422);
+    // On the venue's price rule, toward the mid: the tick and 5 significant figures.
     return side === 'buy'
-      ? toStep(div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'), market.tickSize, 'down')
-      : toStep(div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'), market.tickSize, 'up');
+      ? venuePrice(div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'), market.tickSize, 'down')
+      : venuePrice(div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'), market.tickSize, 'up');
   }
 
   /**

@@ -35,6 +35,7 @@ import type { OwnAgentPolicy } from './own-agent-policy-client.js';
 import type { AccountFreezeRead } from '../quant/live-run/ports.js';
 import { assertNotSelfFrozen, freezePrincipal } from './self-freeze.js';
 import { AGENT_ORDER_PREFIX, UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
+import { venuePrice } from './venue-price.js';
 
 /**
  * A PERSON'S OWN AGENT TRADING ONE OF THEIR VENUE SUB-ACCOUNTS, UNDER AN ALLOWANCE (J-agents-08 #3 to #7; AG-spend-03,
@@ -111,7 +112,6 @@ const PERIOD_MS: Record<AllowancePeriod, number> = { day: 86_400_000, week: 7 * 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 const DECIMAL_RE = /^[0-9]+(\.[0-9]+)?$/;
-const ONE = parseAmount('1');
 const TWO = parseAmount('2');
 const TEN_THOUSAND = parseAmount('10000');
 
@@ -217,14 +217,6 @@ function amountField(value: unknown, field: string, blankCode: OwnAgentTradingCo
   const v = parseAmount(text);
   if (compare(v, ZERO) <= 0) fail('agents.allowance_amount_invalid', `${field} must be above zero`, 422, { field });
   return v;
-}
-
-/** `x` rounded to a whole number of `step`s, down or up. */
-function toStep(x: Amount, step: Amount, way: 'down' | 'up'): Amount {
-  const r = div(x, step, 'floor');
-  const whole = r - (r % ONE);
-  const steps = way === 'up' && compare(mul(whole, step), x) < 0 ? add(whole, ONE) : whole;
-  return mul(steps, step);
 }
 
 export class OwnAgentTrading {
@@ -587,8 +579,8 @@ export class OwnAgentTrading {
     const mid = div(add(bid, ask), TWO, 'half-up');
     const worst =
       side === 'buy'
-        ? toStep(div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'), market.tickSize, 'down')
-        : toStep(div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'), market.tickSize, 'up');
+        ? venuePrice(div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'), market.tickSize, 'down')
+        : venuePrice(div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'), market.tickSize, 'up');
     return { market, side, type, size, price: worst };
   }
 

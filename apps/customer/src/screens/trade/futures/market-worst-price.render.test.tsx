@@ -210,8 +210,8 @@ describe('the futures ticket never sends a worst price left over from a limit or
     render();
     await press(button(typesGroup(), 'Market'));
     await press(button(ticket(), 'Short'));
-    // 89990 × (1 − 0.005) = 89540.05, down to the 1 tick: the bound on a market sell.
-    expect(field('Worst price (slippage limit)').value).toBe('89540');
+    // 89990 × (1 − 0.005) = 89540.05, up toward the market on the venue's price rule: the bound on a market sell.
+    expect(field('Worst price (slippage limit)').value).toBe('89541');
     type(field('Size (BTC)'), '0.001');
     type(field('Worst price (slippage limit)'), '95000');
     await press(button(ticket(), 'Review short'));

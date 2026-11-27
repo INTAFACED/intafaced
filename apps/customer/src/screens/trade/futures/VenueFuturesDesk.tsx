@@ -1,3 +1,4 @@
+import { onVenuePriceRule } from '@intafaced/contracts/venue-price';
 import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
@@ -1711,13 +1712,14 @@ export function closeMarketPrice(
   return bound ?? closeWorstPrice(position, tick);
 }
 
-/** A close's worst price: CLOSE_SLIPPAGE_PERCENT from the mark, on the tick, against the position. */
+/**
+ * A close's worst price: CLOSE_SLIPPAGE_PERCENT from the mark, against the position, on the venue's price rule rounded
+ * toward the mark (a long's sell up, a short's buy down; `onVenuePriceRule`).
+ */
 export function closeWorstPrice(position: VenuePosition, tick: string): string {
   const mark = parseAmount(position.markPrice);
-  const step = parseAmount(tick);
   const raw = position.side === 'long' ? (mark * (100n - CLOSE_SLIPPAGE_PERCENT)) / 100n : (mark * (100n + CLOSE_SLIPPAGE_PERCENT)) / 100n;
-  const onTick = step > 0n ? (position.side === 'long' ? (raw / step) * step : ((raw + step - 1n) / step) * step) : raw;
-  return formatAmount(onTick);
+  return onVenuePriceRule(formatAmount(raw), tick, position.side === 'long' ? 'up' : 'down');
 }
 
 function Blotter({

@@ -135,7 +135,7 @@ describe('venue client', () => {
     expect(closeWorstPrice({ ...position, side: 'short' }, '1')).toBe('63000');
   });
 
-  it('a close’s worst price is one the venue takes: 5 significant figures, toward the mark (#11018)', () => {
+  it('a close’s worst price is one the venue takes: 5 significant figures, toward the mark', () => {
     const position = {
       symbol: 'BTC-PERP',
       side: 'long' as const,
@@ -168,10 +168,10 @@ describe('venue client', () => {
     };
     const best = { symbol: 'BTC-PERP', bid: '60000', ask: '60010' };
     const cap = { value: best, slippageCapBps: { known: true as const, value: '50' } };
-    // A long closes with a sell against the best bid: at least 60000 less 50 bps, down to the tick.
+    // A long closes with a sell against the best bid: at least 60000 less 50 bps, up toward the market.
     expect(closeMarketPrice(position, '1', cap)).toBe('59700');
-    // A short closes with a buy against the best ask: at most 60010 plus 50 bps, up to the tick.
-    expect(closeMarketPrice({ ...position, side: 'short' }, '1', cap)).toBe('60311');
+    // A short closes with a buy against the best ask: at most 60010 plus 50 bps (60310.05), down toward the market.
+    expect(closeMarketPrice({ ...position, side: 'short' }, '1', cap)).toBe('60310');
     // No cap, no best price on that side, or no read: the mark-based price goes, and svc-trade refuses it by name.
     expect(closeMarketPrice(position, '1', { value: best, slippageCapBps: { known: false } })).toBe('57000');
     expect(closeMarketPrice(position, '1', { ...cap, value: { ...best, bid: null } })).toBe('57000');

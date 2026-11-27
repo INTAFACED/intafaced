@@ -15,6 +15,7 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
+import { venuePrice } from './venue-price.js';
 import {
   assertTradingLevel,
   type PreparedAnswer,
@@ -163,19 +164,13 @@ function positive(v: unknown, field: string): Amount {
   return amount;
 }
 
-const onTick = (price: Amount, tick: Amount, up: boolean): Amount => {
-  if (tick === ZERO) return price;
-  const down = price - (price % tick);
-  return up && down !== price ? add(down, tick) : down;
-};
-
-/** A sell's worst price below its trigger, a buy's above, on the market's tick. */
+/** A sell's worst price below its trigger, a buy's above, on the venue's price rule rounded toward it. */
 function worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
   const raw =
     side === 'sell'
       ? div(mul(from, parseAmount(String(100n - EXIT_SLIPPAGE_PERCENT))), parseAmount('100'), 'floor')
       : div(mul(from, parseAmount(String(100n + EXIT_SLIPPAGE_PERCENT))), parseAmount('100'), 'ceil');
-  return onTick(raw, tick, side === 'buy');
+  return venuePrice(raw, tick, side === 'buy' ? 'down' : 'up');
 }
 
 const sourceWords = (s: ProtectionSource) => (s === 'mark' ? 'mark price' : s === 'last' ? 'last traded price' : 'index price');

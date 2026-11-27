@@ -112,12 +112,14 @@ describe('the ticket asks the venue as the order is typed', () => {
 
 describe('the slippage limit, from the venue’s own best prices', () => {
   const best = { symbol: 'BTC-USDC', bid: '59999.9', ask: '60000.1' };
-  it('a buy pays at most the ask plus the bound, rounded up to the tick; a sell at least the bid less it, rounded down', () => {
-    expect(slippageLimit('buy', best, '100', '0.1')).toBe('60600.2'); // 60600.101 → up to the tick
-    expect(slippageLimit('sell', best, '100', '0.1')).toBe('59399.9'); // 59399.901 → down to the tick
-    expect(slippageLimit('buy', best, '50', '0.1')).toBe('60300.2');
+  it('a buy pays at most the ask plus the bound, a sell at least the bid less it, each rounded toward the market', () => {
+    // 6 significant figures (60600.2) is a price the venue refuses: 5 at most, a buy's cap down, a sell's up.
+    expect(slippageLimit('buy', best, '100', '0.1')).toBe('60600'); // 60600.101
+    expect(slippageLimit('sell', best, '100', '0.1')).toBe('59400'); // 59399.901
+    expect(slippageLimit('buy', best, '50', '0.1')).toBe('60300'); // 60300.1005
+    expect(slippageLimit('buy', { ...best, ask: '1.23456' }, '100', '0.0001')).toBe('1.2469'); // 1.2469056 down
   });
-  it('the limit is a price the venue takes: at most 5 significant figures, rounded toward the market (#11018)', () => {
+  it('the limit is a price the venue takes: at most 5 significant figures, rounded toward the market', () => {
     // BTC-PERP, tick 0.1: 62432 × 1.005 = 62744.16, which the venue refuses at 6 figures; a buy's cap rounds down.
     const btc = { symbol: 'BTC-PERP', bid: '62423', ask: '62432' };
     expect(slippageLimit('buy', btc, '50', '0.1')).toBe('62744');
