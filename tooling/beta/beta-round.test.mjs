@@ -603,6 +603,17 @@ test('a move to a main that changes the supervisor is launched by the new copy, 
   assert.equal(ok.state, 'up');
   assert.equal(ok.sha, NEW);
   assert.equal(JSON.parse(fs.readFileSync(paths2.served, 'utf8')).good, NEW);
+  // Main moved on before the new copy's round, and no move is due: a failed relaunch of the handed-over commit never
+  // refuses the newer main, which nobody tried.
+  const paths3 = home();
+  invite(paths3);
+  fs.writeFileSync(paths3.status, JSON.stringify({ state: 'updating', sha: OLD, target: NEW, updatedAt: '2026-11-23T08:59:00Z' }));
+  fs.writeFileSync(paths3.served, JSON.stringify({ good: OLD, refused: null, handover: NEW }));
+  const moved = fakes(paths3, { head: NEW, target: THIRD, checkFor: (sha) => (sha === NEW ? bad : PASS) });
+  const stays = await round(paths3, { ...moved.io, newer: () => false });
+  assert.notEqual(stays.refused?.sha, THIRD, 'the newer main is not refused');
+  assert.equal(stays.sha, NEW, 'the plain relaunch of the handed-over commit ran, no move');
+  assert.ok(!steps(moved.seen).includes('checkout'), 'the checkout never moved, so this is not the update path');
 });
 
 test('a moved commit that fails its check goes back to the last good commit, which it refuses until main moves past it', async () => {
