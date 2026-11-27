@@ -199,7 +199,7 @@ export interface RulesContext {
  * only a broken rule changes it. Opened past the daily loss limit: 0. Its stop widened past the first and the price
  * reaching that first stop: minus 1R less its fees. Anything else: what it made.
  */
-export function keepingRules(args: {
+function keepingRules(args: {
   readonly long: boolean;
   readonly entry: Amount;
   readonly size: Amount;
