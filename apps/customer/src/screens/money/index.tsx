@@ -21,8 +21,8 @@ export default function MoneyScreen({ path, search, params }: ScreenProps) {
 
 /**
  * `/money/balance/:asset`, what makes one figure. With the user-venue door on and a source named in the link (every
- * Assets row names one), the records of the place that holds it (J-portfolio-01 #6); otherwise, our ledger's entries
- * for the coin (the custodial branch, and the asset list's history link for a retired coin, J-wallet-01 #5).
+ * Assets row names one, and so does the asset list's history link for a retired coin, J-wallet-01 #5), the records of
+ * the place that holds it (J-portfolio-01 #6); otherwise, our ledger's entries for the coin (the custodial branch).
  */
 function Entries({ rawAsset, search }: { rawAsset: string; search: string }) {
   const venue = useVenueMode();
