@@ -52,6 +52,12 @@ describe('onVenuePriceRule', () => {
     }
   });
 
+  it('a zero tick (the market not read) sets no tick rule: only 5 significant figures, and the price still goes', () => {
+    expect(onVenuePriceRule('59302.8', '0', 'up')).toBe('59303');
+    expect(onVenuePriceRule('0.0123456789', '0', 'down')).toBe('0.012345');
+    expect(venueBound('sell', { moved: '54000.63', reference: '60000.7', tick: '0' })).toBe('54001');
+  });
+
   it('refuses what is not a decimal, or a tick that is not a power of ten', () => {
     expect(() => onVenuePriceRule('1e5', '0.1', 'up')).toThrow(RangeError);
     expect(() => onVenuePriceRule('100', '0.5', 'up')).toThrow(RangeError);

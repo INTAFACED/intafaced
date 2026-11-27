@@ -27,9 +27,14 @@ function format(digits: bigint, places: number): string {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-/** The decimal places a tick allows: `0.1` → 1, `1` → 0. A tick that is not a power of ten at most 1 is refused. */
+/**
+ * The decimal places a tick allows: `0.1` → 1, `1` → 0. A zero tick (the market not read) sets no tick rule, so only the
+ * significant figures bound the price and the order still goes. Any other tick that is not a power of ten at most 1 is
+ * refused.
+ */
 function tickPlaces(tick: string): number {
   const { digits, places } = parse(tick, 'tick');
+  if (digits === 0n) return Number.POSITIVE_INFINITY;
   const tickDp = places - (digits.toString().length - 1);
   if (digits <= 0n || !/^10*$/.test(digits.toString()) || tickDp < 0)
     throw new RangeError(`tick must be a power of ten no larger than 1, got ${tick}`);

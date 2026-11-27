@@ -137,6 +137,8 @@ describe('venue client', () => {
     // 60000.7 × 0.9 = 54000.63 → 54001 (a long's sell up); × 1.1 = 66000.77 → 66000 (a short's buy down).
     expect(closeWorstPrice({ ...position, markPrice: '60000.7' }, '1', 1000)).toBe('54001');
     expect(closeWorstPrice({ ...position, side: 'short', markPrice: '60000.7' }, '1', 1000)).toBe('66000');
+    // Close all sends with tick '0' when it can't find the position's market: the close still goes, on 5 figures.
+    expect(closeWorstPrice({ ...position, markPrice: '60000.7' }, '0', 1000)).toBe('54001');
   });
 
   it('a close’s worst price is one the venue takes: 5 significant figures, toward the mark', () => {
