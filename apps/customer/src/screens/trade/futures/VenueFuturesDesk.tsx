@@ -82,6 +82,10 @@ import { VenueCalculator } from './VenueCalculator';
 import { NotOfferedChips } from '../desk/VenueOrderOptions';
 import { ticketSummary } from './ticket-summary';
 import { RiskStrip } from './RiskStrip';
+import { ExitLines } from './ExitLines';
+import { feeBasis, netAt } from './exit-figures';
+import { useBreakeven } from './use-breakeven';
+import { exitLinesCopy } from './exit-lines-copy';
 import { positionLines, sizeFromRisk, type PositionLine } from './risk-strip';
 import type { ChartOrderLine } from '../chart/PriceChart';
 import { VenueSplitReview, type SplitReviewData } from './VenueSplitReview';
@@ -232,6 +236,20 @@ function Contracts({
   const needsSession = session.on && session.signing.live === null;
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const ticketRef = useRef<HTMLDivElement>(null);
+  // J-derivatives-32: every stop and target in dollars after the venue's fee and ours, from the venue's own figures.
+  const positionsNow = account.positions.data?.value ?? [];
+  const ordersNow = account.openOrders.data?.value ?? [];
+  const fillsNow = account.fills.data?.value ?? [];
+  const basisOf = (p: VenuePosition) =>
+    feeBasis(
+      p,
+      fillsNow,
+      perps.find((m) => m.symbol === p.symbol),
+      status,
+    );
+  const netFor = (p: VenuePosition, price: string) => netAt(p, price, basisOf(p));
+  const breakeven = useBreakeven(owner ?? '', account.reload);
+  const held = positionsNow.find((p) => p.symbol === market.symbol && parseAmount(p.size) > 0n) ?? null;
   // A phone: the ticket is far below the chart, so Long and Short wait at the bottom and bring it into view.
   const toTicket = (s: 'buy' | 'sell') => {
     setSide(s);
@@ -267,11 +285,18 @@ function Contracts({
                 </li>
               </ul>
               <div className="xd-risk-row">
-                <RiskStrip
-                  positions={account.positions.data?.value ?? []}
-                  orders={account.openOrders.data?.value ?? []}
-                  quote={market.quoteAsset}
-                />
+                <RiskStrip positions={positionsNow} orders={ordersNow} quote={market.quoteAsset} netAt={netFor} />
+                {breakeven.note ? (
+                  <p
+                    className={breakeven.note.tone === 'good' ? 'lt-note lt-note-good' : 'lt-note lt-note-bad'}
+                    role="status"
+                    data-testid="breakeven-note"
+                    data-tone={breakeven.note.tone}
+                    data-code={breakeven.note.code ?? undefined}
+                  >
+                    {breakeven.note.text}
+                  </p>
+                ) : null}
                 {owner ? (
                   <FlattenHold
                     positions={account.positions.data?.value ?? []}
@@ -291,16 +316,38 @@ function Contracts({
             market={market}
             test={status.test}
             venueName={status.venue.displayName}
+            collapsibleBookTape
+            chartOrders={
+              owner
+                ? (host) => (
+                    <ExitLines
+                      host={host}
+                      market={market}
+                      owner={owner}
+                      position={held}
+                      openOrders={ordersNow}
+                      basis={held ? basisOf(held) : null}
+                      movesInPlace={status.movesTriggersInPlace === true}
+                      breakeven={(symbol) => void breakeven.run(symbol)}
+                      breakevenBusy={breakeven.busy}
+                      onChanged={account.reload}
+                    />
+                  )
+                : undefined
+            }
             chartLines={positionLines(
               account.positions.data?.value.find((p) => p.symbol === market.symbol),
               account.openOrders.data?.value ?? [],
-            ).map((line) =>
-              chartLineOf(
-                line,
-                t,
-                account.positions.data?.value.find((p) => p.symbol === market.symbol),
-              ),
-            )}
+            )
+              // With a wallet, the stop and target are the draggable lines the venue holds (ExitLines), drawn once.
+              .filter((line) => !owner || (line.kind !== 'stop' && line.kind !== 'target'))
+              .map((line) =>
+                chartLineOf(
+                  line,
+                  t,
+                  account.positions.data?.value.find((p) => p.symbol === market.symbol),
+                ),
+              )}
           />
         }
         ticket={
@@ -341,7 +388,17 @@ function Contracts({
         orders={
           <div className="xd-under">
             <div className="lt-stack">
-              {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+              {owner ? (
+                <Blotter
+                  status={status}
+                  market={market}
+                  owner={owner}
+                  account={account}
+                  run={run}
+                  onBreakeven={(symbol) => void breakeven.run(symbol)}
+                  breakevenBusy={breakeven.busy}
+                />
+              ) : null}
               {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
               {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
             </div>
@@ -1748,12 +1805,17 @@ function Blotter({
   owner,
   account,
   run,
+  onBreakeven,
+  breakevenBusy,
 }: {
   status: VenueUp;
   market: VenueMarket;
   owner: string;
   account: VenueAccount;
   run: RunAction;
+  /** Breakeven on a position's row (J-derivatives-32 #5). */
+  onBreakeven: (symbol: string) => void;
+  breakevenBusy: boolean;
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const s = spotVenueCopy.useCopy().t;
@@ -1803,6 +1865,8 @@ function Blotter({
           ordersPerAction={status.ordersPerAction ?? 1}
           closeSlippageBps={status.closeSlippageBps ?? null}
           onDone={account.reload}
+          onBreakeven={onBreakeven}
+          breakevenBusy={breakevenBusy}
         />
       ) : tab === 'orders' ? (
         <>
@@ -1889,6 +1953,8 @@ function PositionsTable({
   ordersPerAction,
   closeSlippageBps,
   onDone,
+  onBreakeven,
+  breakevenBusy,
 }: {
   positions: AsOf<VenuePosition[]> | null;
   market: VenueMarket;
@@ -1901,10 +1967,13 @@ function PositionsTable({
   /** The owner's close tolerance (status `closeSlippageBps`): null is blank, and svc-trade refuses every close. */
   closeSlippageBps: number | null;
   onDone: () => void;
+  onBreakeven: (symbol: string) => void;
+  breakevenBusy: boolean;
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const p = venueProtectCopy.useCopy().t;
+  const x = exitLinesCopy.useCopy().t;
   const rows = positions?.value ?? [];
   // The open dialog, with the position as it was when it was opened: it stays open when the position closes.
   const [open, setOpen] = useState<{ kind: 'protect' | 'reverse'; position: VenuePosition } | null>(null);
@@ -1966,7 +2035,15 @@ function PositionsTable({
                       run={run}
                       closeSlippageBps={closeSlippageBps}
                       onDone={onDone}
-                    />
+                    />{' '}
+                    <Button
+                      tone="secondary"
+                      disabled={breakevenBusy}
+                      aria-label={x('Breakeven on row', { symbol: row.symbol })}
+                      onClick={() => onBreakeven(row.symbol)}
+                    >
+                      {x('Breakeven')}
+                    </Button>{' '}
                     {row.symbol === market.symbol ? (
                       <>
                         <Button tone="secondary" onClick={() => setOpen({ kind: 'protect', position: row })}>

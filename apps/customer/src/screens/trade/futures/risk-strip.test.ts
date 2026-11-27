@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { VenueOrder, VenuePosition } from '../../../features/trade/venue-api';
+import { dec, str, sub, times } from '../../../data/decimal';
 import { positionLines, riskOf, sizeFromRisk } from './risk-strip';
 
 const position = (over: Partial<VenuePosition>): VenuePosition =>
@@ -23,10 +24,17 @@ const trigger = (over: Partial<VenueOrder> & { at: string; role: string }): Venu
     ...over,
   }) as VenueOrder;
 
-describe('riskOf', () => {
-  it('prices a long at its stop and its target, exactly', () => {
-    const r = riskOf([position({})], [trigger({ at: '95000', role: 'stop_loss' }), trigger({ at: '98500', role: 'take_profit' })]);
-    expect(r).toMatchObject({ open: '500', ifStops: '-500', ifTargets: '1250', noStop: 0, noTarget: 0, count: 1 });
+// What closing at a price nets, here before fees (the arithmetic of the totals), and one that knows no fees at all.
+const gross = (p: VenuePosition, price: string) => {
+  const move = times(sub(dec(price)!, dec(p.entryPrice)!), dec(p.size)!);
+  return str(p.side === 'long' ? move : -move);
+};
+const unknown = () => null;
+
+describe('riskOf (J-derivatives-32 #1)', () => {
+  it('totals a long at its stop and its target, with each figure from the net it is given', () => {
+    const r = riskOf([position({})], [trigger({ at: '95000', role: 'stop_loss' }), trigger({ at: '98500', role: 'take_profit' })], gross);
+    expect(r).toMatchObject({ open: '500', ifStops: '-500', ifTargets: '1250', noStop: [], noTarget: [], feesUnknown: false, count: 1 });
   });
   it('signs a short the other way, and only counts triggers on the side that closes it', () => {
     const short = position({ side: 'short', entryPrice: '3400', size: '2', unrealisedPnl: '-20' });
@@ -36,14 +44,21 @@ describe('riskOf', () => {
         trigger({ symbol: 'BTC-PERP', side: 'buy', at: '3500', role: 'stop_loss' }),
         trigger({ side: 'sell', at: '3300', role: 'take_profit' }),
       ],
+      gross,
     );
     expect(r.ifStops).toBe('-200');
-    expect(r.noTarget).toBe(1);
-    expect(r.ifTargets).toBe('-20');
+    expect(r.noTarget).toEqual(['BTC-PERP']);
+    expect(r.ifTargets).toBeNull();
   });
-  it('counts a position with no stop and keeps its open result, never zero', () => {
-    const r = riskOf([position({ unrealisedPnl: '12.5' })], []);
-    expect(r).toMatchObject({ ifStops: '12.5', noStop: 1, noTarget: 1 });
+  it('a position with no stop is named, and there is no stop total in its place, never its open result', () => {
+    const long = position({});
+    const short = position({ symbol: 'ETH-PERP', side: 'short', entryPrice: '3000', size: '1', unrealisedPnl: '12.5' });
+    const r = riskOf([long, short], [trigger({ at: '95000', role: 'stop_loss' }), trigger({ at: '98500', role: 'take_profit' })], gross);
+    expect(r).toMatchObject({ ifStops: null, noStop: ['ETH-PERP'], ifTargets: '1250', noTarget: ['ETH-PERP'] });
+  });
+  it('with a fee not known, no total after fees is shown', () => {
+    const r = riskOf([position({})], [trigger({ at: '95000', role: 'stop_loss' })], unknown);
+    expect(r).toMatchObject({ ifStops: null, feesUnknown: true });
   });
 });
 

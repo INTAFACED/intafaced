@@ -49,6 +49,8 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'No chart from venue': 'No chart: {venue} sends no candles for this market',
   'Order book': 'Order book',
   'Last trades': 'Last trades',
+  'Hide book and trades': 'Hide book and trades',
+  'Show book and trades': 'Show book and trades',
   Side: 'Side',
   Time: 'Time',
   'Price col': 'Price ({quote})',
