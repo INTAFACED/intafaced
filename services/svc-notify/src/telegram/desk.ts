@@ -347,12 +347,15 @@ type DeskPosition = TradeDeskSnapshot['accounts'][number]['positions'][number];
 
 /** The four decimals as whole numbers on one shared count of decimal places, so they compare and multiply exactly. */
 function onOneScale(...values: string[]): bigint[] {
-  const places = Math.max(...values.map((v) => v.split('.')[1]?.length ?? 0));
-  return values.map((v) => {
-    const negative = v.startsWith('-');
-    const [int = '0', frac = ''] = (negative ? v.slice(1) : v).split('.');
-    const whole = BigInt(`${int}${frac.padEnd(places, '0')}`);
-    return negative ? -whole : whole;
+  const parsed = values.map((v) => {
+    const p = parseDecimalString(v);
+    if (!p.ok) throw new Error(`invalid decimal from the venue: ${p.reason}`);
+    return p;
+  });
+  const places = Math.max(...parsed.map((p) => p.frac.length));
+  return parsed.map((p) => {
+    const whole = BigInt(`${p.int}${p.frac}`) * 10n ** BigInt(places - p.frac.length);
+    return p.negative ? -whole : whole;
   });
 }
 

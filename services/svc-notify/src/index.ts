@@ -409,6 +409,10 @@ const watchRules = new WatchRuleService(
   createIdentityWatchlistsClient({ identityUrl: process.env.IDENTITY_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
   async () => (alertMarks.marketIdsBySymbol ? alertMarks.marketIdsBySymbol() : null),
 );
+/** Telegram desk sweeps completed since start, and when the last one finished: a test proves "nothing more is sent" across real passes. */
+let telegramSweepPasses = 0;
+let lastTelegramSweepAt: string | null = null;
+
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
 let lastAlertSweepAt: string | null = null;
@@ -588,6 +592,7 @@ app.get('/ready', async () => ({
     unpublishedCode: ALERT_KIND_UNPUBLISHED,
     sweep: { lastAt: lastAlertSweepAt, ...(lastAlertSweep ?? { markets: 0, fired: 0, held: 0, refused: 0, refusals: {} }) },
   },
+  telegram: { on: telegramDesk.on, sweep: { passes: telegramSweepPasses, lastAt: lastTelegramSweepAt } },
 }));
 
 // The TEST age door (J-charts-desk-21 #1): on a TEST stack, a person's Telegram link code is made older, so a step sees its
@@ -746,6 +751,10 @@ const telegramSweep = setInterval(() => {
   telegramSweepRunning = true;
   void telegramDesk
     .sweep()
+    .then(() => {
+      telegramSweepPasses += 1;
+      lastTelegramSweepAt = new Date().toISOString();
+    })
     .catch((err) => app.log.error({ err }, 'svc-notify telegram desk sweep failed — alerts wait for the next tick'))
     .finally(() => {
       telegramSweepRunning = false;

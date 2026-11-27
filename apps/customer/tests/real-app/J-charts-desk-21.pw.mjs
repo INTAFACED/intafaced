@@ -33,8 +33,8 @@ const FUNDS = '150';
 const SIZE = '10';
 const START_MARK = '100';
 const TRADING_OFF = 'Trading is off in chat. Open INTAFACED to trade.';
-/** Two sweeps and a little: long enough that a repeat, had one been raised, would have been sent. */
-const TWO_SWEEPS = 35_000;
+/** The longest two sweeps may take (15 s apart, plus each pass's own reads), before the hold fails. */
+const TWO_SWEEPS = 60_000;
 /** A few sweeps: an alert is raised on the first sweep after the change, and sent in the same sweep. */
 const ALERT_WAIT = 60_000;
 const runId = process.env.JOURNEY_RUN_ID ?? 'local';
@@ -97,10 +97,20 @@ async function say(chat, text) {
   return replies[0];
 }
 
-/** Proving nothing more is sent: the sweeps that would send a repeat run on their own clock, so the wait is real. */
+/** svc-notify's count of finished Telegram desk sweeps, from its own /ready. */
+async function telegramSweepPasses() {
+  const res = await fetch(`${NOTIFY}/ready`);
+  expect(res.ok, 'svc-notify /ready answers').toBe(true);
+  const body = await res.json();
+  return body.telegram.sweep.passes;
+}
+
+/** Proving nothing more is sent: waits until svc-notify has finished two more sweeps, each of which would send a repeat. */
 async function holdTwoSweeps() {
-  // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving no repeat is sent: svc-notify's sweep runs every 15 s on its own clock
-  await new Promise((resolve) => setTimeout(resolve, TWO_SWEEPS));
+  const start = await telegramSweepPasses();
+  await expect
+    .poll(telegramSweepPasses, { message: 'svc-notify finished two more Telegram sweeps', timeout: TWO_SWEEPS, intervals: [1000] })
+    .toBeGreaterThanOrEqual(start + 2);
 }
 
 /**
@@ -119,7 +129,7 @@ async function showChat(context, chat) {
   await page.setContent(
     `<!doctype html><html lang="en"><body style="margin:0;background:#0e1621;color:#e8eef4;font:15px/1.45 system-ui,sans-serif"><main style="padding:24px"><h1 style="font-size:18px;margin:0 0 4px">TEST chat with ${BOT}</h1><p style="margin:0 0 16px;color:#8fa3b8">@${chat.username} · TEST bot: these are the messages it wrote to this test stack's TEST chat, not sent to Telegram</p><ol style="list-style:none;padding:0;margin:0">${bubbles}</ol></main></body></html>`,
   );
-  await expect(page.getByRole('heading', { name: `TEST chat with ${BOT}` })).toBeVisible();
+  await expect(page.getByRole('heading', { name: `TEST chat with ${BOT}`, exact: true })).toBeVisible();
   return page;
 }
 
