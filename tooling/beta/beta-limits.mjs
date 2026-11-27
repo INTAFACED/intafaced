@@ -37,7 +37,14 @@ const LOG_TAIL_BYTES = 256 * 1024;
 
 const hhmm = (ms) => new Date(ms).toISOString().slice(11, 16);
 
-export function walletProviderLimit() {
+/** The wallet provider's limit; on the labelled TEST provider (beta-host.mjs BETA_WALLET_PROVIDER, #11092) none is spent. */
+export function walletProviderLimit(provider = 'turnkey') {
+  if (provider === 'test')
+    return {
+      name: 'wallet-provider',
+      state: 'ok',
+      line: "wallet provider: new wallets at the TEST provider on this box, so no signature at the owner's provider is spent",
+    };
   return {
     name: 'wallet-provider',
     state: 'unread',
@@ -158,7 +165,7 @@ const readJson = (file) => {
  * test-venue.log). `deps.spotFree(address)` the funder's free TEST USDC (beta-testnet.mjs liveDeps), `deps.seatLimit`
  * BETA_ACCESS_SEATS as set.
  */
-export async function readLimits(paths, { spotFree, seatLimit = process.env.BETA_ACCESS_SEATS, now = Date.now() } = {}) {
+export async function readLimits(paths, { spotFree, seatLimit = process.env.BETA_ACCESS_SEATS, now = Date.now(), walletProvider } = {}) {
   const funder = readJson(paths.testnet)?.funder ?? null;
   let free = null;
   let error = null;
@@ -172,7 +179,7 @@ export async function readLimits(paths, { spotFree, seatLimit = process.env.BETA
   const log = tail(paths.venueLog);
   const seats = /^\d+$/.test(String(seatLimit ?? '').trim()) ? Number(seatLimit) : null;
   return [
-    walletProviderLimit(),
+    walletProviderLimit(walletProvider),
     funderLimit({ funder, free, error }),
     venueLimit({ minutes: log == null ? null : venueMinutes(log), now }),
     seatsLimit({ seen: Object.keys(readJson(paths.invited)?.tokens ?? {}).length, limit: seats || null }),

@@ -26,6 +26,7 @@ import {
   UserVenueDoorError,
   type VenueOrderByKey,
 } from './user-venue-door.js';
+import { agentSignerOf, orderSigner } from './request-signer.js';
 
 /**
  * A POSITION'S PROTECTIONS ON THE PERSON'S OWN VENUE ACCOUNT (J-derivatives-03; D-orders-04, D-orders-05).
@@ -215,19 +216,6 @@ const CLIENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const KINDS: ReadonlySet<string> = new Set(Object.keys(FIELDS));
 const SOURCES: ReadonlySet<string> = new Set(['mark', 'last', 'index']);
 
-/**
- * The agent key a request names to sign its trigger order, lowercased; null when the owner's wallet signs (no signer, or
- * the owner named). Anything else is refused before anything is read.
- */
-function agentSignerOf(raw: unknown): { role: 'agent'; address: string } | null {
-  if (raw === undefined || raw === null) return null;
-  const role: unknown = typeof raw === 'object' && 'role' in raw ? raw.role : undefined;
-  const address: unknown = typeof raw === 'object' && 'address' in raw ? raw.address : undefined;
-  if ((role !== 'owner' && role !== 'agent') || typeof address !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(address))
-    bad("signer must be the owner's wallet or an agent key, with its address");
-  return role === 'agent' ? { role, address: address.toLowerCase() } : null;
-}
-
 function bad(message: string): never {
   throw new ProtectionError('trade.protection_request_invalid', message, 400);
 }
@@ -334,7 +322,7 @@ export class VenueProtections {
     const trailingDistance = FIELDS[kind].includes('trailingDistance') ? positive(req.trailingDistance, 'trailingDistance') : null;
     const attachTo = typeof req.attachTo === 'string' && req.attachTo !== '' ? req.attachTo : null;
     if (attachTo && kind !== 'take_profit' && kind !== 'stop_loss') bad('only a take profit or a stop loss is attached to an entry order');
-    const agentSigner = agentSignerOf(req.signer);
+    const agentSigner = agentSignerOf(req.signer, bad);
 
     const account = await this.deps.door.account(typeof req.owner === 'string' ? req.owner : '');
     const venue = await this.deps.door.venue();
@@ -409,8 +397,11 @@ export class VenueProtections {
         clientOrderKey: `protection:${account.owner}:${kind}:${clientOrderId}`,
         builderFee: null,
       };
-      const signer: { role: 'owner' | 'agent'; address: string } = agentSigner ?? { role: 'owner', address: account.owner };
-      const answer = await this.deps.door.prepare(principal, { owner: account.owner, signer, intent });
+      const answer = await this.deps.door.prepare(principal, {
+        owner: account.owner,
+        signer: orderSigner(agentSigner, account.owner),
+        intent,
+      });
       return { restsOn: 'venue', actionKey: answer.actionKey, prepared: answer.prepared, reused: answer.reused };
     }
 
