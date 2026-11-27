@@ -318,9 +318,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // (local-test-venue.mjs HL_TESTNET_PERP_DEXS); the TEST venue lists none of them, so the seed skips them there.
           // Hyperliquid's test network gets no BTC-USDC: that pair has no bids, one stray ask far below BTC and no print since
           // 10 Nov 2026, so it showed a BTC price ten times below the venue's BTC perpetual. The seed delists it on a kept
-          // database (svc-trade seedTestListings).
+          // database (svc-trade seedTestListings). A replay of the test network (`hl-recorded`) lists what the live run did.
           TRADE_USER_VENUE_TEST_LISTINGS: [
-            ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? [] : ['BTC-USDC']),
+            ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE)?.startsWith('hl-') ? [] : ['BTC-USDC']),
             'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
             'xyz:TSLA-PERP,xyz:NVDA-PERP,xyz:AAPL-PERP,xyz:XYZ100-PERP,xyz:GOLD-PERP,xyz:SILVER-PERP',
           ].join(','),

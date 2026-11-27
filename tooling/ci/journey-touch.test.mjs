@@ -545,7 +545,7 @@ test('planted 1: a shared-setup pull request whose run misses its bounded set fa
   const bad = await seal({ files, runs: [run(1)], reports: { 1: partial } });
   assert.equal(bad.ok, false);
   assert.equal(bad.fullOk, false);
-  assert.match(bad.lines.join('\n'), /no finished Real-app journeys run on this exact head ran J-cex-spot-01\.pw\.mjs/);
+  assert.match(bad.lines.join('\n'), /no finished Real-app journeys run on this exact head ran [^;]*J-cex-spot-01\.pw\.mjs/);
   const good = await seal({ files, runs: [run(1)], reports: { 1: canaryRun } });
   assert.equal(good.ok, true, good.lines.join('\n'));
   assert.doesNotMatch(good.lines.join('\n'), /full run: /);
