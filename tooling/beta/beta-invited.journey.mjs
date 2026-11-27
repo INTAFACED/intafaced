@@ -173,7 +173,8 @@ const paths = {
 let mailbox = null;
 let stopLoop = null;
 if (watch) {
-  mailbox = serveMailbox(paths, 0);
+  // The invited flow as it runs once invites open: on the TEST wallet provider the mailbox refuses a new invitee (#11092).
+  mailbox = serveMailbox(paths, 0, { walletProvider: 'turnkey' });
   await new Promise((r) => mailbox.once('listening', r));
   stopLoop = invitedLoop(paths, { script: path.join(HERE, 'beta-invited.mjs') }); // this branch's pass, before it is on main
 }

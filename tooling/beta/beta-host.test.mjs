@@ -609,7 +609,8 @@ test('recordLimits keeps the four outside limits in status.json and says a new w
   assert.equal(s.state, 'up', "the round's own fields stay");
   assert.equal(s.at, '2026-11-27T09:00:00.000Z');
   assert.deepEqual(s.limits, limits);
-  assert.match(s.limitsLine, /^limits: warn \(funder\); unread \(wallet-provider, venue-weight, login-seats\)$/);
+  // On the TEST wallet provider (BETA_WALLET_PROVIDER, #11092) the provider's limit is ok: no outside signature is spent.
+  assert.match(s.limitsLine, /^limits: warn \(funder\); unread \(venue-weight, login-seats\); ok \(wallet-provider\)$/);
   await recordLimits(paths, deps);
   const warned = fs
     .readFileSync(paths.log, 'utf8')
