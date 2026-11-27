@@ -640,7 +640,13 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     });
     if (prepared.intent.kind === 'withdraw') this.withdrawalDestinations.set(prepared.nonce, prepared.intent.destination.toLowerCase());
 
-    const sent = await this.post(body);
+    const accounts = [prepared.account.owner, prepared.account.subAccount, built.vaultAddress].filter(
+      (a): a is string => typeof a === 'string' && a !== '',
+    );
+    // The venue weighs an action 1, plus 1 per 40 orders or cancels it carries.
+    const batch = [built.action.orders, built.action.cancels].reduce<number>((n, l) => n + (Array.isArray(l) ? l.length : 0), 0);
+    this.spend(`exchange:${String(built.action.type)}`, 1 + Math.floor(batch / 40));
+    const sent = await this.post(body, accounts);
     if (sent.kind === 'unknown') return { definite: false, reason: sent.reason };
     const asOf = this.clock();
     let line: StatusLine;
@@ -728,10 +734,11 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
 
   private async post(
     body: string,
+    accounts: readonly string[],
   ): Promise<{ kind: 'json'; json: Json } | { kind: 'unknown'; reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' }> {
-    // A signed action may change what any read answers (an order, a builder approval, a new session key): what was kept
-    // is dropped before it is sent, and again once the venue answers, so a read made while it was in flight is not kept.
-    this.forgetReads();
+    // A signed action changes what its own accounts read (an order, a builder approval, a new session key): what was kept
+    // of them is dropped before it is sent, and again once the venue answers, so a read made while it was in flight is not kept.
+    this.forgetReads(accounts);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -769,7 +776,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       }
     } finally {
       clearTimeout(timer);
-      this.forgetReads();
+      this.forgetReads(accounts);
     }
   }
 }

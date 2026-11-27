@@ -46,6 +46,24 @@ export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000 } as co
 const READ_RETRY_MS = 1_000;
 /** A venue answer's text as JSON; `readOnce` has already checked that it parses. */
 const parseJson = (text: string): Json => JSON.parse(text);
+/**
+ * The venue's weight for one request (its rate-limit docs): an info read weighs 2 when light (`LIGHT_READS`) and 20
+ * otherwise, plus 1 per 20 items a list read answers (1 per 60 for candles); an exchange action weighs 1 plus 1 per 40
+ * orders or cancels it carries.
+ */
+const PER_ITEM_READS = new Set(['recentTrades', 'historicalOrders', 'userFills', 'userFillsByTime', 'fundingHistory', 'userFunding']);
+function readWeight(type: string, answer: Json | undefined): number {
+  const base = LIGHT_READS.has(type) ? 2 : 20;
+  const items = Array.isArray(answer) ? answer.length : 0;
+  if (type === 'candleSnapshot') return base + Math.floor(items / 60);
+  return PER_ITEM_READS.has(type) ? base + Math.floor(items / 20) : base;
+}
+/** One minute's spend at the venue: requests and weight by request type, the minute named by its start (UTC). */
+export interface VenueWeightMinute {
+  readonly minute: string;
+  readonly weight: number;
+  readonly byType: Readonly<Record<string, { readonly requests: number; readonly weight: number }>>;
+}
 const freshFor = (type: string) =>
   LIGHT_READS.has(type) ? READ_FRESH_MS.light : SLOW_READS.has(type) ? READ_FRESH_MS.slow : READ_FRESH_MS.heavy;
 /** The venue's documented cap on one `userFillsByTime` answer ("at most 2000 fills per response"). */
@@ -114,10 +132,15 @@ export interface HyperliquidTestnetOptions {
   /**
    * Share reads across callers (the live venue server): every tester's desk is read through this one process, on the
    * machine's one IP, and the venue limits each IP by the weight of its requests a minute. On, an answer is kept for a few
-   * seconds by its weight (`READ_FRESH_MS`), one read is in flight per request, any signed action drops what was kept,
+   * seconds by its weight (`READ_FRESH_MS`), one read is in flight per request, a signed action drops what was kept of its own accounts,
    * and a read the venue answers 429 is tried once more. Off (the default), every read goes to the venue.
    */
   readonly shareReads?: boolean;
+  /**
+   * Told once a minute what this instance spent at the venue the minute before (`VenueWeightMinute`), at its first
+   * request in the next minute: every request that left for the venue, by type, weighed as the venue weighs it.
+   */
+  readonly onWeightMinute?: (spent: VenueWeightMinute) => void;
   /**
    * The HIP-3 perp DEXs whose markets are listed beside the main one: Hyperliquid lists its stock, index and
    * gold perpetuals on DEXs a deployer runs (`xyz`), each read apart (`metaAndAssetCtxs` with `dex`). Named, not every
@@ -214,11 +237,13 @@ export abstract class HyperliquidCore {
   /** The HIP-3 perp DEXs listed beside the main one (`HyperliquidTestnetOptions.perpDexs`). */
   protected readonly perpDexs: readonly string[];
   private readonly warn: (message: string) => void;
-  /** Shared reads (`shareReads`): each answer's text by its request body, and the reads in flight. */
-  private readonly kept = new Map<string, { text: string; atMs: number }>();
-  private readonly reading = new Map<string, Promise<string>>();
-  /** Bumped by every signed action, so a read that began before it is not kept after it. */
-  private readsEpoch = 0;
+  /** Shared reads (`shareReads`): each answer's text by its request body, and the reads in flight, with the account read. */
+  private readonly kept = new Map<string, { text: string; atMs: number; user: string | null }>();
+  private readonly reading = new Map<string, { read: Promise<string>; user: string | null }>();
+  /** Per account, bumped by every signed action for it, so a read of it that began before the action is not kept after. */
+  private readonly readsEpoch = new Map<string, number>();
+  private readonly onWeightMinute: ((spent: VenueWeightMinute) => void) | null;
+  private weightMinute: { startMs: number; byType: Map<string, { requests: number; weight: number }> } | null = null;
   /**
    * Destinations of withdrawals signed and sent through this instance, by
    * nonce. The venue's ledger read does not report one; this is the
@@ -252,6 +277,7 @@ export abstract class HyperliquidCore {
     if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`wallet chain ${String(chainId)} is not a chain id`);
     this.chainId = chainId;
     this.shareReads = options.shareReads === true;
+    this.onWeightMinute = options.onWeightMinute ?? null;
     this.perpDexs = [...new Set(options.perpDexs ?? [])];
     this.warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
     for (const dex of this.perpDexs) {
@@ -265,36 +291,71 @@ export abstract class HyperliquidCore {
   protected async info(body: Record<string, Json>): Promise<Json> {
     if (!this.shareReads) return parseJson(await this.readOnce(body));
     const key = JSON.stringify(body);
+    const user = typeof body.user === 'string' ? body.user.toLowerCase() : null;
     const now = this.clock().getTime();
     const kept = this.kept.get(key);
     if (kept && now - kept.atMs < freshFor(String(body.type))) return parseJson(kept.text);
     let inFlight = this.reading.get(key);
     if (!inFlight) {
-      const epoch = this.readsEpoch;
-      inFlight = this.readOnce(body, true)
+      const epoch = this.epochOf(user);
+      const read: Promise<string> = this.readOnce(body, true)
         .then((text) => {
-          if (epoch === this.readsEpoch) this.keep(key, text);
+          if (epoch === this.epochOf(user)) this.keep(key, text, user);
           return text;
         })
         .finally(() => {
-          if (this.reading.get(key) === inFlight) this.reading.delete(key);
+          if (this.reading.get(key)?.read === read) this.reading.delete(key);
         });
+      inFlight = { read, user };
       this.reading.set(key, inFlight);
     }
-    return parseJson(await inFlight);
+    return parseJson(await inFlight.read);
   }
 
-  /** A signed action may change any account's reads: nothing kept before it is served after it. */
-  protected forgetReads(): void {
-    this.readsEpoch += 1;
-    this.kept.clear();
-    this.reading.clear();
+  /**
+   * A signed action changes what its own accounts read (orders, positions, balances, fees, agents and approvals), not
+   * another person's: only reads of `users` kept before it are dropped, and a read of them begun before it is not kept.
+   * Market reads (books, trades, candles, prices) are kept for their few seconds whoever trades.
+   */
+  protected forgetReads(users: readonly string[]): void {
+    const forget = new Set(users.map((u) => u.toLowerCase()));
+    for (const u of forget) this.readsEpoch.set(u, this.epochOf(u) + 1);
+    for (const [k, v] of this.kept) if (v.user !== null && forget.has(v.user)) this.kept.delete(k);
+    for (const [k, v] of this.reading) if (v.user !== null && forget.has(v.user)) this.reading.delete(k);
   }
 
-  private keep(key: string, text: string): void {
+  private epochOf(user: string | null): number {
+    return user === null ? 0 : (this.readsEpoch.get(user) ?? 0);
+  }
+
+  private keep(key: string, text: string, user: string | null): void {
     const now = this.clock().getTime();
     if (this.kept.size >= 2_000) for (const [k, v] of this.kept) if (now - v.atMs >= READ_FRESH_MS.slow) this.kept.delete(k);
-    this.kept.set(key, { text, atMs: now });
+    this.kept.set(key, { text, atMs: now, user });
+  }
+
+  /** Counts one request that left for the venue, and tells `onWeightMinute` the last minute's spend once a new one starts. */
+  protected spend(type: string, weight: number): void {
+    if (this.onWeightMinute === null) return;
+    const startMs = Math.floor(this.clock().getTime() / 60_000) * 60_000;
+    let current = this.weightMinute;
+    if (current === null || current.startMs !== startMs) {
+      if (current !== null) {
+        const byType: Record<string, { requests: number; weight: number }> = {};
+        let total = 0;
+        for (const [t, v] of [...current.byType].sort(([, a], [, b]) => b.weight - a.weight)) {
+          byType[t] = { ...v };
+          total += v.weight;
+        }
+        this.onWeightMinute({ minute: new Date(current.startMs).toISOString(), weight: total, byType });
+      }
+      current = { startMs, byType: new Map() };
+      this.weightMinute = current;
+    }
+    const row = current.byType.get(type) ?? { requests: 0, weight: 0 };
+    row.requests += 1;
+    row.weight += weight;
+    current.byType.set(type, row);
   }
 
   private async readOnce(body: Record<string, Json>, retry429 = false): Promise<string> {
@@ -308,6 +369,13 @@ export abstract class HyperliquidCore {
         signal: controller.signal,
       });
       const text = await res.text();
+      let answer: Json | undefined;
+      try {
+        answer = parseJson(text);
+      } catch {
+        answer = undefined;
+      }
+      this.spend(String(body.type), readWeight(String(body.type), answer));
       if (res.status === 429 && retry429) {
         clearTimeout(timer);
         const said = Number(res.headers?.get('retry-after') ?? NaN);
@@ -315,7 +383,7 @@ export abstract class HyperliquidCore {
         return await this.readOnce(body, false);
       }
       if (!res.ok) throw refusal(this.venue.id, 'venue_down', `info ${String(body.type)} answered HTTP ${res.status}`);
-      JSON.parse(text);
+      if (answer === undefined) throw new Error('the answer is not JSON');
       return text;
     } catch (error) {
       if (error instanceof VenueRefusalError) throw error;
