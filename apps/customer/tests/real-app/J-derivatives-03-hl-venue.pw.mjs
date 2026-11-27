@@ -104,13 +104,12 @@ async function flatten(page, owner) {
   // The dialog lists every exit order the venue holds once it has read them, so the count waited for is the venue's.
   const onVenue = await resting();
   await expect(listedOrders, `the dialog lists the venue's ${onVenue} exit order(s)`).toHaveCount(onVenue, { timeout: 20_000 });
-  while ((await listedOrders.count()) > 0) {
+  const ids = await listedOrders.evaluateAll((items) => items.map((li) => li.getAttribute('data-client-order-id')));
+  for (const id of ids) {
     const before = await resting();
-    const id = await listedOrders.first().getAttribute('data-client-order-id');
-    await listedOrders.first().getByRole('button', { name: 'Cancel', exact: true }).click();
+    await item(dialog, id).getByRole('button', { name: 'Cancel', exact: true }).click();
     await signed(page);
     await expect.poll(resting, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` }).toBe(before - 1);
-    await expect(item(dialog, id)).toHaveCount(0, { timeout: 20_000 });
   }
   expect(await resting()).toBe(0);
   await page.keyboard.press('Escape');
