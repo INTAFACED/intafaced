@@ -39,6 +39,10 @@ export const LAUNCH_ORDER = 1;
  * person's own venue account, the launch desk.
  * J-cex-spot-03 left it once its own engine's fill-or-kill and good-till-date checks, which need our own book and a
  * ledger-funded trader, moved to J-cex-spot-03-custodial.pw.mjs (CUSTODIAL_PART).
+ * J-p2p-21 and J-wallet-01 joined it in #11159, the one addition: those three runs passed them only because the world
+ * restore started their stacks custody on again (#11129 ended that), and both fund their person through our ledger
+ * (J-p2p-21's seller, whose sell ad's total svc-p2p checks against a ledger balance; J-wallet-01 #5's retired asset's
+ * history), refused custody off. launch-custody.test.mjs now fails any file that runs custody off and funds that way.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -58,10 +62,12 @@ export const NOT_YET_OFF = new Set([
   'J-home-ia-11',
   'J-identity-01',
   'J-ops-console-02-customer-record',
+  'J-p2p-21',
   'J-portfolio-01',
   'J-portfolio-03',
   'J-support-public-20',
   'J-support-public-20-venue',
+  'J-wallet-01',
 ]);
 
 /** A launch-desk part file of custodial checks (custody on by design): `<journey>-custodial.pw.mjs` keeps today's switch. */

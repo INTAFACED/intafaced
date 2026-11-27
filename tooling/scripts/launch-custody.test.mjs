@@ -62,7 +62,7 @@ test("the real journeys list has a launch desk, and the command prints a shard's
   const ids = readLaunchJourneyIds();
   assert.ok(ids.has('J-cex-spot-01') && ids.has('J-wallet-01') && ids.has('J-identity-01'), [...ids].join(' '));
   const run = (files) => spawnSync('node', ['tooling/scripts/launch-custody.mjs', '--files', files], { cwd: ROOT, encoding: 'utf8' });
-  assert.equal(run('J-cex-spot-01.pw.mjs J-wallet-01.pw.mjs').stdout, 'off\n');
+  assert.equal(run('J-cex-spot-01.pw.mjs J-wallet-09.pw.mjs').stdout, 'off\n');
   assert.equal(run('J-p2p-01.pw.mjs').stdout, 'on\n');
   const mixed = run('J-cex-spot-01.pw.mjs J-p2p-01.pw.mjs');
   assert.equal(mixed.status, 1);
