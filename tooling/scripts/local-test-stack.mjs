@@ -186,6 +186,7 @@ import {
 } from './local-test-state.mjs';
 import { lostAccountFiles, pgDurable, pgServerFlags, retireAccountFiles } from './local-test-db-state.mjs';
 import { BANNER_TEXT, withTestBanner } from '../../apps/customer/deployment/test-banner.mjs';
+import { profileOff, stackProfile } from './local-stack-profile.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -2614,19 +2615,18 @@ async function healthTable({ gateMarket = false } = {}) {
     ]);
   }
   const store = await httpGet(`${urlOf('video-store')}/health`, 2500);
-  rows.push([
-    'video-store',
-    PORTS['video-store'],
-    procs['video-store']?.pid ?? '-',
-    store.status === 200 ? 'ok (TEST)' : `DOWN (${store.status})`,
-  ]);
+  rows.push(
+    siteRow('video-store', PORTS['video-store'], procs['video-store']?.pid, store.status === 200 ? 'ok (TEST)' : `DOWN (${store.status})`),
+  );
   const statements = await httpGet(`${urlOf('rail-statements')}/health`, 2500);
-  rows.push([
-    'rail-statements',
-    PORTS['rail-statements'],
-    procs['rail-statements']?.pid ?? '-',
-    statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
-  ]);
+  rows.push(
+    siteRow(
+      'rail-statements',
+      PORTS['rail-statements'],
+      procs['rail-statements']?.pid,
+      statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
+    ),
+  );
   // The TEST adapters behind a service's outside door: each a row of its own, so the table names every port the stack's
   // marker holds. One this start left off (the user-venue switch, or an `--only` without it) reads "off", which doesn't fail.
   // A venue's record outlives its process (a stop keeps it), so a stopped venue the switch doesn't ask for is off too;
@@ -2634,26 +2634,32 @@ async function healthTable({ gateMarket = false } = {}) {
   const wanted = adaptersWanted();
   for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) rows.push(await adapterHealthRow(name, { procs, wanted }));
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
-  rows.push([
-    'customer',
-    PORTS.customer,
-    procs.customer?.pid ?? '-',
-    cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
-  ]);
+  rows.push(
+    siteRow(
+      'customer',
+      PORTS.customer,
+      procs.customer?.pid,
+      cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
+    ),
+  );
   const invitation = await httpGet(`${INVITATION_ORIGIN}/`, 2500);
-  rows.push([
-    'invitation',
-    PORTS.invitation,
-    procs.invitation?.pid ?? '-',
-    invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
-  ]);
+  rows.push(
+    siteRow(
+      'invitation',
+      PORTS.invitation,
+      procs.invitation?.pid,
+      invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
+    ),
+  );
   const apex = await httpGet(`${APEX_ORIGIN}/`, 2500);
-  rows.push([
-    'apex',
-    PORTS.apex,
-    procs.apex?.pid ?? '-',
-    apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
-  ]);
+  rows.push(
+    siteRow(
+      'apex',
+      PORTS.apex,
+      procs.apex?.pid,
+      apex.status === 200 && apex.text.includes(BANNER_TEXT) ? 'ok (TEST)' : `DOWN (${apex.status})`,
+    ),
+  );
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   const teamCert = path.join(P.tls, 'team-tls.crt');
   const teamTlsOk = fs.existsSync(teamCert) && (await teamTlsAnswers(teamCert, 4000));
@@ -2687,8 +2693,10 @@ export async function serviceHealthRow(
     chain,
     read = () => settledHealth(() => httpGet(`${urlOf(n)}/health`, 2500), { alive: () => ownedAlive(procs[n]) }),
     halt = indexerHalt,
+    off = profileOff,
   },
 ) {
+  if (off(n)) return [`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', PROFILE_OFF];
   const r = await read();
   const halted = r.status === 200 && n === 'indexer' ? await halt() : null;
   const absent = r.status !== 200 ? absentWhy(n, chain) : null;
@@ -2696,11 +2704,17 @@ export async function serviceHealthRow(
   return [`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', state];
 }
 
-/** Which TEST adapters this start asks for: the venues by the user-venue switch, the wallet provider always. */
+/** Which TEST adapters this start asks for: the venues by the user-venue switch, the wallet provider unless the profile leaves it off. */
 export function adaptersWanted(env = process.env) {
   const venues = userVenueOn(env) ? userVenueCount(env.LOCAL_STACK_USER_VENUE) : 0;
-  return { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
+  return { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': !profileOff('test-wallet-provider', env) };
 }
+
+/** A health row's state for a process LOCAL_STACK_PROFILE leaves off; healthAllOk reads it as off, which doesn't fail. */
+export const PROFILE_OFF = 'off (not in this profile)';
+
+/** A site's or TEST stand-in's row: off when the profile leaves it off, else what `state` says. */
+const siteRow = (name, port, pid, state) => [name, port, pid ?? '-', profileOff(name.split(' ')[0]) ? PROFILE_OFF : state];
 
 /**
  * A TEST adapter's health row. One this start never recorded, or a stopped one the switch doesn't ask for (a venue's
@@ -3051,9 +3065,14 @@ async function cmdStart(flags) {
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
   // A first start without the core services leaves a stack the journey helpers refuse (assertActiveLocalStack).
   const only = onlyFlag(flags);
-  const missingCore = DEFAULT_SERVICES.filter((n) => only && !only.includes(n));
-  if (missingCore.length && !DEFAULT_SERVICES.some((n) => ownedAlive(readProcs()[n])))
-    fail(`refusing: the journeys need ${DEFAULT_SERVICES.join(',')} running; add ${missingCore.join(',')} to --only`, 2);
+  // LOCAL_STACK_PROFILE (local-stack-profile.mjs): a process the profile leaves off is never started, whatever --only says.
+  const on = (name) => !profileOff(name);
+  const core = DEFAULT_SERVICES.filter(on);
+  const missingCore = core.filter((n) => only && !only.includes(n));
+  if (missingCore.length && !core.some((n) => ownedAlive(readProcs()[n])))
+    fail(`refusing: the journeys need ${core.join(',')} running; add ${missingCore.join(',')} to --only`, 2);
+  const profile = stackProfile();
+  if (profile) say(`  profile ${profile.name}: ${[...profile.on].join(', ')}; every other service is off`);
   const secrets = loadOrCreateSecrets();
   // Each stack starts with no recorded CSP violations, so `csp-report --fail` speaks only of this run.
   fs.rmSync(P.cspViolations, { force: true });
@@ -3083,12 +3102,12 @@ async function cmdStart(flags) {
   }
   adoptEnvCustomerDist();
   ensureNatsBinary();
-  const admin = adminWantedBy(flags, only, readText(P.adminWanted));
+  const admin = adminWantedBy(flags, only, readText(P.adminWanted)) && on('admin');
   writePrivate(P.adminWanted, `${admin ? 'on' : 'off'}\n`);
   ensureBuilt(flags.includes('--rebuild'), { admin });
   ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
-  const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
+  const wanted = serviceDefs(secrets).filter((d) => (!only || only.includes(d.name)) && on(d.name));
   // Migrate only what is about to start: a service that is already running on the current build was migrated when it
   // started; one on another build is restarted onto this one (stopForNewBuild), so its new migrations run first.
   const backendBuild = currentBuild('backendBuild');
@@ -3134,9 +3153,9 @@ async function cmdStart(flags) {
     fail(err instanceof Error ? err.message : String(err));
   }
   // Academy's env points at the video store, so `--only academy` starts it too.
-  if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
+  if (on('video-store') && (!only || only.includes('video-store') || only.includes('academy'))) await startVideoStore(secrets);
   // Ledger's per-rail outside controls read these statements, so `--only ledger` starts them too.
-  if (!only || only.includes('rail-statements') || only.includes('ledger')) await startRailStatements();
+  if (on('rail-statements') && (!only || only.includes('rail-statements') || only.includes('ledger'))) await startRailStatements();
   // Trade's env points at the TEST venue only while the setting is on, so `--only trade` starts it too.
   if (userVenueOn() && (!only || only.includes('trade'))) {
     await startTestVenue();
@@ -3144,9 +3163,10 @@ async function cmdStart(flags) {
     if (userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2) await startTestVenue('test-venue-b');
   }
   // Protocol's env points at the TEST wallet provider, so `--only protocol` starts it too.
-  if (!only || only.includes('test-wallet-provider') || only.includes('protocol')) await startTestWalletProvider();
+  if (on('test-wallet-provider') && (!only || only.includes('test-wallet-provider') || only.includes('protocol')))
+    await startTestWalletProvider();
   writePrivate(P.s2sMode, `${s2sMode}\n`);
-  await startServices(withRenewed(wanted, serviceDefs(secrets), renewed));
+  await startServices(withRenewed(wanted, serviceDefs(secrets), renewed).filter((d) => on(d.name)));
   if (agentsEmpty || agentsEmptyExtra) emptyAgentsCatalogue(secrets);
   try {
     await ensureLocalTestFounders();
@@ -3156,9 +3176,9 @@ async function cmdStart(flags) {
   }
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
-  if (!only || only.includes('customer')) await startCustomer();
-  if (!only || only.includes('invitation')) await startInvitation();
-  if (!only || only.includes('apex')) await startApex();
+  if (on('customer') && (!only || only.includes('customer'))) await startCustomer();
+  if (on('invitation') && (!only || only.includes('invitation'))) await startInvitation();
+  if (on('apex') && (!only || only.includes('apex'))) await startApex();
   if (!only || HOST_SITES.some((name) => only.includes(name))) await checkLocalTestHosts();
   if (admin && (!only || only.includes('admin'))) await startAdmin(secrets);
   if (admin && (!only || only.includes('admin') || only.includes('team-tls'))) await startTeamTls();

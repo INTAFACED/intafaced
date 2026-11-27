@@ -115,6 +115,7 @@ test('fundsCheck passes a stack whose every route stays on this machine and whos
   });
   assert.equal(r.ok, true, r.lines.join('\n'));
   assert.match(r.lines.join('\n'), /2 of 2 running processes/);
+  assert.match(r.lines.join('\n'), /the 2 running processes: edge, ledger/, 'status names each running process and their count');
 });
 
 test('fundsCheck fails on a route off the machine, naming the process, key and host', () => {

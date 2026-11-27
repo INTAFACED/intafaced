@@ -86,6 +86,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { COMPOSE_RUNTIME, localStackState, assertActiveLocalStack, composeSqlRead, localPgBin } from './local-test-state.mjs';
+import { profileOff } from './local-stack-profile.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
@@ -3573,7 +3574,9 @@ async function main() {
       await seedPayKybRequirements(ctx);
       await publishFuturesTerms(ctx);
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
-      for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
+      // A stack whose profile leaves a service off (LOCAL_STACK_PROFILE, the beta) skips that service's step and says so.
+      if (profileOff('matching')) say('  open      skipped: svc-matching is off in this profile');
+      else for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
       for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status}`);
       for (const r of await publishPairRisk(ctx))
@@ -3588,8 +3591,10 @@ async function main() {
       await sleep(EDGE_AUTHORITY_CACHE_MAX_MS + 100);
       // After verify: svc-p2p refuses an operator without a verified tier, and a fresh stack's founders have none
       // before it (every journeys shard stopped here in run 231).
-      for (const r of await publishP2pMethods(ctx))
-        say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
+      if (profileOff('p2p')) say('  p2p       skipped: svc-p2p is off in this profile');
+      else
+        for (const r of await publishP2pMethods(ctx))
+          say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
       // Last: a svc-pay refusal here stops nothing the trading and transfer journeys need.
       for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
       for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
