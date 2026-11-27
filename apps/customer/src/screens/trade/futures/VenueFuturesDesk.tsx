@@ -95,8 +95,6 @@ import type { RoutePreview } from '../../../features/trade/venue-api';
 /** Resting order types the futures desk names; any the venue does not list is shown with its refusal and sends nothing. */
 const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
 const MODES: readonly VenueMarginMode[] = ['isolated', 'cross'];
-/** How far from the mark a close's worst price sits when it is a limit order (no market type), in percent. */
-const CLOSE_SLIPPAGE_PERCENT = 5n;
 /** A label the person puts on an order: the orders room's own rule (up to 36 letters, digits and . _ : -, no spaces). */
 export const ORDER_LABEL = /^[A-Za-z0-9._:-]{1,36}$/;
 
@@ -269,7 +267,15 @@ function Contracts({
                   orders={account.openOrders.data?.value ?? []}
                   quote={market.quoteAsset}
                 />
-                {owner ? <FlattenHold positions={account.positions.data?.value ?? []} markets={perps} owner={owner} run={run} /> : null}
+                {owner ? (
+                  <FlattenHold
+                    positions={account.positions.data?.value ?? []}
+                    markets={perps}
+                    owner={owner}
+                    run={run}
+                    closeSlippageBps={status.closeSlippageBps ?? null}
+                  />
+                ) : null}
               </div>
             </div>
           </div>
@@ -1696,26 +1702,30 @@ export function totalToCommit(p: VenuePreview): string | null {
 }
 
 /**
- * A market close's worst price: the owner's price protection from the venue's best price on the side the close meets,
- * as svc-trade bounds every market order (`slippageLimit`, the spot desk's own). With the cap blank or no best price on
- * that side, the mark-based price goes and svc-trade refuses it by name (`trade.slippage_cap_unset`,
- * `trade.no_reference_price`); never an unbounded order.
+ * A market close's worst price: the owner's close tolerance (`/venue/status` `closeSlippageBps`, svc-trade's
+ * TRADE_CLOSE_SLIPPAGE_BPS) from the venue's best price on the side the close meets, else from the mark. With the
+ * tolerance blank svc-trade refuses the close by name (`trade.close_slippage_unset`); never a tolerance of our own.
  */
 export function closeMarketPrice(
   position: VenuePosition,
   tick: string,
-  read: { value: VenueBestPrices; slippageCapBps: MaybeKnown<string> } | null,
+  read: { value: VenueBestPrices } | null,
+  closeSlippageBps: number | null,
 ): string {
   const side = position.side === 'long' ? 'sell' : 'buy';
-  const bound = read && read.slippageCapBps.known ? slippageLimit(side, read.value, read.slippageCapBps.value, tick) : null;
-  return bound ?? closeWorstPrice(position, tick);
+  const bound = read && closeSlippageBps !== null ? slippageLimit(side, read.value, String(closeSlippageBps), tick) : null;
+  return bound ?? closeWorstPrice(position, tick, closeSlippageBps);
 }
 
-/** A close's worst price: CLOSE_SLIPPAGE_PERCENT from the mark, on the tick, against the position. */
-export function closeWorstPrice(position: VenuePosition, tick: string): string {
+/**
+ * A close's worst price: the owner's close tolerance from the mark, on the tick, against the position. Blank sends the
+ * mark itself, which svc-trade refuses by name (`trade.close_slippage_unset`) before anything is signed.
+ */
+export function closeWorstPrice(position: VenuePosition, tick: string, closeSlippageBps: number | null): string {
   const mark = parseAmount(position.markPrice);
   const step = parseAmount(tick);
-  const raw = position.side === 'long' ? (mark * (100n - CLOSE_SLIPPAGE_PERCENT)) / 100n : (mark * (100n + CLOSE_SLIPPAGE_PERCENT)) / 100n;
+  const bps = BigInt(closeSlippageBps ?? 0);
+  const raw = position.side === 'long' ? (mark * (10_000n - bps)) / 10_000n : (mark * (10_000n + bps)) / 10_000n;
   const onTick = step > 0n ? (position.side === 'long' ? (raw / step) * step : ((raw + step - 1n) / step) * step) : raw;
   return formatAmount(onTick);
 }
@@ -1779,6 +1789,7 @@ function Blotter({
           test={status.test}
           venueName={status.venue.displayName}
           ordersPerAction={status.ordersPerAction ?? 1}
+          closeSlippageBps={status.closeSlippageBps ?? null}
           onDone={account.reload}
         />
       ) : tab === 'orders' ? (
@@ -1864,6 +1875,7 @@ function PositionsTable({
   test,
   venueName,
   ordersPerAction,
+  closeSlippageBps,
   onDone,
 }: {
   positions: AsOf<VenuePosition[]> | null;
@@ -1874,6 +1886,8 @@ function PositionsTable({
   venueName: string;
   /** The most orders the venue takes in one signed action (status `ordersPerAction`). */
   ordersPerAction: number;
+  /** The owner's close tolerance (status `closeSlippageBps`): null is blank, and svc-trade refuses every close. */
+  closeSlippageBps: number | null;
   onDone: () => void;
 }) {
   const { t } = futuresVenueCopy.useCopy();
@@ -1933,7 +1947,14 @@ function PositionsTable({
                     <Known value={row.liquidationPrice} render={(x) => x} />
                   </td>
                   <td>
-                    <CloseControl position={row} market={market} owner={owner} run={run} onDone={onDone} />
+                    <CloseControl
+                      position={row}
+                      market={market}
+                      owner={owner}
+                      run={run}
+                      closeSlippageBps={closeSlippageBps}
+                      onDone={onDone}
+                    />
                     {row.symbol === market.symbol ? (
                       <>
                         <Button tone="secondary" onClick={() => setOpen({ kind: 'protect', position: row })}>
@@ -1971,7 +1992,7 @@ function PositionsTable({
           owner={owner}
           run={run}
           together={ordersPerAction >= 2}
-          worstPrice={(position) => closeWorstPrice(position, dialogMarket.tickSize)}
+          worstPrice={(position) => closeWorstPrice(position, dialogMarket.tickSize, closeSlippageBps)}
           onDone={onDone}
           onClose={() => setOpen(null)}
         />
@@ -1991,12 +2012,14 @@ function CloseControl({
   market,
   owner,
   run,
+  closeSlippageBps,
   onDone,
 }: {
   position: VenuePosition;
   market: VenueMarket;
   owner: string;
   run: RunAction;
+  closeSlippageBps: number | null;
   onDone: () => void;
 }) {
   const { t } = futuresVenueCopy.useCopy();
@@ -2025,10 +2048,10 @@ function CloseControl({
         price:
           type === 'market'
             ? venue.bestPrices(position.symbol).then(
-                (best) => closeMarketPrice(position, market.tickSize, best.ok ? best.data : null),
-                () => closeMarketPrice(position, market.tickSize, null),
+                (best) => closeMarketPrice(position, market.tickSize, best.ok ? best.data : null, closeSlippageBps),
+                () => closeMarketPrice(position, market.tickSize, null, closeSlippageBps),
               )
-            : Promise.resolve(closeWorstPrice(position, market.tickSize)),
+            : Promise.resolve(closeWorstPrice(position, market.tickSize, closeSlippageBps)),
       };
     const { id, price } = draft.current;
     const amount = p === 100 ? position.size : partOf(position.size, p, market.lotSize);
@@ -2208,11 +2231,14 @@ export function FlattenHold({
   markets,
   owner,
   run,
+  closeSlippageBps,
 }: {
   positions: readonly VenuePosition[];
   markets: readonly VenueMarket[];
   owner: string;
   run: RunAction;
+  /** The owner's close tolerance (status `closeSlippageBps`): null is blank, and svc-trade refuses every close. */
+  closeSlippageBps: number | null;
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
@@ -2237,10 +2263,10 @@ export function FlattenHold({
       const price =
         type === 'market'
           ? await venue.bestPrices(position.symbol).then(
-              (best) => closeMarketPrice(position, market.tickSize, best.ok ? best.data : null),
-              () => closeMarketPrice(position, market.tickSize, null),
+              (best) => closeMarketPrice(position, market.tickSize, best.ok ? best.data : null, closeSlippageBps),
+              () => closeMarketPrice(position, market.tickSize, null, closeSlippageBps),
             )
-          : closeWorstPrice(position, market.tickSize);
+          : closeWorstPrice(position, market.tickSize, closeSlippageBps);
       const answer = await run({
         kind: 'place_order',
         symbol: position.symbol,

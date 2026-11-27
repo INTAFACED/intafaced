@@ -2241,7 +2241,11 @@ export async function startCustomer({ stop = stopForNewBuild, ready = bannerSite
   const url = `${CUSTOMER_ORIGIN}/`;
   if (await ready('customer', procs.customer, url, PORTS.customer)) return;
   if (await portOpen(PORTS.customer)) portTaken(PORTS.customer, 'customer');
-  const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
+  const env = {
+    ...baseEnv(),
+    CUSTOMER_WS_URL: customerWsUpstream(),
+    ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}),
+  };
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
 }
@@ -3500,9 +3504,20 @@ function proxyHeaders(req, { upgrade = false } = {}) {
     if (lk.startsWith('x-intafaced-') || lk.startsWith('x-service-')) continue; // only Edge may mint these
     headers[k] = v;
   }
-  headers['x-forwarded-for'] = req.socket.remoteAddress ?? HOST;
+  headers['x-forwarded-for'] = forwardedFor(req.headers['x-forwarded-for'], req.socket.remoteAddress ?? HOST, publicOrigin() !== null);
   headers['x-forwarded-proto'] = 'http';
   return headers;
+}
+
+/**
+ * The X-Forwarded-For this server sends Edge and svc-ws. A stack opened on a public name (LOCAL_STACK_PUBLIC_ORIGIN, the
+ * hosted beta) sits behind its own front on loopback (tooling/beta/beta-front.mjs), which writes the caller's address:
+ * this server appends its own peer after it, and Edge and svc-ws trust only loopback hops (EDGE_TRUST_PROXY,
+ * WS_TRUST_PROXY), so each caller keeps their own budget (#11027). Any other stack is reached directly: its peer alone.
+ */
+export function forwardedFor(incoming, peer, behindFront) {
+  const prior = (Array.isArray(incoming) ? incoming.join(', ') : String(incoming ?? '')).trim();
+  return behindFront && prior ? `${prior}, ${peer}` : peer;
 }
 
 function serveCustomer(port = PORTS.customer, site = SITES.customer) {

@@ -170,6 +170,7 @@ function Account({ owner, status, t }: { owner: string; status: VenueUp; t: T })
             signing={signing}
             onDone={reload}
             builder={status.builder}
+            closeSlippageBps={status.closeSlippageBps ?? null}
             futuresOff={futuresOff}
             t={t}
           />
@@ -189,6 +190,7 @@ function Reduce({
   signing,
   onDone,
   builder,
+  closeSlippageBps,
   futuresOff,
   t,
 }: {
@@ -201,6 +203,8 @@ function Reduce({
   onDone: () => void;
   /** Our builder fee, which every order on the venue carries; an account that has not approved it signs the approval first. */
   builder: VenueUp['builder'];
+  /** The owner's close tolerance (status `closeSlippageBps`): null is blank, and svc-trade refuses every close. */
+  closeSlippageBps: number | null;
   /** The venue lists no futures contract for this account. */
   futuresOff: boolean;
   t: T;
@@ -264,7 +268,7 @@ function Reduce({
           side: p.side === 'long' ? 'sell' : 'buy',
           type: 'limit',
           amount: p.size,
-          price: closeWorstPrice(p, tickOf(p.symbol)!),
+          price: closeWorstPrice(p, tickOf(p.symbol)!, closeSlippageBps),
           timeInForce: 'IOC',
           reduceOnly: true,
           clientOrderKey: keys.close(owner, p.symbol, row.id),

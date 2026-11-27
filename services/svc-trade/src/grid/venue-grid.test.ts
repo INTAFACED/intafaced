@@ -147,6 +147,7 @@ describe('the spot grid on the venue (J-copy-bots-otc-14)', { timeout: 60_000 },
       listings: new StoreVenueRoutingGate(listings),
       ordersPageMax: 100,
       slippageCapBps: 500,
+      closeSlippageBps: 1000,
       spreadLimitBps: 5000,
       now: () => new Date(),
     } as never);

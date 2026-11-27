@@ -51,7 +51,15 @@ describe('Flatten (desk A)', () => {
   it('sends nothing when let go before 0.65 s', async () => {
     const run = vi.fn();
     act(() =>
-      root.render(<FlattenHold positions={[position('BTC-PERP', 'long', '0.5')]} markets={[market('BTC-PERP')]} owner={OWNER} run={run} />),
+      root.render(
+        <FlattenHold
+          positions={[position('BTC-PERP', 'long', '0.5')]}
+          markets={[market('BTC-PERP')]}
+          owner={OWNER}
+          run={run}
+          closeSlippageBps={1000}
+        />,
+      ),
     );
     press('pointerdown');
     await act(async () => void vi.advanceTimersByTime(600));
@@ -64,7 +72,15 @@ describe('Flatten (desk A)', () => {
     const run = vi.fn().mockResolvedValue({ kind: 'refused', code: 'trade.test', message: 'TEST refused', beforeWallet: true });
     const positions = [position('BTC-PERP', 'long', '0.5'), position('ETH-PERP', 'short', '2')];
     act(() =>
-      root.render(<FlattenHold positions={positions} markets={[market('BTC-PERP'), market('ETH-PERP')]} owner={OWNER} run={run} />),
+      root.render(
+        <FlattenHold
+          positions={positions}
+          markets={[market('BTC-PERP'), market('ETH-PERP')]}
+          owner={OWNER}
+          run={run}
+          closeSlippageBps={1000}
+        />,
+      ),
     );
     press('pointerdown');
     await act(async () => void (await vi.advanceTimersByTimeAsync(650)));
@@ -76,10 +92,12 @@ describe('Flatten (desk A)', () => {
       side: 'sell',
       type: 'market',
       amount: '0.5',
+      // The owner's close tolerance (10% here, status `closeSlippageBps`) from the best price the close meets.
+      price: '54000',
       reduceOnly: true,
       timeInForce: 'IOC',
     });
-    expect(eth).toMatchObject({ symbol: 'ETH-PERP', side: 'buy', amount: '2', reduceOnly: true });
+    expect(eth).toMatchObject({ symbol: 'ETH-PERP', side: 'buy', amount: '2', price: '66001.1', reduceOnly: true });
     expect(btc.clientOrderKey).toMatch(/^close:/);
     expect(btc.clientOrderKey).not.toBe(eth.clientOrderKey);
   });
@@ -87,7 +105,15 @@ describe('Flatten (desk A)', () => {
   it('after a lost answer, a second hold re-sends the same close, never a new one', async () => {
     const run = vi.fn().mockResolvedValue({ kind: 'unknown', clientOrderId: null, nonce: null });
     act(() =>
-      root.render(<FlattenHold positions={[position('BTC-PERP', 'long', '0.5')]} markets={[market('BTC-PERP')]} owner={OWNER} run={run} />),
+      root.render(
+        <FlattenHold
+          positions={[position('BTC-PERP', 'long', '0.5')]}
+          markets={[market('BTC-PERP')]}
+          owner={OWNER}
+          run={run}
+          closeSlippageBps={1000}
+        />,
+      ),
     );
     for (let i = 0; i < 2; i++) {
       press('pointerdown');
@@ -99,7 +125,9 @@ describe('Flatten (desk A)', () => {
   });
 
   it('is not shown with no position open', () => {
-    act(() => root.render(<FlattenHold positions={[]} markets={[market('BTC-PERP')]} owner={OWNER} run={vi.fn()} />));
+    act(() =>
+      root.render(<FlattenHold positions={[]} markets={[market('BTC-PERP')]} owner={OWNER} run={vi.fn()} closeSlippageBps={1000} />),
+    );
     expect(host.querySelector('[data-testid="venue-flatten"]')).toBeNull();
   });
 });

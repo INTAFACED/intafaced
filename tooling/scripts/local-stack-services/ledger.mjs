@@ -1,3 +1,4 @@
+import { startCustodyLayer } from '../local-test-state.mjs';
 import { STATEMENT_RAILS, railStatementEnv } from '../local-test-rail-statements.mjs';
 
 /**
@@ -22,8 +23,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...c('svc-ledger', PORTS.ledger),
     DATABASE_URL: dbUrl('svc_ledger', secrets),
     LEDGER_POSTING_ENABLED: 'true',
-    // The TEST stack runs the custodial layer for the journeys marked Later (OWNER 226 keeps it built, switched off at launch).
-    LEDGER_CUSTODY_LAYER: 'on',
+    // The stack's one custody switch (startCustodyLayer): on for the journeys marked Later (OWNER 226 keeps it built,
+    // switched off at launch); `LOCAL_STACK_CUSTODY_LAYER=off` on a start runs it as launch does (the beta, #11019).
+    LEDGER_CUSTODY_LAYER: startCustodyLayer(),
     // LOCAL TEST bound, not an owner decision: this process's clock may drift this far from the database's before a post
     // refuses, and a joint-restore cut-off must be this far past before the ledger fixes its position as of it.
     LEDGER_CLOCK_SKEW_BOUND_MS: '1000',

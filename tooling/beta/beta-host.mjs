@@ -11,15 +11,19 @@
  *                                             TEST mailbox page; after each round it restarts the public front when the
  *                                             checkout's beta-front.mjs changed (syncFront); it exits after a round that
  *                                             changed this file, asking systemd to start the new copy at once
- *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it when main has moved, launch
- *                                             or update the stack, run the TEST funds check, wait until it is readied,
- *                                             write status.json: `updating` from before the checkout moves until then,
- *                                             so the front shows its updating page, never a half-built app (#10299)
+ *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it when main has moved and a
+ *                                             move is due (moveDue: with invited testers, once a day at BETA_MOVE_AT or
+ *                                             on demand, #11029), launch or update the stack, run the TEST funds check,
+ *                                             wait until it is readied, write status.json: `updating` from before the
+ *                                             checkout moves until then, so the front shows its updating page, never a
+ *                                             half-built app (#10299). A moved commit that fails goes back to the last
+ *                                             good one and is refused until main moves past it
+ *   node tooling/beta/beta-host.mjs move      on demand: the supervisor moves to main within 15 seconds, between slots
  *   node tooling/beta/beta-host.mjs check [--state <dir>]   the TEST funds check alone, on the beta stack (or another
  *                                             stack's state folder); exit 1 on any finding. `--hosted <beta-host>`
  *                                             also passes the exact hosted allow list: the test networks' hosts and the
  *                                             beta's own, nothing else (hostedAllowList)
- *   node tooling/beta/beta-host.mjs status    what the last round found
+ *   node tooling/beta/beta-host.mjs status    which commit the beta serves and why, then what the last round found
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
  *   node tooling/beta/beta-host.mjs invited-test [--checkout <dir>] [--root <dir>] [--watch]
@@ -91,6 +95,10 @@ export function betaPaths(home = os.homedir()) {
     anvil: path.join(root, 'anvil'),
     /** The stack settings the running stack was last launched with (BETA_STACK_SETTINGS); others, or none, restart it once. */
     settings: path.join(root, 'stack-settings'),
+    /** The last commit that came up (`good`) and the moved commit that failed (`refused`), kept across rounds (#11029). */
+    served: path.join(root, 'served.json'),
+    /** Present while a move on demand is asked for (`beta-host.mjs move`); the next round uses it once. */
+    moveNow: path.join(root, 'move-now'),
   };
 }
 
@@ -122,6 +130,10 @@ const BETA_USER_VENUE = 'hl-testnet';
  * `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey` makes each new tester's wallet at the owner's wallet provider, with the
  * owner's keys from the box's sealed vendors.local.json (a start without that file refuses, naming it); a tester who
  * already has a TEST wallet keeps it and signs at the TEST provider, which svc-protocol's status names for that wallet.
+ * `LOCAL_STACK_CUSTODY_LAYER=off` starts svc-ledger, svc-bank, svc-pay, svc-trade and svc-matching with the custody layer
+ * off together, as the launch build runs them (docs/adr/2026-11-10-launch-money-model.md): our own order book is off, the
+ * ledger holds no tester's money, and a tester's money is where launch keeps it, at the TEST partner and in their own
+ * wallet on the venue's test network (#11019). The TEST funds check fails a process that runs it otherwise (BETA_CUSTODY).
  */
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
@@ -129,7 +141,10 @@ const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
   LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey',
+  LOCAL_STACK_CUSTODY_LAYER: 'off',
 });
+/** The custody switch every process of the beta stack runs (BETA_STACK_SETTINGS), as launch does. */
+export const BETA_CUSTODY = BETA_STACK_SETTINGS.LOCAL_STACK_CUSTODY_LAYER;
 const settingsLine = () =>
   Object.entries(BETA_STACK_SETTINGS)
     .map(([k, v]) => `${k}=${v}`)
@@ -166,6 +181,39 @@ function settingsChanged(paths) {
   } catch {
     return true;
   }
+}
+
+/**
+ * Whether the beta's database was last served by an svc-ledger on another custody switch than BETA_CUSTODY: its process
+ * record (run/processes.json; unrecorded reads `on`, local-test-state.mjs custodyLayerOf) names it. Read before the stop.
+ */
+function bookOnOtherCustody(paths, custody = BETA_CUSTODY) {
+  const ledger = readJson(path.join(paths.state, 'run', 'processes.json'), {})?.ledger;
+  if (!ledger || !fs.existsSync(path.join(paths.state, 'data', 'postgres'))) return null;
+  const layer = ledger.custodyLayer ?? 'on';
+  return layer === custody ? null : layer;
+}
+
+/**
+ * Moves the stopped stack's data folder aside, never deleting it, so the stack starts on a fresh database: an svc-ledger
+ * started custody off refuses to boot while a customer account holds a balance (crates/svc-ledger/src/boot.rs,
+ * ledger.custody_layer_open_balances), and the beta's book, run custody on until #11019, holds its testers' TEST grants
+ * and its TEST market's accounts. Launch's ledger starts empty the same way. The state folder keeps everything else (the
+ * screening and vendor files, the secrets); founders.json and operators.json, whose accounts are then gone, are moved
+ * aside by the start and a fresh pair is enrolled (local-test-db-state.mjs). Invited testers sign up again on their
+ * same invite; their TEST money is the partner's and their own testnet wallet's. Returns the round.log line.
+ */
+function moveBookAside(paths, layer, now = new Date()) {
+  const from = path.join(paths.state, 'data');
+  const to = path.join(
+    paths.state,
+    `data-custody-${layer}-${now
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace(/\.\d+Z$/, 'Z')}`,
+  );
+  fs.renameSync(from, to);
+  return `custody: the database was served custody ${layer}, so it is kept at ${to} and the stack starts on a fresh one (custody ${BETA_CUSTODY})`;
 }
 
 /**
@@ -293,10 +341,11 @@ const loopbackListen = (host) => host.startsWith('127.') || host === '::1' || ho
  * The TEST funds check on one stack. `records` are the stack's processes ({ name: { pid } }, run/processes.json);
  * `readEnviron(pid)` gives a process's environ text or null; `readListeners(pid)` its listening sockets
  * (`{ host, port }`) or null; `page` is the Customer page's HTML or null. A listener on any address but loopback is a
- * finding: the home network could reach it (#10244). Returns `{ ok, lines }`, one line per finding or pass, naming
- * keys and hosts, never a value.
+ * finding: the home network could reach it (#10244). With `custody` (`on` or `off`), each process the stack recorded a
+ * custody switch for, svc-ledger always (unrecorded reads `on`, local-test-state.mjs custodyLayerOf), must run that switch
+ * (#11019). Returns `{ ok, lines }`, one line per finding or pass, naming keys and hosts, never a value.
  */
-export function fundsCheck({ records, readEnviron, readListeners = () => null, page, allow = NO_HOSTS }) {
+export function fundsCheck({ records, readEnviron, readListeners = () => null, page, allow = NO_HOSTS, custody = null }) {
   const findings = [];
   const passes = [];
   const named = Object.entries(records ?? {}).filter(([, r]) => Number.isInteger(r?.pid));
@@ -316,6 +365,17 @@ export function fundsCheck({ records, readEnviron, readListeners = () => null, p
     }
   }
   if (named.length && read === 0) findings.push('no running process could be read');
+  if (custody && named.length) {
+    const carriers = named.filter(([name, r]) => name === 'ledger' || r.custodyLayer !== undefined);
+    const unlike = carriers.filter(([, r]) => (r.custodyLayer ?? 'on') !== custody);
+    for (const [name, r] of unlike)
+      findings.push(
+        `${name} (pid ${r.pid}): runs LEDGER_CUSTODY_LAYER ${r.custodyLayer ?? 'unrecorded (on)'}, not ${custody} as launch does`,
+      );
+    if (!carriers.some(([name]) => name === 'ledger')) findings.push('no svc-ledger record: its custody switch could not be read');
+    else if (unlike.length === 0)
+      passes.push(`${carriers.map(([name]) => name).join(', ')}: LEDGER_CUSTODY_LAYER ${custody}, as launch runs it`);
+  }
   const where = allow.size ? 'this machine, a reserved name or the hosted allow list' : 'this machine or a reserved name';
   if (clean) passes.push(`${clean} of ${read} running processes: every address in their environments is ${where}`);
   if (page == null) findings.push('the Customer page did not answer');
@@ -379,15 +439,15 @@ function getText(url) {
   });
 }
 
-async function checkStack(state, link, allow = NO_HOSTS) {
+async function checkStack(state, link, allow = NO_HOSTS, custody = null) {
   const records = readJson(path.join(state, 'run', 'processes.json'), {});
-  return fundsCheck({ records, readEnviron, readListeners, page: await getText(link), allow });
+  return fundsCheck({ records, readEnviron, readListeners, page: await getText(link), allow, custody });
 }
 
 // ── Readied: what a tester sees first ───────────────────────────────────────
 
 /**
- * Is the stack readied for a tester, from the two public reads Home and Markets make (`/api/v1/markets`, `/api/v1/tickers`,
+ * Is the stack readied for a tester (custody on; custody off reads venueReadied), from the two public reads Home and Markets make (`/api/v1/markets`, `/api/v1/tickers`,
  * either text or null)? Right after a restart the stack answered while it listed only the TEST pairs with blank prices and
  * Home showed "Prices can't be loaded" (#10299). Readied: a market that is not a TEST pair has a last price.
  */
@@ -408,7 +468,28 @@ export function readied({ markets, tickers }) {
     : { ok: false, why: `none of ${list.length} markets that are not TEST pairs has a price yet` };
 }
 
-async function readiedNow(link) {
+/**
+ * Readied with custody off (BETA_CUSTODY, #11019): our own order book is off, so every one of its markets reads REFUSED
+ * with no price, as at launch, and the tester trades on the venue. Readied: the venue's own prices
+ * (`/api/v1/venue/tickers`, svc-trade's public read of the venue's book and tape, text or null) give a market a last price.
+ */
+export function venueReadied(text) {
+  let read;
+  try {
+    read = JSON.parse(text ?? '');
+  } catch {
+    return { ok: false, why: "the venue's prices did not answer" };
+  }
+  const rows = read && typeof read.value === 'object' && read.value ? Object.values(read.value) : null;
+  if (!rows) return { ok: false, why: `the venue's prices did not answer (${read?.code ?? read?.intafacedCode ?? 'no value'})` };
+  const priced = rows.filter((t) => Number.isFinite(Number.parseFloat(t?.last)));
+  return priced.length
+    ? { ok: true, why: `${priced.length} of ${rows.length} of the venue's markets (${read.venueId}) have a price` }
+    : { ok: false, why: `none of the venue's ${rows.length} markets has a price yet` };
+}
+
+async function readiedNow(link, custody = BETA_CUSTODY) {
+  if (custody === 'off') return venueReadied(await getText(`${link}api/v1/venue/tickers`));
   const [markets, tickers] = await Promise.all([getText(`${link}api/v1/markets?limit=500`), getText(`${link}api/v1/tickers?limit=500`)]);
   return readied({ markets, tickers });
 }
@@ -457,7 +538,7 @@ export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = nu
         .join('\n')
     : '<tr><td colspan="4">No mail yet. Sign up in the app, then reload this page.</td></tr>';
   const state = status
-    ? `<p>Beta: ${esc(status.state)}${status.sha ? ` on main ${esc(status.sha.slice(0, 9))}` : ''}${status.mainAt && status.sha && status.mainAt !== status.sha ? ` (main is at ${esc(status.mainAt.slice(0, 9))}; the beta moves to it in its next round)` : ''}${status.reason ? `: ${esc(status.reason)}` : ''}</p>`
+    ? `<p>Beta: ${esc(status.state)}${status.sha ? ` on main ${esc(status.sha.slice(0, 9))}` : ''}${status.mainAt && status.sha && status.mainAt !== status.sha ? ` (main is at ${esc(status.mainAt.slice(0, 9))}${status.why ? '' : '; the beta moves to it in its next round'})` : ''}${status.why ? `: ${esc(status.why)}` : ''}${status.reason ? `: ${esc(status.reason)}` : ''}</p>`
     : '';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="10"><title>TEST mailbox</title>
@@ -535,14 +616,61 @@ function run(paths, cmd, args, { cwd, env }) {
 }
 
 /**
- * What a round does, decided from what it found: 'blocked' (no screening file: build nothing), 'update' (main moved:
- * check out, install, launch) or 'launch' (same commit: launch, which restarts only what is down).
+ * The daily slot (UTC, `HH:MM`) at which a beta with testers on it moves to main (#11029): 20:00 UTC, the small hours
+ * where the testers are (04:00 in Bali). `BETA_MOVE_AT` sets another.
  */
-export function decide({ screening, head, target }) {
+export const BETA_MOVE_AT = '20:00';
+
+/** The start of the latest daily slot at or before `now` (ms). */
+export function slotStart(now, at = BETA_MOVE_AT) {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(at));
+  if (!m) throw new Error(`beta: BETA_MOVE_AT must be HH:MM in UTC, not "${at}"`);
+  const d = new Date(now);
+  const slot = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), Number(m[1]), Number(m[2]));
+  return slot > now ? slot - 86_400_000 : slot;
+}
+
+/**
+ * Whether a moved main may reach the beta now, and why (#11029). Each move restarts the stack and reloads every open
+ * tab onto the updating page, so with testers on it (anyone invited, beta-invited.mjs) main moves once a day, at the
+ * first round after the slot, or on demand (`beta-host.mjs move`, for a fix testers need now). With nobody invited it
+ * follows main each round (#10612). `why` reads after "moved to main <sha>" when due, alone when not.
+ */
+export function moveDue({ testers, now, updatedAt, at = BETA_MOVE_AT, asked = false }) {
+  const last = slotStart(now, at);
+  if (asked) return { due: true, why: 'on demand (beta-host.mjs move)' };
+  if (!testers) return { due: true, why: 'with each merge: nobody is invited yet' };
+  const moved = Date.parse(updatedAt ?? '');
+  if (!Number.isFinite(moved) || moved < last) return { due: true, why: `at the daily slot, ${at} UTC` };
+  const who = `${testers} invited tester${testers === 1 ? '' : 's'}`;
+  return { due: false, why: `${who}: main waits for the daily slot at ${at} UTC (beta-host.mjs move moves it now)` };
+}
+
+/**
+ * What a round does, decided from what it found: 'blocked' (no screening file: build nothing), 'update' (main moved, a
+ * move is due and main is not the refused commit: check out, install, launch) or 'launch' (launch the commit it has,
+ * which restarts only what is down).
+ */
+export function decide({ screening, head, target, due = true, refused = null }) {
   if (!screening) return 'blocked';
-  // Every round moves to a moved main, so each merge is on the beta within one round (owner's guide, 25 Nov: the beta
-  // picks up each merge the same hour; it replaced the 2-hour bound and its beta-issue bypass, #10612).
-  return head === target ? 'launch' : 'update';
+  if (head === target || !due || target === refused) return 'launch';
+  return 'update';
+}
+
+/** One line for `beta-host.mjs status`: the state, the commit served, main's commit when it differs, and why. */
+export function statusLine(s) {
+  const short = (sha) => String(sha ?? '').slice(0, 9);
+  const parts = [`${s.state}: serves ${s.sha ? short(s.sha) : 'no commit yet'}`];
+  if (s.mainAt && s.mainAt !== s.sha) parts.push(`main is at ${short(s.mainAt)}`);
+  if (s.reason) parts.push(s.reason);
+  if (s.why) parts.push(s.why);
+  return parts.join('; ');
+}
+
+/** Ask for a move on demand: the supervisor's next round (within 15 seconds) moves to main between slots. */
+export function askMove(paths, now = new Date()) {
+  fs.mkdirSync(paths.root, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(paths.moveNow, `${now.toISOString()}\n`);
 }
 
 /**
@@ -588,7 +716,7 @@ function ensureCheckout(paths) {
 const roundIo = {
   git,
   run,
-  check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS),
+  check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS, BETA_CUSTODY),
   readied: readiedNow,
   anvil: ensureAnvil,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -606,7 +734,19 @@ export async function round(paths = betaPaths(), io = {}) {
   const head = git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
   const prev = readJson(paths.status, {});
   const screening = fs.existsSync(paths.screening);
-  const step = decide({ screening, head, target });
+  // The last commit that came up, and the moved commit that failed: refused only until main moves past it (#11029).
+  const served = readJson(paths.served, {}) ?? {};
+  let good = served.good ?? (prev.state === 'up' ? prev.sha : null) ?? null;
+  let refused = served.refused?.sha === target ? served.refused : null;
+  const asked = fs.existsSync(paths.moveNow);
+  const slot = moveDue({
+    testers: readInvited(paths.invited).size,
+    now: now(),
+    updatedAt: prev.updatedAt,
+    at: process.env.BETA_MOVE_AT ?? BETA_MOVE_AT,
+    asked,
+  });
+  const step = decide({ screening, head, target, due: slot.due, refused: refused?.sha });
   log(paths, `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)})`);
   if (step === 'blocked')
     return finish(paths, {
@@ -614,90 +754,127 @@ export async function round(paths = betaPaths(), io = {}) {
       reason: `no TEST screening file at ${paths.screening}: Edge would refuse every call, so nothing is built (docs/runbooks/beta-link.md)`,
       sha: head,
     });
+  if (asked) fs.rmSync(paths.moveNow, { force: true });
+  let why =
+    step === 'update'
+      ? `moved to main ${target.slice(0, 9)} ${slot.why}`
+      : head === target
+        ? `main ${target.slice(0, 9)} is the newest main`
+        : refused
+          ? `main ${target.slice(0, 9)} is refused (${refused.reason}); the beta stays on ${head.slice(0, 9)} until main moves past it`
+          : slot.why;
+  const record = () => fs.writeFileSync(paths.served, `${JSON.stringify({ good, refused }, null, 2)}\n`);
+  const end = (status) => {
+    if (status.state === 'up') good = status.sha;
+    record();
+    return finish(paths, { ...status, why, ...(refused ? { refused } : {}) });
+  };
   const chain = anvil(paths);
   log(paths, chain.line);
   const settingsNew = settingsChanged(paths);
+  const otherCustody = bookOnOtherCustody(paths);
   const env = stackEnv(paths);
-  // The commit the stack serves after this round, and when the checkout last moved: the next update waits on it.
-  const sha = step === 'update' ? target : head;
-  const updatedAt = step === 'update' ? new Date(now()).toISOString() : prev.updatedAt;
   const mainAt = target;
   // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
   // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
   // readied restarts nothing (same commit), so it stays `up`.
-  const warm = !chain.fresh && !settingsNew && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
-  if (!warm)
+  const warm =
+    !chain.fresh && !settingsNew && !otherCustody && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
+  const updating = (reason, from, to) =>
     writeStatus(paths, {
       state: 'updating',
-      reason: step === 'update' ? `moving to main ${target.slice(0, 9)}` : 'starting what is down',
-      sha: head,
-      target: sha,
+      reason,
+      sha: from,
+      target: to,
       since: new Date(now()).toISOString(),
       updatedAt: prev.updatedAt,
       mainAt,
     });
-  if (step === 'update') {
-    const co = git(paths.checkout, 'checkout', '--quiet', '--detach', target);
-    if (co.status !== 0) return finish(paths, { state: 'down', reason: `checkout of ${target} failed: ${co.stderr.trim()}`, sha: head });
-    if ((await run(paths, 'pnpm', ['install', '--frozen-lockfile'], { cwd: paths.checkout, env })) !== 0)
-      return finish(paths, { state: 'down', reason: 'pnpm install failed (round.log)', sha, updatedAt, mainAt });
-  }
-  if (chain.fresh) {
-    log(paths, 'anvil: new, so the stack is stopped and started whole on its TEST chain');
-    await stopStack(paths, run);
-  } else if (settingsNew) {
+  if (!warm)
+    updating(step === 'update' ? `moving to main ${target.slice(0, 9)}` : 'starting what is down', head, step === 'update' ? target : head);
+
+  /**
+   * Bring the stack up on `sha`: check it out when `move`, install, launch, the TEST funds check, readied. Returns the
+   * status it ends in, unwritten: the round decides whether a failed move goes back first.
+   */
+  const bring = async (sha, { move, updatedAt }) => {
+    const base = { sha, updatedAt, mainAt };
+    if (move) {
+      const co = git(paths.checkout, 'checkout', '--quiet', '--detach', sha);
+      // Only a go-back moves here, so the checkout is still on the moved commit.
+      if (co.status !== 0)
+        return { state: 'down', reason: `checkout of ${sha} failed: ${co.stderr.trim()}`, sha: target, updatedAt, mainAt };
+      if ((await run(paths, 'pnpm', ['install', '--frozen-lockfile'], { cwd: paths.checkout, env })) !== 0)
+        return { state: 'down', reason: 'pnpm install failed (round.log)', ...base };
+    }
+    const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
+    const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
+    if (launched === 0) fs.writeFileSync(paths.settings, `${settingsLine()}\n`);
+    const check = await checkWith(paths.state, BETA_LINK);
+    for (const l of check.lines) log(paths, `check: ${l}`);
+    if (!check.ok) {
+      await stopStack(paths, run);
+      return { state: 'refused', reason: 'the TEST funds check failed, so the stack was stopped', check: check.lines, ...base };
+    }
+    if (launched !== 0) return { state: 'down', reason: `verify launch exited ${launched} (round.log)`, check: check.lines, ...base };
+    // Readied: still `updating` until Markets lists priced markets, so Home and Markets open full.
+    let ready = await readiedWith(BETA_LINK);
+    for (const until = now() + READY_WAIT_MS; !ready.ok && now() < until;) {
+      await sleep(READY_EVERY_MS);
+      ready = await readiedWith(BETA_LINK);
+    }
+    log(paths, `readied: ${ready.ok ? 'ok' : 'not yet'}: ${ready.why}`);
+    if (!ready.ok)
+      return {
+        state: 'down',
+        reason: `not readied ${READY_WAIT_MS / 60_000} minutes after the launch: ${ready.why}`,
+        check: check.lines,
+        ...base,
+      };
+    return { state: 'up', ...base, upSince: warm && prev.upSince ? prev.upSince : new Date(now()).toISOString(), check: check.lines };
+  };
+
+  if (chain.fresh) log(paths, 'anvil: new, so the stack is stopped and started whole on its TEST chain');
+  else if (settingsNew || otherCustody)
     log(paths, `settings: ${settingsLine()} are new, so the stack is stopped and started whole on them`);
+  const whole = chain.fresh || settingsNew || Boolean(otherCustody);
+  if (step === 'update') {
+    // Stop before the move only when the stack must start whole; otherwise the launch after the move restarts what moved.
+    const co = git(paths.checkout, 'checkout', '--quiet', '--detach', target);
+    if (co.status !== 0) return end({ state: 'down', reason: `checkout of ${target} failed: ${co.stderr.trim()}`, sha: head, mainAt });
+    const updatedAt = new Date(now()).toISOString();
+    if ((await run(paths, 'pnpm', ['install', '--frozen-lockfile'], { cwd: paths.checkout, env })) !== 0) {
+      const failed = { state: 'down', reason: 'pnpm install failed (round.log)', sha: target, updatedAt, mainAt };
+      return end(await goBack(failed, updatedAt));
+    }
+    if (whole) await stopStack(paths, run);
+    if (otherCustody) log(paths, moveBookAside(paths, otherCustody, new Date(now())));
+    return end(await goBack(await bring(target, { move: false, updatedAt }), updatedAt));
+  }
+  if (whole) await stopStack(paths, run);
+  if (otherCustody) log(paths, moveBookAside(paths, otherCustody, new Date(now())));
+  return end(await bring(head, { move: false, updatedAt: prev.updatedAt }));
+
+  /**
+   * A moved commit that did not come up: the testers go back to the last good commit, behind the updating page, and the
+   * moved commit is refused until main moves past it (#11029). With no good commit known, or the good commit itself, the
+   * failure stands and the next due round tries again.
+   */
+  async function goBack(failed, updatedAt) {
+    if (failed.state === 'up' || !good || good === target) return failed;
+    refused = { sha: target, reason: failed.reason, at: new Date(now()).toISOString() };
+    record();
+    log(paths, `back: main ${target.slice(0, 9)} did not come up (${failed.reason}); back to the last good commit ${good.slice(0, 9)}`);
+    updating(`main ${target.slice(0, 9)} failed its check; going back to ${good.slice(0, 9)}`, target, good);
+    // The failed build is stopped whole, with its own stop scripts, before the checkout moves back.
     await stopStack(paths, run);
+    const back = await bring(good, { move: true, updatedAt });
+    why =
+      back.state === 'up'
+        ? `back on the last good commit ${good.slice(0, 9)}: main ${target.slice(0, 9)} failed its check (${failed.reason}) and is refused until main moves past it`
+        : `main ${target.slice(0, 9)} failed its check (${failed.reason}), and going back to ${good.slice(0, 9)} failed too`;
+    return back;
   }
-  const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
-  const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
-  if (launched === 0) fs.writeFileSync(paths.settings, `${settingsLine()}\n`);
-  const check = await checkWith(paths.state, BETA_LINK);
-  for (const l of check.lines) log(paths, `check: ${l}`);
-  if (!check.ok) {
-    await stopStack(paths, run);
-    return finish(paths, {
-      state: 'refused',
-      reason: 'the TEST funds check failed, so the stack was stopped',
-      check: check.lines,
-      sha,
-      updatedAt,
-      mainAt,
-    });
-  }
-  if (launched !== 0)
-    return finish(paths, {
-      state: 'down',
-      reason: `verify launch exited ${launched} (round.log)`,
-      check: check.lines,
-      sha,
-      updatedAt,
-      mainAt,
-    });
-  // Readied: still `updating` until Markets lists priced markets, so Home and Markets open full.
-  let ready = await readiedWith(BETA_LINK);
-  for (const until = now() + READY_WAIT_MS; !ready.ok && now() < until;) {
-    await sleep(READY_EVERY_MS);
-    ready = await readiedWith(BETA_LINK);
-  }
-  log(paths, `readied: ${ready.ok ? 'ok' : 'not yet'}: ${ready.why}`);
-  if (!ready.ok)
-    return finish(paths, {
-      state: 'down',
-      reason: `not readied ${READY_WAIT_MS / 60_000} minutes after the launch: ${ready.why}`,
-      check: check.lines,
-      sha,
-      updatedAt,
-      mainAt,
-    });
-  return finish(paths, {
-    state: 'up',
-    sha,
-    updatedAt,
-    mainAt,
-    upSince: warm && prev.upSince ? prev.upSince : new Date(now()).toISOString(),
-    check: check.lines,
-  });
 }
 
 function finish(paths, status) {
@@ -781,7 +958,9 @@ async function serve(paths) {
       } else log(paths, 'serve: beta-host.mjs changed on main; exiting so the new copy starts');
       process.exit(0);
     }
-    await new Promise((r) => setTimeout(r, everyMin * 60_000));
+    // A move asked for on demand (`beta-host.mjs move`) starts the next round within 15 seconds.
+    for (const until = Date.now() + everyMin * 60_000; Date.now() < until && !fs.existsSync(paths.moveNow);)
+      await new Promise((r) => setTimeout(r, 15_000));
   }
 }
 
@@ -888,13 +1067,19 @@ async function main(argv) {
     const link = state === paths.state || !marker.ports?.customer ? BETA_LINK : `http://127.0.0.1:${marker.ports.customer}/`;
     const h = rest.indexOf('--hosted');
     const allow = h >= 0 ? hostedAllowList(rest[h + 1]) : state === paths.state ? BETA_OWN_HOSTS : NO_HOSTS;
-    const c = await checkStack(state, link, allow);
+    // The beta's own stack runs custody as launch does (BETA_CUSTODY); another stack's switch is its own.
+    const c = await checkStack(state, link, allow, state === paths.state ? BETA_CUSTODY : null);
     for (const l of c.lines) console.log(l);
     process.exit(c.ok ? 0 : 1);
   }
   if (cmd === 'status') {
     const s = readJson(paths.status);
-    console.log(s ? JSON.stringify(s, null, 2) : `no round yet (${paths.status})`);
+    console.log(s ? `${statusLine(s)}\n${JSON.stringify(s, null, 2)}` : `no round yet (${paths.status})`);
+    return;
+  }
+  if (cmd === 'move') {
+    askMove(paths);
+    console.log(`asked: the supervisor moves the beta to main within 15 seconds (${paths.moveNow}); status: beta-host.mjs status`);
     return;
   }
   if (cmd === 'stop') process.exit(await stopStack(paths));
@@ -916,7 +1101,7 @@ async function main(argv) {
     return;
   }
   console.error(
-    'usage: beta-host.mjs serve | round | check [--state <dir>] [--hosted <beta-host>] | status | stop | install | invited-test [--watch]',
+    'usage: beta-host.mjs serve | round | move | check [--state <dir>] [--hosted <beta-host>] | status | stop | install | invited-test [--watch]',
   );
   process.exit(2);
 }

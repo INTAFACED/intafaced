@@ -18,7 +18,9 @@
  *       (`testPartner.set({ custody: 'off' })`, `testPartner.fund`), where the launch model holds a person's money and
  *       which Home and Money read (#10632): on every pass, once per account and fund id, so a restart of svc-bank (which
  *       empties the TEST partner) puts it back. It is made as that person on their own live session; an account not
- *       signed in waits for the next pass. An invited account holding full that has made its own embedded wallet gets
+ *       signed in waits for the next pass. On a stack whose svc-ledger runs custody off, as the beta's does and launch will
+ *       (#11019), the ledger holds no tester's money: the grant posts nothing there (`local:fund` to a person refuses then)
+ *       and is kept only at the TEST partner. An invited account holding full that has made its own embedded wallet gets
  *       TEST USDC on Hyperliquid's TEST network in that wallet, once (beta-testnet.mjs, #10842). Prints one line per
  *       action and nothing when there is nothing to do. `--root` holds invited.json, granted.json and
  *       testnet-funded.json (default ~/.intafaced/beta); `--checkout` is the stack's checkout whose tools it runs (default: this file's own).
@@ -138,6 +140,9 @@ async function pass({ root, checkout }) {
     const { users, approved, pending } = gates.listAccountsAndTiers(secrets);
     return planPass({ users, approved, pending, tokens, granted: readJson(files.granted, {}) });
   };
+  // Custody off (the beta's stack, launch's money model): the ledger holds no customer money, so the grant is the partner's.
+  const { stackCustodyOff } = await import(pathToFileURL(path.join(checkout, 'tooling', 'scripts', 'local-test-state.mjs')).href);
+  const ledgerGrant = !stackCustodyOff();
   let plan = read();
   if (plan.approve.length) {
     const ctx = await gates.makeContext({ log: (l) => console.log(l) });
@@ -149,6 +154,15 @@ async function pass({ root, checkout }) {
     plan = read();
   }
   for (const f of plan.fund) {
+    if (!ledgerGrant) {
+      const granted = readJson(files.granted, {});
+      granted[f.userId] = { token: f.token, asset: GRANT.asset, amount: GRANT.amount, at: new Date().toISOString(), ledger: false };
+      writePrivate(files.granted, granted);
+      console.log(
+        `invited ${f.email}: ${GRANT.amount} TEST ${GRANT.asset} granted at the TEST partner only (custody off: nothing in the ledger)`,
+      );
+      continue;
+    }
     const r = spawnSync(
       process.execPath,
       [

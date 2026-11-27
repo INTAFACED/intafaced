@@ -63,6 +63,7 @@ function world(opts: { store?: PreparedActionStore } = {}) {
     builder: BUILDER,
     // Blank: these orders are limits, which the owner's market price protection never bounds.
     slippageCapBps: null,
+    closeSlippageBps: 1000,
     now: clock,
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
   });

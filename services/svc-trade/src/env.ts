@@ -275,6 +275,12 @@ const schema = serviceEnvSchema
        * `trade.spread_limit_unset` ("protection not set"), on preview and on prepare. Never invented.
        */
       TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+      /**
+       * How far a stop's fired market exit and a reduce-only close on the person's own venue account may cross the
+       * market, in bps from the price it is judged on (venue/close-slippage.ts): the one home of the close tolerance.
+       * NO DEFAULT. Blank / unset / non-integer → null, and every such close refuses `trade.close_slippage_unset`.
+       */
+      TRADE_CLOSE_SLIPPAGE_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").

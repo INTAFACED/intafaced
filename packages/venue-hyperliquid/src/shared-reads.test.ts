@@ -11,8 +11,8 @@ class Probe extends HyperliquidTestnetUserVenue {
   read(body: Record<string, Json>) {
     return this.info(body);
   }
-  forget() {
-    this.forgetReads();
+  forget(users: readonly string[] = ['0xa'], actionType?: string) {
+    this.forgetReads(users, actionType);
   }
 }
 
@@ -45,12 +45,17 @@ describe('shared venue reads', () => {
     expect(s.calls).toEqual(['openOrders', 'openOrders']);
   });
 
-  it('keeps an answer by its weight: a light read 2 s, a heavy one 15 s, fee rates and approvals 30 s', async () => {
+  it('keeps an answer by its weight: a light read 2 s, a heavy one 15 s, the listing 30 s, fee rates, approvals, agents and leverage 5 minutes', async () => {
     const s = setup(true);
+    expect(READ_FRESH_MS.rare).toBe(300_000);
     for (const [type, fresh] of [
       ['clearinghouseState', READ_FRESH_MS.light],
       ['openOrders', READ_FRESH_MS.heavy],
-      ['userFees', READ_FRESH_MS.slow],
+      ['meta', READ_FRESH_MS.slow],
+      ['userFees', READ_FRESH_MS.rare],
+      ['maxBuilderFee', READ_FRESH_MS.rare],
+      ['extraAgents', READ_FRESH_MS.rare],
+      ['activeAssetData', READ_FRESH_MS.rare],
     ] as const) {
       s.calls.length = 0;
       const first = await s.venue.read({ type, user: '0xa' });
@@ -75,7 +80,7 @@ describe('shared venue reads', () => {
     expect(s.calls).toEqual(['openOrders']);
   });
 
-  it('a signed action drops every kept answer, and a read begun before it is not kept after it', async () => {
+  it("a signed action drops its own accounts' kept answers, and a read of them begun before it is not kept after it", async () => {
     const s = setup(true);
     await s.venue.read({ type: 'openOrders', user: '0xa' });
     s.venue.forget();
@@ -93,6 +98,78 @@ describe('shared venue reads', () => {
     s.release();
     await after;
     expect(s.calls.filter((c) => c === 'frontendOpenOrders')).toHaveLength(2);
+  });
+
+  it("one tester's signed action leaves every other account's and every market read kept (#11028)", async () => {
+    const s = setup(true);
+    const reads: Array<Record<string, Json>> = [
+      { type: 'openOrders', user: '0xa' },
+      { type: 'openOrders', user: '0xb' },
+      { type: 'clearinghouseState', user: '0xB' },
+      { type: 'recentTrades', coin: 'BTC' },
+    ];
+    for (const r of reads) await s.venue.read(r);
+    expect(s.calls).toHaveLength(4);
+    s.venue.forget(['0xA']);
+    for (const r of reads) await s.venue.read(r);
+    // Only 0xa's read went to the venue again; 0xb's and the market's were served as kept.
+    expect(s.calls).toEqual(['openOrders', 'openOrders', 'clearinghouseState', 'recentTrades', 'openOrders']);
+    // A read of another account in flight across the action is still kept.
+    s.holdReads();
+    s.tick(READ_FRESH_MS.heavy);
+    const other = s.venue.read({ type: 'openOrders', user: '0xb' });
+    await Promise.resolve();
+    s.venue.forget(['0xa']);
+    s.release();
+    await other;
+    await s.venue.read({ type: 'openOrders', user: '0xb' });
+    expect(s.calls.filter((c) => c === 'openOrders')).toHaveLength(4);
+  });
+
+  it("an order or a cancel re-reads only the account's orders, positions, balances and fills; any other action re-reads all of it (#11041)", async () => {
+    const s = setup(true);
+    const rare = ['userFees', 'maxBuilderFee', 'extraAgents', 'activeAssetData'];
+    const often = ['frontendOpenOrders', 'clearinghouseState', 'spotClearinghouseState', 'userFillsByTime', 'historicalOrders'];
+    const readAll = async () => {
+      for (const type of [...rare, ...often]) await s.venue.read({ type, user: '0xa' });
+    };
+    await readAll();
+    for (const action of ['order', 'cancel', 'cancelByCloid', 'modify', 'batchModify', 'scheduleCancel', 'twapOrder', 'twapCancel']) {
+      s.calls.length = 0;
+      s.venue.forget(['0xA'], action);
+      await readAll();
+      expect(s.calls, action).toEqual(often);
+    }
+    for (const action of ['approveAgent', 'approveBuilderFee', 'updateLeverage', 'updateIsolatedMargin', 'withdraw3', undefined]) {
+      s.calls.length = 0;
+      s.venue.forget(['0xa'], action);
+      await readAll();
+      expect(s.calls, String(action)).toEqual([...rare, ...often]);
+    }
+  });
+
+  it('a fee or leverage read in flight across an order is kept; one in flight across a leverage change is not (#11041)', async () => {
+    const s = setup(true);
+    s.holdReads();
+    const across = s.venue.read({ type: 'activeAssetData', user: '0xa', coin: 'BTC' });
+    await Promise.resolve();
+    s.venue.forget(['0xa'], 'order');
+    s.release();
+    await across;
+    await s.venue.read({ type: 'activeAssetData', user: '0xa', coin: 'BTC' });
+    expect(s.calls).toEqual(['activeAssetData']);
+    s.holdReads();
+    s.tick(READ_FRESH_MS.rare);
+    const changed = s.venue.read({ type: 'activeAssetData', user: '0xa', coin: 'BTC' });
+    await Promise.resolve();
+    s.venue.forget(['0xa'], 'updateLeverage');
+    s.release();
+    await changed;
+    const after = s.venue.read({ type: 'activeAssetData', user: '0xa', coin: 'BTC' });
+    await Promise.resolve();
+    s.release();
+    await after;
+    expect(s.calls).toEqual(['activeAssetData', 'activeAssetData', 'activeAssetData']);
   });
 
   it('a read the venue answers 429 is tried once more; a second 429 is venue_down, and nothing is kept', async () => {
