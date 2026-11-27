@@ -43,7 +43,7 @@ describe('private stream drops when the caller IP is not on the key', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  async function boot(liveCredential: LiveCredentialPort): Promise<{ host: string; port: number }> {
+  async function boot(liveCredential: LiveCredentialPort, trustedProxies?: readonly string[]): Promise<{ host: string; port: number }> {
     const hub = new PrivateOrderHub({ highWaterBytes: 1_000_000, maxLagTicks: 5, maxConnections: 10, maxConnectionsPerUser: 10 });
     server = createServer((_req, res) => {
       res.writeHead(404);
@@ -62,6 +62,7 @@ describe('private stream drops when the caller IP is not on the key', () => {
       enabled: () => true,
       tokens,
       liveCredential,
+      ...(trustedProxies ? { trustedProxies } : {}),
     });
     return { host: '127.0.0.1', port: addr.port };
   }
@@ -135,5 +136,20 @@ describe('private stream drops when the caller IP is not on the key', () => {
     });
     expect(frames.some((f) => f.includes('"type":"ready"'))).toBe(false);
     ws.terminate();
+  });
+
+  it('behind a trusted loopback front, the forwarded address is the caller the key is checked against (#11038)', async () => {
+    const { host, port } = await boot(keyPort([LISTED]), ['127.0.0.1']);
+    const token = await access();
+    const path = `${PRIVATE_STREAM_PATH}?access_token=${token}`;
+    expect(await upgradeStatus(host, port, path, LISTED)).toBe(101);
+    expect(await upgradeStatus(host, port, path, FOREIGN)).toBe(401);
+    expect(await upgradeStatus(host, port, path)).toBe(401);
+  });
+
+  it('a forged forwarded address from a peer that is not the trusted front is ignored (#11038)', async () => {
+    const { host, port } = await boot(keyPort([LISTED]), ['10.0.0.1']);
+    const token = await access();
+    expect(await upgradeStatus(host, port, `${PRIVATE_STREAM_PATH}?access_token=${token}`, LISTED)).toBe(401);
   });
 });
