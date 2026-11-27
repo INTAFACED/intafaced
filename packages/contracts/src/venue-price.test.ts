@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { onVenuePriceRule } from './venue-price.js';
+import { onVenuePriceRule, venueBound } from './venue-price.js';
 
 /** The venue's own check, restated: whole, or at most 5 significant figures and the tick's places. */
 function venueTakes(price: string, tick: string): boolean {
@@ -56,5 +56,24 @@ describe('onVenuePriceRule', () => {
     expect(() => onVenuePriceRule('1e5', '0.1', 'up')).toThrow(RangeError);
     expect(() => onVenuePriceRule('100', '0.5', 'up')).toThrow(RangeError);
     expect(() => onVenuePriceRule('100', '10', 'up')).toThrow(RangeError);
+  });
+});
+
+describe('venueBound', () => {
+  it('rounds toward the market while that stays beyond the reference', () => {
+    expect(venueBound('buy', { moved: '62744.16', reference: '62432', tick: '0.1' })).toBe('62744');
+    expect(venueBound('sell', { moved: '62110.885', reference: '62423', tick: '0.1' })).toBe('62111');
+  });
+
+  it('a cap finer than one price step takes the nearest price beyond the reference, never the reference itself', () => {
+    // Best ask 10, tick 0.01, a 1 bps cap: 10.001 rounds down to 10, which would leave no slippage limit at all.
+    expect(venueBound('buy', { moved: '10.001', reference: '10', tick: '0.01' })).toBe('10.01');
+    expect(venueBound('sell', { moved: '9.999', reference: '10', tick: '0.01' })).toBe('9.99');
+    // Past 5 significant figures the same: 62432.4 on a 62432 ask is 62432 toward the market, so 62433.
+    expect(venueBound('buy', { moved: '62432.4', reference: '62432', tick: '0.1' })).toBe('62433');
+  });
+
+  it('a zero cap stays at the reference', () => {
+    expect(venueBound('buy', { moved: '10', reference: '10', tick: '0.01' })).toBe('10');
   });
 });

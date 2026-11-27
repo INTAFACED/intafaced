@@ -52,3 +52,24 @@ export function onVenuePriceRule(price: string, tick: string, toward: 'up' | 'do
   const rounded = toward === 'up' && floor * step !== digits ? floor + 1n : floor;
   return format(rounded, keep);
 }
+
+function compareDecimal(a: string, b: string): number {
+  const x = parse(a, 'price');
+  const y = parse(b, 'price');
+  const places = Math.max(x.places, y.places);
+  const l = x.digits * 10n ** BigInt(places - x.places);
+  const r = y.digits * 10n ** BigInt(places - y.places);
+  return l === r ? 0 : l > r ? 1 : -1;
+}
+
+/**
+ * A worst price `moved` away from `reference` (the best price, the mark or the mid it was computed from), on the
+ * venue's price rule: rounded toward the market, a buy's down and a sell's up, so it never goes past the protection.
+ * When that would land on the reference or cross it (a cap finer than one price step there), it takes the nearest
+ * price beyond the reference instead, so the order still has room to fill and the review names a real limit.
+ */
+export function venueBound(side: 'buy' | 'sell', { moved, reference, tick }: { moved: string; reference: string; tick: string }): string {
+  const toward = onVenuePriceRule(moved, tick, side === 'buy' ? 'down' : 'up');
+  const past = (p: string) => compareDecimal(p, reference) * (side === 'buy' ? 1 : -1) > 0;
+  return past(moved) && !past(toward) ? onVenuePriceRule(moved, tick, side === 'buy' ? 'up' : 'down') : toward;
+}

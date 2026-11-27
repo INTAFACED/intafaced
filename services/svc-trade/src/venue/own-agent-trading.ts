@@ -35,7 +35,7 @@ import type { OwnAgentPolicy } from './own-agent-policy-client.js';
 import type { AccountFreezeRead } from '../quant/live-run/ports.js';
 import { assertNotSelfFrozen, freezePrincipal } from './self-freeze.js';
 import { AGENT_ORDER_PREFIX, UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
-import { venuePrice } from './venue-price.js';
+import { venueBoundPrice } from './venue-price.js';
 
 /**
  * A PERSON'S OWN AGENT TRADING ONE OF THEIR VENUE SUB-ACCOUNTS, UNDER AN ALLOWANCE (J-agents-08 #3 to #7; AG-spend-03,
@@ -579,8 +579,16 @@ export class OwnAgentTrading {
     const mid = div(add(bid, ask), TWO, 'half-up');
     const worst =
       side === 'buy'
-        ? venuePrice(div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'), market.tickSize, 'down')
-        : venuePrice(div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'), market.tickSize, 'up');
+        ? venueBoundPrice('buy', {
+            moved: div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'),
+            reference: mid,
+            tick: market.tickSize,
+          })
+        : venueBoundPrice('sell', {
+            moved: div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'),
+            reference: mid,
+            tick: market.tickSize,
+          });
     return { market, side, type, size, price: worst };
   }
 

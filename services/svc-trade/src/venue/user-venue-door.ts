@@ -11,7 +11,7 @@ import { add, compare, div, formatAmount, mul, parseAmount, sub, ZERO, type Amou
 import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, tradeTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import { upcomingMaintenanceFor } from '@intafaced/contracts/market-maintenance';
-import { venuePrice } from './venue-price.js';
+import { venueBoundPrice } from './venue-price.js';
 import {
   annualisedFundingRate,
   OWNER_ONLY_INTENTS,
@@ -571,7 +571,7 @@ export function spreadTooWide(best: Pick<VenueBestPrices, 'bid' | 'ask'>, limitB
 
 /**
  * A market order's furthest worst price under the protection: a buy at most the best ask plus `capBps`, a sell at
- * least the best bid less it, on the venue's price rule rounded toward the market (`venuePrice`), as the
+ * least the best bid less it, on the venue's price rule rounded toward the market (`venueBoundPrice`), as the
  * desk's `slippageLimit`. Null with no price.
  */
 export function marketProtectionBound(
@@ -585,7 +585,7 @@ export function marketProtectionBound(
   const one = 10_000n;
   const ratio = BigInt(capBps);
   const moved = side === 'buy' ? (reference * (one + ratio)) / one : (reference * (one - ratio)) / one;
-  const bound = venuePrice(moved, tick, side === 'buy' ? 'down' : 'up');
+  const bound = venueBoundPrice(side, { moved, reference, tick });
   return bound > 0n ? bound : null;
 }
 

@@ -40,7 +40,7 @@ import {
   type LiveRunStatePolicy,
   type LiveRunStore,
 } from './store.js';
-import { venuePrice } from '../../venue/venue-price.js';
+import { venueBoundPrice } from '../../venue/venue-price.js';
 
 /**
  * STOP, LIQUIDATE OR RECOVER A LIVE STRATEGY (J-algo-dev-07; AL-live-03, AL-live-04).
@@ -730,8 +730,16 @@ export class LiveRuns {
       fail('quant.order_rejected', `${symbol} has no two-sided book just now, so no worst price can be set; nothing was sent`, 422);
     // On the venue's price rule, toward the mid: the tick and 5 significant figures.
     return side === 'buy'
-      ? venuePrice(div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'), market.tickSize, 'down')
-      : venuePrice(div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'), market.tickSize, 'up');
+      ? venueBoundPrice('buy', {
+          moved: div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'),
+          reference: mid,
+          tick: market.tickSize,
+        })
+      : venueBoundPrice('sell', {
+          moved: div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'),
+          reference: mid,
+          tick: market.tickSize,
+        });
   }
 
   /**

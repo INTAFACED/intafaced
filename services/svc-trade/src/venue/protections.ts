@@ -15,7 +15,7 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
-import { venuePrice } from './venue-price.js';
+import { venueBoundPrice } from './venue-price.js';
 import {
   assertTradingLevel,
   type PreparedAnswer,
@@ -170,7 +170,7 @@ function worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
     side === 'sell'
       ? div(mul(from, parseAmount(String(100n - EXIT_SLIPPAGE_PERCENT))), parseAmount('100'), 'floor')
       : div(mul(from, parseAmount(String(100n + EXIT_SLIPPAGE_PERCENT))), parseAmount('100'), 'ceil');
-  return venuePrice(raw, tick, side === 'buy' ? 'down' : 'up');
+  return venueBoundPrice(side, { moved: raw, reference: from, tick });
 }
 
 const sourceWords = (s: ProtectionSource) => (s === 'mark' ? 'mark price' : s === 'last' ? 'last traded price' : 'index price');

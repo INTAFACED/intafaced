@@ -171,6 +171,12 @@ describe('marketProtectionBound: a price the venue takes', () => {
     expect(marketProtectionBound('buy', { bid: a('62423'), ask: a('62432') }, 50, a('0.1'))).toBe(a('62744'));
     expect(marketProtectionBound('sell', { bid: a('62423'), ask: a('62432') }, 50, a('0.1'))).toBe(a('62111'));
   });
+
+  it('a cap finer than one price step still bounds past the best price, by the nearest step (J-cex-spot-11 #3)', () => {
+    // 10 × 1.0001 = 10.001 would round down to the ask itself and leave no slippage limit.
+    expect(marketProtectionBound('buy', { bid: a('9.99'), ask: a('10') }, 1, a('0.01'))).toBe(a('10.01'));
+    expect(marketProtectionBound('sell', { bid: a('10'), ask: a('10.01') }, 1, a('0.01'))).toBe(a('9.99'));
+  });
 });
 
 describe('the owner spread limit (J-cex-spot-03 #2)', () => {
