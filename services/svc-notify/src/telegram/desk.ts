@@ -35,6 +35,8 @@ const TELEGRAM_TARGET_INVALID = 'notify.telegram_target_invalid' as const;
 /** The two margin-use levels, in percent, lowest first. */
 const MARGIN_USE_LEVELS = ['80', '90'] as const;
 
+const PRIVATE_ONLY_REPLY = 'This bot works only in a private chat with you, so no one else sees your figures.';
+
 const READ_ONLY_REPLY = 'This bot is read-only: it answers /positions and /pnl. It never trades, cancels or moves money.';
 
 /** The address-confirmation lifetime the owner sets (`NOTIFY_VERIFY_TTL_MINUTES`) also bounds a link code. */
@@ -87,7 +89,10 @@ export interface TelegramSweepReport {
 
 /** What a webhook update carries that the desk reads: the chat and its text. Anything else is ignored. */
 const TelegramUpdate = z.object({
-  message: z.object({ chat: z.object({ id: z.union([z.number().int(), z.string().min(1).max(64)]) }), text: z.string().max(4096) }),
+  message: z.object({
+    chat: z.object({ id: z.union([z.number().int(), z.string().min(1).max(64)]), type: z.string().max(32).optional() }),
+    text: z.string().max(4096),
+  }),
 });
 
 const OUTBOX_BATCH = 100;
@@ -156,8 +161,11 @@ export class TelegramDesk {
     const transport = this.deps.transport;
     const parsed = TelegramUpdate.safeParse(update);
     if (!transport || !this.on || !parsed.success) return;
-    const chatId = String(parsed.data.message.chat.id);
-    await transport.send(chatId, await this.reply(chatId, parsed.data.message.text));
+    const { chat, text } = parsed.data.message;
+    const chatId = String(chat.id);
+    // Figures go only to the person: a group or channel chat is never linked and is never answered with figures.
+    if (chat.type !== 'private') return transport.send(chatId, PRIVATE_ONLY_REPLY);
+    await transport.send(chatId, await this.reply(chatId, text));
   }
 
   private async reply(chatId: string, text: string): Promise<string> {

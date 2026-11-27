@@ -89,7 +89,8 @@ function rig(opts: { token?: boolean; ttl?: number | undefined } = {}) {
     desk: (next: TradeDeskSnapshotResult) => {
       desk = next;
     },
-    message: (text: string, chatId = CHAT) => service.handleUpdate({ update_id: 1, message: { chat: { id: Number(chatId) }, text } }),
+    message: (text: string, chatId = CHAT, type = 'private') =>
+      service.handleUpdate({ update_id: 1, message: { chat: { id: Number(chatId), type }, text } }),
   };
 }
 
@@ -118,6 +119,22 @@ describe('linking needs a one-time code from the account settings', () => {
     await r.message(`/start ${issued.code}`, '700200');
     expect(r.sent.at(-1)).toEqual({ chatId: '700200', text: expect.stringContaining('not valid') });
     expect(await r.store.linkByChat('700200')).toBeNull();
+  });
+
+  it('a group or channel chat is never linked and never gets figures, so only the person sees them', async () => {
+    const r = rig();
+    const { code } = await r.service.issueLinkCode(USER);
+    for (const type of ['group', 'supergroup', 'channel']) {
+      await r.message(`/start ${code}`, '-100500', type);
+      expect(r.sent.at(-1)).toEqual({ chatId: '-100500', text: expect.stringContaining('only in a private chat') });
+    }
+    expect(await r.store.linkByChat('-100500')).toBeNull();
+    // The code is still unused: the person can link their private chat with it.
+    await r.message(`/start ${code}`);
+    expect(r.sent.at(-1)?.text).toContain('Linked');
+    await r.message('/positions', CHAT, 'group');
+    expect(r.sent.at(-1)?.text).toContain('only in a private chat');
+    expect(r.reads).toEqual([]);
   });
 
   it('refuses a /start with no code, a wrong code and an expired code', async () => {
