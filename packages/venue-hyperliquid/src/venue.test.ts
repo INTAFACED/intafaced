@@ -23,6 +23,7 @@ import {
   type UserSignedTypedData,
 } from './signing.js';
 import {
+  FILLS_GRID_MS,
   FILLS_PAGE_CAP,
   HL_TESTNET_VENUE_ID,
   HyperliquidTestnetUserVenue,
@@ -1926,6 +1927,59 @@ describe('shared reads across testers: one IP, 1,200 weight a minute (#11028)', 
     // The ordering wallet's fills are read again; the stranger's and the market's prints are served as kept.
     expect(count(fake, 'userFillsByTime')).toBe(fillsBefore + 1);
     expect(count(fake, 'recentTrades')).toBe(1);
+  });
+
+  it('fills: desks asking from moments a few seconds apart share one read of the hour, and each gets only its own fills since (#11041)', async () => {
+    const fake = fakeVenue();
+    const fill = (tid: number, time: number) => ({
+      coin: 'ETH',
+      px: '2000',
+      sz: '0.01',
+      side: 'B',
+      time,
+      dir: 'Open Long',
+      closedPnl: '0',
+      oid: 1,
+      crossed: true,
+      fee: '0.01',
+      tid,
+      feeToken: 'USDC',
+    });
+    const hour = Math.floor((NOW - 30 * 60_000) / FILLS_GRID_MS) * FILLS_GRID_MS;
+    const all = [fill(1, hour + 1_000), fill(2, hour + 5_000), fill(3, hour + 9_000)];
+    const starts: number[] = [];
+    fake.info.userFillsByTime = (b) => (starts.push(Number(b.startTime)), all.filter((f) => f.time >= Number(b.startTime)));
+    const venue = sharedVenue(fake, () => NOW);
+    const first = (await venue.fills(account, new Date(hour + 1_000))).value;
+    const second = (await venue.fills(account, new Date(hour + 4_000))).value;
+    expect(starts).toEqual([hour]);
+    expect(first.map((f) => f.fillId)).toEqual([`${hour + 1_000}:ETH:1`, `${hour + 5_000}:ETH:2`, `${hour + 9_000}:ETH:3`]);
+    expect(second.map((f) => f.fillId)).toEqual([`${hour + 5_000}:ETH:2`, `${hour + 9_000}:ETH:3`]);
+  });
+
+  it('fills: a full page answered entirely before the asked start keeps paging to the fills after it (#11041)', async () => {
+    const fake = fakeVenue();
+    const fill = (tid: number, time: number) => ({
+      coin: 'ETH',
+      px: '2000',
+      sz: '0.01',
+      side: 'B',
+      time,
+      dir: 'Open Long',
+      closedPnl: '0',
+      oid: 1,
+      crossed: true,
+      fee: '0.01',
+      tid,
+      feeToken: 'USDC',
+    });
+    const hour = Math.floor(NOW / FILLS_GRID_MS) * FILLS_GRID_MS;
+    const since = hour + 30 * 60_000;
+    // A full page of fills between the hour and the asked start, then one fill after it.
+    const all = [...Array.from({ length: FILLS_PAGE_CAP }, (_, i) => fill(i + 1, hour + i)), fill(9_999, since + 1)];
+    fake.info.userFillsByTime = (b) => all.filter((f) => f.time >= Number(b.startTime)).slice(0, FILLS_PAGE_CAP);
+    const fills = (await venueWith(fake).fills(account, new Date(since))).value;
+    expect(fills.map((f) => f.fillId)).toEqual([`${since + 1}:ETH:9999`]);
   });
 
   it('candles: every desk asking within one candle asks the same window, so they share one read', async () => {
