@@ -81,6 +81,7 @@
     "/mining",
     "/money",
     "/money/activity",
+    "/money/journal",
     "/money/pnl",
     "/more",
     "/notice",
