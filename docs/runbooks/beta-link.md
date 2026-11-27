@@ -8,6 +8,10 @@ The Customer app on the latest `main`, always on, on TEST funds only, for the ow
 - **State now:** `node tooling/beta/beta-host.mjs status` on the box (`~/.intafaced/beta/status.json`): its first line
   names the state, the commit served, main's commit when it differs, and why (`up`, `updating` while a round moves it,
   `blocked` or `down` with the reason).
+- **Where each tester is:** `node tooling/beta/beta-host.mjs testers` on the box (`--json` for the same as data): one
+  block per invited account, by account id: signed up, wallet made, funded, desk reached, first order, the venue's
+  refusals with their words, errors, the last thing they did, and STUCK with why (an error after their last stage, or no
+  new stage for 30 minutes short of a first order).
 - **Move it now:** `node tooling/beta/beta-host.mjs move` on the box, for a fix testers need before the daily slot.
 - **Move it back:** `node tooling/beta/beta-host.mjs back [<sha>]` on the box, for a commit that came up but broke
   testers: within 15 seconds it goes back to `<sha>`, a commit on main (default: the one before the commit served), and

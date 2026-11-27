@@ -30,6 +30,8 @@
  *                                             beta's own, nothing else (hostedAllowList)
  *   node tooling/beta/beta-host.mjs status    each outside limit and what is left, read now (beta-limits.mjs), then which
  *                                             commit the beta serves and why, and what the last round found
+ *   node tooling/beta/beta-host.mjs testers [--json]   where each invited tester is: stages, venue refusals with their
+ *                                             words, errors, last action, and STUCK (beta-testers.mjs)
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
  *   node tooling/beta/beta-host.mjs invited-test [--checkout <dir>] [--root <dir>] [--watch]
@@ -1239,6 +1241,14 @@ async function main(argv) {
     console.log(s ? `${statusLine(s)}\n${JSON.stringify(s, null, 2)}` : `no round yet (${paths.status})`);
     return;
   }
+  if (cmd === 'testers') {
+    // Where each invited tester is, from the beta stack's own records (beta-testers.mjs), as this stack's env names it.
+    const r = spawnSync(process.execPath, [path.join(HERE, 'beta-testers.mjs'), '--root', paths.root, ...rest], {
+      env: stackEnv(paths),
+      stdio: 'inherit',
+    });
+    process.exit(r.status ?? 1);
+  }
   if (cmd === 'move') {
     askMove(paths);
     console.log(`asked: the supervisor moves the beta to main within 15 seconds (${paths.moveNow}); status: beta-host.mjs status`);
@@ -1285,7 +1295,7 @@ async function main(argv) {
     return;
   }
   console.error(
-    'usage: beta-host.mjs serve | round | move | back [<sha>] | check [--state <dir>] [--hosted <beta-host>] | status | stop | install | invited-test [--watch]',
+    'usage: beta-host.mjs serve | round | move | back [<sha>] | check [--state <dir>] [--hosted <beta-host>] | status | testers [--json] | stop | install | invited-test [--watch]',
   );
   process.exit(2);
 }
