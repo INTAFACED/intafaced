@@ -114,7 +114,12 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       ref={wrapper}
       data-testid="tb-item"
       className={`tb-item ${open ? 'tb-item--open' : ''}`}
-      onMouseEnter={show}
+      // Opens on the pointer's own movement, not on mouseenter: every move to another page draws a new bar (App.tsx keys the
+      // frame by path), and the browser sends mouseenter to the new tab under a pointer that has not moved, so clicking Trade
+      // left its menu open over Markets until the pointer moved (issue 11119).
+      onPointerMove={(event) => {
+        if (event.pointerType !== 'touch') show();
+      }}
       onMouseLeave={hideSoon}
       onFocus={(event) => {
         if (event.target instanceof Element && event.target.matches(':focus-visible')) show();
