@@ -239,6 +239,7 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
             onDone={reload}
             test={status.test}
             builder={status.builder}
+            closeSlippageBps={status.closeSlippageBps ?? null}
             desk={{ id: status.venue.id, name: status.venue.displayName }}
           />
           <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
@@ -360,6 +361,7 @@ function AllPositions({
   onDone,
   test,
   builder,
+  closeSlippageBps,
   desk,
 }: {
   owner: string;
@@ -371,6 +373,8 @@ function AllPositions({
   onDone: () => void;
   test: boolean;
   builder: VenueUp['builder'];
+  /** The owner's close tolerance (status `closeSlippageBps`): null is blank, and svc-trade refuses every close. */
+  closeSlippageBps: number | null;
   /** The venue the door sends protections to (a pre-liquidation stop rests there). */
   desk: { id: string; name: string };
 }) {
@@ -475,7 +479,15 @@ function AllPositions({
           onClose={() => setLiquidation(null)}
         />
       ) : null}
-      <CloseAll rows={rows} marketOf={marketOf} owner={owner} run={run} onDone={onDone} builder={builder} />
+      <CloseAll
+        rows={rows}
+        marketOf={marketOf}
+        owner={owner}
+        run={run}
+        onDone={onDone}
+        builder={builder}
+        closeSlippageBps={closeSlippageBps}
+      />
     </section>
   );
 }
@@ -889,6 +901,7 @@ function CloseAll({
   run,
   onDone,
   builder,
+  closeSlippageBps,
 }: {
   rows: Row[];
   marketOf: (venueId: string, symbol: string) => Listed;
@@ -896,6 +909,7 @@ function CloseAll({
   run: RunAction;
   onDone: () => void;
   builder: VenueUp['builder'];
+  closeSlippageBps: number | null;
 }) {
   const { t } = positionsCopy.useCopy();
   const venue = useVenueApi();
@@ -947,7 +961,7 @@ function CloseAll({
             side: p.side === 'long' ? 'sell' : 'buy',
             type: 'limit',
             amount: p.size,
-            price: closeWorstPrice(p, tick),
+            price: closeWorstPrice(p, tick, closeSlippageBps),
             timeInForce: 'IOC',
             reduceOnly: true,
             clientOrderKey: keys.close(owner, p.symbol, `all${i}-${review.id}`),

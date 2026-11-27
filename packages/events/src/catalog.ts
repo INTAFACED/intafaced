@@ -1588,7 +1588,8 @@ export const venueDelistingScheduled = defineEvent(
       .string()
       .min(1)
       .max(64)
-      .regex(/^[A-Z0-9][A-Z0-9/._-]*$/),
+      // A HIP-3 market keeps its DEX before a colon (`xyz:TSLA-PERP`).
+      .regex(/^(?:[a-z0-9]{1,15}:)?[A-Z0-9][A-Z0-9/._-]*$/),
     delistsAt: z.string().datetime({ offset: true }),
     scheduledAt: z.string().datetime({ offset: true }),
     /** The business key the one customer notice is filed under: `venue-delisting:<venueId>:<symbol>:<delistsAt>`. */

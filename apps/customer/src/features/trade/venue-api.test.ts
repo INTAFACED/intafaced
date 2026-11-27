@@ -118,7 +118,7 @@ describe('venue client', () => {
     expect(totalToCommit({ ...preview, venueFee: { known: false } })).toBeNull();
   });
 
-  it('puts a close’s worst price on the tick, against the position', () => {
+  it('puts a close’s worst price the owner’s close tolerance from the mark, against the position, rounded toward the mark', () => {
     const position = {
       symbol: 'BTC-PERP',
       side: 'long' as const,
@@ -131,8 +131,12 @@ describe('venue client', () => {
       leverageBps: 100000,
       liquidationPrice: { known: false as const },
     };
-    expect(closeWorstPrice(position, '1')).toBe('57000');
-    expect(closeWorstPrice({ ...position, side: 'short' }, '1')).toBe('63000');
+    // 10% (1000 bps), the owner's close tolerance as `/venue/status` answers it: never a figure of the desk's own.
+    expect(closeWorstPrice(position, '1', 1000)).toBe('54000');
+    expect(closeWorstPrice({ ...position, side: 'short' }, '1', 1000)).toBe('66000');
+    // 60000.7 × 0.9 = 54000.63 → 54001 (a long's sell up); × 1.1 = 66000.77 → 66000 (a short's buy down).
+    expect(closeWorstPrice({ ...position, markPrice: '60000.7' }, '1', 1000)).toBe('54001');
+    expect(closeWorstPrice({ ...position, side: 'short', markPrice: '60000.7' }, '1', 1000)).toBe('66000');
   });
 
   it('a close’s worst price is one the venue takes: 5 significant figures, toward the mark', () => {
@@ -149,11 +153,11 @@ describe('venue client', () => {
       liquidationPrice: { known: false as const },
     };
     // 62424 × 0.95 = 59302.8 → 59303 (a long's sell floor up); 62424 × 1.05 = 65545.2 → 65545 (a short's buy cap down).
-    expect(closeWorstPrice(position, '0.1')).toBe('59303');
-    expect(closeWorstPrice({ ...position, side: 'short' }, '0.1')).toBe('65545');
+    expect(closeWorstPrice(position, '0.1', 500)).toBe('59303');
+    expect(closeWorstPrice({ ...position, side: 'short' }, '0.1', 500)).toBe('65545');
   });
 
-  it('bounds a market close by the owner’s price protection from the venue’s best price, as svc-trade does', () => {
+  it('bounds a market close by the owner’s close tolerance from the venue’s best price, else from the mark', () => {
     const position = {
       symbol: 'BTC-PERP',
       side: 'long' as const,
@@ -167,15 +171,16 @@ describe('venue client', () => {
       liquidationPrice: { known: false as const },
     };
     const best = { symbol: 'BTC-PERP', bid: '60000', ask: '60010' };
-    const cap = { value: best, slippageCapBps: { known: true as const, value: '50' } };
-    // A long closes with a sell against the best bid: at least 60000 less 50 bps, up toward the market.
-    expect(closeMarketPrice(position, '1', cap)).toBe('59700');
-    // A short closes with a buy against the best ask: at most 60010 plus 50 bps (60310.05), down toward the market.
-    expect(closeMarketPrice({ ...position, side: 'short' }, '1', cap)).toBe('60310');
-    // No cap, no best price on that side, or no read: the mark-based price goes, and svc-trade refuses it by name.
-    expect(closeMarketPrice(position, '1', { value: best, slippageCapBps: { known: false } })).toBe('57000');
-    expect(closeMarketPrice(position, '1', { ...cap, value: { ...best, bid: null } })).toBe('57000');
-    expect(closeMarketPrice(position, '1', null)).toBe('57000');
+    const read = { value: best };
+    // A long closes with a sell against the best bid: at least 60000 less 10%, up toward the market.
+    expect(closeMarketPrice(position, '1', read, 1000)).toBe('54000');
+    // A short closes with a buy against the best ask: at most 60010 plus 10%, down toward the market.
+    expect(closeMarketPrice({ ...position, side: 'short' }, '1', read, 1000)).toBe('66011');
+    // No best price on that side, or no read: 10% from the mark.
+    expect(closeMarketPrice(position, '1', { value: { ...best, bid: null } }, 1000)).toBe('54000');
+    expect(closeMarketPrice(position, '1', null, 1000)).toBe('54000');
+    // The tolerance blank: the mark itself goes, and svc-trade refuses it by name (trade.close_slippage_unset).
+    expect(closeMarketPrice(position, '1', read, null)).toBe('60000');
   });
 
   it('reads the door’s answers: status off, a prepared action, and an answer that is not definite', () => {

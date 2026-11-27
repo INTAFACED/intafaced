@@ -588,6 +588,8 @@ export type TradeErrorCode =
   | 'trade.slippage_cap_unset'
   /** Venue spot market order refused: TRADE_MARKET_SPREAD_LIMIT_BPS blank / non-integer / out of 1–5000. */
   | 'trade.spread_limit_unset'
+  /** A stop's or a reduce-only close's worst price refused: TRADE_CLOSE_SLIPPAGE_BPS blank / non-integer / out of 1–5000. */
+  | 'trade.close_slippage_unset'
   | 'trade.slippage_tolerance_invalid'
   /**
    * Market sell or flatten with no owner protection floor. Preview and place

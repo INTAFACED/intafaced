@@ -74,6 +74,7 @@ function desk(opts: { now?: () => Date; windowMs?: number | null; enabled?: bool
     stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
     builder: BUILDER,
     slippageCapBps: 50,
+    closeSlippageBps: 1000,
     spreadLimitBps: 100,
     now,
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),

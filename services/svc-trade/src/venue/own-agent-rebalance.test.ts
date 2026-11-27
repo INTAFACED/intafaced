@@ -143,6 +143,7 @@ describe("the Portfolio planner's rebalance of a person's own agent's sub-accoun
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       // Blank: an agent's market order carries the owner's agent bound as its worst price, never the spot protection.
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });

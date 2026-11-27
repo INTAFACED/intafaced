@@ -10,6 +10,7 @@ export default ({
   UNUSED,
   CUSTOMER_ORIGIN,
   CUSTOMER_LOCALHOST_ORIGIN,
+  PUBLIC_ORIGIN,
   INVITATION_ORIGIN,
   EDGE_UPSTREAMS,
   EDGE_ABSENT,
@@ -28,6 +29,10 @@ export default ({
       EDGE_RATE_LIMIT_MAX: '6000',
       EDGE_RATE_LIMIT_WINDOW_MS: '60000',
       EDGE_BODY_LIMIT_BYTES: '1048576',
+      // A stack opened on a public name (the hosted beta) is reached only through its own front on loopback, which writes
+      // each caller's address (tooling/beta/beta-front.mjs): trust that one hop, so each caller has their own bucket rather
+      // than every tester sharing 127.0.0.1's (#11027). Any other stack is reached directly and trusts no header.
+      ...(PUBLIC_ORIGIN ? { EDGE_TRUST_PROXY: '127.0.0.1' } : {}),
       // LOCAL TEST per-route cost of a key call (EDGE_RATE_ROUTE_COSTS, J-developer-06): the labelled TEST profile
       // (tooling/profiles/test-owner-values/edge.json), never an owner decision. Blank refuses every key call at the trade
       // and pay doors with edge.cost_unset.

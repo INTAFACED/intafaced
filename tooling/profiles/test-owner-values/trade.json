@@ -6,6 +6,11 @@
       "value": "150",
       "note": "Worst price a market buy may be funded at above the best ask."
     },
+    "TRADE_CLOSE_SLIPPAGE_BPS": {
+      "service": "trade",
+      "value": "1000",
+      "note": "How far a stop's market exit and a reduce-only close cross the market: 10%."
+    },
     "TRADE_MARKET_SPREAD_LIMIT_BPS": {
       "service": "trade",
       "value": "100",

@@ -269,6 +269,8 @@ continues it.
 | `WS_PER_IP_STORMS_BEFORE_BAN`, `WS_PER_IP_BAN_SECONDS` | that many storms, none a whole ban time after the one before, ban the address for the ban time: `429` `ws.ip_banned`. Either blank leaves the ban off; `GET /policy` says `perIp.ban: "unset"`. The address is the TCP peer                                                   |
 | `WS_HIGH_WATER_BYTES` / `WS_MAX_LAG_TICKS`             | slow client: see below                                                                                                                                                                                                                                                        |
 
+Behind a reverse proxy, `WS_TRUST_PROXY` lists its exact IP addresses: a listed peer's `x-forwarded-for`, read from the right, names the per-IP address (the first address not on the list); any other peer is the address itself. The private and drop-copy doors check a key's IP allowlist against the same caller. Unset, every caller behind a proxy shares its one budget, and those doors check the peer.
+
 Every ceiling is owner-published like the rest of this service: blank is refused, never defaulted. A multiplexed
 connection with a blank subscription or operation ceiling is closed `1008` with `ws.close.mux_max_subscriptions_unset`
 or `ws.close.mux_max_ops_per_second_unset`.

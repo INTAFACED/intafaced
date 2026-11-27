@@ -535,6 +535,7 @@ async function serve(routes: Array<{ method: string; url: string; body: unknown 
         door: userVenue,
         store: new SqlEngineProtectionStore(sql),
         keySeed: env.TRADE_AGENT_KEY_SEED,
+        closeSlippageBps: env.TRADE_CLOSE_SLIPPAGE_BPS,
         liveTier: (userId) => protectionTier.tierOf(userId),
         freeze: stub('identityFreeze'),
         now: () => new Date(),

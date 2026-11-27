@@ -511,6 +511,33 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log("local-test-stack: trade and matching carry svc-ledger's custody switch, so the own book runs only with custody on");
 }
 
+// The stack's one custody switch (#11019): LOCAL_STACK_CUSTODY_LAYER=off on a start runs every carrier off together, as
+// the launch build does (the beta); unset keeps them on; any other value refuses by name.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const before = process.env.LOCAL_STACK_CUSTODY_LAYER;
+  const carried = () =>
+    Object.fromEntries(
+      localTestServiceEnvs()
+        .filter((s) => 'LEDGER_CUSTODY_LAYER' in s.env)
+        .map((s) => [s.name, s.env.LEDGER_CUSTODY_LAYER]),
+    );
+  try {
+    delete process.env.LOCAL_STACK_CUSTODY_LAYER;
+    const on = carried();
+    assert.deepEqual(Object.keys(on).sort(), ['bank', 'ledger', 'matching', 'pay', 'trade']);
+    for (const [name, value] of Object.entries(on)) assert.equal(value, 'on', `${name} unset`);
+    process.env.LOCAL_STACK_CUSTODY_LAYER = 'off';
+    for (const [name, value] of Object.entries(carried())) assert.equal(value, 'off', `${name} with LOCAL_STACK_CUSTODY_LAYER=off`);
+    process.env.LOCAL_STACK_CUSTODY_LAYER = 'OFF';
+    assert.throws(localTestServiceEnvs, /LOCAL_STACK_CUSTODY_LAYER is "OFF"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_CUSTODY_LAYER;
+    else process.env.LOCAL_STACK_CUSTODY_LAYER = before;
+  }
+  console.log('local-test-stack: LOCAL_STACK_CUSTODY_LAYER=off starts every custody carrier off together');
+}
+
 // The bank carries the one LOCAL TEST sanctioned destination (J-wallet-05 #2), never a real list and never blank here.
 {
   const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
