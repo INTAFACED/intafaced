@@ -3,10 +3,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { existsSync, readFileSync as readText } from 'node:fs';
-import { ORIGIN, ROOT, api, fund, mailedLines, restartWith, signOutBrowser, signUpInBrowser, stackFile } from './stack.mjs';
+import { ORIGIN, ROOT, api, mailedLines, restartWith, signOutBrowser, signUpInBrowser, stackFile } from './stack.mjs';
 import { asDesk, clearOfGuestWindowEdge } from './help-centre.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { nextCode } from './identity-factors.mjs';
+import { partnerMainBalance } from './partner.mjs';
 
 // J-identity-13, in the running app (docs/roadmap/journeys.json): I think my account was compromised. Tests titled
 // "J-identity-13 #<n>" prove a whole step. #3 to #6 follow one TEST person in order (their case, their freeze, their
@@ -287,8 +288,19 @@ test(`${J} #3 "my account is compromised" ends every session and key, freezes th
   // A second sign-in, made after the authenticator (a sign-in from before it was refused on run 42350881324), and the key still live.
   const before = await api(who, { totpCode: await code() });
   expect((await withKey(key, { path: STATUS })).status).toBe(200);
-  // TEST funds, so #5 can show the report moves none.
-  expect(fund(who.email, 'USDT', '250').tx).toBeTruthy();
+  // TEST funds, so #5 can show the report moves none. Held where launch holds a person's bank money: at the TEST partner
+  // bank (the launch money model; INTAFACED holds no customer money), paid in there through the person's own bank API.
+  const held = await before.post('/api/bank/trpc/testPartner.set', { custody: 'off' });
+  expect(held.status, JSON.stringify(held.body).slice(0, 300)).toBe(200);
+  expect(held.body.result.data.custody).toBe('off');
+  const funded = await before.post('/api/bank/trpc/testPartner.fund', {
+    fundId: `${J}-${who.email}`.slice(0, 64),
+    assetId: 'USDT',
+    amount: '250',
+  });
+  expect(funded.status, JSON.stringify(funded.body).slice(0, 300)).toBe(200);
+  s.userId = before.userId;
+  expect(await partnerMainBalance(s.userId, 'USDT')).toBe('250');
   expect((await caseOf(before)) ?? null).toBeNull();
 
   // From Security, the person opens the guided page and confirms with their password.
@@ -409,10 +421,11 @@ test(`${J} #4 the checklist ticks itself when identity sees a password change an
 
 test(`${J} #5 a stolen-funds report is a case note and changes no balance`, async () => {
   test.setTimeout(120_000);
-  need('who', 'page', 'caseId', 'session');
+  need('who', 'page', 'caseId', 'session', 'userId');
   const { page } = s;
+  // The person's TEST money, as the partner bank holding it says, and their ledger balances, before the report.
+  expect(await partnerMainBalance(s.userId, 'USDT')).toBe('250');
   const before = await s.session.balances();
-  expect(before.USDT?.total).toBe('250');
 
   await page.goto('/uc/safe/compromised');
   const report = page.getByTestId('compromised__stolen-funds');
@@ -434,7 +447,8 @@ test(`${J} #5 a stolen-funds report is a case note and changes no balance`, asyn
   expect(twice.body.result.data.noteId).toBe(once.body.result.data.noteId);
   expect((await caseOf(s.session)).notes.filter((note) => note.body === 'TEST once')).toHaveLength(1);
 
-  // No balance moved.
+  // No balance moved: not at the partner, not in the ledger.
+  expect(await partnerMainBalance(s.userId, 'USDT')).toBe('250');
   expect(await s.session.balances()).toEqual(before);
 });
 

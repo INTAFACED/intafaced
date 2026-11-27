@@ -184,6 +184,12 @@ export interface StartHyperliquidVenueOptions {
   readonly betaPosture?: string | null;
   /** Where the venue's answers come from: a recording played back (`replayRecording`), or the live test network (omitted). */
   readonly fetch?: FetchLike;
+  /**
+   * The answers are the live test network's, also when `fetch` is given: a live run that records what the venue answers
+   * (`recordingFetch`). Live, reads are shared and the weight spent each minute is logged, as with no `fetch`, so a
+   * recording run stays inside the 1,200 weight a minute the venue allows one address. Defaults to no `fetch` given.
+   */
+  readonly live?: boolean;
   /** Named on `/health`, with the replay's misses on `GET /replay/misses`. */
   readonly source?: ReplaySource;
   readonly clock?: () => Date;
@@ -208,13 +214,14 @@ export async function startHyperliquidVenueServer(
     // Live, every tester's reads leave from this one address, which the venue limits by weight a minute: reads are shared.
     // A recording played back answers every read as recorded, so its reads stay one call each.
     // Live, the weight spent at the venue each minute is one log line, so the limit shows before it refuses.
-    ...(opts.fetch
-      ? { fetch: opts.fetch }
-      : {
+    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    ...((opts.live ?? !opts.fetch)
+      ? {
           shareReads: true,
           onWeightMinute: (spent: VenueWeightMinute) =>
             process.stdout.write(`${JSON.stringify({ msg: 'hl.venue_weight_minute', limit: 1200, ...spent })}\n`),
-        }),
+        }
+      : {}),
     ...(opts.clock ? { clock: opts.clock } : {}),
     ...(opts.nonceSource ? { nonceSource: opts.nonceSource } : {}),
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),

@@ -3,6 +3,7 @@ import { test, expect } from './journey.mjs';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { ADMIN } from './admin.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
 import { awayBid, fundedTrader } from './desk.mjs';
 import { api, ORIGIN, ROOT, STACK_PORTS, stackFile, tool } from './stack.mjs';
@@ -255,6 +256,15 @@ async function claimed(who, tag) {
   return made;
 }
 
+/** The request open in the lead's desk workspace, at its own address. */
+async function openOnDesk(page, ticketId) {
+  await page.goto(`${ADMIN}/support/${ticketId}`);
+  const detail = page.getByTestId('ticket-detail');
+  await expect(detail.getByRole('heading', { level: 3, name: new RegExp(`^Ticket ${ticketId.slice(0, 8)}`) })).toBeVisible();
+  await expect(detail.getByTestId('ticket-actions')).toBeVisible({ timeout: 30_000 });
+  return detail;
+}
+
 /** svc-support's own database, as its own role (the role the service writes with), on the journey stack. */
 async function supportDb() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
@@ -448,7 +458,10 @@ test(`${J} #2 reading the customer's balance or withdrawal destination is refuse
 
 test(`${J} #3 the account state is read for the ticket's owner only, one append-only row records who looked, and no balance is in it`, async ({
   browser,
+  founders,
+  stepPicture,
 }) => {
+  test.setTimeout(180_000);
   const { ticket, userId, who } = await request(browser);
   const { lead: leadId } = await deskPeople();
   // The lead works this request: the claim in request() landed.
@@ -460,9 +473,28 @@ test(`${J} #3 the account state is read for the ticket's owner only, one append-
           FROM support.ticket_events WHERE ticket_id = ${ticket.id} AND kind = 'grounding_read' ORDER BY sequence`;
     const before = await rows();
 
+    // The lead opens the request on the support desk: its customer card reads the ticket owner's account state, and the
+    // page shows that state and nothing about money.
+    // The lead (founder A) on the support desk in the console.
+    const { page: desk } = await founders.console('a');
+    const detail = await openOnDesk(desk, ticket.id);
+    const card = detail.getByTestId('customer-card');
+    const shown = card.getByTestId('customer-account-state');
+    await expect(shown).not.toHaveText(/^(unread|Reading…)$/, { timeout: 30_000 });
+    await expect(shown).not.toHaveAttribute('data-code');
+    await expect(detail.locator(`span[title="${userId}"]`)).toBeVisible();
+    await expect(card).not.toContainText(/balance|available|amount|USDT|USDC/i);
+    // One row, from the desk's one read: it names the lead as the operator who looked, and the state the card shows.
+    await expect.poll(async () => (await rows()).length, { timeout: 15_000 }).toBe(before.length + 1);
+    const viewed = (await rows()).at(-1);
+    expect(viewed).toMatchObject({ kind: 'grounding_read', actor_id: leadId, actor_role: 'operator', from_status: null, to_status: null });
+    expect(viewed.note).toBe(`account_state:${(await shown.textContent()).trim()}`);
+    await stepPicture(desk);
+
     // The read answers the ticket owner's account state, and nothing about money.
     const state = await lead('query', 'accountState', { ticketId: ticket.id });
     expect(state).toMatchObject({ status: 'read', state: { userId } });
+    expect(state.state.status).toBe((await shown.textContent()).trim());
     expect(Object.keys(state.state).sort()).toEqual(expect.arrayContaining(['kycTier', 'status', 'userId']));
     expect(JSON.stringify(state)).not.toMatch(/balance|available|amount|"(asset|total|locked)"/i);
 
@@ -488,9 +520,11 @@ test(`${J} #3 the account state is read for the ticket's owner only, one append-
     const missing = await asDesk('agent', 'query', 'accountState', { ticketId: '00000000-0000-4000-8000-00000000f00d' });
     expect([missing.status, missing.json?.error?.message]).toEqual([other.status, other.json?.error?.message]);
 
-    // Exactly one row, from the one answered read: it names the lead as the operator who looked, and holds no balance.
+    // Exactly one more row, from the one answered read: it names the lead as the operator who looked, and holds no
+    // balance. The refused reads wrote none.
     const after = await rows();
-    expect(after).toHaveLength(before.length + 1);
+    expect(after).toHaveLength(before.length + 2);
+    expect(after.at(-2)).toEqual(viewed);
     const row = after.at(-1);
     expect(row).toMatchObject({ kind: 'grounding_read', actor_id: leadId, actor_role: 'operator', from_status: null, to_status: null });
     expect(row.note).toBe(`account_state:${state.state.status}`);
@@ -517,8 +551,10 @@ test(`${J} #3 the account state is read for the ticket's owner only, one append-
 
 test(`${J} #4 a note that says the money moved is refused, and a closed or resolved deposit or withdrawal request never claims a payout`, async ({
   browser,
+  founders,
+  stepPicture,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const { who } = await request(browser);
   // Its own requests: closing one is final, so the shared request stays open for the other steps.
   const plain = await claimed(who, 'settle');
@@ -526,6 +562,29 @@ test(`${J} #4 a note that says the money moved is refused, and a closed or resol
   const trail = async (id) => (await lead('query', 'events', { ticketId: id, limit: 500 })).filter((e) => e.kind === 'status_changed');
   const was = (await lead('query', 'get', { ticketId: plain.id })).status;
   const moves = await trail(plain.id);
+
+  // On the support desk, the lead resolves the request with a note that says the money was paid out, then closes it with
+  // that note: each is refused, the page says nothing changed, and the request keeps its status.
+  // The lead (founder A) on the support desk in the console.
+  const { page: desk } = await founders.console('a');
+  const detail = await openOnDesk(desk, plain.id);
+  const actions = detail.getByTestId('ticket-actions');
+  for (const status of ['resolved', 'closed']) {
+    await actions.getByLabel('New status', { exact: true }).selectOption(status);
+    await actions.getByLabel(/^Reason/).fill(paid);
+    await actions.getByRole('button', { name: 'Review status change', exact: true }).click();
+    await actions.getByRole('button', { name: `Yes, set it to ${status}`, exact: true }).click();
+    const outcome = actions.getByTestId('status-outcome');
+    await expect(outcome, status).toHaveAttribute('data-code', 'support.settle.refused');
+    await expect(outcome, status).toHaveAttribute('role', 'alert');
+    await expect(outcome, status).toContainText('Nothing was changed.');
+    expect((await lead('query', 'get', { ticketId: plain.id })).status, status).toBe(was);
+    expect(await trail(plain.id), status).toEqual(moves);
+  }
+  await stepPicture(desk);
+  // Read again, the request still has the status it had.
+  await desk.reload();
+  await expect(detail.locator('dt:text-is("Status") + dd')).toHaveText(was);
 
   // Resolving a deposit or withdrawal request would claim a payout: refused with a note that says the money moved and
   // without one. Closing it with a note that says the money moved is refused too. Nothing changes.
@@ -565,12 +624,39 @@ test(`${J} #4 a note that says the money moved is refused, and a closed or resol
   expect(await trail(money.id)).toEqual(moneyMoves);
 });
 
-test(`${J} #5 a comment holding a card number or a seed phrase is refused and nothing is stored`, async ({ browser }) => {
+test(`${J} #5 a comment holding a card number or a seed phrase is refused and nothing is stored`, async ({
+  browser,
+  founders,
+  stepPicture,
+}) => {
+  test.setTimeout(180_000);
   const { ticket, who } = await request(browser);
   const card = 'TEST my card is 4111 1111 1111 1111, please check it';
   const seed = 'TEST abandon ability able about above absent absorb abstract absurd abuse access accident';
   const count = async () => (await lead('query', 'listComments', { ticketId: ticket.id, limit: 500 })).length;
   const before = await count();
+  // On the support desk, the lead pastes the card number into a public reply and the seed phrase into an internal note:
+  // each is refused, the page says nothing was stored, and no comment is added.
+  // The lead (founder A) on the support desk in the console.
+  const { page: desk } = await founders.console('a');
+  const detail = await openOnDesk(desk, ticket.id);
+  const actions = detail.getByTestId('ticket-actions');
+  await actions.getByLabel('Your reply', { exact: true }).fill(card);
+  await actions.getByRole('button', { name: 'Review reply', exact: true }).click();
+  await actions.getByRole('button', { name: 'Yes, send the reply', exact: true }).click();
+  const replied = actions.getByTestId('reply-outcome');
+  await expect(replied).toHaveAttribute('data-code', 'support.comment_secret_refused');
+  await expect(replied).toContainText('svc-support stored nothing.');
+  expect(await count()).toBe(before);
+  await actions.getByLabel('Internal note (staff only)', { exact: true }).check();
+  await actions.getByLabel('Your internal note', { exact: true }).fill(seed);
+  await actions.getByRole('button', { name: 'Review note', exact: true }).click();
+  await actions.getByRole('button', { name: 'Yes, add the note', exact: true }).click();
+  const noted = actions.getByTestId('note-outcome');
+  await expect(noted).toHaveAttribute('data-code', 'support.comment_secret_refused');
+  await expect(noted).toContainText('svc-support stored nothing.');
+  expect(await count()).toBe(before);
+  await stepPicture(desk);
   // From the desk, as a public reply and as an internal note.
   for (const body of [card, seed]) {
     expect(await refused('mutation', 'comment', { ticketId: ticket.id, body })).toContain('support.comment_secret_refused');

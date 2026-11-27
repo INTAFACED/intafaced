@@ -1,19 +1,11 @@
 // World: book, restart, stack
 import { test, expect } from './journey.mjs';
-import { openDesk, openOrders, signIn } from './desk.mjs';
-import {
-  api,
-  DEVICE_KEY,
-  EDGE,
-  fund,
-  journeyState,
-  mailedCodes,
-  ORIGIN,
-  signOutBrowser,
-  signUpInBrowser,
-  testPerson,
-  tool,
-} from './stack.mjs';
+import { openDesk, signIn } from './desk.mjs';
+import { CHAIN_ID, connectWhenAsked, testChain } from './dex.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { venueRecord } from './venue.mjs';
+import { venueOff, venueOn } from './venue-reads.mjs';
+import { api, DEVICE_KEY, EDGE, journeyState, mailedCodes, ORIGIN, signOutBrowser, signUpInBrowser, testPerson, tool } from './stack.mjs';
 
 // J-identity-22, in the running app (docs/roadmap/journeys.json): the app lets nobody in until the country list is set.
 // Starts on the TEST stack with identity's blocked-countries list set; every person here is a TEST person. #1 restarts
@@ -24,6 +16,14 @@ const J = 'J-identity-22';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+
+/** The launch desk's TEST market on the person's own venue account (the stack's TEST venue lists BTC/USDC). */
+const VENUE_SYMBOL = 'BTC/USDC';
+
+// The launch desk is the person's own venue account: the user-venue door is on for this file and put back off after it,
+// as every other journey expects it.
+test.beforeAll(() => venueOn());
+test.afterAll(() => venueOff());
 
 /**
  * Identity restarted on one blocked-countries list (`LOCAL_STACK_IDENTITY_SCREENING`, tooling/scripts/local-stack-services/
@@ -187,26 +187,44 @@ test(`${J} #2 with the TEST list back, a person whose account was made before th
     await expect(page.getByRole('form', { name: /trading checks/i })).toBeVisible();
     await expect(page.getByText(/under review/i)).toHaveCount(0);
 
-    // The desk keeps refusing orders: it asks to verify, and an order sent anyway is refused; none rests. TEST funds first,
-    // so the refusal is the verification one, never an empty balance.
-    expect(fund(cuban.email, 'USDT', '100').tx).toBeTruthy();
-    await openDesk(page, cuban);
+    // The desk keeps refusing orders: it asks to verify, and an order sent anyway is refused; none rests. The desk is the
+    // launch desk, on the person's own venue account (custody off, our own book takes no order), with their TEST wallet
+    // connected, so the closed Buy is the verification refusal and never a missing wallet.
+    const wallet = await installTestWallet(page, { chainId: CHAIN_ID, privateKey: testWalletKey(), rpcUrl: testChain().gateUrl });
+    const owner = wallet.address.toLowerCase();
+    await openDesk(page, cuban, VENUE_SYMBOL);
+    await expect(page.getByTestId('if-desk')).toHaveAttribute('data-venue', 'on');
+    await expect(page.getByTestId('if-desk')).toHaveAttribute('data-access', 'verify');
+    const panel = page.getByRole('region', { name: /venue account/i });
+    await expect(panel).toBeVisible();
+    await connectWhenAsked(page, panel.getByText(owner), panel);
+    await expect(panel).toContainText(owner);
     await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
     await page.getByRole('textbox', { name: 'Price', exact: true }).first().fill('1000');
     await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('0.01');
     await expect(page.locator('#dk-reason-buy')).toContainText('Verify your identity first');
     await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
-    const order = await session.post('/api/v1/orders', {
-      symbol: 'BTC/USDT',
-      type: 'limit',
-      side: 'buy',
-      amount: '0.01',
-      price: '1000',
-      clientOrderId: `${J}-${Date.now()}`,
+    // An order sent anyway, straight to the venue door as the API places it, is refused for the verification level.
+    const order = await session.post('/api/v1/venue/prepare', {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: {
+        kind: 'place_order',
+        symbol: VENUE_SYMBOL,
+        side: 'buy',
+        type: 'limit',
+        amount: '0.01',
+        price: '1000',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: `order:${owner}:btc/usdc:${J}-${Date.now()}`,
+        builderFee: null,
+      },
     });
     expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBe(403);
     expect(JSON.stringify(order.body)).toMatch(/kyc_required/);
-    expect(await openOrders(cuban)).toHaveLength(0);
+    // None rests: the venue's own record lists no order for the wallet.
+    expect((await venueRecord(owner, '/open-orders')).value).toHaveLength(0);
   } finally {
     identityList(null);
   }
