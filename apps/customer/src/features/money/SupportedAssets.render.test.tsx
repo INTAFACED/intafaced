@@ -86,6 +86,17 @@ describe('supported assets and networks', () => {
     expect(host.querySelector('a[href="/uc/withdraw"]')).not.toBeNull();
   });
 
+  it("on the launch model, a retired asset's history link asks for the records of the places that hold it, not our ledger", async () => {
+    await mount(
+      <SupportedAssetsView
+        resource={ready([asset({ assetId: asAssetId('OLD'), networks: [], defaultNetworkId: null, allowedActions: [], state: 'retired' })])}
+        reload={() => undefined}
+        sourceRecords
+      />,
+    );
+    expect(row('OLD').querySelector('a')!.getAttribute('href')).toBe('/money/balance/OLD?source=all');
+  });
+
   it('an empty registry says nothing is published; a refusal is named with a retry; loading shows no rows', async () => {
     await mount(<SupportedAssetsView resource={ready([])} reload={() => undefined} />);
     expect(host.textContent).toContain('No asset is published');
