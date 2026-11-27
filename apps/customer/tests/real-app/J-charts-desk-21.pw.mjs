@@ -222,10 +222,10 @@ test(`${J} #1 opens Settings, Notifications, presses Connect Telegram and sends 
   // After 5 minutes (the TEST age door moves the code's own times back 5 minutes): refused in chat, nothing linked.
   await ageRecord('notify', 'telegram-link-code', userId, 5 * 60_000);
   expect(await say(chat, first)).toBe(
-    'That code is not valid: it is wrong, used or expired. Nothing was linked. Get a new one in Account settings.',
+    'That code is not valid: it is wrong, used or expired. Nothing was linked. Get a new one in Settings, Notifications.',
   );
   expect(await say(chat, '/positions')).toBe(
-    'This chat is not linked. Get a one-time code in the app under Account settings, then send /start <code> here.',
+    'This chat is not linked. Get a one-time code in the app under Settings, Notifications, then send /start <code> here.',
   );
   await page.reload();
   await expect(card(page)).toHaveAttribute('data-state', 'unlinked');
@@ -243,12 +243,12 @@ test(`${J} #1 opens Settings, Notifications, presses Connect Telegram and sends 
   await expect(card(page).getByTestId('nf-telegram-code')).toHaveCount(0);
 
   // The same code again, from this chat and from another: refused in chat, and nothing more linked.
-  const refused = 'That code is not valid: it is wrong, used or expired. Nothing was linked. Get a new one in Account settings.';
+  const refused = 'That code is not valid: it is wrong, used or expired. Nothing was linked. Get a new one in Settings, Notifications.';
   expect(await say(chat, second)).toBe(refused);
   const other = { id: chat.id + 1, username: `${chat.username}_other` };
   expect(await say(other, second)).toBe(refused);
   expect(await say(other, '/positions')).toBe(
-    'This chat is not linked. Get a one-time code in the app under Account settings, then send /start <code> here.',
+    'This chat is not linked. Get a one-time code in the app under Settings, Notifications, then send /start <code> here.',
   );
   await page.reload();
   await expect(card(page)).toHaveAttribute('data-state', 'linked', { timeout: 15_000 });
@@ -460,7 +460,9 @@ test(`${J} #6 presses Unlink in Settings, then sends /positions: Telegram shown 
   await expect(card(page)).toHaveAttribute('data-state', 'unlinked', { timeout: 30_000 });
 
   const reply = await say(chat, '/positions');
-  expect(reply).toBe('This chat is not linked. Get a one-time code in the app under Account settings, then send /start <code> here.');
+  expect(reply).toBe(
+    'This chat is not linked. Get a one-time code in the app under Settings, Notifications, then send /start <code> here.',
+  );
   expect(reply).not.toMatch(/\d/);
 
   // No further messages: a new fill on the venue, and the sweeps after it, send nothing to the chat.

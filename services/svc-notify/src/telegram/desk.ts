@@ -214,7 +214,8 @@ export class TelegramDesk {
     if (TRADING_WORDS.has(command.replace(/^\//, ''))) return TRADING_OFF_REPLY;
     if (command !== '/positions' && command !== '/pnl') return READ_ONLY_REPLY;
     const link = await this.deps.store.linkByChat(chatId);
-    if (!link) return 'This chat is not linked. Get a one-time code in the app under Account settings, then send /start <code> here.';
+    if (!link)
+      return 'This chat is not linked. Get a one-time code in the app under Settings, Notifications, then send /start <code> here.';
     const read = await this.deps.reader.read({ userId: link.userId, since: link.linkedAt.toISOString() });
     if (read.state === 'off') return 'No venue is connected on this deployment, so there are no figures to show.';
     if (read.state === 'unreadable')
@@ -224,12 +225,12 @@ export class TelegramDesk {
   }
 
   private async link(chatId: string, code: string | undefined, handle: string | null): Promise<string> {
-    if (!code) return 'Send /start followed by the one-time code from Account settings in the app.';
+    if (!code) return 'Send /start followed by the one-time code from Settings, Notifications in the app.';
     const out = await this.deps.store.redeemCode(digestOf(code), chatId, handle, this.now());
     if (!out.ok)
       return out.reason === 'chat_taken'
         ? 'This chat is already linked to another account. Unlink it there first.'
-        : 'That code is not valid: it is wrong, used or expired. Nothing was linked. Get a new one in Account settings.';
+        : 'That code is not valid: it is wrong, used or expired. Nothing was linked. Get a new one in Settings, Notifications.';
     return `Linked. ${READ_ONLY_REPLY} Alerts: your fills, margin use at 80% and 90%, and your weekly profit target.`;
   }
 
