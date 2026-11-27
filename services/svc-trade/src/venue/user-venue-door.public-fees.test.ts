@@ -68,4 +68,27 @@ describe('UserVenueDoor.publicFees (J-cex-spot-10 #2)', () => {
       builderFeeBps: { known: true, value: BUILDER.feeBps },
     });
   });
+
+  it('lists what a USDC withdrawal to the wallet costs, as the venue publishes it, beside the trading fees', async () => {
+    const d = new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
+      appEnv: 'test',
+      store: new InMemoryPreparedActionStore(),
+      stepUp: allowAll,
+      builder: BUILDER,
+      slippageCapBps: null,
+      closeSlippageBps: 1000,
+      now: () => new Date(),
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),
+    });
+    sim.switches.withdrawalFee = { known: true, value: a('1') };
+    sim.switches.networkFee = { known: false };
+    sim.switches.withdrawalArrivalSeconds = 240;
+    expect((await d.publicFees()).value.withdrawal).toEqual({
+      asset: 'USDC',
+      fee: { known: true, value: a('1') },
+      networkFee: { known: false },
+      arrivalSeconds: 240,
+    });
+  });
 });
