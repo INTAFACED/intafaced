@@ -41,8 +41,6 @@ const ORDER: PlaceUserOrderIntent = {
 
 /** A well-formed intent of every kind NOT_OFFERED names: a kind added there fails to compile until it is here too. */
 const NOT_OFFERED_INTENTS: { readonly [K in keyof typeof NOT_OFFERED]: Extract<VenueIntent, { kind: K }> } = {
-  amend_order: { kind: 'amend_order', symbol: 'ETH-PERP', venueClientOrderId: '0x01', amount: a('1'), price: a('1') },
-  replace_order: { kind: 'replace_order', symbol: 'ETH-PERP', venueClientOrderId: '0x01', order: ORDER },
   cancel_orders: { kind: 'cancel_orders', orders: [{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }] },
   schedule_cancel: { kind: 'schedule_cancel', timeoutSec: 60, time: null },
   create_sub_account: { kind: 'create_sub_account', name: 'TEST sub', subAccountKey: 'sub:owner:1' },
