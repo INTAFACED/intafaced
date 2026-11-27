@@ -357,6 +357,11 @@ test(`${J} #5 sends the same client id with a different price: refused with a ty
   const owner = ownerOf(s);
   // A book this step owns (as #7's): a fresh TEST market no other file trades, so its empty book makes both buys rest.
   const market = await freshListedMarket('C');
+  // Our door lists a market it has just been told of once it re-reads the venue's list: wait for that once, then act once.
+  const client = await api(s.account);
+  await expect
+    .poll(async () => (await client.get('/api/v1/venue/markets')).body?.value?.some((m) => m.symbol === market.symbol), { timeout: 30_000 })
+    .toBe(true);
   const wallet = await openVenueDesk(page, s.account, `/trade/spot/${market.symbol}`, s.walletKey);
   const door = doorCalls(page);
   const ledgerBefore = await ledgerView(s.account);
@@ -365,16 +370,18 @@ test(`${J} #5 sends the same client id with a different price: refused with a ty
   const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
   const amountBox = form.getByRole('textbox', { name: 'Amount', exact: true });
   const confirm = page.getByRole('button', { name: 'Confirm buy', exact: true });
-  /** Types a limit buy at `price` and opens its review once the venue's preview answers (a new market may take a moment). */
+  /** Types a limit buy at `price` and opens its review once the venue's preview of it answers. */
   const review = async (price) => {
+    const answer = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === '/api/v1/venue/preview' &&
+        r.request().method() === 'POST' &&
+        r.request().postDataJSON()?.intent?.price === price,
+    );
     await form.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
-    await expect(async () => {
-      await amountBox.fill('');
-      const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-      await amountBox.fill(amount);
-      const res = await answer;
-      expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
-    }).toPass({ timeout: 30_000, intervals: [2_000] });
+    await amountBox.fill(amount);
+    const res = await answer;
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
     await page.getByRole('button', { name: `Buy ${market.base}`, exact: true }).click();
     const sheet = reviewSheet(page);
     await expect(sheet).toBeVisible();
