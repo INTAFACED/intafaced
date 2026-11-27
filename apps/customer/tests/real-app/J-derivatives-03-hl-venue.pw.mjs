@@ -47,7 +47,7 @@ test.afterAll(async ({ browser }) => {
   const page = await browser.newPage();
   try {
     const { owner } = await desk(page);
-    await flatten(page, owner);
+    await flatten(page, owner, run.read().exits ?? []);
   } finally {
     await page.close();
   }
@@ -90,36 +90,34 @@ async function desk(page) {
 }
 
 /**
- * TEST, the flatten a tester does by hand: every exit order on ETH-PERP cancelled from its dialog and the position closed
- * in full, reduce-only, each leg confirmed on the venue's own record. Every exit order listed, not only this run's: a run
- * cut short leaves its own on the funded account, and the next day's
- * run starts by clearing them. A new page holds no session key, so it starts its own session first.
+ * TEST, the flatten a tester does by hand: this run's exit orders (`exits`, their client ids) cancelled from the exit
+ * orders dialog, and the position closed in full, reduce-only, each leg confirmed on the venue's own record. An exit
+ * order an earlier run left under another sign-up is not this sign-in's, and the desk cancels no order this browser did
+ * not place on this venue, so it stays; a run reads only its own. A new page holds no session key, so it starts its own
+ * session first.
  */
-async function flatten(page, owner) {
-  if ((await positionOf(owner)) === null) return;
+async function flatten(page, owner, exits) {
+  if ((await positionOf(owner)) === null && exits.length === 0) return;
   if (sessionVenue) await startVenueSession(page);
-  const dialog = await exitOrders(page);
   const resting = async () => (await openOrders(owner)).filter((o) => o.trigger).length;
-  const listedOrders = listed(dialog).locator('li[data-client-order-id]');
-  // The dialog lists every exit order the venue holds once it has read them, so the count waited for is the venue's.
-  const onVenue = await resting();
-  await expect(listedOrders, `the dialog lists the venue's ${onVenue} exit order(s)`).toHaveCount(onVenue, { timeout: 20_000 });
-  const ids = await listedOrders.evaluateAll((items) => items.map((li) => li.getAttribute('data-client-order-id')));
-  for (const id of ids) {
-    const before = await resting();
-    await item(dialog, id).getByRole('button', { name: 'Cancel', exact: true }).click();
-    await signed(page);
-    await expect.poll(resting, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` }).toBe(before - 1);
+  if (exits.length > 0) {
+    const dialog = await exitOrders(page);
+    for (const id of exits) {
+      await expect(item(dialog, id)).toBeVisible({ timeout: 20_000 });
+      const before = await resting();
+      await item(dialog, id).getByRole('button', { name: 'Cancel', exact: true }).click();
+      await signed(page);
+      await expect.poll(resting, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` }).toBe(before - 1);
+    }
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
   }
-  expect(await resting()).toBe(0);
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
+  if ((await positionOf(owner)) === null) return;
   const close = row(page).getByTestId('venue-close');
   await close.getByRole('textbox').fill('100');
   await close.getByRole('button', { name: 'Close 100%', exact: true }).click();
   await signed(page);
   await expect.poll(async () => positionOf(owner), { timeout: 30_000, message: 'the position closed' }).toBeNull();
-  expect(await openOrders(owner)).toEqual([]);
 }
 
 /** TEST funding of the simulator's venue account; throws when the simulator credits nothing. */
@@ -176,8 +174,10 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   const { owner } = await desk(page);
   // TEST funding on the simulator only: on the test network the trader's own account already holds TEST USDC.
   if (!sessionVenue) await fundOnSimulator(owner);
-  // TEST setup: whatever an earlier run cut short left on the funded account is flattened first.
-  await flatten(page, owner);
+  // TEST setup: a position an earlier run cut short left on the funded account is closed first; exit orders it left
+  // are set aside, so the step reads only the ones it arms.
+  await flatten(page, owner, []);
+  const earlier = new Set((await openOrders(owner)).filter((o) => o.trigger).map((o) => o.venueOrderId));
   const market = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === SYMBOL);
   expect(market, `${SYMBOL} is on the venue's own market list`).toBeTruthy();
   // What the venue judges trigger orders on: its mark (Hyperliquid triggers on the mark price).
@@ -238,7 +238,9 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
     return answer.request().postDataJSON();
   };
   const tp = await arm('Take profit', takeProfit);
+  run.write({ exits: [tp.clientOrderId] });
   const sl = await arm('Stop loss', stopLoss);
+  run.write({ exits: [tp.clientOrderId, sl.clientOrderId] });
   expect(tp).toMatchObject({ kind: 'take_profit', side: 'sell', triggerPrice: takeProfit, triggerSource: 'mark' });
   expect(sl).toMatchObject({ kind: 'stop_loss', side: 'sell', triggerPrice: stopLoss, triggerSource: 'mark' });
   // Each is signed by what signs the venue's orders: the session key on Hyperliquid, the wallet on the simulator.
@@ -247,7 +249,7 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   expect(sl.signer?.role ?? 'owner').toBe(signer);
 
   // Both rest on the venue as its trigger orders: reduce-only, waiting, each with its own venue order id and price.
-  const triggers = (await openOrders(owner)).filter((o) => o.trigger);
+  const triggers = (await openOrders(owner)).filter((o) => o.trigger && !earlier.has(o.venueOrderId));
   expect(triggers.map((o) => [o.trigger.role, o.trigger.state, o.trigger.source, o.side, o.reduceOnly]).sort()).toEqual([
     ['stop_loss', 'waiting', 'mark', 'sell', true],
     ['take_profit', 'waiting', 'mark', 'sell', true],
