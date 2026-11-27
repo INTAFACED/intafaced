@@ -181,7 +181,9 @@ export function ChartsLookupResult({ view }: { view: SupportChartsLookupView | n
                   <td>{x.symbol}</td>
                   <td>{x.interval}</td>
                   <td>
-                    {x.desk.preset}: {x.desk.order.join(', ')}
+                    {x.desk.v === 1
+                      ? `${x.desk.preset}: ${x.desk.order.join(', ')}`
+                      : `${x.desk.panels.length} panels: ${x.desk.panels.map((panel) => panel.type).join(', ')}`}
                   </td>
                   <td>{formatWhen(x.savedAt)}</td>
                   <td>{l.layouts.status === 'read' && l.layouts.active === x.id ? 'yes' : 'no'}</td>

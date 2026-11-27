@@ -84,11 +84,15 @@ function readWeight(type: string, answer: Json | undefined): number {
   if (type === 'candleSnapshot') return base + Math.floor(items / 60);
   return PER_ITEM_READS.has(type) ? base + Math.floor(items / 20) : base;
 }
-/** One minute's spend at the venue: requests and weight by request type, the minute named by its start (UTC). */
+/**
+ * One minute's spend at the venue: requests and weight by request type, the minute named by its start (UTC). A read of
+ * one account also names how many different accounts it was read for (`accounts`), so a reader that reads every account
+ * shows apart from one that reads a few often.
+ */
 export interface VenueWeightMinute {
   readonly minute: string;
   readonly weight: number;
-  readonly byType: Readonly<Record<string, { readonly requests: number; readonly weight: number }>>;
+  readonly byType: Readonly<Record<string, { readonly requests: number; readonly weight: number; readonly accounts?: number }>>;
 }
 const freshFor = (type: string) =>
   LIGHT_READS.has(type)
@@ -275,7 +279,7 @@ export abstract class HyperliquidCore {
   /** Per account, bumped by every signed action for it, so a read of it that began before the action is not kept after. */
   private readonly readsEpoch = new Map<string, { orders: number; rare: number }>();
   private readonly onWeightMinute: ((spent: VenueWeightMinute) => void) | null;
-  private weightMinute: { startMs: number; byType: Map<string, { requests: number; weight: number }> } | null = null;
+  private weightMinute: { startMs: number; byType: Map<string, { requests: number; weight: number; users: Set<string> }> } | null = null;
   /**
    * Destinations of withdrawals signed and sent through this instance, by
    * nonce. The venue's ledger read does not report one; this is the
@@ -377,16 +381,16 @@ export abstract class HyperliquidCore {
   }
 
   /** Counts one request that left for the venue, and tells `onWeightMinute` the last minute's spend once a new one starts. */
-  protected spend(type: string, weight: number): void {
+  protected spend(type: string, weight: number, user: string | null = null): void {
     if (this.onWeightMinute === null) return;
     const startMs = Math.floor(this.clock().getTime() / 60_000) * 60_000;
     let current = this.weightMinute;
     if (current === null || current.startMs !== startMs) {
       if (current !== null) {
-        const byType: Record<string, { requests: number; weight: number }> = {};
+        const byType: Record<string, { requests: number; weight: number; accounts?: number }> = {};
         let total = 0;
         for (const [t, v] of [...current.byType].sort(([, a], [, b]) => b.weight - a.weight)) {
-          byType[t] = { ...v };
+          byType[t] = { requests: v.requests, weight: v.weight, ...(v.users.size > 0 ? { accounts: v.users.size } : {}) };
           total += v.weight;
         }
         this.onWeightMinute({ minute: new Date(current.startMs).toISOString(), weight: total, byType });
@@ -394,9 +398,10 @@ export abstract class HyperliquidCore {
       current = { startMs, byType: new Map() };
       this.weightMinute = current;
     }
-    const row = current.byType.get(type) ?? { requests: 0, weight: 0 };
+    const row = current.byType.get(type) ?? { requests: 0, weight: 0, users: new Set<string>() };
     row.requests += 1;
     row.weight += weight;
+    if (user !== null) row.users.add(user.toLowerCase());
     current.byType.set(type, row);
   }
 
@@ -417,7 +422,7 @@ export abstract class HyperliquidCore {
       } catch {
         answer = undefined;
       }
-      this.spend(String(body.type), readWeight(String(body.type), answer));
+      this.spend(String(body.type), readWeight(String(body.type), answer), typeof body.user === 'string' ? body.user : null);
       if (res.status === 429 && retry429) {
         clearTimeout(timer);
         const said = Number(res.headers?.get('retry-after') ?? NaN);

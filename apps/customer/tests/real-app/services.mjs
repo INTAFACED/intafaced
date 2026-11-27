@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { ROOT, shownOutput } from './stack.mjs';
+import { STACK_START_SETTINGS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 /**
  * The stack's services as the world restore puts them back: after a file that restarts a service, the next file starts on
@@ -41,10 +42,14 @@ export function downRows(stdout) {
     .map((l) => l.trim());
 }
 
-/** `env` without its `LOCAL_STACK_*=off` values: the environment a blanked service is started again in. */
+/**
+ * `env` without its `LOCAL_STACK_*=off` values: the environment a blanked service is started again in. The stack's own
+ * start settings (STACK_START_SETTINGS: the custody switch) stay, so a custody-off stack is restarted custody off.
+ */
 export function withoutOff(env = process.env) {
   const out = { ...env };
-  for (const k of Object.keys(out)) if (/^LOCAL_STACK_[A-Z0-9_]+$/.test(k) && out[k] === 'off') delete out[k];
+  for (const k of Object.keys(out))
+    if (/^LOCAL_STACK_[A-Z0-9_]+$/.test(k) && out[k] === 'off' && !STACK_START_SETTINGS.has(k)) delete out[k];
   return out;
 }
 
