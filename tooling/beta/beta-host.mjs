@@ -1186,6 +1186,7 @@ async function main(argv) {
     const current = s.sha ?? git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
     if (!current) throw new Error(`no commit served yet (${paths.status})`);
     const want = rest[0] ?? `${current}^`;
+    if (want.startsWith('-')) throw new Error(`${want} is not a commit: name a commit, not an option`);
     const r = git(paths.checkout, 'rev-parse', '--verify', '--quiet', `${want}^{commit}`);
     const sha = r.stdout.trim();
     if (r.status !== 0 || !sha) throw new Error(`${want} is not a commit in the beta checkout (${paths.checkout})`);
