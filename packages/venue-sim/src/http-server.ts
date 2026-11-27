@@ -1012,6 +1012,8 @@ async function route(
       return sim.preview(account(body), body.intent as PlaceUserOrderIntent);
     case '/best-prices':
       return sim.bestPrices(str(body, 'symbol'));
+    case '/perpetual-prices':
+      return sim.perpetualPrices();
     case '/trades':
       return sim.trades(str(body, 'symbol'), readLimit(body));
     case '/candles': {

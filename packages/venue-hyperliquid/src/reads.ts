@@ -16,6 +16,7 @@ import {
   type UserVenueWithdrawal,
   VENUE_CANDLE_INTERVALS,
   type VenueBestPrices,
+  type VenuePerpetualPrice,
   type VenueBook,
   type VenueBookLevel,
   type VenueCandle,
@@ -178,6 +179,40 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       ...read,
       value: { symbol: read.value.symbol, bid: read.value.bids[0]?.price ?? null, ask: read.value.asks[0]?.price ?? null },
     };
+  }
+
+  /**
+   * `UserVenue.perpetualPrices`: every listed perpetual's mark, oracle, previous-day price and 24h volumes from
+   * `metaAndAssetCtxs`, one read per DEX (the same answer `positions` reads its marks from, so the two share it). The
+   * contexts are indexed by that answer's own universe; a coin we do not list, or a context with no mark, is left out.
+   */
+  async perpetualPrices(): Promise<AsOf<readonly VenuePerpetualPrice[]>> {
+    const { byCoin } = await this.loadMarkets();
+    const dexes = await this.perDex(async (dex) => arr(await this.info({ type: 'metaAndAssetCtxs', ...dex }), 'metaAndAssetCtxs'));
+    const optional = (value: Json | undefined, what: string): Amount | undefined =>
+      typeof value === 'string' ? amt(value, what) : undefined;
+    const list: VenuePerpetualPrice[] = [];
+    for (const both of dexes) {
+      const universe = arr(obj(both[0], 'metaAndAssetCtxs meta').universe, 'metaAndAssetCtxs universe');
+      const ctxs = arr(both[1], 'asset contexts');
+      universe.forEach((u, i) => {
+        const coin = str(obj(u, 'universe entry').name, 'universe name');
+        const m = byCoin.get(coin);
+        const ctx = ctxs[i] === undefined ? undefined : obj(ctxs[i], 'asset ctx');
+        if (!m || m.kind !== 'perpetual' || !ctx || typeof ctx.markPx !== 'string') return;
+        const published = {
+          indexPrice: optional(ctx.oraclePx, 'oraclePx'),
+          openPrice: optional(ctx.prevDayPx, 'prevDayPx'),
+          baseVolume: optional(ctx.dayBaseVlm, 'dayBaseVlm'),
+          volume: optional(ctx.dayNtlVlm, 'dayNtlVlm'),
+        };
+        const price: VenuePerpetualPrice = { symbol: m.symbol, markPrice: amt(ctx.markPx, 'markPx') };
+        for (const [key, value] of Object.entries(published)) if (value !== undefined) Object.assign(price, { [key]: value });
+        list.push(price);
+      });
+    }
+    list.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    return this.asOf(list);
   }
 
   /**

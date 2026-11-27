@@ -856,17 +856,26 @@ export const venueAnalyticsReadSchema = marketAnalyticsSchema.extend({
 });
 export type VenueAnalyticsRead = z.infer<typeof venueAnalyticsReadSchema>;
 
-/** Public venue ticker row (J-cex-spot-14 #8): derived from the venue's own book and 24h trade tape. */
+/**
+ * Public venue ticker row (J-cex-spot-14 #8): a spot market's from the venue's own book and 24h trade tape; a
+ * perpetual's from the venue's own published prices (`mark`, its oracle `index`, `open` 24 hours ago, the move since
+ * then as `change` and the ratio `changePct`), with no last print. A figure the venue does not publish is null.
+ */
 export const venueTickerRowSchema = z.object({
   symbol: z.string(),
   last: decimalSchema.nullable(),
   high: decimalSchema.nullable(),
   low: decimalSchema.nullable(),
-  baseVolume: decimalSchema,
-  quoteVolume: decimalSchema,
+  baseVolume: decimalSchema.nullable(),
+  quoteVolume: decimalSchema.nullable(),
   bid: decimalSchema.nullable(),
   ask: decimalSchema.nullable(),
   spread: decimalSchema.nullable(),
+  mark: decimalSchema.nullable().optional(),
+  index: decimalSchema.nullable().optional(),
+  open: decimalSchema.nullable().optional(),
+  change: signedDecimalSchema.nullable().optional(),
+  changePct: signedDecimalSchema.nullable().optional(),
 });
 export type VenueTickerRow = z.infer<typeof venueTickerRowSchema>;
 export const venueTickersReadSchema = asOf(z.record(z.string(), venueTickerRowSchema)).extend({ test: z.boolean() });
