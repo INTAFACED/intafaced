@@ -1586,3 +1586,129 @@ describe("public market data: best prices, prints and candles, no account (the d
     await refusedWith(venueWith(fake).trades('BTC-PERP', 10), 'venue_down'); // no recentTrades handler: HTTP 400
   });
 });
+
+describe('HIP-3 perp DEXs: the stock, index and gold perpetuals (#11017)', () => {
+  // The test network's answers, cut down (read 27 Nov 2026): `perpDexs` lists the main DEX as null, then each HIP-3 DEX;
+  // `metaAndAssetCtxs` with `dex` lists that DEX's markets under `<dex>:<coin>`, with their live open interest.
+  const XYZ_DEPLOYER = '0x7770132f86dd4002d018edd7d348f4a0e4340777';
+  const PERP_DEXS = [
+    null,
+    { name: 'test', fullName: 'test dex', deployer: '0x5e89b26d8d66da9888c835c9bfcc2aa51813e152', assetToStreamingOiCap: [] },
+    { name: 'xyz', fullName: 'XYZ', deployer: XYZ_DEPLOYER, assetToStreamingOiCap: [['xyz:TSLA', '50000000.0']] },
+  ];
+  const XYZ_META = {
+    universe: [
+      { name: 'xyz:TSLA', szDecimals: 3, maxLeverage: 10, growthMode: 'enabled' },
+      { name: 'xyz:HOOD', szDecimals: 3, maxLeverage: 10, onlyIsolated: true, marginMode: 'noCross' },
+      { name: 'xyz:URANIUM', szDecimals: 3, maxLeverage: 10, onlyIsolated: true, isDelisted: true },
+      { name: 'xyz:SKHX', szDecimals: 3, maxLeverage: 10, onlyIsolated: true },
+    ],
+    collateralToken: 0,
+  };
+  const XYZ_CTXS = [
+    { markPx: '378.82', openInterest: '51.352', funding: '0.0' },
+    { markPx: '71.0', openInterest: '0.626', funding: '0.0' },
+    { markPx: '85.0', openInterest: '0.0', funding: '0.0' },
+    { markPx: '866.135', openInterest: '0.0', funding: '0.0' },
+  ];
+
+  function hip3Venue() {
+    const fake = fakeVenue();
+    fake.info.perpDexs = () => PERP_DEXS;
+    fake.info.metaAndAssetCtxs = (b) =>
+      b.dex === 'xyz' ? [XYZ_META, XYZ_CTXS] : [META, [{ markPx: '60000' }, { markPx: '2010' }, { markPx: '1' }]];
+    const venue = new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      fetch: fake.fetch,
+      clock: () => new Date(NOW),
+      timeoutMs: 50,
+      perpDexs: ['xyz'],
+    });
+    return { fake, venue };
+  }
+
+  it('lists each live market of a named DEX under its dex prefix, and no delisted or untraded one', async () => {
+    const { venue } = hip3Venue();
+    const listed = (await venue.markets(null)).value;
+    const symbols = listed.map((m) => m.symbol);
+    expect(symbols).toEqual(expect.arrayContaining(['BTC-PERP', 'ETH-PERP', 'xyz:TSLA-PERP', 'xyz:HOOD-PERP']));
+    expect(symbols).not.toContain('xyz:URANIUM-PERP');
+    expect(symbols).not.toContain('xyz:SKHX-PERP');
+    const tsla = listed.find((m) => m.symbol === 'xyz:TSLA-PERP')!;
+    expect([tsla.kind, tsla.baseAsset, tsla.quoteAsset, tsla.lotSize, tsla.maxLeverageBps]).toEqual([
+      'perpetual',
+      'xyz:TSLA',
+      'USDC',
+      a('0.001'),
+      100_000,
+    ]);
+    // Who listed it is the DEX's own deployer, as the venue names it.
+    expect(tsla.listedBy).toEqual({ known: true, value: { kind: 'hip3', name: 'XYZ' } });
+    // The venue's own margin flag: a no-cross market is isolated only.
+    expect(listed.find((m) => m.symbol === 'xyz:HOOD-PERP')!.marginModes).toEqual(['isolated']);
+    expect(tsla.marginModes).toEqual(['cross', 'isolated']);
+  });
+
+  it('an order on a HIP-3 market signs its DEX asset id: 100000 + DEX index × 10000 + its index in the DEX', async () => {
+    const { venue } = hip3Venue();
+    const prepared = await venue.prepare(account, ownerSigner, order({ symbol: 'xyz:HOOD-PERP', amount: a('0.5'), price: a('70') }));
+    const cloid = venueClientOrderId(HL_TESTNET_VENUE_ID, 'order:test-user:desk:1');
+    const action = {
+      type: 'order',
+      orders: [{ a: 120_001, b: true, p: '70', s: '0.5', r: false, t: { limit: { tif: 'Gtc' } }, c: cloid }],
+      grouping: 'na',
+    };
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(NOW)));
+  });
+
+  it('positions and open orders are read on every named DEX, each with its own mark', async () => {
+    const { fake, venue } = hip3Venue();
+    const position = (coin: string, szi: string) => ({
+      position: {
+        coin,
+        szi,
+        entryPx: '370',
+        unrealizedPnl: '0.5',
+        marginUsed: '37',
+        liquidationPx: null,
+        leverage: { type: 'isolated', value: 5 },
+      },
+    });
+    fake.info.clearinghouseState = (b) => ({
+      marginSummary: { accountValue: '0' },
+      withdrawable: '0',
+      time: NOW,
+      assetPositions: b.dex === 'xyz' ? [position('xyz:TSLA', '0.1')] : [position('ETH', '-0.5')],
+    });
+    fake.info.frontendOpenOrders = (b) =>
+      b.dex === 'xyz'
+        ? [
+            {
+              coin: 'xyz:TSLA',
+              side: 'B',
+              limitPx: '300',
+              sz: '0.1',
+              origSz: '0.1',
+              oid: 9,
+              tif: 'Gtc',
+              orderType: 'Limit',
+              reduceOnly: false,
+            },
+          ]
+        : [];
+    const positions = (await venue.positions(account)).value;
+    expect(positions.map((p) => [p.symbol, p.side, p.markPrice])).toEqual([
+      ['ETH-PERP', 'short', a('2010')],
+      ['xyz:TSLA-PERP', 'long', a('378.82')],
+    ]);
+    const open = (await venue.openOrders(account)).value;
+    expect(open.map((o) => [o.symbol, o.price])).toEqual([['xyz:TSLA-PERP', a('300')]]);
+  });
+
+  it('with no DEX named, nothing beyond the main listing is read', async () => {
+    const fake = fakeVenue();
+    const symbols = (await venueWith(fake).markets(null)).value.map((m) => m.symbol);
+    expect(symbols.some((s) => s.includes(':'))).toBe(false);
+    expect(fake.infoTypes).not.toContain('perpDexs');
+  });
+});
