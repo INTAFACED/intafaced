@@ -231,7 +231,7 @@ describe('modesFrom (/status)', () => {
 describe('one count and one list of what can be bought', () => {
   const ready = (rows: VenueMarketState[]) => ({
     status: 'ready' as const,
-    asOf: OPENS,
+    asOf: Date.parse(OPENS),
     data: { venueId: 'v', asOf: OPENS, value: { venue: { id: 'v', displayName: 'TEST venue' }, markets: rows, test: true } },
   });
   const empty: Loadable<MarketRow[]> = { status: 'empty' };

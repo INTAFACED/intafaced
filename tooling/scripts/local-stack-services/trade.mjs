@@ -312,14 +312,18 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
           // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
           // J-derivatives-14's TEST perpetual XDEV-PERP (the one a developer reads and trades through our API).
-          // PURR-USDC: the one spot pair Hyperliquid's test network trades every day (its BTC-USDC has no bids and no
-          // print since 10 Nov 2026), so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
+          // PURR-USDC: the one spot pair Hyperliquid's test network trades every day, so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
           // PURR-USDC, so the seed skips it there.
           // On Hyperliquid's test network, the live stock, index and gold perpetuals of its `xyz` HIP-3 DEX
           // (local-test-venue.mjs HL_TESTNET_PERP_DEXS); the TEST venue lists none of them, so the seed skips them there.
-          TRADE_USER_VENUE_TEST_LISTINGS:
-            'BTC-USDC,PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,' +
+          // Hyperliquid's test network gets no BTC-USDC: that pair has no bids, one stray ask far below BTC and no print since
+          // 10 Nov 2026, so it showed a BTC price ten times below the venue's BTC perpetual. The seed delists it on a kept
+          // database (svc-trade seedTestListings).
+          TRADE_USER_VENUE_TEST_LISTINGS: [
+            ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? [] : ['BTC-USDC']),
+            'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
             'xyz:TSLA-PERP,xyz:NVDA-PERP,xyz:AAPL-PERP,xyz:XYZ100-PERP,xyz:GOLD-PERP,xyz:SILVER-PERP',
+          ].join(','),
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
           // `LOCAL_STACK_USER_VENUE_ELIGIBILITY=off` leaves it blank, so the eligible list is empty with its reason.
           TRADE_USER_VENUE_ELIGIBILITY_LEVEL:
