@@ -2068,7 +2068,7 @@ test("real-app-journeys.yml: a pull request's run is never the full suite", () =
 
 // The bar of project-state#3377: every pull request merged on 19 Nov 2026 (147, fixtures/journey-touch-19-nov.json),
 // replayed through the touch job's rules with the committed map and this checkout's journey files: none would run the
-// full suite or need more than PR_MAX_SHARDS (30) shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
+// full suite or need more than PR_MAX_SHARDS (60) shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
 // file), each still runs every journey it names, and a planted copy of the old rule (journeyTouch alone) fails.
 test('replay, 19 Nov 2026: no merged pull request picks the full suite or more than PR_MAX_SHARDS shards, and each keeps the journeys it names', async () => {
   const { loadMap } = await import('./journey-reach-map.mjs');

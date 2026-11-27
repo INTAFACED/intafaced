@@ -363,9 +363,9 @@ test('the planner as the workflow calls it prints shards that hold every real jo
   assert.equal(new Set(printed).size, printed.length);
 });
 
-test("a pull request's run takes the shards its target asks, at most 30, and is never the full suite (project-state#3377, #3035)", () => {
+test("a pull request's run takes the shards its target asks, at most 60, and is never the full suite (project-state#3377, #3035)", () => {
   const min = 60_000;
-  assert.equal(PR_MAX_SHARDS, 30);
+  assert.equal(PR_MAX_SHARDS, 60);
   const timed = (n, each) => {
     const files = Array.from({ length: n }, (_, i) => `J-x-${String(i).padStart(3, '0')}.pw.mjs`);
     return { files, durations: new Map(files.map((f) => [f, each * min])) };
@@ -380,10 +380,10 @@ test("a pull request's run takes the shards its target asks, at most 30, and is 
   );
   assert.equal(targetedShards(bounded.files, bounded.durations, 10 * min), TARGETED_MAX_SHARDS, 'a run by hand keeps its cap');
   // Planted, the past mistake (#8836's run 44250481099: 355 files planned as a full run): a run by hand still fails open
-  // to the full plan, a pull request's stops at 30.
+  // to the full plan, a pull request's stops at 60.
   const big = timed(400, 5);
   assert.equal(targetedShards(big.files, big.durations, 15 * min), MAX_SHARDS, 'a run by hand: planned as a full run');
-  assert.equal(targetedShards(big.files, big.durations, 15 * min, undefined, true), 30, "a pull request's run: 30");
+  assert.equal(targetedShards(big.files, big.durations, 15 * min, undefined, true), 60, "a pull request's run: 60");
   assert.equal(
     targetedShards(timed(60, 5).files, timed(60, 5).durations, 15 * min, undefined, true),
     20,

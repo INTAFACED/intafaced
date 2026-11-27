@@ -108,15 +108,17 @@ export const TARGETED_MAX_SHARDS = 10;
 // A pull request's run (`--pull`) takes as many shards as its target asks, never more than this, and is never the full
 // suite: a pick too big for it runs journey-touch.mjs's bounded set instead (pullPick, PR_MAX_FILES), and main's full run
 // after the merge judges the rest. (Failure it prevents: in the 48 hours to 20 Nov 2026, 174 of 233 merged pull
-// requests ran the full suite, 51 to 90 shards each.) 30 holds PR_MAX_FILES's 100 files, about 240 to 270 minutes, at
+// requests ran the full suite, 51 to 90 shards each.) The cap holds PR_MAX_FILES's 100 files, about 240 to 270 minutes, at
 // the 10-minute target. Raised from 12 on 20 Nov 2026, and the pull request's run freed from TARGETED_MAX_SHARDS
 // (project-state#3035): #9170's bounded set of 65 files, about 194 minutes, packed into 10 shards of about 19 minutes
 // planned and 20 to 25 run (run 44668020108), and the pull request took 41 minutes from push to merge; replaying that
 // run's own times, 20 shards end with its longest file, J-campaigns-18 at 14.7 minutes, about 9 minutes sooner. What
 // the cap saved is gone: a shard's setup took 2.2 minutes there, not 8 (the stack is seeded once in the build job,
 // #9151), and from 03:20 to 06:00 UTC that day 526 shard jobs waited 2 seconds at the median for a runner (8 at most),
-// at most 137 running at once.
-export const PR_MAX_SHARDS = 30;
+// at most 137 running at once. Raised from 30 to 60 on 25 Nov 2026 (the owner: "the dream fast line"): a beta pull
+// request's ~310 files, about 800 minutes (#10872's run 45561547305, 327 files), asked about 13-minute shards but stopped
+// at 30 of about 27 minutes each; 60 lets the target stand. The same journeys run; only the packing changes.
+export const PR_MAX_SHARDS = 60;
 // A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts
 // once until a run has timed its file; from then on the report's count wins.
 const STEP = /^\s*test\(/gm;
