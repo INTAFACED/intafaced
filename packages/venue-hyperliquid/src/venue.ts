@@ -752,6 +752,9 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     try {
       const answer = obj(sent.json, 'exchange answer');
       // A batch cancel is answered once per order it names, in the order sent; every other action once.
+      // The venue refused the signed action whole: one refusal, a batch cancel included (nothing was cancelled).
+      if (answer.status === 'err' && prepared.intent.kind === 'cancel_orders')
+        return classifyVenueError(this.venue.id, str(answer.response, 'error text'), asOf);
       if (answer.status === 'err') lines = [{ kind: 'error', text: str(answer.response, 'error text') }];
       else if (answer.status === 'ok' && prepared.intent.kind === 'cancel_orders')
         lines = statusLines(answer.response ?? null, prepared.intent.orders.length);
@@ -804,9 +807,6 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       return classifyVenueError(venueId, line.text, asOf);
     };
     if (intent.kind === 'cancel_orders') {
-      // The venue refused the signed action whole (`status: "err"`): nothing was cancelled.
-      const whole = lines.length === 1 && intent.orders.length !== 1 ? lines[0] : undefined;
-      if (whole?.kind === 'error') return classifyVenueError(venueId, whole.text, asOf);
       // The venue took the signed action; each cancel is answered on its own. One the venue may not have run is no answer
       // for the action, which is read back whole.
       const legs: VenueLegOutcome[] = [];
