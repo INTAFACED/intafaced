@@ -108,10 +108,10 @@ async function flatten(page, owner) {
     await expect(listedOrders.or(listed(dialog).getByText('No exit order on this position.', { exact: true })).first()).toBeVisible({
       timeout: 20_000,
     });
-    const resting = new Set((await exits()).map((o) => o.venueClientOrderId?.toLowerCase()));
-    const ids = (await listedOrders.evaluateAll((items) => items.map((li) => li.getAttribute('data-client-order-id')))).filter((id) =>
-      resting.has(id?.toLowerCase()),
-    );
+    // Each one listed that still rests offers Cancel; one already cancelled or filled is listed with what became of it.
+    const ids = await listedOrders
+      .filter({ has: page.getByRole('button', { name: 'Cancel', exact: true }) })
+      .evaluateAll((items) => items.map((li) => li.getAttribute('data-client-order-id')));
     for (const id of ids) {
       const before = (await exits()).length;
       await item(dialog, id).getByRole('button', { name: 'Cancel', exact: true }).click();
