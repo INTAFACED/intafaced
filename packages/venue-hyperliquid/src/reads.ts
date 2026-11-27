@@ -3,6 +3,8 @@ import {
   type AsOf,
   type MaybeKnown,
   type UserVenueAccount,
+  type UserVenueAccountMode,
+  type VenueAccountMode,
   type UserVenueAgent,
   type UserVenueBalance,
   type UserVenueFill,
@@ -53,6 +55,14 @@ import {
   type ReadMarketTerms,
 } from './market-terms.js';
 import { rateToBps, tenthsToBps, unit, PERP_MAX_DECIMALS, SPOT_MAX_DECIMALS } from './wire.js';
+
+/** The venue's `userAbstraction` answers, as our account modes. */
+const ABSTRACTION_MODE: Readonly<Record<string, VenueAccountMode>> = {
+  default: 'standard',
+  disabled: 'standard',
+  unifiedAccount: 'unified',
+  portfolioMargin: 'portfolio_margin',
+};
 
 /** The candle intervals `candleSnapshot` takes among ours: it has no 6h. */
 const HL_CANDLE_INTERVALS: ReadonlySet<VenueCandleInterval> = new Set([
@@ -312,8 +322,32 @@ export abstract class HyperliquidReads extends HyperliquidCore {
   // ── account reads ──────────────────────────────────────────────────────
 
   async balances(account: UserVenueAccount): Promise<AsOf<readonly UserVenueBalance[]>> {
+    const { spot, perps, time } = await this.spotAndPerps(this.user(account));
+    const list: UserVenueBalance[] = [...spot];
+    // The perp account's USDC is a balance of its own beside spot USDC, named apart so the two never read as one.
+    for (const p of perps) list.push({ ...p, asset: PERP_COLLATERAL_ASSET });
+    list.sort((a, b) => a.asset.localeCompare(b.asset));
+    return this.asOf(list, time);
+  }
+
+  /**
+   * The account's mode (J-derivatives-29 #1), as the venue's `userAbstraction` reports it: `default` and `disabled` keep
+   * spot and perps apart (standard), `unifiedAccount` and `portfolioMargin` hold one balance for each. In standard mode
+   * its spot balances and its perps USDC, each named `USDC` as the venue names it. The venue reports no daily action
+   * count (its `userRateLimit` is a running request allowance, not a day's actions), so `actions` is null, never a guess.
+   * A mode the venue names that we don't know is `null`: the app says "not known" and refuses a move.
+   */
+  async accountMode(account: UserVenueAccount): Promise<AsOf<UserVenueAccountMode>> {
     const user = this.user(account);
-    const [perp, spot] = await Promise.all([
+    const [reported, both] = await Promise.all([this.info({ type: 'userAbstraction', user }), this.spotAndPerps(user)]);
+    const mode = typeof reported === 'string' ? (ABSTRACTION_MODE[reported] ?? null) : null;
+    const standard = mode === 'standard';
+    return this.asOf({ mode, spot: standard ? both.spot : null, perps: standard ? both.perps : null, actions: null }, both.time);
+  }
+
+  /** The account's spot balances, and its perp account's USDC (named `USDC`; none while it holds nothing). */
+  private async spotAndPerps(user: string): Promise<{ spot: UserVenueBalance[]; perps: UserVenueBalance[]; time: number | undefined }> {
+    const [perp, spotState] = await Promise.all([
       this.info({ type: 'clearinghouseState', user }),
       this.info({ type: 'spotClearinghouseState', user }),
     ]);
@@ -321,19 +355,20 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     const summary = obj(p.marginSummary, 'marginSummary');
     const accountValue = amt(summary.accountValue, 'accountValue');
     const withdrawable = amt(p.withdrawable, 'withdrawable');
-    const list: UserVenueBalance[] = [];
-    for (const b of arr(obj(spot, 'spotClearinghouseState').balances, 'spot balances')) {
+    const spot: UserVenueBalance[] = [];
+    for (const b of arr(obj(spotState, 'spotClearinghouseState').balances, 'spot balances')) {
       const bal = obj(b, 'spot balance');
       const total = amt(bal.total, 'spot total');
       const hold = amt(bal.hold, 'spot hold');
-      list.push({ asset: str(bal.coin, 'spot coin'), free: sub(total, hold), locked: hold, total });
+      spot.push({ asset: str(bal.coin, 'spot coin'), free: sub(total, hold), locked: hold, total });
     }
+    spot.sort((a, b) => a.asset.localeCompare(b.asset));
+    const perps: UserVenueBalance[] = [];
     if (accountValue !== ZERO || withdrawable !== ZERO) {
       // The venue reports the perp account's value and what can be withdrawn; what is held is the difference.
-      list.push({ asset: PERP_COLLATERAL_ASSET, free: withdrawable, locked: sub(accountValue, withdrawable), total: accountValue });
+      perps.push({ asset: PERP_QUOTE, free: withdrawable, locked: sub(accountValue, withdrawable), total: accountValue });
     }
-    list.sort((a, b) => a.asset.localeCompare(b.asset));
-    return this.asOf(list, typeof p.time === 'number' ? p.time : undefined);
+    return { spot, perps, time: typeof p.time === 'number' ? p.time : undefined };
   }
 
   private async toOrder(

@@ -1,8 +1,18 @@
 {
   "label": "TEST",
-  "note": "TEST answers of the Hyperliquid test network, recorded live by LOCAL_STACK_USER_VENUE=hl-testnet for J-cex-spot-04-hl-venue.",
+  "note": "TEST answers of the Hyperliquid test network, recorded live by LOCAL_STACK_USER_VENUE=hl-testnet for J-cex-spot-04-hl-venue. The account mode (userAbstraction) is documented-shape: the recorded trader holds one USDC balance that margins perps (unifiedAccount), until the next live recording captures it.",
   "trader": "<trader>",
   "calls": [
+    {
+      "path": "/info",
+      "request": {
+        "type": "userAbstraction",
+        "user": "<trader>"
+      },
+      "status": 200,
+      "answer": "unifiedAccount",
+      "source": "documented-shape"
+    },
     {
       "path": "/info",
       "request": {

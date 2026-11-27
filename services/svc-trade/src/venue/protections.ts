@@ -232,11 +232,13 @@ export class VenueProtections {
   async prepareAgent(principal: Principal, owner: string): Promise<PreparedAnswer> {
     const account = await this.deps.door.account(owner);
     const address = this.protectionKey(principal.userId, account.owner).address.toLowerCase();
+    // A try the venue refused is tried again under a new key; an accepted one is never sent twice.
+    const actionKey = await this.deps.door.fixedAgentApprovalKey(principal, address, `protection-agent:${account.owner}:${address}`);
     return this.deps.door.prepare(principal, {
       owner: account.owner,
       signer: { role: 'owner', address: account.owner },
       intent: { kind: 'approve_agent', agentAddress: address, agentName: PROTECTION_AGENT_NAME, validUntil: null },
-      actionKey: `protection-agent:${account.owner}:${address}`,
+      actionKey,
     });
   }
 

@@ -7,6 +7,8 @@ import { usePreferences } from '../../../shared/preferences';
 import { StepUpConfirm } from '../../../features/money/StepUpConfirm';
 import { withdrawStepUpCopy } from '../../../features/money/withdraw-step-up-copy';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
+import { WalletAccountLink } from '../../../features/protocol';
+import { isHiddenPath } from './deps';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import {
   canonicalDecimal,
@@ -214,6 +216,7 @@ export function VenueWalletRow() {
               {v('Disconnect')}
             </Button>
           </p>
+          <WalletAccountLink address={wallet.address} href={isHiddenPath('/wallet/venue') ? null : '/wallet/venue'} />
           {wallet.guard && !wallet.guard.ok ? (
             <p role="alert">
               {v('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}

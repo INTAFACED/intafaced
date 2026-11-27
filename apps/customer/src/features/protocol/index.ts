@@ -9,6 +9,7 @@ export {
   withDomainTypes,
   type VenueDepositRoute,
 } from './venue-wallet/venue-account-api';
+export { WalletAccountLink } from './venue-wallet/AccountLink';
 export { APP_CHAIN_ID, refuseReason, shortAddress, type Eip1193Provider, type TypedDataDocument } from './wallet/eip1193';
 export { TabList } from './tokens/TabList';
 export { RepresentationPanel } from './wallet/RepresentationPanel';
@@ -18,12 +19,18 @@ export { useWallet, waitMined, WalletProvider, type MinedOutcome, type SequenceR
 export { isFactoryUnset, toWei, utcTime } from './wallet/wallet-text';
 export { EmbeddedWalletAnnouncer } from './embedded-wallet/EmbeddedWalletAnnouncer';
 export {
+  answerSessionKeyAsks,
+  bindLiveKey,
   createTradingSessionApi,
   freshKey,
   heldKey,
+  joinLiveSession,
   keyFor,
+  keyFromOtherTab,
+  orderKey,
   signWithSessionKey,
   type HeldKey,
+  type KeyChannel,
   type SessionView,
   type TradingSessionApi,
 } from './embedded-wallet/trading-session';

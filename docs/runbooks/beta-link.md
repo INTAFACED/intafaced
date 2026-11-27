@@ -93,7 +93,7 @@ every invited person opens the mailbox for their sign-up code. Every 15 seconds 
 address is a recorded token, or the token, a dot and more, at `local-test.invalid` has its pending Full (or Basic)
 request approved through the stack's two-person TEST door, and once it holds Full gets 1000 TEST USDT through the real
 ledger, once per account (a fixed ledger reference) and for at most 3 accounts per person
-(`~/.intafaced/beta/granted.json`). The same 1000 TEST USDT is kept in that account's TEST partner account, where the
+(`~/.intafaced/beta/granted.json`; the agents' own invite, whose walks each sign up anew, is not capped, #11104). The same 1000 TEST USDT is kept in that account's TEST partner account, where the
 launch model holds a person's money and which Home and Money read (#10632); every pass puts it back after an svc-bank
 restart, as that person, while they are signed in, and the beta starts svc-ops with `LOCAL_STACK_VALUATION_PRICES=test`
 (the ops profile's labelled TEST price list, `USDC=1,USDT=1`) so Home and Money value that holding with a TEST total.
@@ -124,8 +124,7 @@ run 'node tooling/scripts/local-test-stack.mjs fund <email> USDT 1000'        # 
 provider and svc-protocol's wallet messages accept that origin. A sign-in passkey made there does not work on the box's
 `localhost` page.
 
-**Known gaps on the public name:** the TEST bank pay-in's return link and the academy's videos point at the box's loopback. On a phone-width screen the desk's order-type
-tabs overlap, so "OTO" covers "Market".
+**Known gaps on the public name:** the TEST bank pay-in's return link and the academy's videos point at the box's loopback.
 
 ## Check a trading change on the test network, no browser
 

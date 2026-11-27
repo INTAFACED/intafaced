@@ -44,10 +44,10 @@ const SLOW_READS = new Set(['meta', 'spotMeta', 'perpDexs']);
 /**
  * An account's reads that change only by its own signed action of another kind than an order or a cancel: its fee
  * rates (`userFees`, by its volume over days), its builder approval (`maxBuilderFee`), its session keys (`extraAgents`)
- * and a market's leverage (`activeAssetData`, of which only `leverage` is read). Kept for minutes; an order or a cancel
+ * a market's leverage (`activeAssetData`, of which only `leverage` is read) and its account mode (`userAbstraction`). Kept for minutes; an order or a cancel
  * keeps them (`ORDER_ACTIONS`), any other signed action of the account drops them.
  */
-const RARE_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'activeAssetData']);
+const RARE_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'activeAssetData', 'userAbstraction']);
 export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000, rare: 300_000 } as const;
 /**
  * The exchange actions that change only an account's orders, positions, balances and fills, never its fee rates,
