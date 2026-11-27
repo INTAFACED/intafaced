@@ -3,8 +3,8 @@
 # 0.01 USDC on MAINNET from the platform account (about 1.01 USDC with the venue's activation fee), claims its drip, and
 # sends the TEST USDC to the funder. The script caps it (packages/venue-hyperliquid/scripts/faucet-activate.ts): one
 # mainnet action per run, at most 0.01 USDC plus the fee, at most 2 runs a UTC day, and prints only addresses and amounts.
-# The owner allowed about 2 USDC of the platform account's mainnet balance for this (project-state#4088 comment
-# 7211361443, 27 Nov 2026; intafaced#11043). The round.log line for a low funder (#11032) says when to run it again.
+# The owner allowed about 2 USDC of the platform account's mainnet balance for this, and this key to sign this one
+# capped mainnet send (project-state decision PR #4093, 27 Nov 2026; intafaced#11043). The round.log line for a low funder (#11032) says when to run it again.
 name: Hyperliquid faucet activate
 
 on:

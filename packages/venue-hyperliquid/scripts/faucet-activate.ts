@@ -9,7 +9,7 @@
  * that exists on mainnet. The funder spent its claim on 19 Nov 2026; grants to testers never come back. An address
  * exists on mainnet once it receives anything there, and the venue charges the sender a 1 USDC activation fee for a
  * new account. The owner allowed about 2 USDC of the platform account's mainnet balance for this, two runs
- * (tooling/ci/ci-review/REVIEW.md, its 2026-11-27 entry).
+ * (the owner decision cited in .github/workflows/hl-faucet-activate.yml).
  *
  * 1. Refuses before anything is sent (exit 2): APP_ENV other than dev or test, a funder key that isn't 32-byte hex,
  *    HL_ACTIVATIONS_TODAY missing or at `MAX_RUNS_PER_DAY`, an amount other than at most `MAX_MAINNET_SEND_USDC`.
