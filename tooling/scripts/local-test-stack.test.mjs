@@ -2137,6 +2137,33 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: a Hyperliquid start names its recording and trader, and a venue answering for another is not kept');
 }
 
+// #11061: the live Hyperliquid test network is the hosted beta's alone. A builder's or CI's stack shares the beta's box
+// and IP, and one live desk spent about 880 of the IP's 1,200 weight a minute (#11045), so `hl-testnet` alone refuses:
+// it reaches the live network only beside LOCAL_STACK_LIVE_TEST_NETWORK=on, which the beta host and the daily live run
+// set. The default (unset) starts no venue, and a flip of either default fails here.
+{
+  const { liveTestNetworkRefusal, serveTestVenue, userVenueKind } = await import('./local-test-venue.mjs');
+  assert.equal(userVenueKind(undefined), null, 'unset starts no venue');
+  for (const raw of [undefined, '', 'off', 'yes', '1', 'true', ' on-ish ']) {
+    const env = raw === undefined ? {} : { LOCAL_STACK_LIVE_TEST_NETWORK: raw };
+    assert.match(liveTestNetworkRefusal('hl-testnet', env) ?? '', /LOCAL_STACK_LIVE_TEST_NETWORK=on/, `refused: ${JSON.stringify(raw)}`);
+  }
+  assert.equal(liveTestNetworkRefusal('hl-testnet', { LOCAL_STACK_LIVE_TEST_NETWORK: 'on' }), null);
+  assert.equal(liveTestNetworkRefusal('hl-testnet', { LOCAL_STACK_LIVE_TEST_NETWORK: ' on ' }), null);
+  // Nothing but the live kind needs the switch: the simulator and the recording make no network call.
+  for (const kind of [null, 'sim', 'hl-recorded']) assert.equal(liveTestNetworkRefusal(kind, {}), null, `kind ${kind}`);
+  // The venue process refuses on its own too, before it listens: a stack bypassed still never reaches the live network.
+  let started = null;
+  await assert.rejects(
+    (async () => {
+      started = await serveTestVenue({ host: '127.0.0.1', port: 0, appEnv: 'dev', kind: 'hl-testnet' });
+    })(),
+    /LOCAL_STACK_LIVE_TEST_NETWORK=on/,
+  );
+  if (started?.server) await new Promise((r) => started.server.close(r));
+  console.log('local-test-stack: the live test network needs LOCAL_STACK_LIVE_TEST_NETWORK=on beside hl-testnet');
+}
+
 // No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
 // every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
 // Nor does one slot's stack take another slot's port (LOCAL_STACK_SLOT 0 to 3), its second workers' included.
