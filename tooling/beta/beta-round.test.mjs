@@ -690,6 +690,7 @@ test('`beta-host.mjs back` takes only a commit on main, other than the one serve
   assert.match(off.stderr, /is not on main/);
   assert.match(cli(second).stderr, /already serves/);
   assert.match(cli('nope').stderr, /nope is not a commit/);
+  assert.match(cli('--all').stderr, /--all is not a commit: name a commit, not an option/);
   assert.equal(fs.existsSync(paths.backTo), false, 'a refused ask asks nothing');
   const ok = cli();
   assert.equal(ok.status, 0, ok.stderr);
