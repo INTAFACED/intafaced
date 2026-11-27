@@ -40,8 +40,34 @@ const MARKETS_MISS_REFRESH_MS = 10_000;
  * signed action, which drops every kept answer. Each is well inside a figure's 60-second staleness limit.
  */
 const LIGHT_READS = new Set(['l2Book', 'allMids', 'clearinghouseState', 'orderStatus', 'spotClearinghouseState', 'exchangeStatus']);
-const SLOW_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'meta', 'spotMeta', 'perpDexs']);
-export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000 } as const;
+const SLOW_READS = new Set(['meta', 'spotMeta', 'perpDexs']);
+/**
+ * An account's reads that change only by its own signed action of another kind than an order or a cancel: its fee
+ * rates (`userFees`, by its volume over days), its builder approval (`maxBuilderFee`), its session keys (`extraAgents`)
+ * and a market's leverage (`activeAssetData`, of which only `leverage` is read). Kept for minutes; an order or a cancel
+ * keeps them (`ORDER_ACTIONS`), any other signed action of the account drops them.
+ */
+const RARE_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'activeAssetData']);
+export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000, rare: 300_000 } as const;
+/**
+ * The exchange actions that change only an account's orders, positions, balances and fills, never its fee rates,
+ * approvals, session keys or leverage: after one, only those reads of the account are read again.
+ */
+const ORDER_ACTIONS: ReadonlySet<string> = new Set([
+  'order',
+  'cancel',
+  'cancelByCloid',
+  'modify',
+  'batchModify',
+  'scheduleCancel',
+  'twapOrder',
+  'twapCancel',
+]);
+/**
+ * A fill read's start is read from this grid, and the fills before the asked start are left out after: desks
+ * and background reads asking from moments a few seconds apart share one read instead of each weighing 20.
+ */
+export const FILLS_GRID_MS = 3_600_000;
 /** How long to wait before the one retry of a read the venue answered 429, unless it says (Retry-After, capped at 5 s). */
 const READ_RETRY_MS = 1_000;
 /** A venue answer's text as JSON; `readOnce` has already checked that it parses. */
@@ -65,7 +91,13 @@ export interface VenueWeightMinute {
   readonly byType: Readonly<Record<string, { readonly requests: number; readonly weight: number }>>;
 }
 const freshFor = (type: string) =>
-  LIGHT_READS.has(type) ? READ_FRESH_MS.light : SLOW_READS.has(type) ? READ_FRESH_MS.slow : READ_FRESH_MS.heavy;
+  LIGHT_READS.has(type)
+    ? READ_FRESH_MS.light
+    : RARE_READS.has(type)
+      ? READ_FRESH_MS.rare
+      : SLOW_READS.has(type)
+        ? READ_FRESH_MS.slow
+        : READ_FRESH_MS.heavy;
 /** The venue's documented cap on one `userFillsByTime` answer ("at most 2000 fills per response"). */
 export const FILLS_PAGE_CAP = 2000;
 
@@ -238,10 +270,10 @@ export abstract class HyperliquidCore {
   protected readonly perpDexs: readonly string[];
   private readonly warn: (message: string) => void;
   /** Shared reads (`shareReads`): each answer's text by its request body, and the reads in flight, with the account read. */
-  private readonly kept = new Map<string, { text: string; atMs: number; user: string | null }>();
-  private readonly reading = new Map<string, { read: Promise<string>; user: string | null }>();
+  private readonly kept = new Map<string, { text: string; atMs: number; user: string | null; type: string }>();
+  private readonly reading = new Map<string, { read: Promise<string>; user: string | null; type: string }>();
   /** Per account, bumped by every signed action for it, so a read of it that began before the action is not kept after. */
-  private readonly readsEpoch = new Map<string, number>();
+  private readonly readsEpoch = new Map<string, { orders: number; rare: number }>();
   private readonly onWeightMinute: ((spent: VenueWeightMinute) => void) | null;
   private weightMinute: { startMs: number; byType: Map<string, { requests: number; weight: number }> } | null = null;
   /**
@@ -292,21 +324,22 @@ export abstract class HyperliquidCore {
     if (!this.shareReads) return parseJson(await this.readOnce(body));
     const key = JSON.stringify(body);
     const user = typeof body.user === 'string' ? body.user.toLowerCase() : null;
+    const type = String(body.type);
     const now = this.clock().getTime();
     const kept = this.kept.get(key);
-    if (kept && now - kept.atMs < freshFor(String(body.type))) return parseJson(kept.text);
+    if (kept && now - kept.atMs < freshFor(type)) return parseJson(kept.text);
     let inFlight = this.reading.get(key);
     if (!inFlight) {
-      const epoch = this.epochOf(user);
+      const epoch = this.epochOf(user, type);
       const read: Promise<string> = this.readOnce(body, true)
         .then((text) => {
-          if (epoch === this.epochOf(user)) this.keep(key, text, user);
+          if (epoch === this.epochOf(user, type)) this.keep(key, { text, user, type });
           return text;
         })
         .finally(() => {
           if (this.reading.get(key)?.read === read) this.reading.delete(key);
         });
-      inFlight = { read, user };
+      inFlight = { read, user, type };
       this.reading.set(key, inFlight);
     }
     return parseJson(await inFlight.read);
@@ -315,23 +348,32 @@ export abstract class HyperliquidCore {
   /**
    * A signed action changes what its own accounts read (orders, positions, balances, fees, agents and approvals), not
    * another person's: only reads of `users` kept before it are dropped, and a read of them begun before it is not kept.
+   * An order or a cancel (`ORDER_ACTIONS`) changes only the account's orders, positions, balances and fills, so its fee
+   * rates, approvals, session keys and leverage (`RARE_READS`) stay kept; any other action, or none named, drops them all.
    * Market reads (books, trades, candles, prices) are kept for their few seconds whoever trades.
    */
-  protected forgetReads(users: readonly string[]): void {
+  protected forgetReads(users: readonly string[], actionType?: string): void {
     const forget = new Set(users.map((u) => u.toLowerCase()));
-    for (const u of forget) this.readsEpoch.set(u, this.epochOf(u) + 1);
-    for (const [k, v] of this.kept) if (v.user !== null && forget.has(v.user)) this.kept.delete(k);
-    for (const [k, v] of this.reading) if (v.user !== null && forget.has(v.user)) this.reading.delete(k);
+    const all = actionType === undefined || !ORDER_ACTIONS.has(actionType);
+    const drops = (type: string) => all || !RARE_READS.has(type);
+    for (const u of forget) {
+      const epoch = this.readsEpoch.get(u) ?? { orders: 0, rare: 0 };
+      this.readsEpoch.set(u, { orders: epoch.orders + 1, rare: epoch.rare + (all ? 1 : 0) });
+    }
+    for (const [k, v] of this.kept) if (v.user !== null && forget.has(v.user) && drops(v.type)) this.kept.delete(k);
+    for (const [k, v] of this.reading) if (v.user !== null && forget.has(v.user) && drops(v.type)) this.reading.delete(k);
   }
 
-  private epochOf(user: string | null): number {
-    return user === null ? 0 : (this.readsEpoch.get(user) ?? 0);
+  private epochOf(user: string | null, type: string): number {
+    if (user === null) return 0;
+    const epoch = this.readsEpoch.get(user);
+    return epoch === undefined ? 0 : RARE_READS.has(type) ? epoch.rare : epoch.orders;
   }
 
-  private keep(key: string, text: string, user: string | null): void {
+  private keep(key: string, read: { text: string; user: string | null; type: string }): void {
     const now = this.clock().getTime();
-    if (this.kept.size >= 2_000) for (const [k, v] of this.kept) if (now - v.atMs >= READ_FRESH_MS.slow) this.kept.delete(k);
-    this.kept.set(key, { text, atMs: now, user });
+    if (this.kept.size >= 2_000) for (const [k, v] of this.kept) if (now - v.atMs >= freshFor(v.type)) this.kept.delete(k);
+    this.kept.set(key, { ...read, atMs: now });
   }
 
   /** Counts one request that left for the venue, and tells `onWeightMinute` the last minute's spend once a new one starts. */
