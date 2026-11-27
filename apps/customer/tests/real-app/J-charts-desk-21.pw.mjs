@@ -34,9 +34,9 @@ const SIZE = '10';
 const START_MARK = '100';
 const TRADING_OFF = 'Trading is off in chat. Open INTAFACED to trade.';
 /** Two sweeps and a little: long enough that a repeat, had one been raised, would have been sent. */
-const TWO_SWEEPS = 60_000;
-/** A sweep every 15 s, after svc-trade reads the venue afresh: seen locally up to ~45 s after the mark moved. */
-const ALERT_WAIT = 90_000;
+const TWO_SWEEPS = 35_000;
+/** A few sweeps: an alert is raised on the first sweep after the change, and sent in the same sweep. */
+const ALERT_WAIT = 60_000;
 const runId = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${runId}`);
 
@@ -66,7 +66,7 @@ function chatMessages(chatId) {
     .filter((m) => m.chatId === String(chatId))
     .map((m) => m.text);
 }
-const isAlert = (text) => /^(TEST · )?(Fill|Margin use|Profit lock):/.test(text);
+const isAlert = (text) => /^(TEST · )?(Fill:|Margin use \d+%:|Profit lock:)/.test(text);
 const alertsTo = (chatId, kind) => chatMessages(chatId).filter((t) => isAlert(t) && t.replace(/^TEST · /, '').startsWith(kind));
 
 /** The person sends `text` from their private chat, as the bot API delivers it; the bot's answer is returned. */
