@@ -1115,6 +1115,46 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect(listed.map(([s]) => s)).not.toContain('OLD-PERP');
     expect(listed).toContainEqual(['BTC-PERP', 'trading']);
   });
+
+  // #11106: the contract strip (J-derivatives-01 #4) read "not published by this venue" for BTC-PERP while the venue
+  // published its mark and funding: one contract is one unit of the coin, the mark is `metaAndAssetCtxs`' `markPx` and
+  // the funding is `predictedFundings`' own `HlPerp` entry (rate, interval, next payment).
+  it('markets: a perp carries the venue contract size, mark and funding; a coin it publishes no funding for, and spot, stay not known', async () => {
+    const fake = fakeVenue();
+    fake.info.metaAndAssetCtxs = () => [
+      META,
+      [{ markPx: '62620', funding: '0.0000125' }, { markPx: '2010', funding: '0.00001' }, { markPx: '1' }],
+    ];
+    const next = NOW + 1_800_000;
+    fake.info.predictedFundings = () => [
+      [
+        'BTC',
+        [
+          ['BinPerp', { fundingRate: '-0.0002', nextFundingTime: NOW + 7_200_000, fundingIntervalHours: 8 }],
+          ['HlPerp', { fundingRate: '0.0000125', nextFundingTime: next, fundingIntervalHours: 1 }],
+        ],
+      ],
+      ['ETH', [['BinPerp', { fundingRate: '0.0001', nextFundingTime: next, fundingIntervalHours: 8 }]]],
+    ];
+    const list = (await venueWith(fake).markets(null)).value;
+    const btc = list.find((m) => m.symbol === 'BTC-PERP')!;
+    expect([btc.contractSize, btc.mark]).toEqual([
+      { known: true, value: a('1') },
+      { known: true, value: a('62620') },
+    ]);
+    expect(btc.funding).toEqual({ known: true, value: { rate: a('0.0000125'), intervalSeconds: 3600, nextFundingAt: new Date(next) } });
+    const eth = list.find((m) => m.symbol === 'ETH-PERP')!;
+    expect([eth.mark, eth.funding]).toEqual([{ known: true, value: a('2010') }, { known: false }]);
+    const purr = list.find((m) => m.symbol === 'PURR-USDC')!;
+    expect([purr.contractSize, purr.mark, purr.funding]).toEqual([{ known: false }, { known: false }, { known: false }]);
+  });
+
+  it('markets: a failed mark or funding read leaves those figures not known and the listing up', async () => {
+    const fake = fakeVenue();
+    const list = (await venueWith(fake).markets(null)).value;
+    const btc = list.find((m) => m.symbol === 'BTC-PERP')!;
+    expect([btc.status, btc.mark, btc.funding]).toEqual(['trading', { known: false }, { known: false }]);
+  });
 });
 
 describe('review fixes: nonces, listing, symbols, paging, marks, destinations', () => {
