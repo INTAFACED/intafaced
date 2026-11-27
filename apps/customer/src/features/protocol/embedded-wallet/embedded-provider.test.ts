@@ -105,7 +105,7 @@ describe('the embedded wallet as an EIP-1193 provider', () => {
       status: 'failed',
       reason: 'busy',
       message:
-        'The wallet provider has reached its signing limit, which you cannot fix from here. Nothing was signed or sent. Try again later, or connect your own browser wallet.',
+        'The wallet provider has reached its signing limit, which you cannot fix from here. Nothing was signed or sent. Try again later.',
     });
   });
 
