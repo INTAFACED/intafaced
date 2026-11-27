@@ -118,6 +118,7 @@ export function keylessStandIn(revoked: string, nonce: string): string {
 
 // What this module exported before it was split (project-state #2655): importers of `./venue.js` are unchanged.
 export {
+  FILLS_GRID_MS,
   FILLS_PAGE_CAP,
   HL_TESTNET_VENUE_ID,
   InMemoryNonceSource,
@@ -646,7 +647,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     // The venue weighs an action 1, plus 1 per 40 orders or cancels it carries.
     const batch = [built.action.orders, built.action.cancels].reduce<number>((n, l) => n + (Array.isArray(l) ? l.length : 0), 0);
     this.spend(`exchange:${String(built.action.type)}`, 1 + Math.floor(batch / 40));
-    const sent = await this.post(body, accounts);
+    const sent = await this.post(body, accounts, String(built.action.type));
     if (sent.kind === 'unknown') return { definite: false, reason: sent.reason };
     const asOf = this.clock();
     let line: StatusLine;
@@ -735,10 +736,11 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
   private async post(
     body: string,
     accounts: readonly string[],
+    actionType: string,
   ): Promise<{ kind: 'json'; json: Json } | { kind: 'unknown'; reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' }> {
     // A signed action changes what its own accounts read (an order, a builder approval, a new session key): what was kept
     // of them is dropped before it is sent, and again once the venue answers, so a read made while it was in flight is not kept.
-    this.forgetReads(accounts);
+    this.forgetReads(accounts, actionType);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -776,7 +778,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       }
     } finally {
       clearTimeout(timer);
-      this.forgetReads(accounts);
+      this.forgetReads(accounts, actionType);
     }
   }
 }

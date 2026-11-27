@@ -26,6 +26,7 @@ import {
 } from '@intafaced/venue-contracts';
 import {
   BPS_PER_X,
+  FILLS_GRID_MS,
   FILLS_PAGE_CAP,
   HyperliquidCore,
   PERP_COLLATERAL_ASSET,
@@ -407,7 +408,12 @@ export abstract class HyperliquidReads extends HyperliquidCore {
    */
   async fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
     const seen = new Map<string, { [key: string]: Json }>();
-    let startTime = since.getTime();
+    /** Every fill id a page answered, before `since` too: paging stops on a page that adds none. */
+    const paged = new Set<string>();
+    // Read from the hour `since` falls in (`FILLS_GRID_MS`), so asks a few seconds apart are one shared read; the
+    // fills before `since` are left out below.
+    const sinceMs = since.getTime();
+    let startTime = Math.floor(sinceMs / FILLS_GRID_MS) * FILLS_GRID_MS;
     for (;;) {
       const page = arr(await this.info({ type: 'userFillsByTime', user: this.user(account), startTime, aggregateByTime: false }), 'fills');
       let added = 0;
@@ -415,10 +421,12 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       for (const entry of page) {
         const f = obj(entry, 'fill');
         const id = fillIdOf(f);
-        lastTime = Math.max(lastTime, int(f.time, 'fill time'));
-        if (!seen.has(id)) {
-          seen.set(id, f);
+        const time = int(f.time, 'fill time');
+        lastTime = Math.max(lastTime, time);
+        if (!paged.has(id)) {
+          paged.add(id);
           added += 1;
+          if (time >= sinceMs) seen.set(id, f);
         }
       }
       if (page.length < FILLS_PAGE_CAP || added === 0) break;
