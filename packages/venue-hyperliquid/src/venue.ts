@@ -209,7 +209,7 @@ function statusLine(response: Json): StatusLine {
  * that order cancelled; an error ("Order was never placed, already canceled, or filled.") is that order's own refusal,
  * and the rest still stand. A whole-action error refuses them all; an answer we cannot read is no answer.
  */
-function cancelsOutcome(venueId: string, json: Json, sent: number, asOf: Date): VenueSubmitOutcome {
+function cancelsOutcome(venueId: string, json: Json, { sent, asOf }: { readonly sent: number; readonly asOf: Date }): VenueSubmitOutcome {
   try {
     const answer = obj(json, 'exchange answer');
     if (answer.status === 'err') return classifyVenueError(venueId, str(answer.response, 'error text'), asOf);
@@ -511,12 +511,16 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         if (orders.length < 1) throw refusal(venueId, 'venue_rejected', 'a batch cancel names at least one order');
         if (orders.length > HL_CANCELS_PER_ACTION)
           throw refusal(venueId, 'not_offered', `this venue cancels at most ${HL_CANCELS_PER_ACTION} orders in one signed action`);
-        const ids = orders.map((o) => (typeof o?.venueClientOrderId === 'string' ? o.venueClientOrderId.toLowerCase() : ''));
+        const named = orders.map((o) => ({
+          symbol: o?.symbol,
+          cloid: typeof o?.venueClientOrderId === 'string' ? o.venueClientOrderId.toLowerCase() : '',
+        }));
+        const ids = named.map((n) => n.cloid);
         if (ids.some((id) => !/^0x[0-9a-f]{32}$/.test(id)))
           throw refusal(venueId, 'venue_rejected', "each order in a batch cancel is named by the venue's client id (0x and 32 hex digits)");
         if (new Set(ids).size !== ids.length) throw refusal(venueId, 'venue_rejected', 'each order in a batch cancel is named once');
         const cancels: MsgpackValue[] = [];
-        for (const [i, o] of orders.entries()) cancels.push({ asset: (await this.market(o.symbol)).asset, cloid: ids[i]! });
+        for (const n of named) cancels.push({ asset: (await this.market(n.symbol)).asset, cloid: n.cloid });
         return l1({ type: 'cancelByCloid', cancels });
       }
       case 'replace_order': {
@@ -760,7 +764,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const sent = await this.post(body, accounts, String(built.action.type));
     if (sent.kind === 'unknown') return { definite: false, reason: sent.reason };
     const asOf = this.clock();
-    if (prepared.intent.kind === 'cancel_orders') return cancelsOutcome(venueId, sent.json, prepared.intent.orders.length, asOf);
+    if (prepared.intent.kind === 'cancel_orders') return cancelsOutcome(venueId, sent.json, { sent: prepared.intent.orders.length, asOf });
     let line: StatusLine;
     try {
       const answer = obj(sent.json, 'exchange answer');
