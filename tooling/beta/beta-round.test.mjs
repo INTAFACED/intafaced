@@ -1,6 +1,7 @@
 // A round's logic, driven with fakes (#10299, #10294): the tester sees the old stack or the updating page until the new
 // stack passes its checks and is readied, and the status file reads `updating` all that time.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -9,6 +10,7 @@ import test from 'node:test';
 import {
   BETA_MOVE_AT,
   READY_WAIT_MS,
+  askBack,
   askMove,
   betaPaths,
   decide,
@@ -602,4 +604,95 @@ test('a moved commit whose launch fails goes back too; a good commit that fails 
   const first = await round(fresh, fakes(fresh, { launch: 1 }).io);
   assert.equal(first.state, 'down');
   assert.equal(first.sha, NEW, 'no last good commit: nothing to go back to');
+});
+
+test('`beta-host.mjs back`: the beta goes back to the named commit behind the updating page and is held there until main moves past the main of the ask (#11065)', async () => {
+  const paths = home();
+  // NEW came up and broke testers; main is still on it.
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: NEW, updatedAt: '2026-11-23T06:00:00Z' }));
+  fs.writeFileSync(paths.served, JSON.stringify({ good: NEW, refused: null }));
+  askBack(paths, { sha: OLD, bad: NEW });
+  const { io, seen } = fakes(paths, { head: NEW, target: NEW });
+  const end = await round(paths, io);
+  assert.deepEqual(steps(seen).slice(0, 4), ['checkout', 'install', 'launch', 'check'], 'it moves, though main has not');
+  for (const s of seen) assert.equal(s.shown, 'updating', `${s.step}: testers see the updating page until the commit is readied`);
+  assert.equal(end.state, 'up');
+  assert.equal(end.sha, OLD);
+  assert.equal(end.mainAt, NEW);
+  assert.deepEqual({ sha: end.held.sha, bad: end.held.bad, mainAt: end.held.mainAt }, { sha: OLD, bad: NEW, mainAt: NEW });
+  assert.match(end.why, /held on aaaaaaaaa \(beta-host\.mjs back\): bbbbbbbbb broke testers; main waits until it moves past bbbbbbbbb/);
+  assert.match(statusLine(readStatus(paths)), /^up: serves aaaaaaaaa; main is at bbbbbbbbb; held on aaaaaaaaa/);
+  assert.equal(fs.existsSync(paths.backTo), false, 'the ask is used once');
+  // Main has not moved: every round keeps the held commit, though nobody is invited (which would follow each merge).
+  const again = await round(paths, fakes(paths, { head: OLD, target: NEW }).io);
+  assert.equal(again.sha, OLD);
+  assert.equal(again.held.sha, OLD);
+  assert.match(again.why, /held on aaaaaaaaa/);
+  // Main moves past it: the hold ends and the beta follows main again.
+  const past = await round(paths, fakes(paths, { head: OLD, target: THIRD }).io);
+  assert.equal(past.sha, THIRD);
+  assert.equal(past.state, 'up');
+  assert.equal(past.held ?? null, null);
+  assert.equal(JSON.parse(fs.readFileSync(paths.served, 'utf8')).held, undefined, 'forgotten once main moved past it');
+  assert.match(fs.readFileSync(paths.log, 'utf8'), /back: main moved past bbbbbbbbb to ccccccccc, so the hold on aaaaaaaaa ends/);
+});
+
+test('a hold ends on demand (`beta-host.mjs move`); a held commit that fails is down, never sent back to the commit that broke testers', async () => {
+  const paths = home();
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: NEW, updatedAt: '2026-11-23T06:00:00Z' }));
+  askBack(paths, { sha: OLD, bad: NEW });
+  await round(paths, fakes(paths, { head: NEW, target: NEW }).io);
+  askMove(paths);
+  const moved = await round(paths, fakes(paths, { head: OLD, target: NEW }).io);
+  assert.equal(moved.sha, NEW);
+  assert.equal(moved.held ?? null, null);
+  assert.match(moved.why, /on demand/);
+
+  const failing = home();
+  fs.writeFileSync(failing.status, JSON.stringify({ state: 'up', sha: NEW, updatedAt: '2026-11-23T06:00:00Z' }));
+  fs.writeFileSync(failing.served, JSON.stringify({ good: NEW, refused: null }));
+  askBack(failing, { sha: OLD, bad: NEW });
+  const { io, seen } = fakes(failing, { head: NEW, target: NEW, launch: 1 });
+  const down = await round(failing, io);
+  assert.equal(down.state, 'down');
+  assert.equal(down.sha, OLD);
+  assert.equal(steps(seen).filter((s) => s === 'checkout').length, 1, 'no go-back onto the bad commit');
+  assert.equal(down.held.sha, OLD, 'the hold stands, so the next round tries the named commit again');
+});
+
+test('`beta-host.mjs back` takes only a commit on main, other than the one served, and defaults to the one before it', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-back-'));
+  const paths = betaPaths(home);
+  const g = (...args) => {
+    const r = spawnSync('git', ['-C', paths.checkout, ...args], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout.trim();
+  };
+  fs.mkdirSync(paths.checkout, { recursive: true });
+  g('init', '--quiet');
+  const commit = (m) => (
+    g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', m),
+    g('rev-parse', 'HEAD')
+  );
+  const first = commit('first');
+  const second = commit('second');
+  g('update-ref', 'refs/remotes/origin/main', second);
+  g('switch', '--quiet', '-c', 'side');
+  const side = commit('side');
+  const cli = (...args) =>
+    spawnSync(process.execPath, [path.join(import.meta.dirname, 'beta-host.mjs'), 'back', ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, HOME: home },
+    });
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: second }));
+  const off = cli(side);
+  assert.equal(off.status, 1);
+  assert.match(off.stderr, /is not on main/);
+  assert.match(cli(second).stderr, /already serves/);
+  assert.match(cli('nope').stderr, /nope is not a commit/);
+  assert.equal(fs.existsSync(paths.backTo), false, 'a refused ask asks nothing');
+  const ok = cli();
+  assert.equal(ok.status, 0, ok.stderr);
+  const ask = JSON.parse(fs.readFileSync(paths.backTo, 'utf8'));
+  assert.deepEqual({ sha: ask.sha, bad: ask.bad }, { sha: first, bad: second });
 });

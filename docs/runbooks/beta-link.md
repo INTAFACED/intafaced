@@ -13,6 +13,10 @@ The Customer app on the latest `main`, always on, on TEST funds only, for the ow
   refusals with their words, errors, the last thing they did, and STUCK with why (an error after their last stage, or no
   new stage for 30 minutes short of a first order).
 - **Move it now:** `node tooling/beta/beta-host.mjs move` on the box, for a fix testers need before the daily slot.
+- **Move it back:** `node tooling/beta/beta-host.mjs back [<sha>]` on the box, for a commit that came up but broke
+  testers: within 15 seconds it goes back to `<sha>`, a commit on main (default: the one before the commit served), and
+  holds there until main moves past the main of that moment; `status` names the held commit and why, and `move` ends the
+  hold at once (#11065).
 
 ## How it works
 

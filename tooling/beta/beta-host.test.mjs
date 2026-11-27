@@ -16,6 +16,7 @@ import {
   MAILBOX_PORT,
   anvilLauncher,
   betaPaths,
+  recordLimits,
   decide,
   ensureAnvil,
   environEntries,
@@ -586,4 +587,30 @@ test("passkeys and wallet messages work on the beta's public name: svc-identity'
   }
   for (const bad of ['http://beta.intafaced.com', 'https://beta.intafaced.com/', 'https://beta.intafaced.com/app', 'beta.intafaced.com'])
     assert.throws(() => publicOrigin({ LOCAL_STACK_PUBLIC_ORIGIN: bad }), /LOCAL_STACK_PUBLIC_ORIGIN must be one https origin/, bad);
+});
+
+test('recordLimits keeps the four outside limits in status.json and says a new warning once in round.log (#11063)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-limits-host-'));
+  const paths = betaPaths(root);
+  fs.mkdirSync(path.join(paths.state, 'logs'), { recursive: true });
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: 'abc', at: '2026-11-27T09:00:00.000Z' }));
+  fs.writeFileSync(paths.testnet, JSON.stringify({ funder: '0x47e03ee499ba8efff97d8e6459ae2c64e8b28dc6', accounts: {} }));
+  const deps = { spotFree: async () => '68', seatLimit: '' };
+  const limits = await recordLimits(paths, deps);
+  assert.deepEqual(
+    limits.map((l) => l.name),
+    ['wallet-provider', 'funder', 'venue-weight', 'login-seats'],
+  );
+  const s = JSON.parse(fs.readFileSync(paths.status, 'utf8'));
+  assert.equal(s.state, 'up', "the round's own fields stay");
+  assert.equal(s.at, '2026-11-27T09:00:00.000Z');
+  assert.deepEqual(s.limits, limits);
+  assert.match(s.limitsLine, /^limits: warn \(funder\); unread \(wallet-provider, venue-weight, login-seats\)$/);
+  await recordLimits(paths, deps);
+  const warned = fs
+    .readFileSync(paths.log, 'utf8')
+    .split('\n')
+    .filter((l) => l.includes('limit: warn'));
+  assert.equal(warned.length, 1, 'the same warning is said once');
+  assert.match(warned[0], /covers 2 testers/);
 });
