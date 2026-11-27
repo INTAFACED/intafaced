@@ -269,6 +269,19 @@ describe('prepare builds exactly what the wallet signs', () => {
     await refusedWith(venue.prepare(account, ownerSigner, order({ type: 'market', timeInForce: 'ALO' })), 'not_offered');
   });
 
+  it('#11048: a trigger order or one attached to an entry is refused, never sent as a plain order that fills at once', async () => {
+    // On the testnet a reduce-only stop 3,000 under the mark went out as a plain IOC and closed the position at once.
+    const venue = venueWith(fakeVenue());
+    const stop = { price: a('1800'), source: 'mark' as const, role: 'stop_loss' as const };
+    const market = { type: 'market' as const, timeInForce: 'IOC' as const, side: 'sell' as const, reduceOnly: true };
+    await refusedWith(venue.prepare(account, ownerSigner, order({ ...market, trigger: stop })), 'not_offered');
+    await refusedWith(venue.preview(account, order({ ...market, trigger: stop })), 'not_offered');
+    await refusedWith(
+      venue.prepare(account, ownerSigner, order({ ...market, parentClientOrderKey: 'order:0xabc:entry:1' })),
+      'not_offered',
+    );
+  });
+
   it('price and size follow the venue rules, refused before signing and never rounded', async () => {
     const venue = venueWith(fakeVenue());
     // ETH perp: szDecimals 4, so at most 2 price decimals and 5 significant figures.
