@@ -9,6 +9,7 @@ import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { env } from '../env.js';
 import type { JobHost } from '../futures/job-host.js';
+import { AccountPace, accountPaceSetting } from '../venue/account-pace.js';
 import { SqlPreparedActionStore } from '../venue/prepared-action-store.js';
 import { parseBuilderFee, type UserVenueDoor } from '../venue/user-venue-door.js';
 import type { UserVenue, UserVenueAccount } from '@intafaced/venue-contracts';
@@ -113,11 +114,19 @@ export function wireBuilderFees(deps: {
     // order can be routed to (J-derivatives-28): each venue's accounts, fills and keys are its own, so one venue that can't
     // be read or stops its run leaves the others' fills posted, and the job still fails for the next tick to retry it.
     if (userVenueDoors.length > 0 && env.TRADE_BUILDER_FEE_POSTER === 'on') {
+      const perMinute = accountPaceSetting(
+        env.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE,
+        'TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE',
+      );
+      // One pace per venue: each venue limits its own reads.
+      const paces = new Map(userVenueDoors.map((door) => [door, perMinute === null ? null : new AccountPace(perMinute, () => new Date())]));
       host.every('venue.builder_fees', env.TRADE_BUILDER_FEE_POSTER_INTERVAL_MS, async () => {
         const stopped: unknown[] = [];
         for (const door of userVenueDoors) {
+          const pace = paces.get(door) ?? null;
           try {
             const run = await postBuilderFees({
+              ...(pace ? { pace } : {}),
               venue: () => door.venue(),
               ledger,
               store: builderFeeStore,
