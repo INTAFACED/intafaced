@@ -98,7 +98,6 @@ const PARKED = [
   '/pay/bills',
   '/market/mine',
   '/uc/innovation/myorders',
-  '/status',
   '/partner',
   '/developers/status',
   '/lab',

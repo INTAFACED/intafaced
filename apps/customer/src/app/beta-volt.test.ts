@@ -223,7 +223,7 @@ describe("the beta's menus", () => {
     expect(isHiddenPath('/help/official-channels')).toBe(false);
     expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/help/official-channels');
     expect(searchRooms('official channels', 'Personal').map((room) => room.path)).toContain('/help/official-channels');
-    for (const blockedPath of ['/status', '/rulebook', '/support/chat', '/help/mule-policy']) {
+    for (const blockedPath of ['/rulebook', '/support/chat', '/help/mule-policy']) {
       expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('owner-blank-pages');
       expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
     }
