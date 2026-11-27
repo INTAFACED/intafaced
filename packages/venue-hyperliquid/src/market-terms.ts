@@ -20,7 +20,10 @@ export type ReadMarketTerm =
   | 'status'
   | 'makerFeeBps'
   | 'takerFeeBps'
-  | 'builderFeeCapBps';
+  | 'builderFeeCapBps'
+  | 'contractSize'
+  | 'mark'
+  | 'funding';
 
 export type ReadMarketTerms = Pick<UserVenueMarket, ReadMarketTerm>;
 
@@ -34,6 +37,12 @@ export const BUILDER_FEE_CAP_BPS: Readonly<Record<UserVenueMarket['kind'], Amoun
   perpetual: parseAmount('10'),
   spot: parseAmount('100'),
 };
+
+/**
+ * One perpetual contract on Hyperliquid: "Contract: 1 unit of underlying spot asset" (Hyperliquid contract
+ * specifications, https://hyperliquid.gitbook.io/hyperliquid-docs/trading/contract-specifications, read 27 Nov 2026).
+ */
+export const PERP_CONTRACT_SIZE: Amount = parseAmount('1');
 
 /**
  * Hyperliquid's protocol-wide smallest order value: "Order must have minimum value of 10 {quote_token}" (spot) and "$10"
@@ -74,11 +83,6 @@ export function unreadMarketTerms(): Omit<UserVenueMarket, ReadMarketTerm> {
     openInterest: { known: false },
     // A deployer's halt or a split, with the settlement it made, is not read by this adapter yet: not known.
     lastEvent: { known: false },
-    // The contract strip's contract size, mark and funding (J-derivatives-01 #4) are not read by this adapter yet
-    // (`metaAndAssetCtxs` carries mark and funding): each is not known, never guessed.
-    contractSize: { known: false },
-    mark: { known: false },
-    funding: { known: false },
     // Its self-trade rule is not read from the venue by this adapter: not known, never guessed.
     selfTrade: { known: false },
   };

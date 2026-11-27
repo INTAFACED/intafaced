@@ -94,6 +94,8 @@ function fakeVenue(): Fake {
     info: {
       meta: () => META,
       spotMeta: () => SPOT_META,
+      predictedFundings: () => [],
+      userFees: () => ({}),
       extraAgents: () => [{ name: 'TEST bot', address: AGENT, validUntil: NOW + 86_400_000 }],
       maxBuilderFee: () => 10, // 1 bp, in tenths
       orderStatus: (b) => ({
@@ -1082,13 +1084,27 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     await refusedWith(venueWith(fake).markets(null), 'venue_down');
   });
 
-  it('markets: lot and tick from szDecimals, fees "not known" without an account', async () => {
+  it('markets: lot and tick from szDecimals, fees the venue base schedule without an account and its own with one', async () => {
     const fake = fakeVenue();
-    fake.info.userFees = () => ({ userCrossRate: '0.00035', userAddRate: '0.0001' });
+    fake.info.userFees = (b) =>
+      b.user === '0x0000000000000000000000000000000000000000'
+        ? { userCrossRate: '0.00045', userAddRate: '0.00015' }
+        : { userCrossRate: '0.00035', userAddRate: '0.0001' };
     const venue = venueWith(fake);
     const anon = (await venue.markets(null)).value;
     const eth = anon.find((m) => m.symbol === 'ETH-PERP')!;
-    expect([eth.lotSize, eth.tickSize, eth.maxLeverageBps, eth.takerFeeBps]).toEqual([a('0.0001'), a('0.01'), 250_000, { known: false }]);
+    expect([eth.lotSize, eth.tickSize, eth.maxLeverageBps, eth.takerFeeBps, eth.makerFeeBps]).toEqual([
+      a('0.0001'),
+      a('0.01'),
+      250_000,
+      { known: true, value: a('4.5') },
+      { known: true, value: a('1.5') },
+    ]);
+    // A schedule that names no rate leaves it not known, never a zero.
+    const bare = fakeVenue();
+    bare.info.userFees = () => ({});
+    const blank = (await venueWith(bare).markets(null)).value.find((m) => m.symbol === 'ETH-PERP')!;
+    expect(blank.takerFeeBps).toEqual({ known: false });
     expect(anon.find((m) => m.symbol === 'ISO-PERP')!.marginModes).toEqual(['isolated']);
     const mine = (await venue.markets(account)).value.find((m) => m.symbol === 'ETH-PERP')!;
     expect([mine.takerFeeBps, mine.makerFeeBps]).toEqual([

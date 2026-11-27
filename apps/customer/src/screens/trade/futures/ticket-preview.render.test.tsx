@@ -12,6 +12,7 @@ import { VenueFuturesDesk } from './VenueFuturesDesk';
 
 const world = vi.hoisted(() => ({
   markets: [] as unknown[],
+  owner: null as string | null,
   wallets: [] as { info: { uuid: string; name: string } }[],
   connect: vi.fn(),
 }));
@@ -43,7 +44,7 @@ vi.mock('../../../features/trade/venue/VenueKit', async (original) => {
     ...real,
     VenueFrame: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     WalletBar: () => <div data-testid="venue-wallet" />,
-    useOwner: () => null,
+    useOwner: () => world.owner,
     useVenueAccount: () => ({
       balances: { data: null, failure: null, reload: vi.fn() },
       positions: { data: null, failure: null, reload: vi.fn() },
@@ -67,7 +68,7 @@ vi.mock('../desk/VenueMarketData', () => ({ VenueMarketPanel: () => null }));
 const STATUS: VenueUp = {
   enabled: true,
   available: true,
-  venue: { id: 'hyperliquid', displayName: 'TEST Venue', proofLevel: 'testnet' },
+  venue: { id: 'hyperliquid', displayName: 'TEST Venue', proofLevel: 'partner-sandbox' },
   chainId: 421614,
   builder: null,
   test: true,
@@ -107,6 +108,7 @@ beforeEach(() => {
   document.body.append(host);
   world.markets = [BTC];
   world.wallets = [];
+  world.owner = null;
   world.connect.mockReset();
 });
 
@@ -175,5 +177,19 @@ describe('the futures order form before any wallet or session', () => {
     const form = host.querySelector('[data-testid="venue-ticket-preview"]')!;
     expect(form.querySelector('[role="alert"]')?.textContent).toContain('40x');
     expect(form.querySelector('[data-testid="venue-ticket-preview-summary"]')!.textContent).not.toContain('Margin at 41x');
+  });
+
+  it('with a wallet but no live trading session, starting one comes first and the ticket cannot be sent', () => {
+    world.owner = '0x1111111111111111111111111111111111111111';
+    render();
+    expect(host.querySelector('[data-testid="venue-ticket-preview"]')).toBeNull();
+    const session = host.querySelector('[data-testid="venue-session"]');
+    const ticket = host.querySelector('[data-testid="venue-ticket"]');
+    expect(session).not.toBeNull();
+    expect(ticket).not.toBeNull();
+    // The session panel sits before the ticket, and the ticket's Review waits for it.
+    expect(session!.compareDocumentPosition(ticket!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const review = [...ticket!.querySelectorAll('button')].find((b) => b.textContent === 'Review long');
+    expect(review?.disabled).toBe(true);
   });
 });

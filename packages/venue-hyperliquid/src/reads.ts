@@ -7,6 +7,7 @@ import {
   type UserVenueBalance,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueFunding,
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenueOrderRecord,
@@ -34,6 +35,7 @@ import {
   amt,
   arr,
   int,
+  messageOf,
   obj,
   refusal,
   str,
@@ -46,6 +48,7 @@ import {
   BUILDER_FEE_CAP_BPS,
   DEFAULT_MAX_OPEN_ORDERS,
   MIN_ORDER_NOTIONAL,
+  PERP_CONTRACT_SIZE,
   unreadMarketTerms,
   type ReadMarketTerms,
 } from './market-terms.js';
@@ -66,6 +69,9 @@ const HL_CANDLE_INTERVALS: ReadonlySet<VenueCandleInterval> = new Set([
   '1w',
 ]);
 
+/** The zero address: every account with no volume of its own shares its fee schedule. */
+const NO_ACCOUNT = '0x0000000000000000000000000000000000000000';
+
 /**
  * Every read the Hyperliquid testnet adapter answers from `POST /info`: the listing as `UserVenueMarket`s, the book and
  * mids, and the account's balances, orders, fills, positions, withdrawals, builder-fee approval, agents and leverage.
@@ -80,8 +86,19 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     const { bySymbol } = await this.loadMarkets();
     let fees: { [key: string]: Json } | null = null;
     if (account) fees = obj(await this.info({ type: 'userFees', user: this.user(account) }), 'userFees');
+    else {
+      // With no account, the rates a new account pays: the venue's base schedule, read for the zero address as
+      // `feeStatus` reads it. A failed read leaves the fees not known; the listing stays up.
+      try {
+        fees = obj(await this.info({ type: 'userFees', user: NO_ACCOUNT }), 'userFees');
+      } catch (error) {
+        this.warn(`venue listing: base fees left not known: ${messageOf(error)}`);
+      }
+    }
     const fee = (field: string): MaybeKnown<Amount> =>
       fees && typeof fees[field] === 'string' ? { known: true, value: rateToBps(fees[field]) } : { known: false };
+    const { marks, fundings } = await this.perpFigures();
+    const known = <T>(value: T | undefined): MaybeKnown<T> => (value === undefined ? { known: false } : { known: true, value });
     const list: UserVenueMarket[] = [...bySymbol.values()].map((m) => {
       const read: ReadMarketTerms = {
         symbol: m.symbol,
@@ -104,6 +121,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         // (`isDelisted`, dropped by `loadMarkets`); it publishes no halt, limit-only or cancel-only state, so a listed
         // market is trading. Never null here, which a reader takes as not known (and the markets list as not open).
         status: 'trading',
+        // The contract strip (J-derivatives-01 #4): the venue's own figures for a perpetual; spot has no contract.
+        contractSize: m.kind === 'perpetual' ? { known: true, value: PERP_CONTRACT_SIZE } : { known: false },
+        mark: known(m.kind === 'perpetual' ? marks.get(m.coin) : undefined),
+        funding: known(m.kind === 'perpetual' ? fundings.get(m.coin) : undefined),
       };
       // What this adapter does not read from the venue: `market-terms.ts`, never here. Who listed a HIP-3 market is read
       // with the listing: the DEX's own name for itself (`perpDexs` fullName).
@@ -113,6 +134,61 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       return { ...read, ...unreadMarketTerms(), listedBy };
     });
     return this.asOf(list);
+  }
+
+  /**
+   * Each perpetual's mark now (`metaAndAssetCtxs` `markPx`, per perp DEX) and its funding as the venue publishes it
+   * (`predictedFundings`, the venue's own `HlPerp` entry: rate per interval, interval and next payment), by coin. A read
+   * that fails, or a coin with no entry, is left out, so its figure reads not known, never guessed; the listing stays up.
+   */
+  private async perpFigures(): Promise<{ marks: Map<string, Amount>; fundings: Map<string, UserVenueFunding> }> {
+    const marks = new Map<string, Amount>();
+    const fundings = new Map<string, UserVenueFunding>();
+    // A named DEX whose read fails is already warned of and left out by the listing; only the main one warns here.
+    const [ctxs, predicted] = await Promise.all([
+      this.perDex(async (dex) => {
+        try {
+          return arr(await this.info({ type: 'metaAndAssetCtxs', ...dex }), 'metaAndAssetCtxs');
+        } catch (error) {
+          if (dex.dex === undefined) this.warn(`venue listing: marks left not known: ${messageOf(error)}`);
+          return null;
+        }
+      }),
+      this.info({ type: 'predictedFundings' }).then(
+        (answer) => answer,
+        (error: unknown) => {
+          this.warn(`venue listing: funding left not known: ${messageOf(error)}`);
+          return null;
+        },
+      ),
+    ]);
+    for (const both of ctxs) {
+      if (!both) continue;
+      const meta = both[0];
+      const universe = meta && typeof meta === 'object' && !Array.isArray(meta) && Array.isArray(meta.universe) ? meta.universe : [];
+      const assetCtxs = Array.isArray(both[1]) ? both[1] : [];
+      universe.forEach((u, i) => {
+        const ctx = assetCtxs[i];
+        if (!u || typeof u !== 'object' || Array.isArray(u) || typeof u.name !== 'string') return;
+        if (!ctx || typeof ctx !== 'object' || Array.isArray(ctx) || typeof ctx.markPx !== 'string') return;
+        marks.set(u.name, amt(ctx.markPx, 'markPx'));
+      });
+    }
+    if (Array.isArray(predicted)) {
+      for (const row of predicted) {
+        if (!Array.isArray(row) || typeof row[0] !== 'string' || !Array.isArray(row[1])) continue;
+        const own = row[1].find((v) => Array.isArray(v) && v[0] === 'HlPerp');
+        const f = Array.isArray(own) && own[1] && typeof own[1] === 'object' && !Array.isArray(own[1]) ? own[1] : null;
+        if (!f || typeof f.fundingRate !== 'string' || typeof f.nextFundingTime !== 'number' || typeof f.fundingIntervalHours !== 'number')
+          continue;
+        fundings.set(row[0], {
+          rate: amt(f.fundingRate, 'fundingRate'),
+          intervalSeconds: f.fundingIntervalHours * 3600,
+          nextFundingAt: new Date(f.nextFundingTime),
+        });
+      }
+    }
+    return { marks, fundings };
   }
 
   /**
@@ -556,7 +632,7 @@ export abstract class HyperliquidReads extends HyperliquidCore {
    * account, the schedule is read for the zero address, which every account shares.
    */
   async feeStatus(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>> {
-    const user = account ? this.user(account) : '0x0000000000000000000000000000000000000000';
+    const user = account ? this.user(account) : NO_ACCOUNT;
     const fees = obj(await this.info({ type: 'userFees', user }), 'userFees');
     const rate = (o: { [key: string]: Json }, field: string): MaybeKnown<Amount> =>
       typeof o[field] === 'string' ? { known: true, value: rateToBps(o[field]) } : { known: false };
