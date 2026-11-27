@@ -589,7 +589,7 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
     const rows = store.rows.size;
     expect(
       await refused(
-        s.create(person, req({ kind: 'gtd', side: 'buy', entryPrice: '98', signer: { role: 'builder', address: agent } }), REGION),
+        s.create(person, req({ kind: 'stop_market', triggerPrice: '95', signer: { role: 'builder', address: agent } }), REGION),
       ),
     ).toMatchObject({ code: 'trade.spot_conditional_invalid', status: 400 });
     expect(store.rows.size).toBe(rows);

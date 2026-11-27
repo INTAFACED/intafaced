@@ -43,6 +43,7 @@ import {
   type DepositRoute,
   type ListedPlaces,
 } from './venue-desk';
+import { DeskSessionLine } from '../../../features/trade/venue/VenueSession';
 
 /** A note's kit classes: plain, or the refusal tone. */
 const NOTE = { plain: 'lt-note', bad: 'lt-note lt-note-bad' } as const;
@@ -131,6 +132,8 @@ export function VenueAccountPanel({
       </h2>
       <p className="lt-note">{t('Venue account note')}</p>
       <VenueWalletRow />
+      {/* The spot desk's trading session (VenueSpotGate's DeskSessionProvider), beside the wallet that approves it. */}
+      <DeskSessionLine />
       {owner && balances
         ? [market.quoteAsset, market.baseAsset].map((asset) => {
             const row = rowOf(asset);

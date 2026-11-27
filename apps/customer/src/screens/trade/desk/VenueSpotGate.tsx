@@ -4,7 +4,8 @@ import { useResource } from '../../../shared/resource';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import type { VenueMarket } from '../../../features/trade/venue-api';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
-import { VenueFrame, useVenueApi } from '../../../features/trade/venue/VenueKit';
+import { VenueFrame, useOwner, useVenueApi } from '../../../features/trade/venue/VenueKit';
+import { DeskSessionProvider } from '../../../features/trade/venue/VenueSession';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
 import { KYC_REQUIRED } from './venue-access';
@@ -60,6 +61,7 @@ export function VenueSpotGate({
   const v = venueCopy.useCopy().t;
   const d = deskCopy.useCopy().t;
   const venue = useVenueApi();
+  const owner = useOwner();
   const markets = useResource((signal) => venue.markets(signal), 'venue-markets');
   const symbol = venueSymbolOf(pair);
   const [fromMenu] = useState(consumeMenuSpotNavigation);
@@ -128,7 +130,10 @@ export function VenueSpotGate({
   }
   return (
     <VenueFrame mode={mode}>
-      <VenueSpotDesk status={mode.status} market={market} markets={r.status === 'ready' ? r.data.value : [market]} />
+      {/* A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's key. */}
+      <DeskSessionProvider owner={owner} status={mode.status}>
+        <VenueSpotDesk status={mode.status} market={market} markets={r.status === 'ready' ? r.data.value : [market]} />
+      </DeskSessionProvider>
     </VenueFrame>
   );
 }

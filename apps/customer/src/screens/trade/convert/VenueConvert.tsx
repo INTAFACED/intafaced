@@ -36,11 +36,17 @@ import {
   BalancesPanel,
   TestMark,
   VenueFrame,
+  DeskSigningContext,
   WalletBar,
+  useDeskSigning,
   useOwner,
   useVenueAccount,
   useVenueApi,
 } from '../../../features/trade/venue/VenueKit';
+import { VenueSessionPanel, useDeskSession } from '../../../features/trade/venue/VenueSession';
+import { venueCopy } from '../../../features/trade/venue/venue-copy';
+import { signWithSessionKey } from '../../../features/protocol';
+import { useExitSigner } from '../futures/VenueProtect';
 import { DepositDialog } from '../desk/VenueAccountPanel';
 import { convertCopy } from './copy';
 import { venueConvertCopy } from './venue-convert-copy';
@@ -156,6 +162,9 @@ function VenueConvert({ status, asked }: { status: VenueUp; asked: { from: strin
   const { t: ct } = convertCopy.useCopy();
   const convert = useConvertApi();
   const owner = useOwner();
+  // A venue whose orders a trading session's key signs (status `tradesSignedBy`): a conversion's order is signed by this
+  // tab's live key, as on the desk; the room offers the same Start where none is on.
+  const session = useDeskSession(owner, status);
   const pairsRead = usePolled((signal) => convert.pairs(signal), 'cvt-venue-pairs', 15_000);
   const pairs = pairsRead.data;
 
@@ -186,11 +195,14 @@ function VenueConvert({ status, asked }: { status: VenueUp; asked: { from: strin
       );
   }
   return (
-    <div className="lt-stack">
-      <WalletBar />
-      {card}
-      {owner ? <VenueRecent owner={owner} test={status.test} /> : null}
-    </div>
+    <DeskSigningContext.Provider value={session.signing}>
+      <div className="lt-stack">
+        <WalletBar />
+        {owner ? <VenueSessionPanel session={session} owner={owner} status={status} /> : null}
+        {card}
+        {owner ? <VenueRecent owner={owner} test={status.test} /> : null}
+      </div>
+    </DeskSigningContext.Provider>
   );
 }
 
@@ -214,6 +226,9 @@ function VenueCard({
   const { t: ct } = convertCopy.useCopy();
   const convert = useConvertApi();
   const wallet = useWallet();
+  const signing = useDeskSigning();
+  const orderSigner = useExitSigner(owner);
+  const v = venueCopy.useCopy().t;
   const account = useVenueAccount(owner);
   const initial = useMemo(() => {
     const p = (asked.from && asked.to && joinOf(pairs, cash, asked.from, asked.to)) || null;
@@ -330,11 +345,21 @@ function VenueCard({
     if (step.step === 'wait') return { kind: 'message' as const, text: t('Wallet waiting') };
     if (step.step === 'resend') return { kind: 'unknown' as const };
     const p = prepared.prepared;
-    const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
-    if (signed.status === 'rejected') return { kind: 'message' as const, text: t('Wallet rejected') };
-    if (signed.status !== 'signed')
-      return { kind: 'message' as const, text: t('Wallet failed', { detail: signed.status === 'failed' ? signed.message : '' }) };
-    const sent = await convert.submit(prepared.actionKey, { digest: p.digest, signature: signed.signature, signedBy: owner });
+    let signature: { digest: string; signature: string; signedBy: string };
+    if (p.signer.role === 'agent') {
+      // Prepared for the trading session key: that key signs it here, with no wallet prompt, while it is still the live one.
+      const live = signing?.live ?? null;
+      if (!live || live.address.toLowerCase() !== p.signer.address.toLowerCase())
+        return { kind: 'message' as const, text: v('Session key gone') };
+      signature = await signWithSessionKey(live, p);
+    } else {
+      const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
+      if (signed.status === 'rejected') return { kind: 'message' as const, text: t('Wallet rejected') };
+      if (signed.status !== 'signed')
+        return { kind: 'message' as const, text: t('Wallet failed', { detail: signed.status === 'failed' ? signed.message : '' }) };
+      signature = { digest: p.digest, signature: signed.signature, signedBy: owner };
+    }
+    const sent = await convert.submit(prepared.actionKey, signature);
     if (!sent.ok)
       return sent.reason === 'uncertain'
         ? { kind: 'unknown' as const }
@@ -349,7 +374,9 @@ function VenueCard({
     setBusy(true);
     setMessage(null);
     try {
-      const prepared = await convert.accept({ owner, quoteId: shown.quoteId });
+      const chosen = orderSigner();
+      if ('refusal' in chosen) return setMessage(chosen.refusal.message);
+      const prepared = await convert.accept({ owner, quoteId: shown.quoteId, signer: chosen.signer });
       if (!prepared.ok) {
         setMessage(t('Convert refused', { detail: prepared.message }));
         return;
@@ -392,7 +419,10 @@ function VenueCard({
     setMessage(null);
     try {
       limitKey.current ??= `cl-${draftId()}`;
+      const chosen = orderSigner();
+      if ('refusal' in chosen) return setMessage(chosen.refusal.message);
       const prepared = await convert.limit({
+        signer: chosen.signer,
         owner,
         from,
         to,
