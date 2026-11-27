@@ -49,6 +49,8 @@ export const LAUNCH_ORDER = 1;
  * through our ledger, became J-derivatives-04-custodial.pw.mjs; all seven steps are proven in J-derivatives-04-venue.pw.mjs.
  * J-derivatives-01 left it the same way: J-derivatives-01.pw.mjs, every test on our own futures book with a trader funded
  * through our ledger, became J-derivatives-01-custodial.pw.mjs; every live step is proven in J-derivatives-01-venue.pw.mjs.
+ * J-charts-desk-01 left it the same way: J-charts-desk-01.pw.mjs, every test on our own engine's chart, which has no TEST
+ * trades custody off, became J-charts-desk-01-custodial.pw.mjs; all eight steps are proven in J-charts-desk-01-venue.pw.mjs.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -58,7 +60,6 @@ export const NOT_YET_OFF = new Set([
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
   'J-cex-spot-18',
-  'J-charts-desk-01',
   'J-charts-desk-14',
   'J-derivatives-02',
   'J-derivatives-06',
