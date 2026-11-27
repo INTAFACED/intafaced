@@ -245,6 +245,8 @@ export const appRouter = createProtocolRouter({
     store: new PostgresEmbeddedWalletStore(db.sql),
     setting: () => embeddedWalletSetting,
     gasSponsor,
+    // One line a signature outcome at the person's wallet provider, which the beta's status counts.
+    outcomes: (line) => process.stdout.write(`${JSON.stringify(line)}\n`),
   },
   peers: createPeers({
     indexer: { url: env.INDEXER_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },

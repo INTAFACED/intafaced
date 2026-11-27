@@ -43,6 +43,8 @@ import {
 } from './protocol-address-risk.js';
 import {
   protocolEmbeddedWalletCreateInputSchema,
+  protocolEmbeddedWalletOutcomeInputSchema,
+  protocolEmbeddedWalletOutcomeOutputSchema,
   protocolEmbeddedWalletCreateOutputSchema,
   protocolEmbeddedWalletStatusOutputSchema,
 } from './protocol-embedded-wallet.js';
@@ -629,6 +631,28 @@ export const PROTOCOL_EMBEDDED_WALLET_CREATE = defineProcedure({
   ],
 });
 
+/**
+ * svc-protocol `embeddedWallet.outcome`: the person's page says how one signature request at the owner's wallet
+ * provider ended. The service counts it against the person's own recorded wallet, so the beta's status can show the
+ * provider refusing (its signing quota) before a tester finds it by failing. It moves nothing and holds no key.
+ */
+export const PROTOCOL_EMBEDDED_WALLET_OUTCOME = defineProcedure({
+  ...base,
+  name: 'protocol.embeddedWallet.outcome',
+  kind: 'mutation',
+  path: 'embeddedWallet.outcome',
+  access: PERSON,
+  refusals: join(),
+  input: protocolEmbeddedWalletOutcomeInputSchema,
+  output: protocolEmbeddedWalletOutcomeOutputSchema,
+  samples: [
+    { verdict: 'accept', input: { outcome: 'quota', status: 429 } },
+    { verdict: 'accept', input: { outcome: 'down', status: null } },
+    { verdict: 'refuse', input: { outcome: 'busy', status: 429 } },
+    { verdict: 'refuse', input: { outcome: 'signed', status: 42 } },
+  ],
+});
+
 export const PROTOCOL_WALLET_PROCEDURES = [
   PROTOCOL_WALLET_SESSION_CHALLENGE,
   PROTOCOL_WALLET_SESSION_OPEN,
@@ -662,4 +686,5 @@ export const PROTOCOL_WALLET_PROCEDURES = [
   PROTOCOL_VENUE_WALLET_AUTHORIZE,
   PROTOCOL_EMBEDDED_WALLET_STATUS,
   PROTOCOL_EMBEDDED_WALLET_CREATE,
+  PROTOCOL_EMBEDDED_WALLET_OUTCOME,
 ] as const;

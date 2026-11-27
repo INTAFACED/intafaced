@@ -138,7 +138,7 @@ export function EmbeddedWalletRoom() {
   const read = status.resource.status === 'ready' ? status.resource.data : null;
   const provider = read?.provider ?? null;
   const wallet = made ?? read?.wallet ?? null;
-  const client = embeddedWalletClient(provider, wallet);
+  const client = embeddedWalletClient(provider, wallet, embedded.report);
   const name = providerName(provider, t);
   const listed = connections.resource.status === 'ready' ? connections.resource.data.connections : [];
   const fromServer = wallet ? listed.find((c) => c.address.toLowerCase() === wallet.address.toLowerCase()) : undefined;

@@ -3,10 +3,13 @@
  * that none is found again only by failing. `beta-host.mjs status` prints them and each round writes them into
  * status.json (`limits`), which the walk's record carries with the rest of status.json.
  *
- *   - the wallet provider's signing quota: `unread`. The page signs at the provider directly with the person's own
- *     passkey (apps/customer features/protocol/embedded-wallet provider-client.ts), so no request or refusal passes this
- *     box; the provider checks the stamp before the quota (an unstamped request answers CREDENTIAL_NOT_FOUND, 27 Nov), and
- *     the one stamp the box could make is the owner's API key, which a signature would spend. It never reads `ok`.
+ *   - the wallet provider's signing quota, from the outcomes of the last hour's signatures there: the page signs at the
+ *     provider directly with the person's own passkey (apps/customer features/protocol/embedded-wallet
+ *     provider-client.ts) and tells svc-protocol how each one ended (`embeddedWallet.outcome`), which writes one
+ *     `protocol.embedded_provider_outcome` line to the stack's protocol.log. A 429 there is the provider's quota answer
+ *     ("over its allotted quota", #11083), and any one of them in the hour is `warn`. What is left of the quota is not
+ *     read: the provider answers it only to a stamped request, and the one stamp the box could make is the owner's API
+ *     key, which a signature would spend.
  *   - the testnet funder's free TEST USDC and how many testers' grants (beta-testnet.mjs TESTNET_GRANT) it still covers,
  *     read on the testnet's public read door; the funder is the one testnet-funded.json names.
  *   - the venue's request weight in the last full minute against Hyperliquid's 1,200 a minute per IP, from the
@@ -37,19 +40,57 @@ const LOG_TAIL_BYTES = 256 * 1024;
 
 const hhmm = (ms) => new Date(ms).toISOString().slice(11, 16);
 
-/** The wallet provider's limit; on the labelled TEST provider (beta-host.mjs BETA_WALLET_PROVIDER, #11092) none is spent. */
-export function walletProviderLimit(provider = 'turnkey') {
-  if (provider === 'test')
+/** How far back the wallet provider's outcomes are counted. */
+const WALLET_OUTCOME_WINDOW_MS = 60 * MINUTE_MS;
+
+/** The `protocol.embedded_provider_outcome` lines in a log text, oldest first, as { at (ms), outcome, status }. */
+export function walletOutcomes(text) {
+  const out = [];
+  for (const raw of String(text ?? '').split('\n')) {
+    if (!raw.includes('protocol.embedded_provider_outcome')) continue;
+    let row;
+    try {
+      row = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    const at = Date.parse(row?.at);
+    if (row?.msg !== 'protocol.embedded_provider_outcome' || !Number.isFinite(at)) continue;
+    if (!['signed', 'quota', 'refused', 'down'].includes(row.outcome)) continue;
+    out.push({ at, outcome: row.outcome, status: Number.isInteger(row.status) ? row.status : null });
+  }
+  return out;
+}
+
+/**
+ * The wallet provider's limit. `outcomes` from walletOutcomes, or null when the stack's protocol.log could not be read;
+ * `provider` where new wallets are made (beta-host.mjs BETA_WALLET_PROVIDER, #11092): on the TEST provider a tester's
+ * older wallet at the owner's provider still signs there, so its outcomes still count.
+ */
+export function walletProviderLimit({ provider = 'turnkey', outcomes, now = Date.now() } = {}) {
+  const name = 'wallet-provider';
+  const where = provider === 'test' ? 'new wallets at the TEST provider on this box; ' : '';
+  const left = 'what is left of its quota is not read (the provider answers it only to a stamped request)';
+  if (!outcomes)
+    return { name, state: 'unread', line: `wallet provider: ${where}unread: the stack has no protocol.log to count its signatures from` };
+  const hour = outcomes.filter((o) => o.at > now - WALLET_OUTCOME_WINDOW_MS && o.at <= now);
+  const count = (outcome) => hour.filter((o) => o.outcome === outcome).length;
+  const quota = count('quota');
+  if (!hour.length)
     return {
-      name: 'wallet-provider',
+      name,
       state: 'ok',
-      line: "wallet provider: new wallets at the TEST provider on this box, so no signature at the owner's provider is spent",
+      line:
+        provider === 'test'
+          ? `wallet provider: ${where}no signature at the owner's provider in the last hour`
+          : `wallet provider: no signature asked at the owner's provider in the last hour; ${left}`,
     };
-  return {
-    name: 'wallet-provider',
-    state: 'unread',
-    line: "wallet provider signing quota: unread: each page signs at the provider directly with the person's own passkey, so no signature or refusal passes this box, and the provider answers its quota only to a stamped request",
-  };
+  const tally = `${count('signed')} of ${hour.length} signatures at the owner's provider signed in the last hour, ${quota} refused over its signing quota (429), ${count('refused')} refused otherwise, ${count('down')} unanswered`;
+  if (quota) {
+    const last = hour.filter((o) => o.outcome === 'quota').at(-1);
+    return { name, state: 'warn', line: `wallet provider: ${where}${tally}; the last quota refusal at ${hhmm(last.at)} UTC` };
+  }
+  return { name, state: 'ok', line: `wallet provider: ${where}${tally}; ${left}` };
 }
 
 /** `free` the funder's free TEST USDC (decimal string) or null when unread, with `error` saying why. */
@@ -152,6 +193,52 @@ function tail(file, bytes = LOG_TAIL_BYTES) {
   }
 }
 
+/** How much of the end of protocol.log is read at most, looking for the last hour's outcomes. */
+const PROTOCOL_LOG_MAX_BYTES = 64 * 1024 * 1024;
+const LOG_CHUNK_BYTES = 1024 * 1024;
+
+/** The time a log line carries: pino's `time` (ms) or an outcome's `at`; null for a line with neither. */
+function lineTime(line) {
+  const ms = /"time":(\d{12,})/.exec(line);
+  if (ms) return Number(ms[1]);
+  const at = /"at":"([^"]+)"/.exec(line);
+  const t = at ? Date.parse(at[1]) : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * The end of `file` back to the first line older than `since` (ms), read a chunk at a time from the end, so a large
+ * log costs only its last hour; at most `max` bytes. Null when the file cannot be read.
+ */
+export function tailSince(file, since, { chunk = LOG_CHUNK_BYTES, max = PROTOCOL_LOG_MAX_BYTES } = {}) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const size = fs.fstatSync(fd).size;
+    let start = size;
+    let text = '';
+    while (start > 0 && size - start < max) {
+      const len = Math.min(chunk, start);
+      start -= len;
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, start);
+      text = buf.toString('utf8') + text;
+      // The first whole line read so far: once it is older than `since`, everything after it is all that is needed.
+      const first = start > 0 ? text.slice(text.indexOf('\n') + 1) : text;
+      const firstLine = first.slice(0, first.indexOf('\n') === -1 ? undefined : first.indexOf('\n'));
+      const t = lineTime(firstLine);
+      if (t != null && t < since) break;
+    }
+    return start > 0 ? text.slice(text.indexOf('\n') + 1) : text;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 const readJson = (file) => {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -162,7 +249,7 @@ const readJson = (file) => {
 
 /**
  * All four, read now. `paths`: testnet (testnet-funded.json), invited (invited.json), venueLog (the stack's
- * test-venue.log). `deps.spotFree(address)` the funder's free TEST USDC (beta-testnet.mjs liveDeps), `deps.seatLimit`
+ * test-venue.log), protocolLog (the stack's protocol.log). `deps.spotFree(address)` the funder's free TEST USDC (beta-testnet.mjs liveDeps), `deps.seatLimit`
  * BETA_ACCESS_SEATS as set.
  */
 export async function readLimits(paths, { spotFree, seatLimit = process.env.BETA_ACCESS_SEATS, now = Date.now(), walletProvider } = {}) {
@@ -179,7 +266,14 @@ export async function readLimits(paths, { spotFree, seatLimit = process.env.BETA
   const log = tail(paths.venueLog);
   const seats = /^\d+$/.test(String(seatLimit ?? '').trim()) ? Number(seatLimit) : null;
   return [
-    walletProviderLimit(walletProvider),
+    walletProviderLimit({
+      provider: walletProvider,
+      outcomes: (() => {
+        const text = paths.protocolLog ? tailSince(paths.protocolLog, now - WALLET_OUTCOME_WINDOW_MS) : null;
+        return text == null ? null : walletOutcomes(text);
+      })(),
+      now,
+    }),
     funderLimit({ funder, free, error }),
     venueLimit({ minutes: log == null ? null : venueMinutes(log), now }),
     seatsLimit({ seen: Object.keys(readJson(paths.invited)?.tokens ?? {}).length, limit: seats || null }),

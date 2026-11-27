@@ -2040,6 +2040,7 @@ import {
   PROTOCOL_VENUE_WALLET_AUTHORIZE,
   PROTOCOL_EMBEDDED_WALLET_STATUS,
   PROTOCOL_EMBEDDED_WALLET_CREATE,
+  PROTOCOL_EMBEDDED_WALLET_OUTCOME,
 } from './protocol-wallet-procedures.js';
 
 import { QUANT_ALERT_LIST, QUANT_ALERT_CREATE } from './quant-alert-procedures.js';
@@ -4612,6 +4613,7 @@ const part_protocol_wallet_procedures: readonly ProcedureRecord[] = [
   PROTOCOL_VENUE_WALLET_AUTHORIZE,
   PROTOCOL_EMBEDDED_WALLET_STATUS,
   PROTOCOL_EMBEDDED_WALLET_CREATE,
+  PROTOCOL_EMBEDDED_WALLET_OUTCOME,
 ];
 
 const part_quant_alert_procedures: readonly ProcedureRecord[] = [QUANT_ALERT_LIST, QUANT_ALERT_CREATE];

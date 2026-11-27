@@ -6,7 +6,7 @@ import { useSession } from '../../session';
 import { createEmbeddedWalletApi } from './embedded-wallet-api';
 import { embeddedWalletCopy } from './embedded-wallet-copy';
 import { announce, embeddedProvider, EMBEDDED_WALLET_ICON, EMBEDDED_WALLET_RDNS, type Announced } from './embedded-provider';
-import { embeddedWalletClient } from './provider-client';
+import { embeddedWalletClient, type OutcomeReport } from './provider-client';
 
 /**
  * The person's own embedded wallet, offered to every room that looks for a browser wallet (EIP-6963): while the signed-in
@@ -52,13 +52,14 @@ export function announcedWallet(
   wallet: ProtocolEmbeddedWalletRecord,
   name: string,
   makeClient = embeddedWalletClient,
+  report?: OutcomeReport,
 ): Announced | null {
   const key = `${provider.id}:${provider.test}:${wallet.providerWalletId}:${wallet.address.toLowerCase()}:${name}`;
   const kept = providers.get(key);
   if (kept) return kept;
   // The owner's provider signs only for the wallet it is given (its sub-organisation and address): without it, every
   // signature the page asks for is refused.
-  const client = makeClient(provider, { address: wallet.address, providerWalletId: wallet.providerWalletId });
+  const client = makeClient(provider, { address: wallet.address, providerWalletId: wallet.providerWalletId }, report);
   if (!client) return null;
   const walletId = wallet.providerWalletId;
   const made: Announced = {
@@ -88,7 +89,7 @@ export function EmbeddedWalletAnnouncer() {
   const provider = read?.provider ?? null;
   const wallet = read?.wallet ?? null;
   const name = provider?.test || wallet?.test ? t('announceNameTest') : t('announceName');
-  const announced = provider && wallet ? announcedWallet(provider, wallet, name) : null;
+  const announced = provider && wallet ? announcedWallet(provider, wallet, name, embeddedWalletClient, embedded.report) : null;
   const target = typeof window === 'undefined' ? null : window;
   useEventListener(target, 'eip6963:requestProvider', () => {
     if (announced && target) announce(target, announced);
