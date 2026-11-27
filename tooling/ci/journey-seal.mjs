@@ -102,6 +102,7 @@ import {
   pullPick,
   stackImporters,
 } from './journey-touch.mjs';
+import { carriedHeads } from './journey-carry.mjs';
 import { subscribesVia, builtMap, headWanted, loadMap, newerMap, readHead, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
@@ -292,7 +293,7 @@ export const flakyWay = (key, sha, repo, runId) =>
  * changed journey test files no name covers (judgeTouched), judged as if the title named them. Pure but for reportOf.
  * Returns { ok, state: 'none'|'pass'|'wait'|'fail', lines: [...] }.
  */
-export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitOnRunning = true, derived = [] }) {
+export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitOnRunning = true, derived = [], carried = [] }) {
   const named = [...new Set([...titleSteps(title), ...derived])];
   const unreadable = titleProblems(title);
   if (unreadable.length)
@@ -311,10 +312,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     else needed.push(k);
   }
   if (needed.length === 0) return { ok: true, state: 'pass', lines };
-  const mine = (runs ?? []).filter(
-    (r) =>
-      r?.head_sha === sha && r?.path === JOURNEYS_WORKFLOW && r?.head_repository?.full_name === repo && r?.repository?.full_name === repo,
-  );
+  const mine = onHead(runs, sha, repo, carried);
   const running = mine.filter((r) => r.status !== 'completed');
   if (running.length && waitOnRunning) {
     const ids = running.map((r) => `${r.id} (attempt ${r.run_attempt ?? 1}, ${r.status})`).join(', ');
@@ -431,12 +429,18 @@ export const isSharedSetup = (file) =>
 /** The changed files of a pull request (GET /pulls/n/files, whole or thrown). A rename counts by both its names. */
 export const pullFilePaths = (files) => (files ?? []).flatMap((f) => [f?.filename, f?.previous_filename].filter(Boolean));
 
-/** Runs of JOURNEYS_WORKFLOW from this repository on exactly this head. */
-const onHead = (runs, sha, repo) =>
-  (runs ?? []).filter(
+/** Runs of JOURNEYS_WORKFLOW from this repository on exactly this head, or on an earlier commit of its pull request whose
+ *  runs count for it (`carried`, journey-carry.mjs carriedHeads: every file changed since runs no journey's code). */
+const onHead = (runs, sha, repo, carried = []) => {
+  const heads = new Set([sha, ...carried]);
+  return (runs ?? []).filter(
     (r) =>
-      r?.head_sha === sha && r?.path === JOURNEYS_WORKFLOW && r?.head_repository?.full_name === repo && r?.repository?.full_name === repo,
+      heads.has(r?.head_sha) &&
+      r?.path === JOURNEYS_WORKFLOW &&
+      r?.head_repository?.full_name === repo &&
+      r?.repository?.full_name === repo,
   );
+};
 const newestFirst = (a, b) => Date.parse(b.run_started_at ?? b.created_at) - Date.parse(a.run_started_at ?? a.created_at) || b.id - a.id;
 
 /**
@@ -497,6 +501,7 @@ export async function judgeTouchedRun({
   reach = null,
   named = null,
   branch = null,
+  carried = [],
 }) {
   const why = `it touches ${files.length} journey file(s) (${files.slice(0, 5).join(', ')}${files.length > 5 ? `, ${files.length - 5} more` : ''})${reach?.length ? `, by the touched-journeys map (${reach.slice(0, 3).join('; ')}${reach.length > 3 ? `; ${reach.length - 3} more` : ''})` : ''}${named ? `, because ${named}` : ''}`;
   // Only the files no finished run on the head ran, in runs that each start (dispatchBatches: GitHub refuses a run whose
@@ -505,7 +510,7 @@ export async function judgeTouchedRun({
     const cmds = dispatchCommands(branch ?? '<branch>', left);
     return `${cmds.length > 1 ? `run them in these ${cmds.length} runs by hand (each within GitHub's ${DISPATCH_GROUP_MAX}-character concurrency group limit): ` : 'run them by hand: '}${cmds.join(' ; ')}; the seal re-runs when they finish`;
   };
-  const mine = onHead(runs, sha, repo);
+  const mine = onHead(runs, sha, repo, carried);
   const running = mine.filter((r) => r.status !== 'completed');
   if (running.length && waitOnRunning) {
     const ids = running.map((r) => `${r.id} (attempt ${r.run_attempt ?? 1}, ${r.status})`).join(', ');
@@ -850,6 +855,36 @@ export function makeIo(repo, token) {
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
+    // A file's git blob text at a commit, never what a symlink points to (io.text's contents API follows a link), or
+    // null (journey-carry.mjs carriedHeads; #11098 review).
+    blobText: async (path, ref) => {
+      const [owner, name] = repo.split('/');
+      const res = await getTried('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          query:
+            'query($o: String!, $n: String!, $e: String!) { repository(owner: $o, name: $n) { object(expression: $e) { ... on Blob { text isTruncated isBinary } } } }',
+          variables: { o: owner, n: name, e: `${ref}:${path}` },
+        }),
+      });
+      if (!res.ok) throw new Error(`GraphQL: HTTP ${res.status}`);
+      const got = await res.json();
+      if (got.errors?.length) throw new Error('GraphQL: the file could not be read');
+      const b = got.data?.repository?.object;
+      return typeof b?.text === 'string' && !b.isTruncated && !b.isBinary ? b.text : null;
+    },
+    // A pull request's commit shas, oldest first (journey-carry.mjs carriedHeads): GitHub lists up to 250.
+    prCommits: async (n) => {
+      const out = [];
+      for (let page = 1; page <= 3; page++) {
+        const got = await api(`/repos/${repo}/pulls/${n}/commits?per_page=100&page=${page}`, token);
+        if (!Array.isArray(got)) throw new Error(`#${n}'s commits: not a list`);
+        out.push(...got.map((c) => c?.sha));
+        if (got.length < 100) break;
+      }
+      return out;
+    },
     // The map the touch job used (journey-touch.mjs): the newest build main's map workflow verified no later than `before`,
     // else the committed copy beside this script.
     reachMap: async (before) =>
@@ -1950,7 +1985,21 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   const narrowed = new Set(reach.stack ?? []);
   const shared = reverting ? [] : paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
   const derived = touched.derived ?? [];
-  const runs = titleSteps(pull.title).length || derived.length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
+  const needRuns = titleSteps(pull.title).length || derived.length || shared.length || reach.mode !== 'none';
+  // The earlier commits whose journeys runs count for this head (journey-carry.mjs carriedHeads: nothing a journeys run
+  // executes changed since; #11076). Unreadable: none, and only the head's own runs count, as before.
+  let carry = { heads: [], lines: [] };
+  if (needRuns && io.prCommits && io.compare && io.blobText)
+    try {
+      carry = await carriedHeads({ head, commits: await io.prCommits(number), compare: io.compare, text: io.blobText });
+    } catch (e) {
+      carry = {
+        heads: [],
+        lines: [`earlier commits: could not be read (${printable(String(e?.message ?? e)).slice(0, 160)}), so only this head's runs count`],
+      };
+    }
+  const carriedLines = carry.heads.length ? carry.lines.map((l) => `carried: ${l}`) : [];
+  const runs = needRuns ? [...(await io.runs(head)), ...(await Promise.all(carry.heads.map((c) => io.runs(c)))).flat()] : [];
   const reports = new Map();
   const reportOf = (r) => {
     if (!reports.has(r.id)) reports.set(r.id, io.reportOf(r));
@@ -1978,6 +2027,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     reportOf: headReportOf,
     waitOnRunning,
     derived,
+    carried: carry.heads,
   });
   const verdictOf = (rep, r) => io.verdictOf(rep, r);
   // This head's own runs: a step whose baseline money flag main's money rule disagrees with (`mismatch`) is judged again
@@ -2088,6 +2138,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           reach: reach.bounded ? [reach.bounded] : reach.reach,
           named: reach.named,
           branch: pull.head?.ref ?? null,
+          carried: carry.heads,
         })
       : { ok: true, state: 'none', lines: [] };
   // An automatic revert merges only while main still needs it (revertSpent), whatever its own runs say.
@@ -2104,7 +2155,14 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
       ...(spent ? ['yours'] : []),
     ],
     fullKinds: full.ok ? [] : (full.kinds ?? []),
-    lines: [...steps.lines, ...touched.lines, ...full.lines, ...(pure && !pure.ok ? [pure.why] : []), ...(spent ? [spent] : [])],
+    lines: [
+      ...carriedLines,
+      ...steps.lines,
+      ...touched.lines,
+      ...full.lines,
+      ...(pure && !pure.ok ? [pure.why] : []),
+      ...(spent ? [spent] : []),
+    ],
   };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
 }
@@ -2477,6 +2535,28 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
   return out;
 }
 
+/**
+ * The open pull requests into this repository on whose newer head a journeys run on `sha` counts (journey-carry.mjs
+ * carriedHeads): their head is not `sha`, and every file changed since runs no journey's code. `io`: { prCommits,
+ * compare, text }. A pull request whose commits can't be read is left out.
+ */
+export async function carriedPulls({ pulls, sha, repo, io }) {
+  const out = [];
+  for (const p of pulls ?? []) {
+    if (p?.state !== 'open' || p?.base?.repo?.full_name !== repo || !SHA40.test(String(p?.head?.sha)) || p.head.sha === sha) continue;
+    try {
+      const { heads } = await carriedHeads({
+        head: p.head.sha,
+        commits: await io.prCommits(p.number),
+        compare: io.compare,
+        text: io.blobText,
+      });
+      if (heads.includes(sha)) out.push(p);
+    } catch {}
+  }
+  return out;
+}
+
 /** The seals a re-check re-runs: after CI finished (`finished` = 'CI'), only the default branch's (see recheck). */
 export const sealsToRecheck = (finished) =>
   SEAL_WORKFLOWS.filter((w) => !['CI', REVIEWED, MONEY, MODEL_JOB].includes(finished) || w.workflow !== CI_WORKFLOW);
@@ -2736,14 +2816,29 @@ const poster = (token) => async (path) => {
  * auto-merge armed on `SHA` that the input judges (recheckTargets), each with its seal started or re-run once every input
  * on the head has finished. A head no such pull request is on is left alone.
  */
-async function recheck({ repo, token }) {
-  const { SHA, PR_NUMBER, OLD_TITLE = '', OLD_BODY = '', FINISHED = '' } = process.env;
+async function recheck({ repo, token, sha = process.env.SHA, carriedFrom = null }) {
+  const { PR_NUMBER, OLD_TITLE = '', OLD_BODY = '', FINISHED = '' } = process.env;
+  const SHA = sha;
   if (!SHA40.test(SHA ?? '')) throw new Error('recheck needs SHA');
   const get = (path) => api(path, token);
   const post = poster(token);
   const pulls = PR_NUMBER
     ? [await get(`/repos/${repo}/pulls/${PR_NUMBER}`)]
     : await get(`/repos/${repo}/commits/${SHA}/pulls?per_page=100`);
+  // A journeys run on an earlier commit whose runs count for a pull request's newer head (journey-carry.mjs, #11076):
+  // its end re-checks that head's seal too, so a re-run there is read without a push. Once, never from a carried head.
+  if (!carriedFrom && FINISHED === 'Real-app journeys') {
+    const io = makeIo(repo, token);
+    for (const p of await carriedPulls({ pulls, sha: SHA, repo, io }))
+      try {
+        console.log(
+          `#${p.number}: its head ${p.head.sha.slice(0, 10)} carries this run on ${SHA.slice(0, 10)}, so its seal is re-checked too`,
+        );
+        await recheck({ repo, token, sha: p.head.sha, carriedFrom: SHA });
+      } catch (e) {
+        console.log(`::warning::#${p.number}'s seal on ${p.head.sha.slice(0, 10)} could not be re-checked (${e.message})`);
+      }
+  }
   // CI or the CI review finished: the default branch's seal reads both (ci-jobs-seal.mjs, review-marker.mjs), so every
   // open pull request with auto-merge armed on the head is re-sealed, whatever it names (recheckTargets).
   const named = await recheckTargets({

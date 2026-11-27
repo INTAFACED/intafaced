@@ -2127,10 +2127,13 @@ console.log('local-test-stack: customer folder override checks passed');
         .find((d) => d.name === 'trade')
         .env.TRADE_USER_VENUE_TEST_LISTINGS.split(',');
     };
-    const testnet = listings('hl-testnet');
-    assert.ok(!testnet.includes('BTC-USDC'), 'hl-testnet seeds no BTC-USDC');
-    assert.ok(testnet.includes('PURR-USDC') && testnet.includes('BTC-PERP'), 'hl-testnet keeps PURR-USDC and BTC-PERP');
-    for (const raw of ['on', 'two', 'hl-recorded']) assert.ok(listings(raw).includes('BTC-USDC'), `${raw} seeds BTC-USDC`);
+    // Live and replayed alike: a replay lists what the live run that wrote its recording listed.
+    for (const raw of ['hl-testnet', 'hl-recorded']) {
+      const testnet = listings(raw);
+      assert.ok(!testnet.includes('BTC-USDC'), `${raw} seeds no BTC-USDC`);
+      assert.ok(testnet.includes('PURR-USDC') && testnet.includes('BTC-PERP'), `${raw} keeps PURR-USDC and BTC-PERP`);
+    }
+    for (const raw of ['on', 'two']) assert.ok(listings(raw).includes('BTC-USDC'), `${raw} seeds BTC-USDC`);
   } finally {
     if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = saved;

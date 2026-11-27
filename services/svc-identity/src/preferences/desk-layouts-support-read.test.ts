@@ -82,4 +82,20 @@ describe('deskLayoutsFor', () => {
     expect(await deskLayoutsFor(sqlAnswering([{ value }]), USER)).toEqual({ userId: USER, layouts: [LAYOUT], active: 'scalp' });
     await expect(deskLayoutsFor(sqlAnswering([{ value: { layouts: 'x' } }]), USER)).rejects.toThrow();
   });
+
+  it('reads a free-form layout too, and the read keeps its panels', async () => {
+    const free: SavedDeskLayout = {
+      ...LAYOUT,
+      id: 'grid',
+      name: 'TEST grid',
+      desk: {
+        v: 2,
+        columns: 24,
+        panels: [{ id: 'later', type: 'liquidity-heatmap', settings: {}, grid: { x: 0, y: 0, w: 24, h: 10 } }],
+      },
+    };
+    const value = { layouts: [LAYOUT, free], active: 'grid', deleted: [], defaults: { spot: 'grid' } };
+    const read = await deskLayoutsFor(sqlAnswering([{ value }]), USER);
+    expect(supportDeskLayoutsReadSchema.parse(read)).toEqual({ userId: USER, layouts: [LAYOUT, free], active: 'grid' });
+  });
 });

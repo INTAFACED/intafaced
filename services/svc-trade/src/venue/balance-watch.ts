@@ -228,7 +228,10 @@ export interface VenueBalanceWatchDeps {
 export class VenueBalanceWatch {
   constructor(private readonly deps: VenueBalanceWatchDeps) {}
 
-  /** One reading of every watched account. An account whose reading fails is read again on the next tick. */
+  /**
+   * One reading of every watched account, or with a pace of the accounts it hands out. An account whose reading fails is
+   * read again on the next tick, or with a pace in the next round.
+   */
   async tick(): Promise<{ accounts: number; read: number; published: number; failed: number }> {
     const venue = await this.deps.venue();
     const venueId = venue.venue.id;

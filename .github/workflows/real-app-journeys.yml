@@ -46,8 +46,8 @@ on:
   # change (1 to 27 minutes on 5 of the 20 builds to 16 Nov 2026). `ready_for_review` on the same head then runs only what
   # that run does not already run (the touch job's "One journeys run per head"), in a group of its own so it never
   # cancels it. The run tests the pull request's head commit, as a manual run
-  # on its branch does, never GitHub's merge commit, so the seal reads it on that head. It shares its branch's group with
-  # a manual full run there, so either replaces the other. A pull request run keeps the ordinary limits (no fail-fast),
+  # on its branch does, never GitHub's merge commit, so the seal reads it on that head. It has a group per pull request
+  # and head (#11076; the concurrency block below). A pull request run keeps the ordinary limits (no fail-fast),
   # so the steps a builder builds run as in a targeted run.
   # A pull request into a Volt layer branch (`volt/<template>`, one batch of rooms) runs no journeys: it passes CI's fast
   # checks alone, and the layer's own pull request into main runs the journeys its rooms reach, sealed as any other.
@@ -111,11 +111,17 @@ on:
 # selection on the same branch is in another group and finishes. A `:` splits the branch from the selection, since a
 # git ref never holds one, so branch `x` with `J-a` and branch `x-J` with `a` never share a group. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
 # a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
+# A pull request's run on a push (#11076, owner, 27 Nov 2026: "A later push doesn't cancel a run whose result the PR
+# still needs."): one group per pull request and head, so a push never cancels the run on the head before it by itself.
+# The new head's touch job stops this pull request's runs still going on any other commit, except on one whose runs
+# count for the head (journey-carry.mjs: nothing a journeys run executes changed since), which the seal reads as a run on
+# the head; so a push that changes only comments, words or unit tests keeps the run it needs, and any other push stops
+# the stale one as before. It is no longer in a run by hand's group, so neither replaces the other.
 # GitHub starts no run whose group passes 400 characters (it ends "failure" with no jobs, as 63 files did on 20 Nov 2026,
 # run 44766798876), and an expression can neither measure nor hash the input, so the seal and journey-touch.mjs split a
 # long list into runs that each fit (journey-touch.mjs dispatchBatches, whose dispatchGroup the test holds to this one).
 concurrency:
-  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review') && format('real-app-journeys-ready-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
+  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review') && format('real-app-journeys-ready-{0}', github.run_id) || github.event_name == 'pull_request' && format('real-app-journeys-pr-{0}:{1}', github.event.pull_request.number, github.event.pull_request.head.sha) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -163,6 +169,7 @@ jobs:
       count: ${{ steps.plan.outputs.count }}
       fast_plan: ${{ steps.fast.outputs.plan }}
       leave_out: ${{ steps.leave.outputs.list }}
+      waits: ${{ steps.touch.outputs.waits }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -286,6 +293,24 @@ jobs:
             *) full "journey-touch printed $mode" ;;
           esac
 
+      # The earlier commits of this pull request whose journeys runs count for its head (journey-touch.mjs --carried,
+      # journey-carry.mjs; #11076): a push that changes only comments, words or unit tests keeps the run before it, which
+      # the seal reads as a run on the head; the `stop` job stops any other. The default branch's copy; where it has
+      # none, or on any error, nothing is carried.
+      - name: Earlier commits this head carries
+        id: carried
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          out=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --carried) || { echo "this head carries nothing (no --carried on the default branch yet, or it failed)"; exit 0; }
+          jq -r '.lines[]' <<<"$out"
+          heads=$(jq -r '.heads | map(select(test("^[0-9a-f]{40}$"))) | join(" ")' <<<"$out")
+          echo "heads=$heads" >> "$GITHUB_OUTPUT"
+
       # One journeys run per head (project-state#2065 row d32 part (b)): a pull request's targeted run leaves out the
       # journey files a targeted run by hand on its exact head already runs (the builder's run before it opened the pull
       # request; journey-touch.mjs reusableRuns, afterReuse, the default branch's copy). A full run is never narrowed, and
@@ -306,6 +331,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           NAMED: ${{ steps.pick.outputs.named }}
           NAMED_READ: ${{ steps.pick.outputs.named_read }}
+          CARRIED: ${{ steps.carried.outputs.heads }}
         run: |
           # A pull request's run that would run journeys with no target would be the full suite, which it never is.
           if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && [ -z "$TARGET" ]; then
@@ -317,8 +343,9 @@ jobs:
             [ -n "$why" ] && echo "::notice::$why"
             mode=$(jq -r '.mode' <<<"$out")
             target=$(jq -r '.target' <<<"$out")
+            waits=$(jq -r '(.waits // []) | map(select(type == "number") | tostring) | join(" ")' <<<"$out")
             if [[ "$target" =~ ^[A-Za-z0-9._\ -]*$ ]] && { [ "$mode" = none ] || [ -n "$target" ]; }; then
-              { echo "mode=$mode"; echo "target=$target"; } >> "$GITHUB_OUTPUT"
+              { echo "mode=$mode"; echo "target=$target"; echo "waits=$waits"; } >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
@@ -1397,9 +1424,74 @@ jobs:
   # default branch's script, never the pull request's code. It replaced journey-seal-recheck.yml, a workflow_run
   # workflow that was a run of its own on every finished input, whether it did anything or not
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
+  # Stops this pull request's journeys runs still going on a commit its head replaces (#11076): one on a commit shown to
+  # differ in code a journeys run executes (journey-carry.mjs supersededRuns), never one the head carries, and nothing
+  # when that can't be shown. Its own job, so `actions: write` reaches only the default branch's script, never the pull
+  # request's checkout (#11098 review). Best effort: a failure here only leaves a stale run going.
+  stop:
+    name: Stop this pull request's superseded runs
+    if: github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10 # healthy run: seconds
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read # the pull request's commits and head
+      actions: write # cancel the superseded runs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .base
+          sparse-checkout: tooling
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .base/.node-version
+      - name: Stop this pull request's superseded runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          out=$(node .base/tooling/ci/journey-touch.mjs --carried) || { echo "nothing stopped (no --carried on the default branch yet, or it failed)"; exit 0; }
+          jq -r '.lines[]' <<<"$out"
+          for id in $(jq -r '.stop | map(select(type == "number") | tostring) | join(" ")' <<<"$out"); do
+            [[ "$id" =~ ^[0-9]+$ ]] || continue
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/cancel" >/dev/null && echo "stopped run $id, on a commit this head replaces" || echo "::warning::could not stop run $id"
+          done
+
+  # A pull request's run that left out journey files a run on an earlier commit runs (one whose runs count for this
+  # head: journey-carry.mjs, #11076) ends only once that run has, so the seal this run starts reads it finished. Those
+  # runs are the pull request's own, on its branch; one stopped or failed is read by the seal as it is on the head.
+  carry-wait:
+    name: Wait for the runs this head carries
+    needs: [touch]
+    if: ${{ !cancelled() && needs.touch.outputs.waits != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150 # the slowest pull request run seen is about 45 minutes; a carried run started before this one
+    permissions:
+      actions: read # the carried runs' status
+    steps:
+      - name: Wait for the runs this head carries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WAITS: ${{ needs.touch.outputs.waits }}
+        run: |
+          for id in $WAITS; do
+            [[ "$id" =~ ^[0-9]+$ ]] || continue
+            while :; do
+              status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq .status) || status=unknown
+              [ "$status" = completed ] && { echo "run $id has finished"; break; }
+              echo "run $id: $status; checking again in 60s"
+              sleep 60
+            done
+          done
+
   seal-start:
     name: Start the seal
-    needs: [touch, release, early-break, release-after-dispatch, build, journeys, scoreboard, drop]
+    # prettier-ignore
+    needs: [touch, release, early-break, release-after-dispatch, build, journeys, scoreboard, drop, stop, carry-wait]
     if: ${{ !cancelled() && github.ref != 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

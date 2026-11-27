@@ -40,6 +40,11 @@ describe('saved desk layouts', () => {
     expect(markInUse(restored, scalp.id).active).toBe(scalp.id);
   });
 
+  it('a delete keeps the desks’ defaults another device saved', () => {
+    const withDefaults = { ...saved, defaults: { spot: scalp.id, perps: 'other' } };
+    expect(deleteLayout(withDefaults, scalp.id, LATER).defaults).toEqual({ spot: scalp.id, perps: 'other' });
+  });
+
   it('exports the layout settings as a named JSON file', () => {
     const file = exportFile(scalp);
     expect(file.name).toBe('Scalp desk layout.json');

@@ -2194,12 +2194,37 @@ describe('shared reads across testers: one IP, 1,200 weight a minute (#11028)', 
     expect(told).toHaveLength(1);
     expect(told[0]).toMatchObject({
       minute: new Date(NOW).toISOString(),
-      byType: { userFillsByTime: { requests: 1, weight: 22 }, l2Book: { requests: 1, weight: 2 } },
+      byType: { userFillsByTime: { requests: 1, weight: 22, accounts: 1 }, l2Book: { requests: 1, weight: 2 } },
     });
+    // A market read names no account.
+    expect(told[0]!.byType.l2Book).not.toHaveProperty('accounts');
     // The listing read on the way (meta, spotMeta) is counted too: the total is every request's weight.
     const byType = Object.values(told[0]!.byType);
     expect(told[0]!.weight).toBe(byType.reduce((n, r) => n + r.weight, 0));
     expect(told[0]!.byType.meta).toEqual({ requests: 1, weight: 20 });
+  });
+
+  it('names how many different accounts each account read was for, so a reader of every account shows apart', async () => {
+    const fake = fakeVenue();
+    fake.info.clearinghouseState = () => ({ marginSummary: { accountValue: '0' }, withdrawable: '0', assetPositions: [] });
+    fake.info.spotClearinghouseState = () => ({ balances: [] });
+    const told: VenueWeightMinute[] = [];
+    let now = NOW;
+    const venue = sharedVenue(
+      fake,
+      () => now,
+      (spent) => told.push(spent),
+    );
+    const other = { ...account, owner: '0x00000000000000000000000000000000000000b2' };
+    // Three reads of two accounts, each past the light reads' keeping, so each one leaves for the venue.
+    for (const a of [account, other, account]) {
+      await venue.balances(a).catch(() => null);
+      now += 3_000;
+    }
+    now += 60_000;
+    await venue.book('BTC-PERP', 5).catch(() => null);
+    expect(told[0]!.byType.clearinghouseState).toEqual({ requests: 3, weight: 6, accounts: 2 });
+    expect(told[0]!.byType.spotClearinghouseState).toEqual({ requests: 3, weight: 6, accounts: 2 });
   });
 });
 

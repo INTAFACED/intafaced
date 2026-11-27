@@ -113,6 +113,24 @@ test('a step whose own test changed is read, with its words and its journey file
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')).required, ['J-x-01 #2']);
 });
 
+test('a step with tests in two files of a split journey is read from both; its test_file is the one the PR changed (#7905)', async () => {
+  // `-` sorts before `.`, so the sibling J-x-01-blocked.pw.mjs comes first: the read once gave the reader only it.
+  const sibling = JFILE.replace('toBe(1);', "toBe('SIBLING_CHECK');");
+  const src = fakeSrc(DIFF, { [`${RA}/J-x-01-blocked.pw.mjs`]: sibling });
+  const journeys = src.journeys;
+  src.journeys = async () => [...(await journeys()), `${RA}/J-x-01-blocked.pw.mjs`].sort();
+  const dir = tmp();
+  await writeReads(dir, { src, base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/J-x-01\.pw\.mjs\n[^]*toBeTruthy/);
+  assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/J-x-01-blocked\.pw\.mjs\n[^]*SIBLING_CHECK/);
+  const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
+  assert.deepEqual(
+    meta.read.steps.map((s) => [s.step, s.test_file]),
+    [['J-x-01 #2', `${RA}/J-x-01.pw.mjs`]],
+  );
+});
+
 test("a journey file's own helpers are read with it, and theirs in turn; another journey file and a path outside its folder are not", async () => {
   const dir = tmp();
   const imports =

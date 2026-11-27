@@ -83,6 +83,26 @@ describe('charts lookup panel (J-charts-desk-19 #1)', () => {
     expect(out).not.toMatch(/<(input|select|textarea)\b/);
   });
 
+  it('a free-form layout shows its panel count and types, an unknown type included', () => {
+    const grid = {
+      id: 'grid',
+      name: 'TEST grid',
+      symbol: 'BTC/USDT',
+      interval: '1m' as const,
+      desk: {
+        v: 2 as const,
+        columns: 24 as const,
+        panels: [
+          { id: 'c', type: 'chart', settings: {}, grid: { x: 0, y: 0, w: 16, h: 10 } },
+          { id: 'h', type: 'liquidity-heatmap', settings: {}, grid: { x: 16, y: 0, w: 8, h: 10 } },
+        ],
+      },
+      savedAt: AT,
+    };
+    const out = html(ok({ ...full, layouts: { status: 'read', active: null, items: [grid] } }));
+    expect(out).toContain('2 panels: chart, liquidity-heatmap');
+  });
+
   it('no alerts and no saved layouts read as empty states, not errors', () => {
     const none: SupportChartsLookup = {
       ...full,

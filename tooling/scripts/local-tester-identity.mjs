@@ -31,6 +31,29 @@ export function vaultFounderEnv(stateDir, read = (file) => fs.readFileSync(file,
 
 const sameEnv = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
 
+/**
+ * The founder env to start identity again with, or null when the vault gives no new one. A vault that is there but does
+ * not parse is a write caught half done, never a change: it is read again on the next tick. Reading it as "no founder
+ * value" restarted identity under the founder seed mid-run (#10815: identity stopped answering while founder b
+ * confirmed their email).
+ */
+export function changedFounderEnv(stateDir, pinned, read = (file) => fs.readFileSync(file, 'utf8')) {
+  let text;
+  try {
+    text = read(path.join(stateDir, FOUNDER_VAULT_NAME));
+  } catch {
+    return sameEnv({}, pinned) ? null : {};
+  }
+  let vault;
+  try {
+    vault = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const next = founderIdentityEnv(vault);
+  return sameEnv(next, pinned) ? null : next;
+}
+
 async function healthy(port, until) {
   while (Date.now() < until) {
     const status = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) })
@@ -74,8 +97,9 @@ async function main(argv, env = process.env) {
       child?.kill(signal);
     });
   const watch = setInterval(() => {
-    const next = vaultFounderEnv(stateDir);
-    if (stopping || restarting || sameEnv(next, pinned)) return;
+    if (stopping || restarting) return;
+    const next = changedFounderEnv(stateDir, pinned);
+    if (!next) return;
     console.log('local-tester-identity: the founder pair in the vault changed; starting identity again with it');
     pinned = next;
     restarting = true;

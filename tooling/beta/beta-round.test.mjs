@@ -576,6 +576,46 @@ test('on demand: `beta-host.mjs move` moves to main at the next round, between s
   assert.match(again.why, /waits for the daily slot/);
 });
 
+test('a move to a main that changes the supervisor is launched by the new copy, with its settings, and still goes back when it fails (#11075)', async () => {
+  const paths = home();
+  invite(paths);
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-22T08:00:00Z' }));
+  fs.writeFileSync(paths.served, JSON.stringify({ good: OLD, refused: null }));
+  // The running copy: the checkout moved to a main whose beta-host.mjs is newer, so it launches nothing itself.
+  const first = fakes(paths);
+  const handed = await round(paths, { ...first.io, newer: () => true });
+  assert.deepEqual(steps(first.seen), ['checkout', 'install'], "no stop and no launch with the old copy's settings");
+  assert.equal(handed.handover, true);
+  assert.equal(readStatus(paths).state, 'updating', 'testers see the updating page while the new copy starts');
+  assert.equal(JSON.parse(fs.readFileSync(paths.served, 'utf8')).handover, NEW);
+  // The new copy: the checkout is on the moved commit. Its launch fails its check, so it goes back as a move does.
+  const bad = { ok: false, lines: ['FAIL svc-x names https://api.real.xyz'] };
+  const second = fakes(paths, { head: NEW, target: NEW, checkFor: (sha) => (sha === NEW ? bad : PASS) });
+  const end = await round(paths, { ...second.io, newer: () => false });
+  assert.equal(end.sha, OLD, 'back on the last good commit');
+  assert.equal(end.refused.sha, NEW);
+  assert.equal(JSON.parse(fs.readFileSync(paths.served, 'utf8')).handover, undefined, 'the handover is used once');
+  // Had it come up, it is the new good commit.
+  const paths2 = home();
+  fs.writeFileSync(paths2.status, JSON.stringify({ state: 'updating', sha: OLD, target: NEW }));
+  fs.writeFileSync(paths2.served, JSON.stringify({ good: OLD, refused: null, handover: NEW }));
+  const ok = await round(paths2, { ...fakes(paths2, { head: NEW, target: NEW }).io, newer: () => false });
+  assert.equal(ok.state, 'up');
+  assert.equal(ok.sha, NEW);
+  assert.equal(JSON.parse(fs.readFileSync(paths2.served, 'utf8')).good, NEW);
+  // Main moved on before the new copy's round, and no move is due: a failed relaunch of the handed-over commit never
+  // refuses the newer main, which nobody tried.
+  const paths3 = home();
+  invite(paths3);
+  fs.writeFileSync(paths3.status, JSON.stringify({ state: 'updating', sha: OLD, target: NEW, updatedAt: '2026-11-23T08:59:00Z' }));
+  fs.writeFileSync(paths3.served, JSON.stringify({ good: OLD, refused: null, handover: NEW }));
+  const moved = fakes(paths3, { head: NEW, target: THIRD, checkFor: (sha) => (sha === NEW ? bad : PASS) });
+  const stays = await round(paths3, { ...moved.io, newer: () => false });
+  assert.notEqual(stays.refused?.sha, THIRD, 'the newer main is not refused');
+  assert.equal(stays.sha, NEW, 'the plain relaunch of the handed-over commit ran, no move');
+  assert.ok(!steps(moved.seen).includes('checkout'), 'the checkout never moved, so this is not the update path');
+});
+
 test('a moved commit that fails its check goes back to the last good commit, which it refuses until main moves past it', async () => {
   const paths = home();
   invite(paths);
