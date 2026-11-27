@@ -168,6 +168,8 @@ export const replayBarSchema = z.object({
 export const tradeReplaySchema = z.object({
   venue: z.object({ id: z.string(), name: z.string(), test: z.boolean() }),
   trade: journalTradeSchema,
+  /** The market's price step as the venue lists it; `null` when the market is no longer listed. */
+  tickSize: decimal.nullable(),
   /** Where the trade's stop stood: the stop it opened with, then each later one, from the time it was placed. */
   stops: z.array(z.object({ price: decimal, placedAt: z.string() })),
   interval: z.string().min(1),

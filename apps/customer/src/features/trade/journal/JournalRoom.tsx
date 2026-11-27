@@ -1,6 +1,6 @@
 // volt-room: /trade/journal
 import { useMemo, useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, ButtonLink } from '@intafaced/ui/lit';
 import { MonitorTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   TRADE_JOURNAL_CLOSED_TRADES,
@@ -18,10 +18,13 @@ import { VENUE_POLL_MS } from '../venue/poll';
 import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { useAsOfText, useOwner } from '../venue/VenueKit';
 import { journalCopy } from './journal-copy';
+import { TradeReplay } from './TradeReplay';
 import { equityOf, equityPlaces, minusOneRLessFees, type EquityPoint } from './journal-model';
 
 type View = 'trades' | 'equity';
 const DAY_MS = 86_400_000;
+/** The record reads at most 90 days back; a day short of it, so a clock a little ahead of the service's still reads. */
+const journalSince = () => new Date(Date.now() - (TRADE_JOURNAL_MAX_DAYS - 1) * DAY_MS).toISOString();
 
 /**
  * The trade journal (`/trade/journal`; `?view=equity` opens Equity): the person's closed perpetual trades on their own
@@ -60,7 +63,10 @@ export function JournalRoom({ path }: { path: string }) {
   if (mode.mode === 'off' || !mode.status.available)
     return off({ kind: 'refused', refusal: { variant: 'parked', title: t('title'), body: t('venueOff') } }, true);
   const status = mode.status;
-  const first: View = new URL(path, location.origin).searchParams.get('view') === 'equity' ? 'equity' : 'trades';
+  const query = new URL(path, location.origin).searchParams;
+  const first: View = query.get('view') === 'equity' ? 'equity' : 'trades';
+  // `?replay=<trade>`: the bar replay of one closed trade (J-charts-desk-20).
+  const replay = query.get('replay');
   return (
     <VenueFrame mode={mode}>
       <MonitorTemplate
@@ -78,7 +84,11 @@ export function JournalRoom({ path }: { path: string }) {
         }
         panels={
           <div className="lt-stack">
-            <Owned>{(owner) => <Journal owner={owner} first={first} />}</Owned>
+            <Owned>
+              {(owner) =>
+                replay ? <TradeReplay owner={owner} since={journalSince()} tradeId={replay} /> : <Journal owner={owner} first={first} />
+              }
+            </Owned>
           </div>
         }
         explain={<p className="lt-hint">{t('explain')}</p>}
@@ -99,8 +109,7 @@ function Journal({ owner, first }: { owner: string; first: View }) {
   const api = useApi();
   const asOfText = useAsOfText();
   const [view, setView] = useState<View>(first);
-  // The record reads at most 90 days back; a day short of it, so a clock a little ahead of the service's still reads.
-  const [since] = useState(() => new Date(Date.now() - (TRADE_JOURNAL_MAX_DAYS - 1) * DAY_MS).toISOString());
+  const [since] = useState(journalSince);
   const read = usePolled<TradeJournal>(
     (signal) => api.call(TRADE_JOURNAL_CLOSED_TRADES, { owner, since, limit: TRADE_JOURNAL_MAX_TRADES }, { signal }),
     `journal:${owner}:${since}`,
@@ -164,7 +173,7 @@ function Trades({ journal }: { journal: TradeJournal }) {
       <h2 id="journal-trades">{t('tradesTitle')}</h2>
       <ScrollTable
         label={t('tradesTitle')}
-        headers={[t('hClosed'), t('hMarket'), t('hSide'), t('hEntry'), t('hExit'), t('hSize'), t('hNet')]}
+        headers={[t('hClosed'), t('hMarket'), t('hSide'), t('hEntry'), t('hExit'), t('hSize'), t('hNet'), t('hReplay')]}
       >
         {journal.trades.map((trade) => (
           <tr key={trade.tradeId} data-trade={trade.tradeId}>
@@ -175,6 +184,11 @@ function Trades({ journal }: { journal: TradeJournal }) {
             <td>{displayAmount(trade.exitPrice)}</td>
             <td>{displayAmount(trade.size)}</td>
             <td data-net={trade.netPnl}>{money(trade.netPnl, trade.feeAsset)}</td>
+            <td>
+              <ButtonLink size="sm" tone="quiet" href={`/trade/journal?replay=${encodeURIComponent(trade.tradeId)}`}>
+                {t('replayThis')}
+              </ButtonLink>
+            </td>
           </tr>
         ))}
       </ScrollTable>

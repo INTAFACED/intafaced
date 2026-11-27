@@ -34,6 +34,7 @@ import {
   type UserVenue,
   type UserVenueAccount,
   type UserVenueFill,
+  type UserVenueMarket,
   type UserVenueOrderRecord,
   type VenueCandle,
   type VenueCandleInterval,
@@ -389,6 +390,8 @@ export interface JournalReads {
   readonly since: Date;
   readonly venue: JournalVenue;
   readonly account: UserVenueAccount;
+  /** The venue's markets as listed at the read. */
+  readonly markets: readonly UserVenueMarket[];
   readonly candlesOf: NonNullable<JournalVenue['candles']>;
   readonly fillsAsOf: Date;
   readonly orders: readonly UserVenueOrderRecord[];
@@ -429,7 +432,7 @@ export async function journalReads(
   for (const f of perpFills) start.set(f.symbol, sub(start.get(f.symbol) ?? ZERO, signed(f.side, f.amount)));
 
   const trips = roundTrips(perpFills, start).sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime());
-  return { now, since, venue, account, candlesOf, fillsAsOf: fills.asOf, orders: orders.value, trips, warnedBy };
+  return { now, since, venue, account, markets: markets.value, candlesOf, fillsAsOf: fills.asOf, orders: orders.value, trips, warnedBy };
 }
 
 /** The warning given on one of `trip`'s opening orders, if any. */

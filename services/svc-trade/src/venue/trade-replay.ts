@@ -83,6 +83,7 @@ export async function readTradeReplay(deps: TradeJournalDeps, input: TradeReplay
     warned: warnedOn(trip, reads.warnedBy),
   });
 
+  const tickSize = reads.markets.find((m) => m.symbol === trip.symbol)?.tickSize ?? null;
   const { interval, since } = replayIntervalFor(trip.openedAt, reads.now);
   const read = await reads.candlesOf(trip.symbol, interval, { limit: JOURNAL_CANDLES_PER_READ, since });
   const candles = [...read.value].sort((a, b) => a.openAt.getTime() - b.openAt.getTime());
@@ -90,6 +91,7 @@ export async function readTradeReplay(deps: TradeJournalDeps, input: TradeReplay
   return {
     venue: { id: reads.venue.venue.id, name: reads.venue.venue.displayName, test: isTestVenue(reads.venue.venue) },
     trade,
+    tickSize: tickSize === null ? null : formatAmount(tickSize),
     stops: levels.stopTimeline.map((s) => ({ price: formatAmount(s.price), placedAt: s.placedAt.toISOString() })),
     interval,
     bars: cut

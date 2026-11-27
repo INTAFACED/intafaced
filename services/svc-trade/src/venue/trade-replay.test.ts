@@ -68,7 +68,11 @@ function venue(candles: readonly VenueCandle[] = bars): JournalVenue {
   const venueId = 'hl-test';
   return partial<JournalVenue>({
     venue: partial<UserVenueDescriptor>({ id: 'hl-test', displayName: 'TEST venue', proofLevel: 'simulator' }),
-    markets: async () => ({ venueId, asOf, value: [partial<UserVenueMarket>({ symbol: 'XRBR-PERP', kind: 'perpetual' })] }),
+    markets: async () => ({
+      venueId,
+      asOf,
+      value: [partial<UserVenueMarket>({ symbol: 'XRBR-PERP', kind: 'perpetual', tickSize: a('0.01') })],
+    }),
     fills: async () => ({ venueId, asOf, value: fills }),
     positions: async () => ({ venueId, asOf, value: [] }),
     orderHistory: async () => ({ venueId, asOf, value: orders }),
@@ -112,6 +116,7 @@ describe('readTradeReplay', () => {
       { price: '90', placedAt: '2026-11-20T10:03:30.000Z' },
     ]);
     expect(replay.interval).toBe('1m');
+    expect(replay.tickSize).toBe('0.01');
     if (replay.bars.source !== 'venue') throw new Error('expected venue bars');
     // The read starts at 09:52: 18 bars, the entry bar 10:02 at index 10, the replay's start at index 0.
     expect(replay.bars.candles).toHaveLength(18);

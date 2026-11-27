@@ -16213,6 +16213,17 @@
             ],
             "additionalProperties": false
           },
+          "tickSize": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "stops": {
             "type": "array",
             "items": {
@@ -16308,7 +16319,7 @@
             ]
           }
         },
-        "required": ["venue", "trade", "stops", "interval", "bars"],
+        "required": ["venue", "trade", "tickSize", "stops", "interval", "bars"],
         "additionalProperties": false
       },
       "samples": [
