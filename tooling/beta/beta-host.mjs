@@ -4,8 +4,8 @@
  *
  * One long-lived copy of the local test stack (tooling/scripts/local-test-stack.mjs) on the machine that runs it, in
  * its own checkout of origin/main, its own state folder and its own fixed slot, so the link never moves. A person
- * reaches it from their phone through T3 Connect's preview tunnel: the box's `localhost` pages open on a signed-in,
- * approved T3 device and nowhere else (docs/runbooks/beta-link.md says how, step by step).
+ * reaches it at its public name through a Cloudflare Tunnel the box dials out, behind Cloudflare Access (beta-front.mjs;
+ * docs/runbooks/beta-link.md says how, step by step).
  *
  *   node tooling/beta/beta-host.mjs serve     the supervisor: a round now and every BETA_EVERY_MIN minutes (30), and the
  *                                             TEST mailbox page; after each round it restarts the public front when the
