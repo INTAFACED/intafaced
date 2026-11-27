@@ -201,8 +201,8 @@ test(`${J} #1 opens Settings, Notifications, presses Connect Telegram and sends 
   test.setTimeout(420_000);
   await startsLine(page);
   const { chat, userId } = run.read();
-  await page.goto(SETTINGS);
-  await expect(card(page)).toBeVisible({ timeout: 30_000 });
+  // Verification signed the person out (its cookies are cleared so the next sign-in carries the new level).
+  await openSettings(page);
   await expect(card(page)).toHaveAttribute('data-state', 'unlinked');
   await expect(stateLine(page)).toHaveText('Not linked.');
 
@@ -434,6 +434,7 @@ test(`${J} #5 sends /buy, /close and /cancel: "Trading is off in chat. Open INTA
   const { chat, owner } = run.read();
   const since = new Date(Date.now() - 1000).toISOString();
   const position = await positionOf(owner);
+  if (!position) throw new Error(`${J} #2 left no ${PERP} position to leave untouched`);
   const orders = await ordersOf(owner);
   for (const command of [`/buy ${PERP} 1`, `/close ${PERP}`, '/cancel all']) expect(await say(chat, command)).toBe(TRADING_OFF);
   // Nothing reached the venue: no fill, the same open orders and the same position, by the venue's own record.
