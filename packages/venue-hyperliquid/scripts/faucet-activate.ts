@@ -2,7 +2,7 @@
  * FAUCET ACTIVATE — makes one fresh address eligible for Hyperliquid's testnet faucet, claims its TEST USDC and moves
  * it to the platform's TESTNET funder. The one piece of this package that acts on mainnet, and only once per run.
  *
- *   APP_ENV=test HL_TESTNET_FUNDER_KEY=0x… HL_ACTIVATIONS_TODAY=0 \
+ *   APP_ENV=test HL_TESTNET_FUNDER_KEY=0x… HL_ACTIVATIONS_SO_FAR=0 \
  *     pnpm --filter @intafaced/venue-hyperliquid faucet:activate
  *
  * Why (intafaced#11043): the testnet faucet (`claimDrip`) pays 1,000 TEST USDC once per address, and only to an address
@@ -12,7 +12,7 @@
  * (the owner decision cited in .github/workflows/hl-faucet-activate.yml).
  *
  * 1. Refuses before anything is sent (exit 2): APP_ENV other than dev or test, a funder key that isn't 32-byte hex,
- *    HL_ACTIVATIONS_TODAY missing or at `MAX_RUNS_PER_DAY`, an amount other than at most `MAX_MAINNET_SEND_USDC`.
+ *    HL_ACTIVATIONS_SO_FAR missing or at `MAX_RUNS_EVER`, an amount other than at most `MAX_MAINNET_SEND_USDC`.
  * 2. Makes a fresh key in memory. It is never printed, stored or written, and dies with the run.
  * 3. Reads the funder's mainnet USDC; refuses under `MAX_MAINNET_SPEND_USDC` (exit 1). Sends the fresh address
  *    0.01 USDC on mainnet with one `sendAsset` spot to spot (the account is unified: intafaced#10293). `MainnetOnce`
@@ -49,8 +49,8 @@ export const HL_TESTNET_DRIP_URL = 'https://api-ui.hyperliquid-testnet.xyz/info'
 export const MAX_MAINNET_SEND_USDC = parseAmount('0.01');
 /** The most one run may take from the mainnet account: the send, the venue's 1 USDC activation fee, a cent of slack. */
 export const MAX_MAINNET_SPEND_USDC = parseAmount('1.02');
-/** Runs per UTC day, this one included. */
-export const MAX_RUNS_PER_DAY = 2;
+/** Runs ever, this one included: the owner allowed about 2 USDC in all. More need his yes again. */
+export const MAX_RUNS_EVER = 2;
 /** Arbitrum One: the chain id the venue's own front signs mainnet user actions under. */
 const MAINNET_SIGNATURE_CHAIN_ID = '0xa4b1';
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -78,10 +78,12 @@ export function readActivateInputs(env: Readonly<Record<string, string | undefin
   const key = /^[0-9a-fA-F]{64}$/.test(raw) ? `0x${raw}` : raw;
   if (!key) throw new ActivationRefusal("HL_TESTNET_FUNDER_KEY is not set: the platform account's key (the HL_TESTNET_TRADER_KEY secret).");
   if (!isHexKey(key)) throw new ActivationRefusal('HL_TESTNET_FUNDER_KEY is not a 32-byte hex key (its value is not shown).');
-  const today = (env.HL_ACTIVATIONS_TODAY ?? '').trim();
-  if (!/^\d+$/.test(today)) throw new ActivationRefusal(`HL_ACTIVATIONS_TODAY must be the count of earlier runs today (got "${today}").`);
-  if (Number(today) >= MAX_RUNS_PER_DAY)
-    throw new ActivationRefusal(`${today} runs already today; at most ${MAX_RUNS_PER_DAY} a day spend mainnet USDC.`);
+  const soFar = (env.HL_ACTIVATIONS_SO_FAR ?? '').trim();
+  if (!/^\d+$/.test(soFar)) throw new ActivationRefusal(`HL_ACTIVATIONS_SO_FAR must be the count of earlier runs (got "${soFar}").`);
+  if (Number(soFar) >= MAX_RUNS_EVER)
+    throw new ActivationRefusal(
+      `${soFar} runs already; at most ${MAX_RUNS_EVER} ever spend mainnet USDC, and more need the owner's yes again.`,
+    );
   const amountText = (env.HL_ACTIVATE_AMOUNT ?? '0.01').trim();
   if (!/^\d+(\.\d{1,2})?$/.test(amountText) || /^0+(\.0+)?$/.test(amountText))
     throw new ActivationRefusal(`HL_ACTIVATE_AMOUNT must be a positive USDC amount with at most 2 decimals (got "${amountText}").`);

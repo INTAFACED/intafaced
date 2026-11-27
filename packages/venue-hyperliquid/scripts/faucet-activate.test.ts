@@ -89,7 +89,7 @@ async function run(env: Record<string, string | undefined>, net = fakeNet()) {
   const out: string[] = [];
   const err: string[] = [];
   const code = await runActivate({
-    env: { APP_ENV: 'test', HL_TESTNET_FUNDER_KEY: FUNDER, HL_ACTIVATIONS_TODAY: '0', ...env },
+    env: { APP_ENV: 'test', HL_TESTNET_FUNDER_KEY: FUNDER, HL_ACTIVATIONS_SO_FAR: '0', ...env },
     fetch: net.fetch,
     clock: () => new Date(NOW),
     sleep: async () => {},
@@ -155,8 +155,8 @@ describe('faucet:activate', () => {
   it.each([
     ['an amount over the cap', { HL_ACTIVATE_AMOUNT: '0.02' }, 'above the cap of 0.01'],
     ['a whole dollar', { HL_ACTIVATE_AMOUNT: '1' }, 'above the cap of 0.01'],
-    ['a third run today', { HL_ACTIVATIONS_TODAY: '2' }, 'at most 2 a day'],
-    ['no run count', { HL_ACTIVATIONS_TODAY: undefined }, 'HL_ACTIVATIONS_TODAY must be'],
+    ['a third run ever', { HL_ACTIVATIONS_SO_FAR: '2' }, 'at most 2 ever'],
+    ['no run count', { HL_ACTIVATIONS_SO_FAR: undefined }, 'HL_ACTIVATIONS_SO_FAR must be'],
     ['no key', { HL_TESTNET_FUNDER_KEY: undefined }, 'HL_TESTNET_FUNDER_KEY is not set'],
     ['a bad key', { HL_TESTNET_FUNDER_KEY: '0x1234' }, 'not a 32-byte hex key'],
     ['APP_ENV production', { APP_ENV: 'production' }, 'refused'],
