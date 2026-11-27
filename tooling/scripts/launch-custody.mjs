@@ -29,12 +29,13 @@ export const LAUNCH_ORDER = 1;
  * holds a test that passed on main's run 45972466244 and failed custody off; every other launch-desk file passed whole.
  * The list only shrinks: launch-custody.test.mjs fails an entry that is no launch-desk file, and a file leaves the list
  * once a journeys run shows it passing custody off. Nothing new is added here: a launch-desk file that fails custody off
- * is fixed. Five files left it with #11129, whose failures custody off were only the world restore starting the stack
- * custody on again (svc-ledger then exits on restart): J-agents-02, J-charts-desk-14, J-derivatives-01-hl-venue,
- * J-derivatives-01-venue and J-derivatives-05.
+ * is fixed. Three files left it after #11129, whose failures custody off were only the world restore starting the
+ * stack custody on again (svc-ledger then exits on restart): J-derivatives-01-hl-venue, J-derivatives-01-venue and
+ * J-derivatives-05, each passing whole custody off in run 46006848956.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
+  'J-agents-02',
   'J-agents-08',
   'J-cex-spot-03',
   'J-cex-spot-10',
@@ -42,6 +43,7 @@ export const NOT_YET_OFF = new Set([
   'J-cex-spot-15-api',
   'J-cex-spot-18',
   'J-charts-desk-01',
+  'J-charts-desk-14',
   'J-derivatives-01',
   'J-derivatives-02',
   'J-derivatives-04',
