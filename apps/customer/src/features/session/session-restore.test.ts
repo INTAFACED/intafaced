@@ -318,6 +318,22 @@ describe('session controller', () => {
     expect(slept.calls).toHaveLength(2);
     slept.controller.stop();
 
+    // Offline while the token ran out: the timer's refresh failed and waits to retry. The 401 that comes back with the
+    // network proves it is back, so the refresh runs now rather than after the pause (beta, 2026-11-27 10:08 UTC).
+    const offline = build((_call, n) =>
+      n === 1 ? ok(session('t1', 60_000)) : n <= 3 ? new Response('', { status: 503 }) : ok(session('t' + n)),
+    );
+    await offline.controller.start();
+    await vi.advanceTimersByTimeAsync(31_050);
+    expect(offline.calls).toHaveLength(3);
+    vi.setSystemTime(Date.now() + 60_000);
+    offline.controller.unauthorized('t1');
+    expect(offline.controller.getState().session?.accessToken).toBe('t1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(offline.calls).toHaveLength(4);
+    expect(offline.controller.getState().session?.accessToken).toBe('t4');
+    offline.controller.stop();
+
     const ended = build((_call, n) => (n === 1 ? ok(session('t1', 60_000)) : refusal(401, 'auth.session_invalid')));
     await ended.controller.start();
     vi.setSystemTime(Date.now() + 30 * 60_000);
