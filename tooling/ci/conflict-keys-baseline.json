@@ -296,15 +296,6 @@
       "why": "Same-withdrawal duplicates are serialised by `SELECT … FROM pay.withdrawals WHERE id = … FOR UPDATE` (returns/service.ts:84). A return_ref clash is two different withdrawals given one rail ref at once; the loser gets raw 23505 withdrawal_returns_ref_uq instead of withdrawal_return.ref_differs (the pre-check at 101-105 is not under a lock covering both): a correct refusal with the wrong error shape, not a lost duplicate."
     },
     {
-      "file": "services/svc-protocol/src/embedded-wallet/embedded.pg.ts",
-      "table": "embedded_wallets",
-      "target": "(idempotency_key)",
-      "constraint": "embedded_wallets_user_idx",
-      "verdict": "race",
-      "issue": 8906,
-      "why": "The PK idempotency_key is forced equal to 'wallet:embedded:'||user_id (20261109084145_protocol_embedded_wallets.sql:23), so it is 1:1 with embedded_wallets_user_idx. createEmbeddedWallet takes no lock (embedded.ts:112-146); two first presses at once both miss find(), the idempotent provider returns the same wallet, and the loser raises 23505 on user_idx (raw) or on provider_wallet_idx, which embedded.pg.ts:56 wrongly turns into 'a wallet already recorded for someone else'. Either way the loser does not get the winner's row."
-    },
-    {
       "file": "services/svc-quant/src/library/postgres-repository.ts",
       "table": "library_disputes",
       "target": "(listing_id, seq)",

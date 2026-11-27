@@ -48,6 +48,19 @@ export function spotGateChoice(
   return markets.listed ? 'venue' : 'today';
 }
 
+/**
+ * The spot desk's trading session, for the wallet the desk's own frame connects: the owner is read inside `VenueFrame`,
+ * whose wallet it is, so on a venue whose orders a session key signs the desk offers the session and signs with it.
+ */
+function SpotDeskSession({ status, children }: { status: VenueUp; children: React.ReactNode }) {
+  const owner = useOwner();
+  return (
+    <DeskSessionProvider owner={owner} status={status}>
+      {children}
+    </DeskSessionProvider>
+  );
+}
+
 /** The spot desk in venue mode: on when `/venue/status` says the door is on and the venue lists this pair as spot. */
 export function VenueSpotGate({
   mode,
@@ -129,6 +142,7 @@ export function VenueSpotGate({
   }
   return (
     <VenueFrame mode={mode}>
+      {/* A venue whose orders a trading session's key signs (status `tradesSignedBy`): the desk signs with this tab's key. */}
       <SpotDeskSession status={mode.status}>
         <VenueSpotDesk status={mode.status} market={market} markets={r.status === 'ready' ? r.data.value : [market]} />
       </SpotDeskSession>

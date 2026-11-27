@@ -15,10 +15,13 @@ const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced:intafaced@127
 const here = dirname(fileURLToPath(import.meta.url));
 const migration = join(here, '..', '..', 'drizzle', '20261109084145_protocol_embedded_wallets.sql');
 if (!(await postgresAvailable(URL))) throw new Error('postgres unavailable');
-const db = createDb({ url: URL, schema: 'protocol', max: 4 }, {});
+const db = createDb({ url: URL, schema: 'protocol', max: 8 }, {});
 const sql: Sql = db.sql;
 const PERSON = '77777777-7777-4777-8777-777777777777';
 const OTHER = '88888888-8888-4888-8888-888888888888';
+// Each race round is a person of its own: 99999999-9999-4999-8999-0000000000<nn>.
+const RACER = (n: number) => `99999999-9999-4999-8999-${String(n).padStart(12, '0')}`;
+const ROUNDS = 40;
 const T0 = new Date('2026-11-09T09:00:00.000Z');
 const row = (userId: string, walletId: string, address: string): EmbeddedWalletRow => ({
   userId,
@@ -31,7 +34,8 @@ const row = (userId: string, walletId: string, address: string): EmbeddedWalletR
 });
 
 describe('embedded wallet store (Postgres)', () => {
-  const cleanup = () => sql`DELETE FROM protocol.embedded_wallets WHERE user_id IN (${PERSON}, ${OTHER})`;
+  const cleanup = () =>
+    sql`DELETE FROM protocol.embedded_wallets WHERE user_id IN (${PERSON}, ${OTHER}) OR user_id LIKE '99999999-9999-4999-8999-%'`;
   beforeAll(async () => {
     await assertTestDatabase(sql, 'svc-protocol embedded.pg.test');
     await sql`CREATE SCHEMA IF NOT EXISTS protocol`;
@@ -78,5 +82,21 @@ describe('embedded wallet store (Postgres)', () => {
       'test',
       'user_id',
     ]);
+  });
+
+  it('two first presses at once: every call gets the row that won, one is created, none raises (#8906)', async () => {
+    // The idempotent provider gives both presses the same wallet, so the rows clash on every unique key at once.
+    const store = new PostgresEmbeddedWalletStore(sql);
+    for (let n = 0; n < ROUNDS; n++) {
+      const person = RACER(n);
+      const wallet = row(person, `testw_race_${n}`, `0x${(0xb000 + n).toString(16).padStart(40, '0')}`);
+      const calls = await Promise.allSettled(Array.from({ length: 8 }, () => store.insert(wallet)));
+      expect(calls.filter((c) => c.status === 'rejected')).toEqual([]);
+      const results = calls.map((c) => (c as PromiseFulfilledResult<{ row: EmbeddedWalletRow; created: boolean }>).value);
+      expect(results.filter((r) => r.created)).toHaveLength(1);
+      for (const r of results) expect(r.row).toEqual(wallet);
+      const [count] = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM protocol.embedded_wallets WHERE user_id = ${person}`;
+      expect(count?.n).toBe(1);
+    }
   });
 });

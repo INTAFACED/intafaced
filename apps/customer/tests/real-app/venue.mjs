@@ -247,6 +247,21 @@ export async function openVenueDesk(page, who, path, privateKey) {
 }
 
 /**
+ * The trading session a session-key venue needs before any order, from the desk's own panel, signed once by the wallet;
+ * nothing when this tab's session is already live. The line is waited for first, so a session not yet read is never
+ * taken for one that needs a start.
+ */
+export async function startVenueSession(page) {
+  const session = page.getByTestId('venue-session');
+  const line = session.getByTestId('venue-session-line');
+  await expect(line, "the desk's session line, read from the venue").toBeVisible({ timeout: 30_000 });
+  if ((await line.getAttribute('data-session')) === 'live') return;
+  await session.getByTestId('venue-session-start').click();
+  await continueInWallet(page);
+  await session.locator('[data-testid="venue-session-line"][data-session="live"]').waitFor({ timeout: 60_000 });
+}
+
+/**
  * Signs in, installs the browser TEST wallet with this key on the venue's chain, opens a venue page that is not a desk
  * (an order, the order history) and connects the wallet when the page asks. Returns the wallet.
  */
