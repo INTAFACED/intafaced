@@ -78,3 +78,14 @@ test("a launch-desk file still failing custody off keeps today's switch, and eve
   const stale = [...NOT_YET_OFF].filter((f) => !files.has(`${f}.pw.mjs`) || !launch.has(journeyIdOf(`${f}.pw.mjs`)));
   assert.deepEqual(stale, [], 'NOT_YET_OFF names a file that is gone or no launch-desk file: delete it from the list');
 });
+
+test("a launch-desk journey's custodial part file keeps today's switch; its other files run launch's (#11102)", () => {
+  const ids = new Set(['J-a-1']);
+  assert.equal(fileCustody('J-a-1-custodial.pw.mjs', ids), 'on');
+  assert.equal(fileCustody('apps/customer/tests/real-app/J-a-1-custodial.pw.mjs', ids), 'on');
+  assert.equal(fileCustody('J-a-1.pw.mjs', ids), 'off');
+  assert.equal(fileCustody('J-a-1-custodial-venue.pw.mjs', ids), 'off');
+  assert.equal(journeyIdOf('J-a-1-custodial.pw.mjs'), 'J-a-1');
+  assert.equal(fileCustody('J-cex-spot-03-custodial.pw.mjs', readLaunchJourneyIds()), 'on');
+  assert.equal(fileCustody('J-cex-spot-03.pw.mjs', readLaunchJourneyIds()), 'off');
+});
