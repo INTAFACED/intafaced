@@ -26,6 +26,8 @@ export type ClientFailure =
   | 'passkey'
   /** The provider refused the passkey check. */
   | 'refused'
+  /** The provider is over its own signing limit (HTTP 429): nothing was signed, and the person cannot fix it. */
+  | 'busy'
   /** This browser cannot make or use a passkey here. */
   | 'unsupported'
   /** The provider gives the key out once and already did (J-dex-protocol-08 #9): this request got no key. */
@@ -221,6 +223,7 @@ export function testProviderClient(
   ): Promise<ClientResult<T>> {
     const issued = await call('challenge', { walletId, action, payload });
     if (!issued || issued.status >= 500) return { ok: false, failure: 'down' };
+    if (issued.status === 429) return { ok: false, failure: 'busy' };
     if (isSpent(issued)) return { ok: false, failure: 'spent' };
     const ch = issued.body as { challenge?: unknown; allowCredentials?: unknown };
     if (issued.status !== 200 || typeof ch.challenge !== 'string' || !Array.isArray(ch.allowCredentials))
@@ -229,6 +232,7 @@ export function testProviderClient(
     if (!assertion.ok) return assertion;
     const done = await call(action, { walletId, payload, challenge: ch.challenge, assertion: assertion.data });
     if (!done || done.status >= 500) return { ok: false, failure: 'down' };
+    if (done.status === 429) return { ok: false, failure: 'busy' };
     if (isSpent(done)) return { ok: false, failure: 'spent' };
     if (done.status === 422) return { ok: false, failure: 'chain' };
     if (done.status !== 200) return { ok: false, failure: 'refused' };
@@ -349,6 +353,7 @@ export function ownerProviderClient(
       return { ok: false, failure: 'down' };
     }
     if (res.status >= 500) return { ok: false, failure: 'down' };
+    if (res.status === 429) return { ok: false, failure: 'busy' };
     if (res.status !== 200) return { ok: false, failure: 'refused' };
     let answer: unknown;
     try {

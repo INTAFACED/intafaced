@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { createTradingSessionApi, heldKey, keyFor, usePolled, useWallet, type HeldKey } from '../../protocol';
 import { usePreferences } from '../../../shared/preferences';
@@ -6,6 +6,7 @@ import { useSession } from '../../session';
 import { venueCopy } from './venue-copy';
 import { VENUE_POLL_MS } from './poll';
 import { useVenueApi } from './venue-words';
+import { DeskSigningContext } from './VenueKit';
 import { sessionLine, startSession, type SessionSigning, type SessionStartResult } from './session-signer';
 import { preparedAnswerSchema, walletTypedData, type VenueUp } from '../venue-api';
 
@@ -32,6 +33,28 @@ export function useDeskSession(owner: string | null, status: VenueUp) {
   return { on, read: read.data !== null, failure: read.failure, current, held, setHeld, reload: read.reload, signing, sessions, userId };
 }
 export type DeskSession = ReturnType<typeof useDeskSession>;
+
+const DeskSessionContext = createContext<{ session: DeskSession; owner: string | null; status: VenueUp } | null>(null);
+
+/**
+ * A desk's trading session for every room inside it: what its actions sign with (DeskSigningContext, which
+ * `useVenueActions` and `useSignPrepared` read) and the panel `DeskSessionLine` shows where the desk places it.
+ */
+export function DeskSessionProvider({ owner, status, children }: { owner: string | null; status: VenueUp; children: ReactNode }) {
+  const session = useDeskSession(owner, status);
+  const value = useMemo(() => ({ session, owner, status }), [session, owner, status]);
+  return (
+    <DeskSessionContext.Provider value={value}>
+      <DeskSigningContext.Provider value={session.signing}>{children}</DeskSigningContext.Provider>
+    </DeskSessionContext.Provider>
+  );
+}
+
+/** The provided desk's session panel; nothing outside a `DeskSessionProvider`, with no wallet, or on a venue the wallet signs. */
+export function DeskSessionLine() {
+  const desk = useContext(DeskSessionContext);
+  return desk?.owner ? <VenueSessionPanel session={desk.session} owner={desk.owner} status={desk.status} /> : null;
+}
 
 /** The one panel: why the session is needed, its state in words, and Start or End. Nothing on a venue the wallet signs. */
 export function VenueSessionPanel({ session, owner, status }: { session: DeskSession; owner: string; status: VenueUp }) {

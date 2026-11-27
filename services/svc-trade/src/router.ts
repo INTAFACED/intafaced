@@ -5,6 +5,8 @@ import type { VenueAutoTopUp } from './venue/auto-top-up.js';
 import { autoTopUpRouter } from './venue/auto-top-up-router.js';
 import type { VenueRiskAlerts } from './venue/risk-alerts.js';
 import { riskAlertsRouter } from './venue/risk-alerts-router.js';
+import { tradeJournalRouter } from './venue/trade-journal-router.js';
+import type { TradeJournalDeps } from './venue/trade-journal.js';
 import type { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
 import { dailyLossRouter } from './venue/daily-loss-router.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
@@ -803,6 +805,7 @@ export function createTradeRouter(
   autoTopUp?: VenueAutoTopUp | null,
   venueAccounts?: VenueAccountReadDeps | null,
   riskAlerts?: VenueRiskAlerts | null,
+  journal?: TradeJournalDeps | null,
   dailyLoss?: VenueDailyLossLimits | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
@@ -889,6 +892,8 @@ export function createTradeRouter(
     autoTopUp: autoTopUpRouter(autoTopUp),
     /** `riskAlerts.*`: margin and liquidation-risk alerts on a position on the person's own venue account (venue/risk-alerts-router.ts). */
     riskAlerts: riskAlertsRouter(riskAlerts),
+    /** `journal.*`: the perps trade journal of the person's own venue account (venue/trade-journal-router.ts). */
+    journal: tradeJournalRouter(journal),
     /** `dailyLoss.*`: the person's opt-in daily loss limit on their own venue account (venue/daily-loss-router.ts). */
     dailyLoss: dailyLossRouter(dailyLoss),
     health: publicProcedure

@@ -64,3 +64,10 @@ export function legsOutOfOrder(
 export function spotClientId(now: number, counter: number): string {
   return `sc-${now.toString(36)}${counter.toString(36)}`;
 }
+
+/**
+ * The form's kinds whose entry is the person's own order (svc-trade spot-conditionals.ts `ENTRY_KINDS`; a good-till-date
+ * order is placed from the ticket), signed as any order is: by the desk's trading session key on a venue whose trades
+ * only a session key signs, else the owner's wallet.
+ */
+export const ENTRY_KINDS: ReadonlySet<SpotConditionalKind> = new Set<SpotConditionalKind>(['bracket', 'oto']);

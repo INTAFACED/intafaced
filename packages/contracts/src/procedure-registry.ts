@@ -2429,6 +2429,8 @@ import { DAILY_LOSS_GET, DAILY_LOSS_SET, DAILY_LOSS_OFF } from './trade-daily-lo
 
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
 
+import { TRADE_JOURNAL_CLOSED_TRADES } from './trade-journal-procedures.js';
+
 import {
   TRADE_OTC_MAKERS_LIST,
   TRADE_OTC_ACCEPT,
@@ -4995,6 +4997,8 @@ const part_trade_daily_loss_procedures: readonly ProcedureRecord[] = [DAILY_LOSS
 
 const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD];
 
+const part_trade_journal_procedures: readonly ProcedureRecord[] = [TRADE_JOURNAL_CLOSED_TRADES];
+
 const part_trade_otc_procedures: readonly ProcedureRecord[] = [
   TRADE_OTC_MAKERS_LIST,
   TRADE_OTC_ACCEPT,
@@ -5360,6 +5364,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_copy_records,
   ...part_trade_daily_loss_procedures,
   ...part_trade_grid_procedures,
+  ...part_trade_journal_procedures,
   ...part_trade_otc_procedures,
   ...part_trade_recurring_procedures,
   ...part_trade_rfq_procedures,

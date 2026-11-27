@@ -154,8 +154,12 @@ address with `hl-testnet-send.yml`. The file's header lists each action's option
   under `umask 077`, straight into `~/.intafaced/beta/state/vendors.local.json`; then delete the key and the download.
   Show only that each name is set, never a value. No service reads them until a start asks: svc-identity and
   svc-protocol with `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey`, svc-pay with `LOCAL_STACK_PAY_SCREENER=opensanctions`.
-  The beta sets the wallet provider's switch (`beta-host.mjs`, `BETA_STACK_SETTINGS`): each new tester's wallet is
-  made at his provider, and a tester who already has a TEST wallet keeps signing at the TEST provider. It leaves the
+  The beta's wallet provider is one setting, `BETA_WALLET_PROVIDER` in `beta-host.mjs` (#11092): `test` until testers
+  are invited, so our own walks spend none of his provider's free signatures, and while it is `test` the TEST mailbox
+  refuses every new invitee (403, never recorded, so never approved or funded) and `beta-host.mjs status` says
+  `new wallets at the TEST provider; invites refused`. To open the invites: the paid plan first (his), then
+  `BETA_WALLET_PROVIDER = 'turnkey'` in one PR, then one walk that passes on it before the first invite. A tester's
+  existing wallet keeps signing where it was made. It leaves the
   screening vendor's switch off: with the TEST list, the vendor clears no custodial send.
 - **`down`:** the reason names the step; the round's log is `~/.intafaced/beta/round.log`. The next round tries again.
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main

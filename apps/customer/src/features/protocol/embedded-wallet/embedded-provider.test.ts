@@ -80,6 +80,8 @@ describe('the embedded wallet as an EIP-1193 provider', () => {
       ['refused', 4100],
       ['unsupported', 4200],
       ['down', 4900],
+      // A provider over its signing limit is EIP-1474's "limit exceeded".
+      ['busy', -32005],
     ];
     for (const [failure, expected] of cases) {
       const p = connected(client({ signTypedData: fail(failure), signMessage: fail(failure) }));
@@ -94,6 +96,16 @@ describe('the embedded wallet as an EIP-1193 provider', () => {
     expect(await runSignRequest(connected(client()), OWNER, { kind: 'typedData', typedData: TYPED })).toEqual({
       status: 'signed',
       signature: SIG,
+    });
+  });
+
+  it('#11083 the desk says the wallet provider is over its signing limit, not a vague failure', async () => {
+    const busy = connected(client({ signTypedData: fail('busy') }));
+    expect(await runSignRequest(busy, OWNER, { kind: 'typedData', typedData: TYPED })).toEqual({
+      status: 'failed',
+      reason: 'busy',
+      message:
+        'The wallet provider has reached its signing limit, which you cannot fix from here. Nothing was signed or sent. Try again later, or connect your own browser wallet.',
     });
   });
 
