@@ -613,6 +613,8 @@ test('recordLimits keeps the four outside limits in status.json and says a new w
   fs.mkdirSync(path.join(paths.state, 'logs'), { recursive: true });
   fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: 'abc', at: '2026-11-27T09:00:00.000Z' }));
   fs.writeFileSync(paths.testnet, JSON.stringify({ funder: '0x47e03ee499ba8efff97d8e6459ae2c64e8b28dc6', accounts: {} }));
+  // svc-protocol's log, with no signature at the owner's provider in it (#11063).
+  fs.writeFileSync(path.join(paths.state, 'logs', 'protocol.log'), '{"level":30,"time":1,"msg":"request completed"}\n');
   const deps = { spotFree: async () => '68', seatLimit: '' };
   const limits = await recordLimits(paths, deps);
   assert.deepEqual(
@@ -623,7 +625,8 @@ test('recordLimits keeps the four outside limits in status.json and says a new w
   assert.equal(s.state, 'up', "the round's own fields stay");
   assert.equal(s.at, '2026-11-27T09:00:00.000Z');
   assert.deepEqual(s.limits, limits);
-  // On the TEST wallet provider (BETA_WALLET_PROVIDER, #11092) the provider's limit is ok: no outside signature is spent.
+  // On the TEST wallet provider (BETA_WALLET_PROVIDER, #11092) with no signature at the owner's provider in svc-protocol's
+  // log, the provider's limit is ok.
   assert.match(s.limitsLine, /^limits: warn \(funder\); unread \(venue-weight, login-seats\); ok \(wallet-provider\)$/);
   await recordLimits(paths, deps);
   const warned = fs

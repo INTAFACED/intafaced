@@ -10,6 +10,7 @@ export {
   refusalCopy,
   useActivity,
   useFavorites,
+  listedCount,
   useMarketCatalogue,
   useMovers,
   useSparklines,

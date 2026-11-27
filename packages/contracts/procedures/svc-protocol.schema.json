@@ -10487,6 +10487,85 @@
         }
       ]
     },
+    "protocol.embeddedWallet.outcome": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "embeddedWallet.outcome",
+      "access": {
+        "caller": "scope",
+        "scope": "protocol:read",
+        "module": "protocol",
+        "plane": "protocol",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": ["signed", "quota", "refused", "down"]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 599
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["outcome", "status"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "boolean"
+          }
+        },
+        "required": ["recorded"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "outcome": "quota",
+            "status": 429
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "outcome": "down",
+            "status": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "outcome": "busy",
+            "status": 429
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "outcome": "signed",
+            "status": 42
+          }
+        }
+      ]
+    },
     "protocol.embeddedWallet.status": {
       "service": "svc-protocol",
       "module": "protocol",

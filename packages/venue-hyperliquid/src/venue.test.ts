@@ -846,6 +846,34 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect(b.asOf.getTime()).toBe(NOW);
   });
 
+  it('accountSummary: the perp account value, the margin its positions hold and the cross maintenance, as the venue reports them', async () => {
+    const fake = fakeVenue();
+    fake.info.clearinghouseState = () => ({
+      marginSummary: { accountValue: '1000.5', totalMarginUsed: '800.4' },
+      crossMaintenanceMarginUsed: '100.05',
+      withdrawable: '200.1',
+      assetPositions: [],
+      time: NOW,
+    });
+    const s = await venueWith(fake).accountSummary(account);
+    expect(s.value).toEqual({
+      asset: PERP_COLLATERAL_ASSET,
+      equity: a('1000.5'),
+      free: a('200.1'),
+      usedMargin: a('800.4'),
+      maintenanceMargin: a('100.05'),
+      marginRatio: { known: true, value: a('0.1') },
+    });
+    expect(s.asOf.getTime()).toBe(NOW);
+    fake.info.clearinghouseState = () => ({
+      marginSummary: { accountValue: '0', totalMarginUsed: '0' },
+      crossMaintenanceMarginUsed: '0',
+      withdrawable: '0',
+      assetPositions: [],
+    });
+    expect((await venueWith(fake).accountSummary(account)).value.marginRatio).toEqual({ known: false });
+  });
+
   it('a JSON number where money belongs is refused, never read as a float', async () => {
     const fake = fakeVenue();
     fake.info.clearinghouseState = () => ({ marginSummary: { accountValue: 1000.5 }, withdrawable: '1', assetPositions: [] });

@@ -197,6 +197,29 @@ export async function seedTestListings(
     });
     if (outcome === 'written') written.push(symbol);
   }
+  // A market this seed listed and no longer names is delisted from now, once, by the same stack ids: a stack whose
+  // database is kept (the beta) never keeps showing a market its seed dropped. A listing whose latest version an
+  // operator wrote, or one already delisted, is left as it is.
+  const named = new Set(symbols);
+  for (const latest of await store.latestListings(venue.venue.id)) {
+    if (named.has(latest.symbol) || latest.proposerId !== LOCAL_TEST_SEED_OPERATOR || latest.delistsAt !== null) continue;
+    const version = latest.version + 1;
+    await store.appendListing({
+      venueId: venue.venue.id,
+      symbol: latest.symbol,
+      version,
+      change: 'delisting',
+      opensAt: latest.opensAt,
+      delistsAt: now,
+      routing: latest.routing,
+      approvalId: `test-stack-delisting:${venue.venue.id}:${latest.symbol}:${version}`,
+      proposerId: LOCAL_TEST_SEED_OPERATOR,
+      approverId: LOCAL_TEST_SEED_APPROVER,
+      executorId: LOCAL_TEST_SEED_OPERATOR,
+      reason: 'LOCAL TEST seed: no longer in the TEST stack seed',
+      recordedAt: now,
+    });
+  }
   return written;
 }
 

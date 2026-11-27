@@ -77,3 +77,21 @@ export function useMarketCatalogue(): MarketCatalogue {
   const venueTickers = useVenueTickers();
   return useMemo(() => pickSource(venue, own, ownTickers, venueTickers), [venue, own, ownTickers, venueTickers]);
 }
+
+/**
+ * How many markets the catalogue lists to trade, the one number Home's "All N markets" and Markets' own count show:
+ * every spot market that is open or announced (upcoming, or delisting on a date), and every perpetual. A paused or
+ * delisted spot market is not counted.
+ */
+export function listedCount({ markets, perpetuals }: Pick<MarketCatalogue, 'markets' | 'perpetuals'>): number {
+  const spot =
+    markets.status === 'ready'
+      ? markets.data.filter((m) => m.orderable || m.listing === 'upcoming' || m.listing === 'delisting').length
+      : 0;
+  return spot + (perpetuals.status === 'ready' ? perpetuals.data.length : 0);
+}
+
+/** The venue's spot markets that take an order now; none where the catalogue is our own book's. */
+export function venueSpotMarkets({ markets, source }: Pick<MarketCatalogue, 'markets' | 'source'>): MarketRow[] {
+  return source === 'venue' && markets.status === 'ready' ? markets.data.filter((m) => m.orderable) : [];
+}
