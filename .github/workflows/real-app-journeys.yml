@@ -368,8 +368,8 @@ jobs:
       # less the spread of a shard's setup, 10 to 25 minutes, in as many shards as that asks: a pull request's at most 60, a
       # run by hand's at most 10 while each shard stays clear of the limit (journey-shards.mjs). The plan is checked to run every
       # journey file exactly once before it is used. If planning fails for any reason the run falls back to 8 shards and
-      # Playwright's split, so a broken planner never stops a run; journeys past a shard's limit then count as not run and
-      # the time-limit issue names the shards. A targeted run (JOURNEYS_TARGET) never falls back: a name that is not a
+      # Playwright's split; each of those shards then stops red at its custody step (This shard's custody switch, #11077),
+      # since that split mixes launch-desk and frozen files on one stack, and the run says the planner failed. A targeted run (JOURNEYS_TARGET) never falls back: a name that is not a
       # journey file fails this job, and no shard runs. It plans only a run that runs journeys here: not a deferred run,
       # and never a fork's pull request (PLANS).
       # Up to three, so a run that lost a shard or failed a journey early does not make those files look fast. Most runs
@@ -889,16 +889,16 @@ jobs:
       # This shard's custody switch (#11077): a launch-desk shard (Order 1 journeys) starts its stack with custody as
       # launch runs it, the value the hosted beta reads from the same home (tooling/scripts/launch-custody.mjs); a shard of
       # frozen journeys keeps today's default. The planner never mixes the two in one shard (journey-shards.mjs
-      # planByCustody), and this step fails a plan that does. Without a plan (Playwright's own split, which mixes them)
-      # every shard keeps today's default and says so.
+      # planByCustody), and this step fails a plan that does. Without a plan, Playwright's own split mixes them, and a
+      # launch-desk step that passed there would be proof on a setting launch won't run, so the shard stops red here.
       - name: This shard's custody switch
         env:
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
         run: |
           if [ -z "$SHARDS" ]; then
-            echo "::warning::no shard plan, so this shard keeps the stack's default custody switch; the launch-desk journeys are not proven on launch's"
-            exit 0
+            echo "::error::no shard plan, so this shard can't run the launch-desk journeys apart on launch's custody switch (tooling/scripts/launch-custody.mjs); see the What this run runs job for why planning failed"
+            exit 1
           fi
           custody=$(node tooling/scripts/launch-custody.mjs --files "$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")")
           echo "custody $custody (tooling/scripts/launch-custody.mjs)"

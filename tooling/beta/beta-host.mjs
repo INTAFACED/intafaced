@@ -55,6 +55,9 @@ import { LAUNCH_CUSTODY_LAYER } from '../scripts/launch-custody.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
+// Launch's custody switch, which this file imports (BETA_STACK_SETTINGS): a change there restarts the supervisor too.
+const LAUNCH_CUSTODY_FILE = fileURLToPath(new URL('../scripts/launch-custody.mjs', import.meta.url));
+const selfHash = () => `${fileHash(SELF)}:${fileHash(LAUNCH_CUSTODY_FILE)}`;
 
 /** The beta's fixed slot. Slot n adds 1000 × n to every stack port (local-test-facts.mjs), so the link is stable. */
 export const BETA_SLOT = 3;
@@ -942,7 +945,7 @@ export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling
 async function serve(paths) {
   const everyMin = Number(process.env.BETA_EVERY_MIN ?? 30);
   if (!Number.isFinite(everyMin) || everyMin < 5 || everyMin > 55) throw new Error('BETA_EVERY_MIN must be 5 to 55');
-  const mine = fileHash(SELF);
+  const mine = selfHash();
   serveMailbox(paths);
   invitedLoop(paths);
   for (;;) {
@@ -958,12 +961,12 @@ async function serve(paths) {
     }
     // The checkout's copy of this file moved with main: start the new one at once (selfRestart), else exit and let
     // systemd (Restart=always) start it.
-    if (SELF.startsWith(paths.checkout + path.sep) && fileHash(SELF) !== mine) {
+    if (SELF.startsWith(paths.checkout + path.sep) && selfHash() !== mine) {
       if (selfRestart() === 'restart') {
-        log(paths, 'serve: beta-host.mjs changed on main; systemd starts the new copy now');
+        log(paths, 'serve: beta-host.mjs or launch-custody.mjs changed on main; systemd starts the new copy now');
         // systemd stops this copy as its restart job runs; should it not, exit and Restart=always starts the new one.
         await new Promise((r) => setTimeout(r, 30_000));
-      } else log(paths, 'serve: beta-host.mjs changed on main; exiting so the new copy starts');
+      } else log(paths, 'serve: beta-host.mjs or launch-custody.mjs changed on main; exiting so the new copy starts');
       process.exit(0);
     }
     // A move asked for on demand (`beta-host.mjs move`) starts the next round within 15 seconds.

@@ -771,3 +771,14 @@ test("the planner's real plan never mixes custody in a shard (launch-custody.mjs
     assert.match(r.stdout, /^(on|off)\n$/);
   }
 });
+
+test("a run by hand's shard cap is checked on the custody-separated plan CI runs", () => {
+  const min = 60_000;
+  const frozen = Array.from({ length: 40 }, (_, i) => `J-b-${i + 1}.pw.mjs`);
+  const files = ['J-a-1.pw.mjs', ...frozen];
+  const durations = new Map([['J-a-1.pw.mjs', min], ...frozen.map((f) => [f, 10 * min])]);
+  const custodyOf = (f) => (f.startsWith('J-a-') ? 'off' : 'on');
+  // Mixed, 10 shards hold 41 minutes at most, under the 45-minute limit; kept apart, the frozen files get 9 shards of 50.
+  assert.equal(targetedShards(files, durations, 10 * min, 45 * min), TARGETED_MAX_SHARDS);
+  assert.ok(targetedShards(files, durations, 10 * min, 45 * min, false, custodyOf) > TARGETED_MAX_SHARDS);
+});

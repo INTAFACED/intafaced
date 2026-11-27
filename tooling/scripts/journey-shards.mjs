@@ -401,13 +401,15 @@ export function targetedShards(
   targetMs,
   limitMs = (JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES) * 60_000,
   pull = false,
+  custodyOf = null,
 ) {
   const totalMs = files.reduce((a, f) => a + (durations.get(f) ?? 0), 0);
   const uncapped = Math.min(files.length, shardCount(totalMs, targetMs, 1));
   // A pull request's run stops at its own cap (PR_MAX_SHARDS), never planned as a full run.
   if (pull) return Math.min(uncapped, PR_MAX_SHARDS);
   if (uncapped <= TARGETED_MAX_SHARDS) return uncapped;
-  const capped = planShards(files, durations, TARGETED_MAX_SHARDS);
+  // The plan CI runs keeps custody switches apart (planByCustody), so the cap is checked on that plan.
+  const capped = planByCustody(files, durations, TARGETED_MAX_SHARDS, new Set(), new Set(), custodyOf);
   if (Math.max(...capped.map((bin) => bin.ms)) <= limitMs) return TARGETED_MAX_SHARDS;
   const full = fullPlan();
   return Math.min(files.length, shardCount(totalMs, full.target, MIN_SHARDS, full.max));
@@ -558,6 +560,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     estimateDurations(files, past, timed, stepCounts(JOURNEY_DIR, files)),
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
+  // Each shard's stack runs one custody switch: launch-desk files as launch does, the rest on today's (launch-custody.mjs).
+  const launchIds = readLaunchJourneyIds();
+  const custodyOf = (f) => fileCustody(f, launchIds);
   // Never more shards than files: a shard must have a file to run.
   // A targeted run takes as few stacks as its files need (from one), not the full suite's floor: a pull request's at
   // most PR_MAX_SHARDS, a run by hand's at most TARGETED_MAX_SHARDS while every shard stays clear of the limit
@@ -568,12 +573,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ? Math.min(Number(asked), pull ? PR_MAX_SHARDS : Infinity)
       : only === null
         ? Math.min(files.length, shardCount(totalMs, target, MIN_SHARDS, max))
-        : targetedShards(files, durations, target, undefined, pull);
+        : targetedShards(files, durations, target, undefined, pull, custodyOf);
   const fresh = freshFiles(JOURNEY_DIR, files);
   const tape = tapeFiles(JOURNEY_DIR, files);
-  // Each shard's stack runs one custody switch: launch-desk files as launch does, the rest on today's (launch-custody.mjs).
-  const launchIds = readLaunchJourneyIds();
-  const custodyOf = (f) => fileCustody(f, launchIds);
   // A targeted run too small to give each file that needs a fresh stack a shard it runs first in takes one more shard.
   let plan = null;
   for (let n = shards; plan === null; n += 1) {
