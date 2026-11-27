@@ -255,7 +255,14 @@ export function ExitLines({
   const overlay =
     stage && pane.height > 0
       ? createPortal(
-          <ChartOverlay data-testid="exit-lines-overlay" data-pane-top={pane.top} data-pane-height={pane.height}>
+          <ChartOverlay
+            data-testid="exit-lines-overlay"
+            data-pane-top={pane.top}
+            data-pane-height={pane.height}
+            // The prices at the price pane's top and bottom edges: the chart's own scale, for a reader of the overlay.
+            data-price-top={priceAt(pane.top) ?? ''}
+            data-price-bottom={priceAt(pane.top + pane.height) ?? ''}
+          >
             {exitLine('stop', stop)}
             {exitLine('target', target)}
             {entryY !== null && (

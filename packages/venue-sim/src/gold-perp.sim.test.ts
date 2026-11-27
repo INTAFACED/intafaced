@@ -108,6 +108,8 @@ describe('TEST venue simulator: the TEST gold perpetual (J-derivatives-21)', () 
       'XBIL-PERP',
       'XCRS-PERP',
       'XDEV-PERP',
+      'XEXA-PERP',
+      'XEXB-PERP',
     ]);
     const xau = markets.find((m) => m.symbol === XAU)!;
     expect(xau).toMatchObject({
@@ -131,8 +133,8 @@ describe('TEST venue simulator: the TEST gold perpetual (J-derivatives-21)', () 
 
   it("seeds XAU-PERP's ladder around its own price, and BTC's around 60000 as before", async () => {
     const w = world();
-    // Five levels a side on each of the ten laddered TEST markets (BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP, XSTK-PERP, XSTD-PERP, XLIQ-PERP, XFND-PERP, XBIL-PERP, XCRS-PERP).
-    expect((await seedTestVenue(w.sim)).orders).toBe(100);
+    // Five levels a side on each of the twelve laddered TEST markets (BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP, XSTK-PERP, XSTD-PERP, XLIQ-PERP, XFND-PERP, XBIL-PERP, XCRS-PERP, XEXA-PERP, XEXB-PERP).
+    expect((await seedTestVenue(w.sim)).orders).toBe(120);
     // The book is read through what a taker meets: a market buy of one lot fills at the best ask.
     w.sim.deposit(w.account, 'USDC', a('100000'), 'chain:gold:seed');
     await w.run(fiveX);
