@@ -22,6 +22,8 @@ import {
   journeyFiles,
   longFiles,
   longestDurations,
+  custodyShares,
+  planByCustody,
   planCovers,
   planShards,
   shardCount,
@@ -715,4 +717,57 @@ test("run 45138504039's shard waiting on the tape: the plan that counts the wait
   assert.ok(ratio(plan) <= 1.3, `the plan's longest shard is ${ratio(plan).toFixed(2)} times its median`);
   // Counting the wait alone, at the run's own 30 shards, already brings it under the bar.
   assert.ok(ratio(planShards(files, d, 30, new Set(), tape)) <= 1.3);
+});
+
+// #11077: a launch-desk file's stack runs custody as launch does, a frozen journey's on today's, so no shard mixes them.
+test('plans each custody switch apart, so no shard mixes a launch-desk file with a frozen one', () => {
+  const files = [
+    'J-a-1.pw.mjs',
+    'J-a-1-venue.pw.mjs',
+    'J-a-2.pw.mjs',
+    'J-b-1.pw.mjs',
+    'J-b-2.pw.mjs',
+    'J-b-3.pw.mjs',
+    'J-b-4.pw.mjs',
+    'J-b-5.pw.mjs',
+  ];
+  const durations = new Map(files.map((f) => [f, 60_000]));
+  const custodyOf = (f) => (f.startsWith('J-a-') ? 'off' : 'on');
+  const plan = planByCustody(files, durations, 4, new Set(), new Set(), custodyOf);
+  assert.equal(plan.length, 4);
+  assert.deepEqual(planCovers(plan, files, new Set(), custodyOf), []);
+  assert.deepEqual(
+    plan.map((bin) => custodyOf(bin.files[0])),
+    ['off', 'on', 'on', 'on'],
+  );
+  // The same files planned without the switch mix them, and planCovers names it.
+  const mixed = planShards(files, durations, 3);
+  assert.ok(planCovers(mixed, files, new Set(), custodyOf).some((p) => /mixes custody off and on/.test(p)));
+  // One shard can't keep two switches apart; the caller takes one more shard.
+  assert.throws(() => planByCustody(files, durations, 1, new Set(), new Set(), custodyOf), /cannot keep 2 custody switches apart/);
+  // Without a switch the plan is planShards' own.
+  assert.deepEqual(planByCustody(files, durations, 3), planShards(files, durations, 3));
+});
+
+test('gives each custody group shards by its time, at least one, no more than its files, and one per fresh file', () => {
+  const groups = [{ files: ['a1', 'a2'] }, { files: ['b1', 'b2', 'b3', 'b4', 'b5', 'b6'] }];
+  const durations = new Map([...groups[0].files, ...groups[1].files].map((f) => [f, 60_000]));
+  assert.deepEqual(custodyShares(groups, durations, 4), [1, 3]);
+  assert.deepEqual(custodyShares(groups, durations, 20), [2, 6]);
+  assert.deepEqual(custodyShares(groups, durations, 2), [1, 1]);
+  assert.deepEqual(custodyShares(groups, durations, 4, new Set(['a1', 'a2'])), [2, 2]);
+});
+
+test("the planner's real plan never mixes custody in a shard (launch-custody.mjs)", () => {
+  const cwd = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const out = execFileSync('node', ['tooling/scripts/journey-shards.mjs', '--shards', 'auto'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  for (const shard of JSON.parse(out)) {
+    const r = spawnSync('node', ['tooling/scripts/launch-custody.mjs', '--files', shard], { cwd, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^(on|off)\n$/);
+  }
 });

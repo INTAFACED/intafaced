@@ -51,6 +51,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PUBLIC_ORIGIN } from './beta-front.mjs';
 import { INVITED_RECENT_MS, invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
+import { LAUNCH_CUSTODY_LAYER } from '../scripts/launch-custody.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -134,6 +135,7 @@ const BETA_USER_VENUE = 'hl-testnet';
  * off together, as the launch build runs them (docs/adr/2026-11-10-launch-money-model.md): our own order book is off, the
  * ledger holds no tester's money, and a tester's money is where launch keeps it, at the TEST partner and in their own
  * wallet on the venue's test network (#11019). The TEST funds check fails a process that runs it otherwise (BETA_CUSTODY).
+ * The value is launch's, read from its one home, which CI's launch-desk journeys read too (launch-custody.mjs, #11077).
  */
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
@@ -141,7 +143,7 @@ const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
   LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey',
-  LOCAL_STACK_CUSTODY_LAYER: 'off',
+  LOCAL_STACK_CUSTODY_LAYER: LAUNCH_CUSTODY_LAYER,
 });
 /** The custody switch every process of the beta stack runs (BETA_STACK_SETTINGS), as launch does. */
 export const BETA_CUSTODY = BETA_STACK_SETTINGS.LOCAL_STACK_CUSTODY_LAYER;
