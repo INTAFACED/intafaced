@@ -10545,49 +10545,129 @@
                           "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"]
                         },
                         "desk": {
-                          "type": "object",
-                          "properties": {
-                            "v": {
-                              "type": "number",
-                              "const": 1
-                            },
-                            "preset": {
-                              "type": "string",
-                              "enum": ["classic", "advanced"]
-                            },
-                            "order": {
-                              "minItems": 1,
-                              "maxItems": 4,
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "enum": ["markets", "chart", "book", "trades"]
-                              }
-                            },
-                            "widths": {
+                          "anyOf": [
+                            {
                               "type": "object",
                               "properties": {
-                                "markets": {
+                                "v": {
                                   "type": "number",
-                                  "minimum": 10,
-                                  "maximum": 32
+                                  "const": 1
                                 },
-                                "book": {
-                                  "type": "number",
-                                  "minimum": 10,
-                                  "maximum": 32
+                                "preset": {
+                                  "type": "string",
+                                  "enum": ["classic", "advanced"]
                                 },
-                                "trades": {
-                                  "type": "number",
-                                  "minimum": 10,
-                                  "maximum": 32
+                                "order": {
+                                  "minItems": 1,
+                                  "maxItems": 4,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": ["markets", "chart", "book", "trades"]
+                                  }
+                                },
+                                "widths": {
+                                  "type": "object",
+                                  "properties": {
+                                    "markets": {
+                                      "type": "number",
+                                      "minimum": 10,
+                                      "maximum": 32
+                                    },
+                                    "book": {
+                                      "type": "number",
+                                      "minimum": 10,
+                                      "maximum": 32
+                                    },
+                                    "trades": {
+                                      "type": "number",
+                                      "minimum": 10,
+                                      "maximum": 32
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 }
                               },
+                              "required": ["v", "preset", "order", "widths"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "v": {
+                                  "type": "number",
+                                  "const": 2
+                                },
+                                "columns": {
+                                  "type": "number",
+                                  "const": 24
+                                },
+                                "preset": {
+                                  "type": "string",
+                                  "enum": ["classic", "advanced"]
+                                },
+                                "panels": {
+                                  "minItems": 1,
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string",
+                                        "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                                      },
+                                      "type": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                                      },
+                                      "settings": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                          "type": "string",
+                                          "maxLength": 64
+                                        },
+                                        "additionalProperties": {
+                                          "$ref": "#/$defs/__schema0"
+                                        }
+                                      },
+                                      "grid": {
+                                        "type": "object",
+                                        "properties": {
+                                          "x": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 23
+                                          },
+                                          "y": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 511
+                                          },
+                                          "w": {
+                                            "type": "integer",
+                                            "minimum": 1,
+                                            "maximum": 24
+                                          },
+                                          "h": {
+                                            "type": "integer",
+                                            "minimum": 1,
+                                            "maximum": 512
+                                          }
+                                        },
+                                        "required": ["x", "y", "w", "h"],
+                                        "additionalProperties": false
+                                      }
+                                    },
+                                    "required": ["id", "type", "settings", "grid"],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": ["v", "columns", "panels"],
                               "additionalProperties": false
                             }
-                          },
-                          "required": ["v", "preset", "order", "widths"],
-                          "additionalProperties": false
+                          ]
                         },
                         "savedAt": {
                           "type": "string",
@@ -10625,12 +10705,60 @@
           }
         },
         "required": ["ticketId", "audit", "alerts", "layouts"],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "maxItems": 256,
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
       },
       "outputChecks": {
         "desk_workspace_holds": {
-          "at": "output.layouts|0.items[].desk",
+          "at": "output.layouts|0.items[].desk|0",
           "says": "each widget once"
+        },
+        "desk_panels_hold": {
+          "at": "output.layouts|0.items[].desk|1",
+          "says": "each panel id once, and no two panels on one cell"
+        },
+        "desk_panel_settings_fit": {
+          "at": "output.layouts|0.items[].desk|1.panels[].settings",
+          "says": "settings stay under 4096 characters as JSON"
+        },
+        "desk_panel_on_grid": {
+          "at": "output.layouts|0.items[].desk|1.panels[].grid",
+          "says": "the panel sits inside the grid columns and rows"
         }
       },
       "samples": [

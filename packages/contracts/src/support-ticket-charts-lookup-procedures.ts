@@ -21,7 +21,15 @@ export const SUPPORT_TICKET_CHARTS_LOOKUP = defineProcedure({
   refusals: {},
   input: supportChartsLookupInputSchema,
   output: supportChartsLookupSchema,
-  outputChecks: { desk_workspace_holds: { at: 'output.layouts|0.items[].desk', says: 'each widget once' } },
+  outputChecks: {
+    desk_workspace_holds: { at: 'output.layouts|0.items[].desk|0', says: 'each widget once' },
+    desk_panels_hold: { at: 'output.layouts|0.items[].desk|1', says: 'each panel id once, and no two panels on one cell' },
+    desk_panel_settings_fit: {
+      at: 'output.layouts|0.items[].desk|1.panels[].settings',
+      says: 'settings stay under 4096 characters as JSON',
+    },
+    desk_panel_on_grid: { at: 'output.layouts|0.items[].desk|1.panels[].grid', says: 'the panel sits inside the grid columns and rows' },
+  },
   samples: [
     { verdict: 'accept', input: { ticketId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
