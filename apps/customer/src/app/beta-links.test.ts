@@ -99,7 +99,6 @@ const PARKED = [
   '/market/mine',
   '/uc/innovation/myorders',
   '/partner',
-  '/developers/status',
   '/lab',
   '/fees',
   '/rulebook',
