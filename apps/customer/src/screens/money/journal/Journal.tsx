@@ -1,7 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import type { JournalTrade, TradeJournal } from '@intafaced/contracts/trade-journal-procedures';
 import { RecordListTemplate, Skeleton, Table, type Column, type RoomState } from '@intafaced/ui/lit/templates';
-import { TestMark, useOwner, useVenueMode, WalletBar } from '../../../features/trade';
+import { TestMark, useOwner, useVenueMode, VenueFrame, WalletBar, type VenueMode } from '../../../features/trade';
 import { usePreferences } from '../../../shared/preferences';
 import { moneyCopy } from '../copy';
 import { navigate } from '../deps';
@@ -32,8 +32,19 @@ const inAsset = (value: string, asset: string) => `${value} ${asset}`;
  * after the venue stops returning its fills and candles.
  */
 export default function Journal({ search }: { search: string }) {
-  const { t } = moneyCopy.useCopy();
   const venue = useVenueMode();
+  // The person's own wallet, on the venue's network, names the venue account the journal reads.
+  return venue.mode === 'on' ? (
+    <VenueFrame mode={venue}>
+      <JournalRoom search={search} venue={venue} />
+    </VenueFrame>
+  ) : (
+    <JournalRoom search={search} venue={venue} />
+  );
+}
+
+function JournalRoom({ search, venue }: { search: string; venue: VenueMode }) {
+  const { t } = moneyCopy.useCopy();
   const owner = useOwner();
   const journal = useTradeJournal(venue.mode === 'on' && venue.status.available ? owner : null);
   const picked = tradeFromSearch(search);
