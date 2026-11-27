@@ -271,9 +271,20 @@ test(`${J} #2 holds "Flatten everything" for 0.65 seconds: no passkey, signature
   const ledger = await (await api(state().account)).balances();
   // Each submit takes a moment at the venue (TEST switch), so each line is seen sent before its answer.
   await switches({ submitDelayMs: 1500 });
+  // Every state each leg line shows, in order, recorded in the page as the line changes.
+  await flatten.evaluate((el) => {
+    const seen = {};
+    globalThis.flattenLegStates = seen;
+    const note = () =>
+      el.querySelectorAll('[data-testid="venue-flatten-legs"] li').forEach((li) => {
+        const states = (seen[`${li.getAttribute('data-leg')} ${li.getAttribute('data-symbol')}`] ??= []);
+        const now = li.getAttribute('data-state');
+        if (states.at(-1) !== now) states.push(now);
+      });
+    new MutationObserver(note).observe(el, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state'] });
+  });
   try {
     await hold(page, button, started(flatten));
-    await expect(flatten.locator('[data-testid="venue-flatten-legs"] li[data-state="sent"]').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await settled(flatten);
   } finally {
@@ -297,6 +308,11 @@ test(`${J} #2 holds "Flatten everything" for 0.65 seconds: no passkey, signature
       .sort(),
   ).toEqual(LEGS.map((l) => l.symbol).sort());
   for (const l of lines) expect(l, `${l.kind} ${l.symbol}`).toMatchObject({ state: 'done' });
+  // Each line was marked sent before it showed done.
+  const shown = await page.evaluate(() => globalThis.flattenLegStates);
+  expect(Object.keys(shown).sort()).toEqual(lines.map((l) => `${l.kind} ${l.symbol}`).sort());
+  for (const l of lines)
+    expect(shown[`${l.kind} ${l.symbol}`].slice(-2), `${l.kind} ${l.symbol} went sent, then done`).toEqual(['sent', 'done']);
   for (const l of lines.filter((x) => x.kind === 'close')) expect(l.text).toContain('reduce-only at market');
 
   // The venue's own record: each order cancelled, and each position closed by one reduce-only market order, no worse
