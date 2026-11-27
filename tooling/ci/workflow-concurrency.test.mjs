@@ -11,7 +11,10 @@
  *      PR_EXCEPTIONS with the reason a cancel would lose a verdict.
  *   2. A Real-app journeys run on main is never cancelled, and every main run shares one group (OWNER 206).
  *   3. A manual Real-app journeys run on a branch cancels the older run with the same journey selection on that branch,
- *      and never a run of another branch or another selection.
+ *      and never a run of another branch or another selection. A pull request's Real-app journeys run is rule 1's one
+ *      exception (#11076): one group per pull request and head, so a push never cancels the run before it by itself;
+ *      its touch job stops the pull request's runs still going on any other commit, except one whose runs count for
+ *      the head (journey-carry.mjs supersededRuns, journey-carry.test.mjs), so a superseded head still holds no runner.
  *   4. (Retired with Journey seal re-check, 9 Nov 2026.)
  *   5. CI merge seal (INTAFACED/project-state#1574 item 2): a push's or an open's first attempt cancels the older head's
  *      seal (rule 1), and nothing else is ever cancelled or cancels: an edit's, an arming's or a reopen's seal runs on the head being
@@ -220,7 +223,11 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
  * INTAFACED/project-state#3820: a push cancels the older head's seal and review, and rules 5 and 8 below hold that
  * nothing else is cancelled.
  */
-export const PR_EXCEPTIONS = new Set([]);
+export const PR_EXCEPTIONS = new Set([
+  // One group per pull request and head (rule 3): its touch job stops the superseded runs that count for nothing,
+  // and keeps the one before a push that changes no code a journeys run executes, which the seal reads (#11076).
+  'real-app-journeys.yml',
+]);
 
 /** Problems with rule 1 in one workflow's text, or []. */
 export function prProblems(file, text) {
@@ -263,25 +270,43 @@ export function journeysProblems(text) {
   if (branch('A.pw.mjs').group === branch('B.pw.mjs').group) problems.push('two journey selections on one branch share a group');
   if (branch('').group === resolve(text, journeysRun('workflow_dispatch', 'refs/heads/b2', '')).group)
     problems.push('two branches share a group');
-  // A pull request's run (U4 C3) shares its branch's group with a manual full run there, so either replaces the other.
-  const pr = resolve(text, {
-    github: {
-      workflow: 'Real-app journeys',
-      repository: REPO,
-      event_name: 'pull_request',
-      ref: 'refs/pull/7/merge',
-      head_ref: 'b1',
-      run_id: 1,
-      event: { pull_request: { draft: false, head: { repo: { full_name: REPO } } } },
-    },
-    inputs: {},
-  });
-  if (pr.group !== branch('').group) problems.push("a pull request's run and a manual full run on its branch are in different groups");
-  if (!pr.cancel) problems.push('a newer pull request run does not cancel the superseded one');
+  // A pull request's run: one group per pull request and head (#11076), never a run by hand's on its branch. A second
+  // run on the same head replaces the first; a push to another head never cancels the one before it by itself: the touch
+  // job's stop step does that, for every run that counts for nothing (journey-carry.mjs supersededRuns).
+  const prAt = (n, sha, action = 'synchronize') =>
+    resolve(text, {
+      github: {
+        workflow: 'Real-app journeys',
+        repository: REPO,
+        event_name: 'pull_request',
+        ref: `refs/pull/${n}/merge`,
+        head_ref: 'b1',
+        run_id: Math.random(),
+        event: { action, pull_request: { number: n, draft: false, head: { sha, repo: { full_name: REPO } } } },
+      },
+      inputs: {},
+    });
+  const pr = prAt(7, 'aaa');
+  if (pr.group === branch('').group)
+    problems.push("a pull request's run shares a run by hand's group on its branch, so either cancels the other");
+  if (!pr.cancel || pr.group !== prAt(7, 'aaa', 'reopened').group)
+    problems.push('a second pull request run on one head does not replace the first');
+  if (pr.group === prAt(7, 'bbb').group)
+    problems.push("a push cancels the pull request's run before it by its group, even one the head still needs (#11076)");
+  if (pr.group === prAt(8, 'aaa').group) problems.push('two pull requests share a journeys group');
+  const touch = text.slice(text.indexOf('\n  touch:'), text.indexOf('\n  release:'));
+  if (
+    !/journey-touch\.mjs" --carried/.test(touch) ||
+    !/name: Stop this pull request's superseded runs[\s\S]*?actions\/runs\/\$id\/cancel/.test(touch) ||
+    !/actions: write/.test(touch)
+  )
+    problems.push(
+      "the touch job does not stop this pull request's superseded runs (--carried, then a cancel of each), so a superseded head would hold its runners",
+    );
   // A fork's pull request runs nothing, in a group of its own, so it never cancels a branch's run (council R1): a fork
   // branch named like this repository's. A draft runs from its first push, in its branch's group, as a ready pull request
   // does (#8707). `ready_for_review` keeps a group of its own: on the head its push already runs, it never cancels that.
-  const prRun = (pull, action = 'synchronize', id = 2) =>
+  const prRun = (pull, action = 'synchronize', id = 2, number = 8) =>
     resolve(text, {
       github: {
         workflow: 'Real-app journeys',
@@ -290,16 +315,16 @@ export function journeysProblems(text) {
         ref: 'refs/pull/8/merge',
         head_ref: 'b1',
         run_id: id,
-        event: { action, pull_request: pull },
+        event: { action, pull_request: { number, ...pull } },
       },
       inputs: {},
     });
   if (prRun({ draft: false, head: { repo: { full_name: 'someone/fork' } } }).group === branch('').group)
     problems.push("a fork's pull request run shares a branch's group");
-  const draft = { draft: true, head: { repo: { full_name: REPO } } };
+  const draft = { draft: true, head: { sha: 'aaa', repo: { full_name: REPO } } };
   for (const action of ['opened', 'synchronize', 'reopened'])
-    if (prRun(draft, action).group !== branch('').group || !prRun(draft, action).cancel)
-      problems.push(`a draft's ${action} run is not in its branch's group, cancelling the superseded one`);
+    if (prRun(draft, action).group !== prRun({ ...draft, draft: false }, 'synchronize').group || !prRun(draft, action).cancel)
+      problems.push(`a draft's ${action} run is not in its pull request's group for its head, as a ready pull request's is`);
   const ready = prRun({ draft: false, head: { repo: { full_name: REPO } } }, 'ready_for_review', 3);
   if (ready.group === branch('').group)
     problems.push("ready_for_review shares its branch's group, so it would cancel the run its push started");
@@ -898,4 +923,18 @@ test("planted: yesterday's main bisect group (one per red commit, steps only on 
     "two breaks on one commit share a group (confirm ''): main-bisect-journeys-main-" + 'b'.repeat(40),
     "two breaks on one commit share a group (confirm 'true'): main-bisect-journeys-confirm-main-" + 'b'.repeat(40),
   ]);
+});
+
+test("planted: a pull request's journeys run in its branch's group (cancelled by the next push), or no stop step, fails rule 3", () => {
+  const t = read('real-app-journeys.yml');
+  const pr =
+    "|| github.event_name == 'pull_request' && format('real-app-journeys-pr-{0}:{1}', github.event.pull_request.number, github.event.pull_request.head.sha) ";
+  assert.ok(t.includes(pr));
+  // Before #11076: every push's run joined its branch's group and cancelled the run before it.
+  assert.ok(journeysProblems(t.replace(pr, '')).some((p) => /a push cancels the pull request's run before it/.test(p)));
+  const stop = "name: Stop this pull request's superseded runs";
+  assert.ok(t.includes(stop));
+  assert.ok(
+    journeysProblems(t.replace(stop, 'name: Something else')).some((p) => /does not stop this pull request's superseded runs/.test(p)),
+  );
 });

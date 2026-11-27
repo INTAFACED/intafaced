@@ -1646,7 +1646,13 @@ test("real-app-journeys.yml's one-run-per-head step: off a pull request, or when
     mkdirSync(base, { recursive: true });
     const says = (json) => writeFileSync(join(base, 'journey-touch.mjs'), `console.log(${JSON.stringify(JSON.stringify(json))})`);
     says({ target: '', mode: 'none', why: 'covered' });
-    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '' });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '', waits: '' });
+    // A run on an earlier commit whose runs count for the head covers it, still going: this run waits for it (#11076).
+    says({ target: '', mode: 'none', why: 'carried', waits: [45963553721] });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '', waits: '45963553721' });
+    // Planted: a wait that is not a run id never reaches the outputs.
+    says({ target: '', mode: 'none', why: 'carried', waits: ['1; rm -rf /', 7] });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '', waits: '7' });
     // Planted: a target that is not journey file names never reaches the outputs; the pick stands.
     says({ target: 'J-a-01.pw.mjs\nmode=none', mode: 'run', why: '' });
     assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'run', target: 'J-a-01.pw.mjs' });
