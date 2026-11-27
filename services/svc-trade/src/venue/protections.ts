@@ -13,9 +13,10 @@ import {
   type UserVenueMarket,
   type UserVenueOrder,
   type VenueSubmitOutcome,
+  openingFeesOf,
   venueClientOrderId,
 } from '@intafaced/venue-contracts';
-import { feeAdjustedBreakeven, openingFeesOf } from './breakeven.js';
+import { feeAdjustedBreakeven } from './breakeven.js';
 import { closeTolerancePrice, requireCloseSlippageBps } from './close-slippage.js';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
 import { venueBoundPrice } from './venue-price.js';

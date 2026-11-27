@@ -71,6 +71,10 @@ import {
   venueSubAccountSchema,
   venueStatementFileSchema,
   protectionListSchema,
+  breakevenAnswerSchema,
+  triggerMoveAnswerSchema,
+  type BreakevenRequest,
+  type TriggerMoveRequest,
   spotConditionalListSchema,
   spotFeeReviewSchema,
 } from '@intafaced/contracts/trade-venue-door';
@@ -585,6 +589,10 @@ export function venueApi(api: ApiClient) {
     cancelProtection: (id: string) => api.rest(`/venue/protections/${encodeURIComponent(id)}`, protectionViewSchema, { method: 'DELETE' }),
     protectionAgent: (owner: string, signal?: AbortSignal) => read('/protection-agent', protectionAgentSchema, { owner }, signal),
     prepareProtectionAgent: (owner: string) => write('/protection-agent/prepare', preparedAnswerSchema, { owner }),
+    /** The stop moved to the position's fee-adjusted breakeven: the actions to sign, in order (J-derivatives-32 #5 #6). */
+    breakeven: (input: BreakevenRequest) => write('/protections/breakeven', breakevenAnswerSchema, input),
+    /** A dragged stop or target line: the one action that moves that venue order in place (J-derivatives-32 #3 #4). */
+    moveTrigger: (input: TriggerMoveRequest) => write('/protections/move', triggerMoveAnswerSchema, input),
     /** The person's conditional spot orders: stops, OCOs, brackets and linked closes (J-cex-spot-08). */
     spotOrders: (owner: string, signal?: AbortSignal) => read('/spot-orders', spotConditionalListSchema, { owner }, signal),
     createSpotOrder: (input: SpotConditionalRequest) => write('/spot-orders', spotConditionalCreatedSchema, input),

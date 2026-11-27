@@ -1,17 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount, ZERO } from '@intafaced/ledger-client/money';
-import { feeAdjustedBreakeven, openingFeesOf } from './breakeven.js';
+import { feeAdjustedBreakeven } from './breakeven.js';
 
 // The fee-adjusted breakeven of an open perp position, worked by hand. Every figure is TEST.
 const a = parseAmount;
-const at = (n: number) => new Date(Date.UTC(2026, 10, 27, 0, 0, n));
-const fill = (side: 'buy' | 'sell', amount: string, venueFee: string, builderFee: string, n: number) => ({
-  side,
-  amount: a(amount),
-  venueFee: a(venueFee),
-  builderFee: a(builderFee),
-  filledAt: at(n),
-});
 
 describe('feeAdjustedBreakeven (#11070), against hand-worked examples', () => {
   // A 2 ETH position at 3000. Opening: one taker fill of 6000 notional, the venue's 4.5 bps (2.7) and our 1 bp (0.6):
@@ -52,29 +44,5 @@ describe('feeAdjustedBreakeven (#11070), against hand-worked examples', () => {
     expect(() => feeAdjustedBreakeven({ ...common, side: 'long', size: ZERO })).toThrow(RangeError);
     expect(() => feeAdjustedBreakeven({ ...common, side: 'long', closeFeeBps: a('10000') })).toThrow(RangeError);
     expect(() => feeAdjustedBreakeven({ ...common, side: 'short', openingFees: a('6000') })).toThrow(RangeError);
-  });
-});
-
-describe('openingFeesOf (#11070): the fees still open on the position, from its own fills', () => {
-  it('adds what opened, keeps the open share after a partial close, and keeps the new side’s share after a turn over', () => {
-    const fills = [
-      fill('buy', '1', '1.35', '0.3', 1), // long 1: 1.65
-      fill('buy', '1', '1.35', '0.3', 2), // long 2: 3.3
-      fill('sell', '0.5', '0.9', '0.2', 3), // long 1.5: 3.3 × 1.5 / 2 = 2.475
-      fill('sell', '3.5', '7', '1', 4), // short 2: of 8 paid, the 2 past zero of 3.5 sold opened it: 8 × 2 / 3.5
-    ];
-    expect(openingFeesOf({ side: 'long', size: a('2') }, fills.slice(0, 2))).toBe(a('3.3'));
-    expect(openingFeesOf({ side: 'long', size: a('1.5') }, fills.slice(0, 3))).toBe(a('2.475'));
-    expect(openingFeesOf({ side: 'short', size: a('2') }, fills)).toBe(a('4.571428571428571428'));
-  });
-
-  it('starts again after the position went flat, and reads the fills oldest first whatever order they come in', () => {
-    const fills = [fill('buy', '1', '9', '9', 1), fill('sell', '1', '9', '9', 2), fill('sell', '2', '2.7', '0.6', 3)];
-    expect(openingFeesOf({ side: 'short', size: a('2') }, [...fills].reverse())).toBe(a('3.3'));
-  });
-
-  it('is null, never a guess, when the fills do not add up to the position the venue holds', () => {
-    expect(openingFeesOf({ side: 'long', size: a('2') }, [fill('buy', '1', '1', '0', 1)])).toBeNull();
-    expect(openingFeesOf({ side: 'long', size: a('1') }, [])).toBeNull();
   });
 });

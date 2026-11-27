@@ -76,6 +76,8 @@ export const venueStatusSchema = z.union([
     ordersPerAction: z.number().int().positive().optional(),
     // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).
     amendsInPlace: z.boolean().optional(),
+    // J-derivatives-32: whether a resting stop or target moves in place, so its chart line can be dragged.
+    movesTriggersInPlace: z.boolean().optional(),
     cancelsPerAction: z.number().int().min(0).optional(),
     // Who signs the venue's orders, cancels and changes: the owner's wallet, or a trading session's key the wallet approved
     // once (a venue whose orders name a chain no wallet signs on). Absent from an older door: the owner's wallet.
