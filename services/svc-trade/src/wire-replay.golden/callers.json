@@ -254,5 +254,6 @@
   { "path": "standing.execute", "type": "mutation", "caller": "service" },
   { "path": "standing.quote", "type": "mutation", "caller": "service" },
   { "path": "support.tradeSummary", "type": "query", "caller": "service" },
+  { "path": "venue.deskSnapshot", "type": "mutation", "caller": "service" },
   { "path": "venue.ownActivity", "type": "mutation", "caller": "service" }
 ]

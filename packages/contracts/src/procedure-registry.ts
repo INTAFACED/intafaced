@@ -1415,6 +1415,13 @@ import {
   NOTIFY_STATUS_PAGE_CONFIGURE,
 } from './notify-status-page-procedures.js';
 
+import {
+  NOTIFY_TELEGRAM_STATUS,
+  NOTIFY_TELEGRAM_LINK_CODE,
+  NOTIFY_TELEGRAM_UNLINK,
+  NOTIFY_TELEGRAM_SET_PROFIT_TARGET,
+} from './notify-telegram-procedures.js';
+
 import { OPS_ALERT_RULES_STATES } from './ops-alert-rules-procedures.js';
 
 import {
@@ -2424,6 +2431,8 @@ import {
   TRADE_COPY_LEAD_COPIERS,
   TRADE_COPY_PLATFORM_PAUSES,
 } from './trade-copy-records.js';
+
+import { TRADE_DESK_SNAPSHOT } from './trade-desk-snapshot.js';
 
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
 
@@ -3945,6 +3954,13 @@ const part_notify_status_page_procedures: readonly ProcedureRecord[] = [
   NOTIFY_STATUS_PAGE_CONFIGURE,
 ];
 
+const part_notify_telegram_procedures: readonly ProcedureRecord[] = [
+  NOTIFY_TELEGRAM_STATUS,
+  NOTIFY_TELEGRAM_LINK_CODE,
+  NOTIFY_TELEGRAM_UNLINK,
+  NOTIFY_TELEGRAM_SET_PROFIT_TARGET,
+];
+
 const part_ops_alert_rules_procedures: readonly ProcedureRecord[] = [OPS_ALERT_RULES_STATES];
 
 const part_ops_alerts_procedures: readonly ProcedureRecord[] = [
@@ -4989,6 +5005,8 @@ const part_trade_copy_records: readonly ProcedureRecord[] = [
   TRADE_COPY_PLATFORM_PAUSES,
 ];
 
+const part_trade_desk_snapshot: readonly ProcedureRecord[] = [TRADE_DESK_SNAPSHOT];
+
 const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD];
 
 const part_trade_otc_procedures: readonly ProcedureRecord[] = [
@@ -5252,6 +5270,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_notify_procedures,
   ...part_notify_reconciliation_alert_feed_procedures,
   ...part_notify_status_page_procedures,
+  ...part_notify_telegram_procedures,
   ...part_ops_alert_rules_procedures,
   ...part_ops_alerts_procedures,
   ...part_ops_announcements_procedures,
@@ -5354,6 +5373,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_convert_procedures,
   ...part_trade_copy_procedures,
   ...part_trade_copy_records,
+  ...part_trade_desk_snapshot,
   ...part_trade_grid_procedures,
   ...part_trade_otc_procedures,
   ...part_trade_recurring_procedures,

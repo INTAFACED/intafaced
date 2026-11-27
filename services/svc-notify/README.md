@@ -99,6 +99,21 @@ That also makes changing provider an env change rather than a release.
 What the owner has to obtain, in plain language:
 [`docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md`](../../docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md).
 
+### Telegram desk alerts (read-only)
+
+`src/telegram/`: the launch desk's alerts on Telegram, apart from the four channels above. A person links one chat with
+a one-time code from `telegram.linkCode` (account settings; only its SHA-256 digest is stored, it lasts
+`NOTIFY_VERIFY_TTL_MINUTES`, a newer code replaces it) by sending `/start <code>` to the bot. A sweep every 15 seconds
+reads svc-trade's `venue.deskSnapshot` for each linked person and raises each alert once under its business key: every
+fill (`fill:<fillId>`), margin use at 80% and 90% once per crossing (`margin:<account>:<level>:<crossing>`), and the
+profit lock once a week when the week's realised profit reaches the target set with `telegram.setProfitTarget`
+(`profit-lock:<weekStart>`). The outbox sends until the bot API takes each one. The bot answers `/positions` and `/pnl`
+and refuses every other command: the desk holds no way to trade, cancel or move money.
+
+`NOTIFY_TELEGRAM_BOT_TOKEN` (a secret) turns it on; blank, `telegram.status` says `off` with
+`notify.telegram_token_unset`, and with `NOTIFY_OUT_OF_APP_ENABLED=false` it says `notify.out_of_app_off`. The webhook,
+`POST /telegram/webhook`, refuses any update without the `NOTIFY_TELEGRAM_WEBHOOK_SECRET` header (32+ characters).
+
 ### The gateway contract
 
 Every channel sends the same request shape and differs only in the body:

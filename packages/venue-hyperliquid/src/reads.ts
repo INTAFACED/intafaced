@@ -4,6 +4,7 @@ import {
   type MaybeKnown,
   type UserVenueAccount,
   type UserVenueAgent,
+  type UserVenueAccountSummary,
   type UserVenueBalance,
   type UserVenueFill,
   type UserVenueLeverage,
@@ -258,6 +259,29 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     }
     list.sort((a, b) => a.asset.localeCompare(b.asset));
     return this.asOf(list, typeof p.time === 'number' ? p.time : undefined);
+  }
+
+  /**
+   * The perp account's margin summary as the venue reports it: its value (`marginSummary.accountValue`), the margin its
+   * positions hold (`totalMarginUsed`), what can be withdrawn, and the cross maintenance requirement. The ratio is that
+   * requirement over the value, rounded up; unknown with no value above zero. No cross figure is derived here.
+   */
+  async accountSummary(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>> {
+    const p = obj(await this.info({ type: 'clearinghouseState', user: this.user(account) }), 'clearinghouseState');
+    const summary = obj(p.marginSummary, 'marginSummary');
+    const equity = amt(summary.accountValue, 'accountValue');
+    const maintenance = amt(p.crossMaintenanceMarginUsed, 'crossMaintenanceMarginUsed');
+    return this.asOf(
+      {
+        asset: PERP_COLLATERAL_ASSET,
+        equity,
+        free: amt(p.withdrawable, 'withdrawable'),
+        usedMargin: amt(summary.totalMarginUsed, 'totalMarginUsed'),
+        maintenanceMargin: maintenance,
+        marginRatio: compare(equity, ZERO) > 0 ? { known: true, value: div(maintenance, equity, 'ceil') } : { known: false },
+      },
+      typeof p.time === 'number' ? p.time : undefined,
+    );
   }
 
   private async toOrder(

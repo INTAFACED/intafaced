@@ -31,6 +31,7 @@ function snapshot(over: Partial<TradeDeskSnapshot> = {}): TradeDeskSnapshot {
         accountValue: '1000',
         marginUsed: '500',
         marginUse: '50',
+        unrealisedPnl: '10',
         positions: [
           {
             symbol: 'BTC-PERP',
