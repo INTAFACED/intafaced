@@ -35,6 +35,7 @@ import {
   type HyperliquidNonceSource,
 } from './venue.js';
 import type { MsgpackValue } from './msgpack.js';
+import type { VenueWeightMinute } from './core.js';
 
 const a = parseAmount;
 const NOW = Date.UTC(2026, 10, 9, 0, 0, 0);
@@ -1552,7 +1553,11 @@ describe("public market data: best prices, prints and candles, no account (the d
       ];
     };
     const read = await venueWith(fake).candles('BTC-PERP', '1h', 2);
-    expect(asked).toEqual({ type: 'candleSnapshot', req: { coin: 'BTC', interval: '1h', startTime: NOW - 2 * 3_600_000, endTime: NOW } });
+    // The window ends where the current candle ends, so every desk asking within this hour asks the same read.
+    expect(asked).toEqual({
+      type: 'candleSnapshot',
+      req: { coin: 'BTC', interval: '1h', startTime: NOW - 3_600_000, endTime: NOW + 3_600_000 - 1 },
+    });
     expect(read.value.map((x) => [x.openAt.getTime(), x.openPrice, x.closePrice])).toEqual([
       [NOW - 2 * 3_600_000, a('59365'), a('59146')],
       [NOW - 3_600_000, a('58959'), a('58731')],
@@ -1565,7 +1570,10 @@ describe("public market data: best prices, prints and candles, no account (the d
     let asked: Record<string, unknown> = {};
     fake.info.candleSnapshot = (b) => ((asked = b), []);
     await venueWith(fake).candles('ETH-PERP', '15m', { limit: 10, since: new Date(NOW - 60_000) });
-    expect(asked).toEqual({ type: 'candleSnapshot', req: { coin: 'ETH', interval: '15m', startTime: NOW - 60_000, endTime: NOW } });
+    expect(asked).toEqual({
+      type: 'candleSnapshot',
+      req: { coin: 'ETH', interval: '15m', startTime: NOW - 60_000, endTime: NOW + 900_000 - 1 },
+    });
     await refusedWith(venueWith(fake).candles('BTC-PERP', '6h', 10), 'not_offered');
     await refusedWith(venueWith(fake).candles('DOGE-PERP', '1h', 10), 'unknown_market');
     await refusedWith(venueWith(fake).trades('DOGE-PERP', 10), 'unknown_market');
@@ -1833,5 +1841,89 @@ describe('moving a resting order: one signed `modify`, never cancel then place (
     fake.info.orderStatus = () => ({ status: 'unknownOid' });
     await refusedWith(venueWith(fake).prepare(account, ownerSigner, amend), 'unknown_order');
     expect(fake.exchangeBodies).toHaveLength(1);
+  });
+});
+
+describe('shared reads across testers: one IP, 1,200 weight a minute (#11028)', () => {
+  const STRANGER = strangerKey.address.toLowerCase();
+  const strangers: UserVenueAccount = { venueId: HL_TESTNET_VENUE_ID, owner: STRANGER, subAccount: null };
+  function sharedVenue(fake: Fake, clock: () => number, onWeightMinute?: (spent: VenueWeightMinute) => void) {
+    return new HyperliquidTestnetUserVenue({
+      appEnv: 'test',
+      fetch: fake.fetch,
+      clock: () => new Date(clock()),
+      timeoutMs: 50,
+      shareReads: true,
+      ...(onWeightMinute ? { onWeightMinute } : {}),
+    });
+  }
+  const count = (fake: Fake, type: string) => fake.infoTypes.filter((t) => t === type).length;
+
+  it("an order forgets only its own wallet's reads: another tester's fills and the market's prints stay shared", async () => {
+    const fake = fakeVenue();
+    fake.info.userFillsByTime = () => [];
+    fake.info.recentTrades = () => [];
+    const venue = sharedVenue(fake, () => NOW);
+    const since = new Date(NOW - 60_000);
+    const readAll = async () => {
+      await venue.fills(account, since);
+      await venue.fills(strangers, since);
+      await venue.trades('ETH-PERP', 10);
+    };
+    await readAll();
+    expect([count(fake, 'userFillsByTime'), count(fake, 'recentTrades')]).toEqual([2, 1]);
+    const prepared = await venue.prepare(account, ownerSigner, order());
+    fake.exchange.push(orderStatus({ resting: { oid: 77, cloid: prepared.venueClientOrderId } }));
+    await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(fake.exchangeBodies).toHaveLength(1);
+    const fillsBefore = count(fake, 'userFillsByTime');
+    await readAll();
+    // The ordering wallet's fills are read again; the stranger's and the market's prints are served as kept.
+    expect(count(fake, 'userFillsByTime')).toBe(fillsBefore + 1);
+    expect(count(fake, 'recentTrades')).toBe(1);
+  });
+
+  it('candles: every desk asking within one candle asks the same window, so they share one read', async () => {
+    const fake = fakeVenue();
+    const asked: unknown[] = [];
+    fake.info.candleSnapshot = (b) => (asked.push(b.req), []);
+    let now = NOW + 1_234;
+    const venue = sharedVenue(fake, () => now);
+    await venue.candles('BTC-PERP', '1m', 100);
+    now += 10_001; // another desk, a different millisecond inside the same minute and the read's 15 s
+    await venue.candles('BTC-PERP', '1m', 100);
+    expect(asked).toEqual([{ coin: 'BTC', interval: '1m', startTime: NOW + 60_000 - 100 * 60_000, endTime: NOW + 60_000 - 1 }]);
+    now = NOW + 60_000; // the next candle opens: a new window
+    await venue.candles('BTC-PERP', '1m', 100);
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toEqual({ coin: 'BTC', interval: '1m', startTime: NOW + 2 * 60_000 - 100 * 60_000, endTime: NOW + 2 * 60_000 - 1 });
+  });
+
+  it('counts the weight spent at the venue by request type, and tells it once a minute', async () => {
+    const fake = fakeVenue();
+    fake.info.userFillsByTime = () => Array.from({ length: 45 }, () => ({}));
+    fake.info.l2Book = (b) => ({ coin: b.coin, time: NOW, levels: [[], []] });
+    const told: VenueWeightMinute[] = [];
+    let now = NOW;
+    const venue = sharedVenue(
+      fake,
+      () => now,
+      (spent) => told.push(spent),
+    );
+    await venue.fills(account, new Date(NOW - 60_000)).catch(() => null); // 45 fills: 20 + 2 per the venue's 1 per 20
+    await venue.book('ETH-PERP', 5).catch(() => null);
+    await venue.book('ETH-PERP', 5).catch(() => null); // kept: no second request, no weight
+    expect(told).toEqual([]);
+    now += 60_000;
+    await venue.book('BTC-PERP', 5).catch(() => null);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject({
+      minute: new Date(NOW).toISOString(),
+      byType: { userFillsByTime: { requests: 1, weight: 22 }, l2Book: { requests: 1, weight: 2 } },
+    });
+    // The listing read on the way (meta, spotMeta) is counted too: the total is every request's weight.
+    const byType = Object.values(told[0]!.byType);
+    expect(told[0]!.weight).toBe(byType.reduce((n, r) => n + r.weight, 0));
+    expect(told[0]!.byType.meta).toEqual({ requests: 1, weight: 20 });
   });
 });
