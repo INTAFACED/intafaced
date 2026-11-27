@@ -22,9 +22,8 @@ import { localMinuteField, minuteStart } from './clock.mjs';
 // account, connects its TEST wallet and puts TEST USDC (and a little TEST BTC) in its venue account, the Starts line;
 // the TEST market maker's sells rest on the venue's book. Every balance, lock, order and fill is read from the venue
 // itself (venue.mjs, on loopback), never from our ledger or engine; the ledger is read only to show it posts nothing.
-// Every figure is TEST. The user-venue door is on for this file only. Our own engine's fill-or-kill and good-till-date,
-// custodial checks main proved before this file moved to the venue, live in J-cex-spot-03-custodial.pw.mjs, which keeps
-// custody on (launch-custody.mjs); this file runs custody off, as launch does (#11102).
+// Every figure is TEST. The user-venue door is on for this file only, and it runs custody off, as launch does. Our own
+// engine's fill-or-kill and good-till-date, which need custody on, are checked in J-cex-spot-03-custodial.pw.mjs.
 const J = 'J-cex-spot-03';
 const DESK = deskPath('BTC/USDC');
 const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
