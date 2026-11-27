@@ -126,6 +126,7 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
       stepUp,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),
       now: () => new Date(),
     });

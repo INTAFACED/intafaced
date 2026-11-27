@@ -94,6 +94,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // env.ts TRADE_MARKET_SPREAD_LIMIT_BPS): 100 bps, wide of the TEST venue's ladder. `LOCAL_STACK_TRADE_SPREAD_LIMIT=off`
     // on a restart leaves it blank, so J-cex-spot-03 #2 sees a market order refused "protection not set".
     TRADE_MARKET_SPREAD_LIMIT_BPS: process.env.LOCAL_STACK_TRADE_SPREAD_LIMIT === 'off' ? '' : '100',
+    // LOCAL TEST: the close tolerance a stop's market exit and a reduce-only close cross by (services/svc-trade/src/env.ts
+    // TRADE_CLOSE_SLIPPAGE_BPS): 1000 bps, 10%. `LOCAL_STACK_TRADE_CLOSE_SLIPPAGE=off` on a restart leaves it blank, so every
+    // such close is refused by name (trade.close_slippage_unset).
+    TRADE_CLOSE_SLIPPAGE_BPS: process.env.LOCAL_STACK_TRADE_CLOSE_SLIPPAGE === 'off' ? '' : '1000',
     // The operator's Convert kill-switch, on as in production. `LOCAL_STACK_TRADE_CONVERT=off` on a restart turns it off,
     // so J-cex-spot-11 #7 sees Convert paused: every quote refuses trade.convert_disabled and the room says Use Spot.
     TRADE_CONVERT_ENABLED: process.env.LOCAL_STACK_TRADE_CONVERT === 'off' ? 'false' : 'true',

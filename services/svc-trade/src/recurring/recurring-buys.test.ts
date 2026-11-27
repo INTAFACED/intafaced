@@ -165,6 +165,7 @@ describe('the recurring buy on the venue (J-copy-bots-otc-16)', { timeout: 60_00
       listings: new StoreVenueRoutingGate(listings),
       ordersPageMax: 100,
       slippageCapBps: 500,
+      closeSlippageBps: 1000,
       spreadLimitBps: 5000,
       now: () => new Date(),
     } as never);

@@ -130,6 +130,7 @@ function desk(cashLeg: CashLegPort, opts: { now?: () => Date } = {}) {
     stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
     builder: { address: '0x00000000000000000000000000000000000000c1', feeBps: a('1') },
     slippageCapBps: 50,
+    closeSlippageBps: 1000,
     spreadLimitBps: 100,
     now,
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),

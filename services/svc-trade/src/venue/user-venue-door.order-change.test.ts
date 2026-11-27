@@ -94,6 +94,7 @@ describe('UserVenueDoor: changing and cancelling resting orders (J-cex-spot-05)'
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'ETH-USDC'])),
       slippageCapBps: null,
+      closeSlippageBps: 1000,
     });
   });
   afterAll(async () => closeServer(venue.server));

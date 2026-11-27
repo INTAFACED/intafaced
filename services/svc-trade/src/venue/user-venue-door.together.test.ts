@@ -104,6 +104,7 @@ describe('UserVenueDoor: orders signed together (J-derivatives-03 #9)', { timeou
         now: () => new Date(),
         listings: new StoreVenueRoutingGate(listedTestStore(['ETH-PERP'])),
         slippageCapBps: 50,
+        closeSlippageBps: 1000,
       }),
     };
   }

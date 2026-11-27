@@ -530,6 +530,8 @@ const venueProtections = userVenue
       door: userVenue,
       store: new SqlEngineProtectionStore(sql),
       keySeed: env.TRADE_AGENT_KEY_SEED,
+      // The owner's close tolerance a stop's market exit crosses by (blank: every such stop refuses).
+      closeSlippageBps: env.TRADE_CLOSE_SLIPPAGE_BPS,
       // The person's level from identity before each order the engine sends (fails closed: nothing is sent).
       liveTier: (userId) => protectionTier.tierOf(userId),
       // The person's own freeze from identity before each order the engine sends (fails closed: nothing is sent).

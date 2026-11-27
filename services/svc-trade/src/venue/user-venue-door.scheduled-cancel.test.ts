@@ -66,6 +66,7 @@ describe('UserVenueDoor: the venue scheduled cancel (J-cex-spot-07)', { timeout:
       now: () => new Date(clock.now),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       scheduledCancelTimeouts: timeouts,
     });
   const account = () => ({ venueId: venue.sim.venue.id, owner, subAccount: null });
