@@ -34,8 +34,9 @@ const SIZE = '10';
 const START_MARK = '100';
 const TRADING_OFF = 'Trading is off in chat. Open INTAFACED to trade.';
 /** Two sweeps and a little: long enough that a repeat, had one been raised, would have been sent. */
-const TWO_SWEEPS = 35_000;
-const ALERT_WAIT = 45_000;
+const TWO_SWEEPS = 60_000;
+/** A sweep every 15 s, after svc-trade reads the venue afresh: seen locally up to ~45 s after the mark moved. */
+const ALERT_WAIT = 90_000;
 const runId = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${runId}`);
 
@@ -302,7 +303,7 @@ test(`${J} #2 a TEST order fills on the venue: one Telegram message with market,
 });
 
 test(`${J} #3 the mark moves until the account's margin use passes 80 percent, then 90 percent (TEST): one warning at each, naming the margin use and the position nearest liquidation, from the venue; neither repeats while the level holds`, async () => {
-  test.setTimeout(360_000);
+  test.setTimeout(600_000);
   const { chat, owner } = run.read();
   const start = await positionOf(owner);
   if (!start) throw new Error(`${J} #2 left no ${PERP} position, so no margin use can move`);
