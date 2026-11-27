@@ -90,35 +90,67 @@ async function desk(page) {
 }
 
 /**
- * TEST, the flatten a tester does by hand: every exit order on ETH-PERP cancelled from its dialog and the position closed
- * in full, reduce-only, each leg confirmed on the venue's own record. Every exit order listed, not only this run's: a run
- * cut short leaves its own on the funded account, and the next day's
- * run starts by clearing them. A new page holds no session key, so it starts its own session first.
+ * TEST, the flatten a tester does by hand: every exit order on ETH-PERP cancelled and the position closed in full,
+ * reduce-only, each leg confirmed on the venue's own record. The exit-orders dialog lists the ones this stack armed (our
+ * door's own record, svc-trade protections.ts `list`), and each is cancelled there. A run cut short leaves its own on the
+ * funded account, which a fresh stack holds no record of: those are cancelled from the desk's
+ * Open orders by the client id the venue lists. A new page holds no session key, so it starts its own session first.
  */
 async function flatten(page, owner) {
-  if ((await positionOf(owner)) === null) return;
+  const exits = async () => (await openOrders(owner)).filter((o) => o.trigger);
+  const held = await positionOf(owner);
+  if (held === null && (await exits()).length === 0) return;
   if (sessionVenue) await startVenueSession(page);
-  const dialog = await exitOrders(page);
-  const resting = async () => (await openOrders(owner)).filter((o) => o.trigger).length;
-  const listedOrders = listed(dialog).locator('li[data-client-order-id]');
-  // The dialog lists every exit order the venue holds once it has read them, so the count waited for is the venue's.
-  const onVenue = await resting();
-  await expect(listedOrders, `the dialog lists the venue's ${onVenue} exit order(s)`).toHaveCount(onVenue, { timeout: 20_000 });
-  const ids = await listedOrders.evaluateAll((items) => items.map((li) => li.getAttribute('data-client-order-id')));
-  for (const id of ids) {
-    const before = await resting();
-    await item(dialog, id).getByRole('button', { name: 'Cancel', exact: true }).click();
-    await signed(page);
-    await expect.poll(resting, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` }).toBe(before - 1);
+  if (held !== null) {
+    const dialog = await exitOrders(page);
+    const listedOrders = listed(dialog).locator('li[data-client-order-id]');
+    // The dialog has read our record once it lists an exit order or says there is none.
+    await expect(listedOrders.or(listed(dialog).getByText('No exit order on this position.', { exact: true })).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    const resting = new Set((await exits()).map((o) => o.venueClientOrderId?.toLowerCase()));
+    const ids = (await listedOrders.evaluateAll((items) => items.map((li) => li.getAttribute('data-client-order-id')))).filter((id) =>
+      resting.has(id?.toLowerCase()),
+    );
+    for (const id of ids) {
+      const before = (await exits()).length;
+      await item(dialog, id).getByRole('button', { name: 'Cancel', exact: true }).click();
+      await signed(page);
+      await expect
+        .poll(async () => (await exits()).length, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` })
+        .toBe(before - 1);
+    }
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
   }
-  expect(await resting()).toBe(0);
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
-  const close = row(page).getByTestId('venue-close');
-  await close.getByRole('textbox').fill('100');
-  await close.getByRole('button', { name: 'Close 100%', exact: true }).click();
-  await signed(page);
-  await expect.poll(async () => positionOf(owner), { timeout: 30_000, message: 'the position closed' }).toBeNull();
+  const left = await exits();
+  if (left.length > 0) {
+    const blotter = page.getByTestId('venue-blotter');
+    await blotter.getByRole('button', { name: 'Open orders', exact: true }).click();
+    const open = page.getByTestId('venue-open-orders');
+    await expect(open).toBeVisible();
+    for (const o of left) {
+      expect(o.venueClientOrderId, `the exit order ${o.venueOrderId} an earlier run left carries the venue's client id`).toBeTruthy();
+      const before = (await exits()).length;
+      await open.locator(`tr[data-client-order-id="${o.venueClientOrderId}"]`).getByRole('button', { name: 'Cancel', exact: true }).click();
+      await signed(page);
+      await expect
+        .poll(async () => (await exits()).length, {
+          timeout: 20_000,
+          message: `exit order ${o.venueClientOrderId} an earlier run left, cancelled on the venue`,
+        })
+        .toBe(before - 1);
+    }
+    await blotter.getByRole('button', { name: 'Positions', exact: true }).click();
+  }
+  expect(await exits()).toEqual([]);
+  if (held !== null) {
+    const close = row(page).getByTestId('venue-close');
+    await close.getByRole('textbox').fill('100');
+    await close.getByRole('button', { name: 'Close 100%', exact: true }).click();
+    await signed(page);
+    await expect.poll(async () => positionOf(owner), { timeout: 30_000, message: 'the position closed' }).toBeNull();
+  }
   expect(await openOrders(owner)).toEqual([]);
 }
 

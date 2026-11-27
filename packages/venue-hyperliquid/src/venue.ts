@@ -20,9 +20,11 @@ import {
   type VenueTrigger,
   type VenueSubmitOutcome,
   type VenueTimeInForce,
+  type VenueLegOutcome,
 } from '@intafaced/venue-contracts';
 import {
   BPS_PER_X,
+  HL_CANCELS_PER_ACTION,
   PERP_COLLATERAL_ASSET,
   PERP_QUOTE,
   WITHDRAW_DECIMALS,
@@ -200,6 +202,33 @@ function statusLine(response: Json): StatusLine {
   const placed = (o.resting ?? o.filled) as Json | undefined;
   if (placed !== undefined) return { kind: 'accepted', venueRef: String(int(obj(placed, 'status.order').oid, 'oid')) };
   throw new Error('venue answer: an order status with neither resting, filled nor error');
+}
+
+/**
+ * A batch cancel's answer (`cancelByCloid` with several cancels): one status per cancel, in the order sent. "success" is
+ * that order cancelled; an error ("Order was never placed, already canceled, or filled.") is that order's own refusal,
+ * and the rest still stand. A whole-action error refuses them all; an answer we cannot read is no answer.
+ */
+function cancelsOutcome(venueId: string, json: Json, sent: number, asOf: Date): VenueSubmitOutcome {
+  try {
+    const answer = obj(json, 'exchange answer');
+    if (answer.status === 'err') return classifyVenueError(venueId, str(answer.response, 'error text'), asOf);
+    if (answer.status !== 'ok') return { definite: false, reason: 'venue_error_after_send' };
+    const statuses = arr(obj(obj(answer.response ?? null, 'response').data, 'response.data').statuses, 'response.data.statuses');
+    if (statuses.length !== sent) return { definite: false, reason: 'venue_error_after_send' };
+    const legs = statuses.map((s): VenueLegOutcome => {
+      if (s === 'success') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
+      const error = obj(s, 'status').error;
+      if (typeof error !== 'string') throw new Error('venue answer: a cancel status with neither success nor error');
+      const leg = classifyVenueError(venueId, error, asOf);
+      // A cancel's own answer is never "already sent": one we cannot place is no answer for the batch.
+      if (!leg.definite) throw new Error('venue answer: a cancel status that is not a definite answer');
+      return leg;
+    });
+    return { definite: true, accepted: true, venueRef: null, order: null, legs, asOf };
+  } catch {
+    return { definite: false, reason: 'venue_error_after_send' };
+  }
 }
 
 /**
@@ -475,6 +504,21 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         const m = await this.market(intent.symbol);
         return l1({ type: 'cancelByCloid', cancels: [{ asset: m.asset, cloid: venueClientOrderId(venueId, intent.clientOrderKey) }] });
       }
+      case 'cancel_orders': {
+        // Hyperliquid's own `cancelByCloid`, one entry per order, each named by the client id the venue holds: an order
+        // this page or this stack did not place is cancelled too. The venue answers each in the order sent.
+        const orders = Array.isArray(intent.orders) ? intent.orders : [];
+        if (orders.length < 1) throw refusal(venueId, 'venue_rejected', 'a batch cancel names at least one order');
+        if (orders.length > HL_CANCELS_PER_ACTION)
+          throw refusal(venueId, 'not_offered', `this venue cancels at most ${HL_CANCELS_PER_ACTION} orders in one signed action`);
+        const ids = orders.map((o) => (typeof o?.venueClientOrderId === 'string' ? o.venueClientOrderId.toLowerCase() : ''));
+        if (ids.some((id) => !/^0x[0-9a-f]{32}$/.test(id)))
+          throw refusal(venueId, 'venue_rejected', "each order in a batch cancel is named by the venue's client id (0x and 32 hex digits)");
+        if (new Set(ids).size !== ids.length) throw refusal(venueId, 'venue_rejected', 'each order in a batch cancel is named once');
+        const cancels: MsgpackValue[] = [];
+        for (const [i, o] of orders.entries()) cancels.push({ asset: (await this.market(o.symbol)).asset, cloid: ids[i]! });
+        return l1({ type: 'cancelByCloid', cancels });
+      }
       case 'replace_order': {
         // Hyperliquid's own `modify`: the venue cancels the resting order and places the replacement in one signed
         // action, so no moment passes with neither resting (a stop's position unprotected), as a cancel then a place
@@ -716,6 +760,7 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const sent = await this.post(body, accounts, String(built.action.type));
     if (sent.kind === 'unknown') return { definite: false, reason: sent.reason };
     const asOf = this.clock();
+    if (prepared.intent.kind === 'cancel_orders') return cancelsOutcome(venueId, sent.json, prepared.intent.orders.length, asOf);
     let line: StatusLine;
     try {
       const answer = obj(sent.json, 'exchange answer');
