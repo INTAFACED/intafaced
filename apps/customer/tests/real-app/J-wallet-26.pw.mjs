@@ -208,6 +208,8 @@ test(`${J} #1 opens Profit lock, sets a weekly target of TEST 200 USDC, a 50 per
   const { owner, cold } = state();
   // The venue door's reads and a withdrawal to another address of one's own need a verified person.
   await verify(page, who);
+  // Security asks for a fresh sign-in after verification, as every journey that adds an authenticator signs in first.
+  await signIn(page, who);
   run.write(await addAuthenticator(page, totp));
 
   // The Starts line: TEST USDC on the venue, 10x isolated on BTC-PERP, and the venue's TEST deposit address funded on the
