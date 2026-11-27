@@ -21,7 +21,8 @@
     "live:steps": "tsx scripts/live-steps.ts",
     "clean": "rimraf dist .turbo",
     "testnet:send": "tsx scripts/testnet-send.ts",
-    "record:order": "tsx scripts/record-order.ts"
+    "record:order": "tsx scripts/record-order.ts",
+    "faucet:activate": "tsx scripts/faucet-activate.ts"
   },
   "dependencies": {
     "@intafaced/contracts": "workspace:*",
