@@ -157,12 +157,19 @@ export function roundTo(a: Amount, places: number): Amount {
 /**
  * The planned stop and target: the first stop-loss and take-profit trigger orders on the trade's market that close it,
  * attached to one of its opening orders, else the first placed while it was open. `laterStops` are the stop-loss
- * trigger prices placed after the planned stop and before the close: where the person moved it.
+ * trigger prices placed after the planned stop and before the close: where the person moved it. `stopTimeline` is the
+ * planned stop and those later ones with the time each was placed (J-charts-desk-20, the trade's replay).
  */
 export function plannedLevels(
   trip: RoundTrip,
   orders: readonly UserVenueOrderRecord[],
-): { stop: Amount | null; target: Amount | null; laterStops: readonly Amount[] } {
+): {
+  stop: Amount | null;
+  target: Amount | null;
+  laterStops: readonly Amount[];
+  /** The stop the trade opened with and each later one, in the order placed: where its stop stood from when. */
+  stopTimeline: readonly { readonly price: Amount; readonly placedAt: Date }[];
+} {
   const closeSide = trip.side === 'long' ? 'sell' : 'buy';
   const openIds = new Set(trip.parts.flatMap((p) => (p.opening && p.venueClientOrderId ? [p.venueClientOrderId] : [])));
   const openedAt = trip.openedAt.getTime();
@@ -178,14 +185,21 @@ export function plannedLevels(
   };
   const stops = mine('stop_loss');
   const first = pick(stops);
-  const laterStops = first
-    ? stops.flatMap((r) =>
-        r !== first && r.placedAt.getTime() > first.placedAt.getTime() && r.placedAt.getTime() < closedAt && r.order.trigger
-          ? [r.order.trigger.price]
-          : [],
+  const later = first
+    ? stops.filter(
+        (r) => r !== first && r.placedAt.getTime() > first.placedAt.getTime() && r.placedAt.getTime() < closedAt && r.order.trigger,
       )
     : [];
-  return { stop: first?.order.trigger?.price ?? null, target: pick(mine('take_profit'))?.order.trigger?.price ?? null, laterStops };
+  const laterStops = later.flatMap((r) => (r.order.trigger ? [r.order.trigger.price] : []));
+  const stopTimeline = (first ? [first, ...later] : []).flatMap((r) =>
+    r.order.trigger ? [{ price: r.order.trigger.price, placedAt: r.placedAt }] : [],
+  );
+  return {
+    stop: first?.order.trigger?.price ?? null,
+    target: pick(mine('take_profit'))?.order.trigger?.price ?? null,
+    laterStops,
+    stopTimeline,
+  };
 }
 
 /** What the "keeping my rules" line knows of a trade beyond its own figures, read with its candles: the warning on its opening order. */
@@ -242,7 +256,7 @@ export function keepingRules(args: {
 /** The candle intervals tried, finest first (6h is left out: not every venue publishes it). */
 const LADDER: readonly VenueCandleInterval[] = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w'];
 /** The most candles one read asks for (the wire's and the venues' own cap). */
-const JOURNAL_CANDLES_PER_READ = 720;
+export const JOURNAL_CANDLES_PER_READ = 720;
 
 /** The finest interval whose candles from the bucket `openedAt` falls in up to `now` fit in one read. */
 export function candleIntervalFor(openedAt: Date, now: Date): { interval: VenueCandleInterval; since: Date } {
@@ -369,14 +383,29 @@ export interface TradeJournalInput {
 
 const DAY_MS = 86_400_000;
 
-/** The closed perpetual trades of one venue account since `input.since`, newest closed first. */
-export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput, userId?: string): Promise<TradeJournal> {
+/** What one journal read takes from the venue: the account, its closed trips (newest closed first) and its orders. */
+export interface JournalReads {
+  readonly now: Date;
+  readonly since: Date;
+  readonly venue: JournalVenue;
+  readonly account: UserVenueAccount;
+  readonly candlesOf: NonNullable<JournalVenue['candles']>;
+  readonly fillsAsOf: Date;
+  readonly orders: readonly UserVenueOrderRecord[];
+  readonly trips: readonly RoundTrip[];
+  readonly warnedBy: ReadonlyMap<string, DailyLossWarnedOrder>;
+}
+
+/** The venue reads behind the journal and its trade replay, checked as the record defines `since`. */
+export async function journalReads(
+  deps: TradeJournalDeps,
+  input: Omit<TradeJournalInput, 'limit'>,
+  userId?: string,
+): Promise<JournalReads> {
   const now = deps.now();
   const since = new Date(input.since);
   if (Number.isNaN(since.getTime()) || since.getTime() > now.getTime() || now.getTime() - since.getTime() > TRADE_JOURNAL_MAX_DAYS * DAY_MS)
     throw new TradeJournalError(`since must be a time within the last ${TRADE_JOURNAL_MAX_DAYS} days`, 'trade.journal_request_invalid');
-  if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > TRADE_JOURNAL_MAX_TRADES)
-    throw new TradeJournalError(`limit must be a whole number from 1 to ${TRADE_JOURNAL_MAX_TRADES}`, 'trade.journal_request_invalid');
   const venue = await deps.venue();
   const candlesOf = venue.candles?.bind(venue);
   const historyOf = venue.orderHistory?.bind(venue);
@@ -399,9 +428,26 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
   for (const p of positions.value) if (perps.has(p.symbol)) start.set(p.symbol, p.side === 'long' ? p.size : neg(p.size));
   for (const f of perpFills) start.set(f.symbol, sub(start.get(f.symbol) ?? ZERO, signed(f.side, f.amount)));
 
-  const trips = roundTrips(perpFills, start)
-    .sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime())
-    .slice(0, input.limit);
+  const trips = roundTrips(perpFills, start).sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime());
+  return { now, since, venue, account, candlesOf, fillsAsOf: fills.asOf, orders: orders.value, trips, warnedBy };
+}
+
+/** The warning given on one of `trip`'s opening orders, if any. */
+export function warnedOn(trip: RoundTrip, warnedBy: ReadonlyMap<string, DailyLossWarnedOrder>): DailyLossWarnedOrder | null {
+  return (
+    trip.parts.flatMap((p) => {
+      const w = p.opening && p.venueClientOrderId ? warnedBy.get(p.venueClientOrderId.toLowerCase()) : undefined;
+      return w ? [w] : [];
+    })[0] ?? null
+  );
+}
+
+/** The closed perpetual trades of one venue account since `input.since`, newest closed first. */
+export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput, userId?: string): Promise<TradeJournal> {
+  if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > TRADE_JOURNAL_MAX_TRADES)
+    throw new TradeJournalError(`limit must be a whole number from 1 to ${TRADE_JOURNAL_MAX_TRADES}`, 'trade.journal_request_invalid');
+  const { now, since, venue, account, candlesOf, fillsAsOf, orders, trips: all, warnedBy } = await journalReads(deps, input, userId);
+  const trips = all.slice(0, input.limit);
 
   const candleReads = new Map<string, Promise<readonly VenueCandle[]>>();
   const trades = await Promise.all(
@@ -413,12 +459,7 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
         read = candlesOf(trip.symbol, interval, { limit: JOURNAL_CANDLES_PER_READ, since: from }).then((r) => r.value);
         candleReads.set(key, read);
       }
-      const warned =
-        trip.parts.flatMap((p) => {
-          const w = p.opening && p.venueClientOrderId ? warnedBy.get(p.venueClientOrderId.toLowerCase()) : undefined;
-          return w ? [w] : [];
-        })[0] ?? null;
-      return journalTrade(trip, plannedLevels(trip, orders.value), { candles: await read, interval, warned });
+      return journalTrade(trip, plannedLevels(trip, orders), { candles: await read, interval, warned: warnedOn(trip, warnedBy) });
     }),
   );
 
@@ -429,7 +470,7 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
     owner: account.owner,
     subAccount: account.subAccount,
     since: since.toISOString(),
-    asOf: fills.asOf.toISOString(),
+    asOf: fillsAsOf.toISOString(),
     trades,
     totals: {
       count: trades.length,

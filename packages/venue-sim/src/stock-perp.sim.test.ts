@@ -118,6 +118,7 @@ describe('TEST venue simulator: the TEST stock perpetual (J-derivatives-27)', ()
       'XCRS-PERP',
       'XDEV-PERP',
       'XJRN-PERP',
+      'XRPY-PERP',
     ]);
     const m = markets.find((x) => x.symbol === XSTK)!;
     expect(m).toMatchObject({

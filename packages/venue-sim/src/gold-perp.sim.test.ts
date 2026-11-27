@@ -109,6 +109,7 @@ describe('TEST venue simulator: the TEST gold perpetual (J-derivatives-21)', () 
       'XCRS-PERP',
       'XDEV-PERP',
       'XJRN-PERP',
+      'XRPY-PERP',
     ]);
     const xau = markets.find((m) => m.symbol === XAU)!;
     expect(xau).toMatchObject({

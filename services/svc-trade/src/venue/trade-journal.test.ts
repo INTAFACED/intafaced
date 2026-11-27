@@ -166,7 +166,15 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
     const trip = roundTrips(btcFills, new Map())[0]!;
     const levels = plannedLevels(trip, btcOrders);
     // The stop moved to 100 at 10:03 is nearer the entry: a tightening, never a widening.
-    expect(levels).toEqual({ stop: a('96'), target: a('112'), laterStops: [a('100')] });
+    expect(levels).toEqual({
+      stop: a('96'),
+      target: a('112'),
+      laterStops: [a('100')],
+      stopTimeline: [
+        { price: a('96'), placedAt: at('10:00:30') },
+        { price: a('100'), placedAt: at('10:03:00') },
+      ],
+    });
     expect(journalTrade(trip, levels, { candles: btcCandles, interval: '1m' })).toEqual({
       tradeId: 'b1',
       symbol: 'BTC-PERP',
@@ -198,7 +206,7 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
   it('example 2: a short with no plan has no R and no disciplined result; MAE is the high, MFE the low', () => {
     const trip = roundTrips(ethFills, new Map<string, Amount>([['ETH-PERP', a('1')]]))[0]!;
     const levels = plannedLevels(trip, [trigger('ETH-PERP', 'buy', 'stop_loss', '60', at('09:00:00'), null)]);
-    expect(levels).toEqual({ stop: null, target: null, laterStops: [] });
+    expect(levels).toEqual({ stop: null, target: null, laterStops: [], stopTimeline: [] });
     const t = journalTrade(trip, levels, { candles: ethCandles, interval: '1m' });
     expect([t.entryPrice, t.exitPrice, t.size, t.fees, t.grossPnl, t.netPnl]).toEqual(['50', '45', '2', '0.29', '10', '9.71']);
     expect([t.rMultiple, t.maePrice, t.mae, t.mfePrice, t.mfe]).toEqual([null, '51', '1', '44', '6']);

@@ -2439,7 +2439,7 @@ import { TRADE_DESK_SNAPSHOT } from './trade-desk-snapshot.js';
 
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
 
-import { TRADE_JOURNAL_CLOSED_TRADES } from './trade-journal-procedures.js';
+import { TRADE_JOURNAL_CLOSED_TRADES, TRADE_JOURNAL_REPLAY } from './trade-journal-procedures.js';
 
 import {
   TRADE_OTC_MAKERS_LIST,
@@ -5019,7 +5019,7 @@ const part_trade_desk_snapshot: readonly ProcedureRecord[] = [TRADE_DESK_SNAPSHO
 
 const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD];
 
-const part_trade_journal_procedures: readonly ProcedureRecord[] = [TRADE_JOURNAL_CLOSED_TRADES];
+const part_trade_journal_procedures: readonly ProcedureRecord[] = [TRADE_JOURNAL_CLOSED_TRADES, TRADE_JOURNAL_REPLAY];
 
 const part_trade_otc_procedures: readonly ProcedureRecord[] = [
   TRADE_OTC_MAKERS_LIST,
