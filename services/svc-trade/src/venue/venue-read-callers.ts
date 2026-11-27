@@ -67,7 +67,7 @@ function summary(m: { startMs: number; byCaller: Map<string, Map<string, number>
 }
 
 /** The stack of the call being made now, with room for the frames between the read and its caller. */
-export function callStack(): string | undefined {
+function callStack(): string | undefined {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = 30;
   try {
