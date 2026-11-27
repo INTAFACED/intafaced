@@ -354,44 +354,61 @@ test(`${J} #5 sends the same client id with a different price: refused with a ty
 }) => {
   test.setTimeout(240_000);
   const s = state();
-  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const owner = ownerOf(s);
+  // A book this step owns (as #7's): a fresh TEST market no other file trades, so its empty book makes both buys rest.
+  const market = await freshListedMarket('C');
+  const wallet = await openVenueDesk(page, s.account, `/trade/spot/${market.symbol}`, s.walletKey);
   const door = doorCalls(page);
   const ledgerBefore = await ledgerView(s.account);
+  const amount = '1';
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+  const amountBox = form.getByRole('textbox', { name: 'Amount', exact: true });
+  const confirm = page.getByRole('button', { name: 'Confirm buy', exact: true });
+  /** Types a limit buy at `price` and opens its review once the venue's preview answers (a new market may take a moment). */
+  const review = async (price) => {
+    await form.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
+    await expect(async () => {
+      await amountBox.fill('');
+      const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+      await amountBox.fill(amount);
+      const res = await answer;
+      expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+    }).toPass({ timeout: 30_000, intervals: [2_000] });
+    await page.getByRole('button', { name: `Buy ${market.base}`, exact: true }).click();
+    const sheet = reviewSheet(page);
+    await expect(sheet).toBeVisible();
+    return (await sheet.getByTestId('client-order-id').innerText()).trim();
+  };
   // The person names the order themselves, in the ticket's client order id field (cex-spot-order-entry-023).
   const ownId = `js2-${randomBytes(4).toString('hex')}`;
-  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
-  const ownField = form.getByRole('textbox', { name: 'Your client order id (optional)' });
-  // The first order under that id: placed, signed once, open on the venue.
-  const price = await awayBid(85);
-  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  const ownField = form.getByRole('textbox', { name: 'Your client order id (optional)', exact: true });
   await ownField.fill(ownId);
-  const { review, id } = await reviewLimitBuy(page, price);
+  // The first order under that id: placed, signed once, open on the venue.
+  const price = '10';
+  const id = await review(price);
   expect(id.endsWith(`own-${ownId}`), `${id} is the key of the id the person typed`).toBe(true);
-  await expect(review).toBeVisible();
   const prepareAnswer = page.waitForResponse(
     (r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST',
   );
-  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  await confirm.click();
   await continueInWallet(page);
   const prepared = (await (await prepareAnswer).json()).prepared;
   const outcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');
   await expect(outcome).toContainText('Open on the venue.', { timeout: 20_000 });
   const asked = signatures(wallet);
   const before = await venueByClientId(owner, prepared.venueClientOrderId);
-  expect(before).toMatchObject({ status: 'open', symbol: SYMBOL, side: 'buy' });
+  expect(before).toMatchObject({ status: 'open', symbol: market.symbol, side: 'buy' });
   expect(sameDecimal(before.price, price)).toBe(true);
   const open = await venueOpen(owner);
   // The same client id with a different price.
-  const other = await awayBid(84);
-  expect(sameDecimal(other, price)).toBe(false);
+  const other = '9';
   await expect(ownField).toHaveValue(ownId);
   const refusedAnswer = page.waitForResponse(
     (r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST',
   );
-  const second = await reviewLimitBuy(page, other);
-  expect(second.id).toBe(id);
-  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  expect(await review(other)).toBe(id);
+  await confirm.click();
   const refused = await refusedAnswer;
   // Refused at prepare, so there is nothing to sign: a typed reason, no typed data, and no wallet sheet.
   expect(refused.status()).toBe(409);
@@ -404,15 +421,16 @@ test(`${J} #5 sends the same client id with a different price: refused with a ty
     { timeout: 20_000 },
   );
   await expect(outcome).toHaveAttribute('data-code', 'idempotency.conflict');
-  await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Check before you sign', exact: true })).toHaveCount(0);
   await stepPicture();
   expect(signatures(wallet)).toBe(asked);
   expect(door.of('submit')).toHaveLength(1);
   // The first order is untouched on the venue, and nothing new rests.
   const after = await venueByClientId(owner, prepared.venueClientOrderId);
   expect(after).toEqual(before);
-  expect(await venueOpen(owner)).toEqual(open);
-  expect((await venueOpen(owner)).filter((o) => sameDecimal(o.price, other))).toHaveLength(0);
+  const now = await venueOpen(owner);
+  expect(now).toEqual(open);
+  expect(now.filter((o) => o.symbol === market.symbol)).toHaveLength(1);
   // The ledger posts nothing.
   expect(await ledgerView(s.account)).toEqual(ledgerBefore);
 });

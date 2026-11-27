@@ -139,7 +139,7 @@ export function tagProblem(tag: string): boolean {
  * is none, and the desk mints one per reviewed draft. Unlike a tag it is part of the order's key: the same id is the same
  * order, so a retry under it is never a second order and a changed order under it is refused (`idempotency.conflict`).
  */
-export const OWN_CLIENT_ID_PATTERN = /^[A-Za-z0-9-]{1,32}$/;
+const OWN_CLIENT_ID_PATTERN = /^[A-Za-z0-9-]{1,32}$/;
 export function ownClientIdProblem(id: string): boolean {
   return id.trim() !== '' && !OWN_CLIENT_ID_PATTERN.test(id.trim());
 }
