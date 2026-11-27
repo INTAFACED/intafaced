@@ -852,10 +852,12 @@ const roundIo = {
   anvil: ensureAnvil,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   now: () => Date.now(),
+  /** Whether the checkout now holds another supervisor than the one running (its settings may differ from this copy's). */
+  newer: (paths) => SELF.startsWith(paths.checkout + path.sep) && selfHash() !== LOADED,
 };
 
 export async function round(paths = betaPaths(), io = {}) {
-  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now } = { ...roundIo, ...io };
+  const { git, run, check: checkWith, readied: readiedWith, anvil, sleep, now, newer } = { ...roundIo, ...io };
   fs.mkdirSync(paths.state, { recursive: true, mode: 0o700 });
   const noCheckout = ensureCheckout(paths);
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
@@ -869,6 +871,9 @@ export async function round(paths = betaPaths(), io = {}) {
   const served = readJson(paths.served, {}) ?? {};
   let good = served.good ?? (prev.state === 'up' ? prev.sha : null) ?? null;
   let refused = served.refused?.sha === mainTarget ? served.refused : null;
+  // A move this supervisor's previous copy handed over to it (below): its launch fails back like any move.
+  const resumed = served.handover === head;
+  let handover = null;
   const asked = fs.existsSync(paths.moveNow);
   // A move back (`beta-host.mjs back`, #11065): the beta goes to the named commit and stays there until main moves past
   // the main of the ask; the round's target is then the held commit, never main.
@@ -908,7 +913,11 @@ export async function round(paths = betaPaths(), io = {}) {
         : refused
           ? `main ${target.slice(0, 9)} is refused (${refused.reason}); the beta stays on ${head.slice(0, 9)} until main moves past it`
           : slot.why;
-  const record = () => fs.writeFileSync(paths.served, `${JSON.stringify({ good, refused, ...(held ? { held } : {}) }, null, 2)}\n`);
+  const record = () =>
+    fs.writeFileSync(
+      paths.served,
+      `${JSON.stringify({ good, refused, ...(held ? { held } : {}), ...(handover ? { handover } : {}) }, null, 2)}\n`,
+    );
   const end = (status) => {
     if (status.state === 'up') good = status.sha;
     record();
@@ -996,12 +1005,28 @@ export async function round(paths = betaPaths(), io = {}) {
       const failed = { state: 'down', reason: 'pnpm install failed (round.log)', sha: target, updatedAt, mainAt };
       return end(await goBack(failed, updatedAt));
     }
+    // The moved checkout holds another copy of this supervisor: its stack settings and checks are the ones this commit
+    // needs, never this copy's. Launched with this copy's, a commit that needs a new setting fails and goes back, and the
+    // checkout never holds the new copy long enough to start it (#11075: every main after a new required setting was
+    // refused for an hour). So the new copy launches it: this round ends behind the updating page, and serve starts the
+    // new copy at once.
+    if (newer(paths)) {
+      handover = target;
+      record();
+      log(paths, `serve: main ${target.slice(0, 9)} changes beta-host.mjs; the new copy launches it with its own settings`);
+      return { state: 'updating', sha: target, handover: true };
+    }
     if (whole) await stopStack(paths, run);
     if (otherCustody) log(paths, moveBookAside(paths, otherCustody, new Date(now())));
     return end(await goBack(await bring(target, { move: false, updatedAt }), updatedAt));
   }
   if (whole) await stopStack(paths, run);
   if (otherCustody) log(paths, moveBookAside(paths, otherCustody, new Date(now())));
+  if (resumed) {
+    // The move the previous copy handed over: a launch that fails goes back to the last good commit, as a move does.
+    const updatedAt = new Date(now()).toISOString();
+    return end(await goBack(await bring(head, { move: false, updatedAt }), updatedAt));
+  }
   return end(await bring(head, { move: false, updatedAt: prev.updatedAt }));
 
   /**
@@ -1040,6 +1065,8 @@ const fileHash = (file) => {
     return null;
   }
 };
+/** This copy's hash as loaded: a checkout moved to a main that changes it holds a newer supervisor than the one running. */
+const LOADED = selfHash();
 
 /** How often the invited testers' pass runs (beta-invited.mjs): a Full request is approved and funded within a minute. */
 const INVITED_EVERY_MS = 15_000;
