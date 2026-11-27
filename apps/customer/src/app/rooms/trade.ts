@@ -7,6 +7,9 @@ import { areaCopy, areaRooms } from './room';
 export const tradeCopy = areaCopy({
   en: {
     'Trading account': 'Trading account',
+    Journal: 'Journal',
+    'Your closed futures trades from the venue, and what you made beside keeping your own rules':
+      'Your closed futures trades from the venue, and what you made beside keeping your own rules',
     Vaults: 'Vaults',
     Staking: 'Staking',
     'Stake the venue’s coin with a validator, see your fee discount, and unstake through the venue’s queue':
@@ -277,6 +280,13 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     path: '/trade/risk',
     title: 'Risk control',
     description: 'Cancel every open order, close positions and see platform incidents',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/journal',
+    title: 'Journal',
+    description: 'Your closed futures trades from the venue, and what you made beside keeping your own rules',
     door: 'Trade',
     area: 'trade',
   },
