@@ -2110,6 +2110,29 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: LOCAL_STACK_USER_VENUE reads the same in the stack and in trade env');
 }
 
+// On Hyperliquid's test network the seed lists no BTC-USDC spot pair (it has no bids, one stray ask at 6,100 and
+// no print since 10 Nov 2026, so it showed a BTC price ten times below the venue's BTC perpetual); the TEST venue keeps it.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const saved = process.env.LOCAL_STACK_USER_VENUE;
+  try {
+    const listings = (raw) => {
+      process.env.LOCAL_STACK_USER_VENUE = raw;
+      return localTestServiceEnvs()
+        .find((d) => d.name === 'trade')
+        .env.TRADE_USER_VENUE_TEST_LISTINGS.split(',');
+    };
+    const testnet = listings('hl-testnet');
+    assert.ok(!testnet.includes('BTC-USDC'), 'hl-testnet seeds no BTC-USDC');
+    assert.ok(testnet.includes('PURR-USDC') && testnet.includes('BTC-PERP'), 'hl-testnet keeps PURR-USDC and BTC-PERP');
+    for (const raw of ['on', 'two', 'hl-recorded']) assert.ok(listings(raw).includes('BTC-USDC'), `${raw} seeds BTC-USDC`);
+  } finally {
+    if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+    else process.env.LOCAL_STACK_USER_VENUE = saved;
+  }
+  console.log('local-test-stack: the Hyperliquid test network seeds no BTC-USDC spot pair');
+}
+
 // A Hyperliquid start names its recording and the address it is for, never a key; a running venue that
 // answers for another source (the simulator where Hyperliquid is wanted, another recording or trader) is not kept.
 {

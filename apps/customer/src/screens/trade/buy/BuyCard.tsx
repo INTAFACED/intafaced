@@ -15,12 +15,16 @@ import {
   fmtPrice,
   fmtUsd,
   refusalCopy,
+  useMarketCatalogue,
   useMarkets,
   usePortfolio,
   useTicker,
   useTickers,
+  venueSpotMarkets,
   type MarketRow,
 } from '../../../data';
+import { isHiddenPath } from '../../../app/feature-registry';
+import { normalizePair } from '../../../app/navigation';
 import { createTradeApi, type TradeApi } from '../../../features/trade/trade-api';
 import { useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
@@ -92,6 +96,8 @@ export function BuyCard({
 }: BuyCardProps) {
   const { t } = buyCopy.useCopy();
   const markets = useMarkets();
+  // With the venue door on, the venue's spot markets are traded on the spot desk, never through our own book.
+  const venueSpot = venueSpotMarkets(useMarketCatalogue());
   // Keeps the balance subscribed while the success card replaces the form, so "refresh the balance now" has someone listening.
   usePortfolio();
   const [base, setBase] = useState<string | null>(initialAsset ?? null);
@@ -119,6 +125,7 @@ export function BuyCard({
     const copy = refusalCopy(markets.code);
     return frame(<KitState kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />);
   }
+  if (!coin && venueSpot.length > 0) return frame(<VenueSpotDesks markets={venueSpot} />);
   if (!coin)
     return frame(
       <KitState
@@ -148,6 +155,30 @@ export function BuyCard({
       }}
       onReceipt={setReceipt}
     />,
+  );
+}
+
+/**
+ * Where our own book lists no coin and the venue door is on: each of the venue's open spot markets, linked to its spot
+ * desk, so Buy and sell offers what Markets offers. A desk the build hides is named with no link.
+ */
+function VenueSpotDesks({ markets }: { markets: MarketRow[] }) {
+  const { t } = buyCopy.useCopy();
+  return (
+    <div className="lt-stack" data-testid="buy-venue-desks">
+      <KitState kind="empty" title={t('Venue spot title')} body={t('Venue spot body')} />
+      <ul className="lt-row">
+        {markets.map((market) => {
+          const desk = `/trade/spot/${normalizePair(market.symbol)}`;
+          const words = t('Buy {coin} on the spot desk', { coin: market.base });
+          return (
+            <li key={market.symbol} data-testid="buy-venue-desk" data-symbol={market.symbol}>
+              {isHiddenPath(desk) ? words : <LinkButton href={desk}>{words}</LinkButton>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
