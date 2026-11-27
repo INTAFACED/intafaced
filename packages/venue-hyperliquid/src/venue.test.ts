@@ -2072,3 +2072,81 @@ describe('shared reads across testers: one IP, 1,200 weight a minute (#11028)', 
     expect(told[0]!.byType.meta).toEqual({ requests: 1, weight: 20 });
   });
 });
+
+// A fresh tester's grant lands in perps (the venue's default mode keeps spot apart), so a spot buy needs a
+// move from perps to spot. The adapter reads the account's mode and signs that move (J-derivatives-29 #1 #2).
+describe('the account mode and a move between spot and perps (J-derivatives-29)', () => {
+  const withAccount = (abstraction: unknown) => {
+    const fake = fakeVenue();
+    fake.info.userAbstraction = () => abstraction;
+    fake.info.clearinghouseState = () => ({ marginSummary: { accountValue: '25' }, withdrawable: '25', assetPositions: [], time: NOW });
+    fake.info.spotClearinghouseState = () => ({ balances: [{ coin: 'USDC', token: 0, total: '1.5', hold: '0.5', entryNtl: '0' }] });
+    return fake;
+  };
+  const move = {
+    kind: 'spot_perps_transfer',
+    direction: 'perps_to_spot',
+    asset: 'USDC',
+    amount: a('9.4365'),
+    moveKey: 'class-move:test-user:1',
+  } as const;
+
+  it("reads the venue's default and disabled modes as standard, with spot and perps USDC apart", async () => {
+    for (const abstraction of ['default', 'disabled']) {
+      const read = await venueWith(withAccount(abstraction)).accountMode(account);
+      expect(read.value).toEqual({
+        mode: 'standard',
+        spot: [{ asset: 'USDC', free: a('1'), locked: a('0.5'), total: a('1.5') }],
+        perps: [{ asset: 'USDC', free: a('25'), locked: ZERO, total: a('25') }],
+        actions: null,
+      });
+    }
+  });
+
+  it('reads unified and portfolio margin as one balance (no spot or perps apart); a word it does not know is not known', async () => {
+    expect((await venueWith(withAccount('unifiedAccount')).accountMode(account)).value).toEqual({
+      mode: 'unified',
+      spot: null,
+      perps: null,
+      actions: null,
+    });
+    expect((await venueWith(withAccount('portfolioMargin')).accountMode(account)).value.mode).toBe('portfolio_margin');
+    expect((await venueWith(withAccount('somethingNew')).accountMode(account)).value.mode).toBeNull();
+  });
+
+  it('perps to spot: the owner signs usdClassTransfer on the testnet chain, toPerp false, and the venue takes it', async () => {
+    const fake = withAccount('default');
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, move);
+    const typed = prepared.typedData as UserSignedTypedData;
+    expect(typed.primaryType).toBe('HyperliquidTransaction:UsdClassTransfer');
+    expect(typed.domain.chainId).toBe(84532);
+    expect(typed.message).toEqual({ hyperliquidChain: 'Testnet', amount: '9.4365', toPerp: false, nonce: BigInt(NOW) });
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(outcome).toMatchObject({ definite: true, accepted: true });
+    expect(fake.exchangeBodies[0]!.action).toEqual({
+      type: 'usdClassTransfer',
+      signatureChainId: '0x14a34',
+      hyperliquidChain: 'Testnet',
+      amount: '9.4365',
+      toPerp: false,
+      nonce: NOW,
+    });
+    const back = await venue.prepare(account, ownerSigner, { ...move, direction: 'spot_to_perps', moveKey: 'class-move:test-user:2' });
+    expect((back.typedData as UserSignedTypedData).message.toPerp).toBe(true);
+  });
+
+  it('refuses a move that is not USDC, too fine, on a sub-account, by a session key, or in a mode without spot and perps apart', async () => {
+    const venue = venueWith(withAccount('default'));
+    await refusedWith(venue.prepare(account, ownerSigner, { ...move, asset: 'PURR' }), 'venue_rejected');
+    await refusedWith(venue.prepare(account, ownerSigner, { ...move, amount: a('1.0000001') }), 'venue_rejected');
+    await refusedWith(
+      venue.prepare({ ...account, subAccount: '0x1719884eb866cb12b2287399b15f7db5e7d775ea' }, ownerSigner, move),
+      'not_offered',
+    );
+    await expect(venue.prepare(account, agentSigner, move)).rejects.toThrow();
+    const unified = await refusedWith(venueWith(withAccount('unifiedAccount')).prepare(account, ownerSigner, move), 'venue_rejected');
+    expect(unified.refusal.detail).toMatch(/unified mode/);
+    await refusedWith(venueWith(withAccount('somethingNew')).prepare(account, ownerSigner, move), 'venue_rejected');
+  });
+});
