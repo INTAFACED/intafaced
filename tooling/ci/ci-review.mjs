@@ -187,14 +187,14 @@ export function groupedChanges(before, after) {
 }
 
 /**
- * The diff with each GENERATED_JSON file's two lines replaced by jsonChanges of them, and the call-record export's
- * sections summarised by summarizeExports (`readBlob` reads a changed export file's two sides; without it those stay
- * whole). Only a section whose `diff --git` header names that exact path on both sides is summarised: a rename into or
+ * The diff with each GENERATED_JSON file's two lines replaced by jsonChanges of them, the call-record export's
+ * sections summarised by summarizeExports and, in a diff over MAX_DIFF_BYTES, the venue recordings' by
+ * summarizeRecordings (`readBlob` reads a changed file's two sides; without it those stay whole). Only a section whose `diff --git` header names that exact path on both sides is summarised: a rename into or
  * out of it, or any other path, stays whole, so nothing else can hide behind the name. git's header lines (new,
  * deleted, mode, index) stay.
  */
 export function summarizeGenerated(diff, { readBlob = null } = {}) {
-  return summarizeExports(diff, readBlob)
+  return summarizeRecordings(summarizeExports(diff, readBlob), readBlob)
     .split(/^(?=diff --git )/m)
     .map((part) => {
       const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(part);
@@ -358,8 +358,33 @@ const EXPORT_HEADER =
  * `readBlob`, the blobs themselves. A rename with no change has no hunk and no index line: it stays whole (it is small).
  */
 const exportSection = (section, readBlob) => {
+  const sides = wholeSides(section, readBlob, RECORD_EXPORT);
+  if (!sides) return null;
+  const { created, deleted, before, after } = sides;
+  const was = created ? null : exportForm(before);
+  const now = deleted ? null : exportForm(after);
+  if (was === undefined || now === undefined) return null;
+  return {
+    oldPath: sides.oldPath,
+    newPath: sides.newPath,
+    head: sides.head,
+    was,
+    now,
+    bytes: Buffer.byteLength(section),
+    lines: [],
+  };
+};
+
+/**
+ * One diff section's two whole sides, or null when they can't be read exactly: both paths of its `diff --git` line
+ * match `paths`, its header lines are only git's own (no copy), and each side's text is the blob its `index` line names
+ * (blobId). A file added or deleted is read from its one hunk; a changed one from `readBlob`, the blobs themselves.
+ * Returns { oldPath, newPath, head (git's header lines, without --- and +++), created, deleted, before, after }, the
+ * side a file lacks null.
+ */
+const wholeSides = (section, readBlob, paths) => {
   const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(section);
-  if (!m || !RECORD_EXPORT.test(m[1]) || !RECORD_EXPORT.test(m[2])) return null;
+  if (!m || !paths.test(m[1]) || !paths.test(m[2])) return null;
   const lines = section.replace(/\n$/, '').split('\n');
   const at = lines.findIndex((l) => l.startsWith('@@'));
   if (at < 0) return null;
@@ -394,27 +419,231 @@ const exportSection = (section, readBlob) => {
   const after = deleted ? null : created ? fromHunk('+') : read(newId);
   const exact = (text, id) => typeof text === 'string' && blobId(text).startsWith(id);
   if ((!created && !exact(before, oldId)) || (!deleted && !exact(after, newId))) return null;
-  const was = created ? null : exportForm(before);
-  const now = deleted ? null : exportForm(after);
-  if (was === undefined || now === undefined) return null;
   return {
     oldPath: m[1],
     newPath: m[2],
     head: head.filter((l) => !/^(--- |\+\+\+ )/.test(l)),
-    was,
-    now,
-    bytes: Buffer.byteLength(section),
-    lines: [],
+    created,
+    deleted,
+    before: created ? null : before,
+    after: deleted ? null : after,
   };
 };
 
-/** Whether the diff changes an export file in place, whose two sides summarizeGenerated reads through `readBlob`. */
-export const exportBlobsNeeded = (diff) =>
+/** Summary lines in runs of at most SUMMARY_RUN bytes, each under an `@@` line, where splitDiff may part a large one. */
+const inRuns = (lines) => {
+  const runs = [];
+  for (const l of lines) {
+    const last = runs.at(-1);
+    if (last && last.bytes + Buffer.byteLength(l) + 1 <= SUMMARY_RUN) {
+      last.lines.push(l);
+      last.bytes += Buffer.byteLength(l) + 1;
+    } else runs.push({ lines: [l], bytes: Buffer.byteLength(l) + 1 });
+  }
+  let n = 0;
+  return {
+    count: runs.length,
+    lines: runs.flatMap((r) => [`@@ summary lines ${n + 1}-${(n += r.lines.length)} of ${lines.length} @@`, ...r.lines]),
+  };
+};
+
+/** Whether the diff changes a file of `paths` in place, whose two sides summarizeGenerated reads through `readBlob`. */
+const changedInPlace = (diff, paths) =>
   diffSections(diff).some((s) => {
     const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(s);
     const head = s.slice(0, s.search(/^@@/m) >>> 0);
-    return m && RECORD_EXPORT.test(m[1]) && RECORD_EXPORT.test(m[2]) && /^@@/m.test(s) && !/^(new|deleted) file mode /m.test(head);
+    return m && paths.test(m[1]) && paths.test(m[2]) && /^@@/m.test(s) && !/^(new|deleted) file mode /m.test(head);
   });
+
+/**
+ * Whether summarizeGenerated reads blobs through `readBlob` for this diff: it changes an export file in place, or, over
+ * MAX_DIFF_BYTES, a venue recording (summarizeRecordings).
+ */
+export const exportBlobsNeeded = (diff) =>
+  changedInPlace(diff, RECORD_EXPORT) || (Buffer.byteLength(diff) > MAX_DIFF_BYTES && changedInPlace(diff, VENUE_RECORDING));
+
+/**
+ * The Hyperliquid venue recordings (packages/venue-hyperliquid/src/recorded.ts, HlRecording), which the daily live run
+ * rewrites whole (.github/workflows/hl-venue-daily.yml, tooling/scripts/local-test-venue.mjs): pretty-printed JSON whose
+ * few large `/info` answers (the spot listing alone is about 360 KB) change every day. Four of them were a 5,282,119-byte
+ * diff on intafaced #11192, over what MAX_PARTS parts of MAX_DIFF_BYTES carry, so its review could only FAIL it.
+ */
+export const VENUE_RECORDING = /^packages\/venue-hyperliquid\/recordings\/[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
+
+/** The most bytes of an `/info` answer a recording's summary shows whole; a larger one is its size, sha256 and shape. */
+export const RECORDING_ANSWER_SHOWN = 1_000;
+
+const CALL_KEYS = 'answer,path,request,source,status';
+
+/** One side of a recording as { meta: { label, note, trader }, calls }, or undefined when its text is not exactly that form. */
+const recordingForm = (text) => {
+  let j;
+  try {
+    j = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!isMap(j) || !['label,note,trader,calls', 'label,note,calls'].includes(Object.keys(j).join(','))) return undefined;
+  if (j.label !== 'TEST' || typeof j.note !== 'string' || !Array.isArray(j.calls)) return undefined;
+  const call = (c) =>
+    isMap(c) &&
+    Object.keys(c).sort().join(',') === CALL_KEYS &&
+    (c.path === '/info' || c.path === '/exchange') &&
+    Number.isInteger(c.status) &&
+    (c.source === 'testnet' || c.source === 'documented-shape');
+  if (!j.calls.every(call)) return undefined;
+  if (compactJson(text) !== JSON.stringify(j)) return undefined;
+  const { label, note, trader } = j;
+  return { meta: { label, note, ...('trader' in j ? { trader } : {}) }, calls: j.calls };
+};
+
+const shapeOf = (v) => {
+  if (Array.isArray(v)) return `an array of ${v.length}`;
+  if (isMap(v)) {
+    const keys = Object.keys(v);
+    return `an object of ${keys.length} key(s) ${show(keys.slice(0, 12))}${keys.length > 12 ? ' and more' : ''}`;
+  }
+  return typeof v;
+};
+
+/** One call as one line: `<path> <status> <source> <request> -> <answer>`, a large `/info` answer by its size and hash. */
+const callLine = (c) => {
+  const a = show(c.answer) ?? 'undefined';
+  const bytes = Buffer.byteLength(a);
+  const answer =
+    c.path === '/exchange' || bytes <= RECORDING_ANSWER_SHOWN
+      ? a
+      : `<${bytes} bytes of JSON, sha256 ${createHash('sha256').update(a).digest('hex').slice(0, 16)}, ${shapeOf(c.answer)}>`;
+  return `${c.path} ${c.status} ${c.source} ${show(c.request)} -> ${answer}`;
+};
+
+/** A key no recording holds: a signature (traderRecording drops it), a private key, a secret, a seed or a password. */
+const SECRET_KEY = /(^|_)(sig|signature|private_?key|privkey|secret|mnemonic|seed|password|api_?key|key)$/i;
+const ADDRESS = /^0x[0-9a-f]{40}$/i;
+const HEX64 = /^0x[0-9a-f]{64}$/i;
+
+/**
+ * What the job reads from a recording side's whole text, every answer included, as `#` (facts) and `!` (what a recording
+ * should never hold) lines: the trader not held as `<trader>`, a key named like a signature or secret at any depth, the
+ * addresses it names, and its 64-hex strings by the key they sit under (a transaction hash or a private key look alike).
+ */
+const recordingFacts = (r) => {
+  const out = [];
+  if (r.meta.trader !== '<trader>') out.push('! the recording holds no trader as "<trader>": its addresses are as they were recorded');
+  const secret = [];
+  const asked = new Map(); // the addresses requests name: whose state the calls read or change
+  const answered = new Set(); // the other addresses answers name (a listing's token contracts, a trade's counterparty)
+  const hex = new Map();
+  const bump = (m, k) => m.set(k, (m.get(k) ?? 0) + 1);
+  let inRequest = false;
+  const walk = (v, path, key) => {
+    if (typeof v === 'string') {
+      if (ADDRESS.test(v) && inRequest) bump(asked, v.toLowerCase());
+      else if (ADDRESS.test(v)) answered.add(v.toLowerCase());
+      if (HEX64.test(v)) bump(hex, key);
+      return;
+    }
+    if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`, key));
+    else if (isMap(v))
+      for (const [k, x] of Object.entries(v)) {
+        if (SECRET_KEY.test(k.replace(/([a-z])([A-Z])/g, '$1_$2'))) secret.push(`${path}.${show(k)}`);
+        walk(x, `${path}.${show(k)}`, k);
+      }
+  };
+  r.calls.forEach((c, i) => {
+    inRequest = true;
+    walk(c.request, `call ${i + 1} request`, null);
+    inRequest = false;
+    walk(c.answer, `call ${i + 1} answer`, null);
+  });
+  for (const p of secret) out.push(`! a key named like a signature or a secret: ${p}`);
+  const list = (m) =>
+    [...m]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, n]) => `${k} (${n})`)
+      .join(', ');
+  out.push(`# addresses its requests name, with how many times: ${asked.size ? list(asked) : 'none'}`);
+  const other = [...answered].filter((a) => !asked.has(a)).length;
+  out.push(`# ${other} other address(es) named only in answers`);
+  if (hex.size) out.push(`# strings of 0x and 64 hex, by the key they sit under: ${list(new Map([...hex].map(([k, n]) => [show(k), n])))}`);
+  return out;
+};
+
+/** The two sides' calls compared in order (a longest common run of equal lines): = runs the same, - old only, + new only. */
+const callChanges = (olds, news) => {
+  const [a, b] = [olds.map(callLine), news.map(callLine)];
+  const out = [];
+  if (a.length * b.length > 4_000_000) {
+    a.forEach((l, i) => out.push(`- old call ${i + 1}: ${l}`));
+    b.forEach((l, i) => out.push(`+ new call ${i + 1}: ${l}`));
+    return out;
+  }
+  // lcs[i][j]: the longest common run of a[i..] and b[j..].
+  const lcs = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  let same = null;
+  const close = () => {
+    if (same) out.push(`= ${same.n} call(s) the same: old ${same.i + 1}-${same.i + same.n}, new ${same.j + 1}-${same.j + same.n}`);
+    same = null;
+  };
+  let [i, j] = [0, 0];
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      if (!same) same = { i, j, n: 0 };
+      same.n++;
+      i++;
+      j++;
+    } else if (j >= b.length || (i < a.length && lcs[i + 1][j] >= lcs[i][j + 1])) {
+      close();
+      out.push(`- old call ${i + 1}: ${a[i]}`);
+      i++;
+    } else {
+      close();
+      out.push(`+ new call ${j + 1}: ${b[j]}`);
+      j++;
+    }
+  }
+  close();
+  return out;
+};
+
+/**
+ * The diff, when over MAX_DIFF_BYTES, with each venue recording's section summarised from its two whole sides, read
+ * exactly (wholeSides; a changed file's blobs through `readBlob`): its label, note and trader changes, the `#` and `!`
+ * lines of recordingFacts for the new side, and every call as one line, the two sides compared in order. Each section
+ * keeps its `diff --git` line and git's header lines. A section not read exactly, or not exactly a recording's form,
+ * stays whole, and so does the whole diff when the summary is no smaller.
+ */
+export function summarizeRecordings(diff, readBlob = null) {
+  if (Buffer.byteLength(diff) <= MAX_DIFF_BYTES) return diff;
+  const sections = diffSections(diff);
+  let saved = 0;
+  const out = sections.map((s) => {
+    const sides = wholeSides(s, readBlob, VENUE_RECORDING);
+    if (!sides || sides.oldPath !== sides.newPath) return s;
+    const was = sides.created ? null : recordingForm(sides.before);
+    const now = sides.deleted ? null : recordingForm(sides.after);
+    if (was === undefined || now === undefined) return s;
+    const lines = [
+      ...jsonChanges(was?.meta ?? {}, now?.meta ?? {}),
+      ...(now ? recordingFacts(now) : []),
+      ...callChanges(was?.calls ?? [], now?.calls ?? []),
+    ];
+    const runs = inRuns(lines);
+    const text = [
+      `diff --git a/${sides.oldPath} b/${sides.newPath}`,
+      ...sides.head,
+      `[Hyperliquid venue recording (TEST answers; packages/venue-hyperliquid/src/recorded.ts), ${Buffer.byteLength(s)} bytes of diff; summarised by the CI review job from its whole old and new text, each the blob its index line names (the whitespace between JSON tokens is not compared): ${was ? was.calls.length : 0} calls before and ${now ? now.calls.length : 0} after; its label, note and trader changes (~ + -); # lines are facts and ! lines what a recording should never hold, read from the new side's whole text, every answer included; then each call as one line "<path> <status> <source> <request> -> <answer>", an /exchange answer and an /info answer of at most ${RECORDING_ANSWER_SHOWN} bytes whole and a larger one by its size, sha256 and shape, the two sides' calls compared in order (= calls the same on both, - old only, + new only); ${lines.length} lines, under ${runs.count} @@ line(s)]`,
+      ...runs.lines,
+      '',
+    ].join('\n');
+    if (Buffer.byteLength(text) >= Buffer.byteLength(s)) return s;
+    saved++;
+    return text;
+  });
+  return saved ? out.join('') : diff;
+}
 
 /**
  * The diff with the call-record export's sections summarised: the records of every export file in it are compared by
@@ -487,21 +716,12 @@ export function summarizeExports(diff, readBlob = null) {
     const lines = [...jsonChanges(comment(f.was), comment(f.now)), ...f.lines];
     if (lines.length === 0) lines.push('= the text changed, and every record and the $comment are the same JSON');
     const count = (side) => (side ? Object.keys(side.records).length : 0);
-    // Its lines in runs of at most SUMMARY_RUN bytes, each under an `@@` line, where splitDiff may part a large one.
-    const runs = [];
-    for (const l of lines) {
-      const last = runs.at(-1);
-      if (last && last.bytes + Buffer.byteLength(l) + 1 <= SUMMARY_RUN) {
-        last.lines.push(l);
-        last.bytes += Buffer.byteLength(l) + 1;
-      } else runs.push({ lines: [l], bytes: Buffer.byteLength(l) + 1 });
-    }
-    let n = 0;
+    const runs = inRuns(lines);
     return [
       `diff --git a/${f.oldPath} b/${f.newPath}`,
       ...f.head,
-      `[generated call-record export (procedures:write), ${f.bytes} bytes of diff; summarised by the CI review job from its whole old and new text, each the blob its index line names, with the records of all ${read.length} export files this diff reads compared by name, old side against new (the whitespace between JSON tokens is not compared): ${count(f.was)} records before and ${count(f.now)} after in this file; every record added (+) or removed (-) shown whole, every change to one (~) at every depth, and records that only moved between files, unchanged, one line naming them on both files (> moved out, < moved in); ${lines.length} lines, under ${runs.length} @@ line(s)]`,
-      ...runs.flatMap((r) => [`@@ summary lines ${n + 1}-${(n += r.lines.length)} of ${lines.length} @@`, ...r.lines]),
+      `[generated call-record export (procedures:write), ${f.bytes} bytes of diff; summarised by the CI review job from its whole old and new text, each the blob its index line names, with the records of all ${read.length} export files this diff reads compared by name, old side against new (the whitespace between JSON tokens is not compared): ${count(f.was)} records before and ${count(f.now)} after in this file; every record added (+) or removed (-) shown whole, every change to one (~) at every depth, and records that only moved between files, unchanged, one line naming them on both files (> moved out, < moved in); ${lines.length} lines, under ${runs.count} @@ line(s)]`,
+      ...runs.lines,
       '',
     ].join('\n');
   });
@@ -535,19 +755,23 @@ function splitAddedHunk(header, hunk, cap) {
   const out = [];
   let start = Number(m[3]);
   let cur = [];
+  let curBytes = 0; // the bytes of cur's lines, kept as they are added: joining them again for each line takes minutes on a 1.3 MB added recording
   const close = () => {
     out.push(`${header}@@ -${m[1]},0 +${start},${cur.length} @@\n${cur.join('')}`);
     start += cur.length;
     cur = [];
+    curBytes = 0;
   };
   for (const r of rows) {
-    const next = Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},${cur.length + 1} @@\n${cur.join('')}${r}`);
+    const rBytes = Buffer.byteLength(r);
+    const next = Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},${cur.length + 1} @@\n`) + curBytes + rBytes;
     if (next > cap) {
       if (!cur.length) return null;
       close();
       if (Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},1 @@\n${r}`) > cap) return null;
     }
     cur.push(r);
+    curBytes += rBytes;
   }
   if (cur.length) close();
   return out;
@@ -1478,8 +1702,9 @@ async function cmdDiff(dir) {
     return null;
   });
   if (carried) return console.log(writeCarried(dir, { head: pull.head, carried }));
-  // A call-record export changed in place is summarised from its two whole sides (summarizeExports): the blobs at the
-  // merge base and the head, fetched as the test part's source fetches them. Unread, those sections stay whole.
+  // A call-record export changed in place, or a venue recording in a diff over the cap, is summarised from its two
+  // whole sides (summarizeExports, summarizeRecordings): the blobs at the merge base and the head, fetched as the test
+  // part's source fetches them. Unread, those sections stay whole.
   let readBlob = null;
   if (exportBlobsNeeded(r.text)) {
     const ws = process.env.GITHUB_WORKSPACE ?? '.';
@@ -1541,7 +1766,9 @@ async function cmdDiff(dir) {
       base: pull.base,
       head: pull.head,
       pr: pull.number,
-      src: ciSource(repo, process.env.GH_TOKEN, process.env.GITHUB_WORKSPACE),
+      // The test part judges this same compare diff, not a second download of it: a 5 MB diff read once was read, and
+      // its second read closed (`UND_ERR_SOCKET other side closed`, intafaced #11192, twice).
+      src: ciSource(repo, process.env.GH_TOKEN, process.env.GITHUB_WORKSPACE, { base: pull.base, head: pull.head, diff: r.text }),
       loadWords,
       reviewBrief: readFileSync(new URL('./ci-review/REVIEW.md', import.meta.url), 'utf8'),
       testsBrief: readFileSync(JUDGE_BRIEF, 'utf8'),

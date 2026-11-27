@@ -224,10 +224,13 @@ describe("the beta's menus", () => {
       expect(betaOffFeatureFor(path), path).toBeUndefined();
       expect(isHiddenPath(path), path).toBe(false);
     }
-    // Registered apps keeps its own blocker (oauth-apps: the token lifetimes are unpublished), so J-cex-spot-15 #1, which
-    // opens every section the home page lists, is still named off the beta until that row is live.
-    expect(betaOffFeatureFor('/developers/apps')?.id).toBe('oauth-apps');
-    expect(isHiddenPath('/developers/apps')).toBe(true);
+    // Registered apps is shown too (J-cex-spot-15 #1 opens every section the home page lists): the room registers apps and
+    // names its blocker, the unpublished token lifetimes (oauth.lifetime_unset). Signing in with an app (/oauth/authorize)
+    // is what those lifetimes switch off, so that page keeps the oauth-apps row and stays off the beta.
+    expect(betaHides('/developers/apps', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/developers/apps')).toBeUndefined();
+    expect(isHiddenPath('/developers/apps')).toBe(false);
+    expect(betaOffFeatureFor('/oauth/authorize')?.id).toBe('oauth-apps');
   });
 
   it('shows Official channels (/help/official-channels) on the beta while keeping Rulebook, Support chat and Money mule policy blocked (J-identity-13 #1)', () => {

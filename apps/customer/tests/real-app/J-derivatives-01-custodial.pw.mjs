@@ -4,15 +4,16 @@ import { api, bestPrices, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
-// J-derivatives-01, in the running app (docs/roadmap/journeys.json): open a first futures position with isolated
-// margin, watch it, close 40 percent and then the rest. One test per step, titled "J-derivatives-01 #<n>", run in order
-// on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists; no agreement, knowledge
-// check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack, read back
-// through the customer's own API.
-// Steps #1, #4, #5, #6, #8, #9, #10 and #11 run on the TEST venue (J-derivatives-01-venue.pw.mjs carries their step titles).
-// Here they are titled "J-derivatives-01, part of #<n>, checked on our own ledger": the margin lock, the closes and the
-// ledger's figures stay checked, and the journeys verdict on main turns red when one fails after it passed on main
-// (tooling/ci/journey-verdict.mjs judge, project-state #2232).
+// J-derivatives-01's custodial Later branch, checked on our own ledger (our own futures book, which is off at launch):
+// open a first futures position with isolated margin, watch it, close 40 percent and then the rest, run in order on one
+// TEST account funded through our ledger. Every live step (#1, #2 and #4 to #11) is proven on the person's own venue
+// account in J-derivatives-01-venue.pw.mjs, which runs custody off; #3 is deferred to launch prep. Each test here is
+// titled "J-derivatives-01, part of #<n>, checked on our own ledger": the margin lock, the closes and the ledger's
+// figures stay checked, and the journeys verdict on main turns red when one fails after it passed on main
+// (tooling/ci/journey-verdict.mjs judge, project-state #2232). The contract is the TEST perpetual
+// `local-test-gates.mjs futures` lists; no agreement, knowledge check or notice gates it (owner decision 2026-10-27).
+// Every number is a TEST number on the local stack, read back through the customer's own API. As a custodial part file
+// it keeps today's custody switch (launch-custody.mjs CUSTODIAL_PART), since it funds its trader through our ledger.
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -89,7 +90,7 @@ test(`${J}, part of #1, checked on our own ledger: opens /trade/futures and sees
 // The legal and suitability reasons the list used to carry. None of them is a reason any more (owner decision 2026-10-27).
 const LEGAL_CODES = ['trade.derivatives_eligibility_unset', 'trade.agreement_required', 'trade.adl_disclosure_required'];
 
-test(`${J} #2 reads the gated list: each contract open or blocked as the service says, with each reason; no legal step is a reason`, async ({
+test(`${J}, part of #2, checked on our own ledger: reads the gated list: each contract open or blocked as the service says, with each reason; no legal step is a reason`, async ({
   page,
 }) => {
   const who = account();
@@ -132,7 +133,9 @@ test(`${J} #2 reads the gated list: each contract open or blocked as the service
 
 // Step 3 was "reads and accepts the risk agreement and margin terms". Deferred until launch prep (owner decision
 // 2026-10-27): this step proves nothing asks for an agreement, a knowledge check or the auto-deleveraging notice.
-test(`${J} #3 nothing asks for a risk agreement, a knowledge check or a notice before an open`, async ({ page }) => {
+test(`${J}, part of #3, checked on our own ledger: nothing asks for a risk agreement, a knowledge check or a notice before an open`, async ({
+  page,
+}) => {
   const who = account();
   const me = await api(who);
   await desk(page);
@@ -214,7 +217,7 @@ test(`${J}, part of #6, checked on our own ledger: types a TEST size and leverag
   expect(toUnits(preview.body.liquidationPrice)).toBeLessThan(toUnits(preview.body.markPrice));
 });
 
-test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({
+test(`${J}, part of #7, checked on our own ledger: looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({
   page,
   stepPicture,
 }) => {
