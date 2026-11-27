@@ -120,7 +120,7 @@ describe("the beta's menus", () => {
     expect(simpleTrade?.items.map((item) => item.href)).toContain('/trade/buy');
   });
 
-  it('shows API keys and the API permissions reference (/developers/permissions) on the beta while keeping /developers blocked (J-developer-03 #7 #9)', () => {
+  it('shows API keys and the API permissions reference (/developers/permissions) on the beta (J-developer-03 #7 #9)', () => {
     const betaList = betaRoomList(betaScreens.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
     for (const [route, sample] of [
@@ -134,11 +134,6 @@ describe("the beta's menus", () => {
       expect(betaOffFeatureFor(sample), sample).toBeUndefined();
       expect(isHiddenPath(sample), sample).toBe(false);
     }
-    expect(betaOffFeatureFor('/developers')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/hosts')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/fix')?.id).toBe('developer-portal');
-    expect(isHiddenPath('/developers')).toBe(true);
-    expect(isHiddenPath('/developers/hosts')).toBe(true);
   });
 
   it('shows Notices (/notice, /notice/:id, /announcement, /announcement/:id) on the beta while keeping Lab, App and Partner blocked (J-cex-spot-10 #10)', () => {
@@ -198,20 +193,13 @@ describe("the beta's menus", () => {
     }
   });
 
-  it('shows Idempotent order placement (/developers/idempotency) on the beta while keeping /developers blocked (J-developer-05 #5)', () => {
+  it('shows Idempotent order placement (/developers/idempotency) on the beta (J-developer-05 #5)', () => {
     const betaList = betaRoomList(betaScreens.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
     expect(shownRooms.has('/developers/idempotency')).toBe(true);
     expect(betaHides('/developers/idempotency', betaList)).toBe(false);
     expect(betaOffFeatureFor('/developers/idempotency')).toBeUndefined();
     expect(isHiddenPath('/developers/idempotency')).toBe(false);
-    expect(betaOffFeatureFor('/developers')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/hosts')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/fix')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/status')?.id).toBe('developer-portal');
-    expect(isHiddenPath('/developers')).toBe(true);
-    expect(isHiddenPath('/developers/hosts')).toBe(true);
-    expect(isHiddenPath('/developers/status')).toBe(true);
   });
 
   it('shows the developer portal and the market data downloads on the beta, so J-cex-spot-15 can be proven there (#11177)', () => {

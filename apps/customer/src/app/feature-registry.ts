@@ -585,11 +585,13 @@ export const features: readonly Feature[] = [
     id: 'developer-portal',
     label: 'Developer portal',
     paths: ['/developers', '/developers/*'],
-    status: 'blocked',
+    status: 'live',
     reason:
-      'developer.hosts: no read for the owner host settings is connected, so every base address reads host not set; most section pages are not written',
-    unlock: 'add the developer.hosts read in the payments settings and publish the section pages',
+      'The portal reads the published hosts, terms and bot policy from svc-trade (developer-portal-rest.ts): a blank owner setting reads not set and refuses with its typed code. A section whose page is not written shows the slice it waits for.',
+    unlock: 'already live',
     tab: 'public',
+    checked:
+      'Real-app journeys run 12722 on main (2026-11-27): J-developer-01 #1 to #7 and J-cex-spot-15 #1 to #4, #6 and #7 passed. /developers/apps keeps its own oauth-apps row.',
   },
   {
     id: 'trade-news-calendar',

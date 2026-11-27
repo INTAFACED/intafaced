@@ -1,5 +1,5 @@
 {
-  "run": "45517610346",
+  "run": "46057858715",
   "leftOut": {
     "J-home-ia-02": "walks every door and area of the full app (its #1 checks the full menu)"
   },
@@ -59,6 +59,7 @@
     "/trade/buy",
     "/trade/convert",
     "/trade/futures",
+    "/trade/markets/downloads",
     "/trade/orders",
     "/trade/orders/:id",
     "/trade/positions",
