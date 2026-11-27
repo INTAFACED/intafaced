@@ -623,9 +623,106 @@ describe('prepare builds exactly what the wallet signs', () => {
       }),
       'not_offered',
     );
+  });
+});
+
+describe('cancelling orders by the client id the venue holds: one signed `cancelByCloid`', () => {
+  // A run cut short leaves its exit orders on the venue; a fresh stack holds no key for them, so the desk names each by
+  // the client id the venue lists.
+  const A = `0x${'a1'.repeat(16)}`;
+  const B = `0x${'b2'.repeat(16)}`;
+  const both: VenueIntent = {
+    kind: 'cancel_orders',
+    orders: [
+      { symbol: 'ETH-PERP', venueClientOrderId: A },
+      { symbol: 'BTC-PERP', venueClientOrderId: B.toUpperCase().replace('0X', '0x') },
+    ],
+  };
+
+  it('the descriptor declares it, and the action is one cancelByCloid naming each order on its own asset, sent once', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    expect(venue.venue.cancelsPerAction).toBe(20);
+    const prepared = await venue.prepare(account, agentSigner, both);
+    expect(prepared.venueClientOrderId).toBeNull();
+    const action = {
+      type: 'cancelByCloid',
+      cancels: [
+        { asset: 1, cloid: A },
+        { asset: 0, cloid: B },
+      ],
+    };
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(prepared.nonce)));
+    fake.exchange.push(ok({ type: 'cancel', data: { statuses: ['success', 'success'] } }));
+    const outcome = await venue.submit(prepared, await sign(agentKey, prepared));
+    expect(outcome).toEqual({
+      definite: true,
+      accepted: true,
+      venueRef: null,
+      order: null,
+      legs: [
+        { definite: true, accepted: true, venueRef: null, order: null, asOf: new Date(NOW) },
+        { definite: true, accepted: true, venueRef: null, order: null, asOf: new Date(NOW) },
+      ],
+      asOf: new Date(NOW),
+    });
+    expect(fake.exchangeBodies).toHaveLength(1);
+  });
+
+  it('each order is answered on its own: one already gone is unknown_order and the other still cancelled', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, agentSigner, both);
+    fake.exchange.push(
+      ok({ type: 'cancel', data: { statuses: ['success', { error: 'Order was never placed, already canceled, or filled.' }] } }),
+    );
+    const outcome = await venue.submit(prepared, await sign(agentKey, prepared));
+    if (!outcome.definite || !outcome.accepted) throw new Error('expected the batch accepted');
+    expect(outcome.legs?.map((l) => (l.definite && !l.accepted ? l.refusal.code : l.definite && l.accepted))).toEqual([
+      true,
+      'unknown_order',
+    ]);
+  });
+
+  it('a whole-action error refuses it; a count of answers that does not match, or an unreadable one, is no answer', async () => {
+    for (const [answer, expected] of [
+      [{ status: 200, body: JSON.stringify({ status: 'err', response: 'User or API Wallet does not exist.' }) }, 'signer_not_authorised'],
+      [ok({ type: 'cancel', data: { statuses: ['success'] } }), 'unknown'],
+      [ok({ type: 'cancel', data: { statuses: ['success', { surprise: 1 }] } }), 'unknown'],
+    ] as const) {
+      const fake = fakeVenue();
+      const venue = venueWith(fake);
+      const prepared = await venue.prepare(account, agentSigner, both);
+      fake.exchange.push(answer);
+      const outcome = await venue.submit(prepared, await sign(agentKey, prepared));
+      expect(outcome.definite ? (outcome.accepted ? 'accepted' : outcome.refusal.code) : 'unknown').toBe(expected);
+    }
+  });
+
+  it('refused before anything is signed: no order, more than 20, one named twice, an id that is not a client id, an unknown market', async () => {
+    const venue = venueWith(fakeVenue());
+    const id = (i: number) => `0x${i.toString(16).padStart(32, '0')}`;
+    const many = Array.from({ length: 21 }, (_, i) => ({ symbol: 'ETH-PERP', venueClientOrderId: id(i + 1) }));
+    await refusedWith(venue.prepare(account, agentSigner, { kind: 'cancel_orders', orders: [] }), 'venue_rejected');
+    await refusedWith(venue.prepare(account, agentSigner, { kind: 'cancel_orders', orders: many }), 'not_offered');
+    await venue.prepare(account, agentSigner, { kind: 'cancel_orders', orders: many.slice(0, 20) });
     await refusedWith(
-      venue.prepare(account, ownerSigner, { kind: 'cancel_orders', orders: [{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }] }),
-      'not_offered',
+      venue.prepare(account, agentSigner, {
+        kind: 'cancel_orders',
+        orders: [
+          { symbol: 'ETH-PERP', venueClientOrderId: A },
+          { symbol: 'ETH-PERP', venueClientOrderId: A.toUpperCase().replace('0X', '0x') },
+        ],
+      }),
+      'venue_rejected',
+    );
+    await refusedWith(
+      venue.prepare(account, agentSigner, { kind: 'cancel_orders', orders: [{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }] }),
+      'venue_rejected',
+    );
+    await refusedWith(
+      venue.prepare(account, agentSigner, { kind: 'cancel_orders', orders: [{ symbol: 'NOPE-PERP', venueClientOrderId: A }] }),
+      'unknown_market',
     );
   });
 });

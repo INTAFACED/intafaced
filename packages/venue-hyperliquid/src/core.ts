@@ -16,6 +16,8 @@ import { HL_TESTNET_API_URL, assertTestnetUrl } from './signing.js';
  */
 
 export const HL_TESTNET_VENUE_ID = 'hyperliquid-testnet';
+/** The most orders one `cancel_orders` names on this venue: ours, as Hyperliquid publishes none (see the descriptor). */
+export const HL_CANCELS_PER_ACTION = 20;
 
 /**
  * The perpetual account's USDC, reported apart from spot USDC: on this venue
@@ -303,6 +305,11 @@ export abstract class HyperliquidCore {
       // An order, cancel or leverage change is an L1 action whose EIP-712 domain names chain 1337 (signing.ts L1_DOMAIN),
       // which no wallet signs on: it is signed by the trading session's agent key, approved once by the owner's wallet.
       tradesSignedBy: 'session_key',
+      // `cancel_orders`: Hyperliquid's `cancelByCloid` names any resting order by its client id, so an order this page
+      // or this stack did not place (another browser's, or a run's that was cut short) is still cancelled from the desk.
+      // Hyperliquid publishes no cap on cancels in one action, only their weight (1, plus 1 per 40); this adapter declares
+      // ours: up to 20, which weighs 1.
+      cancelsPerAction: HL_CANCELS_PER_ACTION,
     };
     refuseTestVenueOutsideTest(this.venue, options.appEnv, options.betaPosture);
     this.fetchImpl = options.fetch ?? (globalThis.fetch as unknown as FetchLike);
