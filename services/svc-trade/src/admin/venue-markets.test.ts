@@ -805,6 +805,43 @@ describe('the LOCAL TEST listing seed', () => {
     expect(await store.latestListing(VENUE, 'ETH-USDC')).toBeNull();
   });
 
+  it('delists a market it seeded once it leaves the seed, and never one an operator listed or changed (#11105)', async () => {
+    const store = new MemoryVenueListingStore();
+    expect(await seedTestListings(store, sim(), ['BTC-USDC', 'BTC-PERP'], 'dev', at)).toEqual(['BTC-USDC', 'BTC-PERP']);
+    // An operator's own listing of a market the seed never named stays as it is.
+    await store.appendListing({
+      venueId: VENUE,
+      symbol: 'ETH-USDC',
+      version: 1,
+      change: 'listing',
+      opensAt: at,
+      delistsAt: null,
+      routing: 'show',
+      approvalId: 'approval-eth',
+      proposerId: 'operator-a',
+      approverId: 'operator-b',
+      executorId: 'operator-a',
+      reason: 'listed by two operators',
+      recordedAt: at,
+    });
+    const later = new Date('2026-11-27T12:00:00.000Z');
+    // The next start's seed no longer names BTC-USDC: the stack's own listing of it is delisted now, by the two stack ids.
+    expect(await seedTestListings(store, sim(), ['BTC-PERP'], 'dev', later)).toEqual([]);
+    const btc = await store.latestListing(VENUE, 'BTC-USDC');
+    expect(btc && [btc.version, btc.change, btc.delistsAt?.toISOString(), btc.proposerId, btc.approverId]).toEqual([
+      2,
+      'delisting',
+      later.toISOString(),
+      LOCAL_TEST_SEED_OPERATOR,
+      LOCAL_TEST_SEED_APPROVER,
+    ]);
+    expect((await store.latestListing(VENUE, 'BTC-PERP'))?.version).toBe(1);
+    expect((await store.latestListing(VENUE, 'ETH-USDC'))?.version).toBe(1);
+    // Once is enough: a restart with the same seed writes nothing more.
+    await seedTestListings(store, sim(), ['BTC-PERP'], 'dev', new Date('2026-11-28T12:00:00.000Z'));
+    expect((await store.latestListing(VENUE, 'BTC-USDC'))?.version).toBe(2);
+  });
+
   it('is refused outside APP_ENV dev or test and on a venue that is not a TEST venue; blank lists nothing', async () => {
     for (const appEnv of [undefined, '', 'prod', 'staging', ' dev']) {
       expect(() => assertTestListingsAllowed(['BTC-USDC'], appEnv)).toThrow(/LOCAL TEST seed/);

@@ -1924,6 +1924,12 @@ export interface VenueFeeStatus {
   readonly account: VenueAccountFees | null;
   /** The venue's settlement and other fees (J-derivatives-12 #2); absent or `null`: the venue publishes none. */
   readonly otherFees?: readonly VenueOtherFee[] | null;
+  /**
+   * `true` when the venue charges each fill by the account's tier and publishes no rate of a market's own, so a market
+   * read with no account has none: a new account pays the first tier's rate on every market of that kind. Absent: the
+   * venue's markets carry their own rates, and a blank one is blank.
+   */
+  readonly ratesByTier?: boolean;
 }
 
 /**

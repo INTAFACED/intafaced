@@ -192,4 +192,15 @@ describe('the futures order form before any wallet or session', () => {
     const review = [...ticket!.querySelectorAll('button')].find((b) => b.textContent === 'Review long');
     expect(review?.disabled).toBe(true);
   });
+
+  it('with no account the venue names no rate of its own: the fee waits for review, never a guessed one', () => {
+    world.markets = [{ ...BTC, takerFeeBps: { known: false }, makerFeeBps: { known: false } }];
+    render();
+    type('Size (BTC)', '0.01');
+    const form = host.querySelector('[data-testid="venue-ticket-preview"]')!;
+    expect(form.querySelector('[data-testid="venue-ticket-preview-fees"]')!.textContent).toContain('by your fee tier on the venue');
+    const summary = form.querySelector('[data-testid="venue-ticket-preview-summary"]')!.textContent;
+    expect(summary).toContain('626.2');
+    expect(summary).toMatch(/Opening fee\s*At review/);
+  });
 });

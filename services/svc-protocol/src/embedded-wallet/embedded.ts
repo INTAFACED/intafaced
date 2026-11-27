@@ -1,5 +1,6 @@
 import {
   embeddedWalletKey,
+  type EmbeddedProviderOutcome,
   type EmbeddedWalletPasskey,
   type EmbeddedWalletProviderId,
   type ProtocolEmbeddedWalletProvider,
@@ -109,6 +110,36 @@ export async function embeddedWalletStatus(deps: EmbeddedWalletDeps, userId: str
   const setting = deps.setting();
   const wallet = await deps.store.find(userId);
   return { provider: wallet ? keptAt(wallet, setting) : providerInfo(setting), wallet };
+}
+
+/** One provider outcome the person's page reported, against the provider that keeps their recorded wallet. */
+export interface EmbeddedProviderOutcomeLine {
+  readonly msg: 'protocol.embedded_provider_outcome';
+  readonly provider: EmbeddedWalletProviderId;
+  readonly outcome: EmbeddedProviderOutcome;
+  readonly status: number | null;
+  readonly at: string;
+}
+
+/**
+ * Counts one signature outcome the person's page saw at their wallet's provider. Only a person with a recorded
+ * wallet at a provider outside the stack is counted, and the provider is the one their record names, never the page's
+ * word, so a page cannot report on a provider it does not sign at. Answers whether it was counted.
+ */
+export async function recordProviderOutcome(
+  deps: Pick<EmbeddedWalletDeps, 'store'> & { outcomes?: (line: EmbeddedProviderOutcomeLine) => void },
+  input: { userId: string; outcome: EmbeddedProviderOutcome; status: number | null; now: Date },
+): Promise<boolean> {
+  const wallet = await deps.store.find(input.userId);
+  if (!wallet || wallet.test || !deps.outcomes) return false;
+  deps.outcomes({
+    msg: 'protocol.embedded_provider_outcome',
+    provider: wallet.provider,
+    outcome: input.outcome,
+    status: input.status,
+    at: input.now.toISOString(),
+  });
+  return true;
 }
 
 function readyAdapter(setting: EmbeddedWalletSetting) {

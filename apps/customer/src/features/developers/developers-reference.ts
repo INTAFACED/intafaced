@@ -1721,6 +1721,15 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'Protect a position: a take profit, stop loss, stop market or stop limit the venue takes answers its unsigned trigger order for your wallet; a trailing stop or an index stop is armed on our engine (201) under your agent permission',
   },
   {
+    name: 'venueProtectionBreakeven',
+    method: 'POST',
+    path: '/api/v1/venue/protections/breakeven',
+    product: 'accounts',
+
+    summary:
+      'Move your stop to breakeven: the price at which closing the whole perp position nets zero after the venue’s fees and ours, and the unsigned actions, in order, that leave exactly one reduce-only stop resting there on the venue',
+  },
+  {
     name: 'venueProtectionCancel',
     method: 'DELETE',
     path: '/api/v1/venue/protections/:id',

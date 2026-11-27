@@ -7,6 +7,9 @@
  *                                                         a kind the venue takes answers the unsigned order for the wallet
  *                                                         (sent through /api/v1/venue/submit); one it lacks answers 201 armed
  *                                                         on our engine
+ *   POST   /api/v1/venue/protections/breakeven          { owner, symbol, clientOrderId, signer? }: the fee-adjusted
+ *                                                         breakeven of the open perp position and the unsigned actions,
+ *                                                         in order, that leave exactly one reduce-only stop there
  *   DELETE /api/v1/venue/protections/:id                an engine stop that has not fired
  *   GET    /api/v1/venue/protection-agent?owner=        the protection key and whether the venue lists it approved
  *   POST   /api/v1/venue/protection-agent/prepare       { owner }: the unsigned approval of that key, for the wallet
@@ -87,6 +90,13 @@ export function attachProtectionRoutes(
       (p) => p.create(principal, raw(req), deps.regionOf?.(req) ?? ''),
       (v) => ((v as { restsOn?: string }).restsOn === 'engine' ? 201 : 200),
     );
+  });
+
+  app.post(`${PROTECTIONS_PATH}/breakeven`, privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    // Nothing is sent: each step is signed by the person and sent through /api/v1/venue/submit, in order.
+    return answer(reply, (p) => p.breakeven(principal, raw(req)));
   });
 
   app.delete<{ Params: { id: string } }>(`${PROTECTIONS_PATH}/:id`, privateWrite, async (req, reply) => {

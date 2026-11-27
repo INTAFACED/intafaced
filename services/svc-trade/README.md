@@ -216,6 +216,11 @@ partner is set). History reads each accepted order's fills from the venue by cli
 swap; a sell's builder fee is posted once per fill by the builder-fee poster. The older `convert.*` tRPC path settles on
 our own book and is the custodial layer, kept and switched off with it.
 
+**The launch desk's read, for svc-notify's Telegram alerts.** `venue.deskSnapshot` (record `TRADE_DESK_SNAPSHOT`,
+svc-notify only): the person's own venue accounts' perpetual positions, margin use (the venue's margin summary: margin
+used over account value, null where the venue reads none), perpetual fills since a time and the week's realised profit
+less fees, from Monday 00:00 UTC. Read at the moment of the call; nothing stored, nothing posted.
+
 **The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
 `serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers
 one person's venue accounts with each one's balances and every spot fill, as the venue reports them at the moment of the

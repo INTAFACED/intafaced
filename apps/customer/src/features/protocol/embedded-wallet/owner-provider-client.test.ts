@@ -172,3 +172,64 @@ describe('the owner’s provider signs after the person’s passkey', () => {
     expect(k.challenges).toHaveLength(0);
   });
 });
+
+describe('each signature outcome at the owner’s provider is told to the stack', () => {
+  const run = async (
+    fetch: (url: string, init: { headers: Record<string, string>; body: string }) => Promise<Response>,
+    assertOk = true,
+  ) => {
+    const reports: Array<[string, number | null]> = [];
+    const k = assertOk ? passkey() : passkey({ ok: false, failure: 'passkey' });
+    const client = ownerProviderClient({
+      wallet: WALLET,
+      assert: k.assert,
+      fetch,
+      report: (outcome, status) => reports.push([outcome, status]),
+    });
+    const result = await client.signMessage(WALLET.providerWalletId, 'TEST');
+    return { result, reports };
+  };
+
+  it('signed, the quota (429), another refusal, a server error and no answer each report once, with the result unchanged', async () => {
+    const signed = await run(provider().fetch);
+    expect(signed.result.ok).toBe(true);
+    expect(signed.reports).toEqual([['signed', 200]]);
+
+    const quota = await run(async () => new Response('{"message":"over its allotted quota"}', { status: 429 }));
+    expect(quota.result).toEqual({ ok: false, failure: 'busy' });
+    expect(quota.reports).toEqual([['quota', 429]]);
+
+    const refused = await run(async () => new Response('{}', { status: 401 }));
+    expect(refused.result).toEqual({ ok: false, failure: 'refused' });
+    expect(refused.reports).toEqual([['refused', 401]]);
+
+    const incomplete = await run(provider({ activityStatus: 'ACTIVITY_STATUS_FAILED' }).fetch);
+    expect(incomplete.result).toEqual({ ok: false, failure: 'refused' });
+    expect(incomplete.reports).toEqual([['refused', 200]]);
+
+    const server = await run(async () => new Response('{}', { status: 503 }));
+    expect(server.result).toEqual({ ok: false, failure: 'down' });
+    expect(server.reports).toEqual([['down', 503]]);
+
+    const none = await run(async () => {
+      throw new TypeError('network');
+    });
+    expect(none.result).toEqual({ ok: false, failure: 'down' });
+    expect(none.reports).toEqual([['down', null]]);
+  });
+
+  it('a passkey that does not pass reaches no provider and reports nothing; a report that throws changes nothing', async () => {
+    const cancelled = await run(provider().fetch, false);
+    expect(cancelled.result).toEqual({ ok: false, failure: 'passkey' });
+    expect(cancelled.reports).toEqual([]);
+    const client = ownerProviderClient({
+      wallet: WALLET,
+      assert: passkey().assert,
+      fetch: provider().fetch,
+      report: () => {
+        throw new Error('report failed');
+      },
+    });
+    expect((await client.signMessage(WALLET.providerWalletId, 'TEST')).ok).toBe(true);
+  });
+});

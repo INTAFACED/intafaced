@@ -29,7 +29,7 @@ import { frontApp, holdOf } from './beta-front.mjs';
 const OLD = 'a'.repeat(40);
 /** The marker a launch on the beta's own settings writes (BETA_STACK_SETTINGS). */
 const SETTINGS =
-  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_LIVE_TEST_NETWORK=on LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=test LOCAL_STACK_CUSTODY_LAYER=off';
+  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_LIVE_TEST_NETWORK=on LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=test LOCAL_STACK_CUSTODY_LAYER=off LOCAL_STACK_PROFILE=launch-desk';
 const NEW = 'b'.repeat(40);
 const PASS = { ok: true, lines: ['ok   the Customer page carries the TEST banner ("TEST FUNDS")'] };
 
@@ -412,6 +412,21 @@ test('a stack without TEST valuation prices is stopped and started whole with th
   assert.ok(
     seen.some((s) => s.step === 'stop'),
     'a marker without LOCAL_STACK_VALUATION_PRICES=test restarts the stack',
+  );
+  assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
+});
+
+test('a stack running every service is stopped and started whole on the launch desk profile (#11075)', async () => {
+  const paths = home();
+  // The marker the beta wrote before the profile: every service of the stack ran.
+  fs.writeFileSync(paths.settings, `${SETTINGS.replace(' LOCAL_STACK_PROFILE=launch-desk', '')}\n`);
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-27T08:30:00Z' }));
+  const { io, seen } = fakes(paths, { head: OLD, target: OLD });
+  const end = await round(paths, io);
+  assert.equal(end.state, 'up');
+  assert.ok(
+    seen.some((s) => s.step === 'stop'),
+    'a marker without LOCAL_STACK_PROFILE=launch-desk restarts the stack, so the services it leaves off stop',
   );
   assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
 });

@@ -120,6 +120,9 @@ const messages = {
   'No coins title': 'No coins to buy right now',
   'No coins body': 'Markets will show here when they open.',
   'Go to Markets': 'Go to Markets',
+  'Venue spot title': 'Buy on the spot desk',
+  'Venue spot body': 'These coins trade on the spot desk, at the venue’s own prices.',
+  'Buy {coin} on the spot desk': 'Buy {coin} on the spot desk',
   // Your orders
   'Your orders': 'Your orders',
   'Your orders hint': 'Open orders first, then your latest finished ones.',

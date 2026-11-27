@@ -5,13 +5,14 @@ import { VenueFees } from './VenueFees';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
-import { bpsAsPercent, publicFeesFetcher, rowFor, type PublicFeeRow, type PublicFeeSchedule } from './fees';
+import { bpsAsPercent, publicFeesFetcher, rowFor, scheduleCharges, type PublicFeeRow, type PublicFeeSchedule } from './fees';
 import { feesCopy } from './fees-copy';
 
 /**
  * /fees, on the reading template: the published spot fee schedule for anyone, signed in or not (SP-fees-vip-02, J-cex-spot-10 #2). One table per
  * pair group, one row per tier; a tier the owner left blank in a group reads "not set". The network fee for sending a
- * coin out is its own line, never folded into a trading rate.
+ * coin out is its own line, never folded into a trading rate. With our own order book off, every order pays the venue,
+ * so the page names that in place of our schedule rather than showing a second rate for the same pair.
  */
 export function FeesPage() {
   const env = useDataEnv();
@@ -24,15 +25,17 @@ export function FeesPage() {
 
 export function FeesView({ load, venue }: { load: Loadable<PublicFeeSchedule | null>; venue?: ReactNode }) {
   const copy = feesCopy.useCopy();
+  // Our own schedule is what a fill pays only while our own book runs; off, the venue's rates are the only ones.
+  const charges = load.status === 'ready' && load.data ? scheduleCharges(load.data) : true;
   return (
     <div data-room="fees">
       <ReadingTemplate
         title={copy.t('title')}
-        description={copy.t('lead')}
+        description={copy.t(charges ? 'lead' : 'leadVenue')}
         state={{ kind: 'ready' }}
         meta={
           <>
-            {load.status === 'ready' && load.data ? <p>{copy.t('version', { version: load.data.version })}</p> : null}
+            {load.status === 'ready' && load.data && charges ? <p>{copy.t('version', { version: load.data.version })}</p> : null}
             <p>
               <a className="lt-link lt-link-alone" href="/fees/my-tier">
                 {copy.t('myTierLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
@@ -59,7 +62,13 @@ export function FeesView({ load, venue }: { load: Loadable<PublicFeeSchedule | n
                 <p>{copy.t('blankBody')}</p>
               </section>
             ) : null}
-            {load.status === 'ready' && load.data ? <Groups schedule={load.data} /> : null}
+            {load.status === 'ready' && load.data && charges ? <Groups schedule={load.data} /> : null}
+            {!charges ? (
+              <section role="status" data-fees="own-book-off" aria-labelledby="fees-own-book-off">
+                <h2 id="fees-own-book-off">{copy.t('ownBookOffTitle')}</h2>
+                <p>{copy.t('ownBookOffBody')}</p>
+              </section>
+            ) : null}
           </>
         }
         related={
@@ -71,13 +80,16 @@ export function FeesView({ load, venue }: { load: Loadable<PublicFeeSchedule | n
                 {copy.t('tradeLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
               </a>
             </section>
-            <section aria-labelledby="fees-network" data-fees="network">
-              <h2 id="fees-network">{copy.t('networkTitle')}</h2>
-              <p>
-                <strong>{copy.t('networkLine')}</strong>
-              </p>
-              <p>{copy.t('networkBody')}</p>
-            </section>
+            {/* Our own withdrawals' network fee; with our book off, a withdrawal is the venue's, listed with its fees above. */}
+            {charges ? (
+              <section aria-labelledby="fees-network" data-fees="network">
+                <h2 id="fees-network">{copy.t('networkTitle')}</h2>
+                <p>
+                  <strong>{copy.t('networkLine')}</strong>
+                </p>
+                <p>{copy.t('networkBody')}</p>
+              </section>
+            ) : null}
           </>
         }
       />

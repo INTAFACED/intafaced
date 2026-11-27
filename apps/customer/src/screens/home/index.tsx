@@ -16,6 +16,7 @@ import {
   isHiddenPath,
   useActivity,
   useFavorites,
+  listedCount,
   useMarketCatalogue,
   useMovers,
   moneyUnitOf,
@@ -224,7 +225,8 @@ function HomeSimple() {
   const { hideBalances, displayCurrency } = usePreferences();
   const portfolio = useHomePortfolio(moneyUnitOf(displayCurrency));
   // The one markets catalogue, as Markets reads it: with the venue on, its markets at its prices.
-  const { markets, tickers, source } = useMarketCatalogue();
+  const catalogue = useMarketCatalogue();
+  const { markets, tickers, source } = catalogue;
   // Our own engine's movers rank our own book's markets, so they show only where the catalogue is ours.
   const ownMovers = useMovers(6);
   const movers = source === 'own' ? ownMovers : NO_MOVERS;
@@ -328,7 +330,8 @@ function HomeSimple() {
       watch={popular ? popularRows : favoriteItems}
       popular={popular}
       movers={moverListings}
-      count={all.length}
+      // The same count Markets shows: open spot markets and the venue's perpetuals.
+      count={listedCount(catalogue)}
       tickers={tickers}
       loading={marketsLoading}
       broken={marketsBroken}

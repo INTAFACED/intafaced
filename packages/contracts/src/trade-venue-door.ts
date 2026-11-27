@@ -799,6 +799,19 @@ export const venuePublicFeesSchema = asOf(
         builderFeeBps: maybeKnown(decimalSchema),
       }),
     ),
+    /**
+     * What a USDC withdrawal to the trader's wallet costs, as the venue publishes it; `null`: it publishes none.
+     * Absent: a service from before the field, so the page lists nothing rather than "not published".
+     */
+    withdrawal: z
+      .object({
+        asset: z.string(),
+        fee: maybeKnown(decimalSchema),
+        networkFee: maybeKnown(decimalSchema),
+        arrivalSeconds: z.number().int().nonnegative().nullable(),
+      })
+      .nullable()
+      .optional(),
     test: z.boolean(),
   }),
 );
@@ -1145,6 +1158,42 @@ export const protectionAgentSchema = z.object({
   validUntil: z.string().nullable(),
 });
 export type ProtectionAgent = z.infer<typeof protectionAgentSchema>;
+
+/**
+ * `POST /api/v1/venue/protections/breakeven` (svc-trade src/venue/protections.ts `breakeven`): the fee-adjusted
+ * breakeven of the open perp position on `symbol`, and the actions to sign and send through `/api/v1/venue/submit`, in
+ * order, that leave exactly one reduce-only stop resting there. `next: 'call_again'`: send these, then call again for
+ * the new stop.
+ */
+export const breakevenAnswerSchema = z.object({
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  quantity: decimalSchema,
+  entryPrice: decimalSchema,
+  openingFees: signedDecimalSchema,
+  closeFeeBps: decimalSchema,
+  exactPrice: decimalSchema,
+  triggerPrice: decimalSchema,
+  steps: z.array(
+    z.object({
+      does: z.enum(['place_stop', 'cancel_stop']),
+      actionKey: z.string(),
+      prepared: preparedAnswerSchema.shape.prepared,
+      reused: z.boolean(),
+    }),
+  ),
+  replaces: z.array(z.string()),
+  next: z.enum(['call_again', 'done']),
+});
+export type BreakevenAnswer = z.infer<typeof breakevenAnswerSchema>;
+
+/** One press of "move my stop to breakeven": a fresh `clientOrderId` per press; `signer` as on a protection. */
+export interface BreakevenRequest {
+  owner: string;
+  symbol: string;
+  clientOrderId: string;
+  signer?: { role: 'owner' | 'agent'; address: string };
+}
 
 /** One protection to arm: only the price fields its kind takes are sent. Amounts are decimal strings. */
 export interface ProtectionRequest {

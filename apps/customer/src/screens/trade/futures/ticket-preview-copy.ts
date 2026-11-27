@@ -4,7 +4,7 @@ import { defineCopy } from '../../../shared/i18n';
 // that comes first. English source only.
 export const ticketPreviewCopy = defineCopy('trade.futures.venue.preview', {
   'Venue fees': 'Venue fees: taker {taker}%, maker {maker}%',
-  'Venue fees unpublished': 'Venue fees: not published by this venue',
+  'Venue fees by tier': 'Venue fees: by your fee tier on the venue, shown at review once your wallet is connected',
   'Leverage over': 'Leverage on {symbol} is at most {max}x on this venue.',
   'Leverage bad': 'Leverage is a whole number of times, 1 or more.',
   'At review': 'At review',

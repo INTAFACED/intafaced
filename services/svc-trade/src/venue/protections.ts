@@ -13,7 +13,9 @@ import {
   type UserVenueMarket,
   type UserVenueOrder,
   type VenueSubmitOutcome,
+  venueClientOrderId,
 } from '@intafaced/venue-contracts';
+import { feeAdjustedBreakeven, openingFeesOf } from './breakeven.js';
 import { closeTolerancePrice, requireCloseSlippageBps } from './close-slippage.js';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
 import { venueBoundPrice } from './venue-price.js';
@@ -56,7 +58,11 @@ export type ProtectionErrorCode =
   | 'trade.protection_agent_unapproved'
   | 'trade.protection_agent_key_unset'
   | 'trade.protection_unknown'
-  | 'trade.protection_final';
+  | 'trade.protection_final'
+  | 'trade.breakeven_no_position'
+  | 'trade.breakeven_fees_unknown'
+  | 'trade.breakeven_history_short'
+  | 'trade.breakeven_foreign_stop';
 
 export class ProtectionError extends Error {
   constructor(
@@ -134,6 +140,53 @@ export interface ProtectionView {
 export type ProtectionCreated =
   | { readonly restsOn: 'venue'; readonly actionKey: string; readonly prepared: PreparedAnswer['prepared']; readonly reused: boolean }
   | { readonly restsOn: 'engine'; readonly protection: ProtectionView };
+
+/** One press of "move my stop to breakeven": the position's own figures, and the stop to rest there. */
+export interface BreakevenRequest {
+  readonly owner?: unknown;
+  readonly symbol?: unknown;
+  /** The new stop's own id (one per press): its business key is `protection:<owner>:stop_market:<clientOrderId>`. */
+  readonly clientOrderId?: unknown;
+  /** Who signs: as `ProtectionRequest.signer`. */
+  readonly signer?: unknown;
+}
+
+/** What the person signs, in order, to leave exactly one reduce-only stop at the breakeven price. */
+export interface BreakevenAnswer {
+  readonly symbol: string;
+  readonly side: 'buy' | 'sell';
+  readonly quantity: string;
+  readonly entryPrice: string;
+  /** The fees the opening fills paid, the venue's and our builder fee, from the venue's fill records. */
+  readonly openingFees: string;
+  /** What the close pays on its notional: the venue's taker rate for the account plus our builder fee, in bps. */
+  readonly closeFeeBps: string;
+  /** The exact breakeven before the venue's price rule. */
+  readonly exactPrice: string;
+  /** The stop's trigger: on the venue's price rule (5 significant figures, the tick), never netting below zero. */
+  readonly triggerPrice: string;
+  /**
+   * Each action to sign and submit, in this order. While another stop loss rests on this market, the cancels of every
+   * one of them (each must be one our door placed); once none rests, the new stop for the whole position. Empty: the
+   * stop already rests at the price alone.
+   */
+  readonly steps: readonly {
+    readonly does: 'place_stop' | 'cancel_stop';
+    readonly actionKey: string;
+    readonly prepared: PreparedAnswer['prepared'];
+    readonly reused: boolean;
+  }[];
+  /** The venue client ids of the stops the cancels remove. */
+  readonly replaces: readonly string[];
+  /**
+   * `call_again`: once the cancels are sent, call again (same request) for the new stop; the position rests without a
+   * stop between the two. `done`: once these steps are sent, exactly one stop rests at `triggerPrice`.
+   */
+  readonly next: 'call_again' | 'done';
+}
+
+/** How far back the opening fills are read: a position opened before it refuses `trade.breakeven_history_short`. */
+const BREAKEVEN_FILLS_DAYS = 90;
 
 export interface ProtectionsDeps {
   readonly door: UserVenueDoor;
@@ -390,6 +443,167 @@ export class VenueProtections {
     return { restsOn: 'engine', protection: engineView(stored, null) };
   }
 
+  /**
+   * A fee-adjusted breakeven stop on an open perp position: the price at which closing the whole position nets
+   * zero after the venue's fees and our builder fee (`breakeven.ts`), and the actions that leave exactly one reduce-only
+   * stop loss resting there on the venue, signed by the person (their wallet, or their trading session key). Nothing is
+   * sent here: each step goes through `/api/v1/venue/submit` once signed.
+   *
+   * One press is two calls when a stop already rests: the venue holds one stop for the whole position at a time, and
+   * Hyperliquid's one-action modify carries no builder fee (the adapter refuses rather than drop it), so the old stop is
+   * cancelled first and the new one placed on the next call. Between the two the position has no stop: the client sends
+   * the second call at once, and the answer says so (`next`).
+   *
+   * Crash points: none strands funds (no value moves through INTAFACED). A press that stops after the cancels leaves the
+   * position without a stop until the call is made again, which places it; a press repeated after it landed prepares
+   * nothing. Breakeven on the wrong side of the mark is refused before any stop is cancelled.
+   */
+  async breakeven(principal: Principal, req: BreakevenRequest): Promise<BreakevenAnswer> {
+    if (typeof req.symbol !== 'string' || req.symbol.trim() === '') bad('symbol is required');
+    const symbol = req.symbol;
+    if (typeof req.clientOrderId !== 'string' || !CLIENT_ID_RE.test(req.clientOrderId))
+      bad('clientOrderId must be 1 to 64 letters, digits, - or _');
+    const clientOrderId = req.clientOrderId;
+    const signer = agentSignerOf(req.signer, bad);
+
+    const account = await this.deps.door.account(typeof req.owner === 'string' ? req.owner : '');
+    const venue = await this.deps.door.venue();
+    const market = (await venue.markets(account)).value.find((m) => m.symbol === symbol);
+    if (!market || market.kind !== 'perpetual') bad(`${symbol} is not a perpetual on ${venue.venue.displayName}`);
+    if (!(market.triggerSources ?? []).includes('mark')) {
+      throw new ProtectionError(
+        'trade.trigger_source_unset',
+        `${venue.venue.displayName} rests no stop on the mark price for ${symbol}, so no breakeven stop can rest there`,
+        400,
+      );
+    }
+    const position = (await venue.positions(account)).value.find((p) => p.symbol === symbol && p.size !== ZERO);
+    if (!position) throw new ProtectionError('trade.breakeven_no_position', `there is no open position on ${symbol} to protect`, 404);
+    const side: 'buy' | 'sell' = position.side === 'long' ? 'sell' : 'buy';
+
+    // The close's rate: the venue's taker rate for this account (a stop fires as a market order), and our builder fee on it.
+    if (!market.takerFeeBps.known) {
+      throw new ProtectionError(
+        'trade.breakeven_fees_unknown',
+        `${venue.venue.displayName} does not report this account's taker fee on ${symbol}, so no breakeven is computed`,
+        503,
+      );
+    }
+    const ours = await this.deps.door.builderFeeFor(symbol, side, 'perpetual');
+    if (ours === null) {
+      throw new ProtectionError(
+        'trade.breakeven_fees_unknown',
+        'our builder fee is not published (owner value blank), so no breakeven is computed',
+        503,
+      );
+    }
+    const closeFeeBps = add(market.takerFeeBps.value, ours.carries ? ours.feeBps : ZERO);
+    const since = new Date(this.deps.now().getTime() - BREAKEVEN_FILLS_DAYS * 86_400_000);
+    const fills = (await venue.fills(account, since)).value.filter((f) => f.symbol === symbol);
+    const openingFees = openingFeesOf(position, fills);
+    if (openingFees === null) {
+      throw new ProtectionError(
+        'trade.breakeven_history_short',
+        `the fills ${venue.venue.displayName} reports for the last ${BREAKEVEN_FILLS_DAYS} days do not add up to the position on ${symbol}, so its opening fees are not known and no breakeven is computed`,
+        409,
+      );
+    }
+    const be = feeAdjustedBreakeven({
+      side: position.side,
+      size: position.size,
+      entryPrice: position.entryPrice,
+      openingFees,
+      closeFeeBps,
+      tick: market.tickSize,
+    });
+
+    // The stops resting on this market now, as the venue lists them; each must be one our door placed, so it can be
+    // cancelled by its key. One already at the price for the whole position is kept.
+    const ourKeys = new Map<string, string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const read = await this.deps.door.orders(principal, account.owner, cursor, undefined);
+      // An order's own key derives its client id; a cancel's action carries the id of the order it cancels, never its own.
+      for (const o of read.orders) {
+        const cloid = o.venueClientOrderId?.toLowerCase();
+        if (cloid && clientIdOf(account.venueId, o.actionKey) === cloid) ourKeys.set(cloid, o.actionKey);
+      }
+      if (!read.nextCursor) break;
+      cursor = read.nextCursor;
+    }
+    // Each stop loss resting on this market with the key our door placed it under (null: placed outside INTAFACED).
+    const resting = (await venue.openOrders(account)).value
+      .filter((o) => o.symbol === symbol && o.trigger?.role === 'stop_loss' && o.trigger.state === 'waiting')
+      .map((o) => {
+        const cloid = o.venueClientOrderId?.toLowerCase() ?? null;
+        return { order: o, cloid, key: cloid === null ? null : (ourKeys.get(cloid) ?? null) };
+      });
+    const foreign = resting.filter((r) => r.key === null);
+    if (foreign.length > 0) {
+      throw new ProtectionError(
+        'trade.breakeven_foreign_stop',
+        `${foreign.length === 1 ? 'a stop' : `${foreign.length} stops`} on ${symbol} placed outside INTAFACED rest on ${venue.venue.displayName}; cancel ${foreign.length === 1 ? 'it' : 'them'} there first, so exactly one stop is left. Nothing was prepared`,
+        409,
+      );
+    }
+    const keep = resting.find(
+      ({ order: o }) => o.side === side && o.reduceOnly && o.trigger?.price === be.price && o.remaining === position.size,
+    );
+
+    // A stop already crossed would close at once: refused before anything, the old stop included, is touched.
+    if (!market.mark.known || (side === 'sell' ? compare(be.price, market.mark.value) >= 0 : compare(be.price, market.mark.value) <= 0)) {
+      throw new ProtectionError(
+        'trade.protection_wrong_side',
+        `Breakeven (${formatAmount(be.price)}) is on the wrong side of the mark price${market.mark.known ? ` (now ${formatAmount(market.mark.value)})` : ', which the venue does not report'}: it must be ${side === 'sell' ? 'below' : 'above'} it. Nothing was prepared.`,
+        400,
+      );
+    }
+
+    const steps: BreakevenAnswer['steps'][number][] = [];
+    const replaces: string[] = [];
+    for (const { cloid, key } of resting) {
+      if (cloid === keep?.cloid || cloid === null || key === null) continue;
+      const answer = await this.deps.door.prepare(principal, {
+        owner: account.owner,
+        signer: orderSigner(signer, account.owner),
+        intent: { kind: 'cancel_order', symbol, clientOrderKey: key },
+        actionKey: `breakeven:cancel:${account.owner}:${clientOrderId}:${cloid}`,
+      });
+      steps.push({ does: 'cancel_stop', actionKey: answer.actionKey, prepared: answer.prepared, reused: answer.reused });
+      replaces.push(cloid);
+    }
+    // The venue holds one whole stop at a time (the door's `trade.venue_whole_close_taken`): the new one is prepared once
+    // no other rests, on the next call.
+    if (!keep && steps.length === 0) {
+      const created = await this.create(principal, {
+        owner: account.owner,
+        symbol,
+        kind: 'stop_market',
+        side,
+        quantity: formatAmount(position.size),
+        triggerPrice: formatAmount(be.price),
+        triggerSource: 'mark',
+        clientOrderId,
+        signer: signer ?? undefined,
+      });
+      if (created.restsOn !== 'venue') throw new Error('a breakeven stop rests on the venue');
+      steps.push({ does: 'place_stop', actionKey: created.actionKey, prepared: created.prepared, reused: created.reused });
+    }
+    return {
+      symbol,
+      side,
+      quantity: formatAmount(position.size),
+      entryPrice: formatAmount(position.entryPrice),
+      openingFees: formatAmount(openingFees),
+      closeFeeBps: formatAmount(closeFeeBps),
+      exactPrice: formatAmount(be.exact),
+      triggerPrice: formatAmount(be.price),
+      steps,
+      replaces,
+      next: !keep && replaces.length > 0 ? 'call_again' : 'done',
+    };
+  }
+
   /** Every protection on the person's venue account: the venue's trigger orders our door sent, and the engine's stops. */
   async list(principal: Principal, owner: string): Promise<readonly ProtectionView[]> {
     const account = await this.deps.door.account(owner);
@@ -563,6 +777,15 @@ export class VenueProtections {
     await this.deps.store.move(row.id, 'firing', 'failed', at, { firedAt: at, failure });
   }
 }
+
+/** The venue client id a key derives, lowercased; null for a key that is not an order's (it never derives one). */
+const clientIdOf = (venueId: string, key: string): string | null => {
+  try {
+    return venueClientOrderId(venueId, key).toLowerCase();
+  } catch {
+    return null;
+  }
+};
 
 /** The business key of the one order a stop sends: the person's venue account and their own client order id. */
 const fireKey = (row: EngineProtection) => `protection:fire:${row.owner}:${row.clientKey}`;

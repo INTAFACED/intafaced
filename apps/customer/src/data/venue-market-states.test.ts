@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { venueListingOf, venueListingStatuses, venueMarketRow, venueModeOf, type VenueMarketState } from './venue-market-states';
-import { pickSource } from './market-catalogue';
+import { listedCount, pickSource, venueSpotMarkets } from './market-catalogue';
 import { modesFrom, type MarketMode } from '../features/public/status';
 import type { Loadable, MarketRow } from './types';
 
@@ -223,5 +223,36 @@ describe('modesFrom (/status)', () => {
       opensAt: Date.parse('2026-11-24T12:00:00.000Z'),
       maintenance: { status: 'scheduled', endsAt: null },
     });
+  });
+});
+
+// Home's "All N markets" and Markets' count are one number, and Buy and sell offers the venue's open spot markets
+// where our own book lists none. TEST figures.
+describe('one count and one list of what can be bought', () => {
+  const ready = (rows: VenueMarketState[]) => ({
+    status: 'ready' as const,
+    asOf: Date.parse(OPENS),
+    data: { venueId: 'v', asOf: OPENS, value: { venue: { id: 'v', displayName: 'TEST venue' }, markets: rows, test: true } },
+  });
+  const empty: Loadable<MarketRow[]> = { status: 'empty' };
+  const venue = ready([
+    market({ symbol: 'PURR-USDC', baseAsset: 'PURR' }),
+    market({ symbol: 'GONE-USDC', baseAsset: 'GONE' }, { delisted: true, delistsAt: OPENS }),
+    market({ symbol: 'SOON-USDC', baseAsset: 'SOON' }, { open: false }),
+    market({ symbol: 'BTC-PERP', kind: 'perpetual', quoteAsset: 'USDC' }),
+    market({ symbol: 'ETH-PERP', kind: 'perpetual', baseAsset: 'ETH', quoteAsset: 'USDC' }),
+  ]);
+  const catalogue = pickSource(venue, empty, { status: 'empty' }, { status: 'empty' });
+
+  it('counts the open and announced spot markets and every perpetual, never a delisted one', () => {
+    // PURR-USDC open, SOON-USDC upcoming (listed with its state), two perpetuals; GONE-USDC delisted is not counted.
+    expect(listedCount(catalogue)).toBe(4);
+  });
+
+  it('offers only the venue spot markets that take an order now', () => {
+    expect(venueSpotMarkets(catalogue).map((m) => m.symbol)).toEqual(['PURR-USDC']);
+    // Where the venue door is off, our own book's markets stand and nothing is offered from the venue.
+    const own = pickSource({ status: 'refused', code: 'trade.user_venue_off' }, empty, { status: 'empty' }, { status: 'empty' });
+    expect(venueSpotMarkets(own)).toEqual([]);
   });
 });

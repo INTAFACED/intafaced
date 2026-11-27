@@ -12,6 +12,8 @@ import { guestVerificationRouter } from './guests/verification-router.js';
 import { supportChartsRouter } from './alerts/support-charts-router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import { navMetricsRouter } from './nav-metrics/router.js';
+import { telegramRouter } from './telegram/router.js';
+import type { TelegramDesk } from './telegram/desk.js';
 import { reconAlertFeedRouter } from './reconciliation-alert-feed/router.js';
 import { MemoryReconAlertFeedStore, type ReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
 import type { NavMetricStore } from './nav-metrics/counts.js';
@@ -361,8 +363,10 @@ export function createNotifyRouter(
     store: new MemoryReconAlertFeedStore(),
     attached: () => false,
   },
+  telegram?: TelegramDesk,
 ) {
   return router({
+    telegram: telegramRouter(telegram),
     reconciliationAlertFeed: reconAlertFeedRouter(reconAlertFeed.store, reconAlertFeed.attached),
     guestNotifications: guestNotificationsRouter(guests),
     guestVerification: guestVerificationRouter(verifications),

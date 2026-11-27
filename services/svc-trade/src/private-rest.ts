@@ -208,6 +208,12 @@ function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number
 const ORDER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface PrivateRestDeps {
+  /**
+   * Whether our own spot order book runs (`TRADE_SPOT_ENABLED`, which follows the custody switch). Off, every order is
+   * placed on the venue and pays the venue's rates, so the public schedule says so and the fee page shows it as ours
+   * kept, not as what a fill pays. Unset reads on, as before.
+   */
+  ownBookEnabled?: boolean;
   /** A key's own rotation request, passed to identity (account/api-key-rotation-rest.ts, J-developer-07 #3). */
   apiKeyRotation?: ApiKeyRotationClient;
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
@@ -1834,7 +1840,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const spotSymbols = listed.filter((market) => market.kind === 'spot').map((market) => market.symbol);
       // Paying a spot fee in the platform token: the owner's terms as published, or null (the desk then says why not).
       const feeToken = schedule.ifcFee ? { asset: schedule.ifcFee.tokenAsset, perUnit: schedule.ifcFee.perUnit } : null;
-      return reply.code(200).send({ version: schedule.version, fees, ...publicFeeSchedule(schedule, spotSymbols), feeToken });
+      const ownBook = deps.ownBookEnabled !== false;
+      return reply.code(200).send({ version: schedule.version, fees, ...publicFeeSchedule(schedule, spotSymbols), feeToken, ownBook });
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

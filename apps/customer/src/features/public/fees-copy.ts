@@ -4,6 +4,10 @@ import { defineCopy } from '../../shared/i18n';
 export const feesCopy = defineCopy('public-fees', {
   title: 'Trading fees',
   lead: 'What you pay to trade spot, by pair group and tier. A fee is a share of the value traded, taken from what you receive.',
+  leadVenue: 'What a trade costs on the venue, by its fee tier, with our builder fee as its own line, and what taking money out costs.',
+  ownBookOffTitle: 'Every order is placed on the venue',
+  ownBookOffBody:
+    'A fill pays the venue’s maker or taker rate for your tier, shown here, and our builder fee where it applies, nothing else. Our own order book, with its own schedule, is off, so that schedule charges nothing.',
   version: 'Schedule version {version}',
   loading: 'Loading the fee schedule…',
   failed: 'The fee schedule did not load.',

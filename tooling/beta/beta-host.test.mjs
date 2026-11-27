@@ -115,6 +115,7 @@ test('fundsCheck passes a stack whose every route stays on this machine and whos
   });
   assert.equal(r.ok, true, r.lines.join('\n'));
   assert.match(r.lines.join('\n'), /2 of 2 running processes/);
+  assert.match(r.lines.join('\n'), /the 2 running processes: edge, ledger/, 'status names each running process and their count');
 });
 
 test('fundsCheck fails on a route off the machine, naming the process, key and host', () => {
@@ -504,6 +505,13 @@ test("the beta's balance watch reads the test network every 15 s, inside its 120
   assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, '15000');
   assert.equal(beta.TRADE_PROTECTION_ENGINE_INTERVAL_MS, '1000');
   for (const venue of ['on', 'hl-recorded']) assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, undefined, venue);
+  // The beta's background readers read a set number of accounts a minute in turn, so their weight does not grow with them.
+  assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, '24');
+  assert.equal(beta.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, '6');
+  for (const venue of ['on', 'hl-recorded']) {
+    assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, undefined, venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, undefined, venue);
+  }
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {
@@ -606,6 +614,8 @@ test('recordLimits keeps the four outside limits in status.json and says a new w
   fs.mkdirSync(path.join(paths.state, 'logs'), { recursive: true });
   fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: 'abc', at: '2026-11-27T09:00:00.000Z' }));
   fs.writeFileSync(paths.testnet, JSON.stringify({ funder: '0x47e03ee499ba8efff97d8e6459ae2c64e8b28dc6', accounts: {} }));
+  // svc-protocol's log, with no signature at the owner's provider in it (#11063).
+  fs.writeFileSync(path.join(paths.state, 'logs', 'protocol.log'), '{"level":30,"time":1,"msg":"request completed"}\n');
   const deps = { spotFree: async () => '68', seatLimit: '' };
   const limits = await recordLimits(paths, deps);
   assert.deepEqual(
@@ -616,7 +626,8 @@ test('recordLimits keeps the four outside limits in status.json and says a new w
   assert.equal(s.state, 'up', "the round's own fields stay");
   assert.equal(s.at, '2026-11-27T09:00:00.000Z');
   assert.deepEqual(s.limits, limits);
-  // On the TEST wallet provider (BETA_WALLET_PROVIDER, #11092) the provider's limit is ok: no outside signature is spent.
+  // On the TEST wallet provider (BETA_WALLET_PROVIDER, #11092) with no signature at the owner's provider in svc-protocol's
+  // log, the provider's limit is ok.
   assert.match(s.limitsLine, /^limits: warn \(funder\); unread \(venue-weight, login-seats\); ok \(wallet-provider\)$/);
   await recordLimits(paths, deps);
   const warned = fs

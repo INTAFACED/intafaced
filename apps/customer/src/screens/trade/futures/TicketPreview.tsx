@@ -58,7 +58,7 @@ export function TicketPreview({
   const fees =
     market.takerFeeBps.known && market.makerFeeBps.known
       ? p('Venue fees', { taker: bpsToPercent(market.takerFeeBps.value), maker: bpsToPercent(market.makerFeeBps.value) })
-      : p('Venue fees unpublished');
+      : p('Venue fees by tier');
   const first = wallet.wallets[0];
   return (
     <section className="lt-panel" aria-label={t('Ticket')} data-testid="venue-ticket-preview">
@@ -102,7 +102,7 @@ export function TicketPreview({
             },
             {
               label: t('Opening fee'),
-              value: summary && summary.fee === null ? t('Not published') : quoted(summary?.fee ?? null),
+              value: quoted(summary?.fee ?? null),
             },
             { label: t('Liquidation price'), value: p('At review') },
           ]}

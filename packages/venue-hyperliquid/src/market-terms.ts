@@ -21,6 +21,7 @@ export type ReadMarketTerm =
   | 'makerFeeBps'
   | 'takerFeeBps'
   | 'builderFeeCapBps'
+  | 'triggerSources'
   | 'contractSize'
   | 'mark'
   | 'funding';
