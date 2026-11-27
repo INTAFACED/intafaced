@@ -89,6 +89,10 @@ export function betaPaths(home = os.homedir()) {
     ...invitedPaths(root),
     unit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta.service'),
     frontUnit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-front.service'),
+    /** The public door, installed by hand with its credentials (docs/runbooks/beta-link.md); never rewritten here. */
+    tunnelUnit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-tunnel.service'),
+    /** The tunnel's weights (tunnelDropInText), beside its hand-written unit. */
+    tunnelDropIn: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-tunnel.service.d', '50-beta-priority.conf'),
     /** The hash of the beta-front.mjs the front service was last started on. */
     front: path.join(root, 'front.json'),
     /** The beta's anvil launcher (anvilLauncher): present only once its pinned image is on the box. */
@@ -954,6 +958,11 @@ async function serve(paths) {
     } catch (err) {
       log(paths, `front: ${err.message}`);
     }
+    try {
+      syncPriority(paths);
+    } catch (err) {
+      log(paths, `priority: ${err.message}`);
+    }
     // The checkout's copy of this file moved with main: start the new one at once (selfRestart), else exit and let
     // systemd (Restart=always) start it.
     if (SELF.startsWith(paths.checkout + path.sep) && fileHash(SELF) !== mine) {
@@ -986,6 +995,29 @@ export function selfRestart({
   return systemctl('restart', '--no-block', BETA_SERVICE).status === 0 ? 'restart' : 'exit';
 }
 
+/**
+ * The beta runs ahead of builders on the shared box (#11062). Every unit of the beta (supervisor and stack, front,
+ * tunnel) sits in the user manager's app.slice beside T3's agents (app-t3code.slice, weight 10) and other user services
+ * (systemd's default 100): 1000 gives testers' desks the CPU and disk first when a builder runs a full suite. No Nice
+ * or OOMScoreAdjust: a user manager may refuse those at exec time, and the beta would not start.
+ */
+export const BETA_PRIORITY = Object.freeze({ CPUWeight: '1000', IOWeight: '1000' });
+const PRIORITY_LINES = Object.entries(BETA_PRIORITY)
+  .map(([k, v]) => `${k}=${v}\n`)
+  .join('');
+/**
+ * The memory the beta's stack (2.4 GB on 27 Nov) keeps when the box reclaims: builders' memory goes first. It holds
+ * within what the box grants the user slice (claude-hub machine/linux/setup.sh), shared with T3's own.
+ */
+const BETA_MEMORY_LOW = '2G';
+
+/** The drop-in that gives the hand-installed tunnel unit the beta's weights. */
+export function tunnelDropInText() {
+  return `# Written by intafaced tooling/beta/beta-host.mjs (#11062): the beta's public door runs ahead of builders.
+[Service]
+${PRIORITY_LINES}`;
+}
+
 /** The systemd user service that keeps `serve` running. KillMode=process: a restart of the supervisor leaves the stack up. */
 export function unitText(paths) {
   return `[Unit]
@@ -999,6 +1031,7 @@ ExecStart=/bin/bash -lc 'exec node tooling/beta/beta-host.mjs serve'
 Restart=always
 RestartSec=60
 KillMode=process
+${PRIORITY_LINES}MemoryLow=${BETA_MEMORY_LOW}
 
 [Install]
 WantedBy=default.target
@@ -1022,7 +1055,7 @@ WorkingDirectory=${paths.checkout}
 ExecStart=/bin/bash -lc 'exec node tooling/beta/beta-front.mjs'
 Restart=always
 RestartSec=5
-
+${PRIORITY_LINES}
 [Install]
 WantedBy=default.target
 `;
@@ -1056,6 +1089,36 @@ export function syncFront(paths, systemctl = (...args) => spawnSync('systemctl',
   if (r.status === 0) fs.writeFileSync(paths.front, `${JSON.stringify({ sha256: hash, at: new Date().toISOString() })}\n`);
   log(paths, `front: ${action}${r.status === 0 ? '' : ` failed (systemctl exited ${r.status})`}`);
   return action;
+}
+
+/**
+ * Keeps the beta's own unit and the tunnel's drop-in as this checkout writes them, so a box installed earlier takes the
+ * weights with the next move to main. A reload applies them to the running units; nothing restarts. Only what is
+ * installed is touched: no beta unit, no tunnel unit, nothing written. Returns the files it wrote.
+ */
+export function syncPriority(paths, systemctl = (...args) => spawnSync('systemctl', ['--user', ...args], { encoding: 'utf8' })) {
+  const read = (file) => {
+    try {
+      return fs.readFileSync(file, 'utf8');
+    } catch {
+      return null;
+    }
+  };
+  const wanted = [];
+  if (read(paths.unit) != null) wanted.push([paths.unit, unitText(paths)]);
+  if (read(paths.tunnelUnit) != null) wanted.push([paths.tunnelDropIn, tunnelDropInText()]);
+  const written = [];
+  for (const [file, text] of wanted) {
+    if (read(file) === text) continue;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    written.push(file);
+  }
+  if (written.length) {
+    const r = systemctl('daemon-reload');
+    log(paths, `priority: wrote ${written.join(', ')}${r.status === 0 ? '' : `; daemon-reload exited ${r.status}`}`);
+  }
+  return written;
 }
 
 async function main(argv) {
@@ -1099,6 +1162,10 @@ async function main(argv) {
       throw new Error(`the beta checkout (${paths.checkout}) has no tooling/beta/beta-host.mjs: install once it is on main`);
     fs.mkdirSync(path.dirname(paths.unit), { recursive: true });
     fs.writeFileSync(paths.unit, unitText(paths));
+    if (fs.existsSync(paths.tunnelUnit)) {
+      fs.mkdirSync(path.dirname(paths.tunnelDropIn), { recursive: true });
+      fs.writeFileSync(paths.tunnelDropIn, tunnelDropInText());
+    }
     for (const args of [['daemon-reload'], ['enable', '--now', 'intafaced-beta.service']]) {
       const r = spawnSync('systemctl', ['--user', ...args], { stdio: 'inherit' });
       if (r.status !== 0) process.exit(r.status ?? 1);

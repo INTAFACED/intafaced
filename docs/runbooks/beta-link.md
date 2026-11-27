@@ -147,5 +147,8 @@ tabs overlap, so "OTO" covers "Market".
 intafaced-beta-front.service`; the tunnel's log names its connections (`journalctl --user -u intafaced-beta-tunnel`).
 
 Install once on the box, from the beta checkout: `node ~/.intafaced/beta/checkout/tooling/beta/beta-host.mjs install`.
+The beta's units (supervisor and stack, front, tunnel by a drop-in) run at CPU and IO weight 1000, ahead of builders,
+and the stack keeps 2G under memory pressure; each round keeps them so (`syncPriority`, #11062). Check:
+`systemctl --user show intafaced-beta.service intafaced-beta-front.service intafaced-beta-tunnel.service -p CPUWeight -p IOWeight -p MemoryLow`.
 Stop: `systemctl --user stop intafaced-beta.service`, then `node tooling/beta/beta-host.mjs stop`.
 Close the public door alone: `systemctl --user disable --now intafaced-beta-tunnel.service`.
