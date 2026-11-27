@@ -45,6 +45,7 @@ import {
   rerunSealJob,
   rerunBlocker,
   sealPull,
+  carriedPulls,
   stepsIn,
   titleProblems,
   titleSteps,
@@ -447,6 +448,51 @@ test('sealPull: the title and body come from the pull request now; a moved head 
   assert.equal((await sealPull({ repo: REPO, number: 5, sha: HEAD, io: io({ ...pull, state: 'closed' }) })).ok, false);
   const edited = { ...pull, title: 'x (J-bank-13 #1 #2 #3)' };
   assert.equal((await sealPull({ repo: REPO, number: 5, sha: HEAD, io: io(edited) })).ok, false, 'a step added to the title is read');
+});
+
+test('sealPull: a run on an earlier commit counts for the head only when nothing a journeys run executes changed since (#11076)', async () => {
+  const io = ({ since, runsOn = { [OLD]: [run(1, { head_sha: OLD })] }, readable = true }) => ({
+    pull: async () => pull,
+    runs: async (sha) => runsOn[sha] ?? [],
+    reportOf: reports({ 1: { ...green, ran: CANARY } }),
+    files: async () => ['services/svc-bank/src/cards.ts', ...since.map((f) => f.filename)],
+    verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
+    prCommits: async () => [OLD, HEAD],
+    compare: async (base, head) => {
+      if (!readable) throw new Error('HTTP 502');
+      assert.equal(head, HEAD);
+      return { status: 'ahead', files: since };
+    },
+    blobText: async (path, ref) =>
+      path.endsWith('cards.ts') ? `export const x = 1; // ${ref === OLD ? 'old' : 'new'} words\n` : `x(${ref === OLD ? 1 : 2})`,
+  });
+  const pull = { state: 'open', head: { sha: HEAD }, title: 'x (J-bank-13 #1 #2)', body: '' };
+  const seal = (o) => sealPull({ repo: REPO, number: 5, sha: HEAD, io: io(o) });
+  // A comment-only push and a unit test: the run on the commit before it counts.
+  const quiet = await seal({
+    since: [
+      { filename: 'services/svc-bank/src/cards.ts', status: 'modified' },
+      { filename: 'services/svc-bank/src/cards.test.ts', status: 'modified' },
+    ],
+  });
+  assert.equal(quiet.ok, true, quiet.lines.join('\n'));
+  assert.ok(quiet.lines.some((l) => /carried: bbbbbbbbbb: .*count for the head/.test(l)));
+  // Code changed since: the earlier run counts for nothing, and the head has none.
+  const code = await seal({ since: [{ filename: 'services/svc-bank/src/accounts.ts', status: 'modified' }] });
+  assert.equal(code.ok, false);
+  // A comparison that can't be read carries nothing.
+  assert.equal((await seal({ since: [], readable: false })).ok, false);
+  // A red run on the earlier commit stands for the head too.
+  const red = await sealPull({
+    repo: REPO,
+    number: 5,
+    sha: HEAD,
+    io: {
+      ...io({ since: [{ filename: 'services/svc-bank/src/cards.test.ts', status: 'modified' }] }),
+      reportOf: reports({ 1: { states: { 'J-bank-13#1': 'failed', 'J-bank-13#2': 'passed' }, ran: CANARY } }),
+    },
+  });
+  assert.equal(red.ok, false);
 });
 
 test('stepsIn keys match the report reader (journey-verdict readReport)', () => {
@@ -3792,4 +3838,24 @@ test('judgeTouchedRun: a beta run whose only red is outside the beta passes the 
     got.lines.join('\n'),
     /1 red step\(s\) outside the beta's own journeys, money and sign-in hold no beta pull request[^\n]*J-algo-dev-01#1/,
   );
+});
+
+test('carriedPulls: a journeys run on an earlier commit re-checks the newer head that carries it, and no other (#11076)', async () => {
+  const base = { state: 'open', base: { repo: { full_name: REPO } } };
+  const on = (n, sha) => ({ ...base, number: n, head: { sha } });
+  const io = (files) => ({
+    prCommits: async () => [OLD, HEAD],
+    compare: async () => ({ status: 'ahead', files }),
+    blobText: async () => null,
+  });
+  const quiet = [{ filename: 'services/svc-bank/src/cards.test.ts', status: 'modified' }];
+  const code = [{ filename: 'services/svc-bank/src/cards.ts', status: 'modified' }];
+  assert.deepEqual(
+    (await carriedPulls({ pulls: [on(5, HEAD)], sha: OLD, repo: REPO, io: io(quiet) })).map((p) => p.number),
+    [5],
+  );
+  assert.deepEqual(await carriedPulls({ pulls: [on(5, HEAD)], sha: OLD, repo: REPO, io: io(code) }), []);
+  // Its own head is re-checked as before, not here; a closed one never.
+  assert.deepEqual(await carriedPulls({ pulls: [on(5, OLD)], sha: OLD, repo: REPO, io: io(quiet) }), []);
+  assert.deepEqual(await carriedPulls({ pulls: [{ ...on(5, HEAD), state: 'closed' }], sha: OLD, repo: REPO, io: io(quiet) }), []);
 });
