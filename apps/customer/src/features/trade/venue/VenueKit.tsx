@@ -1,4 +1,4 @@
-import { useCallback, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useRef, type ReactNode } from 'react';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
@@ -228,6 +228,21 @@ function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
 /** The refusal codes the desk gives an action it could not sign for want of a trading session (session-signer.ts). */
 export const SESSION_NEEDED = 'trade.venue_session_needed';
 export const SESSION_KEY_GONE = 'trade.venue_session_key_gone';
+
+/**
+ * The desk's trading session (VenueSession.tsx `useDeskSession`), for an action the desk prepares outside
+ * `useVenueActions`: a position's exit order (VenueProtect.tsx `useSignPrepared`). Null where no desk provides one, and
+ * the owner's wallet signs.
+ */
+export const DeskSigningContext = createContext<SessionSigning | null>(null);
+export const useDeskSigning = () => useContext(DeskSigningContext);
+
+export type ExitSigner = { signer: DeskSigner };
+/** Who signs an exit order (an order, so `place_order`'s signer): the desk's live session key where trades need one. */
+export function useExitSignerChoice(owner: string): () => ExitSigner | { needs: 'session' } {
+  const signing = useDeskSigning();
+  return useCallback(() => chooseSigner('place_order', owner, signing), [owner, signing]);
+}
 
 /**
  * Prepare → the wallet signs → submit, once per business key. A second call with a key still in flight is the same call
