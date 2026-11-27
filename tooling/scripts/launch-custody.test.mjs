@@ -70,11 +70,11 @@ test("the real journeys list has a launch desk, and the command prints a shard's
 
 test("a launch-desk file still failing custody off keeps today's switch, and every such entry is a launch-desk file (#11102)", () => {
   const ids = new Set(['J-a-1']);
-  assert.equal(fileCustody('J-a-1.pw.mjs', ids, new Set(['J-a-1.pw.mjs'])), 'on');
-  assert.equal(fileCustody('apps/customer/tests/real-app/J-a-1.pw.mjs', ids, new Set(['J-a-1.pw.mjs'])), 'on');
-  assert.equal(fileCustody('J-a-1-venue.pw.mjs', ids, new Set(['J-a-1.pw.mjs'])), 'off');
+  assert.equal(fileCustody('J-a-1.pw.mjs', ids, new Set(['J-a-1'])), 'on');
+  assert.equal(fileCustody('apps/customer/tests/real-app/J-a-1.pw.mjs', ids, new Set(['J-a-1'])), 'on');
+  assert.equal(fileCustody('J-a-1-venue.pw.mjs', ids, new Set(['J-a-1'])), 'off');
   const launch = readLaunchJourneyIds();
   const files = new Set(journeyFiles(path.join(ROOT, JOURNEY_DIR)));
-  const stale = [...NOT_YET_OFF].filter((f) => !files.has(f) || !launch.has(journeyIdOf(f)));
+  const stale = [...NOT_YET_OFF].filter((f) => !files.has(`${f}.pw.mjs`) || !launch.has(journeyIdOf(`${f}.pw.mjs`)));
   assert.deepEqual(stale, [], 'NOT_YET_OFF names a file that is gone or no launch-desk file: delete it from the list');
 });

@@ -24,7 +24,7 @@ export const FROZEN_CUSTODY_LAYER = 'on';
 export const LAUNCH_ORDER = 1;
 
 /**
- * Launch-desk files that still fail with custody off, so they run on today's switch until fixed (#11102). Read from
+ * Launch-desk files (by name, less `.pw.mjs`) that still fail with custody off, so they run on today's switch until fixed (#11102). Read from
  * three targeted runs of every Order 1 journey with custody off (45977414925, 45977419967, 45977425153): each file here
  * holds a test that passed on main's run 45972466244 and failed custody off; every other launch-desk file passed whole.
  * The list only shrinks: launch-custody.test.mjs fails an entry that is no launch-desk file, and a file leaves the list
@@ -32,33 +32,33 @@ export const LAUNCH_ORDER = 1;
  * is fixed.
  */
 export const NOT_YET_OFF = new Set([
-  'J-agents-01.pw.mjs',
-  'J-agents-02.pw.mjs',
-  'J-agents-08.pw.mjs',
-  'J-cex-spot-03.pw.mjs',
-  'J-cex-spot-10.pw.mjs',
-  'J-cex-spot-15-algo.pw.mjs',
-  'J-cex-spot-15-api.pw.mjs',
-  'J-cex-spot-18.pw.mjs',
-  'J-charts-desk-01.pw.mjs',
-  'J-charts-desk-14.pw.mjs',
-  'J-derivatives-01-hl-venue.pw.mjs',
-  'J-derivatives-01.pw.mjs',
-  'J-derivatives-01-venue.pw.mjs',
-  'J-derivatives-02.pw.mjs',
-  'J-derivatives-04.pw.mjs',
-  'J-derivatives-05.pw.mjs',
-  'J-derivatives-06.pw.mjs',
-  'J-home-ia-01.pw.mjs',
-  'J-home-ia-11.pw.mjs',
-  'J-identity-01.pw.mjs',
-  'J-identity-13.pw.mjs',
-  'J-identity-22.pw.mjs',
-  'J-ops-console-02-customer-record.pw.mjs',
-  'J-portfolio-01.pw.mjs',
-  'J-portfolio-03.pw.mjs',
-  'J-support-public-20.pw.mjs',
-  'J-support-public-20-venue.pw.mjs',
+  'J-agents-01',
+  'J-agents-02',
+  'J-agents-08',
+  'J-cex-spot-03',
+  'J-cex-spot-10',
+  'J-cex-spot-15-algo',
+  'J-cex-spot-15-api',
+  'J-cex-spot-18',
+  'J-charts-desk-01',
+  'J-charts-desk-14',
+  'J-derivatives-01-hl-venue',
+  'J-derivatives-01',
+  'J-derivatives-01-venue',
+  'J-derivatives-02',
+  'J-derivatives-04',
+  'J-derivatives-05',
+  'J-derivatives-06',
+  'J-home-ia-01',
+  'J-home-ia-11',
+  'J-identity-01',
+  'J-identity-13',
+  'J-identity-22',
+  'J-ops-console-02-customer-record',
+  'J-portfolio-01',
+  'J-portfolio-03',
+  'J-support-public-20',
+  'J-support-public-20-venue',
 ]);
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -87,7 +87,10 @@ export function readLaunchJourneyIds(file = JOURNEYS_JSON) {
  * and today's for a launch-desk file still in `notYet` (NOT_YET_OFF).
  */
 export function fileCustody(file, launchIds, notYet = NOT_YET_OFF) {
-  const name = String(file).split('/').pop();
+  const name = String(file)
+    .split('/')
+    .pop()
+    .replace(/\.pw\.mjs$/, '');
   return launchIds.has(journeyIdOf(file)) && !notYet.has(name) ? LAUNCH_CUSTODY_LAYER : FROZEN_CUSTODY_LAYER;
 }
 
