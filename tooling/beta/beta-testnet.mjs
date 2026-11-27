@@ -24,7 +24,14 @@
  * pending one, so a second dispatch while one waits could cancel a tester's run.
  *
  * Before every send the funder's free TEST USDC is read on the testnet (its address is the one the workflow's own log
- * names, `USDC <funder> -> <to>`); under the grant, nothing is sent and round.log names it once.
+ * names, `USDC <funder> -> <to>`); under the grant, nothing is sent and round.log names it once, with how it refills.
+ *
+ * How the funder refills (#11030): Hyperliquid's testnet faucet is the unsigned info request `{"type":"claimDrip","user"}`
+ * (what app.hyperliquid-testnet.xyz/drip posts to api-ui.hyperliquid-testnet.xyz/info; no key), and it pays 1,000 TEST
+ * USDC once per address that exists on mainnet. The funder qualified and was paid on 19 Nov 2026; on 27 Nov its claim
+ * answered "Drip already claimed", and a fresh address answers "does not exist on mainnet". So the faucet never refills
+ * it again: what refills it is a send from another funded testnet account (that account's own faucet claim, moved with
+ * its key) and the judge walks handing back what they did not use.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -44,6 +51,9 @@ export const RETRY_AFTER_MS = 5 * 60_000;
 /** How long a send whose run id is unknown waits before it counts as failed: longer than any run of the workflow. */
 export const UNKNOWN_AFTER_MS = 20 * 60_000;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+/** What round.log says when the funder is short: the faucet paid it once, so a person's faucet deposit is not the fix. */
+const FUNDER_REFILL =
+  "Hyperliquid's testnet faucet pays each mainnet address once and paid this one on 19 Nov 2026, so only a send from another funded testnet account refills it";
 
 /**
  * The daily check's own fresh account (project-state tooling/beta/ready.mjs): made under the agents' invite, whose
@@ -206,7 +216,8 @@ export async function testnetStep({ file, candidates, deps, log, now = () => Dat
     if (doc.funderLow !== why) {
       doc.funderLow = why;
       save();
-      log(`invited ${next.userId}: testnet TEST USDC NOT sent to ${next.address}: ${why}, under ${next.amount}`);
+      const refill = free === null ? '' : `; its one faucet claim is spent: ${FUNDER_REFILL}`;
+      log(`invited ${next.userId}: testnet TEST USDC NOT sent to ${next.address}: ${why}, under ${next.amount}${refill}`);
     }
     return;
   }
