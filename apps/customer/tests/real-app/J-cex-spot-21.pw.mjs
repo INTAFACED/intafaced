@@ -447,8 +447,15 @@ test(`${J} #7 unstakes to spot and signs: one signed venue action, sent once; th
   expect(toUnits(spotAfter) - toUnits(spotBefore)).toBe(toUnits(UNSTAKE));
   await page.reload();
   await expect(page.getByTestId('staking-arrived').locator(`tr[data-nonce="${p.nonce}"]`)).toBeVisible({ timeout: 30_000 });
+  // Read again until the room shows the venue's spot figure: right after the reload the cell may not carry one yet.
   await expect
-    .poll(async () => sameDecimal(await page.getByTestId('staking-spot').getAttribute('data-value'), spotAfter), { timeout: 20_000 })
+    .poll(
+      async () => {
+        const shown = await page.getByTestId('staking-spot').getAttribute('data-value');
+        return Boolean(shown?.trim()) && sameDecimal(shown, spotAfter);
+      },
+      { timeout: 20_000 },
+    )
     .toBe(true);
   await expect(page.getByTestId('staking-pending-empty')).toBeVisible();
   expect(await ledgerView(state().who)).toEqual(state().ledger);
