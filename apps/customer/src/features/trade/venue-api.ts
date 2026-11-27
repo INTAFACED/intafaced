@@ -142,6 +142,8 @@ export interface SpotConditionalRequest {
   /** A good-till-date order's expiry, an ISO time (J-cex-spot-03 #7). */
   expireAt?: string;
   clientOrderId: string;
+  /** Who signs the person's own orders here: the owner's wallet when absent, or the desk's trading session key. */
+  signer?: { role: 'owner' | 'agent'; address: string };
 }
 
 // ── Intents, as the door takes them: every Amount a decimal string ─────────────────────────────────────────────────
@@ -389,7 +391,7 @@ export function venueApi(api: ApiClient) {
   const write = <T>(path: string, schema: z.ZodType<T>, body: unknown): Promise<ApiResult<T>> =>
     api.rest(`/venue${path}`, schema, { method: 'POST', body });
   /**
-   * A main account's fills, balances or positions on the door's own venue: from this browser where the door names the
+   * A main account's fills, balances, positions or account mode on the door's own venue: from this browser where the door names the
    * venue's read endpoint, else through the door. A sub-account, or another venue, always reads through the door,
    * which checks the sub-account is listed under the owner.
    */
@@ -465,7 +467,7 @@ export function venueApi(api: ApiClient) {
       read('/account-summary', asOf(venueAccountSummarySchema), { owner, venueId }, signal),
     /** The account's mode, its spot and perps balances in standard mode, and the day's action count (J-derivatives-29). */
     accountMode: (owner: string, signal?: AbortSignal, venueId?: string) =>
-      read('/account-mode', asOf(venueAccountModeSchema), { owner, venueId }, signal),
+      ownRead('accountMode', '/account-mode', asOf(venueAccountModeSchema), { owner, venueId }, signal),
     /** The position mode the account holds one perpetual in, as the venue reports it (J-derivatives-05 #3). */
     positionMode: (owner: string, q: { symbol: string; venueId: string }, signal?: AbortSignal) =>
       read('/position-mode', asOf(venuePositionModeSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),

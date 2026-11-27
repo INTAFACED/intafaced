@@ -249,14 +249,18 @@ export function useExitSignerChoice(owner: string): () => ExitSigner | { needs: 
  * (a double press asks for one signature); a key the door already holds comes back with its stored action, so a signed
  * one is never signed again: its first definite answer stands, and one with no definite answer is read back.
  *
- * With `session` (a venue whose trades a trading session's key signs, session-signer.ts), an order, cancel, change or
+ * With a session (given, or the desk's DeskSigningContext: a venue whose trades a trading session's key signs,
+ * session-signer.ts), an order, cancel, change or
  * leverage is prepared for the live session key and signed by it here, with no wallet prompt; approvals and every move of
  * funds stay the owner wallet's. Without a live key on such a venue, nothing is prepared: the desk offers the session.
  */
-export function useVenueActions(owner: string | null, session: SessionSigning | null = null) {
+export function useVenueActions(owner: string | null, given?: SessionSigning | null) {
   const venue = useVenueApi();
   const wallet = useWallet();
   const { t } = venueCopy.useCopy();
+  // Not given: the session of the desk this room sits in (DeskSigningContext), none outside one.
+  const fromDesk = useDeskSigning();
+  const session = given === undefined ? fromDesk : given;
   // The session as of the press, read when the action runs (a session started after this render signs the next press).
   const sessionNow = useRef(session);
   sessionNow.current = session;

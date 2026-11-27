@@ -29,7 +29,7 @@ import { frontApp, holdOf } from './beta-front.mjs';
 const OLD = 'a'.repeat(40);
 /** The marker a launch on the beta's own settings writes (BETA_STACK_SETTINGS). */
 const SETTINGS =
-  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey LOCAL_STACK_CUSTODY_LAYER=off';
+  'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_LIVE_TEST_NETWORK=on LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=test LOCAL_STACK_CUSTODY_LAYER=off';
 const NEW = 'b'.repeat(40);
 const PASS = { ok: true, lines: ['ok   the Customer page carries the TEST banner ("TEST FUNDS")'] };
 
@@ -416,22 +416,22 @@ test('a stack without TEST valuation prices is stopped and started whole with th
   assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
 });
 
-test("a stack on the TEST wallet provider is stopped and started whole on the owner's provider, so a new tester's wallet is made there", async () => {
+test("a stack on the owner's wallet provider is stopped and started whole on the TEST provider until testers are invited (#11092)", async () => {
   const paths = home();
-  // The marker the beta wrote before it took the owner's wallet provider.
-  fs.writeFileSync(
-    paths.settings,
-    'LOCAL_STACK_PUBLIC_ORIGIN=https://beta.intafaced.com LOCAL_STACK_USER_VENUE=hl-testnet LOCAL_STACK_TEST_MARKETS=off LOCAL_STACK_VALUATION_PRICES=test\n',
-  );
-  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-25T06:00:00Z' }));
+  // The marker the beta wrote while it made new wallets at the owner's provider, whose free signatures our walks spent.
+  fs.writeFileSync(paths.settings, `${SETTINGS.replace('EMBEDDED_WALLET=test', 'EMBEDDED_WALLET=turnkey')}\n`);
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-27T06:00:00Z' }));
   const { io, seen } = fakes(paths, { head: OLD, target: OLD });
   const end = await round(paths, io);
   assert.equal(end.state, 'up');
   assert.ok(
     seen.some((s) => s.step === 'stop'),
-    'a marker without LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey restarts the stack',
+    'a marker with LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey restarts the stack',
   );
   assert.equal(fs.readFileSync(paths.settings, 'utf8'), `${SETTINGS}\n`);
+  const status = JSON.parse(fs.readFileSync(paths.status, 'utf8'));
+  assert.equal(status.walletProvider, 'test', 'status.json names the provider on');
+  assert.match(status.invitesRefused, /TEST wallet provider/);
 });
 
 test('a stack on localhost passkeys is stopped and started whole on the public name, so passkeys work there', async () => {

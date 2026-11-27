@@ -3,7 +3,7 @@ import { Button } from '@intafaced/ui/lit';
 import { TextField } from '@intafaced/ui/lit/templates';
 import { usePolled } from '../../protocol';
 import { closingSide, protectionClientId } from '../../../screens/trade/futures/venue-protect-logic';
-import { refusalOf, useSignPrepared } from '../../../screens/trade/futures/VenueProtect';
+import { refusalOf, useExitSigner, useSignPrepared } from '../../../screens/trade/futures/VenueProtect';
 import { compareDecimal } from '../../../data/decimal';
 import { draftId, keys, type ProtectionView, type VenueMarket, type VenuePosition, type VenueUp } from '../venue-api';
 import { VENUE_POLL_MS } from '../venue/poll';
@@ -67,7 +67,7 @@ export function StopOnRow({ stop }: { stop: PreLiquidationStopView | undefined }
 /**
  * Set a pre-liquidation stop on one isolated position (J-derivatives-06 #5): the person names the margin ratio at which
  * to close; the room turns it into the venue's mark from the venue's own figures (`preLiquidationStop`) and the door
- * prepares one reduce-only stop loss for the whole position, judged on the mark, which the person's wallet signs once
+ * prepares one reduce-only stop loss for the whole position, judged on the mark, which the person's wallet (or, on a venue whose trades a session key signs, the trading session key) signs once
  * and the venue holds. Nothing moves through INTAFACED and the ledger posts nothing. A level the venue's figures can't
  * carry, a venue that judges no stop on its mark, or a stop already resting is refused in words before anything is
  * signed.
@@ -101,6 +101,7 @@ export function PreLiquidationStopPanel({
   const v = venueCopy.useCopy().t;
   const api = useVenueApi();
   const sign = useSignPrepared(owner);
+  const exitSigner = useExitSigner(owner);
   const [level, setLevel] = useState('');
   const [said, setSaid] = useState<{ tone: 'ok' | 'refused'; text: string } | null>(null);
   const busy = useRef(false);
@@ -148,7 +149,11 @@ export function PreLiquidationStopPanel({
         const refusedApproval = refusalOf(approved, (r) => outcomeText(v, r));
         if (refusedApproval) return setSaid({ tone: 'refused', text: refusedApproval.message });
       }
+      // The stop is an order resting on the venue: signed by the room's trading session key where the venue needs one.
+      const chosen = exitSigner();
+      if ('refusal' in chosen) return setSaid({ tone: 'refused', text: chosen.refusal.message });
       const created = await api.createProtection({
+        signer: chosen.signer,
         owner,
         symbol: position.symbol,
         kind: 'stop_loss',

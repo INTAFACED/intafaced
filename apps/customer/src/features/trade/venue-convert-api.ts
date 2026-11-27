@@ -9,6 +9,7 @@ import {
 } from '@intafaced/contracts/trade-venue-door';
 import type { ApiClient } from '../../shared/api';
 import { preparedAnswerSchema, submitAnswerSchema, type KeptSignature } from './venue-api';
+import type { DeskSigner } from './venue/session-signer';
 
 /**
  * Convert on the person's own venue account (J-cex-spot-11). A quote holds nothing and locks nothing; accepting it
@@ -33,8 +34,8 @@ export function venueConvertApi(api: ApiClient) {
       }),
     quote: (body: { owner: string; from: string; to: string; amount: string; quoteKey: string }) =>
       post('/quote', venueConvertQuoteSchema, body),
-    accept: (body: { owner: string; quoteId: string }) => post('/accept', venueConvertAcceptSchema, body),
-    limit: (body: { owner: string; from: string; to: string; amount: string; price: string; limitKey: string }) =>
+    accept: (body: { owner: string; quoteId: string; signer?: DeskSigner }) => post('/accept', venueConvertAcceptSchema, body),
+    limit: (body: { owner: string; from: string; to: string; amount: string; price: string; limitKey: string; signer?: DeskSigner }) =>
       post('/limit', preparedAnswerSchema, body),
     submit: (actionKey: string, signature: KeptSignature) => post('/submit', submitAnswerSchema, { actionKey, signature }),
     history: (owner: string, signal?: AbortSignal) =>

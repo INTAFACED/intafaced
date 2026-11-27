@@ -43,6 +43,15 @@ describe('embedded wallet refusals', () => {
       'TEST wallet provider did not accept the passkey check. Nothing was signed or sent.',
     );
   });
+
+  it('#11083 a provider over its signing limit is named as such, not as a refused passkey', () => {
+    expect(clientRefusal('busy', TEST, t)).toEqual({
+      variant: 'unreachable',
+      title: 'Your wallet provider is at its signing limit',
+      body: 'TEST wallet provider has reached its signing limit, which you cannot fix from here. Nothing was signed or sent. Try again later.',
+      reference: 'wallet.embedded_provider_busy',
+    });
+  });
 });
 
 describe('the TEST provider client', () => {

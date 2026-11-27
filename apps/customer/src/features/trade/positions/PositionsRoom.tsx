@@ -25,7 +25,16 @@ import {
 } from '../venue-api';
 import { VENUE_POLL_MS } from '../venue/poll';
 import { AsOfLine, Known, OutcomeLine, TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
-import { keepsDraft, useOwner, useVenueActions, useVenueApi, type ActionResult, type RunAction } from '../venue/VenueKit';
+import {
+  DeskSigningContext,
+  keepsDraft,
+  useOwner,
+  useVenueActions,
+  useVenueApi,
+  type ActionResult,
+  type RunAction,
+} from '../venue/VenueKit';
+import { VenueSessionPanel, useDeskSession } from '../venue/VenueSession';
 import {
   breakEven,
   leverageBpsOfTimes,
@@ -159,7 +168,10 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
   const venue = useVenueApi();
   const venues = venuesOf(status);
   const since = useRef(new Date(Date.now() - FILLS_WINDOW_MS).toISOString()).current;
-  const { run } = useVenueActions(owner);
+  // A venue whose orders a trading session's key signs (status `tradesSignedBy`): a close, a cancel and a stop here are
+  // signed by this tab's live key, as on the desk; the room offers the same Start where none is on.
+  const session = useDeskSession(owner, status);
+  const { run } = useVenueActions(owner, session.signing);
   const ids = venues.map((v) => v.id).join(',');
   const reads = usePolled<VenueRead[]>(
     async (signal) => {
@@ -213,59 +225,62 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
   );
   const up = venues.find((v) => v.down === null);
   return (
-    <TabList
-      label={t('tabsLabel')}
-      tabs={[
-        { id: 'positions', label: t('tabPositions') },
-        { id: 'calls', label: t('tabCalls') },
-      ]}
-      value={tab}
-      onChange={setTab}
-    >
-      {tab === 'calls' ? (
-        up ? (
-          <MarginCalls owner={owner} venue={up} />
-        ) : null
-      ) : (
-        <>
-          <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
-          <AllPositions
-            owner={owner}
-            reads={reads.data}
-            rows={rows}
-            marketOf={marketOf}
-            fillsOf={fillsOf}
-            run={run}
-            onDone={reload}
-            test={status.test}
-            builder={status.builder}
-            closeSlippageBps={status.closeSlippageBps ?? null}
-            desk={{ id: status.venue.id, name: status.venue.displayName }}
-          />
-          <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
-          <Modes
-            owner={owner}
-            venues={venues}
-            perpsOf={(venueId) => (markets.data?.[venueId] ?? []).filter((m) => m.kind === 'perpetual').map((m) => m.symbol)}
-            run={run}
-          />
-          {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
-          {venues
-            .filter((v) => v.down === null)
-            .map((v) => (
-              <SubAccounts
-                key={v.id}
-                owner={owner}
-                venue={v}
-                mainRows={rows.filter((r) => r.venue.id === v.id)}
-                marketOf={(symbol) => marketOf(v.id, symbol)}
-                run={run}
-                onDone={reload}
-              />
-            ))}
-        </>
-      )}
-    </TabList>
+    <DeskSigningContext.Provider value={session.signing}>
+      <VenueSessionPanel session={session} owner={owner} status={status} />
+      <TabList
+        label={t('tabsLabel')}
+        tabs={[
+          { id: 'positions', label: t('tabPositions') },
+          { id: 'calls', label: t('tabCalls') },
+        ]}
+        value={tab}
+        onChange={setTab}
+      >
+        {tab === 'calls' ? (
+          up ? (
+            <MarginCalls owner={owner} venue={up} />
+          ) : null
+        ) : (
+          <>
+            <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
+            <AllPositions
+              owner={owner}
+              reads={reads.data}
+              rows={rows}
+              marketOf={marketOf}
+              fillsOf={fillsOf}
+              run={run}
+              onDone={reload}
+              test={status.test}
+              builder={status.builder}
+              closeSlippageBps={status.closeSlippageBps ?? null}
+              desk={{ id: status.venue.id, name: status.venue.displayName }}
+            />
+            <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
+            <Modes
+              owner={owner}
+              venues={venues}
+              perpsOf={(venueId) => (markets.data?.[venueId] ?? []).filter((m) => m.kind === 'perpetual').map((m) => m.symbol)}
+              run={run}
+            />
+            {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
+            {venues
+              .filter((v) => v.down === null)
+              .map((v) => (
+                <SubAccounts
+                  key={v.id}
+                  owner={owner}
+                  venue={v}
+                  mainRows={rows.filter((r) => r.venue.id === v.id)}
+                  marketOf={(symbol) => marketOf(v.id, symbol)}
+                  run={run}
+                  onDone={reload}
+                />
+              ))}
+          </>
+        )}
+      </TabList>
+    </DeskSigningContext.Provider>
   );
 }
 

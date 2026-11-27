@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { createTradingSessionApi, heldKey, keyFor, usePolled, useWallet, type HeldKey } from '../../protocol';
+import { bindLiveKey, createTradingSessionApi, heldKey, joinLiveSession, keyFor, usePolled, useWallet, type HeldKey } from '../../protocol';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../session';
 import { venueCopy } from './venue-copy';
 import { VENUE_POLL_MS } from './poll';
 import { useVenueApi } from './venue-words';
+import { DeskSigningContext } from './VenueKit';
 import { sessionLine, startSession, type SessionSigning, type SessionStartResult } from './session-signer';
 import { preparedAnswerSchema, walletTypedData, type VenueUp } from '../venue-api';
 
@@ -19,19 +20,52 @@ export function useDeskSession(owner: string | null, status: VenueUp) {
   const tradesSignedBy = status.tradesSignedBy ?? 'owner_wallet';
   const on = tradesSignedBy === 'session_key' && owner !== null && userId !== null;
   const sessions = useMemo(() => createTradingSessionApi(api), [api]);
+  // The key this tab holds for the person, re-read from the tab's storage whenever this desk starts or ends a session.
+  const [held, setHeld] = useState<HeldKey | null>(() => (userId ? heldKey(userId) : null));
+  // Each read of the session: when it is live under a key another of the person's tabs holds, this tab takes that key
+  // too (the venue keeps one per account), so no tab needs its own approval.
   const read = usePolled(
-    (signal) => (on && owner ? sessions.session(owner, signal) : Promise.resolve(null)),
+    async (signal) => {
+      if (!on || !owner) return null;
+      const answer = await sessions.session(owner, signal);
+      if (answer.ok && userId) {
+        const kept = heldKey(userId);
+        const next = bindLiveKey(userId, answer.data.current, kept) ?? (await joinLiveSession(userId, answer.data.current, kept));
+        if (next && !signal.aborted) setHeld(next);
+      }
+      return answer;
+    },
     `venue-session:${userId ?? ''}:${owner ?? ''}:${on ? 'on' : 'off'}`,
     VENUE_POLL_MS,
   );
-  // The key this tab holds for the person, re-read from the tab's storage whenever this desk starts or ends a session.
-  const [held, setHeld] = useState<HeldKey | null>(() => (userId ? heldKey(userId) : null));
   const current = read.data?.current ?? null;
   const live = on && read.data && keyFor(current, held) === 'use' ? held : null;
   const signing: SessionSigning = useMemo(() => ({ tradesSignedBy, live }), [tradesSignedBy, live]);
   return { on, read: read.data !== null, failure: read.failure, current, held, setHeld, reload: read.reload, signing, sessions, userId };
 }
 export type DeskSession = ReturnType<typeof useDeskSession>;
+
+const DeskSessionContext = createContext<{ session: DeskSession; owner: string | null; status: VenueUp } | null>(null);
+
+/**
+ * A desk's trading session for every room inside it: what its actions sign with (DeskSigningContext, which
+ * `useVenueActions` and `useSignPrepared` read) and the panel `DeskSessionLine` shows where the desk places it.
+ */
+export function DeskSessionProvider({ owner, status, children }: { owner: string | null; status: VenueUp; children: ReactNode }) {
+  const session = useDeskSession(owner, status);
+  const value = useMemo(() => ({ session, owner, status }), [session, owner, status]);
+  return (
+    <DeskSessionContext.Provider value={value}>
+      <DeskSigningContext.Provider value={session.signing}>{children}</DeskSigningContext.Provider>
+    </DeskSessionContext.Provider>
+  );
+}
+
+/** The provided desk's session panel; nothing outside a `DeskSessionProvider`, with no wallet, or on a venue the wallet signs. */
+export function DeskSessionLine() {
+  const desk = useContext(DeskSessionContext);
+  return desk?.owner ? <VenueSessionPanel session={desk.session} owner={desk.owner} status={desk.status} /> : null;
+}
 
 /** The one panel: why the session is needed, its state in words, and Start or End. Nothing on a venue the wallet signs. */
 export function VenueSessionPanel({ session, owner, status }: { session: DeskSession; owner: string; status: VenueUp }) {
@@ -161,6 +195,8 @@ function startWords(
   t: ReturnType<typeof venueCopy.useCopy>['t'],
 ): { tone: 'status' | 'alert'; text: string } | null {
   switch (result.kind) {
+    case 'joined':
+      return null;
     case 'sent':
       if (result.answer === 'accepted') return null;
       if (result.answer === 'unknown') return { tone: 'status', text: t('Session unknown') };
