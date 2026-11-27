@@ -7,6 +7,8 @@ import { usePreferences } from '../../../shared/preferences';
 import { StepUpConfirm } from '../../../features/money/StepUpConfirm';
 import { withdrawStepUpCopy } from '../../../features/money/withdraw-step-up-copy';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
+import { WalletAccountLink } from '../../../features/protocol';
+import { isHiddenPath } from './deps';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import {
   canonicalDecimal,
@@ -43,6 +45,7 @@ import {
   type DepositRoute,
   type ListedPlaces,
 } from './venue-desk';
+import { DeskSessionLine } from '../../../features/trade/venue/VenueSession';
 
 /** A note's kit classes: plain, or the refusal tone. */
 const NOTE = { plain: 'lt-note', bad: 'lt-note lt-note-bad' } as const;
@@ -131,6 +134,8 @@ export function VenueAccountPanel({
       </h2>
       <p className="lt-note">{t('Venue account note')}</p>
       <VenueWalletRow />
+      {/* The spot desk's trading session (VenueSpotGate's DeskSessionProvider), beside the wallet that approves it. */}
+      <DeskSessionLine />
       {owner && balances
         ? [market.quoteAsset, market.baseAsset].map((asset) => {
             const row = rowOf(asset);
@@ -211,6 +216,7 @@ export function VenueWalletRow() {
               {v('Disconnect')}
             </Button>
           </p>
+          <WalletAccountLink address={wallet.address} href={isHiddenPath('/wallet/venue') ? null : '/wallet/venue'} />
           {wallet.guard && !wallet.guard.ok ? (
             <p role="alert">
               {v('Wrong network', { observed: String(wallet.guard.observed ?? ''), configured: String(wallet.guard.configured) })}{' '}

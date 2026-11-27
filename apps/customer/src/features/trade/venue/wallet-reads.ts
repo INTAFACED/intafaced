@@ -4,7 +4,7 @@ import type { ZodType } from 'zod';
 import type { ApiResult } from '../../../shared/api';
 
 /**
- * A person's own fills, balances and positions on the venue, read from their own browser.
+ * A person's own fills, balances, positions and account mode on the venue, read from their own browser.
  *
  * The test network limits each IP by the weight of its reads a minute. Through svc-trade's door, every desk's own-wallet
  * reads left from the box's one IP, and one trading tester spent more than all of it. Where the door names the venue's
@@ -23,7 +23,7 @@ export interface WalletReadsTarget {
 }
 
 /** The reads made from the browser: the ones each open desk polls. Open orders stay on the door, which adds the person's own labels. */
-export type WalletRead = 'fills' | 'balances' | 'positions';
+export type WalletRead = 'fills' | 'balances' | 'positions' | 'accountMode';
 
 export interface WalletReader {
   readonly venueId: string;
@@ -51,6 +51,7 @@ export function walletReader(target: WalletReadsTarget, fetchImpl: typeof fetch 
           if (Number.isNaN(from.getTime())) return refused('error', 'trade.venue.invalid_since', 'since is required (an ISO time)', 400);
           value = await reads.fills(account, from);
         } else if (read === 'balances') value = await reads.balances(account);
+        else if (read === 'accountMode') value = await reads.accountMode(account);
         else value = await reads.positions(account);
       } catch (err) {
         if (err instanceof VenueRefusalError) {
