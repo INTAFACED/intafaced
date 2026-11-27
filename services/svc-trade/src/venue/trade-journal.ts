@@ -201,9 +201,9 @@ export function plannedLevels(trip: RoundTrip, orders: readonly UserVenueOrderRe
 }
 
 /** The candle interval MAE, MFE and the disciplined exit are read at (J-portfolio-18 #3: the venue's 1-minute candles). */
-export const JOURNAL_CANDLE_INTERVAL = '1m' satisfies VenueCandleInterval;
+const JOURNAL_CANDLE_INTERVAL = '1m' satisfies VenueCandleInterval;
 /** The most candles one read asks for (the wire's and the venues' own cap): twelve hours of 1-minute candles. */
-export const JOURNAL_CANDLES_PER_READ = 720;
+const JOURNAL_CANDLES_PER_READ = 720;
 const MINUTE_MS = VENUE_CANDLE_INTERVALS[JOURNAL_CANDLE_INTERVAL] * 1000;
 const bucketOf = (t: Date) => Math.floor(t.getTime() / MINUTE_MS) * MINUTE_MS;
 
