@@ -339,6 +339,15 @@ export class UserVenueDoorError extends Error {
 export const IDEMPOTENCY_KEY_MAX = 255;
 /** How long one request may hold a key's send before another request can take it over (a crashed request). */
 const SEND_CLAIM_MS = 30_000;
+/**
+ * An agent approval sent while the venue still removes an agent ended moments before is refused `agent_removal_pending`
+ * (Hyperliquid holds the removal a few seconds). The same signed approval is sent again after each pause, at most this
+ * many times: 4 pauses of 2 s, well inside the app's 15-second request timeout and this door's send claim.
+ */
+const REMOVAL_PENDING_RESENDS = 4;
+const REMOVAL_PENDING_PAUSE_MS = 2_000;
+/** What the person reads when the venue still holds the removal after the last pause. */
+const REMOVAL_PENDING_WORDS = 'the venue is still ending your last trading session; nothing was approved: try again in a few seconds';
 
 /**
  * The business key an order sent with an `Idempotency-Key` header is stored and placed under (J-developer-05): the same
@@ -503,6 +512,8 @@ export interface UserVenueDoorDeps {
   /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
   readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
+  /** Pause this long before sending again (an approval the venue refused while it removes an ended agent). Default: a timer. */
+  readonly wait?: (ms: number) => Promise<void>;
   /** Our listings, routing states and largest routed orders (J-cex-spot-16). */
   readonly listings: VenueRoutingGate;
   /** Owner value: the largest page of `GET /api/v1/venue/orders`. Null (blank) refuses every list. */
@@ -2296,7 +2307,9 @@ export class UserVenueDoor {
     let answered: VenueSubmitOutcome;
     try {
       const venue = await this.venue();
-      answered = await venue.submit(signed.prepared, signed.signature as VenueSignature);
+      const sent = signed.signature as VenueSignature;
+      answered = await venue.submit(signed.prepared, sent);
+      answered = await this.waitOutRemoval(venue, { prepared: signed.prepared, signature: sent }, answered);
     } catch (error) {
       // The venue is down for this attempt. If these bytes were already sent once, the action may be live: answer with
       // what is recorded (or "not definite") and the read-back, never a bare refusal that invites a new key.
@@ -2315,6 +2328,41 @@ export class UserVenueDoor {
     // A definite outcome already recorded is never replaced by a not-definite one: that is the answer.
     const outcome = await this.deps.store.recordOutcome(principal.userId, key, answered, this.deps.now());
     return { actionKey: key, outcome, readBack: readBackOf(outcome) };
+  }
+
+  /**
+   * An agent approval refused while the venue still removes an agent ended moments before: nothing was applied, so the
+   * same signed bytes are sent again after a pause, a few times. A later answer stands, except a duplicate-nonce one: it
+   * follows a definite refusal of these very bytes, so it means the venue kept the nonce of the refused send, never that
+   * it applied the approval, and the refusal stands. Still pending after the last pause: the refusal, in plain words.
+   */
+  private async waitOutRemoval(
+    venue: ConnectedUserVenue,
+    { prepared, signature }: { prepared: PreparedVenueAction; signature: VenueSignature },
+    first: VenueSubmitOutcome,
+  ): Promise<VenueSubmitOutcome> {
+    const pending = (o: VenueSubmitOutcome) => o.definite && !o.accepted && o.refusal.code === 'agent_removal_pending';
+    if (prepared.intent.kind !== 'approve_agent' || !pending(first)) return first;
+    const wait = this.deps.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    let answered = first;
+    for (let i = 0; i < REMOVAL_PENDING_RESENDS && pending(answered); i++) {
+      await wait(REMOVAL_PENDING_PAUSE_MS);
+      let again: VenueSubmitOutcome;
+      try {
+        again = await venue.submit(prepared, signature);
+      } catch (error) {
+        // Down before these bytes went out again: the refusal already in hand is the answer.
+        if (error instanceof VenueRefusalError && error.refusal.code === 'venue_down') break;
+        throw error;
+      }
+      if (!again.definite && again.reason === 'already_submitted') break;
+      answered = again;
+    }
+    if (!pending(answered) || answered.definite !== true || answered.accepted) return answered;
+    return {
+      ...answered,
+      refusal: { ...answered.refusal, detail: `${REMOVAL_PENDING_WORDS} (the venue said: ${answered.refusal.detail})` },
+    };
   }
 
   /** One order sent through this door, read by its key: the venue's record, or `unknown` until the venue answers. */

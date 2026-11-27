@@ -43,10 +43,40 @@ async function signWith(key: PrivateKeyAccount, prepared: PreparedVenueAction) {
   return { digest: prepared.digest, signature, signedBy: key.address.toLowerCase() };
 }
 
-function world(opts: { store?: PreparedActionStore } = {}) {
+/** The venue's words when it still holds an ended key's removal. */
+const PENDING_REMOVAL = 'User has pending agent removal';
+
+function world(opts: { store?: PreparedActionStore; pendingRemovalSends?: number } = {}) {
   let now = new Date('2026-11-09T10:00:00.000Z');
   const clock = () => now;
   const sim = new TestVenueSimulator({ clock, markets: TEST_VENUE_MARKETS });
+  // After an End, the venue refuses the next `pendingRemovalSends` approvals while it holds the old key's removal.
+  let pendingLeft = 0;
+  const venueSends: string[] = [];
+  const venue = new Proxy(sim, {
+    get(target, prop, receiver) {
+      if (prop !== 'submit') {
+        const v = Reflect.get(target, prop, receiver) as unknown;
+        return typeof v === 'function' ? (v as (...args: unknown[]) => unknown).bind(target) : v;
+      }
+      return async (prepared: PreparedVenueAction, signature: Parameters<TestVenueSimulator['submit']>[1]) => {
+        venueSends.push(prepared.intent.kind);
+        if (prepared.intent.kind === 'approve_agent' && pendingLeft > 0) {
+          pendingLeft -= 1;
+          return {
+            definite: true as const,
+            accepted: false as const,
+            refusal: { venueId: sim.venue.id, code: 'agent_removal_pending' as const, detail: PENDING_REMOVAL },
+            asOf: now,
+          };
+        }
+        const outcome = await target.submit(prepared, signature);
+        if (prepared.intent.kind === 'revoke_agent' && outcome.definite && outcome.accepted) pendingLeft = opts.pendingRemovalSends ?? 0;
+        return outcome;
+      };
+    },
+  });
+  const waits: number[] = [];
   const store = opts.store ?? new InMemoryPreparedActionStore();
   const stepUps: StepUpCheckRequest[] = [];
   const stepUp: StepUpCheck = {
@@ -56,7 +86,7 @@ function world(opts: { store?: PreparedActionStore } = {}) {
     },
   };
   const door = new UserVenueDoor({
-    connect: async () => sim,
+    connect: async () => venue,
     appEnv: 'test',
     store,
     stepUp,
@@ -65,6 +95,10 @@ function world(opts: { store?: PreparedActionStore } = {}) {
     slippageCapBps: null,
     closeSlippageBps: 1000,
     now: clock,
+    wait: async (ms: number) => {
+      waits.push(ms);
+      now = new Date(now.getTime() + ms);
+    },
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
   });
   const sessions = new SessionKeys({ door, store, now: clock });
@@ -85,6 +119,11 @@ function world(opts: { store?: PreparedActionStore } = {}) {
     account,
     ownerPrompts: () => ownerPrompts,
     ownerSign,
+    waits,
+    venueSends,
+    clearRemoval: () => {
+      pendingLeft = 0;
+    },
     advance: (ms: number) => {
       now = new Date(now.getTime() + ms);
     },
@@ -569,5 +608,52 @@ describe('J-wallet-22 #8: one approval per trading session for a fresh key that 
     const realEnd = await w.sessions.end(real.p, owner);
     await w.door.submit(real.p, realEnd.actionKey, await w.ownerSign(realEnd.prepared));
     expect(await refusal(w.sessions.start(person(SIGN_IN_B), owner, real.key.address))).toBe('trade.venue_session_key_reused');
+  });
+
+  it("#11051: Start within seconds of End waits out the venue's pending removal: the same signed approval is re-sent and goes live, one prompt", async () => {
+    const w = world({ pendingRemovalSends: 2 });
+    const first = await startSession(w);
+    const end = await w.sessions.end(first.p, owner);
+    expect((await w.door.submit(first.p, end.actionKey, await w.ownerSign(end.prepared))).outcome).toMatchObject({ accepted: true });
+    const promptsBefore = w.ownerPrompts();
+    const sendsBefore = w.venueSends.length;
+
+    const next = await startSession(w);
+    expect(next.sent.outcome).toMatchObject({ definite: true, accepted: true });
+    expect(w.ownerPrompts()).toBe(promptsBefore + 1);
+    // Refused twice while the venue held the removal, then taken: the same bytes, three sends, two waits.
+    expect(w.venueSends.slice(sendsBefore)).toEqual(['approve_agent', 'approve_agent', 'approve_agent']);
+    expect(w.waits.length).toBe(2);
+    expect((await w.sessions.status(next.p, owner)).current).toMatchObject({ state: 'live', agentAddress: next.key.address.toLowerCase() });
+    expect((await w.sim.agents(w.account)).value.map((x) => x.address)).toEqual([next.key.address.toLowerCase()]);
+  });
+
+  it('#11051: a removal the venue holds past the wait says plainly to try again in a few seconds; the refused key is never offered again', async () => {
+    const w = world({ pendingRemovalSends: 1_000 });
+    const first = await startSession(w);
+    const end = await w.sessions.end(first.p, owner);
+    await w.door.submit(first.p, end.actionKey, await w.ownerSign(end.prepared));
+
+    const next = await startSession(w);
+    expect(next.sent.outcome).toMatchObject({ definite: true, accepted: false, refusal: { code: 'agent_removal_pending' } });
+    const said = next.sent.outcome.definite && !next.sent.outcome.accepted ? next.sent.outcome.refusal.detail : '';
+    expect(said).toMatch(/try again in a few seconds/);
+    // The wait is bounded well inside the app's 15-second request timeout.
+    expect(w.waits.reduce((x, y) => x + y, 0)).toBeLessThanOrEqual(10_000);
+    const status = await w.sessions.status(next.p, owner);
+    expect(status.current).toMatchObject({ state: 'refused', refusal: { code: 'agent_removal_pending' } });
+    // A definite refusal is the stored answer: pressing send again re-sends nothing.
+    const sends = w.venueSends.length;
+    expect((await w.door.submit(next.p, next.started.actionKey, await signWith(ownerKey, next.started.prepared))).replayed).toBe(true);
+    expect(w.venueSends.length).toBe(sends);
+    // The refused key is never offered again: the next Start needs a fresh key, which goes live once the venue clears.
+    expect(await refusal(w.sessions.start(next.p, owner, next.key.address))).toBe('trade.venue_session_key_reused');
+    w.clearRemoval();
+    const third = await startSession(w);
+    expect(third.sent.outcome).toMatchObject({ definite: true, accepted: true });
+    expect((await w.sessions.status(third.p, owner)).current).toMatchObject({
+      state: 'live',
+      agentAddress: third.key.address.toLowerCase(),
+    });
   });
 });
