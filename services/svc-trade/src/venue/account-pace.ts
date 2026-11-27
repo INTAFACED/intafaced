@@ -14,6 +14,8 @@ export class AccountPace {
   private after: string | null = null;
   private roundBegan: Date | null = null;
   private roundClean = true;
+  /** The keys handed out in the current round. */
+  private roundKeys = new Set<string>();
 
   constructor(
     private readonly perMinute: number | null,
@@ -49,10 +51,14 @@ export class AccountPace {
     if (from === 0 && (n > 0 || this.roundBegan === null)) {
       this.roundBegan = now;
       this.roundClean = true;
+      this.roundKeys = new Set();
     }
     const due = sorted.slice(from, from + n);
     if (this.perMinute !== null) this.credit -= due.length;
+    for (const a of due) this.roundKeys.add(keyOf(a));
     const ends = from + due.length >= sorted.length;
+    // An account that joined behind the current position was not read this round: the round is not a complete one.
+    if (ends && sorted.some((a) => !this.roundKeys.has(keyOf(a)))) this.roundClean = false;
     if (ends) this.after = null;
     else {
       const last = due.at(-1);
@@ -66,7 +72,7 @@ export class AccountPace {
     this.roundClean = false;
   }
 
-  /** True while every account handed out in the current round was read. */
+  /** True while every account handed out in the current round was read, and, at its end, every account was handed out. */
   get roundIsClean(): boolean {
     return this.roundClean;
   }

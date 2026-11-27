@@ -95,6 +95,22 @@ describe('the account pace', () => {
     expect(pace.roundIsClean).toBe(true);
   });
 
+  it('an account that joins behind the current position leaves the round not clean, and is read in the next', () => {
+    const c = clock();
+    const pace = new AccountPace(2, c.now);
+    expect(pace.take(['b', 'c', 'd'], id).due).toEqual(['b', 'c']);
+    c.advance(60_000);
+    const end = pace.take(['a', 'b', 'c', 'd'], id);
+    expect(end.due).toEqual(['d']);
+    expect(end.round.ends).toBe(true);
+    expect(pace.roundIsClean).toBe(false);
+    c.advance(60_000);
+    expect(pace.take(['a', 'b', 'c', 'd'], id).due).toEqual(['a', 'b']);
+    c.advance(60_000);
+    expect(pace.take(['a', 'b', 'c', 'd'], id).round.ends).toBe(true);
+    expect(pace.roundIsClean).toBe(true);
+  });
+
   it('no pace reads every account on every take, each take a whole round', () => {
     const c = clock();
     const pace = new AccountPace(null, c.now);
