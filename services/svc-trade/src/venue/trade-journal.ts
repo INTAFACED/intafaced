@@ -176,7 +176,7 @@ export function plannedLevels(trip: RoundTrip, orders: readonly UserVenueOrderRe
 /** The candle intervals tried, finest first (6h is left out: not every venue publishes it). */
 const LADDER: readonly VenueCandleInterval[] = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w'];
 /** The most candles one read asks for (the wire's and the venues' own cap). */
-export const JOURNAL_CANDLES_PER_READ = 720;
+const JOURNAL_CANDLES_PER_READ = 720;
 
 /** The finest interval whose candles from the bucket `openedAt` falls in up to `now` fit in one read. */
 export function candleIntervalFor(openedAt: Date, now: Date): { interval: VenueCandleInterval; since: Date } {
