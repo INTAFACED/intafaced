@@ -9,6 +9,7 @@ import {
   GRANT,
   MAX_FUNDED_PER_PERSON,
   PARTNER_FUND_ID,
+  INVITED_RECENT_MS,
   TOKEN_RE,
   grantRef,
   invitedOwner,
@@ -112,6 +113,21 @@ test('the mailbox records each Access viewer once, privately, and never a malfor
   assert.equal(recordInvited(file, 'not a token'), false);
   assert.deepEqual([...readInvited(file)], [alice]);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test("the invited list keeps each viewer's last view; only a view in the last 24 hours counts as on (#11046)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-invited-'));
+  const file = betaPaths(dir).invited;
+  const now = Date.parse('2026-11-27T06:52:00Z');
+  const since = now - INVITED_RECENT_MS;
+  assert.equal(INVITED_RECENT_MS, 24 * 3_600_000);
+  assert.equal(recordInvited(file, alice, new Date(now - 25 * 3_600_000)), true);
+  assert.equal(readInvited(file, { seenSince: since }).size, 0, 'seen 25 hours ago: nobody is on');
+  assert.deepEqual([...readInvited(file)], [alice], 'still on the invite list for the invited pass');
+  assert.equal(recordInvited(file, alice, new Date(now - 3_600_000)), false, 'a repeat view is not a new viewer');
+  assert.deepEqual([...readInvited(file, { seenSince: since })], [alice], 'the repeat view an hour ago counts');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).tokens[alice], new Date(now - 3_600_000).toISOString());
   fs.rmSync(dir, { recursive: true });
 });
 
