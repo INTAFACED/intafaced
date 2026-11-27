@@ -1,4 +1,4 @@
-import { parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   refuseTestVenueOutsideTest,
@@ -40,12 +40,30 @@ const MARKETS_MISS_REFRESH_MS = 10_000;
  * signed action, which drops every kept answer. Each is well inside a figure's 60-second staleness limit.
  */
 const LIGHT_READS = new Set(['l2Book', 'allMids', 'clearinghouseState', 'orderStatus', 'spotClearinghouseState', 'exchangeStatus']);
-const SLOW_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'meta', 'spotMeta']);
+const SLOW_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'meta', 'spotMeta', 'perpDexs']);
 export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000 } as const;
 /** How long to wait before the one retry of a read the venue answered 429, unless it says (Retry-After, capped at 5 s). */
 const READ_RETRY_MS = 1_000;
 /** A venue answer's text as JSON; `readOnce` has already checked that it parses. */
 const parseJson = (text: string): Json => JSON.parse(text);
+/**
+ * The venue's weight for one request (its rate-limit docs): an info read weighs 2 when light (`LIGHT_READS`) and 20
+ * otherwise, plus 1 per 20 items a list read answers (1 per 60 for candles); an exchange action weighs 1 plus 1 per 40
+ * orders or cancels it carries.
+ */
+const PER_ITEM_READS = new Set(['recentTrades', 'historicalOrders', 'userFills', 'userFillsByTime', 'fundingHistory', 'userFunding']);
+function readWeight(type: string, answer: Json | undefined): number {
+  const base = LIGHT_READS.has(type) ? 2 : 20;
+  const items = Array.isArray(answer) ? answer.length : 0;
+  if (type === 'candleSnapshot') return base + Math.floor(items / 60);
+  return PER_ITEM_READS.has(type) ? base + Math.floor(items / 20) : base;
+}
+/** One minute's spend at the venue: requests and weight by request type, the minute named by its start (UTC). */
+export interface VenueWeightMinute {
+  readonly minute: string;
+  readonly weight: number;
+  readonly byType: Readonly<Record<string, { readonly requests: number; readonly weight: number }>>;
+}
 const freshFor = (type: string) =>
   LIGHT_READS.has(type) ? READ_FRESH_MS.light : SLOW_READS.has(type) ? READ_FRESH_MS.slow : READ_FRESH_MS.heavy;
 /** The venue's documented cap on one `userFillsByTime` answer ("at most 2000 fills per response"). */
@@ -114,10 +132,21 @@ export interface HyperliquidTestnetOptions {
   /**
    * Share reads across callers (the live venue server): every tester's desk is read through this one process, on the
    * machine's one IP, and the venue limits each IP by the weight of its requests a minute. On, an answer is kept for a few
-   * seconds by its weight (`READ_FRESH_MS`), one read is in flight per request, any signed action drops what was kept,
+   * seconds by its weight (`READ_FRESH_MS`), one read is in flight per request, a signed action drops what was kept of its own accounts,
    * and a read the venue answers 429 is tried once more. Off (the default), every read goes to the venue.
    */
   readonly shareReads?: boolean;
+  /**
+   * Told once a minute what this instance spent at the venue the minute before (`VenueWeightMinute`), at its first
+   * request in the next minute: every request that left for the venue, by type, weighed as the venue weighs it.
+   */
+  readonly onWeightMinute?: (spent: VenueWeightMinute) => void;
+  /**
+   * The HIP-3 perp DEXs whose markets are listed beside the main one: Hyperliquid lists its stock, index and
+   * gold perpetuals on DEXs a deployer runs (`xyz`), each read apart (`metaAndAssetCtxs` with `dex`). Named, not every
+   * DEX: the test network lists hundreds, most of them empty, and each read weighs 20. Defaults to none.
+   */
+  readonly perpDexs?: readonly string[];
 }
 
 /** The chain the customer app holds a wallet on (Base Sepolia, 84532; apps/customer `APP_CHAIN_ID`), which is not INTACHAIN. */
@@ -146,6 +175,8 @@ export interface HlMarket {
   readonly szDecimals: number;
   readonly maxLeverage: number | null;
   readonly onlyIsolated: boolean;
+  /** The HIP-3 DEX a perp is listed on and that DEX's own name for itself, or null on the main DEX and spot. */
+  readonly dex: { readonly name: string; readonly fullName: string } | null;
 }
 
 export interface MarketIndex {
@@ -196,11 +227,15 @@ export abstract class HyperliquidCore {
   private marketsInFlight: Promise<MarketIndex> | null = null;
   private lastMissRefreshMs = Number.NEGATIVE_INFINITY;
   private readonly shareReads: boolean;
-  /** Shared reads (`shareReads`): each answer's text by its request body, and the reads in flight. */
-  private readonly kept = new Map<string, { text: string; atMs: number }>();
-  private readonly reading = new Map<string, Promise<string>>();
-  /** Bumped by every signed action, so a read that began before it is not kept after it. */
-  private readsEpoch = 0;
+  /** The HIP-3 perp DEXs listed beside the main one (`HyperliquidTestnetOptions.perpDexs`). */
+  protected readonly perpDexs: readonly string[];
+  /** Shared reads (`shareReads`): each answer's text by its request body, and the reads in flight, with the account read. */
+  private readonly kept = new Map<string, { text: string; atMs: number; user: string | null }>();
+  private readonly reading = new Map<string, { read: Promise<string>; user: string | null }>();
+  /** Per account, bumped by every signed action for it, so a read of it that began before the action is not kept after. */
+  private readonly readsEpoch = new Map<string, number>();
+  private readonly onWeightMinute: ((spent: VenueWeightMinute) => void) | null;
+  private weightMinute: { startMs: number; byType: Map<string, { requests: number; weight: number }> } | null = null;
   /**
    * Destinations of withdrawals signed and sent through this instance, by
    * nonce. The venue's ledger read does not report one; this is the
@@ -234,6 +269,11 @@ export abstract class HyperliquidCore {
     if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`wallet chain ${String(chainId)} is not a chain id`);
     this.chainId = chainId;
     this.shareReads = options.shareReads === true;
+    this.onWeightMinute = options.onWeightMinute ?? null;
+    this.perpDexs = [...new Set(options.perpDexs ?? [])];
+    for (const dex of this.perpDexs) {
+      if (!/^[a-z0-9]{1,15}$/.test(dex)) throw new Error(`a perp DEX is named by its lower-case name, as xyz, not ${JSON.stringify(dex)}`);
+    }
   }
 
   // ── transport ──────────────────────────────────────────────────────────
@@ -242,36 +282,71 @@ export abstract class HyperliquidCore {
   protected async info(body: Record<string, Json>): Promise<Json> {
     if (!this.shareReads) return parseJson(await this.readOnce(body));
     const key = JSON.stringify(body);
+    const user = typeof body.user === 'string' ? body.user.toLowerCase() : null;
     const now = this.clock().getTime();
     const kept = this.kept.get(key);
     if (kept && now - kept.atMs < freshFor(String(body.type))) return parseJson(kept.text);
     let inFlight = this.reading.get(key);
     if (!inFlight) {
-      const epoch = this.readsEpoch;
-      inFlight = this.readOnce(body, true)
+      const epoch = this.epochOf(user);
+      const read: Promise<string> = this.readOnce(body, true)
         .then((text) => {
-          if (epoch === this.readsEpoch) this.keep(key, text);
+          if (epoch === this.epochOf(user)) this.keep(key, text, user);
           return text;
         })
         .finally(() => {
-          if (this.reading.get(key) === inFlight) this.reading.delete(key);
+          if (this.reading.get(key)?.read === read) this.reading.delete(key);
         });
+      inFlight = { read, user };
       this.reading.set(key, inFlight);
     }
-    return parseJson(await inFlight);
+    return parseJson(await inFlight.read);
   }
 
-  /** A signed action may change any account's reads: nothing kept before it is served after it. */
-  protected forgetReads(): void {
-    this.readsEpoch += 1;
-    this.kept.clear();
-    this.reading.clear();
+  /**
+   * A signed action changes what its own accounts read (orders, positions, balances, fees, agents and approvals), not
+   * another person's: only reads of `users` kept before it are dropped, and a read of them begun before it is not kept.
+   * Market reads (books, trades, candles, prices) are kept for their few seconds whoever trades.
+   */
+  protected forgetReads(users: readonly string[]): void {
+    const forget = new Set(users.map((u) => u.toLowerCase()));
+    for (const u of forget) this.readsEpoch.set(u, this.epochOf(u) + 1);
+    for (const [k, v] of this.kept) if (v.user !== null && forget.has(v.user)) this.kept.delete(k);
+    for (const [k, v] of this.reading) if (v.user !== null && forget.has(v.user)) this.reading.delete(k);
   }
 
-  private keep(key: string, text: string): void {
+  private epochOf(user: string | null): number {
+    return user === null ? 0 : (this.readsEpoch.get(user) ?? 0);
+  }
+
+  private keep(key: string, text: string, user: string | null): void {
     const now = this.clock().getTime();
     if (this.kept.size >= 2_000) for (const [k, v] of this.kept) if (now - v.atMs >= READ_FRESH_MS.slow) this.kept.delete(k);
-    this.kept.set(key, { text, atMs: now });
+    this.kept.set(key, { text, atMs: now, user });
+  }
+
+  /** Counts one request that left for the venue, and tells `onWeightMinute` the last minute's spend once a new one starts. */
+  protected spend(type: string, weight: number): void {
+    if (this.onWeightMinute === null) return;
+    const startMs = Math.floor(this.clock().getTime() / 60_000) * 60_000;
+    let current = this.weightMinute;
+    if (current === null || current.startMs !== startMs) {
+      if (current !== null) {
+        const byType: Record<string, { requests: number; weight: number }> = {};
+        let total = 0;
+        for (const [t, v] of [...current.byType].sort(([, a], [, b]) => b.weight - a.weight)) {
+          byType[t] = { ...v };
+          total += v.weight;
+        }
+        this.onWeightMinute({ minute: new Date(current.startMs).toISOString(), weight: total, byType });
+      }
+      current = { startMs, byType: new Map() };
+      this.weightMinute = current;
+    }
+    const row = current.byType.get(type) ?? { requests: 0, weight: 0 };
+    row.requests += 1;
+    row.weight += weight;
+    current.byType.set(type, row);
   }
 
   private async readOnce(body: Record<string, Json>, retry429 = false): Promise<string> {
@@ -285,6 +360,13 @@ export abstract class HyperliquidCore {
         signal: controller.signal,
       });
       const text = await res.text();
+      let answer: Json | undefined;
+      try {
+        answer = parseJson(text);
+      } catch {
+        answer = undefined;
+      }
+      this.spend(String(body.type), readWeight(String(body.type), answer));
       if (res.status === 429 && retry429) {
         clearTimeout(timer);
         const said = Number(res.headers?.get('retry-after') ?? NaN);
@@ -292,7 +374,7 @@ export abstract class HyperliquidCore {
         return await this.readOnce(body, false);
       }
       if (!res.ok) throw refusal(this.venue.id, 'venue_down', `info ${String(body.type)} answered HTTP ${res.status}`);
-      JSON.parse(text);
+      if (answer === undefined) throw new Error('the answer is not JSON');
       return text;
     } catch (error) {
       if (error instanceof VenueRefusalError) throw error;
@@ -361,9 +443,11 @@ export abstract class HyperliquidCore {
         szDecimals: int(u.szDecimals, 'szDecimals'),
         maxLeverage: int(u.maxLeverage, 'maxLeverage'),
         onlyIsolated: u.onlyIsolated === true,
+        dex: null,
         canonical: true,
       });
     });
+    list.push(...(await this.readDexMarkets()));
     const spot = obj(spotMeta, 'spotMeta');
     const tokens = new Map<number, { name: string; szDecimals: number }>();
     for (const t of arr(spot.tokens, 'spotMeta.tokens')) {
@@ -389,6 +473,7 @@ export abstract class HyperliquidCore {
         szDecimals: base.szDecimals,
         maxLeverage: null,
         onlyIsolated: false,
+        dex: null,
         canonical: pair.isCanonical === true,
       });
     }
@@ -414,6 +499,49 @@ export abstract class HyperliquidCore {
       });
     }
     return { bySymbol, byCoin };
+  }
+
+  /**
+   * The live markets of each named HIP-3 DEX. `perpDexs` lists the main DEX first (as null), then each HIP-3 DEX
+   * by its index; a market's asset number is 100000 + that index × 10000 + its index in the DEX's own listing
+   * (Hyperliquid's asset-ids docs). Its coin already carries the DEX (`xyz:TSLA`), and so does its symbol
+   * (`xyz:TSLA-PERP`). A market the venue flags delisted, or with no open interest, is not listed: on the venue, a DEX
+   * keeps delisted tickers with frozen prices far from the live one.
+   */
+  private async readDexMarkets(): Promise<(HlMarket & { canonical: boolean })[]> {
+    if (this.perpDexs.length === 0) return [];
+    const dexs = arr(await this.info({ type: 'perpDexs' }), 'perpDexs');
+    const out: (HlMarket & { canonical: boolean })[] = [];
+    for (const name of this.perpDexs) {
+      const index = dexs.findIndex((d) => d !== null && typeof d === 'object' && !Array.isArray(d) && d.name === name);
+      if (index < 1) throw new Error(`venue listing: the perp DEX ${name} is not listed by perpDexs`);
+      const dex = obj(dexs[index], 'perpDexs[]');
+      const fullName = typeof dex.fullName === 'string' && dex.fullName !== '' ? dex.fullName : name;
+      const both = arr(await this.info({ type: 'metaAndAssetCtxs', dex: name }), `metaAndAssetCtxs ${name}`);
+      const ctxs = arr(both[1], `asset contexts ${name}`);
+      arr(obj(both[0], `metaAndAssetCtxs ${name} meta`).universe, `${name} universe`).forEach((entry, i) => {
+        const u = obj(entry, `${name} universe[]`);
+        if (u.isDelisted === true) return;
+        const ctx = ctxs[i];
+        if (!ctx || amt(obj(ctx, `${name} asset ctx`).openInterest, 'openInterest') === ZERO) return;
+        const coin = str(u.name, `${name} universe name`);
+        if (!coin.startsWith(`${name}:`)) throw new Error(`venue listing: ${coin} on the perp DEX ${name} does not carry its prefix`);
+        out.push({
+          symbol: `${coin}-PERP`,
+          kind: 'perpetual',
+          asset: 100_000 + index * 10_000 + i,
+          coin,
+          base: coin,
+          quote: PERP_QUOTE,
+          szDecimals: int(u.szDecimals, 'szDecimals'),
+          maxLeverage: int(u.maxLeverage, 'maxLeverage'),
+          onlyIsolated: u.onlyIsolated === true,
+          dex: { name, fullName },
+          canonical: true,
+        });
+      });
+    }
+    return out;
   }
 
   protected async market(symbol: string): Promise<HlMarket> {

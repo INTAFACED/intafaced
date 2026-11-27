@@ -11,8 +11,8 @@ class Probe extends HyperliquidTestnetUserVenue {
   read(body: Record<string, Json>) {
     return this.info(body);
   }
-  forget() {
-    this.forgetReads();
+  forget(users: readonly string[] = ['0xa']) {
+    this.forgetReads(users);
   }
 }
 
@@ -75,7 +75,7 @@ describe('shared venue reads', () => {
     expect(s.calls).toEqual(['openOrders']);
   });
 
-  it('a signed action drops every kept answer, and a read begun before it is not kept after it', async () => {
+  it("a signed action drops its own accounts' kept answers, and a read of them begun before it is not kept after it", async () => {
     const s = setup(true);
     await s.venue.read({ type: 'openOrders', user: '0xa' });
     s.venue.forget();
@@ -93,6 +93,32 @@ describe('shared venue reads', () => {
     s.release();
     await after;
     expect(s.calls.filter((c) => c === 'frontendOpenOrders')).toHaveLength(2);
+  });
+
+  it("one tester's signed action leaves every other account's and every market read kept (#11028)", async () => {
+    const s = setup(true);
+    const reads: Array<Record<string, Json>> = [
+      { type: 'openOrders', user: '0xa' },
+      { type: 'openOrders', user: '0xb' },
+      { type: 'clearinghouseState', user: '0xB' },
+      { type: 'recentTrades', coin: 'BTC' },
+    ];
+    for (const r of reads) await s.venue.read(r);
+    expect(s.calls).toHaveLength(4);
+    s.venue.forget(['0xA']);
+    for (const r of reads) await s.venue.read(r);
+    // Only 0xa's read went to the venue again; 0xb's and the market's were served as kept.
+    expect(s.calls).toEqual(['openOrders', 'openOrders', 'clearinghouseState', 'recentTrades', 'openOrders']);
+    // A read of another account in flight across the action is still kept.
+    s.holdReads();
+    s.tick(READ_FRESH_MS.heavy);
+    const other = s.venue.read({ type: 'openOrders', user: '0xb' });
+    await Promise.resolve();
+    s.venue.forget(['0xa']);
+    s.release();
+    await other;
+    await s.venue.read({ type: 'openOrders', user: '0xb' });
+    expect(s.calls.filter((c) => c === 'openOrders')).toHaveLength(4);
   });
 
   it('a read the venue answers 429 is tried once more; a second 429 is venue_down, and nothing is kept', async () => {

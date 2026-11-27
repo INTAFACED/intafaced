@@ -34,3 +34,26 @@ export function apiKeyIpAllowed(allowlist: readonly string[], requestIp: string 
 export function callerIpFromUpgrade(req: IncomingMessage): string | null {
   return normalizeIp(req.socket.remoteAddress);
 }
+
+/**
+ * The caller of a public upgrade behind a stated reverse proxy (`WS_TRUST_PROXY`, exact addresses only). A peer not on
+ * the list is the caller, whatever it sends. A listed peer's `x-forwarded-for` is read from its right end: each listed
+ * hop is skipped and the first address not on the list is the caller. An unreadable entry stops the walk at the last
+ * listed hop, so a forged or broken header can only fall back to the proxy's own address, never pick a new one.
+ */
+export function publicCallerIp(req: IncomingMessage, trustedProxies: readonly string[]): string | null {
+  const peer = callerIpFromUpgrade(req);
+  if (peer === null || trustedProxies.length === 0) return peer;
+  const trusted = new Set(trustedProxies.map((t) => normalizeIp(t)).filter((t): t is string => t !== null));
+  if (!trusted.has(peer)) return peer;
+  const raw = req.headers['x-forwarded-for'];
+  const hops = (Array.isArray(raw) ? raw.join(',') : (raw ?? '')).split(',').filter((h) => h.trim() !== '');
+  let caller = peer;
+  for (let i = hops.length - 1; i >= 0; i -= 1) {
+    const hop = normalizeIp(hops[i]);
+    if (hop === null) return caller;
+    caller = hop;
+    if (!trusted.has(hop)) return hop;
+  }
+  return caller;
+}

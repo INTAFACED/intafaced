@@ -1,3 +1,4 @@
+import { startCustodyLayer } from '../local-test-state.mjs';
 import path from 'node:path';
 import { userVenueCount, userVenueKind, userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
@@ -66,8 +67,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     QUANT_URL: urlOf('quant'), // the strategy version a live run trades, read as the person (J-algo-dev-07)
     MATCHING_URL: urlOf('matching'),
     // Our own order book's spot plane follows the custody switch (OWNER 288): unset, TRADE_SPOT_ENABLED is on only with
-    // LEDGER_CUSTODY_LAYER on. The same value as svc-ledger's (ledger.mjs), as matching.mjs carries.
-    LEDGER_CUSTODY_LAYER: 'on',
+    // LEDGER_CUSTODY_LAYER on. The same value as svc-ledger's (ledger.mjs, startCustodyLayer), as matching.mjs carries.
+    LEDGER_CUSTODY_LAYER: startCustodyLayer(),
     NOTIFY_URL: urlOf('notify'), // market maintenance windows on the lifecycle read (J-cex-spot-14 #5)
     TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
     IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
@@ -310,8 +311,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // PURR-USDC: the one spot pair Hyperliquid's test network trades every day (its BTC-USDC has no bids and no
           // print since 10 Nov 2026), so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
           // PURR-USDC, so the seed skips it there.
+          // On Hyperliquid's test network, the live stock, index and gold perpetuals of its `xyz` HIP-3 DEX
+          // (local-test-venue.mjs HL_TESTNET_PERP_DEXS); the TEST venue lists none of them, so the seed skips them there.
           TRADE_USER_VENUE_TEST_LISTINGS:
-            'BTC-USDC,PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
+            'BTC-USDC,PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,' +
+            'xyz:TSLA-PERP,xyz:NVDA-PERP,xyz:AAPL-PERP,xyz:XYZ100-PERP,xyz:GOLD-PERP,xyz:SILVER-PERP',
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
           // `LOCAL_STACK_USER_VENUE_ELIGIBILITY=off` leaves it blank, so the eligible list is empty with its reason.
           TRADE_USER_VENUE_ELIGIBILITY_LEVEL:
@@ -351,10 +355,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_QUANT_LIVE_HEARTBEAT_MS: testValue('TRADE_QUANT_LIVE_HEARTBEAT_MS'),
           TRADE_USER_VENUE_ORDERS_PAGE_MAX:
             process.env.LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX === 'off' ? '' : testValue('TRADE_USER_VENUE_ORDERS_PAGE_MAX'),
-          // The builder-fee poster (J-derivatives-17): every 2 seconds on the stack; `LOCAL_STACK_BUILDER_FEE_POSTER=off`
-          // stops it, so a fill waits unposted and the recon lists it as a break.
+          // The builder-fee poster (J-derivatives-17): every 2 seconds on the TEST venue; `LOCAL_STACK_BUILDER_FEE_POSTER=off`
+          // stops it, so a fill waits unposted and the recon lists it as a break. On the test network each pass reads every
+          // account's fills at 20 weight or more, against the box's one 1200 a minute: every 30 s there.
           TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
-          TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: '2000',
+          TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? '30000' : '2000',
           // Collect (J-derivatives-17, J-campaigns-03): every 2 seconds the TEST venue's own claim record is read and each
           // claim posts once; a claim exists only once a journey asks the TEST venue for one (`/test/builder-claim`).
           TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: '2000',

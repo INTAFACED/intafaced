@@ -92,6 +92,7 @@ import {
   type VenueCandleInterval,
   VENUE_CANDLE_INTERVALS,
   venueClientOrderId,
+  venueSymbolBody,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
@@ -480,7 +481,8 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     async (req, reply) => {
       return answer(reply, async (d) => {
         const symbol = req.query.symbol ?? '';
-        if (!/^[A-Za-z0-9][A-Za-z0-9/._-]{0,63}$/.test(symbol)) throw new VenueWireError('symbol is a perpetual, as BTC-PERP');
+        if (!/^[A-Za-z0-9][A-Za-z0-9/._-]{0,63}$/.test(venueSymbolBody(symbol)))
+          throw new VenueWireError('symbol is a perpetual, as BTC-PERP');
         const kind = req.query.kind;
         if (kind !== 'mark' && kind !== 'index') throw new VenueWireError('kind is mark or index');
         const since = new Date(req.query.since ?? '');
@@ -685,7 +687,8 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return n;
   };
   const symbolOf = (raw: string | undefined) => {
-    if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(raw)) throw new VenueWireError('symbol is the venue market, as BTC-USDC');
+    if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(venueSymbolBody(raw)))
+      throw new VenueWireError('symbol is the venue market, as BTC-USDC');
     return raw;
   };
   type MarketQuery = Query & { depth?: string; limit?: string; interval?: string; since?: string };

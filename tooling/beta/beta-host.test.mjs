@@ -9,6 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   ANVIL_IMAGE,
+  BETA_CUSTODY,
   BETA_LINK,
   BETA_OWN_HOSTS,
   BETA_SLOT,
@@ -143,6 +144,41 @@ test("the beta's own round passes the stack's TEST official-channel list, which 
     const r = fundsCheck({ records, readEnviron: () => environ({ ...support, OTHER_URL: off }), page: PAGE, allow: BETA_OWN_HOSTS });
     assert.equal(r.ok, false, off);
   }
+});
+
+test("the beta's stack runs the custody layer off, as launch does, and its check fails any process that runs it otherwise (#11019)", async () => {
+  // The beta's settings start every carrier off together (local-test-state.mjs startCustodyLayer), and win over a shell.
+  assert.equal(BETA_CUSTODY, 'off');
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_CUSTODY_LAYER, 'off');
+  assert.equal(stackEnv(betaPaths('/home/x'), { LOCAL_STACK_CUSTODY_LAYER: 'on' }).LOCAL_STACK_CUSTODY_LAYER, 'off');
+  const { startCustodyLayer } = await import('../scripts/local-test-state.mjs');
+  assert.equal(startCustodyLayer(stackEnv(betaPaths('/home/x'), {})), 'off');
+  const ok = () => environ({ A: 'http://127.0.0.1:1' });
+  const off = {
+    ledger: { pid: 1, custodyLayer: 'off' },
+    bank: { pid: 2, custodyLayer: 'off' },
+    trade: { pid: 3, custodyLayer: 'off' },
+    edge: { pid: 4 },
+  };
+  const pass = fundsCheck({ records: off, readEnviron: ok, page: PAGE, custody: BETA_CUSTODY });
+  assert.equal(pass.ok, true, pass.lines.join('\n'));
+  assert.ok(pass.lines.includes('ok   ledger, bank, trade: LEDGER_CUSTODY_LAYER off, as launch runs it'), pass.lines.join('\n'));
+  // The beta as it ran before #11019: every carrier on.
+  const on = Object.fromEntries(Object.entries(off).map(([k, v]) => [k, v.custodyLayer ? { ...v, custodyLayer: 'on' } : v]));
+  const before = fundsCheck({ records: on, readEnviron: ok, page: PAGE, custody: BETA_CUSTODY });
+  assert.equal(before.ok, false);
+  assert.ok(before.lines.includes('FAIL trade (pid 3): runs LEDGER_CUSTODY_LAYER on, not off as launch does'), before.lines.join('\n'));
+  // One carrier left on, a ledger with no recorded switch (read as on), or no ledger at all: each a finding.
+  assert.equal(
+    fundsCheck({ records: { ...off, trade: { pid: 3, custodyLayer: 'on' } }, readEnviron: ok, page: PAGE, custody: 'off' }).ok,
+    false,
+  );
+  const unrecorded = fundsCheck({ records: { ...off, ledger: { pid: 1 } }, readEnviron: ok, page: PAGE, custody: 'off' });
+  assert.ok(unrecorded.lines.includes('FAIL ledger (pid 1): runs LEDGER_CUSTODY_LAYER unrecorded (on), not off as launch does'));
+  const { ledger: _ledger, ...noLedger } = off;
+  assert.equal(fundsCheck({ records: noLedger, readEnviron: ok, page: PAGE, custody: 'off' }).ok, false);
+  // Another stack's check (`check --state`) asks for no switch: its custody is its own.
+  assert.equal(fundsCheck({ records: on, readEnviron: ok, page: PAGE }).ok, true);
 });
 
 test('fundsCheck fails closed: no process, no readable process, no page, or a page with no TEST banner', () => {

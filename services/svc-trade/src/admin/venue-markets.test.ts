@@ -815,5 +815,9 @@ describe('the LOCAL TEST listing seed', () => {
     expect(parseTestListings('')).toEqual([]);
     expect(() => parseTestListings('btc usdc')).toThrow(/comma list/);
     expect(() => parseTestListings('BTC-USDC,,')).toThrow(/comma list/);
+    // A HIP-3 market keeps its DEX, lower case before a colon; any other colon or case is refused.
+    expect(parseTestListings('BTC-PERP,xyz:TSLA-PERP')).toEqual(['BTC-PERP', 'xyz:TSLA-PERP']);
+    for (const bad of ['XYZ:TSLA-PERP', 'xyz:', 'xyz:tsla-perp', 'a:b:C-PERP'])
+      expect(() => parseTestListings(bad), bad).toThrow(/comma list/);
   });
 });

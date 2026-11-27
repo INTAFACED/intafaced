@@ -1,7 +1,7 @@
 import { compare, formatAmount, mul, type Amount } from '@intafaced/ledger-client/money';
 import type { EventBus } from '@intafaced/events';
 import type { UpcomingMaintenance } from '@intafaced/contracts/market-maintenance';
-import { isTestVenue, type PlaceUserOrderIntent, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
+import { isTestVenue, venueSymbolBody, type PlaceUserOrderIntent, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
 import type { VenueLimitVersion, VenueListingStore, VenueListingVersion, VenueRoutingState } from './venue-listing-store.js';
 
 /**
@@ -143,7 +143,7 @@ export function parseTestListings(raw: string | undefined): readonly string[] {
   if (text === '') return [];
   const symbols = text.split(',').map((s) => s.trim());
   for (const s of symbols) {
-    if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(s)) {
+    if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(venueSymbolBody(s))) {
       throw new Error(`TRADE_USER_VENUE_TEST_LISTINGS must be a comma list of venue symbols, got ${JSON.stringify(raw)}`);
     }
   }

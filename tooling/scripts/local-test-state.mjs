@@ -74,6 +74,20 @@ export function stackCustodyOff(stateDir = localStackState()) {
   return custodyLayerOf(records) === 'off';
 }
 
+/**
+ * The custody switch this stack starts its services with (OWNER 226, OWNER 288): `LOCAL_STACK_CUSTODY_LAYER` on a start,
+ * `on` when unset, for the journeys marked Later: custody. Every service that carries `LEDGER_CUSTODY_LAYER` (svc-ledger,
+ * svc-bank, svc-pay, svc-trade, svc-matching: local-stack-services/) takes this one value, so the stack never runs a
+ * ledger and a book on different switches. `off` runs them as the launch build does (the beta, #11019).
+ */
+export function startCustodyLayer(env = process.env) {
+  const value = env.LOCAL_STACK_CUSTODY_LAYER ?? '';
+  if (value === '') return 'on';
+  if (value !== 'on' && value !== 'off')
+    throw new Error(`LOCAL_STACK_CUSTODY_LAYER is "${value}"; leave it unset (on), or set it to on or off.`);
+  return value;
+}
+
 /** stackCustodyLayer's reading of the process records alone (pure): svc-ledger's recorded switch, `on` when unrecorded. */
 export function custodyLayerOf(records) {
   const value = records?.ledger?.custodyLayer ?? 'on';
