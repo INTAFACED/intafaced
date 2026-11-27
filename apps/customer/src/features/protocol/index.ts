@@ -18,6 +18,7 @@ export { usePolled } from './wallet/use-polled';
 export { useWallet, waitMined, WalletProvider, type MinedOutcome, type SequenceResult } from './wallet/WalletProvider';
 export { isFactoryUnset, toWei, utcTime } from './wallet/wallet-text';
 export { EmbeddedWalletAnnouncer } from './embedded-wallet/EmbeddedWalletAnnouncer';
+export { useEmbeddedWalletAddress } from './embedded-wallet/use-embedded-wallet-address';
 export {
   answerSessionKeyAsks,
   bindLiveKey,
