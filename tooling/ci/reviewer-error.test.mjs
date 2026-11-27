@@ -94,6 +94,12 @@ test('down: the weekly limit waits for its reset, named in Bali time', () => {
   assert.equal(c.signIn, false);
   assert.equal(c.action, 'wait for the reset at Nov 14, 18:00 Bali time (Nov 14, 10am UTC)');
   assert.equal(resetOf('resets 3pm (UTC)', NOW), 'Nov 10, 23:00 Bali time (3pm UTC)');
+  assert.equal(
+    resetOf('resets 3pm (UTC)', new Date('2026-11-25T15:28:44Z')),
+    'Nov 26, 23:00 Bali time (3pm UTC)',
+    'a time with no date already past today is tomorrow (project-state#4075)',
+  );
+  assert.equal(resetOf('resets 11am (UTC)', NOW), 'Nov 11, 19:00 Bali time (11am UTC)', 'the same minute as NOW is past: tomorrow');
   assert.equal(resetOf('resets soon', NOW), 'soon', 'words it cannot read as a UTC time are kept as said');
   assert.equal(resetOf('limit reached', NOW), null);
 });
