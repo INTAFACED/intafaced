@@ -6,7 +6,7 @@ import { expect } from './journey.mjs';
 const sheet = (page) => page.locator('[data-sheet="sign"]');
 
 /** Presses `button`, continues the plain-words sheet, and the TEST wallet signs: the room shows Connected. */
-export async function connectAndSign(page, button) {
+async function connectAndSign(page, button) {
   await page.getByRole('button', { name: button, exact: true }).click();
   await sheet(page).getByRole('button', { name: 'Continue in wallet', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Connected', exact: true })).toBeVisible();

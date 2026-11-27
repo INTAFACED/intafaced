@@ -39,7 +39,7 @@ const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const HUNDRED = parseAmount('100');
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 /** The asset the lock counts and withdraws: the venue's perpetuals collateral, USDC. */
-export const PROFIT_LOCK_ASSET = 'USDC';
+const PROFIT_LOCK_ASSET = 'USDC';
 /** USDC's smallest unit: an offer's amount is rounded down to it. */
 const ASSET_DECIMALS = 6;
 
@@ -87,10 +87,10 @@ export const profitLockOfferKey = (lock: Pick<ProfitLock, 'userId' | 'venueId' |
   `profit-lock:${lock.userId}:${lock.venueId}:${lock.owner}:${weekFrom.toISOString()}`;
 
 /** The withdrawal key the offer is signed under at the venue door: the account and the week. */
-export const profitLockWithdrawalKey = (owner: string, weekFrom: Date) => `profit-lock:${owner}:${weekFrom.getTime()}`;
+const profitLockWithdrawalKey = (owner: string, weekFrom: Date) => `profit-lock:${owner}:${weekFrom.getTime()}`;
 
 /** The week's realised profit, as the venue reports it on its fills since `from`. */
-export function realisedSince(fills: readonly { readonly realisedPnl: Amount | null; readonly filledAt: Date }[], from: Date): Amount {
+function realisedSince(fills: readonly { readonly realisedPnl: Amount | null; readonly filledAt: Date }[], from: Date): Amount {
   let total = ZERO;
   for (const f of fills) if (f.realisedPnl !== null && f.filledAt.getTime() >= from.getTime()) total = add(total, f.realisedPnl);
   return total;

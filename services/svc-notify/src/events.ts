@@ -1261,7 +1261,7 @@ export async function subscribeNotificationEvents(
             asset: payload.asset,
             address: payload.coldWallet,
           },
-          href: '/wallet/venue?profit-lock=offer',
+          href: '/wallet/venue',
           severity: 'action',
           sourceSubject: venueProfitLockReady.subject,
           sourceIdempotencyKey: payload.offerKey,

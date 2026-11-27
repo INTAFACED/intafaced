@@ -246,6 +246,7 @@ export class SqlProfitLockStore implements ProfitLockStore {
         (id, user_id, venue_id, owner, asset, target, share_percent, cold_wallet, week_from, created_at, updated_at)
       VALUES (${s.id}, ${s.userId}, ${s.venueId}, ${s.owner}, ${s.asset}, ${formatAmount(s.target)}, ${formatAmount(s.share)},
         ${s.coldWallet}, ${s.weekFrom}, ${s.at}, ${s.at})
+      -- conflict-keys-ok: user_venue_profit_locks_pkey — the id is a fresh random uuid made for each save (profit-lock.ts), so two saves never share one; the row is named by (user_id, venue_id, owner), the key this statement absorbs
       ON CONFLICT (user_id, venue_id, owner) DO UPDATE SET
         asset = EXCLUDED.asset,
         target = EXCLUDED.target,
