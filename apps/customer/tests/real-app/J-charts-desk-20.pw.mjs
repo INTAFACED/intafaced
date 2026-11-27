@@ -4,7 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
-import { MINUTE, minuteStart } from './clock.mjs';
+import { closedMinute, MINUTE, minuteStart } from './clock.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   doorOk,
@@ -43,12 +43,6 @@ const tag = () => randomBytes(4).toString('hex');
 const bucket = minuteStart;
 /** A venue decimal as the page writes it: no trailing zeros. */
 const plain = (decimal) => fromUnits(toUnits(decimal));
-/** Waits until the clock is `seconds` into the next minute. */
-const nextMinute = async (seconds = 3) => {
-  const wait = bucket(Date.now()) + MINUTE + seconds * 1000 - Date.now();
-  // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- the venue's 1m bars are cut by its own clock, which has no TEST door: each of the trade's moments must fall in a minute of its own
-  await new Promise((r) => setTimeout(r, wait));
-};
 
 const MAKER = `${J}-${runId}-maker`;
 async function makerRests(side, price) {
@@ -124,7 +118,7 @@ test.beforeAll(async ({ browser }) => {
       });
 
     // Minute 0 starts with a fresh minute, so the entry and its stop fall in one bar; the 12 bars before it are TEST prints.
-    await nextMinute();
+    await closedMinute(page, Date.now());
     const entryMinute = bucket(Date.now());
     for (let k = 12; k >= 1; k -= 1) await seedPrint(entryMinute - k * MINUTE + 5_000);
     await makerRests('sell', '100');
@@ -132,13 +126,13 @@ test.beforeAll(async ({ browser }) => {
     const first = stop('95');
     await act(first);
     // Minute 1: the stop moved further away, and a TEST print so the minute has its bar.
-    await nextMinute();
+    await closedMinute(page, Date.now());
     await act({ kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: first.clientOrderKey });
     const moved = stop('90');
     await act(moved);
     await seedPrint(Date.now() - 1_000);
     // Minute 2: closed.
-    await nextMinute();
+    await closedMinute(page, Date.now());
     await makerRests('buy', '102');
     await act(order('sell', '102'));
     await act({ kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: moved.clientOrderKey });
