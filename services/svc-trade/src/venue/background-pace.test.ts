@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { UserVenue, UserVenueAccount } from '@intafaced/venue-contracts';
+import type { LedgerTx } from '@intafaced/ledger-client';
+import type { AsOf, UserVenue, UserVenueAccount, UserVenueBalance, UserVenueFill, UserVenueMarket } from '@intafaced/venue-contracts';
 import { VenueRefusalError } from '@intafaced/venue-contracts';
 import { partial } from '@intafaced/service-kit/testing';
 import { postBuilderFees } from '../builder-fee/builder-fee-poster.js';
@@ -14,20 +15,22 @@ import { VenueBalanceWatch } from './balance-watch.js';
 const VENUE = 'hl-testnet';
 const owner = (i: number) => `0x${i.toString(16).padStart(40, '0')}`;
 
+const none = <T>(): AsOf<readonly T[]> => ({ venueId: VENUE, value: [], asOf: new Date(0), reportedAt: null });
+
 function countingVenue(opts: { refuse?: ReadonlySet<string> } = {}) {
   const reads = { balances: new Map<string, number>(), fills: new Map<string, number>() };
   const bump = (m: Map<string, number>, a: UserVenueAccount) => m.set(a.owner, (m.get(a.owner) ?? 0) + 1);
   const venue = partial<UserVenue>({
-    venue: { id: VENUE },
-    markets: async () => ({ value: [] }),
+    venue: partial<UserVenue['venue']>({ id: VENUE }),
+    markets: async () => none<UserVenueMarket>(),
     balances: async (a: UserVenueAccount) => {
       bump(reads.balances, a);
-      return { value: [] };
+      return none<UserVenueBalance>();
     },
     fills: async (a: UserVenueAccount) => {
       bump(reads.fills, a);
       if (opts.refuse?.has(a.owner)) throw new VenueRefusalError({ venueId: VENUE, code: 'not_offered', detail: 'TEST refusal' });
-      return { value: [] };
+      return none<UserVenueFill>();
     },
   });
   const total = (m: Map<string, number>) => [...m.values()].reduce((s, n) => s + n, 0);
@@ -97,7 +100,7 @@ describe('background readers keep their pace whatever the account count', () => 
     const run = () =>
       postBuilderFees({
         venue: async () => v.venue,
-        ledger: { post: async () => partial({ id: 'tx' }) },
+        ledger: { post: async () => partial<LedgerTx>({ id: 'tx' }) },
         store,
         ourOrders: async () => new Set(),
         now: c.now,
@@ -127,7 +130,7 @@ describe('background readers keep their pace whatever the account count', () => 
     const run = () =>
       postBuilderFees({
         venue: async () => v.venue,
-        ledger: { post: async () => partial({ id: 'tx' }) },
+        ledger: { post: async () => partial<LedgerTx>({ id: 'tx' }) },
         store,
         ourOrders: async () => new Set(),
         now: c.now,
