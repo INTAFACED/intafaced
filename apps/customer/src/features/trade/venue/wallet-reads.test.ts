@@ -26,6 +26,7 @@ const VENUE: Record<string, unknown> = {
     time: 1795435200000,
   },
   spotClearinghouseState: { balances: [{ coin: 'USDC', token: 0, total: '40', hold: '10', entryNtl: '0' }] },
+  userAbstraction: 'default',
 };
 
 /** A door that answers its status and counts every other read it is asked. */
@@ -72,6 +73,20 @@ describe("the desk's own-wallet reads", () => {
       { asset: 'USDC', free: '30', locked: '10', total: '40' },
       { asset: 'USDC-PERP', free: '100.25', locked: '25.25', total: '125.5' },
     ]);
+  });
+
+  it("the account's mode, from this browser too: the venue's default mode is standard, spot and perps USDC apart", async () => {
+    const sent = testNetwork();
+    const { api, asked } = door({ ...STATUS, walletReads: NAMED });
+    const read = await venueApi(api).accountMode(OWNER);
+    expect(asked).toEqual([]);
+    expect(sent.map((s) => s.body.type).sort()).toEqual(['clearinghouseState', 'spotClearinghouseState', 'userAbstraction']);
+    expect(read.ok && read.data.value).toEqual({
+      mode: 'standard',
+      spot: [{ asset: 'USDC', free: '30', locked: '10', total: '40' }],
+      perps: [{ asset: 'USDC', free: '100.25', locked: '25.25', total: '125.5' }],
+      actions: null,
+    });
   });
 
   it('read through the door for a sub-account, another venue, or a door that names no wallet reads', async () => {
