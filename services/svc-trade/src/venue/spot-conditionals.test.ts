@@ -526,6 +526,74 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
     expect(store.rows.get(made.conditional.id)!.triggerPrice).toBe(a('96'));
   });
 
+  it("on a venue whose trades a session key signs, an entry and a stop the venue holds are prepared for the person's session key", async () => {
+    await approveAgent();
+    // The person's trading session key, approved on the venue by their wallet (as session-key.ts starts one).
+    const session = privateKeyToAccount(keccak256(toHex(`intafaced TEST spot conditional session ${id('k')}`)));
+    const agent = session.address.toLowerCase();
+    const approve = await door.prepare(person, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_agent', agentAddress: agent, agentName: 'desk', validUntil: null },
+      actionKey: `agent-approve:${USER}:${id('a')}`,
+    });
+    expect((await signAndSend(approve)).outcome).toMatchObject({ accepted: true });
+    const signer = { role: 'agent', address: agent } as const;
+
+    // A bracket's entry is the person's own order: the session key signs it, and the venue takes it.
+    const made = await s.create(
+      person,
+      req({ kind: 'bracket', side: 'buy', entryPrice: '98', takeProfitPrice: '110', triggerPrice: '95', signer }),
+      REGION,
+    );
+    if (made.restsOn !== 'engine' || !made.entry) throw new Error('expected an entry to sign');
+    expect(made.entry.prepared.signer).toEqual(signer);
+    const t = made.entry.prepared.typedData as TypedDataDefinition;
+    const signature = await session.signTypedData(t);
+    const sent = await door.submit(person, made.entry.actionKey, { digest: made.entry.prepared.digest, signature, signedBy: agent });
+    expect(sent.outcome).toMatchObject({ accepted: true, order: { status: 'open' } });
+
+    // A stop the venue holds on spot (a market that judges stops on its last trade): its trigger order is the key's too.
+    const asked: Array<{ signer: unknown }> = [];
+    const venueOf = door.venue.bind(door);
+    const holding = Object.create(door) as UserVenueDoor;
+    holding.venue = async () => {
+      const v = await venueOf();
+      return {
+        ...v,
+        markets: async (acc: UserVenueAccount | null) => {
+          const read = await v.markets(acc);
+          return { ...read, value: read.value.map((m) => (m.symbol === SYM ? { ...m, triggerSources: ['last' as const] } : m)) };
+        },
+      } as typeof v;
+    };
+    holding.prepare = async (_p, request) => {
+      asked.push({ signer: request.signer });
+      return { actionKey: 'stop', prepared: {} as PreparedVenueAction, reused: false, signed: false, lastOutcome: null } as never;
+    };
+    const held = new VenueSpotConditionals({
+      door: holding,
+      store,
+      keySeed: SEED,
+      liveTier: async () => 'basic',
+      freeze,
+      now: () => new Date(),
+    });
+    expect((await held.create(person, req({ kind: 'stop_market', triggerPrice: '95', signer }), REGION)).restsOn).toBe('venue');
+    expect(asked).toEqual([{ signer }]);
+
+    // The wallet stays the default, and a signer that is neither is refused before anything is stored or prepared.
+    expect((await held.create(person, req({ kind: 'stop_market', triggerPrice: '95' }), REGION)).restsOn).toBe('venue');
+    expect(asked[1]).toEqual({ signer: { role: 'owner', address: owner } });
+    const rows = store.rows.size;
+    expect(
+      await refused(
+        s.create(person, req({ kind: 'stop_market', triggerPrice: '95', signer: { role: 'builder', address: agent } }), REGION),
+      ),
+    ).toMatchObject({ code: 'trade.spot_conditional_invalid', status: 400 });
+    expect(store.rows.size).toBe(rows);
+  });
+
   // J-cex-spot-03 #7: the venue offers no good-till-date; the owner chose that we build it.
   describe('good-till-date (J-cex-spot-03 #7)', () => {
     let clock = Date.now();
