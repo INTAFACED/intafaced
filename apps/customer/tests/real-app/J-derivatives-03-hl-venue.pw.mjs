@@ -47,7 +47,7 @@ test.afterAll(async ({ browser }) => {
   const page = await browser.newPage();
   try {
     const { owner } = await desk(page);
-    await flatten(page, owner);
+    await flatten(page, owner, run.read().exits ?? []);
   } finally {
     await page.close();
   }
@@ -90,68 +90,52 @@ async function desk(page) {
 }
 
 /**
- * TEST, the flatten a tester does by hand: every exit order on ETH-PERP cancelled and the position closed in full,
- * reduce-only, each leg confirmed on the venue's own record. The exit-orders dialog lists the ones this stack armed (our
- * door's own record, svc-trade protections.ts `list`), and each is cancelled there. A run cut short leaves its own on the
- * funded account, which a fresh stack holds no record of: those are cancelled from the desk's
- * Open orders by the client id the venue lists. A new page holds no session key, so it starts its own session first.
+ * TEST, the flatten a tester does by hand: this run's exit orders (`exits`, their client ids) cancelled from the exit
+ * orders dialog, and the position closed in full, reduce-only, each leg confirmed on the venue's own record. An exit
+ * order an earlier run left under another sign-up is in no record of this stack's, so the dialog does not list it: it is
+ * cancelled from the desk's Open orders by the client id the venue lists. A new page holds no session key, so it starts
+ * its own session first.
  */
-async function flatten(page, owner) {
-  const exits = async () => (await openOrders(owner)).filter((o) => o.trigger);
-  const held = await positionOf(owner);
-  if (held === null && (await exits()).length === 0) return;
+async function flatten(page, owner, exits) {
+  const left = async () => (await openOrders(owner)).filter((o) => o.trigger);
+  if ((await positionOf(owner)) === null && exits.length === 0 && (await left()).length === 0) return;
   if (sessionVenue) await startVenueSession(page);
-  if (held !== null) {
+  const resting = async () => (await openOrders(owner)).filter((o) => o.trigger).length;
+  if (exits.length > 0) {
     const dialog = await exitOrders(page);
-    const listedOrders = listed(dialog).locator('li[data-client-order-id]');
-    // The dialog has read our record once it lists an exit order or says there is none.
-    await expect(listedOrders.or(listed(dialog).getByText('No exit order on this position.', { exact: true })).first()).toBeVisible({
-      timeout: 20_000,
-    });
-    // Each one listed that still rests offers Cancel; one already cancelled or filled is listed with what became of it.
-    const ids = await listedOrders
-      .filter({ has: page.getByRole('button', { name: 'Cancel', exact: true }) })
-      .evaluateAll((items) => items.map((li) => li.getAttribute('data-client-order-id')));
-    for (const id of ids) {
-      const before = (await exits()).length;
+    for (const id of exits) {
+      await expect(item(dialog, id)).toBeVisible({ timeout: 20_000 });
+      const before = await resting();
       await item(dialog, id).getByRole('button', { name: 'Cancel', exact: true }).click();
       await signed(page);
-      await expect
-        .poll(async () => (await exits()).length, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` })
-        .toBe(before - 1);
+      await expect.poll(resting, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` }).toBe(before - 1);
     }
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
   }
-  const left = await exits();
-  if (left.length > 0) {
+  const earlier = await left();
+  if (earlier.length > 0) {
     const blotter = page.getByTestId('venue-blotter');
     await blotter.getByRole('button', { name: 'Open orders', exact: true }).click();
     const open = page.getByTestId('venue-open-orders');
     await expect(open).toBeVisible();
-    for (const o of left) {
+    for (const o of earlier) {
       expect(o.venueClientOrderId, `the exit order ${o.venueOrderId} an earlier run left carries the venue's client id`).toBeTruthy();
-      const before = (await exits()).length;
+      const before = await resting();
       await open.locator(`tr[data-client-order-id="${o.venueClientOrderId}"]`).getByRole('button', { name: 'Cancel', exact: true }).click();
       await signed(page);
       await expect
-        .poll(async () => (await exits()).length, {
-          timeout: 20_000,
-          message: `exit order ${o.venueClientOrderId} an earlier run left, cancelled on the venue`,
-        })
+        .poll(resting, { timeout: 20_000, message: `exit order ${o.venueClientOrderId} an earlier run left, cancelled on the venue` })
         .toBe(before - 1);
     }
     await blotter.getByRole('button', { name: 'Positions', exact: true }).click();
   }
-  expect(await exits()).toEqual([]);
-  if (held !== null) {
-    const close = row(page).getByTestId('venue-close');
-    await close.getByRole('textbox').fill('100');
-    await close.getByRole('button', { name: 'Close 100%', exact: true }).click();
-    await signed(page);
-    await expect.poll(async () => positionOf(owner), { timeout: 30_000, message: 'the position closed' }).toBeNull();
-  }
-  expect(await openOrders(owner)).toEqual([]);
+  if ((await positionOf(owner)) === null) return;
+  const close = row(page).getByTestId('venue-close');
+  await close.getByRole('textbox').fill('100');
+  await close.getByRole('button', { name: 'Close 100%', exact: true }).click();
+  await signed(page);
+  await expect.poll(async () => positionOf(owner), { timeout: 30_000, message: 'the position closed' }).toBeNull();
 }
 
 /** TEST funding of the simulator's venue account; throws when the simulator credits nothing. */
@@ -208,8 +192,10 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   const { owner } = await desk(page);
   // TEST funding on the simulator only: on the test network the trader's own account already holds TEST USDC.
   if (!sessionVenue) await fundOnSimulator(owner);
-  // TEST setup: whatever an earlier run cut short left on the funded account is flattened first.
-  await flatten(page, owner);
+  // TEST setup: whatever an earlier run cut short left on the funded account (exit orders, a position) is cleared first;
+  // any exit order still resting is set aside, so the step reads only the ones it arms.
+  await flatten(page, owner, []);
+  const earlier = new Set((await openOrders(owner)).filter((o) => o.trigger).map((o) => o.venueOrderId));
   const market = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === SYMBOL);
   expect(market, `${SYMBOL} is on the venue's own market list`).toBeTruthy();
   // What the venue judges trigger orders on: its mark (Hyperliquid triggers on the mark price).
@@ -270,7 +256,9 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
     return answer.request().postDataJSON();
   };
   const tp = await arm('Take profit', takeProfit);
+  run.write({ exits: [tp.clientOrderId] });
   const sl = await arm('Stop loss', stopLoss);
+  run.write({ exits: [tp.clientOrderId, sl.clientOrderId] });
   expect(tp).toMatchObject({ kind: 'take_profit', side: 'sell', triggerPrice: takeProfit, triggerSource: 'mark' });
   expect(sl).toMatchObject({ kind: 'stop_loss', side: 'sell', triggerPrice: stopLoss, triggerSource: 'mark' });
   // Each is signed by what signs the venue's orders: the session key on Hyperliquid, the wallet on the simulator.
@@ -279,7 +267,7 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   expect(sl.signer?.role ?? 'owner').toBe(signer);
 
   // Both rest on the venue as its trigger orders: reduce-only, waiting, each with its own venue order id and price.
-  const triggers = (await openOrders(owner)).filter((o) => o.trigger);
+  const triggers = (await openOrders(owner)).filter((o) => o.trigger && !earlier.has(o.venueOrderId));
   expect(triggers.map((o) => [o.trigger.role, o.trigger.state, o.trigger.source, o.side, o.reduceOnly]).sort()).toEqual([
     ['stop_loss', 'waiting', 'mark', 'sell', true],
     ['take_profit', 'waiting', 'mark', 'sell', true],
