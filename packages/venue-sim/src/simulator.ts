@@ -671,6 +671,14 @@ function accountKey(account: UserVenueAccount): string {
   return `${account.owner.toLowerCase()}/${account.subAccount ?? ''}`;
 }
 
+/** One part of a perp fill: its price, amount, the share of the order's lock it frees and its fees. */
+interface FillPart {
+  readonly price: Amount;
+  readonly qty: Amount;
+  readonly lockForQty: Amount;
+  readonly fees: Amount;
+}
+
 export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
@@ -4963,29 +4971,29 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const openQty = sub(qty, closeQty);
       const [closeFee = ZERO, openFee = ZERO] = openQty === ZERO ? [fees, ZERO] : proRata(fees, [closeQty, openQty]);
       const [closeLock = ZERO, openLock = ZERO] = openQty === ZERO ? [lockForQty, ZERO] : proRata(lockForQty, [closeQty, openQty]);
-      const closed = this.closePart(usdc, held, price, closeQty, closeLock, closeFee);
-      const opened = openQty === ZERO ? { uncharged: ZERO } : this.openPart(state, market, side, usdc, price, openQty, openLock, openFee);
+      const closed = this.closePart(usdc, held, { price, qty: closeQty, lockForQty: closeLock, fees: closeFee });
+      const opened =
+        openQty === ZERO
+          ? { uncharged: ZERO }
+          : this.openPart({ state, market, side, usdc }, { price, qty: openQty, lockForQty: openLock, fees: openFee });
       return { realisedPnl: closed.realisedPnl, uncharged: add(closed.uncharged, opened.uncharged) };
     }
     if (!o.reduceOnly) {
-      this.openPart(state, market, side, usdc, price, qty, lockForQty, fees);
+      this.openPart({ state, market, side, usdc }, { price, qty, lockForQty, fees });
       return { realisedPnl: null, uncharged: ZERO };
     }
     // Reduce-only: close (part of) the position. Isolated: the loss stops at the margin released.
-    return this.closePart(usdc, current as PositionState, price, min(qty, (current as PositionState).size), lockForQty, fees);
+    const p = current as PositionState;
+    return this.closePart(usdc, p, { price, qty: min(qty, p.size), lockForQty, fees });
   }
 
   /** The opening part of a perp fill: margin posted from the order's lock, the rest back to free. */
   private openPart(
-    state: AccountState,
-    market: SimMarketConfig,
-    side: OrderState,
-    usdc: { free: Amount; locked: Amount },
-    price: Amount,
-    qty: Amount,
-    lockForQty: Amount,
-    fees: Amount,
+    at: { state: AccountState; market: SimMarketConfig; side: OrderState; usdc: { free: Amount; locked: Amount } },
+    part: FillPart,
   ): { uncharged: Amount } {
+    const { state, market, side, usdc } = at;
+    const { price, qty, lockForQty, fees } = part;
     const o = side.order;
     const current = state.positions.get(market.symbol);
     const margin = div(mul(mul(price, qty, QUOTE_ROUND), BPS), parseAmount(String(side.leverageBps)), QUOTE_ROUND);
@@ -5019,14 +5027,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   /** The closing part of a perp fill: margin released with the realised result, fees from the lock, then from it. */
-  private closePart(
-    usdc: { free: Amount; locked: Amount },
-    p: PositionState,
-    price: Amount,
-    closeQty: Amount,
-    lockForQty: Amount,
-    fees: Amount,
-  ): { realisedPnl: Amount; uncharged: Amount } {
+  private closePart(usdc: { free: Amount; locked: Amount }, p: PositionState, part: FillPart): { realisedPnl: Amount; uncharged: Amount } {
+    const { price, qty: closeQty, lockForQty, fees } = part;
     const pnl = this.pnl(p, price, closeQty);
     const released = closeQty === p.size ? p.margin : div(mul(p.margin, closeQty), p.size, QUOTE_ROUND);
     p.margin = sub(p.margin, released);

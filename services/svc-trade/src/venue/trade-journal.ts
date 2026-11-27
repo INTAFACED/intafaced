@@ -103,7 +103,10 @@ export function roundTrips(fills: readonly UserVenueFill[], startPosition: Reado
     let s = state.get(f.symbol);
     // A market already open at the start is followed but not recorded until it is flat.
     if (!s) state.set(f.symbol, (s = { position: start, largest: ZERO, parts: isZero(start) ? [] : null }));
-    const part = (amount: Amount, venueFee: Amount, builderFee: Amount, opening: boolean, split: boolean): TripPart => ({
+    const part = (
+      { amount, venueFee, builderFee }: { amount: Amount; venueFee: Amount; builderFee: Amount },
+      { opening, split }: { opening: boolean; split: boolean },
+    ): TripPart => ({
       fillId: f.fillId,
       venueClientOrderId: f.venueClientOrderId,
       side: f.side,
@@ -119,7 +122,7 @@ export function roundTrips(fills: readonly UserVenueFill[], startPosition: Reado
     });
     const delta = signed(f.side, f.amount);
     if (isZero(s.position) || sign(delta) === sign(s.position)) {
-      s.parts?.push(part(f.amount, f.venueFee, f.builderFee, true, false));
+      s.parts?.push(part({ amount: f.amount, venueFee: f.venueFee, builderFee: f.builderFee }, { opening: true, split: false }));
       s.position = add(s.position, delta);
       s.largest = max(s.largest, abs(s.position));
       continue;
@@ -131,7 +134,7 @@ export function roundTrips(fills: readonly UserVenueFill[], startPosition: Reado
     const share = (fee: Amount) => (flip ? (proRata(fee, [closing, rest])[0] ?? ZERO) : fee);
     const closeVenueFee = share(f.venueFee);
     const closeBuilderFee = share(f.builderFee);
-    s.parts?.push(part(closing, closeVenueFee, closeBuilderFee, false, flip));
+    s.parts?.push(part({ amount: closing, venueFee: closeVenueFee, builderFee: closeBuilderFee }, { opening: false, split: flip }));
     const side = sign(s.position) > 0 ? 'long' : 'short';
     s.position = add(s.position, delta);
     if (isZero(s.position) || flip) {
@@ -147,7 +150,14 @@ export function roundTrips(fills: readonly UserVenueFill[], startPosition: Reado
           feeAsset: first.feeAsset,
           largest: s.largest,
         });
-      s.parts = flip ? [part(rest, sub(f.venueFee, closeVenueFee), sub(f.builderFee, closeBuilderFee), true, true)] : [];
+      s.parts = flip
+        ? [
+            part(
+              { amount: rest, venueFee: sub(f.venueFee, closeVenueFee), builderFee: sub(f.builderFee, closeBuilderFee) },
+              { opening: true, split: true },
+            ),
+          ]
+        : [];
       s.largest = flip ? rest : ZERO;
     }
   }
@@ -213,9 +223,9 @@ export function candlesCover(trip: RoundTrip, candles: readonly VenueCandle[]): 
 export function journalTrade(
   trip: RoundTrip,
   levels: { stop: Amount | null; target: Amount | null },
-  candles: readonly VenueCandle[],
-  funding: readonly UserVenueFundingPayment[],
+  read: { readonly candles: readonly VenueCandle[]; readonly funding: readonly UserVenueFundingPayment[] },
 ): JournalTradeFigures {
+  const { candles, funding } = read;
   const opens = trip.parts.filter((p) => p.opening);
   const closes = trip.parts.filter((p) => !p.opening);
   const feeAsset = trip.feeAsset;
@@ -393,7 +403,7 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
         read = candlesOf(trip.symbol, JOURNAL_CANDLE_INTERVAL, { limit: JOURNAL_CANDLES_PER_READ, since: from }).then((r) => r.value);
         candleReads.set(key, read);
       }
-      return journalTrade(trip, plannedLevels(trip, orders.value), await read, funding.value);
+      return journalTrade(trip, plannedLevels(trip, orders.value), { candles: await read, funding: funding.value });
     }),
   );
   const book = { venueId: account.venueId, owner: account.owner, subAccount: account.subAccount };

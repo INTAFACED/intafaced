@@ -241,7 +241,9 @@ describe('trade journal: round trips from the venue fills', () => {
       }),
     ];
     const candles = [candle('10:00', '99', '101'), candle('10:01', '104', '106'), candle('10:02', '102', '104')];
-    const [long, short] = roundTrips(fills, new Map()).map((trip) => journalTrade(trip, { stop: null, target: null }, candles, []));
+    const [long, short] = roundTrips(fills, new Map()).map((trip) =>
+      journalTrade(trip, { stop: null, target: null }, { candles, funding: [] }),
+    );
     expect([long!.side, long!.closedAt, long!.netPnl, long!.size]).toEqual(['long', '2026-11-20T10:01:10.000Z', '4.79', '1']);
     expect([short!.side, short!.openedAt, short!.netPnl, short!.size, short!.entryPrice]).toEqual([
       'short',
@@ -267,7 +269,7 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
     const trip = roundTrips(btcFills, new Map())[0]!;
     const levels = plannedLevels(trip, btcOrders);
     expect(levels).toEqual({ stop: a('96'), target: a('112') });
-    expect(journalTrade(trip, levels, btcCandles, btcFunding)).toEqual({
+    expect(journalTrade(trip, levels, { candles: btcCandles, funding: btcFunding })).toEqual({
       tradeId: 'b1',
       symbol: 'BTC-PERP',
       side: 'long',
@@ -340,7 +342,7 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
     const trip = roundTrips(ethFills, new Map<string, Amount>([['ETH-PERP', a('1')]]))[0]!;
     const levels = plannedLevels(trip, [trigger('ETH-PERP', 'buy', 'stop_loss', '60', at('09:00:00'), null)]);
     expect(levels).toEqual({ stop: null, target: null });
-    const t = journalTrade(trip, levels, ethCandles, []);
+    const t = journalTrade(trip, levels, { candles: ethCandles, funding: [] });
     expect([t.entryPrice, t.exitPrice, t.size, t.venueFees, t.realisedPnl, t.netPnl]).toEqual(['50', '45', '2', '0.29', '10', '9.71']);
     expect([t.risk, t.rMultiple, t.rMissing]).toEqual([null, null, 'no_stop_when_opened']);
     expect(t.excursion).toEqual({
@@ -365,7 +367,7 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
     const short = btcCandles.map((c) => (c.openAt.getTime() === at('10:05:00').getTime() ? candle('10:05', '108', '109') : c));
     for (const candles of [gone, short, []]) {
       expect(candlesCover(trip, candles)).toBe(false);
-      expect(journalTrade(trip, { stop: a('96'), target: null }, candles, []).excursion).toEqual({
+      expect(journalTrade(trip, { stop: a('96'), target: null }, { candles, funding: [] }).excursion).toEqual({
         interval: '1m',
         complete: false,
         mae: null,
@@ -376,7 +378,7 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
 
   it('a closing fill the venue reports no realised result for leaves the net and R named unknown, never 0', () => {
     const fills = btcFills.map((f) => (f.fillId === 'b3' ? { ...f, realisedPnl: null } : f));
-    const t = journalTrade(roundTrips(fills, new Map())[0]!, { stop: a('96'), target: null }, btcCandles, []);
+    const t = journalTrade(roundTrips(fills, new Map())[0]!, { stop: a('96'), target: null }, { candles: btcCandles, funding: [] });
     expect([t.realisedPnl, t.netPnl, t.risk, t.rMultiple, t.rMissing]).toEqual([null, null, '10', null, 'no_result']);
   });
 
@@ -407,8 +409,7 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
     const t = journalTrade(
       trip,
       { stop: a('52'), target: a('45') },
-      [candle('10:00', '49', '50.5'), candle('10:01', '50', '51.5'), candle('10:02', '44', '53')],
-      [],
+      { candles: [candle('10:00', '49', '50.5'), candle('10:01', '50', '51.5'), candle('10:02', '44', '53')], funding: [] },
     );
     expect([t.netPnl, t.rMultiple, t.excursion.mae?.perUnit, t.excursion.mfe?.perUnit]).toEqual(['-1', '-0.5', '1.5', '1']);
     expect(t.disciplined).toEqual({ exit: 'stop', exitPrice: '52', netPnl: '-2' });
@@ -416,7 +417,7 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
 
   it('neither level reached yet is unresolved, never guessed', () => {
     const trip = roundTrips(btcFills, new Map())[0]!;
-    expect(journalTrade(trip, { stop: a('90'), target: a('200') }, btcCandles, []).disciplined).toEqual({
+    expect(journalTrade(trip, { stop: a('90'), target: a('200') }, { candles: btcCandles, funding: [] }).disciplined).toEqual({
       exit: 'unresolved',
       exitPrice: null,
       netPnl: null,

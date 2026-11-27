@@ -1407,8 +1407,10 @@ async function route(
       const at = (k: 'fillsFrom' | 'candlesFrom') => {
         const v = body[k];
         if (v === undefined) return undefined;
-        if (v !== null && !(v instanceof Date)) throw new VenueWireError(`${k} is an ISO time or null`);
-        return v;
+        if (v === null || v instanceof Date) return v;
+        const at = typeof v === 'string' ? new Date(v) : null;
+        if (!at || Number.isNaN(at.getTime())) throw new VenueWireError(`${k} is an ISO time or null`);
+        return at;
       };
       return { ...sim.keepHistoryFrom(str(body, 'symbol'), { fills: at('fillsFrom'), candles: at('candlesFrom') }), label: 'TEST' };
     }

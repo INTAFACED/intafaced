@@ -112,6 +112,34 @@ function Trades({ journal, picked, t }: { journal: TradeJournal; picked: string 
     { key: 'exit', label: t('Journal exit'), align: 'end', cell: (r) => r.exitPrice, cellMarks: () => ({ 'data-cell': 'exit' }) },
     { key: 'size', label: t('Journal size'), align: 'end', cell: (r) => r.size, cellMarks: () => ({ 'data-cell': 'size' }) },
     {
+      key: 'realised',
+      label: t('Journal realised'),
+      align: 'end',
+      cell: (r) => (r.realisedPnl === null ? t('Journal not reported') : inAsset(r.realisedPnl, r.feeAsset)),
+      cellMarks: () => ({ 'data-cell': 'realised' }),
+    },
+    {
+      key: 'venue-fee',
+      label: t('Journal venue fee'),
+      align: 'end',
+      cell: (r) => inAsset(r.venueFees, r.feeAsset),
+      cellMarks: () => ({ 'data-cell': 'venue-fee' }),
+    },
+    {
+      key: 'builder-fee',
+      label: t('Journal builder fee'),
+      align: 'end',
+      cell: (r) => inAsset(r.builderFees, r.feeAsset),
+      cellMarks: () => ({ 'data-cell': 'builder-fee' }),
+    },
+    {
+      key: 'funding',
+      label: t('Journal funding column'),
+      align: 'end',
+      cell: (r) => inAsset(r.funding, r.feeAsset),
+      cellMarks: () => ({ 'data-cell': 'funding' }),
+    },
+    {
       key: 'net',
       label: t('Journal net'),
       align: 'end',
@@ -134,6 +162,7 @@ function Trades({ journal, picked, t }: { journal: TradeJournal; picked: string 
         'data-symbol': r.symbol,
         'data-side': r.side,
         'data-source': r.source,
+        'data-stored-at': r.storedAt,
       })}
       empty={<EmptyNote title={t('Journal empty')} body={t('Journal empty body')} />}
     />
@@ -151,7 +180,7 @@ function Line({ part, label, children }: { part: string; label: string; children
   );
 }
 
-function ExcursionLine({ part, label, value }: { part: string; label: string; value: Excursion }) {
+function ExcursionLine({ part, label, value, t }: { part: string; label: string; value: Excursion; t: T }) {
   return (
     <div
       className="lt-row"
@@ -163,7 +192,7 @@ function ExcursionLine({ part, label, value }: { part: string; label: string; va
     >
       <dt>{label}</dt>
       <dd>
-        <bdi dir="ltr">{`${value.price} · ${value.perUnit} · ${value.usd} USDC · ${value.pct}%`}</bdi>
+        <bdi dir="ltr">{t('Journal excursion figures', value)}</bdi>
       </dd>
     </div>
   );
@@ -214,7 +243,7 @@ function TradeDetail({ trade, journal, t }: { trade: JournalTrade; journal: Trad
         })}{' '}
         <TestMark test={journal.venue.test} />
       </h3>
-      <p data-testid="journal-source" className="lt-muted">
+      <p data-testid="journal-source" data-stored-at={trade.storedAt} className="lt-muted">
         {trade.source === 'record'
           ? t('Journal from record', { time: when(trade.storedAt) })
           : t('Journal from venue', { venue: journal.venue.name, time: when(trade.storedAt) })}
@@ -257,15 +286,15 @@ function TradeDetail({ trade, journal, t }: { trade: JournalTrade; journal: Trad
         rows={trade.fills}
         rowKey={(f) => `${f.fillId}:${f.opening ? 'open' : 'close'}`}
         scroll
-        rowMarks={(f) => ({ 'data-testid': 'journal-fill', 'data-fill': f.fillId })}
+        rowMarks={(f) => ({ 'data-testid': 'journal-fill', 'data-fill': f.fillId, 'data-at': f.filledAt })}
       />
 
       <dl data-testid="journal-excursion" data-complete={String(trade.excursion.complete)} className="lt-stack-tight">
         <p className="lt-hint">{t('Journal excursion rule')}</p>
         {trade.excursion.mae && trade.excursion.mfe ? (
           <>
-            <ExcursionLine part="mae" label={t('Journal mae')} value={trade.excursion.mae} />
-            <ExcursionLine part="mfe" label={t('Journal mfe')} value={trade.excursion.mfe} />
+            <ExcursionLine part="mae" label={t('Journal mae')} value={trade.excursion.mae} t={t} />
+            <ExcursionLine part="mfe" label={t('Journal mfe')} value={trade.excursion.mfe} t={t} />
           </>
         ) : (
           <>

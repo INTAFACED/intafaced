@@ -61,7 +61,7 @@ export class SqlTradeJournalStore implements TradeJournalStore {
         INSERT INTO trade.user_venue_journal_trades
           (venue_id, owner, sub_account, trade_id, symbol, closed_at, complete, trade, stored_at)
         VALUES (${book.venueId}, ${book.owner}, ${book.subAccount ?? ''}, ${t.tradeId}, ${t.symbol}, ${new Date(t.closedAt)},
-          ${t.excursion.complete}, ${this.sql.json(t as never)}, ${at})
+          ${t.excursion.complete}, ${JSON.stringify(t)}::jsonb, ${at})
         ON CONFLICT (venue_id, owner, sub_account, trade_id) DO UPDATE SET
           complete = EXCLUDED.complete, trade = EXCLUDED.trade, stored_at = EXCLUDED.stored_at
         WHERE NOT trade.user_venue_journal_trades.complete AND EXCLUDED.complete`;

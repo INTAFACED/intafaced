@@ -677,6 +677,7 @@ const messages = {
   'Journal realised': 'Realised result (venue)',
   'Journal venue fee': 'Venue fee',
   'Journal builder fee': 'Our builder fee',
+  'Journal funding column': 'Funding',
   'Journal funding': 'Funding ({count} payments)',
   'Journal entry average': 'Entry (size-weighted average)',
   'Journal exit average': 'Exit (size-weighted average)',
@@ -692,6 +693,7 @@ const messages = {
   'Journal fill split': 'part of one fill that turned the position, split by size',
   'Journal excursion rule':
     'From the venue’s 1-minute candles over the trade’s time: the price reached, then how far from the entry per unit, in dollars for the largest size, and in percent of the entry.',
+  'Journal excursion figures': 'at {price}: {perUnit} a unit, {usd} USDC, {pct}%',
   'Journal mae': 'Worst move against (MAE)',
   'Journal mfe': 'Best move for (MFE)',
   'Journal incomplete': 'incomplete',
