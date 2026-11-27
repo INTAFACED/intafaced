@@ -165,5 +165,43 @@ test("supersededRuns: stops this pull request's runs still going on another comm
     { ...base, id: 6, head_sha: sha('a'), status: 'in_progress', event: 'workflow_dispatch' },
     { ...base, id: 9, head_sha: sha('a'), status: 'queued' },
   ];
-  assert.deepEqual(supersededRuns(runs, { head: sha('d'), carried: [sha('b')], self: 8, repo, branch: 'b1' }), [1]);
+  assert.deepEqual(supersededRuns(runs, { head: sha('d'), carried: [sha('b')], complete: true, self: 8, repo, branch: 'b1' }), [1]);
+  // A walk that could not finish (a read failed, or the limit) stops nothing (#11098 review).
+  assert.deepEqual(supersededRuns(runs, { head: sha('d'), carried: [sha('b')], complete: false, self: 8, repo, branch: 'b1' }), []);
+});
+
+test('stripComments: a bare carriage return, U+2028 or U+2029 ends a line comment in JavaScript, so it reads nothing (#11098 review)', () => {
+  assert.equal(stripComments('a // c\rb()'), null);
+  assert.equal(stripComments('a // c b()'), null);
+  assert.equal(stripComments('a // c b()'), null);
+  // Windows line ends are line feeds too.
+  assert.ok(same('a(); // one\r\nb();\r\n', 'a(); // two\r\nb();\r\n'));
+  assert.ok(!same('a(); // one\r\nb();\r\n', 'a(); // one\r\nc();\r\n'));
+});
+
+test('carriedHeads: complete only when the walk ends on a commit shown to change code, or carries every commit', async () => {
+  const [a, b, h] = ['a', 'b', 'c'].map(sha);
+  const quiet = [{ filename: 'AGENTS.md', status: 'modified' }];
+  const code = [{ filename: 'services/svc-bank/src/a.ts', status: 'added' }];
+  const walk = (filesOf) => carriedHeads({ head: h, commits: [a, b, h], compare: async (base) => filesOf(base), text: async () => null });
+  assert.equal((await walk((x) => ({ status: 'ahead', files: x === b ? quiet : code }))).complete, true);
+  assert.equal((await walk(() => ({ status: 'ahead', files: quiet }))).complete, true);
+  // A file that could not be read is no proof the code differs.
+  assert.equal(
+    (await walk(() => ({ status: 'ahead', files: [{ filename: 'services/svc-bank/src/a.ts', status: 'modified' }] }))).complete,
+    false,
+  );
+  const boom = await walk(() => {
+    throw new Error('HTTP 502');
+  });
+  assert.equal(boom.complete, false);
+  // Past the limit of commits read back: nothing older is shown superseded.
+  const many = Array.from({ length: 12 }, (_, i) => i.toString(16).padStart(40, 'f'));
+  const long = await carriedHeads({
+    head: h,
+    commits: [...many, h],
+    compare: async () => ({ status: 'ahead', files: quiet }),
+    text: async () => null,
+  });
+  assert.equal(long.complete, false);
 });

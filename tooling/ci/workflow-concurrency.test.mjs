@@ -13,8 +13,8 @@
  *   3. A manual Real-app journeys run on a branch cancels the older run with the same journey selection on that branch,
  *      and never a run of another branch or another selection. A pull request's Real-app journeys run is rule 1's one
  *      exception (#11076): one group per pull request and head, so a push never cancels the run before it by itself;
- *      its touch job stops the pull request's runs still going on any other commit, except one whose runs count for
- *      the head (journey-carry.mjs supersededRuns, journey-carry.test.mjs), so a superseded head still holds no runner.
+ *      its `stop` job (the default branch's script alone) stops the pull request's runs still going on a commit shown to
+ *      differ in journey code, never one whose runs count for the head (journey-carry.mjs supersededRuns, journey-carry.test.mjs), so a superseded head still holds no runner.
  *   4. (Retired with Journey seal re-check, 9 Nov 2026.)
  *   5. CI merge seal (INTAFACED/project-state#1574 item 2): a push's or an open's first attempt cancels the older head's
  *      seal (rule 1), and nothing else is ever cancelled or cancels: an edit's, an arming's or a reopen's seal runs on the head being
@@ -224,7 +224,7 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
  * nothing else is cancelled.
  */
 export const PR_EXCEPTIONS = new Set([
-  // One group per pull request and head (rule 3): its touch job stops the superseded runs that count for nothing,
+  // One group per pull request and head (rule 3): its `stop` job stops the superseded runs shown to count for nothing,
   // and keeps the one before a push that changes no code a journeys run executes, which the seal reads (#11076).
   'real-app-journeys.yml',
 ]);
@@ -272,7 +272,7 @@ export function journeysProblems(text) {
     problems.push('two branches share a group');
   // A pull request's run: one group per pull request and head (#11076), never a run by hand's on its branch. A second
   // run on the same head replaces the first; a push to another head never cancels the one before it by itself: the touch
-  // job's stop step does that, for every run that counts for nothing (journey-carry.mjs supersededRuns).
+  // `stop` job does that, for every run shown to count for nothing (journey-carry.mjs supersededRuns).
   const prAt = (n, sha, action = 'synchronize') =>
     resolve(text, {
       github: {
@@ -294,11 +294,16 @@ export function journeysProblems(text) {
   if (pr.group === prAt(7, 'bbb').group)
     problems.push("a push cancels the pull request's run before it by its group, even one the head still needs (#11076)");
   if (pr.group === prAt(8, 'aaa').group) problems.push('two pull requests share a journeys group');
+  // Its own job, on the default branch's script alone, holds the write (#11098 review); the touch job only reads.
+  const stop = text.slice(text.indexOf('\n  stop:'), text.indexOf('\n  carry-wait:'));
   const touch = text.slice(text.indexOf('\n  touch:'), text.indexOf('\n  release:'));
+  if (/actions: write/.test(touch)) problems.push("the touch job, which can run the pull request's own scripts, holds actions: write");
   if (
-    !/journey-touch\.mjs" --carried/.test(touch) ||
-    !/name: Stop this pull request's superseded runs[\s\S]*?actions\/runs\/\$id\/cancel/.test(touch) ||
-    !/actions: write/.test(touch)
+    text.indexOf('\n  stop:') < 0 ||
+    !/ref: \$\{\{ github\.event\.repository\.default_branch \}\}/.test(stop) ||
+    !/node \.base\/tooling\/ci\/journey-touch\.mjs --carried/.test(stop) ||
+    !/actions\/runs\/\$id\/cancel/.test(stop) ||
+    !/actions: write/.test(stop)
   )
     problems.push(
       "the touch job does not stop this pull request's superseded runs (--carried, then a cancel of each), so a superseded head would hold its runners",
@@ -932,9 +937,23 @@ test("planted: a pull request's journeys run in its branch's group (cancelled by
   assert.ok(t.includes(pr));
   // Before #11076: every push's run joined its branch's group and cancelled the run before it.
   assert.ok(journeysProblems(t.replace(pr, '')).some((p) => /a push cancels the pull request's run before it/.test(p)));
-  const stop = "name: Stop this pull request's superseded runs";
-  assert.ok(t.includes(stop));
+  // No stop job, or one that runs the pull request's own script, fails.
+  const job = '\n  stop:\n';
+  assert.ok(t.includes(job));
+  assert.ok(journeysProblems(t.replace(job, '\n  stopped:\n')).some((p) => /does not stop this pull request's superseded runs/.test(p)));
+  const own = 'node .base/tooling/ci/journey-touch.mjs --carried)';
+  assert.ok(t.includes(own));
   assert.ok(
-    journeysProblems(t.replace(stop, 'name: Something else')).some((p) => /does not stop this pull request's superseded runs/.test(p)),
+    journeysProblems(t.replace(own, 'node tooling/ci/journey-touch.mjs --carried)')).some((p) =>
+      /does not stop this pull request's superseded runs/.test(p),
+    ),
+  );
+  // Planted (#11098 review): the write back on the touch job, which can run the pull request's own scripts.
+  const readOnly = "      actions: read # main's runs, for the touched-journeys map's age";
+  assert.ok(t.includes(readOnly));
+  assert.ok(
+    journeysProblems(t.replace(readOnly, "      actions: write # main's runs, for the touched-journeys map's age")).some((p) =>
+      /the touch job, which can run the pull request's own scripts, holds actions: write/.test(p),
+    ),
   );
 });

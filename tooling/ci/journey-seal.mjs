@@ -855,6 +855,25 @@ export function makeIo(repo, token) {
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
+    // A file's git blob text at a commit, never what a symlink points to (io.text's contents API follows a link), or
+    // null (journey-carry.mjs carriedHeads; #11098 review).
+    blobText: async (path, ref) => {
+      const [owner, name] = repo.split('/');
+      const res = await getTried('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          query:
+            'query($o: String!, $n: String!, $e: String!) { repository(owner: $o, name: $n) { object(expression: $e) { ... on Blob { text isTruncated isBinary } } } }',
+          variables: { o: owner, n: name, e: `${ref}:${path}` },
+        }),
+      });
+      if (!res.ok) throw new Error(`GraphQL: HTTP ${res.status}`);
+      const got = await res.json();
+      if (got.errors?.length) throw new Error('GraphQL: the file could not be read');
+      const b = got.data?.repository?.object;
+      return typeof b?.text === 'string' && !b.isTruncated && !b.isBinary ? b.text : null;
+    },
     // A pull request's commit shas, oldest first (journey-carry.mjs carriedHeads): GitHub lists up to 250.
     prCommits: async (n) => {
       const out = [];
@@ -1970,9 +1989,9 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // The earlier commits whose journeys runs count for this head (journey-carry.mjs carriedHeads: nothing a journeys run
   // executes changed since; #11076). Unreadable: none, and only the head's own runs count, as before.
   let carry = { heads: [], lines: [] };
-  if (needRuns && io.prCommits && io.compare)
+  if (needRuns && io.prCommits && io.compare && io.blobText)
     try {
-      carry = await carriedHeads({ head, commits: await io.prCommits(number), compare: io.compare, text });
+      carry = await carriedHeads({ head, commits: await io.prCommits(number), compare: io.compare, text: io.blobText });
     } catch (e) {
       carry = {
         heads: [],
@@ -2526,7 +2545,12 @@ export async function carriedPulls({ pulls, sha, repo, io }) {
   for (const p of pulls ?? []) {
     if (p?.state !== 'open' || p?.base?.repo?.full_name !== repo || !SHA40.test(String(p?.head?.sha)) || p.head.sha === sha) continue;
     try {
-      const { heads } = await carriedHeads({ head: p.head.sha, commits: await io.prCommits(p.number), compare: io.compare, text: io.text });
+      const { heads } = await carriedHeads({
+        head: p.head.sha,
+        commits: await io.prCommits(p.number),
+        compare: io.compare,
+        text: io.blobText,
+      });
       if (heads.includes(sha)) out.push(p);
     } catch {}
   }

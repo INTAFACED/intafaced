@@ -50,7 +50,9 @@ const WORD = /[A-Za-z0-9_$#]/;
  * comments and blank space. Strings, templates and regular expressions are kept exactly. Pure.
  */
 export function stripComments(text) {
-  const s = String(text);
+  const s = String(text).replace(/\r\n/g, '\n');
+  // A bare carriage return, U+2028 or U+2029 also ends a line comment and a line (ASI): read only line feeds for certain.
+  if (/[\r\u2028\u2029]/.test(s)) return null;
   let out = '';
   let pendingSpace = ''; // '', ' ' or '\n': blank space (or a comment) since the last token
   let prev = ''; // the last token's kind: '' (start), 'word:<w>', 'value' (string, template, regex, number), or the punctuator
@@ -204,7 +206,8 @@ export async function quietDelta({ files, before, after, text }) {
     const was = f?.previous_filename ? String(f.previous_filename) : null;
     if (!p) return { quiet: false, why: 'a changed file has no name' };
     if (runsNone(p) && (!was || runsNone(was))) continue;
-    if (f?.status !== 'modified' || was || !COMMENT_CODE.test(p)) return { quiet: false, why: `${p} is code a journeys run may run` };
+    if (f?.status !== 'modified' || was || !COMMENT_CODE.test(p))
+      return { quiet: false, code: true, why: `${p} is code a journeys run may run` };
     if (++read > CARRY_CODE_FILES) return { quiet: false, why: `more than ${CARRY_CODE_FILES} code files changed` };
     let a;
     let b;
@@ -217,7 +220,7 @@ export async function quietDelta({ files, before, after, text }) {
     const x = stripComments(a);
     const y = stripComments(b);
     if (x === null || y === null) return { quiet: false, why: `${p}'s comments could not be told from its code for certain` };
-    if (x !== y) return { quiet: false, why: `${p} changes code, not only its comments` };
+    if (x !== y) return { quiet: false, code: true, why: `${p} changes code, not only its comments` };
     comments++;
   }
   return {
@@ -240,27 +243,36 @@ export async function carriedHeads({ head, commits, compare, text }) {
   const shas = (at >= 0 ? all.slice(0, at) : all).filter((c) => /^[0-9a-f]{40}$/.test(c));
   const heads = [];
   const lines = [];
-  for (const c of shas.reverse().slice(0, CARRY_COMMITS)) {
+  // `complete`: the walk ended on a commit shown to differ in code a journeys run executes, or ran out of commits, so
+  // every commit it did not carry is positively superseded. A read that failed or the CARRY_COMMITS limit leaves it false.
+  let complete = null;
+  const back = shas.reverse();
+  for (const c of back.slice(0, CARRY_COMMITS)) {
     let cmp;
     try {
       cmp = await compare(c, head);
     } catch (e) {
       lines.push(`${c.slice(0, 10)}: its comparison with the head could not be read (${String(e?.message ?? e).slice(0, 120)})`);
+      complete = false;
       break;
     }
     if (cmp?.status !== 'ahead') {
       lines.push(`${c.slice(0, 10)}: the head does not hold it (${cmp?.status ?? 'unknown'})`);
+      complete = false;
       break;
     }
     const q = await quietDelta({ files: cmp.files, before: c, after: head, text });
     if (!q.quiet) {
+      complete = q.code === true;
       lines.push(`${c.slice(0, 10)}: ${q.why}, so its journeys runs do not count for the head`);
       break;
     }
     heads.push(c);
     lines.push(`${c.slice(0, 10)}: ${q.why}, so its journeys runs count for the head`);
   }
-  return { heads, lines };
+  // Every commit carried: complete only when none was left past the limit.
+  if (complete === null) complete = back.length <= CARRY_COMMITS;
+  return { heads, lines, complete };
 }
 
 /**
@@ -269,7 +281,12 @@ export async function carriedHeads({ head, commits, compare, text }) {
  * runs count for it (`carried`), started before this run (`self`). Run on the pull request's current head only, so a
  * run on an older head never stops a newer one. Pure. Returns [run id].
  */
-export function supersededRuns(runs, { head, carried = [], self, repo, branch, workflow = '.github/workflows/real-app-journeys.yml' }) {
+export function supersededRuns(
+  runs,
+  { head, carried = [], complete = false, self, repo, branch, workflow = '.github/workflows/real-app-journeys.yml' },
+) {
+  // A walk that could not finish (a read failed, or the limit) shows nothing superseded: stop nothing (#11098 review).
+  if (complete !== true) return [];
   const keep = new Set([head, ...carried]);
   return (runs ?? [])
     .filter(

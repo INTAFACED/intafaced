@@ -463,7 +463,7 @@ test('sealPull: a run on an earlier commit counts for the head only when nothing
       assert.equal(head, HEAD);
       return { status: 'ahead', files: since };
     },
-    text: async (path, ref) =>
+    blobText: async (path, ref) =>
       path.endsWith('cards.ts') ? `export const x = 1; // ${ref === OLD ? 'old' : 'new'} words\n` : `x(${ref === OLD ? 1 : 2})`,
   });
   const pull = { state: 'open', head: { sha: HEAD }, title: 'x (J-bank-13 #1 #2)', body: '' };
@@ -3846,7 +3846,7 @@ test('carriedPulls: a journeys run on an earlier commit re-checks the newer head
   const io = (files) => ({
     prCommits: async () => [OLD, HEAD],
     compare: async () => ({ status: 'ahead', files }),
-    text: async () => null,
+    blobText: async () => null,
   });
   const quiet = [{ filename: 'services/svc-bank/src/cards.test.ts', status: 'modified' }];
   const code = [{ filename: 'services/svc-bank/src/cards.ts', status: 'modified' }];

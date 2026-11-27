@@ -1136,10 +1136,31 @@ async function carriedMain() {
       commits.push(...got.map((c) => c?.sha));
       if (got.length < 100) break;
     }
+    // The git blob at the path, never what a symlink points to (the contents API follows a link; #11098 review).
+    const [owner, name] = repo.split('/');
     const text = (path, ref) => {
       try {
-        const c = json(`repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`);
-        return c?.encoding === 'base64' && typeof c.content === 'string' ? Buffer.from(c.content, 'base64').toString('utf8') : null;
+        countCall();
+        const got = JSON.parse(
+          execFileSync(
+            'gh',
+            [
+              'api',
+              'graphql',
+              '-f',
+              'query=query($o: String!, $n: String!, $e: String!) { repository(owner: $o, name: $n) { object(expression: $e) { ... on Blob { text isTruncated isBinary } } } }',
+              '-F',
+              `o=${owner}`,
+              '-F',
+              `n=${name}`,
+              '-F',
+              `e=${ref}:${path}`,
+            ],
+            { encoding: 'utf8', maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] },
+          ),
+        );
+        const b = got?.data?.repository?.object;
+        return typeof b?.text === 'string' && !b.isTruncated && !b.isBinary ? b.text : null;
       } catch {
         return null;
       }
@@ -1149,7 +1170,7 @@ async function carriedMain() {
       const runs = json(
         `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=${encodeURIComponent(branch)}&event=pull_request&per_page=100`,
       ).workflow_runs;
-      stop = supersededRuns(runs, { head: sha, carried: carry.heads, self, repo, branch });
+      stop = supersededRuns(runs, { head: sha, carried: carry.heads, complete: carry.complete, self, repo, branch });
     }
   } catch (e) {
     carry.lines.push(`could not be read (${printable(String(e?.message ?? e)).slice(0, 200)}): nothing carried`);
