@@ -28,7 +28,7 @@ const principal = {
   scopes: ['trade:read', 'trade:write'],
   tier: 'basic',
   mfa: false,
-  expiresAt: new Date(Date.now() + 600_000),
+  expiresAt: new Date('2030-01-01T00:00:00Z'),
 } as Principal;
 
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade daily loss limit')));
@@ -125,8 +125,14 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
   let venue: { server: http.Server; sim: TestVenueSimulator; url: string };
   let d: UserVenueDoor;
   let limits: VenueDailyLossLimits;
-  let clock = new Date();
-  const now = () => clock;
+  // One clock for the door and the TEST venue, starting at 01:00 UTC on a fixed day, so "today" never depends on when
+  // the run happens; `at` moves it, and real time still runs on from there.
+  const DAY1 = Date.parse('2026-11-27T01:00:00Z');
+  let offset = DAY1 - Date.now();
+  const now = () => new Date(Date.now() + offset);
+  const at = (t: number) => {
+    offset = t - Date.now();
+  };
   const store = new InMemoryDailyLossLimitStore();
   const actions = new InMemoryPreparedActionStore();
   const account = () => ({ venueId: venue.sim.venue.id, owner, subAccount: null });
@@ -146,7 +152,14 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
     );
 
   beforeAll(async () => {
-    venue = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532, ordersPerAction: 10 });
+    venue = await startTestVenueServer({
+      host: '127.0.0.1',
+      port: 0,
+      appEnv: 'test',
+      chainId: 84532,
+      ordersPerAction: 10,
+      clock: now,
+    });
     await seedTestVenue(venue.sim);
     venue.sim.deposit(account(), 'USDC', a('100000'), 'deposit:test:daily-loss');
     d = new UserVenueDoor({
@@ -213,17 +226,25 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
   });
 
   it('blocking to advisory waits 24 hours: still refused a second before, warned (not refused) once the 24 hours are up', async () => {
-    // Asked 24 hours (less 2 seconds) before now, so both reads below fall on the same UTC day as the TEST fills.
-    const asked = new Date(Date.now() - LOOSENING_WAIT_MS + 2000);
-    clock = asked;
+    const asked = now().getTime();
     const view = await limits.set(principal, { owner, limit: '3', mode: 'advisory' });
     expect(view).toMatchObject({
       active: { mode: 'blocking', limit: '3' },
-      pending: { terms: { mode: 'advisory', limit: '3' }, effectiveAt: new Date(asked.getTime() + LOOSENING_WAIT_MS).toISOString() },
+      pending: { terms: { mode: 'advisory', limit: '3' }, effectiveAt: new Date(asked + LOOSENING_WAIT_MS).toISOString() },
     });
-    clock = new Date(asked.getTime() + LOOSENING_WAIT_MS - 1000);
+    // The next UTC day, a minute before the 24 hours are up: today's loss starts at zero, so an opening order passes.
+    // TEST: 1 ETH-PERP bought at 3001 and all 1.3 held sold reduce-only at 2999, a loss past the limit of 3 again.
+    at(asked + LOOSENING_WAIT_MS - 60_000);
+    expect((await limits.get(principal, owner)).today).toMatchObject({ loss: '0', reached: false });
+    const buy = order({ type: 'market', timeInForce: 'IOC', amount: a('1'), price: a('3100') });
+    expect((await run(buy)).outcome).toMatchObject({ accepted: true, order: { status: 'filled' } });
+    const sell = order({ side: 'sell', type: 'market', timeInForce: 'IOC', amount: a('1.3'), price: a('2700'), reduceOnly: true });
+    expect((await run(sell)).outcome).toMatchObject({ accepted: true, order: { status: 'filled' } });
+    expect((await limits.get(principal, owner)).today.reached).toBe(true);
+    // A second before the 24 hours are up, blocking still holds.
+    at(asked + LOOSENING_WAIT_MS - 1000);
     expect(await refusalOf(prepare(order()))).toMatchObject({ code: 'trade.daily_loss_limit_reached' });
-    clock = new Date(asked.getTime() + LOOSENING_WAIT_MS);
+    at(asked + LOOSENING_WAIT_MS);
     const later = await limits.get(principal, owner);
     expect(later).toMatchObject({ active: { mode: 'advisory', limit: '3' }, pending: null, today: { reached: true } });
     const answer = await prepare(order());
@@ -237,7 +258,6 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
   });
 
   it('turning it off waits 24 hours too; a blocking limit whose loss cannot be read refuses an opening order (fail closed)', async () => {
-    clock = new Date();
     // Its own store, so this case starts from no limit whatever ran before it.
     const own = new InMemoryDailyLossLimitStore();
     const mine = new VenueDailyLossLimits({ door: d, store: own, now });
