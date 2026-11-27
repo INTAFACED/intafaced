@@ -17,6 +17,7 @@ import {
   type VenueRefusalCode,
   type VenueSignature,
   type VenueSigner,
+  type VenueTrigger,
   type VenueSubmitOutcome,
   type VenueTimeInForce,
 } from '@intafaced/venue-contracts';
@@ -201,6 +202,35 @@ function statusLine(response: Json): StatusLine {
 }
 
 /**
+ * A trigger order's condition (the Python SDK's `test_l1_action_signing_tpsl_order_matches`): the venue holds
+ * it unseen until its mark price crosses `triggerPx`, then sends it as a market order bounded by `p` (`isMarket`) or a
+ * limit at `p`. Hyperliquid judges every trigger on its mark price, closes with it only (a trigger here is
+ * reduce-only, on a perpetual), and names a stop loss `sl` and a take profit `tp`. Anything else is refused before
+ * signing, so no order goes out without its condition and trades at once.
+ */
+function triggerWire(
+  venue: { readonly id: string; readonly displayName: string },
+  m: HlMarket,
+  intent: PlaceUserOrderIntent & { readonly trigger: VenueTrigger },
+): Record<string, MsgpackValue> {
+  const venueId = venue.id;
+  const trigger = intent.trigger;
+  if (m.kind !== 'perpetual') throw refusal(venueId, 'not_offered', `${m.symbol} is spot: a trigger order is offered on perpetuals only`);
+  if (trigger.source !== 'mark')
+    throw refusal(
+      venueId,
+      'not_offered',
+      `${venue.displayName} judges a trigger order on its mark price only, not the ${trigger.source} price`,
+    );
+  if (!intent.reduceOnly) throw refusal(venueId, 'not_offered', 'a trigger order here only closes: it must be reduce-only');
+  if (intent.type === 'limit' && intent.timeInForce !== 'GTC')
+    throw refusal(venueId, 'not_offered', 'a triggered limit rests on the book until it fills: its time in force is GTC');
+  const triggerIssue = priceProblem(trigger.price, m.szDecimals, m.kind);
+  if (triggerIssue) throw refusal(venueId, 'venue_rejected', `${m.symbol} trigger: ${triggerIssue}`);
+  return { isMarket: intent.type === 'market', triggerPx: toWire(trigger.price), tpsl: trigger.role === 'take_profit' ? 'tp' : 'sl' };
+}
+
+/**
  * The signed side of the adapter: `preview`, `prepare` and `submit`. Its reads are `HyperliquidReads` (`reads.ts`), its
  * transport and listing `HyperliquidCore` (`core.ts`); an intent it does not build is in `not-offered.ts`, and a market
  * term it does not read in `market-terms.ts`. `venue-layout.test.ts` keeps each of those out of this file.
@@ -227,6 +257,8 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     if (intent?.kind !== 'place_order') throw refusal(venueId, 'not_offered', 'preview takes an order intent');
     const m = await this.market(intent.symbol);
     this.orderWire(m, intent);
+    // A trigger order rests unseen until its price is crossed: what it would fill now is not what it will do.
+    if (intent.trigger) throw refusal(venueId, 'not_offered', 'a trigger order is not previewed: it fills only once its price is crossed');
     const perp = m.kind === 'perpetual';
     if (!perp && intent.reduceOnly) throw refusal(venueId, 'not_offered', 'reduce-only is for perpetuals');
 
@@ -578,25 +610,24 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const venueId = this.venue.id;
     if (intent.type === 'market' && intent.timeInForce === 'ALO')
       throw refusal(venueId, 'not_offered', 'a market order cannot be post-only');
-    // The wire below is a plain order: a trigger, or an order attached to an entry, would go out without its condition
-    // and trade at once (a stop would close the position the moment it is sent). Refused until the trigger wire is built.
-    if (intent.trigger) throw refusal(venueId, 'not_offered', 'a trigger order is not offered on this venue yet');
+    // An order attached to an entry needs the venue's `normalTpsl` grouping, not built here: sent alone it would arm on
+    // nothing the entry filled. Refused, never sent without its link.
     if (intent.parentClientOrderKey)
       throw refusal(venueId, 'not_offered', 'an order attached to an entry is not offered on this venue yet');
     const sizeIssue = sizeProblem(intent.amount, m.szDecimals);
     if (sizeIssue) throw refusal(venueId, 'venue_rejected', `${m.symbol}: ${sizeIssue}`);
     const priceIssue = priceProblem(intent.price, m.szDecimals, m.kind);
     if (priceIssue) throw refusal(venueId, 'venue_rejected', `${m.symbol}: ${priceIssue}`);
-    // A market order is an IOC limit at the customer's worst price (the interface's rule, and the venue's own).
-    const tif = intent.type === 'market' ? 'Ioc' : TIF_WIRE[intent.timeInForce];
-    // Key order is the SDK's (order_request_to_order_wire): the hash depends on it.
+    // Key order is the SDK's (order_request_to_order_wire, order_type_to_wire): the hash depends on it.
     return {
       a: m.asset,
       b: intent.side === 'buy',
       p: toWire(intent.price),
       s: toWire(intent.amount),
       r: intent.reduceOnly,
-      t: { limit: { tif } },
+      t: intent.trigger
+        ? { trigger: triggerWire(this.venue, m, { ...intent, trigger: intent.trigger }) }
+        : { limit: { tif: intent.type === 'market' ? 'Ioc' : TIF_WIRE[intent.timeInForce] } },
       c: venueClientOrderId(venueId, intent.clientOrderKey),
     };
   }

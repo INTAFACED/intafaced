@@ -20,7 +20,8 @@ export type ReadMarketTerm =
   | 'status'
   | 'makerFeeBps'
   | 'takerFeeBps'
-  | 'builderFeeCapBps';
+  | 'builderFeeCapBps'
+  | 'triggerSources';
 
 export type ReadMarketTerms = Pick<UserVenueMarket, ReadMarketTerm>;
 
