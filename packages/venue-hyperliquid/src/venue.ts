@@ -167,11 +167,13 @@ export function classifyVenueError(venueId: string, text: string, asOf: Date): V
         ? 'insufficient_balance'
         : /does not exist/i.test(text) && /user|wallet|agent|signer/i.test(text)
           ? 'signer_not_authorised'
-          : /never placed|already canceled|already cancelled/i.test(text)
-            ? 'unknown_order'
-            : /unknown asset|invalid asset|asset not found/i.test(text)
-              ? 'unknown_market'
-              : 'venue_rejected';
+          : /cannot modify/i.test(text) && /canceled|cancelled|filled/i.test(text)
+            ? 'order_final'
+            : /never placed|already canceled|already cancelled/i.test(text)
+              ? 'unknown_order'
+              : /unknown asset|invalid asset|asset not found/i.test(text)
+                ? 'unknown_market'
+                : 'venue_rejected';
   return { definite: true, accepted: false, refusal: { venueId, code, detail: text }, asOf };
 }
 
@@ -351,8 +353,15 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       signer,
       intent,
       nonce,
+      // A move is read back by the client id the order holds after it: the replacement's own, or the amended order's.
       venueClientOrderId:
-        intent.kind === 'place_order' || intent.kind === 'cancel_order' ? venueClientOrderId(this.venue.id, intent.clientOrderKey) : null,
+        intent.kind === 'place_order' || intent.kind === 'cancel_order'
+          ? venueClientOrderId(this.venue.id, intent.clientOrderKey)
+          : intent.kind === 'replace_order'
+            ? venueClientOrderId(this.venue.id, intent.order.clientOrderKey)
+            : intent.kind === 'amend_order'
+              ? intent.venueClientOrderId
+              : null,
       typedData: built.typedData,
       digest: typedDataDigest(built.typedData),
       builderFee:
@@ -427,6 +436,44 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       case 'cancel_order': {
         const m = await this.market(intent.symbol);
         return l1({ type: 'cancelByCloid', cancels: [{ asset: m.asset, cloid: venueClientOrderId(venueId, intent.clientOrderKey) }] });
+      }
+      case 'replace_order': {
+        // Hyperliquid's own `modify`: the venue cancels the resting order and places the replacement in one signed
+        // action, so no moment passes with neither resting (a stop's position unprotected), as a cancel then a place
+        // would leave. The `a` flag (place even when the cancel failed) is never set: a replacement whose original is
+        // no longer resting is not placed (exchange endpoint, "Modify an order").
+        const r = intent.order;
+        if (r?.kind !== 'place_order') throw refusal(venueId, 'venue_rejected', 'a replacement is an order');
+        if (r.symbol !== intent.symbol)
+          throw refusal(venueId, 'venue_rejected', 'the replacement is on the market of the order it replaces');
+        if (venueClientOrderId(venueId, r.clientOrderKey) === intent.venueClientOrderId)
+          throw refusal(venueId, 'venue_rejected', 'the replacement has a client id of its own');
+        if (r.type !== 'limit') throw refusal(venueId, 'not_offered', 'a replacement rests on the book: a limit order');
+        if (r.trigger || r.parentClientOrderKey) throw refusal(venueId, 'not_offered', 'a trigger order is not placed as a replacement');
+        // The venue's modify carries no builder field.
+        if (r.builderFee) throw refusal(venueId, 'not_offered', 'a replacement carries no builder fee on this venue');
+        const m = await this.market(r.symbol);
+        return l1({ type: 'modify', oid: intent.venueClientOrderId, order: this.orderWire(m, r) });
+      }
+      case 'amend_order': {
+        // The same `modify`, keeping the order's client id, side, reduce-only and time in force as the venue holds them.
+        const m = await this.market(intent.symbol);
+        const resting = (await this.orderByClientId(account, intent.venueClientOrderId)).value;
+        if (resting === null || resting.status !== 'open' || resting.symbol !== intent.symbol)
+          throw refusal(venueId, 'unknown_order', `no open order with client id ${intent.venueClientOrderId} on ${intent.symbol}`);
+        const order: PlaceUserOrderIntent = {
+          kind: 'place_order',
+          symbol: intent.symbol,
+          side: resting.side,
+          type: 'limit',
+          amount: intent.amount,
+          price: intent.price,
+          timeInForce: resting.timeInForce,
+          reduceOnly: resting.reduceOnly,
+          clientOrderKey: 'amend:unused',
+          builderFee: null,
+        };
+        return l1({ type: 'modify', oid: intent.venueClientOrderId, order: { ...this.orderWire(m, order), c: intent.venueClientOrderId } });
       }
       case 'update_leverage': {
         const m = await this.market(intent.symbol);
@@ -644,6 +691,30 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       return classifyVenueError(venueId, line.text, asOf);
     }
     if (line.kind === 'error') return classifyVenueError(venueId, line.text, asOf);
+    if (intent.kind === 'replace_order' || intent.kind === 'amend_order') {
+      // The venue took the one modify: the original was cancelled and the order now rests as changed. Its record is read
+      // back by the client id it holds now; a read that finds nothing yet leaves the detail to the next read.
+      let order: UserVenueOrder | null = null;
+      const changedId = prepared.venueClientOrderId;
+      try {
+        if (changedId !== null) order = (await this.orderByClientId(prepared.account, changedId)).value;
+      } catch {
+        order = null;
+      }
+      const venueRef = order?.venueOrderId ?? null;
+      if (intent.kind === 'amend_order') return { definite: true, accepted: true, venueRef, order, asOf };
+      return {
+        definite: true,
+        accepted: true,
+        venueRef,
+        order,
+        legs: [
+          { definite: true, accepted: true, venueRef: null, order: null, asOf },
+          { definite: true, accepted: true, venueRef, order, asOf },
+        ],
+        asOf,
+      };
+    }
     let order: UserVenueOrder | null = null;
     if (intent.kind === 'place_order') {
       try {
