@@ -122,6 +122,10 @@ const BETA_USER_VENUE = 'hl-testnet';
  * `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey` makes each new tester's wallet at the owner's wallet provider, with the
  * owner's keys from the box's sealed vendors.local.json (a start without that file refuses, naming it); a tester who
  * already has a TEST wallet keeps it and signs at the TEST provider, which svc-protocol's status names for that wallet.
+ * `LOCAL_STACK_CUSTODY_LAYER=off` starts svc-ledger, svc-bank, svc-pay, svc-trade and svc-matching with the custody layer
+ * off together, as the launch build runs them (docs/adr/2026-11-10-launch-money-model.md): our own order book is off, the
+ * ledger holds no tester's money, and a tester's money is where launch keeps it, at the TEST partner and in their own
+ * wallet on the venue's test network (#11019). The TEST funds check fails a process that runs it otherwise (BETA_CUSTODY).
  */
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
@@ -129,7 +133,10 @@ const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
   LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey',
+  LOCAL_STACK_CUSTODY_LAYER: 'off',
 });
+/** The custody switch every process of the beta stack runs (BETA_STACK_SETTINGS), as launch does. */
+export const BETA_CUSTODY = BETA_STACK_SETTINGS.LOCAL_STACK_CUSTODY_LAYER;
 const settingsLine = () =>
   Object.entries(BETA_STACK_SETTINGS)
     .map(([k, v]) => `${k}=${v}`)
@@ -166,6 +173,39 @@ function settingsChanged(paths) {
   } catch {
     return true;
   }
+}
+
+/**
+ * Whether the beta's database was last served by an svc-ledger on another custody switch than BETA_CUSTODY: its process
+ * record (run/processes.json; unrecorded reads `on`, local-test-state.mjs custodyLayerOf) names it. Read before the stop.
+ */
+function bookOnOtherCustody(paths, custody = BETA_CUSTODY) {
+  const ledger = readJson(path.join(paths.state, 'run', 'processes.json'), {})?.ledger;
+  if (!ledger || !fs.existsSync(path.join(paths.state, 'data', 'postgres'))) return null;
+  const layer = ledger.custodyLayer ?? 'on';
+  return layer === custody ? null : layer;
+}
+
+/**
+ * Moves the stopped stack's data folder aside, never deleting it, so the stack starts on a fresh database: an svc-ledger
+ * started custody off refuses to boot while a customer account holds a balance (crates/svc-ledger/src/boot.rs,
+ * ledger.custody_layer_open_balances), and the beta's book, run custody on until #11019, holds its testers' TEST grants
+ * and its TEST market's accounts. Launch's ledger starts empty the same way. The state folder keeps everything else (the
+ * screening and vendor files, the secrets); founders.json and operators.json, whose accounts are then gone, are moved
+ * aside by the start and a fresh pair is enrolled (local-test-db-state.mjs). Invited testers sign up again on their
+ * same invite; their TEST money is the partner's and their own testnet wallet's. Returns the round.log line.
+ */
+function moveBookAside(paths, layer, now = new Date()) {
+  const from = path.join(paths.state, 'data');
+  const to = path.join(
+    paths.state,
+    `data-custody-${layer}-${now
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace(/\.\d+Z$/, 'Z')}`,
+  );
+  fs.renameSync(from, to);
+  return `custody: the database was served custody ${layer}, so it is kept at ${to} and the stack starts on a fresh one (custody ${BETA_CUSTODY})`;
 }
 
 /**
@@ -293,10 +333,11 @@ const loopbackListen = (host) => host.startsWith('127.') || host === '::1' || ho
  * The TEST funds check on one stack. `records` are the stack's processes ({ name: { pid } }, run/processes.json);
  * `readEnviron(pid)` gives a process's environ text or null; `readListeners(pid)` its listening sockets
  * (`{ host, port }`) or null; `page` is the Customer page's HTML or null. A listener on any address but loopback is a
- * finding: the home network could reach it (#10244). Returns `{ ok, lines }`, one line per finding or pass, naming
- * keys and hosts, never a value.
+ * finding: the home network could reach it (#10244). With `custody` (`on` or `off`), each process the stack recorded a
+ * custody switch for, svc-ledger always (unrecorded reads `on`, local-test-state.mjs custodyLayerOf), must run that switch
+ * (#11019). Returns `{ ok, lines }`, one line per finding or pass, naming keys and hosts, never a value.
  */
-export function fundsCheck({ records, readEnviron, readListeners = () => null, page, allow = NO_HOSTS }) {
+export function fundsCheck({ records, readEnviron, readListeners = () => null, page, allow = NO_HOSTS, custody = null }) {
   const findings = [];
   const passes = [];
   const named = Object.entries(records ?? {}).filter(([, r]) => Number.isInteger(r?.pid));
@@ -316,6 +357,17 @@ export function fundsCheck({ records, readEnviron, readListeners = () => null, p
     }
   }
   if (named.length && read === 0) findings.push('no running process could be read');
+  if (custody && named.length) {
+    const carriers = named.filter(([name, r]) => name === 'ledger' || r.custodyLayer !== undefined);
+    const unlike = carriers.filter(([, r]) => (r.custodyLayer ?? 'on') !== custody);
+    for (const [name, r] of unlike)
+      findings.push(
+        `${name} (pid ${r.pid}): runs LEDGER_CUSTODY_LAYER ${r.custodyLayer ?? 'unrecorded (on)'}, not ${custody} as launch does`,
+      );
+    if (!carriers.some(([name]) => name === 'ledger')) findings.push('no svc-ledger record: its custody switch could not be read');
+    else if (unlike.length === 0)
+      passes.push(`${carriers.map(([name]) => name).join(', ')}: LEDGER_CUSTODY_LAYER ${custody}, as launch runs it`);
+  }
   const where = allow.size ? 'this machine, a reserved name or the hosted allow list' : 'this machine or a reserved name';
   if (clean) passes.push(`${clean} of ${read} running processes: every address in their environments is ${where}`);
   if (page == null) findings.push('the Customer page did not answer');
@@ -379,15 +431,15 @@ function getText(url) {
   });
 }
 
-async function checkStack(state, link, allow = NO_HOSTS) {
+async function checkStack(state, link, allow = NO_HOSTS, custody = null) {
   const records = readJson(path.join(state, 'run', 'processes.json'), {});
-  return fundsCheck({ records, readEnviron, readListeners, page: await getText(link), allow });
+  return fundsCheck({ records, readEnviron, readListeners, page: await getText(link), allow, custody });
 }
 
 // ── Readied: what a tester sees first ───────────────────────────────────────
 
 /**
- * Is the stack readied for a tester, from the two public reads Home and Markets make (`/api/v1/markets`, `/api/v1/tickers`,
+ * Is the stack readied for a tester (custody on; custody off reads venueReadied), from the two public reads Home and Markets make (`/api/v1/markets`, `/api/v1/tickers`,
  * either text or null)? Right after a restart the stack answered while it listed only the TEST pairs with blank prices and
  * Home showed "Prices can't be loaded" (#10299). Readied: a market that is not a TEST pair has a last price.
  */
@@ -408,7 +460,28 @@ export function readied({ markets, tickers }) {
     : { ok: false, why: `none of ${list.length} markets that are not TEST pairs has a price yet` };
 }
 
-async function readiedNow(link) {
+/**
+ * Readied with custody off (BETA_CUSTODY, #11019): our own order book is off, so every one of its markets reads REFUSED
+ * with no price, as at launch, and the tester trades on the venue. Readied: the venue's own prices
+ * (`/api/v1/venue/tickers`, svc-trade's public read of the venue's book and tape, text or null) give a market a last price.
+ */
+export function venueReadied(text) {
+  let read;
+  try {
+    read = JSON.parse(text ?? '');
+  } catch {
+    return { ok: false, why: "the venue's prices did not answer" };
+  }
+  const rows = read && typeof read.value === 'object' && read.value ? Object.values(read.value) : null;
+  if (!rows) return { ok: false, why: `the venue's prices did not answer (${read?.code ?? read?.intafacedCode ?? 'no value'})` };
+  const priced = rows.filter((t) => Number.isFinite(Number.parseFloat(t?.last)));
+  return priced.length
+    ? { ok: true, why: `${priced.length} of ${rows.length} of the venue's markets (${read.venueId}) have a price` }
+    : { ok: false, why: `none of the venue's ${rows.length} markets has a price yet` };
+}
+
+async function readiedNow(link, custody = BETA_CUSTODY) {
+  if (custody === 'off') return venueReadied(await getText(`${link}api/v1/venue/tickers`));
   const [markets, tickers] = await Promise.all([getText(`${link}api/v1/markets?limit=500`), getText(`${link}api/v1/tickers?limit=500`)]);
   return readied({ markets, tickers });
 }
@@ -588,7 +661,7 @@ function ensureCheckout(paths) {
 const roundIo = {
   git,
   run,
-  check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS),
+  check: (state, link) => checkStack(state, link, BETA_OWN_HOSTS, BETA_CUSTODY),
   readied: readiedNow,
   anvil: ensureAnvil,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -617,6 +690,7 @@ export async function round(paths = betaPaths(), io = {}) {
   const chain = anvil(paths);
   log(paths, chain.line);
   const settingsNew = settingsChanged(paths);
+  const otherCustody = bookOnOtherCustody(paths);
   const env = stackEnv(paths);
   // The commit the stack serves after this round, and when the checkout last moved: the next update waits on it.
   const sha = step === 'update' ? target : head;
@@ -625,7 +699,8 @@ export async function round(paths = betaPaths(), io = {}) {
   // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
   // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
   // readied restarts nothing (same commit), so it stays `up`.
-  const warm = !chain.fresh && !settingsNew && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
+  const warm =
+    !chain.fresh && !settingsNew && !otherCustody && step === 'launch' && prev.state === 'up' && (await readiedWith(BETA_LINK)).ok;
   if (!warm)
     writeStatus(paths, {
       state: 'updating',
@@ -645,10 +720,11 @@ export async function round(paths = betaPaths(), io = {}) {
   if (chain.fresh) {
     log(paths, 'anvil: new, so the stack is stopped and started whole on its TEST chain');
     await stopStack(paths, run);
-  } else if (settingsNew) {
+  } else if (settingsNew || otherCustody) {
     log(paths, `settings: ${settingsLine()} are new, so the stack is stopped and started whole on them`);
     await stopStack(paths, run);
   }
+  if (otherCustody) log(paths, moveBookAside(paths, otherCustody, new Date(now())));
   const stackCli = path.join(paths.checkout, 'tooling', 'scripts', 'local-test-stack.mjs');
   const launched = await run(paths, 'node', [stackCli, 'start', 'verify', 'launch'], { cwd: paths.checkout, env });
   if (launched === 0) fs.writeFileSync(paths.settings, `${settingsLine()}\n`);
@@ -888,7 +964,8 @@ async function main(argv) {
     const link = state === paths.state || !marker.ports?.customer ? BETA_LINK : `http://127.0.0.1:${marker.ports.customer}/`;
     const h = rest.indexOf('--hosted');
     const allow = h >= 0 ? hostedAllowList(rest[h + 1]) : state === paths.state ? BETA_OWN_HOSTS : NO_HOSTS;
-    const c = await checkStack(state, link, allow);
+    // The beta's own stack runs custody as launch does (BETA_CUSTODY); another stack's switch is its own.
+    const c = await checkStack(state, link, allow, state === paths.state ? BETA_CUSTODY : null);
     for (const l of c.lines) console.log(l);
     process.exit(c.ok ? 0 : 1);
   }
