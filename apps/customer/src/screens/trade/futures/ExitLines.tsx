@@ -231,7 +231,7 @@ export function ExitLines({
       <ChartMark
         key={kind}
         as="button"
-        kind={moving ? 'preview' : 'line'}
+        kind="line"
         y={y}
         data-testid={`exit-line-${kind}`}
         data-side={kind === 'stop' ? 'sell' : 'buy'}
@@ -268,7 +268,7 @@ export function ExitLines({
             {entryY !== null && (
               <ChartMark
                 as="button"
-                kind={drag?.kind === 'entry' ? 'preview' : 'line'}
+                kind="line"
                 y={entryY}
                 data-testid="exit-line-entry"
                 data-price={drag?.kind === 'entry' && dragged ? dragged : position.entryPrice}
