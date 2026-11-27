@@ -11,5 +11,5 @@ export const ticketPreviewCopy = defineCopy('trade.futures.venue.preview', {
   'Next step': 'To place it, connect your wallet, then start a trading session: your wallet signs once, and the session signs each order.',
   'Next step wallet': 'To place it, connect your wallet: it signs each order.',
   'Make wallet go': 'Make a wallet to trade',
-  'Connect go': 'Connect {name} to trade',
+  'Connect go': 'Use {name} to trade',
 });
