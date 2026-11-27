@@ -126,7 +126,7 @@ export interface HyperliquidTestnetOptions {
   readonly perpDexs?: readonly string[];
   /**
    * Where a warning goes: a named perp DEX left out of the listing (not listed by the venue, or its read failed), so the
-   * main listing stays up. Defaults to `console.warn`.
+   * main listing stays up. Defaults to standard error.
    */
   readonly warn?: (message: string) => void;
 }
@@ -253,7 +253,7 @@ export abstract class HyperliquidCore {
     this.chainId = chainId;
     this.shareReads = options.shareReads === true;
     this.perpDexs = [...new Set(options.perpDexs ?? [])];
-    this.warn = options.warn ?? ((message) => console.warn(message));
+    this.warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
     for (const dex of this.perpDexs) {
       if (!/^[a-z0-9]{1,15}$/.test(dex)) throw new Error(`a perp DEX is named by its lower-case name, as xyz, not ${JSON.stringify(dex)}`);
     }
