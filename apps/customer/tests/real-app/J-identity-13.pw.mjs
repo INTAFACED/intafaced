@@ -294,7 +294,7 @@ test(`${J} #3 "my account is compromised" ends every session and key, freezes th
   expect(held.status, JSON.stringify(held.body).slice(0, 300)).toBe(200);
   expect(held.body.result.data.custody).toBe('off');
   const funded = await before.post('/api/bank/trpc/testPartner.fund', {
-    fundId: `${J}-${randomUUID()}`.slice(0, 64),
+    fundId: `${J}-${who.email}`.slice(0, 64),
     assetId: 'USDT',
     amount: '250',
   });
