@@ -10,12 +10,14 @@
 -- No balance, no key and no venue credential is stored: the figures in an alert's text are the venue's, as read.
 
 CREATE TABLE IF NOT EXISTS "notify"."telegram_link_codes" (
-  "digest" text PRIMARY KEY,
-  "user_id" text NOT NULL UNIQUE,
+  "user_id" text PRIMARY KEY,
+  "digest" text NOT NULL,
   "expires_at" timestamptz NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "telegram_link_codes_digest_ck" CHECK ("digest" ~ '^[0-9a-f]{64}$')
 );
+-- One code per person is the only key: a digest of 32 random bytes is looked up, not constrained.
+CREATE INDEX IF NOT EXISTS "telegram_link_codes_digest_idx" ON "notify"."telegram_link_codes" ("digest");
 
 CREATE TABLE IF NOT EXISTS "notify"."telegram_links" (
   "user_id" text PRIMARY KEY,

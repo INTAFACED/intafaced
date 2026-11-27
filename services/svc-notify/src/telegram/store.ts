@@ -153,6 +153,9 @@ const firstLink = (rows: unknown): TelegramLink | null => {
   return row ? linkOf(row) : null;
 };
 
+/** Another person linked the chat in the same moment: thrown to roll the redeem back. */
+class ChatTakenRace extends Error {}
+
 export class PostgresTelegramStore implements TelegramStore {
   constructor(private readonly sql: Sql) {}
 
@@ -163,23 +166,32 @@ export class PostgresTelegramStore implements TelegramStore {
   }
 
   async redeemCode(digest: string, chatId: string, now: Date): Promise<RedeemOutcome> {
-    const out: RedeemOutcome = await this.sql.begin(async (tx): Promise<RedeemOutcome> => {
-      const [code] = UserRow.array().parse(
-        await tx`SELECT user_id FROM notify.telegram_link_codes WHERE digest = ${digest} AND expires_at > ${now} FOR UPDATE`,
-      );
-      if (!code) return { ok: false, reason: 'invalid' };
-      const [holder] = UserRow.array().parse(await tx`SELECT user_id FROM notify.telegram_links WHERE chat_id = ${chatId}`);
-      if (holder && holder.user_id !== code.user_id) return { ok: false, reason: 'chat_taken' };
-      await tx`DELETE FROM notify.telegram_link_codes WHERE digest = ${digest}`;
-      const link = firstLink(
-        await tx`
+    const out: RedeemOutcome = await this.sql
+      .begin(async (tx): Promise<RedeemOutcome> => {
+        const [code] = UserRow.array().parse(
+          await tx`SELECT user_id FROM notify.telegram_link_codes WHERE digest = ${digest} AND expires_at > ${now} FOR UPDATE`,
+        );
+        if (!code) return { ok: false, reason: 'invalid' };
+        const [holder] = UserRow.array().parse(await tx`SELECT user_id FROM notify.telegram_links WHERE chat_id = ${chatId}`);
+        if (holder && holder.user_id !== code.user_id) return { ok: false, reason: 'chat_taken' };
+        await tx`DELETE FROM notify.telegram_link_codes WHERE user_id = ${code.user_id} AND digest = ${digest}`;
+        // The person's old chat, if any, is replaced. A chat another person linked in the same moment wins the race: the
+        // insert absorbs the clash on either key and this code links nothing.
+        await tx`DELETE FROM notify.telegram_links WHERE user_id = ${code.user_id}`;
+        const link = firstLink(
+          await tx`
           INSERT INTO notify.telegram_links (user_id, chat_id, linked_at) VALUES (${code.user_id}, ${chatId}, ${now})
-          ON CONFLICT (user_id) DO UPDATE SET chat_id = EXCLUDED.chat_id, linked_at = EXCLUDED.linked_at
+          ON CONFLICT DO NOTHING
           RETURNING user_id, chat_id, linked_at`,
-      );
-      if (!link) throw new Error('the link row was not written');
-      return { ok: true, link };
-    });
+        );
+        if (!link) throw new ChatTakenRace();
+        return { ok: true, link };
+      })
+      .catch((err: unknown): RedeemOutcome => {
+        // Rolled back: the person keeps their code and their old chat.
+        if (err instanceof ChatTakenRace) return { ok: false, reason: 'chat_taken' };
+        throw err;
+      });
     return out;
   }
 

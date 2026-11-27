@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts/service-auth';
 import { serviceCallSigner, type ServiceAuthMode } from '@intafaced/contracts/service-auth-http';
 import type { ServiceSigner } from '@intafaced/contracts/service-keys';
 import { TRADE_DESK_SNAPSHOT, type TradeDeskSnapshotPort, type TradeDeskSnapshotResult } from '@intafaced/contracts/trade-desk-snapshot';
@@ -33,21 +32,18 @@ export function createTradeDeskClient(options: {
     /* Missing or invalid transport reads nothing. */
   }
   const secret = options.secret ?? '';
-  const sign = options.s2s
-    ? serviceCallSigner({ service: 'svc-notify', audience: 'svc-trade', legacySecret: secret, s2s: options.s2s })
-    : null;
+  // With S2S on, the call is key-signed (and, in dual mode, also shared-secret signed); without it, the shared secret alone.
+  const sign = serviceCallSigner({ service: 'svc-notify', audience: 'svc-trade', legacySecret: secret, s2s: options.s2s });
   return {
     async read(raw) {
-      if (endpoint === null || (!sign && secret.length < 32)) return UNAVAILABLE;
+      if (endpoint === null || (!options.s2s && secret.length < 32)) return UNAVAILABLE;
       const parsed = TRADE_DESK_SNAPSHOT.input.safeParse(raw);
       if (!parsed.success) return UNAVAILABLE;
       const body = JSON.stringify(parsed.data);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
       try {
-        const auth = sign
-          ? sign(body, { method: 'POST', url: new URL(endpoint), contentType: 'application/json' })
-          : serviceAuthHeadersForBody('svc-notify', secret, body);
+        const auth = sign(body, { method: 'POST', url: new URL(endpoint), contentType: 'application/json' });
         const response = await (options.fetcher ?? fetch)(endpoint, {
           method: 'POST',
           redirect: 'error',
