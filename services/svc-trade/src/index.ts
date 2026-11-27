@@ -121,6 +121,7 @@ import { endExpiredPasses } from './spot/tier-passes.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
+import { SqlTradeJournalStore } from './venue/trade-journal-store.js';
 import { UserVenueDoorError, parseBuilderFee } from './venue/user-venue-door.js';
 import { wireUserVenue } from './venue/wire.js';
 import { wireVenueAgents } from './venue/agents-wire.js';
@@ -1023,11 +1024,12 @@ export const appRouter = createTradeRouter(
     now: () => new Date(),
   },
   venueRiskAlerts,
-  // The perps trade journal: read only, off with the door.
+  // The perps trade journal: the venue's closed trades, kept in its own record; off with the door.
   userVenue
     ? {
         venue: () => userVenue.venue(),
         account: (owner: string, subAccount: string | null) => userVenue.readableAccount(owner, subAccount),
+        store: new SqlTradeJournalStore(sql),
         now: () => new Date(),
       }
     : null,

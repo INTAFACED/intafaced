@@ -15640,21 +15640,96 @@
                   "type": "string",
                   "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
                 },
-                "fees": {
-                  "type": "string",
-                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                "fills": {
+                  "minItems": 2,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "fillId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "filledAt": {
+                        "type": "string"
+                      },
+                      "side": {
+                        "type": "string",
+                        "enum": ["buy", "sell"]
+                      },
+                      "price": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "venueFee": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "builderFee": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "feeAsset": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "opening": {
+                        "type": "boolean"
+                      },
+                      "split": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["fillId", "filledAt", "side", "price", "amount", "venueFee", "builderFee", "feeAsset", "opening", "split"],
+                    "additionalProperties": false
+                  }
                 },
                 "feeAsset": {
                   "type": "string",
                   "minLength": 1
                 },
-                "grossPnl": {
+                "realisedPnl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "venueFees": {
                   "type": "string",
                   "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
                 },
-                "netPnl": {
+                "builderFees": {
                   "type": "string",
                   "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "funding": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "fundingPayments": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "netPnl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "plannedStop": {
                   "anyOf": [
@@ -15678,6 +15753,17 @@
                     }
                   ]
                 },
+                "risk": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "rMultiple": {
                   "anyOf": [
                     {
@@ -15689,25 +15775,90 @@
                     }
                   ]
                 },
-                "maePrice": {
-                  "type": "string",
-                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                "rMissing": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["no_stop_when_opened", "no_result"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
-                "mae": {
-                  "type": "string",
-                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
-                },
-                "mfePrice": {
-                  "type": "string",
-                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
-                },
-                "mfe": {
-                  "type": "string",
-                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
-                },
-                "candleInterval": {
-                  "type": "string",
-                  "minLength": 1
+                "excursion": {
+                  "type": "object",
+                  "properties": {
+                    "interval": {
+                      "type": "string",
+                      "const": "1m"
+                    },
+                    "complete": {
+                      "type": "boolean"
+                    },
+                    "mae": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "price": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "perUnit": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "usd": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "pct": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            }
+                          },
+                          "required": ["price", "perUnit", "usd", "pct"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "mfe": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "price": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "perUnit": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "usd": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "pct": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            }
+                          },
+                          "required": ["price", "perUnit", "usd", "pct"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["interval", "complete", "mae", "mfe"],
+                  "additionalProperties": false
                 },
                 "disciplined": {
                   "type": "object",
@@ -15742,11 +15893,12 @@
                   "required": ["exit", "exitPrice", "netPnl"],
                   "additionalProperties": false
                 },
-                "fillIds": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
+                "storedAt": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": ["venue", "record"]
                 }
               },
               "required": [
@@ -15758,20 +15910,23 @@
                 "entryPrice",
                 "exitPrice",
                 "size",
-                "fees",
+                "fills",
                 "feeAsset",
-                "grossPnl",
+                "realisedPnl",
+                "venueFees",
+                "builderFees",
+                "funding",
+                "fundingPayments",
                 "netPnl",
                 "plannedStop",
                 "plannedTarget",
+                "risk",
                 "rMultiple",
-                "maePrice",
-                "mae",
-                "mfePrice",
-                "mfe",
-                "candleInterval",
+                "rMissing",
+                "excursion",
                 "disciplined",
-                "fillIds"
+                "storedAt",
+                "source"
               ],
               "additionalProperties": false
             }
@@ -15788,6 +15943,11 @@
                 "type": "string",
                 "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
               },
+              "netUnknown": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
               "disciplinedCount": {
                 "type": "integer",
                 "minimum": -9007199254740991,
@@ -15802,7 +15962,7 @@
                 "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
               }
             },
-            "required": ["count", "netPnl", "disciplinedCount", "actualNetPnlOfDisciplined", "disciplinedNetPnl"],
+            "required": ["count", "netPnl", "netUnknown", "disciplinedCount", "actualNetPnlOfDisciplined", "disciplinedNetPnl"],
             "additionalProperties": false
           }
         },
