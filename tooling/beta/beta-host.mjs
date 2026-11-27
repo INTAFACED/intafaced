@@ -18,12 +18,20 @@
  *                                             checkout moves until then, so the front shows its updating page, never a
  *                                             half-built app (#10299). A moved commit that fails goes back to the last
  *                                             good one and is refused until main moves past it
- *   node tooling/beta/beta-host.mjs move      on demand: the supervisor moves to main within 15 seconds, between slots
+ *   node tooling/beta/beta-host.mjs move      on demand: the supervisor moves to main within 15 seconds, between slots;
+ *                                             it also ends a hold that `back` set
+ *   node tooling/beta/beta-host.mjs back [<sha>]   a commit that started but broke testers: within 15 seconds the
+ *                                             supervisor moves the beta back to <sha>, a commit on main (default: the
+ *                                             one before the commit served), and holds it there until main moves past
+ *                                             the main of that moment; status names the held commit and why (#11065)
  *   node tooling/beta/beta-host.mjs check [--state <dir>]   the TEST funds check alone, on the beta stack (or another
  *                                             stack's state folder); exit 1 on any finding. `--hosted <beta-host>`
  *                                             also passes the exact hosted allow list: the test networks' hosts and the
  *                                             beta's own, nothing else (hostedAllowList)
- *   node tooling/beta/beta-host.mjs status    which commit the beta serves and why, then what the last round found
+ *   node tooling/beta/beta-host.mjs status    each outside limit and what is left, read now (beta-limits.mjs), then which
+ *                                             commit the beta serves and why, and what the last round found
+ *   node tooling/beta/beta-host.mjs testers [--json]   where each invited tester is: stages, venue refusals with their
+ *                                             words, errors, last action, and STUCK (beta-testers.mjs)
  *   node tooling/beta/beta-host.mjs stop      stop the beta stack (the supervisor's next round starts it again)
  *   node tooling/beta/beta-host.mjs install   write and start the systemd user service that runs `serve`
  *   node tooling/beta/beta-host.mjs invited-test [--checkout <dir>] [--root <dir>] [--watch]
@@ -51,6 +59,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PUBLIC_ORIGIN } from './beta-front.mjs';
 import { INVITED_RECENT_MS, invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
+import { limitsLine, limitsReport, readLimits } from './beta-limits.mjs';
+import { liveDeps } from './beta-testnet.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -89,6 +99,10 @@ export function betaPaths(home = os.homedir()) {
     ...invitedPaths(root),
     unit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta.service'),
     frontUnit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-front.service'),
+    /** The public door, installed by hand with its credentials (docs/runbooks/beta-link.md); never rewritten here. */
+    tunnelUnit: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-tunnel.service'),
+    /** The tunnel's weights (tunnelDropInText), beside its hand-written unit. */
+    tunnelDropIn: path.join(home, '.config', 'systemd', 'user', 'intafaced-beta-tunnel.service.d', '50-beta-priority.conf'),
     /** The hash of the beta-front.mjs the front service was last started on. */
     front: path.join(root, 'front.json'),
     /** The beta's anvil launcher (anvilLauncher): present only once its pinned image is on the box. */
@@ -99,6 +113,8 @@ export function betaPaths(home = os.homedir()) {
     served: path.join(root, 'served.json'),
     /** Present while a move on demand is asked for (`beta-host.mjs move`); the next round uses it once. */
     moveNow: path.join(root, 'move-now'),
+    /** Present while a move back is asked for (`beta-host.mjs back`): the commit and the bad one; the next round uses it once. */
+    backTo: path.join(root, 'back-to.json'),
   };
 }
 
@@ -116,6 +132,27 @@ const BETA_CADENCE_SECONDS = 300;
 const BETA_USER_VENUE = 'hl-testnet';
 
 /**
+ * Where the beta makes each new tester's wallet, and the one place to switch it (#11092). `test`: the labelled TEST
+ * provider the stack runs on loopback, which spends nothing outside. `turnkey`: the owner's wallet provider, with his
+ * keys from the box's sealed vendors.local.json (a start without that file refuses, naming it). Its free plan's 25
+ * signatures a month went on our own walks, so until testers are invited the beta runs the TEST provider, and while it
+ * does the TEST mailbox refuses every new invitee (invitesRefused), so wave 0 cannot start on the stand-in. The owner
+ * buys the paid plan right before testers are invited (project-state#4094, 27 Nov); then this reads `turnkey`, and one
+ * walk passes on it before the first invite. A tester's existing wallet keeps signing where it was made, which
+ * svc-protocol's status names for that wallet. `beta-host.mjs status` names the provider on.
+ */
+export const BETA_WALLET_PROVIDER = 'test';
+
+/** Why a new invitee is refused on `provider`, or null when invites are open (the owner's provider is on). */
+export function invitesRefused(provider = BETA_WALLET_PROVIDER) {
+  return provider === 'turnkey'
+    ? null
+    : 'the beta is not open to new testers yet: its wallets are on the TEST wallet provider until the owner opens the invites (#11092)';
+}
+
+const PROVIDER_WORDS = { test: 'the TEST provider', turnkey: "the owner's wallet provider" };
+
+/**
  * The beta's own stack settings, which a running stack takes only when started whole (settingsChanged): its public
  * name as the origin of what testers sign, its venue, no TEST listings on svc-trade's board, and svc-ops' labelled TEST
  * valuation price list. A passkey or wallet message signed on https://beta.intafaced.com names that origin, which the
@@ -127,9 +164,7 @@ const BETA_USER_VENUE = 'hl-testnet';
  * `valuation.prices` unpublished (`valuation.prices_unset`), so Home and Money show "No total" even after an invited
  * tester's 1,000 TEST USDT sits in their TEST partner account (#10632); with it, svc-ops publishes the ops profile's
  * labelled TEST price list (`test: true`, refused outside dev/test) so Home and Money total the partner balance.
- * `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey` makes each new tester's wallet at the owner's wallet provider, with the
- * owner's keys from the box's sealed vendors.local.json (a start without that file refuses, naming it); a tester who
- * already has a TEST wallet keeps it and signs at the TEST provider, which svc-protocol's status names for that wallet.
+ * `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET` is BETA_WALLET_PROVIDER, below.
  * `LOCAL_STACK_CUSTODY_LAYER=off` starts svc-ledger, svc-bank, svc-pay, svc-trade and svc-matching with the custody layer
  * off together, as the launch build runs them (docs/adr/2026-11-10-launch-money-model.md): our own order book is off, the
  * ledger holds no tester's money, and a tester's money is where launch keeps it, at the TEST partner and in their own
@@ -142,7 +177,7 @@ const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_LIVE_TEST_NETWORK: 'on',
   LOCAL_STACK_TEST_MARKETS: 'off',
   LOCAL_STACK_VALUATION_PRICES: 'test',
-  LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey',
+  LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: BETA_WALLET_PROVIDER,
   LOCAL_STACK_CUSTODY_LAYER: 'off',
 });
 /** The custody switch every process of the beta stack runs (BETA_STACK_SETTINGS), as launch does. */
@@ -556,8 +591,21 @@ ${body}
 }
 
 /** The TEST mailbox page's server, on `port` (MAILBOX_PORT on the beta). */
-export function serveMailbox(paths, port = MAILBOX_PORT) {
+export function serveMailbox(paths, port = MAILBOX_PORT, { walletProvider = BETA_WALLET_PROVIDER } = {}) {
+  const closed = invitesRefused(walletProvider);
   const server = http.createServer((req, res) => {
+    const viewer = req.headers['x-beta-viewer'];
+    // Every invitee opens the mailbox for their sign-up code, so while invites are closed a viewer not already invited
+    // (the agents' walk is) is refused here, never recorded, and so never approved or funded by the invited pass.
+    if (closed && viewer !== undefined && !readInvited(paths.invited).has(String(viewer))) {
+      const body = `${closed}\n`;
+      res.writeHead(403, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+        'content-length': Buffer.byteLength(body),
+      });
+      return void res.end(body);
+    }
     let text = '';
     try {
       text = fs.readFileSync(path.join(paths.state, 'email-outbox.log'), 'utf8');
@@ -565,7 +613,6 @@ export function serveMailbox(paths, port = MAILBOX_PORT) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' });
     // Through the public front, each viewer sees only their own addresses' mail (beta-front.mjs VIEWER_HEADER); on the
     // box's own loopback, without the header, every row.
-    const viewer = req.headers['x-beta-viewer'];
     // A viewer the front passed on came through Cloudflare Access, so is on the invite list (beta-invited.mjs).
     if (viewer !== undefined && recordInvited(paths.invited, String(viewer))) log(paths, `mailbox: a new invited viewer, ${viewer}`);
     const rows = mailboxRows(text);
@@ -597,9 +644,35 @@ function writeStatus(paths, status) {
   const tmp = `${paths.status}.${process.pid}.tmp`;
   fs.writeFileSync(
     tmp,
-    `${JSON.stringify({ link: BETA_LINK, mailbox: MAILBOX_LINK, at: new Date().toISOString(), ...status }, null, 2)}\n`,
+    `${JSON.stringify({ link: BETA_LINK, mailbox: MAILBOX_LINK, at: new Date().toISOString(), walletProvider: BETA_WALLET_PROVIDER, invitesRefused: invitesRefused(), ...status }, null, 2)}\n`,
   );
   fs.renameSync(tmp, paths.status);
+}
+
+/** Where beta-limits.mjs reads the outside limits on the beta: the funded and invited files, the stack's venue log. */
+const limitPaths = (paths) => ({
+  testnet: paths.testnet,
+  invited: paths.invited,
+  venueLog: path.join(paths.state, 'logs', 'test-venue.log'),
+});
+
+/**
+ * Read the beta's outside limits now (#11063) and keep them in status.json beside the round's own fields (`limits`,
+ * `limitsLine`, `limitsAt`), so the walk's record, which carries status.json, carries them too. A limit that turns `warn`
+ * is a line in round.log, once until it changes.
+ */
+export async function recordLimits(paths, deps = {}) {
+  const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree, walletProvider: BETA_WALLET_PROVIDER, ...deps });
+  const s = readJson(paths.status, null);
+  if (s) {
+    const said = new Set((s.limits ?? []).filter((l) => l.state === 'warn').map((l) => l.line));
+    for (const l of limits) if (l.state === 'warn' && !said.has(l.line)) log(paths, `limit: warn: ${l.line}`);
+    const tmp = `${paths.status}.${process.pid}.tmp`;
+    const next = { ...s, limits, limitsLine: limitsLine(limits), limitsAt: new Date().toISOString() };
+    fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
+    fs.renameSync(tmp, paths.status);
+  }
+  return limits;
 }
 
 const git = (cwd, ...args) => spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
@@ -664,13 +737,20 @@ export function decide({ screening, head, target, due = true, refused = null }) 
   return 'update';
 }
 
-/** One line for `beta-host.mjs status`: the state, the commit served, main's commit when it differs, and why. */
+/**
+ * One line for `beta-host.mjs status`: the state, the commit served, main's commit when it differs, why, and where new
+ * wallets are made (with invites refused while that is the TEST provider).
+ */
 export function statusLine(s) {
   const short = (sha) => String(sha ?? '').slice(0, 9);
   const parts = [`${s.state}: serves ${s.sha ? short(s.sha) : 'no commit yet'}`];
   if (s.mainAt && s.mainAt !== s.sha) parts.push(`main is at ${short(s.mainAt)}`);
   if (s.reason) parts.push(s.reason);
   if (s.why) parts.push(s.why);
+  if (s.walletProvider) {
+    parts.push(`new wallets at ${PROVIDER_WORDS[s.walletProvider] ?? s.walletProvider}`);
+    if (invitesRefused(s.walletProvider)) parts.push('invites refused');
+  }
   return parts.join('; ');
 }
 
@@ -678,6 +758,37 @@ export function statusLine(s) {
 export function askMove(paths, now = new Date()) {
   fs.mkdirSync(paths.root, { recursive: true, mode: 0o700 });
   fs.writeFileSync(paths.moveNow, `${now.toISOString()}\n`);
+}
+
+/**
+ * Ask for a move back (#11065): the supervisor's next round (within 15 seconds) moves the beta to `sha`, a commit on main,
+ * and holds it there until main moves past the main of that moment. `bad` is the commit that broke testers.
+ */
+export function askBack(paths, { sha, bad }, now = new Date()) {
+  fs.mkdirSync(paths.root, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(paths.backTo, `${JSON.stringify({ sha, bad, at: now.toISOString() })}\n`);
+}
+
+/**
+ * The hold a round keeps (#11065): a new ask sets it, with the main of this round; it lasts while main is still that
+ * commit or the bad one, and a move on demand ends it. Returns the hold, or null, and a log line when it changed.
+ */
+function holdFor({ held = null, ask = null, asked = false, main, served }) {
+  if (ask?.sha) {
+    const bad = ask.bad ?? served ?? null;
+    return {
+      held: { sha: ask.sha, bad, mainAt: main, at: ask.at ?? null },
+      line: `back: asked to ${ask.sha.slice(0, 9)}, held until main moves past ${main.slice(0, 9)}`,
+    };
+  }
+  if (!held) return { held: null, line: null };
+  if (asked) return { held: null, line: `back: the hold on ${held.sha.slice(0, 9)} ends on demand (beta-host.mjs move)` };
+  if (main !== held.mainAt && main !== held.bad)
+    return {
+      held: null,
+      line: `back: main moved past ${held.mainAt.slice(0, 9)} to ${main.slice(0, 9)}, so the hold on ${held.sha.slice(0, 9)} ends`,
+    };
+  return { held, line: null };
 }
 
 /**
@@ -737,16 +848,26 @@ export async function round(paths = betaPaths(), io = {}) {
   if (noCheckout) return finish(paths, { state: 'down', reason: noCheckout });
   const fetched = git(paths.checkout, 'fetch', '--quiet', 'origin', 'main');
   if (fetched.status !== 0) log(paths, `fetch failed (${fetched.stderr.trim()}); the round goes on with the last main it has`);
-  const target = git(paths.checkout, 'rev-parse', 'origin/main').stdout.trim();
+  const mainTarget = git(paths.checkout, 'rev-parse', 'origin/main').stdout.trim();
   const head = git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
   const prev = readJson(paths.status, {});
   const screening = fs.existsSync(paths.screening);
   // The last commit that came up, and the moved commit that failed: refused only until main moves past it (#11029).
   const served = readJson(paths.served, {}) ?? {};
   let good = served.good ?? (prev.state === 'up' ? prev.sha : null) ?? null;
-  let refused = served.refused?.sha === target ? served.refused : null;
+  let refused = served.refused?.sha === mainTarget ? served.refused : null;
   const asked = fs.existsSync(paths.moveNow);
-  const slot = moveDue({
+  // A move back (`beta-host.mjs back`, #11065): the beta goes to the named commit and stays there until main moves past
+  // the main of the ask; the round's target is then the held commit, never main.
+  const backAsk = readJson(paths.backTo, null);
+  const hold = holdFor({ held: served.held ?? null, ask: backAsk, asked, main: mainTarget, served: prev.sha ?? head });
+  if (hold.line) log(paths, hold.line);
+  const held = hold.held;
+  const target = held ? held.sha : mainTarget;
+  const heldWhy = held
+    ? `held on ${held.sha.slice(0, 9)} (beta-host.mjs back)${held.bad ? `: ${held.bad.slice(0, 9)} broke testers` : ''}; main waits until it moves past ${held.mainAt.slice(0, 9)} (beta-host.mjs move ends the hold now)`
+    : null;
+  const due = moveDue({
     testers: readInvited(paths.invited, { seenSince: now() - INVITED_RECENT_MS }).size,
     invited: readInvited(paths.invited).size,
     now: now(),
@@ -754,7 +875,8 @@ export async function round(paths = betaPaths(), io = {}) {
     at: process.env.BETA_MOVE_AT ?? BETA_MOVE_AT,
     asked,
   });
-  const step = decide({ screening, head, target, due: slot.due, refused: refused?.sha });
+  const slot = held ? { due: true, why: heldWhy } : due;
+  const step = decide({ screening, head, target, due: slot.due, refused: held ? null : refused?.sha });
   log(paths, `round: ${step} (checkout ${head.slice(0, 9)}, main ${target.slice(0, 9)})`);
   if (step === 'blocked')
     return finish(paths, {
@@ -763,26 +885,28 @@ export async function round(paths = betaPaths(), io = {}) {
       sha: head,
     });
   if (asked) fs.rmSync(paths.moveNow, { force: true });
-  let why =
-    step === 'update'
+  if (backAsk) fs.rmSync(paths.backTo, { force: true });
+  let why = held
+    ? heldWhy
+    : step === 'update'
       ? `moved to main ${target.slice(0, 9)} ${slot.why}`
       : head === target
         ? `main ${target.slice(0, 9)} is the newest main`
         : refused
           ? `main ${target.slice(0, 9)} is refused (${refused.reason}); the beta stays on ${head.slice(0, 9)} until main moves past it`
           : slot.why;
-  const record = () => fs.writeFileSync(paths.served, `${JSON.stringify({ good, refused }, null, 2)}\n`);
+  const record = () => fs.writeFileSync(paths.served, `${JSON.stringify({ good, refused, ...(held ? { held } : {}) }, null, 2)}\n`);
   const end = (status) => {
     if (status.state === 'up') good = status.sha;
     record();
-    return finish(paths, { ...status, why, ...(refused ? { refused } : {}) });
+    return finish(paths, { ...status, why, ...(refused ? { refused } : {}), ...(held ? { held } : {}) });
   };
   const chain = anvil(paths);
   log(paths, chain.line);
   const settingsNew = settingsChanged(paths);
   const otherCustody = bookOnOtherCustody(paths);
   const env = stackEnv(paths);
-  const mainAt = target;
+  const mainAt = mainTarget;
   // A tester never meets the stack half-built (#10299): from before the checkout moves until the stack is readied, the
   // status reads `updating`, and the front shows its updating page instead of the app. A launch on a stack that was up and
   // readied restarts nothing (same commit), so it stays `up`.
@@ -799,7 +923,11 @@ export async function round(paths = betaPaths(), io = {}) {
       mainAt,
     });
   if (!warm)
-    updating(step === 'update' ? `moving to main ${target.slice(0, 9)}` : 'starting what is down', head, step === 'update' ? target : head);
+    updating(
+      step !== 'update' ? 'starting what is down' : held ? `going back to ${target.slice(0, 9)}` : `moving to main ${target.slice(0, 9)}`,
+      head,
+      step === 'update' ? target : head,
+    );
 
   /**
    * Bring the stack up on `sha`: check it out when `move`, install, launch, the TEST funds check, readied. Returns the
@@ -869,7 +997,8 @@ export async function round(paths = betaPaths(), io = {}) {
    * failure stands and the next due round tries again.
    */
   async function goBack(failed, updatedAt) {
-    if (failed.state === 'up' || !good || good === target) return failed;
+    // A held commit that fails stands as it is: going back would serve the commit that broke testers.
+    if (failed.state === 'up' || held || !good || good === target) return failed;
     refused = { sha: target, reason: failed.reason, at: new Date(now()).toISOString() };
     record();
     log(paths, `back: main ${target.slice(0, 9)} did not come up (${failed.reason}); back to the last good commit ${good.slice(0, 9)}`);
@@ -952,9 +1081,19 @@ async function serve(paths) {
       finish(paths, { state: 'down', reason: `round threw: ${err.message}` });
     }
     try {
+      await recordLimits(paths);
+    } catch (err) {
+      log(paths, `limits: ${err.message}`);
+    }
+    try {
       syncFront(paths);
     } catch (err) {
       log(paths, `front: ${err.message}`);
+    }
+    try {
+      syncPriority(paths);
+    } catch (err) {
+      log(paths, `priority: ${err.message}`);
     }
     // The checkout's copy of this file moved with main: start the new one at once (selfRestart), else exit and let
     // systemd (Restart=always) start it.
@@ -967,7 +1106,7 @@ async function serve(paths) {
       process.exit(0);
     }
     // A move asked for on demand (`beta-host.mjs move`) starts the next round within 15 seconds.
-    for (const until = Date.now() + everyMin * 60_000; Date.now() < until && !fs.existsSync(paths.moveNow);)
+    for (const until = Date.now() + everyMin * 60_000; Date.now() < until && !fs.existsSync(paths.moveNow) && !fs.existsSync(paths.backTo);)
       await new Promise((r) => setTimeout(r, 15_000));
   }
 }
@@ -988,6 +1127,29 @@ export function selfRestart({
   return systemctl('restart', '--no-block', BETA_SERVICE).status === 0 ? 'restart' : 'exit';
 }
 
+/**
+ * The beta runs ahead of builders on the shared box (#11062). Every unit of the beta (supervisor and stack, front,
+ * tunnel) sits in the user manager's app.slice beside T3's agents (app-t3code.slice, weight 10) and other user services
+ * (systemd's default 100): 1000 gives testers' desks the CPU and disk first when a builder runs a full suite. No Nice
+ * or OOMScoreAdjust: a user manager may refuse those at exec time, and the beta would not start.
+ */
+export const BETA_PRIORITY = Object.freeze({ CPUWeight: '1000', IOWeight: '1000' });
+const PRIORITY_LINES = Object.entries(BETA_PRIORITY)
+  .map(([k, v]) => `${k}=${v}\n`)
+  .join('');
+/**
+ * The memory the beta's stack (2.4 GB on 27 Nov) keeps when the box reclaims: builders' memory goes first. It holds
+ * within the protection the box grants its user slice (a root setting outside this repo), shared with T3's own.
+ */
+const BETA_MEMORY_LOW = '2G';
+
+/** The drop-in that gives the hand-installed tunnel unit the beta's weights. */
+export function tunnelDropInText() {
+  return `# Written by intafaced tooling/beta/beta-host.mjs (#11062): the beta's public door runs ahead of builders.
+[Service]
+${PRIORITY_LINES}`;
+}
+
 /** The systemd user service that keeps `serve` running. KillMode=process: a restart of the supervisor leaves the stack up. */
 export function unitText(paths) {
   return `[Unit]
@@ -1001,6 +1163,7 @@ ExecStart=/bin/bash -lc 'exec node tooling/beta/beta-host.mjs serve'
 Restart=always
 RestartSec=60
 KillMode=process
+${PRIORITY_LINES}MemoryLow=${BETA_MEMORY_LOW}
 
 [Install]
 WantedBy=default.target
@@ -1024,7 +1187,7 @@ WorkingDirectory=${paths.checkout}
 ExecStart=/bin/bash -lc 'exec node tooling/beta/beta-front.mjs'
 Restart=always
 RestartSec=5
-
+${PRIORITY_LINES}
 [Install]
 WantedBy=default.target
 `;
@@ -1060,6 +1223,36 @@ export function syncFront(paths, systemctl = (...args) => spawnSync('systemctl',
   return action;
 }
 
+/**
+ * Keeps the beta's own unit and the tunnel's drop-in as this checkout writes them, so a box installed earlier takes the
+ * weights with the next move to main. A reload applies them to the running units; nothing restarts. Only what is
+ * installed is touched: no beta unit, no tunnel unit, nothing written. Returns the files it wrote.
+ */
+export function syncPriority(paths, systemctl = (...args) => spawnSync('systemctl', ['--user', ...args], { encoding: 'utf8' })) {
+  const read = (file) => {
+    try {
+      return fs.readFileSync(file, 'utf8');
+    } catch {
+      return null;
+    }
+  };
+  const wanted = [];
+  if (read(paths.unit) != null) wanted.push([paths.unit, unitText(paths)]);
+  if (read(paths.tunnelUnit) != null) wanted.push([paths.tunnelDropIn, tunnelDropInText()]);
+  const written = [];
+  for (const [file, text] of wanted) {
+    if (read(file) === text) continue;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+    written.push(file);
+  }
+  if (written.length) {
+    const r = systemctl('daemon-reload');
+    log(paths, `priority: wrote ${written.join(', ')}${r.status === 0 ? '' : `; daemon-reload exited ${r.status}`}`);
+  }
+  return written;
+}
+
 async function main(argv) {
   const [cmd, ...rest] = argv;
   const paths = betaPaths();
@@ -1082,12 +1275,41 @@ async function main(argv) {
   }
   if (cmd === 'status') {
     const s = readJson(paths.status);
+    // Each outside limit, read now rather than at the last round (#11063).
+    const limits = await readLimits(limitPaths(paths), { spotFree: liveDeps().spotFree, walletProvider: BETA_WALLET_PROVIDER });
+    console.log(`${limitsLine(limits)}\n${limitsReport(limits)}`);
     console.log(s ? `${statusLine(s)}\n${JSON.stringify(s, null, 2)}` : `no round yet (${paths.status})`);
     return;
+  }
+  if (cmd === 'testers') {
+    // Where each invited tester is, from the beta stack's own records (beta-testers.mjs), as this stack's env names it.
+    const r = spawnSync(process.execPath, [path.join(HERE, 'beta-testers.mjs'), '--root', paths.root, ...rest], {
+      env: stackEnv(paths),
+      stdio: 'inherit',
+    });
+    process.exit(r.status ?? 1);
   }
   if (cmd === 'move') {
     askMove(paths);
     console.log(`asked: the supervisor moves the beta to main within 15 seconds (${paths.moveNow}); status: beta-host.mjs status`);
+    return;
+  }
+  if (cmd === 'back') {
+    const s = readJson(paths.status, {}) ?? {};
+    const current = s.sha ?? git(paths.checkout, 'rev-parse', 'HEAD').stdout.trim();
+    if (!current) throw new Error(`no commit served yet (${paths.status})`);
+    const want = rest[0] ?? `${current}^`;
+    if (want.startsWith('-')) throw new Error(`${want} is not a commit: name a commit, not an option`);
+    const r = git(paths.checkout, 'rev-parse', '--verify', '--quiet', `${want}^{commit}`);
+    const sha = r.stdout.trim();
+    if (r.status !== 0 || !sha) throw new Error(`${want} is not a commit in the beta checkout (${paths.checkout})`);
+    if (sha === current) throw new Error(`the beta already serves ${sha.slice(0, 9)}`);
+    if (git(paths.checkout, 'merge-base', '--is-ancestor', sha, 'origin/main').status !== 0)
+      throw new Error(`${sha.slice(0, 9)} is not on main: the beta goes back only to a commit main has had`);
+    askBack(paths, { sha, bad: current });
+    console.log(
+      `asked: the supervisor moves the beta back to ${sha.slice(0, 9)} within 15 seconds and holds it until main moves past its current commit (${paths.backTo}); status: beta-host.mjs status`,
+    );
     return;
   }
   if (cmd === 'stop') process.exit(await stopStack(paths));
@@ -1101,6 +1323,10 @@ async function main(argv) {
       throw new Error(`the beta checkout (${paths.checkout}) has no tooling/beta/beta-host.mjs: install once it is on main`);
     fs.mkdirSync(path.dirname(paths.unit), { recursive: true });
     fs.writeFileSync(paths.unit, unitText(paths));
+    if (fs.existsSync(paths.tunnelUnit)) {
+      fs.mkdirSync(path.dirname(paths.tunnelDropIn), { recursive: true });
+      fs.writeFileSync(paths.tunnelDropIn, tunnelDropInText());
+    }
     for (const args of [['daemon-reload'], ['enable', '--now', 'intafaced-beta.service']]) {
       const r = spawnSync('systemctl', ['--user', ...args], { stdio: 'inherit' });
       if (r.status !== 0) process.exit(r.status ?? 1);
@@ -1109,7 +1335,7 @@ async function main(argv) {
     return;
   }
   console.error(
-    'usage: beta-host.mjs serve | round | move | check [--state <dir>] [--hosted <beta-host>] | status | stop | install | invited-test [--watch]',
+    'usage: beta-host.mjs serve | round | move | back [<sha>] | check [--state <dir>] [--hosted <beta-host>] | status | testers [--json] | stop | install | invited-test [--watch]',
   );
   process.exit(2);
 }

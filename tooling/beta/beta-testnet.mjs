@@ -3,7 +3,8 @@
  * invited pass, beta-invited.mjs, calls `testnetStep` on every pass; docs/runbooks/beta-link.md).
  *
  * An invited account (beta-invited.mjs invitedOwner) that holds Full and has made its own embedded wallet (svc-protocol's
- * `protocol.embeddedWallet.status` record, read as that person) gets TESTNET_GRANT sent to that wallet's address by the
+ * `protocol.embeddedWallet.status` record, read as that person), or connected its own browser wallet on /wallet/venue
+ * (testnetAddress), gets TESTNET_GRANT sent to that wallet's address by the
  * dispatch-only workflow `hl-testnet-send.yml` on main, the only place the platform's funded testnet key is used
  * (project-state decision PR #3883); the box only dispatches it with `gh` and never holds that key. At most
  * MAX_FUNDED_PER_PERSON accounts per person, as the ledger grant; the daily check's own fresh accounts (judgeAccount) are
@@ -80,6 +81,19 @@ export function judgeLive(email, now = Date.now()) {
   if (!m) return false;
   const started = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
   return now - started <= JUDGE_LIVE_MS && started - now <= JUDGE_LIVE_MS;
+}
+
+/**
+ * The address a tester's testnet grant goes to (#11067): their embedded wallet's, else their own browser wallet's, the
+ * newest connection they signed for on /wallet/venue (svc-protocol's `protocol.venueWallet.status`) that is still live.
+ * A browser wallet is only known to the platform through that signed connection; an expired one, or one the wallet
+ * sanctions list blocks, is never sent to. Null when there is neither: the next pass reads it again.
+ */
+export function testnetAddress({ embedded, connections }) {
+  if (embedded) return embedded;
+  const live = (connections ?? []).filter((c) => c?.status === 'live' && c.address);
+  live.sort((a, b) => String(b.connectedAt).localeCompare(String(a.connectedAt)));
+  return live[0]?.address ?? null;
 }
 
 /** The business key of one account's one testnet send. */

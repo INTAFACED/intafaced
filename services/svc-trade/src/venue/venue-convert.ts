@@ -45,6 +45,7 @@ import {
   type UserVenueDoorCode,
 } from './user-venue-door.js';
 import type { ListedVenueMarket } from './venue-listing.js';
+import { agentSignerOf, orderSigner } from './request-signer.js';
 
 export type ConvertSide = 'buy' | 'sell';
 
@@ -335,6 +336,12 @@ export interface ConvertAsk {
   readonly quoteKey: string;
 }
 
+/**
+ * Who signs a conversion's one venue order: the owner's wallet when absent, or the trading session's key on a venue whose
+ * trades only a session key signs (request-signer.ts).
+ */
+export type ConvertSigner = { readonly role: 'owner' | 'agent'; readonly address: string };
+
 export interface LimitConvertAsk {
   readonly owner: string;
   readonly from: string;
@@ -343,6 +350,7 @@ export interface LimitConvertAsk {
   /** The target rate: 1 base in the quote asset. */
   readonly price: Amount;
   readonly limitKey: string;
+  readonly signer?: ConvertSigner;
 }
 
 export type ConversionState = 'filled' | 'partially_filled' | 'resting' | 'not_filled' | 'rejected' | 'unknown';
@@ -611,9 +619,10 @@ export class VenueConverts {
   async accept(
     door: UserVenueDoor,
     principal: Principal,
-    ask: { owner: string; quoteId: string },
+    ask: { owner: string; quoteId: string; signer?: ConvertSigner },
   ): Promise<PreparedAnswer & { cashLeg?: BankCashLeg }> {
     this.assertOpen();
+    const agent = agentSignerOf(ask.signer, bad);
     const q = await this.quoteOf(principal, ask.quoteId);
     const owner = (await door.account(ask.owner)).owner;
     if (owner !== q.owner) refuse('no such quote for this venue account', 'trade.convert_quote_unknown', 404);
@@ -626,7 +635,7 @@ export class VenueConverts {
         principal,
         {
           owner,
-          signer: { role: 'owner', address: owner },
+          signer: orderSigner(agent, owner),
           intent: orderOf({ symbol: q.market, side: q.side, amount: q.size, price: q.limitPrice, timeInForce: 'IOC', clientOrderKey: key }),
         },
         { convert: true },
@@ -637,7 +646,7 @@ export class VenueConverts {
       principal,
       {
         owner,
-        signer: { role: 'owner', address: owner },
+        signer: orderSigner(agent, owner),
         intent: orderOf({ symbol: q.market, side: q.side, amount: q.size, price: q.limitPrice, timeInForce: 'IOC', clientOrderKey: key }),
       },
       { convert: true },
@@ -651,6 +660,7 @@ export class VenueConverts {
       bad('limitKey must be 8 to 80 letters, digits, "_" or "-", made once per limit convert and reused on a retry');
     if (typeof ask.amount !== 'bigint' || ask.amount <= 0n) bad('amount must be a positive decimal string');
     if (typeof ask.price !== 'bigint' || ask.price <= 0n) bad('price must be the positive target rate as a decimal string');
+    const agent = agentSignerOf(ask.signer, bad);
     const owner = (await door.account(ask.owner)).owner;
     const { market, side, cash } = await this.route(door, ask.from, ask.to);
     if (cash)
@@ -670,7 +680,7 @@ export class VenueConverts {
       principal,
       {
         owner,
-        signer: { role: 'owner', address: owner },
+        signer: orderSigner(agent, owner),
         intent: orderOf({
           symbol: market.symbol,
           side,

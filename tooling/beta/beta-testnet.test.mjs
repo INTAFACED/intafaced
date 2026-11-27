@@ -18,6 +18,7 @@ import {
   JUDGE_LIVE_MS,
   testnetCandidates,
   testnetKey,
+  testnetAddress,
   testnetStep,
   units,
 } from './beta-testnet.mjs';
@@ -326,4 +327,39 @@ test("a judge account whose walk has ended is never sent: the walk's passkey is 
     ['new', 'demo'],
     'the ended walk is skipped; a live walk and an ordinary account of the invite are not',
   );
+});
+
+test("a tester's own browser wallet, connected and signed for, is the address sent to when they made no embedded wallet (#11067)", () => {
+  const live = (address, connectedAt, status = 'live') => ({
+    address,
+    chainId: 421614,
+    connectedAt,
+    expiresAt: '2026-12-27T00:00:00.000Z',
+    status,
+    holdsKey: false,
+  });
+  // The app's own wallet wins: it is the one Money and the desk offer first.
+  assert.equal(testnetAddress({ embedded: addr(1), connections: [live(addr(2), '2026-11-27T09:00:00.000Z')] }), addr(1));
+  // No embedded wallet: the newest live connection the person signed for on /wallet/venue.
+  assert.equal(
+    testnetAddress({
+      embedded: null,
+      connections: [
+        live(addr(2), '2026-11-27T08:00:00.000Z'),
+        live(addr(3), '2026-11-27T09:00:00.000Z'),
+        live(addr(4), '2026-11-27T10:00:00.000Z', 'expired'),
+      ],
+    }),
+    addr(3),
+  );
+  // An expired or blocked (sanctions) connection is never sent to; with none live there is no address yet.
+  assert.equal(
+    testnetAddress({
+      embedded: null,
+      connections: [live(addr(4), '2026-11-27T10:00:00.000Z', 'expired'), live(addr(5), '2026-11-27T10:00:00.000Z', 'blocked')],
+    }),
+    null,
+  );
+  assert.equal(testnetAddress({ embedded: null, connections: [] }), null);
+  assert.equal(testnetAddress({ embedded: null, connections: undefined }), null);
 });

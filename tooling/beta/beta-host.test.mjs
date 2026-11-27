@@ -13,9 +13,14 @@ import {
   BETA_LINK,
   BETA_OWN_HOSTS,
   BETA_SLOT,
+  BETA_WALLET_PROVIDER,
+  invitesRefused,
+  serveMailbox,
+  statusLine,
   MAILBOX_PORT,
   anvilLauncher,
   betaPaths,
+  recordLimits,
   decide,
   ensureAnvil,
   environEntries,
@@ -593,4 +598,83 @@ test("passkeys and wallet messages work on the beta's public name: svc-identity'
   }
   for (const bad of ['http://beta.intafaced.com', 'https://beta.intafaced.com/', 'https://beta.intafaced.com/app', 'beta.intafaced.com'])
     assert.throws(() => publicOrigin({ LOCAL_STACK_PUBLIC_ORIGIN: bad }), /LOCAL_STACK_PUBLIC_ORIGIN must be one https origin/, bad);
+});
+
+test('recordLimits keeps the four outside limits in status.json and says a new warning once in round.log (#11063)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-limits-host-'));
+  const paths = betaPaths(root);
+  fs.mkdirSync(path.join(paths.state, 'logs'), { recursive: true });
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: 'abc', at: '2026-11-27T09:00:00.000Z' }));
+  fs.writeFileSync(paths.testnet, JSON.stringify({ funder: '0x47e03ee499ba8efff97d8e6459ae2c64e8b28dc6', accounts: {} }));
+  const deps = { spotFree: async () => '68', seatLimit: '' };
+  const limits = await recordLimits(paths, deps);
+  assert.deepEqual(
+    limits.map((l) => l.name),
+    ['wallet-provider', 'funder', 'venue-weight', 'login-seats'],
+  );
+  const s = JSON.parse(fs.readFileSync(paths.status, 'utf8'));
+  assert.equal(s.state, 'up', "the round's own fields stay");
+  assert.equal(s.at, '2026-11-27T09:00:00.000Z');
+  assert.deepEqual(s.limits, limits);
+  // On the TEST wallet provider (BETA_WALLET_PROVIDER, #11092) the provider's limit is ok: no outside signature is spent.
+  assert.match(s.limitsLine, /^limits: warn \(funder\); unread \(venue-weight, login-seats\); ok \(wallet-provider\)$/);
+  await recordLimits(paths, deps);
+  const warned = fs
+    .readFileSync(paths.log, 'utf8')
+    .split('\n')
+    .filter((l) => l.includes('limit: warn'));
+  assert.equal(warned.length, 1, 'the same warning is said once');
+  assert.match(warned[0], /covers 2 testers/);
+});
+
+// #11092: the beta's own runs used the wallet provider's free signatures up. Until testers are invited, its new wallets
+// are made at the labelled TEST provider, status names which provider is on, and a new invitee is refused meanwhile.
+test('until testers are invited the beta makes new wallets at the TEST provider, one setting the stack and status read (#11092)', () => {
+  assert.equal(BETA_WALLET_PROVIDER, 'test');
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET, BETA_WALLET_PROVIDER);
+  assert.equal(
+    stackEnv(betaPaths('/home/x'), { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'turnkey' }).LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET,
+    'test',
+  );
+  const sha = 'a'.repeat(40);
+  assert.match(statusLine({ state: 'up', sha, walletProvider: 'test' }), /new wallets at the TEST provider; invites refused/);
+  assert.match(statusLine({ state: 'up', sha, walletProvider: 'turnkey' }), /new wallets at the owner's wallet provider/);
+  assert.doesNotMatch(statusLine({ state: 'up', sha, walletProvider: 'turnkey' }), /invites refused/);
+  assert.match(invitesRefused('test'), /TEST wallet provider/);
+  assert.equal(invitesRefused('turnkey'), null);
+});
+
+test('while the TEST provider is on, a new invitee is refused at the mailbox and never recorded; one already invited is served (#11092)', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-invite-'));
+  const paths = betaPaths(home);
+  fs.mkdirSync(path.dirname(paths.invited), { recursive: true });
+  const known = 'zen-yoda-0123456789';
+  const fresh = 'new-tester-abcdef0123';
+  fs.writeFileSync(paths.invited, JSON.stringify({ tokens: { [known]: new Date().toISOString() } }));
+  const open = (server) => new Promise((r) => server.on('listening', () => r(server.address().port)));
+  const view = (port, token) => fetch(`http://127.0.0.1:${port}/`, { headers: { 'x-beta-viewer': token } });
+  const closed = serveMailbox(paths, 0);
+  try {
+    const port = await open(closed);
+    const refused = await view(port, fresh);
+    assert.equal(refused.status, 403);
+    assert.match(await refused.text(), /not open to new testers yet/);
+    assert.ok(!Object.hasOwn(JSON.parse(fs.readFileSync(paths.invited, 'utf8')).tokens, fresh), 'a refused invitee is never recorded');
+    const served = await view(port, known);
+    assert.equal(served.status, 200, "one already invited (the agents' walk) keeps its mailbox");
+    assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 200, "the box's own loopback reads every row");
+  } finally {
+    closed.close();
+  }
+  const opened = serveMailbox(paths, 0, { walletProvider: 'turnkey' });
+  try {
+    const port = await open(opened);
+    assert.equal((await view(port, fresh)).status, 200);
+    assert.ok(
+      Object.hasOwn(JSON.parse(fs.readFileSync(paths.invited, 'utf8')).tokens, fresh),
+      'on the real provider the invitee is recorded',
+    );
+  } finally {
+    opened.close();
+  }
 });

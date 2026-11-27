@@ -1,4 +1,4 @@
-import { useCallback, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useRef, type ReactNode } from 'react';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
@@ -230,18 +230,37 @@ export const SESSION_NEEDED = 'trade.venue_session_needed';
 export const SESSION_KEY_GONE = 'trade.venue_session_key_gone';
 
 /**
+ * The desk's trading session (VenueSession.tsx `useDeskSession`), for an action the desk prepares outside
+ * `useVenueActions`: a position's exit order (VenueProtect.tsx `useSignPrepared`). Null where no desk provides one, and
+ * the owner's wallet signs.
+ */
+export const DeskSigningContext = createContext<SessionSigning | null>(null);
+export const useDeskSigning = () => useContext(DeskSigningContext);
+
+export type ExitSigner = { signer: DeskSigner };
+/** Who signs an exit order (an order, so `place_order`'s signer): the desk's live session key where trades need one. */
+export function useExitSignerChoice(owner: string): () => ExitSigner | { needs: 'session' } {
+  const signing = useDeskSigning();
+  return useCallback(() => chooseSigner('place_order', owner, signing), [owner, signing]);
+}
+
+/**
  * Prepare → the wallet signs → submit, once per business key. A second call with a key still in flight is the same call
  * (a double press asks for one signature); a key the door already holds comes back with its stored action, so a signed
  * one is never signed again: its first definite answer stands, and one with no definite answer is read back.
  *
- * With `session` (a venue whose trades a trading session's key signs, session-signer.ts), an order, cancel, change or
+ * With a session (given, or the desk's DeskSigningContext: a venue whose trades a trading session's key signs,
+ * session-signer.ts), an order, cancel, change or
  * leverage is prepared for the live session key and signed by it here, with no wallet prompt; approvals and every move of
  * funds stay the owner wallet's. Without a live key on such a venue, nothing is prepared: the desk offers the session.
  */
-export function useVenueActions(owner: string | null, session: SessionSigning | null = null) {
+export function useVenueActions(owner: string | null, given?: SessionSigning | null) {
   const venue = useVenueApi();
   const wallet = useWallet();
   const { t } = venueCopy.useCopy();
+  // Not given: the session of the desk this room sits in (DeskSigningContext), none outside one.
+  const fromDesk = useDeskSigning();
+  const session = given === undefined ? fromDesk : given;
   // The session as of the press, read when the action runs (a session started after this render signs the next press).
   const sessionNow = useRef(session);
   sessionNow.current = session;

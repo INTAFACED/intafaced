@@ -246,6 +246,42 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     expect(listed.venueOrderId).toMatch(/^sim-/);
   });
 
+  it("on a venue whose trades a session key signs, a stop loss and a take profit are prepared for the person's session key, which signs them with no wallet prompt", async () => {
+    await flat();
+    await long('1');
+    // The person's trading session key, approved on the venue by their wallet (as session-key.ts starts one).
+    const session = privateKeyToAccount(keccak256(toHex(`intafaced TEST protections session ${id('k')}`)));
+    const agent = session.address.toLowerCase();
+    const approve = await door.prepare(person, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_agent', agentAddress: agent, agentName: 'desk', validUntil: null },
+      actionKey: `agent-approve:${USER}:${id('a')}`,
+    });
+    expect((await send(approve)).outcome).toMatchObject({ accepted: true });
+    for (const [kind, triggerPrice] of [
+      ['stop_loss', '2900'],
+      ['take_profit', '3100'],
+    ] as const) {
+      const made = await p.create(person, base({ kind, triggerPrice, signer: { role: 'agent', address: agent } }), REGION);
+      if (made.restsOn !== 'venue') throw new Error(`${kind} rests on the venue`);
+      expect(made.prepared.signer).toEqual({ role: 'agent', address: agent });
+      const t = made.prepared.typedData as TestVenueTypedData;
+      const signature = await session.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+      const sent = await door.submit(person, made.actionKey, { digest: made.prepared.digest, signature, signedBy: agent });
+      expect(sent.outcome).toMatchObject({ accepted: true, order: { status: 'open' } });
+    }
+    // The wallet's own signer stays the default, and a signer that is neither is refused before anything is prepared.
+    const plain = await p.create(person, base({ kind: 'stop_loss', triggerPrice: '2800', quantity: '0.5' }), REGION);
+    if (plain.restsOn !== 'venue') throw new Error('stop loss rests on the venue');
+    expect(plain.prepared.signer).toEqual({ role: 'owner', address: owner });
+    expect(
+      await refused(
+        p.create(person, base({ kind: 'stop_loss', triggerPrice: '2800', signer: { role: 'builder', address: agent } }), REGION),
+      ),
+    ).toMatchObject({ code: 'trade.protection_request_invalid' });
+  });
+
   it('refuses a take profit on the wrong side of the mark in words, a field a kind does not take, an exit that would enlarge, and more than the position', async () => {
     await flat();
     await long('1');

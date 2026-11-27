@@ -33,7 +33,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { liveDeps, readTestnet, testnetCandidates, testnetStep } from './beta-testnet.mjs';
+import { liveDeps, readTestnet, testnetAddress, testnetCandidates, testnetStep } from './beta-testnet.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 
@@ -213,15 +213,16 @@ async function pass({ root, checkout }) {
 }
 
 /**
- * TEST USDC on the testnet to an invited, Full account's own embedded wallet, once (beta-testnet.mjs). The wallet's
- * address is read through svc-protocol's `protocol.embeddedWallet.status` record, as that person on their live session.
+ * TEST USDC on the testnet to an invited, Full account's own wallet, once (beta-testnet.mjs): its embedded wallet, read
+ * through svc-protocol's `protocol.embeddedWallet.status` record, else its own browser wallet connected on /wallet/venue
+ * (`protocol.venueWallet.status`, testnetAddress), each read as that person on their live session.
  */
 async function sendOnTestnet({ gates, secrets, tokens, files, checkout }) {
   const { users, approved } = gates.listAccountsAndTiers(secrets);
   const candidates = testnetCandidates({ users, approved, tokens, accounts: readTestnet(files.testnet).accounts });
   const inFlight = Object.values(readTestnet(files.testnet).accounts).some((r) => r.state !== 'sent');
   if (candidates.length === 0 && !inFlight) return;
-  const { PROTOCOL_EMBEDDED_WALLET_STATUS } = await import(
+  const { PROTOCOL_EMBEDDED_WALLET_STATUS, PROTOCOL_VENUE_WALLET_STATUS } = await import(
     pathToFileURL(path.join(checkout, 'packages', 'contracts', 'dist', 'protocol-wallet-procedures.js')).href
   );
   const sessions = gates.liveSessions(
@@ -234,7 +235,11 @@ async function sendOnTestnet({ gates, secrets, tokens, files, checkout }) {
     if (!sessionId) return null; // not signed in: the next pass reads it
     ctx ??= await gates.makeContext({ log: () => {} });
     const token = await gates.personToken(ctx, { userId, sessionId }, 60, gates.PERSON_PROTOCOL_READ_SCOPES);
-    return (await ctx.edge.record(PROTOCOL_EMBEDDED_WALLET_STATUS, undefined, token)).data?.wallet?.address ?? null;
+    const embedded = (await ctx.edge.record(PROTOCOL_EMBEDDED_WALLET_STATUS, undefined, token)).data?.wallet?.address ?? null;
+    if (embedded) return embedded;
+    // No embedded wallet: the tester's own browser wallet, once they connected it on /wallet/venue (#11067).
+    const connections = (await ctx.edge.record(PROTOCOL_VENUE_WALLET_STATUS, undefined, token)).data?.connections;
+    return testnetAddress({ embedded, connections });
   };
   try {
     await testnetStep({ file: files.testnet, candidates, deps: { ...liveDeps(), walletOf }, log: (l) => console.log(l) });

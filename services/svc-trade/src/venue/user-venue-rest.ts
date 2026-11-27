@@ -101,7 +101,7 @@ import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './u
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
 import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
-import { presentConversion, presentConvertQuote, presentPairs, type VenueConverts } from './venue-convert.js';
+import { presentConversion, presentConvertQuote, presentPairs, type ConvertSigner, type VenueConverts } from './venue-convert.js';
 import { StatementError } from '../statements/statement-export.js';
 import type { VenueStatements } from './venue-statements.js';
 import type { VenueAdlAcks } from './venue-adl-acks.js';
@@ -1212,17 +1212,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (d) => {
-      const b = body<{ owner?: string; quoteId?: string }>(req);
+      const b = body<{ owner?: string; quoteId?: string; signer?: ConvertSigner }>(req);
       return converts()
         .forPerson(forwardedOf(req))
-        .accept(d, principal, { owner: b.owner ?? '', quoteId: b.quoteId ?? '' });
+        .accept(d, principal, { owner: b.owner ?? '', quoteId: b.quoteId ?? '', signer: b.signer });
     });
   });
   app.post('/api/v1/venue/convert/limit', privateWrite, async (req, reply) => {
     const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (d) => {
-      const b = body<{ owner?: string; from?: string; to?: string; amount?: bigint; price?: bigint; limitKey?: string }>(req);
+      const b = body<{
+        owner?: string;
+        from?: string;
+        to?: string;
+        amount?: bigint;
+        price?: bigint;
+        limitKey?: string;
+        signer?: ConvertSigner;
+      }>(req);
       return converts().limit(d, principal, {
         owner: b.owner ?? '',
         from: b.from ?? '',
@@ -1230,6 +1238,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         amount: b.amount ?? 0n,
         price: b.price ?? 0n,
         limitKey: b.limitKey ?? '',
+        signer: b.signer,
       });
     });
   });

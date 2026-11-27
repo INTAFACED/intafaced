@@ -24,6 +24,7 @@ import {
   UserVenueDoorError,
   type VenueOrderByKey,
 } from './user-venue-door.js';
+import { agentSignerOf, orderSigner } from './request-signer.js';
 
 /**
  * A POSITION'S PROTECTIONS ON THE PERSON'S OWN VENUE ACCOUNT (J-derivatives-03; D-orders-04, D-orders-05).
@@ -96,6 +97,12 @@ export interface ProtectionRequest {
   readonly clientOrderId?: unknown;
   /** The entry order's own client order key (`clientOrderKey`), for a protection attached to it. */
   readonly attachTo?: unknown;
+  /**
+   * Who signs a trigger order that rests on the venue: the owner's wallet (the default), or the person's trading session
+   * key on a venue whose trades only a session key signs (status `tradesSignedBy: session_key`: Hyperliquid's orders name
+   * chain 1337, which a wallet refuses). The door checks an agent is this sign-in's live session key.
+   */
+  readonly signer?: unknown;
 }
 
 export interface ProtectionView {
@@ -262,6 +269,7 @@ export class VenueProtections {
     const trailingDistance = FIELDS[kind].includes('trailingDistance') ? positive(req.trailingDistance, 'trailingDistance') : null;
     const attachTo = typeof req.attachTo === 'string' && req.attachTo !== '' ? req.attachTo : null;
     if (attachTo && kind !== 'take_profit' && kind !== 'stop_loss') bad('only a take profit or a stop loss is attached to an entry order');
+    const agentSigner = agentSignerOf(req.signer, bad);
 
     const account = await this.deps.door.account(typeof req.owner === 'string' ? req.owner : '');
     const venue = await this.deps.door.venue();
@@ -338,7 +346,7 @@ export class VenueProtections {
       };
       const answer = await this.deps.door.prepare(principal, {
         owner: account.owner,
-        signer: { role: 'owner', address: account.owner },
+        signer: orderSigner(agentSigner, account.owner),
         intent,
       });
       return { restsOn: 'venue', actionKey: answer.actionKey, prepared: answer.prepared, reused: answer.reused };
