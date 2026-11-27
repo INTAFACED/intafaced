@@ -143,6 +143,11 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   Size: 'Size ({asset})',
   Price: 'Price',
   'Worst price': 'Worst price (slippage limit)',
+  'Worst price wrong side buy':
+    'A market buy’s worst price, {price} {quote}, is below the best ask of {best} {quote}, so it cannot fill. Raise it, or use a limit order. Nothing was sent.',
+  'Worst price wrong side sell':
+    'A market sell’s worst price, {price} {quote}, is above the best bid of {best} {quote}, so it cannot fill. Lower it, or use a limit order. Nothing was sent.',
+  'Worst price value': '{price} {quote}',
   'Margin asset': 'Margin asset',
   'Label optional': 'Label (optional)',
   'Label bad': 'A label is up to 36 letters, digits and . _ : - with no spaces. Nothing was sent.',

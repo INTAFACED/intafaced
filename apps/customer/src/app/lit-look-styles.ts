@@ -10,3 +10,5 @@ import '@intafaced/ui/lit/components.css';
 import '@intafaced/ui/a11y/a11y.css';
 import '@intafaced/ui/lit/templates.css';
 import './volt.css';
+// Home's layout, in the entry so index.html's boot frame draws with it before Home's code arrives (boot-frame.pw.mjs).
+import '../screens/home/command.css';

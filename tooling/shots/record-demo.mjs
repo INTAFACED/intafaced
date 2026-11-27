@@ -6,7 +6,7 @@
  * asks for Full verification (the beta approves an invited tester), walks the key rooms signed out and signed in, and
  * keeps every market read the rooms make (`GET /api/v1/...`) with its answer. Nothing about the tester is kept: identity,
  * bank and every other module's calls are never recorded, and the tester's address, handle and email are replaced in
- * what is.
+ * what is. The tester's user id becomes the look gate's TEST account's, so a kept read is that person's, as the rooms check.
  *
  *   pnpm shots:record   (node tooling/shots/record-demo.mjs [--out tooling/shots/recording]
  *
@@ -24,6 +24,8 @@ import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { owner as TEST_OWNER } from '../../apps/customer/src/screens/account/account.fixtures.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const BETA = join(homedir(), '.intafaced', 'beta');
@@ -152,6 +154,14 @@ async function main() {
   page.setDefaultTimeout(20_000);
   page.on('response', async (r) => {
     const u = new URL(r.url());
+    // Who signed in: the session read is never kept, but its user id is replaced wherever a kept read names it.
+    if (u.pathname.endsWith('/identity/trpc/auth.refresh')) {
+      const id = await r
+        .json()
+        .then((j) => j?.result?.data?.userId)
+        .catch(() => null);
+      if (typeof id === 'string' && id) who.userId = id;
+    }
     if (r.request().method() !== 'GET') return;
     const trpc = phase === 'signedIn' && KEPT_TRPC.test(u.pathname) && !NEVER_TRPC.test(u.pathname);
     if (!KEPT.test(u.pathname) && !trpc) return;
@@ -297,6 +307,7 @@ async function main() {
   for (const [name, body] of Object.entries(files)) {
     let text = JSON.stringify(body);
     for (const h of hidden) text = text.split(h).join('demo-tester');
+    if (who.userId) text = text.split(who.userId).join(TEST_OWNER);
     writeFileSync(join(OUT, name), text + '\n');
   }
   execFileSync('pnpm', ['exec', 'prettier', '--write', OUT], { cwd: ROOT, stdio: 'ignore' }); // the format check's own layout

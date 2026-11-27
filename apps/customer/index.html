@@ -24,7 +24,8 @@
       /*
        * Home's frame, shown while the app's code downloads, only where the boot script (src/app/boot.ts) marks the page
        * as Simple Home. It holds no figures and no words but the wordmark, and puts each block where Volt's Home draws
-       * its loading state: the room is drawn with the kit's own overview classes, so the hand-over moves nothing. The
+       * its loading state: the page is drawn with the kit's page grid and Home's own classes (screens/home/command.css,
+       * in the entry stylesheet), so the hand-over moves nothing. The
        * script takes the mark off once Home's root is in the page. Sizes are the kit's tokens and classes (the entry
        * stylesheet, render-blocking, so they are set before this paints) or rem; the app's root size is 14 pixels, so
        * a rem here is 14 pixels.
@@ -62,30 +63,13 @@
       #boot-frame * {
         box-sizing: border-box;
       }
-      /* the page frame every room drawn on the kit has (app/volt.css): the gutter each side, the content width, centred */
-      #boot-frame > .lt-room {
-        inline-size: 100%;
-        max-inline-size: var(--if-container-max);
-        margin-inline: auto;
-        padding-inline: var(--if-gutter);
-        padding-block-start: 1.5rem;
-      }
-      /* the room, its regions and its loading placeholders are the kit's own classes (lt-room, lt-region, lt-ghost,
-         lit-stack, from the entry stylesheet), so each block sits where Home's loading state puts it; only what
+      /* the page, its panels and its loading placeholders are the kit's and Home's own classes (lt-page, lit-surface,
+         hm-*, lt-ghost, from the entry stylesheet), so each block sits where Home's loading state puts it; only what
          holds words in Home is drawn here, as a bar the height of its line */
       #boot-frame .bf-line {
         display: block;
         border-radius: var(--lit-radius-tile);
         background: var(--lit-solid-bg-raised);
-      }
-      #boot-frame .bf-title {
-        inline-size: 5.7143rem;
-        block-size: 2.4286rem;
-      }
-      /* the room's one key, Customise */
-      #boot-frame .bf-key {
-        inline-size: 13.0714rem;
-        block-size: 3.4286rem;
       }
       /* the label row: its words beside the 48-pixel keys that hide and explain the total */
       #boot-frame .bf-label {
@@ -97,21 +81,27 @@
         inline-size: 6.9286rem;
         block-size: 1rem;
       }
-      /* the hero keeps the height Home's overview gives it (heroReserve 2: the label row, the figure and two lines) */
-      #boot-frame [data-region='hero'] {
-        --lt-reserve: 2;
-      }
       /* a section head: one line of its title */
       #boot-frame .bf-head {
         inline-size: 6.25rem;
         block-size: 1.5714rem;
       }
-      /* the side column stands beside the main one from the kit's own width (lt-grid-main-side); narrower, it falls
-         below the fold, where the frame draws nothing */
-      @container room (max-width: 73.1418rem) {
-        #boot-frame .lt-col-side {
+      /* a side panel's head: one line of its title (Home's side titles, 1.0625rem on a 1.4 line) */
+      #boot-frame .bf-side-head {
+        inline-size: 6.25rem;
+        block-size: 1.4875rem;
+      }
+      /* one column (under the kit's 64rem): the side panels come after the markets, below the fold, where the frame
+         draws nothing */
+      @container lt-page (max-width: 63.99rem) {
+        #boot-frame .bf-side {
           display: none;
         }
+      }
+      /* the range switch, empty at its drawn size (four short words in pills) */
+      #boot-frame .bf-ranges {
+        inline-size: 11.7143rem;
+        block-size: 2.2857rem;
       }
       #boot-frame .bf-doors {
         display: none;
@@ -160,75 +150,53 @@
   <body>
     <div id="boot-frame" aria-hidden="true">
       <div class="bf-top"><span class="bf-brand"></span></div>
-      <div class="lt-room">
-        <div class="lt-title-row"><span class="bf-line bf-title"></span><span class="bf-line bf-key"></span></div>
-        <div class="lt-body">
-          <div class="lt-grid lt-grid-main-side">
-            <div class="lt-col-main">
-              <div class="lt-region" data-region="hero" data-reserve="">
-                <div class="lt-stack">
-                  <div class="bf-label"><span class="bf-line"></span></div>
-                  <div>
-                    <div class="bf-total">
-                      <div class="lt-ghost" data-ghost="figure" data-busy=""><span class="lt-ghost-item"></span></div>
-                    </div>
-                    <div class="bf-change">
-                      <div class="lt-ghost" data-ghost="text" data-busy=""><span class="lt-ghost-item"></span></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="lt-region" data-region="actions">
-                <div class="bf-keys">
-                  <div class="lt-ghost" data-ghost="keys" data-busy="">
-                    <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span
-                    ><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span>
-                  </div>
-                </div>
-              </div>
-              <div class="lt-region" data-region="needs-you">
-                <div class="lt-stack">
-                  <span class="bf-line bf-head bf-work-head"></span>
-                  <div class="bf-work">
-                    <div class="lt-ghost" data-ghost="rows" data-busy="">
-                      <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="lt-region" data-region="sections">
-                <div class="lt-stack">
-                  <div class="lit-stack" data-loading="">
-                    <span class="lit-stack__card" data-card="back"></span>
-                    <span class="lit-stack__card" data-card="front"><span data-part="skeleton"></span></span>
-                  </div>
-                  <div class="lt-stack">
-                    <span class="bf-line bf-head bf-markets-head"></span>
-                    <div class="bf-cards lt-tiles">
-                      <div class="lt-ghost" data-ghost="grid" data-busy="">
-                        <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span
-                        ><span class="lt-ghost-item"></span>
+      <div class="hm">
+        <div class="lt-page" data-scale="auto">
+          <div class="lt-page-grid" data-layout="split">
+            <div class="lt-page-col hm-main">
+              <div class="lit-surface hm-hero" data-layer="content" data-material="solid">
+                <div class="hm-hero-top">
+                  <div class="hm-hero-figure">
+                    <div class="hm-label bf-label"><span class="bf-line"></span></div>
+                    <div>
+                      <div class="bf-total">
+                        <div class="lt-ghost" data-ghost="figure" data-busy=""><span class="lt-ghost-item"></span></div>
+                      </div>
+                      <div class="bf-change">
+                        <div class="lt-ghost" data-ghost="text" data-busy=""><span class="lt-ghost-item"></span></div>
                       </div>
                     </div>
                   </div>
+                  <div class="lt-segmented bf-ranges"></div>
+                </div>
+                <div class="hm-chart">
+                  <div class="lt-ghost" data-ghost="chart" data-busy=""><span class="lt-ghost-item"></span></div>
+                </div>
+                <div class="bf-keys">
+                  <div class="lt-ghost" data-ghost="keys" data-busy="">
+                    <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span
+                    ><span class="lt-ghost-item"></span>
+                  </div>
                 </div>
               </div>
+              <div class="lit-surface hm-markets" data-layer="content" data-material="solid">
+                <div class="lt-panel-head"><span class="bf-line bf-head bf-markets-head"></span></div>
+              </div>
             </div>
-            <div class="lt-col-side">
-              <div class="lt-region" data-region="watching">
-                <div class="lt-stack bf-side">
-                  <div class="lt-stack">
-                    <div class="lt-ghost" data-ghost="text" data-busy=""><span class="lt-ghost-item"></span></div>
-                    <div class="lt-ghost" data-ghost="rows" data-busy="">
-                      <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span>
-                    </div>
+            <div class="lt-page-col hm-side bf-side">
+              <div class="lit-surface hm-side-panel" data-layer="content" data-material="solid">
+                <div class="lt-stack">
+                  <span class="bf-line bf-side-head"></span>
+                  <div class="lt-ghost" data-ghost="rows" data-busy="">
+                    <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span>
                   </div>
-                  <div class="lt-stack">
-                    <span class="bf-line bf-head"></span>
-                    <div class="lt-ghost" data-ghost="rows" data-busy="">
-                      <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span
-                      ><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span>
-                    </div>
+                </div>
+              </div>
+              <div class="lit-surface hm-side-panel" data-layer="content" data-material="solid">
+                <div class="lt-stack">
+                  <span class="bf-line bf-side-head"></span>
+                  <div class="lt-ghost" data-ghost="rows" data-busy="">
+                    <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span>
                   </div>
                 </div>
               </div>

@@ -165,6 +165,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
           CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
           KEY_DRILL_PR: ${{ vars.CI_REVIEW_KEY_DRILL_PR }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           USAGE_WORK: ${{ github.event.pull_request.head.ref }} ${{ github.event.pull_request.title }}
@@ -175,16 +177,16 @@ jobs:
           # The spare keys, in order (project-state#2180, #3451): kept in unexported variables, so a call sees one key, as
           # before. Only when the key in use is refused or used up (reviewer-error.mjs --key: `other`, never a refusal
           # about the change) is the same call asked once more, on the next spare key that is set. With no spare key set
-          # nothing here changes, and with CLAUDE_CODE_OAUTH_TOKEN_3 unset the second key is the last, as before.
-          spares=("$CLAUDE_CODE_OAUTH_TOKEN_2" "$CLAUDE_CODE_OAUTH_TOKEN_3")
-          names=(second third)
-          unset CLAUDE_CODE_OAUTH_TOKEN_2 CLAUDE_CODE_OAUTH_TOKEN_3
-          any_spare="${spares[0]}${spares[1]}"
+          # nothing here changes, and an unset spare (CLAUDE_CODE_OAUTH_TOKEN_3 to _5) is skipped.
+          spares=("$CLAUDE_CODE_OAUTH_TOKEN_2" "$CLAUDE_CODE_OAUTH_TOKEN_3" "$CLAUDE_CODE_OAUTH_TOKEN_4" "$CLAUDE_CODE_OAUTH_TOKEN_5")
+          names=(second third fourth fifth)
+          unset CLAUDE_CODE_OAUTH_TOKEN_2 CLAUDE_CODE_OAUTH_TOKEN_3 CLAUDE_CODE_OAUTH_TOKEN_4 CLAUDE_CODE_OAUTH_TOKEN_5
+          any_spare="${spares[0]}${spares[1]}${spares[2]}${spares[3]}"
           answered_on=first
           next=0
           other_key() {
-            while [ "$next" -lt 2 ] && [ -z "${spares[$next]}" ]; do next=$((next + 1)); done
-            [ "$next" -lt 2 ] || return 1
+            while [ "$next" -lt 4 ] && [ -z "${spares[$next]}" ]; do next=$((next + 1)); done
+            [ "$next" -lt 4 ] || return 1
             [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" --key)" = other ] || return 1
             line="$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" | sed 's/^::[a-z]*:://')"
             echo "::warning::the $answered_on reviewer key failed, so this call is asked again on CLAUDE_CODE_OAUTH_TOKEN_$((next + 2)): $line"
@@ -367,7 +369,7 @@ jobs:
         run: node tooling/ci/judge-down.mjs back "CI review" issue
 
       # Which key answered, in one place: the "CI review on its second key" project-state issue (judge-down.mjs `key`),
-      # opened when a spare key (the second or the third) answered and closed when the first answers again, so the first
+      # opened when a spare key (the second to the fifth) answered and closed when the first answers again, so the first
       # is renewed before the spares run out too. Its failure can't fail the job. With no spare key set, no `key` output
       # is written and this step never runs.
       - name: Reviewer key
@@ -446,6 +448,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
           CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           USAGE_WORK: ${{ github.event.pull_request.head.ref }} ${{ github.event.pull_request.title }}
         run: |
@@ -453,9 +457,9 @@ jobs:
           # Each call's tokens, answered or not, one line a call, for project-state's cost read: a runner keeps no transcript.
           usage() { jq -c --arg work "$USAGE_WORK" 'select(.type? == "result") | {at: (now | todate), work: $work, speed: .usage.speed, models: .modelUsage}' "$1" >> "$RUNNER_TEMP/claude-usage.jsonl" || true; }
           # The spare keys, as in the Review step: unexported, and each asked only after the key before it is refused or used up.
-          spares=("$CLAUDE_CODE_OAUTH_TOKEN_2" "$CLAUDE_CODE_OAUTH_TOKEN_3")
-          names=(second third)
-          unset CLAUDE_CODE_OAUTH_TOKEN_2 CLAUDE_CODE_OAUTH_TOKEN_3
+          spares=("$CLAUDE_CODE_OAUTH_TOKEN_2" "$CLAUDE_CODE_OAUTH_TOKEN_3" "$CLAUDE_CODE_OAUTH_TOKEN_4" "$CLAUDE_CODE_OAUTH_TOKEN_5")
+          names=(second third fourth fifth)
+          unset CLAUDE_CODE_OAUTH_TOKEN_2 CLAUDE_CODE_OAUTH_TOKEN_3 CLAUDE_CODE_OAUTH_TOKEN_4 CLAUDE_CODE_OAUTH_TOKEN_5
           no() { echo "::warning::no proof read of this head: $1 (it blocks nothing)"; exit 0; }
           # The first read of a head counts: an earlier attempt of this run that read it is never read again.
           had="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=proof-v2-read-$HEAD_SHA" --jq '.total_count')" || no "the artifacts can't be listed"
@@ -497,7 +501,7 @@ jobs:
           read_one() {
             ask "$1" && return 0
             rc=$?
-            for k in 0 1; do
+            for k in 0 1 2 3; do
               [ -n "${spares[$k]}" ] || continue
               [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" --key)" = other ] || return "$rc"
               echo "::warning::a reviewer key failed, so this read is asked again on CLAUDE_CODE_OAUTH_TOKEN_$((k + 2)): $(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" | sed 's/^::[a-z]*:://')"
@@ -524,7 +528,11 @@ jobs:
           done
           [ "$failed" = 0 ] || no "a reader call failed"
           echo "called=true" >> "$GITHUB_OUTPUT"
-          spare="$(cat "$dir/answered-on-key" "$dir/second/answered-on-key" 2> /dev/null | sort -r | head -n 1)" || true
+          # The latest spare key either read answered on, by its place in the order (not by name: "third" sorts after "fifth").
+          spare=""
+          for n in fifth fourth third second; do
+            if grep -qsx "$n" "$dir/answered-on-key" "$dir/second/answered-on-key"; then spare="$n" && break; fi
+          done
           if [ -n "$spare" ]; then
             echo "::warning::reviewer key: $spare (a spare key); renew CLAUDE_CODE_OAUTH_TOKEN"
           else echo "reviewer key: first"; fi

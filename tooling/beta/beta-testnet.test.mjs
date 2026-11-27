@@ -14,6 +14,8 @@ import {
   readTestnet,
   info,
   judgeAccount,
+  judgeLive,
+  JUDGE_LIVE_MS,
   testnetCandidates,
   testnetKey,
   testnetStep,
@@ -236,7 +238,7 @@ test("the daily check's own fresh accounts are not held by the per-person cap; a
   const approved = full(...users.map((u) => u.id));
   const records = Object.fromEntries([1, 2, 3].map((i) => [`k${i}`, { userId: `j${i}`, token: judge, state: 'sent' }]));
   assert.deepEqual(
-    testnetCandidates({ users, approved, tokens: local, accounts: records }).map((c) => c.userId),
+    testnetCandidates({ users, approved, tokens: local, accounts: records, now: Date.UTC(2026, 10, 25, 10, 10) }).map((c) => c.userId),
     ['j4', 'j5'],
   );
   // The step sends to a fourth judge account although the invite holds three records.
@@ -299,4 +301,26 @@ test('a testnet read the shared address answers 429 is tried again after 2, 4 an
     calls: 4,
   });
   assert.deepEqual(await run([500]), { error: 'testnet info spotClearinghouseState: HTTP 500', waits: [], calls: 1 });
+});
+
+test("a judge account whose walk has ended is never sent: the walk's passkey is gone, so the grant would strand", () => {
+  const judge = 'zenyoda33-0123456789';
+  const at = Date.UTC(2026, 10, 25, 14, 2);
+  const email = `${judge}.ready202611251402@local-test.invalid`;
+  assert.equal(judgeLive(email, at + 60_000), true);
+  assert.equal(judgeLive(email, at + JUDGE_LIVE_MS), true);
+  assert.equal(judgeLive(email, at + JUDGE_LIVE_MS + 1), false);
+  assert.equal(judgeLive(email, at - JUDGE_LIVE_MS - 60_000), false, 'a stamp far in the future is not live either');
+  assert.equal(judgeLive(`${judge}.demo1@local-test.invalid`, at), false);
+  const users = [
+    { id: 'old', email },
+    { id: 'new', email: `${judge}.ready202611260000@local-test.invalid` },
+    { id: 'demo', email: `${judge}.demo1@local-test.invalid` },
+  ];
+  const approved = full('old', 'new', 'demo');
+  assert.deepEqual(
+    testnetCandidates({ users, approved, tokens: new Set([judge]), accounts: {}, now: Date.UTC(2026, 10, 26, 0, 5) }).map((c) => c.userId),
+    ['new', 'demo'],
+    'the ended walk is skipped; a live walk and an ordinary account of the invite are not',
+  );
 });

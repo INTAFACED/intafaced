@@ -597,7 +597,10 @@ if (venueProtections && protectionEngineMs > 0) {
       });
   }, protectionEngineMs).unref();
 }
-if (venueBalanceWatch && protectionEngineMs > 0) {
+const balanceWatchMs = /^\d+$/.test(env.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS.trim())
+  ? Number(env.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS.trim())
+  : protectionEngineMs;
+if (venueBalanceWatch && protectionEngineMs > 0 && balanceWatchMs > 0) {
   let busy = false;
   setInterval(() => {
     if (busy) return;
@@ -610,7 +613,7 @@ if (venueBalanceWatch && protectionEngineMs > 0) {
       .finally(() => {
         busy = false;
       });
-  }, protectionEngineMs).unref();
+  }, balanceWatchMs).unref();
 }
 // Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
 // from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`

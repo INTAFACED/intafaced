@@ -953,6 +953,12 @@ function Ticket({
   const offered = market.orderTypes.filter((x): x is 'limit' | 'market' => x === 'limit' || x === 'market');
   const band = market.priceBand?.known ? market.priceBand.value : null;
   const slippageCap = best.data?.slippageCapBps ?? null;
+  // A market order's worst price: the best price on the side it meets plus the owner's slippage cap, the bound svc-trade
+  // itself puts on every market order; null with the cap blank or no best price on that side.
+  const marketBound = (on: 'buy' | 'sell') =>
+    best.data && best.data.slippageCapBps.known
+      ? slippageLimit(on, best.data.value, best.data.slippageCapBps.value, market.tickSize)
+      : null;
   // Size from my risk (desk A, from desk B): a limit enters at its price, a market order at the best price it meets.
   const entry = type === 'limit' ? price.trim() || null : ((side === 'buy' ? best.data?.value.ask : best.data?.value.bid) ?? null);
   const sized = fromRisk ? sizeFromRisk({ risk, entry, stop: stopLoss, lot: market.lotSize, side }) : null;
@@ -993,12 +999,29 @@ function Ticket({
       return setProblem(t('Margin mismatch', { symbol: market.symbol, settle: market.quoteAsset, asset: marginAsset }));
     if (label.trim() !== '' && !ORDER_LABEL.test(label.trim())) return setProblem(t('Label bad'));
     if (!size.trim()) return setProblem(v('Enter amount'));
-    if (!price.trim()) return setProblem(v('Enter price'));
+    // A market order with its worst price left blank goes at the bound; the review names it either way.
+    const typed = type === 'market' && !price.trim() ? (marketBound(side) ?? '') : price;
+    if (typed !== price) setPrice(typed);
+    if (!typed.trim()) return setProblem(v('Enter price'));
     if (!onStep(size, market.lotSize)) return setProblem(v('Not a step', { field: v('Amount'), step: market.lotSize }));
-    if (!onStep(price, market.tickSize)) return setProblem(v('Not a step', { field: v('Price'), step: market.tickSize }));
+    if (!onStep(typed, market.tickSize)) return setProblem(v('Not a step', { field: v('Price'), step: market.tickSize }));
 
     const askedSize = canonicalDecimal(size);
-    const askedPrice = canonicalDecimal(price);
+    const askedPrice = canonicalDecimal(typed);
+    // A market order's worst price on the wrong side of the best price it meets cannot fill: refused before it is sent.
+    // The best price is read fresh here, not from the last poll; with no read, the review still names the worst price.
+    const now = type === 'market' ? await venue.bestPrices(market.symbol) : null;
+    const meets = now?.ok ? (side === 'buy' ? now.data.value.ask : now.data.value.bid) : null;
+    if (meets && (side === 'buy' ? parseAmount(askedPrice) < parseAmount(meets) : parseAmount(askedPrice) > parseAmount(meets))) {
+      setProblemCode('trade.venue.worst_price_wrong_side');
+      return setProblem(
+        t(side === 'buy' ? 'Worst price wrong side buy' : 'Worst price wrong side sell', {
+          price: displayAmount(askedPrice),
+          best: displayAmount(meets),
+          quote: market.quoteAsset,
+        }),
+      );
+    }
     let effectivePrice = askedPrice;
     let corrected: { asked: string; applied: string } | null = null;
     let outsideBand: string | null = null;
@@ -1231,6 +1254,7 @@ function Ticket({
         value={side}
         onChange={(s) => {
           setSide(s as 'buy' | 'sell');
+          if (type === 'market') setPrice(marketBound(s as 'buy' | 'sell') ?? '');
           clearChecks();
         }}
         label={t('Ticket')}
@@ -1242,6 +1266,9 @@ function Ticket({
             tone={type === x ? 'secondary' : 'quiet'}
             aria-pressed={type === x}
             onClick={() => {
+              // A price typed for one order type is never carried into the other: a market order's worst price starts
+              // at the bound svc-trade puts on it (best price plus the slippage cap), a limit's price starts blank.
+              if (x !== type) setPrice(x === 'market' ? (marketBound(side) ?? '') : '');
               setType(x);
               clearChecks();
             }}
@@ -1587,6 +1614,14 @@ function Ticket({
                         applied: review.priceCorrected.applied,
                         quote: market.quoteAsset,
                       })}
+                    </dd>
+                  </div>
+                ) : null}
+                {review.intent.type === 'market' ? (
+                  <div>
+                    <dt>{t('Worst price')}</dt>
+                    <dd className="lt-num" data-line="worst-price">
+                      {t('Worst price value', { price: displayAmount(review.intent.price), quote: market.quoteAsset })}
                     </dd>
                   </div>
                 ) : null}

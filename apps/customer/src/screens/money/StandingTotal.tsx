@@ -85,6 +85,7 @@ export function StandingTotal({
   face = 'full',
   foldLead,
   foldMore,
+  change,
   lineStart,
   lineEnd,
 }: {
@@ -104,6 +105,8 @@ export function StandingTotal({
   foldLead?: ReactNode;
   /** `headline` only: what follows the total's own lines in the fold (Assets: the valuation note and the movers). */
   foldMore?: ReactNode;
+  /** `headline` only: a line drawn right under the figure, before the parts line (Home: today's change). */
+  change?: ReactNode;
   /** `headline` only: what the line under the figure starts with, before the parts (Assets: today's change). */
   lineStart?: ReactNode;
   /** `headline` only: what the line under the figure ends with, after the parts (Assets: what is moving, not in the total). */
@@ -173,6 +176,7 @@ export function StandingTotal({
     return (
       <section data-testid={testId} data-standing="" data-face="headline" className="lt-stack lt-stack-tight" aria-label={t('Title')}>
         {figure}
+        {change}
         <PartsLine standing={standing} hidden={hidden} t={t} start={lineStart} end={lineEnd} />
         <Fold title={t('Worked out')} data-testid="standing-worked-out">
           <div className="lt-stack">

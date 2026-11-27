@@ -75,7 +75,7 @@ import { BankAccountPage } from './bank-account/BankAccountRoom';
 import { RecipientPicker } from './RecipientPicker';
 import { BusinessBankRoom } from './business-bank/BusinessBankRoom';
 import { RampsRoom } from './ramps/RampsRoom';
-import type { Payee } from './payees';
+import type { Payee } from '../../shared/payees';
 import { transferDepthCopy } from './transfer-depth-copy';
 import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';

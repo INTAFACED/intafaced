@@ -49,10 +49,27 @@ const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
  * The daily check's own fresh account (project-state tooling/beta/ready.mjs): made under the agents' invite, whose
  * token starts with `zenyoda`, with the address `<token>.ready<12 digits>@local-test.invalid`. Each run signs up anew, so
  * the per-person cap would stop its step 3 after three runs; it is exempt (Nino's guide on project-state#4046, 25 Nov).
- * The funder's balance still bounds it, and the check runs only after beta merges that touch the tester path.
+ * The funder's balance still bounds it, and the check runs only after beta merges that touch the tester path. It is sent
+ * only while its walk runs (judgeLive); the walk hands what is left back to the funder before it ends.
  */
 export function judgeAccount(email, token) {
   return String(token ?? '').startsWith('zenyoda') && /^[^@]+\.ready\d{12}@local-test\.invalid$/.test(String(email ?? ''));
+}
+
+/**
+ * How long after its walk starts a judge account may still be sent TEST USDC: the walk signs up in about two minutes and
+ * waits ten for the money, then closes its browser, and with it the wallet's only passkey. A send after that strands the
+ * grant for good: on 26 Nov 2026 the funder's first refill went to seven walks that had ended hours before (182 TEST USDC
+ * with fees, project-state#4067). The walk's address carries its start, `ready<YYYYMMDDHHmm>` in UTC.
+ */
+export const JUDGE_LIVE_MS = 30 * 60_000;
+
+/** Whether a judge account's walk can still use a send at `now`: its stamp is at most JUDGE_LIVE_MS old. */
+export function judgeLive(email, now = Date.now()) {
+  const m = /\.ready(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})@/.exec(String(email ?? ''));
+  if (!m) return false;
+  const started = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  return now - started <= JUDGE_LIVE_MS && started - now <= JUDGE_LIVE_MS;
 }
 
 /** The business key of one account's one testnet send. */
@@ -74,7 +91,7 @@ const holdsGrant = (amount) => units(amount) >= units(TESTNET_GRANT.amount);
  * later account from ever being sent (testnetStep checks the cap again as it picks the one to send).
  * `users` [{ id, email }], `approved` Map userId -> Set of tiers, `tokens` Set, `accounts` the file's records.
  */
-export function testnetCandidates({ users, approved, tokens, accounts }) {
+export function testnetCandidates({ users, approved, tokens, accounts, now = Date.now() }) {
   const perPerson = new Map();
   const has = new Set();
   for (const r of Object.values(accounts)) {
@@ -89,7 +106,9 @@ export function testnetCandidates({ users, approved, tokens, accounts }) {
     if (!(tiers.has('full') || tiers.has('institutional'))) continue;
     // Only send records count: an account with no wallet yet takes no place under the cap (testnetStep holds it as
     // it sends, one send per pass, each recorded before its dispatch).
-    if (!judgeAccount(u.email, token) && (perPerson.get(token) ?? 0) >= MAX_FUNDED_PER_PERSON) continue;
+    const judge = judgeAccount(u.email, token);
+    if (judge && !judgeLive(u.email, now)) continue; // its walk has ended: nothing could ever use the send
+    if (!judge && (perPerson.get(token) ?? 0) >= MAX_FUNDED_PER_PERSON) continue;
     out.push({ userId: u.id, email: u.email, token });
   }
   return out;
