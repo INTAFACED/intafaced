@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { baseEnvSchema, httpEnvSchema, loadEnv, natsEnvSchema, otelEnvSchema, s2sEnvSchema } from '@intafaced/config';
+import { normalizeIp } from './private/caller-ip.js';
 
 /**
  * Credentials this process must never take. Pin-tested in `env.isolation.test.ts`.
@@ -194,6 +195,23 @@ const schema = baseEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1)]),
       ),
+      /**
+       * The reverse proxy in front of the public doors, as exact IP addresses (comma-separated; no CIDR, no `true`).
+       * Unset: the per-IP guard keys on the TCP peer. Set: a listed peer's `x-forwarded-for` names the caller
+       * (`publicCallerIp`). Behind a proxy without it, every caller shares the proxy's one per-IP budget.
+       */
+      WS_TRUST_PROXY: z
+        .string()
+        .optional()
+        .transform((v) =>
+          (v ?? '')
+            .split(',')
+            .map((a) => a.trim())
+            .filter(Boolean),
+        )
+        .refine((list) => list.every((a) => normalizeIp(a) !== null), {
+          message: 'WS_TRUST_PROXY takes exact IP addresses only, comma-separated',
+        }),
 
       /**
        * Owner-published private / drop-copy max open sockets per authenticated
@@ -404,6 +422,7 @@ export const SVC_WS_OWN_ENV_KEYS = [
   'WS_PER_IP_MAX_CONNECTIONS',
   'WS_PER_IP_STORMS_BEFORE_BAN',
   'WS_PER_IP_BAN_SECONDS',
+  'WS_TRUST_PROXY',
   'WS_PRIVATE_MAX_CONNECTIONS_PER_USER',
   'WS_HEARTBEAT_MS',
   'WS_TRADE_RECENT_LIMIT',

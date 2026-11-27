@@ -552,6 +552,7 @@ const gateway = createWebSocketGateway({
   enabled: isEnabled,
   admitNewConnection: () => newConnections.admit(),
   admitAddress: (address) => perIp.admit(address),
+  trustedProxies: env.WS_TRUST_PROXY,
   sbeConsumers,
   sbe,
 });
