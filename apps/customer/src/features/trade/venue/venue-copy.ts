@@ -126,6 +126,8 @@ export const venueCopy = defineCopy('trade.venue', {
   'Outcome cancelled': 'Cancelled on the venue; its lock is released.',
   'Outcome done': 'The venue accepted it.',
   'Outcome refused': 'The venue refused it: {detail}',
+  'Outcome id conflict':
+    'Refused before your wallet was asked: this client order id was already used for a different order. That order is untouched; nothing was signed or sent.',
   'Outcome unknown': 'Not known: the venue gave no definite answer. It is being read back by its client id; nothing is sent again.',
   'Outcome rejected wallet': 'You cancelled in your wallet. Nothing was signed or sent.',
   'Outcome wallet failed': '{message}',

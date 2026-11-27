@@ -348,42 +348,73 @@ test(`${J} #4 reloads the page while an answer is still unknown, then tries a ne
   expect(after.filter((o) => sameDecimal(o.price, price))).toHaveLength(1);
 });
 
-test(`${J} #5 sends the same client id with a different price: refused with a typed reason before signing; the first order is untouched`, async () => {
+test(`${J} #5 sends the same client id with a different price: refused with a typed reason before signing; the first order is untouched`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
   const s = state();
+  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const owner = ownerOf(s);
-  const { first } = s;
-  expect(first, '#1 placed an order').toBeTruthy();
-  const before = await venueByClientId(owner, first.venueClientOrderId);
+  const door = doorCalls(page);
+  const ledgerBefore = await ledgerView(s.account);
+  // The person names the order themselves, in the ticket's client order id field (cex-spot-order-entry-023).
+  const ownId = `js2-${randomBytes(4).toString('hex')}`;
+  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+  const ownField = form.getByRole('textbox', { name: 'Your client order id (optional)' });
+  // The first order under that id: placed, signed once, open on the venue.
+  const price = await awayBid(85);
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  await ownField.fill(ownId);
+  const { review, id } = await reviewLimitBuy(page, price);
+  expect(id.endsWith(`own-${ownId}`), `${id} is the key of the id the person typed`).toBe(true);
+  await expect(review).toBeVisible();
+  const prepareAnswer = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  await continueInWallet(page);
+  const prepared = (await (await prepareAnswer).json()).prepared;
+  const outcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');
+  await expect(outcome).toContainText('Open on the venue.', { timeout: 20_000 });
+  const asked = signatures(wallet);
+  const before = await venueByClientId(owner, prepared.venueClientOrderId);
+  expect(before).toMatchObject({ status: 'open', symbol: SYMBOL, side: 'buy' });
+  expect(sameDecimal(before.price, price)).toBe(true);
   const open = await venueOpen(owner);
-  const client = await api(s.account);
-  const other = fromUnits(toUnits(first.price) - toUnits('1'));
-  const refused = await client.post('/api/v1/venue/prepare', {
-    owner,
-    signer: { role: 'owner', address: owner },
-    intent: {
-      kind: 'place_order',
-      symbol: SYMBOL,
-      side: 'buy',
-      type: 'limit',
-      amount: AMOUNT,
-      price: other,
-      timeInForce: 'GTC',
-      reduceOnly: false,
-      clientOrderKey: first.key,
-      builderFee: null,
-    },
-    actionKey: null,
-    stepUpApprovalId: null,
-  });
-  // Refused at prepare, so there is nothing to sign: a typed reason, no typed data.
-  expect(refused.status, JSON.stringify(refused.body).slice(0, 300)).toBe(409);
-  expect(refused.body.intafacedCode).toBe('idempotency.conflict');
-  expect(refused.body.prepared).toBeUndefined();
+  // The same client id with a different price.
+  const other = await awayBid(84);
+  expect(sameDecimal(other, price)).toBe(false);
+  await expect(ownField).toHaveValue(ownId);
+  const refusedAnswer = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST',
+  );
+  const second = await reviewLimitBuy(page, other);
+  expect(second.id).toBe(id);
+  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  const refused = await refusedAnswer;
+  // Refused at prepare, so there is nothing to sign: a typed reason, no typed data, and no wallet sheet.
+  expect(refused.status()).toBe(409);
+  const body = await refused.json();
+  expect(body.intafacedCode).toBe('idempotency.conflict');
+  expect(body.prepared).toBeUndefined();
+  expect(door.of('prepare').at(-1).body.intent).toMatchObject({ clientOrderKey: id, price: other });
+  await expect(outcome).toHaveText(
+    'Refused before your wallet was asked: this client order id was already used for a different order. That order is untouched; nothing was signed or sent.',
+    { timeout: 20_000 },
+  );
+  await expect(outcome).toHaveAttribute('data-code', 'idempotency.conflict');
+  await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
+  await stepPicture();
+  expect(signatures(wallet)).toBe(asked);
+  expect(door.of('submit')).toHaveLength(1);
   // The first order is untouched on the venue, and nothing new rests.
-  const after = await venueByClientId(owner, first.venueClientOrderId);
+  const after = await venueByClientId(owner, prepared.venueClientOrderId);
   expect(after).toEqual(before);
-  expect(sameDecimal(after.price, first.price)).toBe(true);
   expect(await venueOpen(owner)).toEqual(open);
+  expect((await venueOpen(owner)).filter((o) => sameDecimal(o.price, other))).toHaveLength(0);
+  // The ledger posts nothing.
+  expect(await ledgerView(s.account)).toEqual(ledgerBefore);
 });
 
 test(`${J} #6 types an order bigger than the venue's free balance: refused in words before Confirm, no raw code; nothing signed`, async ({

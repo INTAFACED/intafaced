@@ -134,6 +134,16 @@ export function tagProblem(tag: string): boolean {
   return tag.trim() !== '' && !TAG_PATTERN.test(tag.trim());
 }
 
+/**
+ * The person's own client order id (cex-spot-order-entry-023; J-cex-spot-02 #5): 1 to 32 letters, digits or dashes. Blank
+ * is none, and the desk mints one per reviewed draft. Unlike a tag it is part of the order's key: the same id is the same
+ * order, so a retry under it is never a second order and a changed order under it is refused (`idempotency.conflict`).
+ */
+export const OWN_CLIENT_ID_PATTERN = /^[A-Za-z0-9-]{1,32}$/;
+export function ownClientIdProblem(id: string): boolean {
+  return id.trim() !== '' && !OWN_CLIENT_ID_PATTERN.test(id.trim());
+}
+
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
 export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'below_min' | 'no_book' | 'no_cap';
 
@@ -237,11 +247,17 @@ export class HeldDraft {
     return this.hold(fields, null).key;
   }
 
-  /** The key for this order and the worst price held with it (a limit's is unused). */
-  hold(fields: TicketFields, worst: string | null): { key: string; worst: string | null } {
-    const signature = draftSignature(fields);
+  /**
+   * The key for this order and the worst price held with it (a limit's is unused). With the person's own client id
+   * (`ownClientId`, valid per OWN_CLIENT_ID_PATTERN) the key is that id's, whatever the order: the door, not the desk,
+   * answers whether it is the same order (a replay) or a changed one (refused).
+   */
+  hold(fields: TicketFields, worst: string | null, ownClientId = ''): { key: string; worst: string | null } {
+    const own = ownClientId.trim();
+    const signature = own ? `${draftSignature(fields)}|own:${own}` : draftSignature(fields);
     if (this.held?.signature !== signature) {
-      this.held = { signature, key: keys.order(this.owner, this.symbol, draftId(this.now(), this.counter++)), worst };
+      const draft = own ? `own-${own}` : draftId(this.now(), this.counter++);
+      this.held = { signature, key: keys.order(this.owner, this.symbol, draft), worst };
     } else if (this.held.worst === null && worst !== null) {
       // Nothing was built under the key without a worst price (no intent with no book), so the first one is held.
       this.held = { ...this.held, worst };

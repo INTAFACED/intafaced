@@ -23,7 +23,7 @@ import { useExitSigner, useSignPrepared } from '../futures/VenueProtect';
 import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
-import { Button } from '@intafaced/ui/lit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { DecimalInput, Sheet } from '@intafaced/ui/lit/templates';
 import { placesOf } from './text';
 import { spotVenueCopy } from './venue-copy';
@@ -32,6 +32,7 @@ import {
   HeldDraft,
   amountForValue,
   tagProblem,
+  ownClientIdProblem,
   valueOf,
   venueSelfTrade,
   draftSignature,
@@ -151,6 +152,7 @@ export function VenueSideForm({
   const [unit, setUnit] = useState<'base' | 'quote'>('base');
   const [value, setValue] = useState('');
   const [tag, setTag] = useState('');
+  const [ownId, setOwnId] = useState('');
   const [sent, setSent] = useState<OrderIntent | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const [review, setReview] = useState<{ intent: OrderIntent; preview: AsOf<VenuePreview> } | null>(null);
@@ -189,8 +191,9 @@ export function VenueSideForm({
   const sizedAmount = unit === 'quote' ? (amountForValue(value, sizedAt, market.lotSize) ?? '') : amount;
   const fields: TicketFields = { side, type, price, amount: sizedAmount, tif: venueTifOf(tif) };
   const issue = ticketProblem(fields, market, worst, capSet);
+  const ownIdBad = ownClientIdProblem(ownId);
   // A market order's worst price is held with its key (HeldDraft.hold): the intent sent under one key never changes.
-  const held = draft && issue === null ? draft.hold(fields, worst) : null;
+  const held = draft && issue === null && !ownIdBad ? draft.hold(fields, worst, ownId) : null;
   const intent = held ? intentOf(fields, market, held.worst, held.key, capSet) : null;
   const shownWorst = type === 'market' ? (intent?.price ?? worst) : null;
   const signature = intent ? `${draftSignature(fields)}|${intent.price}|${intent.clientOrderKey}` : null;
@@ -247,6 +250,7 @@ export function VenueSideForm({
     short === null &&
     !refusedNow &&
     !tagBad &&
+    !ownIdBad &&
     (!gtd || expireAt !== null);
   const amountPlaces = placesOf(market.lotSize);
   const valueLabel = type === 'market' && side === 'buy' ? t('Spend') : t('Total');
@@ -526,6 +530,15 @@ export function VenueSideForm({
           {t('Tag note')}
         </span>
       </label>
+      <Field
+        label={t('Own client id label')}
+        hint={t('Own client id note')}
+        value={ownId}
+        maxLength={32}
+        autoComplete="off"
+        onChange={(event) => edit(() => setOwnId(event.target.value))}
+        data-testid="venue-own-client-id"
+      />
       {shownWorst ? (
         <p className="lt-note lt-num" data-testid="venue-worst-price">
           {t('Worst price line', { price: displayAmount(shownWorst), quote: market.quoteAsset })}
@@ -561,6 +574,10 @@ export function VenueSideForm({
         ) : tagBad ? (
           <p className="lt-note lt-note-bad" role="alert">
             {t('Tag bad')}
+          </p>
+        ) : ownIdBad ? (
+          <p className="lt-note lt-note-bad" role="alert">
+            {t('Own client id bad')}
           </p>
         ) : issue === 'no_book' ? (
           <p className="lt-note">{t('No book side')}</p>
