@@ -66,6 +66,7 @@ import {
   type VenueHistoryPage,
 } from './venue-order-history.js';
 import type { FeeSaverSource } from './fee-saver-client.js';
+import type { VenueWalletReads } from './http-user-venue.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -474,7 +475,12 @@ export function parseBuilderAddress(address: string | undefined): string | null 
 }
 
 /** A venue the door reaches, with the chain its actions name and its deposit route when it has one. */
-export type ConnectedUserVenue = UserVenue & { readonly chainId?: number; readonly depositRoute?: UserVenueDepositRoute | null };
+export type ConnectedUserVenue = UserVenue & {
+  readonly chainId?: number;
+  readonly depositRoute?: UserVenueDepositRoute | null;
+  /** Where the person's browser makes their own-wallet reads itself (http-user-venue.ts `VenueWalletReads`). */
+  readonly walletReads?: VenueWalletReads | null;
+};
 
 export interface UserVenueDoorDeps {
   /** Reach the venue. Called until it succeeds; its descriptor is checked against APP_ENV each time it connects. */
@@ -872,6 +878,10 @@ export class UserVenueDoor {
       chainId: venue.chainId ?? null,
       // Where the customer's own wallet sends a token to fund this venue account: the customer's transfer, never ours.
       deposit: venue.depositRoute ?? null,
+      // Where the desk reads the person's own fills, balances and positions from their own browser (the venue's
+      // public read endpoint, by address with no key), so they count against the person's IP, not this box's one. Null:
+      // every read comes through this door.
+      walletReads: venue.walletReads ?? null,
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
       // J-derivatives-30 #1: our builder address alone, so an approval stays readable and revocable while the fee is blank.
       builderAddress: this.publishedBuilderAddress(),

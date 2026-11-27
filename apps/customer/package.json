@@ -24,6 +24,8 @@
     "@intafaced/i18n": "workspace:*",
     "@intafaced/money-math": "workspace:*",
     "@intafaced/ui": "workspace:*",
+    "@intafaced/venue-contracts": "workspace:*",
+    "@intafaced/venue-hyperliquid": "workspace:*",
     "@tanstack/react-virtual": "3.14.26",
     "jsqr": "1.4.0",
     "lucide-react": "1.72.0",

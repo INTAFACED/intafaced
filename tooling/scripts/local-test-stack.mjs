@@ -2245,6 +2245,8 @@ export async function startCustomer({ stop = stopForNewBuild, ready = bannerSite
     ...baseEnv(),
     CUSTOMER_WS_URL: customerWsUpstream(),
     ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}),
+    // The page's connect-src names the test network's read endpoint when the venue is the live one (customerSecurityHeaders).
+    ...(process.env.LOCAL_STACK_USER_VENUE ? { LOCAL_STACK_USER_VENUE: process.env.LOCAL_STACK_USER_VENUE } : {}),
   };
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
@@ -3434,6 +3436,8 @@ function indexWithBanner(dist, site) {
 
 /** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
 const API_SECURITY = apiSecurityHeaders();
+/** The Hyperliquid test network's API origin (packages/venue-hyperliquid `HL_TESTNET_API_URL`), its public `info` reads. */
+export const HL_TESTNET_READ_ORIGIN = 'https://api.hyperliquid-testnet.xyz';
 /** Where the Customer app's browser sends Content-Security-Policy violation reports on this stack. */
 const CSP_REPORT_PATH = '/__csp-report';
 
@@ -3442,12 +3446,15 @@ const CSP_REPORT_PATH = '/__csp-report';
  * TEST video store standing in for CUSTOMER_STORAGE_ORIGIN and a report-uri so every violation is recorded. Journeys
  * therefore run under the policy the deployed app has, and `csp-report --fail` turns any violation red.
  */
-export function customerSecurityHeaders() {
+export function customerSecurityHeaders(env = process.env) {
   // connect-src: the TEST sandbox address (IDENTITY_SANDBOX_BASE_URL, the edge's sandbox host) stands in for
   // CUSTOMER_SANDBOX_API_ORIGIN, so the API explorer can send a sandbox key's request there (J-developer-15 #7).
+  // On the live Hyperliquid test network (LOCAL_STACK_USER_VENUE=hl-testnet), the desk reads the person's own fills,
+  // balances and positions from their own browser at the test network's read endpoint, and nowhere else.
+  const walletReads = userVenueKind(env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? ` ${HL_TESTNET_READ_ORIGIN}` : '';
   return securityHeaders({
     mediaSrc: `'self' blob: ${urlOf('video-store')}`,
-    connectSrc: `'self' http://localhost:${PORTS.edge}`,
+    connectSrc: `'self' http://localhost:${PORTS.edge}${walletReads}`,
     reportUri: CSP_REPORT_PATH,
   });
 }

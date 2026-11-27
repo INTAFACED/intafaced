@@ -11,6 +11,7 @@ import {
   type VenueSignature,
 } from '@intafaced/venue-contracts';
 import type { FetchLike, HyperliquidNonceSource, VenueWeightMinute } from './core.js';
+import { HL_TESTNET_API_URL } from './signing.js';
 import { HyperliquidTestnetUserVenue } from './venue.js';
 
 /**
@@ -39,6 +40,21 @@ export interface UserVenueServerInfo {
   readonly deposit: UserVenueDepositRoute | null;
   /** What the venue's answers come from, named on `/health`, and the replay's misses on `GET /replay/misses`. */
   readonly source?: ReplaySource;
+  /**
+   * Where a person's browser makes their own-wallet reads itself, named on `GET /venue`: the live test network
+   * only, never a recording played back. Absent: every read comes through this server.
+   */
+  readonly walletReads?: VenueWalletReads;
+}
+
+/**
+ * The venue's public read endpoint, by address with no key, and the perp DEXs it is read on: a desk's own-wallet reads
+ * (fills, open orders, balances, positions) go there from the person's own browser, so they count against the person's
+ * IP and not this server's one (`HyperliquidWalletReads`, wallet-reads.ts).
+ */
+export interface VenueWalletReads {
+  readonly baseUrl: string;
+  readonly perpDexs: readonly string[];
 }
 
 /**
@@ -92,7 +108,16 @@ export async function answerUserVenue(
   }
   if (method === 'GET' && path === '/replay/misses') return [200, { misses: info.source?.misses() ?? [] }];
   if (method === 'GET' && path === '/venue')
-    return [200, { label: 'TEST', venue: venue.venue, chainId: info.chainId, deposit: info.deposit }];
+    return [
+      200,
+      {
+        label: 'TEST',
+        venue: venue.venue,
+        chainId: info.chainId,
+        deposit: info.deposit,
+        ...(info.walletReads ? { walletReads: info.walletReads } : {}),
+      },
+    ];
   if (method !== 'POST') return [405, { error: 'POST only' }];
   let parsed: unknown;
   try {
@@ -202,6 +227,8 @@ export async function startHyperliquidVenueServer(
       chainId: HL_TESTNET_WALLET_CHAIN_ID,
       deposit: null,
       ...(opts.source ? { source: opts.source } : {}),
+      // Live, each person's own-wallet reads leave from their own browser; a replay answers every read itself.
+      ...(opts.fetch ? {} : { walletReads: { baseUrl: HL_TESTNET_API_URL, perpDexs: [...(opts.perpDexs ?? [])] } }),
     }),
   );
   await new Promise<void>((resolve, reject) => {

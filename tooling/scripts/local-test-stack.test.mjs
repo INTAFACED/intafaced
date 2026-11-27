@@ -1432,6 +1432,17 @@ console.log('local-test-stack: customer folder override checks passed');
     /connect-src 'self' http:\/\/localhost:14500 https:\/\/api\.turnkey\.com;/,
     'the TEST sandbox address stands in for the sandbox API origin; the wallet provider is the fixed one (#10853)',
   );
+  // On the live test network the desk reads the person's own wallet from their browser; only that origin is added.
+  assert.match(
+    customerSecurityHeaders({ LOCAL_STACK_USER_VENUE: 'hl-testnet' })['Content-Security-Policy'],
+    /connect-src 'self' http:\/\/localhost:14500 https:\/\/api\.hyperliquid-testnet\.xyz https:\/\/api\.turnkey\.com;/,
+  );
+  for (const venue of ['hl-recorded', 'on', undefined])
+    assert.doesNotMatch(
+      customerSecurityHeaders({ LOCAL_STACK_USER_VENUE: venue })['Content-Security-Policy'],
+      /hyperliquid/,
+      String(venue),
+    );
   assert.match(headers['Content-Security-Policy'], /; report-uri \/__csp-report$/);
   assert.equal(headers['X-Frame-Options'], 'DENY');
   const legacy = cspReportRows(

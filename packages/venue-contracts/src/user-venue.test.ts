@@ -40,6 +40,10 @@ describe('venueClientOrderId', () => {
     expect(venueClientOrderId('test-sim', '  order:user-1:desk-7:1  ')).toBe(a);
   });
 
+  it('is the first 128 bits of sha256(venue NUL key): the same id node:crypto gives', () => {
+    expect(venueClientOrderId('test-sim', 'order:user-1:desk-7:1')).toBe('0x658b6e9a073ea294dbc7e818a6a0342b');
+  });
+
   it('gives a different id for a different intent, and per venue', () => {
     const a = venueClientOrderId('test-sim', 'order:user-1:desk-7:1');
     expect(venueClientOrderId('test-sim', 'order:user-1:desk-7:2')).not.toBe(a);

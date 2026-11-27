@@ -156,6 +156,12 @@ importers:
       '@intafaced/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@intafaced/venue-contracts':
+        specifier: workspace:*
+        version: link:../../packages/venue-contracts
+      '@intafaced/venue-hyperliquid':
+        specifier: workspace:*
+        version: link:../../packages/venue-hyperliquid
       '@tanstack/react-virtual':
         specifier: 3.14.26
         version: 3.14.26(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -910,6 +916,9 @@ importers:
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../ledger-client
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
     devDependencies:
       '@types/node':
         specifier: ^22.20.5
