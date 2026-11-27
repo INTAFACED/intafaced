@@ -79,6 +79,33 @@ test('TEST funds are capped: once per account, at most MAX_FUNDED_PER_PERSON acc
   assert.match(grantRef('2f1c7a3e-0000-4000-8000-000000000000'), /^[A-Za-z0-9-]{4,64}$/); // local:fund's --ref rule
 });
 
+test("the agents' own fresh testers are funded past the per-person cap; every other account stays capped (#11104)", () => {
+  // Every walk, plant and ready check signs up anew under the agents' one invite (project-state tooling/beta/kit.mjs
+  // freshTester: `<token>.<kind><YYYYMMDDHHmm>`). With the cap's three places spent on 24-25 Nov, the 27 Nov walk's
+  // verified account was approved and given nothing, so Home and Money showed no balance.
+  const agents = viewerToken('zenyoda@example.com');
+  const both = new Set([alice, agents]);
+  const spent = (token) => Object.fromEntries(Array.from({ length: MAX_FUNDED_PER_PERSON }, (_, i) => [`old-${token}-${i}`, { token }]));
+  const granted = { ...spent(agents), ...spent(alice) };
+  const users = [
+    { id: 'walk', email: `${agents}.walk202611271015@local-test.invalid` },
+    { id: 'ready', email: `${agents}.ready202611271030@local-test.invalid` },
+    { id: 'demo', email: `${agents}.demo1@local-test.invalid` },
+    { id: 'alice', email: `${alice}.walk202611271015@local-test.invalid` },
+  ];
+  const approved = full(...users.map((u) => u.id));
+  assert.deepEqual(
+    planPass({ users, approved, pending: [], tokens: both, granted }).fund.map((f) => f.userId),
+    ['walk', 'ready'],
+  );
+  // Still once per account.
+  assert.deepEqual(
+    planPass({ users, approved, pending: [], tokens: both, granted: { ...granted, walk: { token: agents }, ready: { token: agents } } })
+      .fund,
+    [],
+  );
+});
+
 test("a granted account's TEST funds are kept at the TEST partner on every pass, as that person, while signed in (#10632)", () => {
   const granted = {
     u1: { token: alice, amount: GRANT.amount },
