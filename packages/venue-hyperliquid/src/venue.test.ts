@@ -713,6 +713,22 @@ describe('cancel_orders: several resting orders cancelled in one signed action, 
     expect(await venue.submit(prepared, await sign(agentKey, prepared))).toEqual({ definite: false, reason: 'venue_error_after_send' });
   });
 
+  it('a batch the venue refuses whole is one refusal, never a leg', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(
+      account,
+      agentSigner,
+      batch([
+        { symbol: 'ETH-PERP', venueClientOrderId: A },
+        { symbol: 'ETH-PERP', venueClientOrderId: B },
+      ]),
+    );
+    fake.exchange.push({ status: 200, body: JSON.stringify({ status: 'err', response: 'User or API Wallet does not exist.' }) });
+    const outcome = await venue.submit(prepared, await sign(agentKey, prepared));
+    expect(outcome.definite && !outcome.accepted ? outcome.refusal.detail : null).toBe('User or API Wallet does not exist.');
+  });
+
   it('refuses before signing: no order, more than declared, one named twice, a malformed client id, an unknown market', async () => {
     const venue = venueWith(fakeVenue());
     await refusedWith(venue.prepare(account, agentSigner, batch([])), 'venue_rejected');
