@@ -195,3 +195,15 @@ export function roundToLot(amount: Amount, lot: Amount): Amount {
   if (lot <= 0n) return amount;
   return amount - (amount % lot);
 }
+
+/**
+ * The DEX a venue symbol is listed on, when the venue runs more than one: a Hyperliquid HIP-3 market keeps its
+ * deployer's DEX in its symbol, lower case before a colon (`xyz:TSLA-PERP`). A symbol check tests the shape of what
+ * follows the prefix (`venueSymbolBody`), so `xyz:TSLA-PERP` passes wherever `TSLA-PERP` does.
+ */
+const VENUE_DEX_PREFIX = /^[a-z0-9]{1,15}:/;
+
+/** The symbol without its DEX prefix (`xyz:TSLA-PERP` → `TSLA-PERP`); a symbol with none is returned as it is. */
+export function venueSymbolBody(symbol: string): string {
+  return symbol.replace(VENUE_DEX_PREFIX, '');
+}

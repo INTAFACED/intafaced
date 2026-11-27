@@ -1,4 +1,4 @@
-import { parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   refuseTestVenueOutsideTest,
@@ -40,7 +40,7 @@ const MARKETS_MISS_REFRESH_MS = 10_000;
  * signed action, which drops every kept answer. Each is well inside a figure's 60-second staleness limit.
  */
 const LIGHT_READS = new Set(['l2Book', 'allMids', 'clearinghouseState', 'orderStatus', 'spotClearinghouseState', 'exchangeStatus']);
-const SLOW_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'meta', 'spotMeta']);
+const SLOW_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'meta', 'spotMeta', 'perpDexs']);
 export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000 } as const;
 /** How long to wait before the one retry of a read the venue answered 429, unless it says (Retry-After, capped at 5 s). */
 const READ_RETRY_MS = 1_000;
@@ -118,6 +118,12 @@ export interface HyperliquidTestnetOptions {
    * and a read the venue answers 429 is tried once more. Off (the default), every read goes to the venue.
    */
   readonly shareReads?: boolean;
+  /**
+   * The HIP-3 perp DEXs whose markets are listed beside the main one: Hyperliquid lists its stock, index and
+   * gold perpetuals on DEXs a deployer runs (`xyz`), each read apart (`metaAndAssetCtxs` with `dex`). Named, not every
+   * DEX: the test network lists hundreds, most of them empty, and each read weighs 20. Defaults to none.
+   */
+  readonly perpDexs?: readonly string[];
 }
 
 /** The chain the customer app holds a wallet on (Base Sepolia, 84532; apps/customer `APP_CHAIN_ID`), which is not INTACHAIN. */
@@ -146,6 +152,8 @@ export interface HlMarket {
   readonly szDecimals: number;
   readonly maxLeverage: number | null;
   readonly onlyIsolated: boolean;
+  /** The HIP-3 DEX a perp is listed on and that DEX's own name for itself, or null on the main DEX and spot. */
+  readonly dex: { readonly name: string; readonly fullName: string } | null;
 }
 
 export interface MarketIndex {
@@ -196,6 +204,8 @@ export abstract class HyperliquidCore {
   private marketsInFlight: Promise<MarketIndex> | null = null;
   private lastMissRefreshMs = Number.NEGATIVE_INFINITY;
   private readonly shareReads: boolean;
+  /** The HIP-3 perp DEXs listed beside the main one (`HyperliquidTestnetOptions.perpDexs`). */
+  protected readonly perpDexs: readonly string[];
   /** Shared reads (`shareReads`): each answer's text by its request body, and the reads in flight. */
   private readonly kept = new Map<string, { text: string; atMs: number }>();
   private readonly reading = new Map<string, Promise<string>>();
@@ -234,6 +244,10 @@ export abstract class HyperliquidCore {
     if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`wallet chain ${String(chainId)} is not a chain id`);
     this.chainId = chainId;
     this.shareReads = options.shareReads === true;
+    this.perpDexs = [...new Set(options.perpDexs ?? [])];
+    for (const dex of this.perpDexs) {
+      if (!/^[a-z0-9]{1,15}$/.test(dex)) throw new Error(`a perp DEX is named by its lower-case name, as xyz, not ${JSON.stringify(dex)}`);
+    }
   }
 
   // ── transport ──────────────────────────────────────────────────────────
@@ -361,9 +375,11 @@ export abstract class HyperliquidCore {
         szDecimals: int(u.szDecimals, 'szDecimals'),
         maxLeverage: int(u.maxLeverage, 'maxLeverage'),
         onlyIsolated: u.onlyIsolated === true,
+        dex: null,
         canonical: true,
       });
     });
+    list.push(...(await this.readDexMarkets()));
     const spot = obj(spotMeta, 'spotMeta');
     const tokens = new Map<number, { name: string; szDecimals: number }>();
     for (const t of arr(spot.tokens, 'spotMeta.tokens')) {
@@ -389,6 +405,7 @@ export abstract class HyperliquidCore {
         szDecimals: base.szDecimals,
         maxLeverage: null,
         onlyIsolated: false,
+        dex: null,
         canonical: pair.isCanonical === true,
       });
     }
@@ -414,6 +431,49 @@ export abstract class HyperliquidCore {
       });
     }
     return { bySymbol, byCoin };
+  }
+
+  /**
+   * The live markets of each named HIP-3 DEX. `perpDexs` lists the main DEX first (as null), then each HIP-3 DEX
+   * by its index; a market's asset number is 100000 + that index × 10000 + its index in the DEX's own listing
+   * (Hyperliquid's asset-ids docs). Its coin already carries the DEX (`xyz:TSLA`), and so does its symbol
+   * (`xyz:TSLA-PERP`). A market the venue flags delisted, or with no open interest, is not listed: on the venue, a DEX
+   * keeps delisted tickers with frozen prices far from the live one.
+   */
+  private async readDexMarkets(): Promise<(HlMarket & { canonical: boolean })[]> {
+    if (this.perpDexs.length === 0) return [];
+    const dexs = arr(await this.info({ type: 'perpDexs' }), 'perpDexs');
+    const out: (HlMarket & { canonical: boolean })[] = [];
+    for (const name of this.perpDexs) {
+      const index = dexs.findIndex((d) => d !== null && typeof d === 'object' && !Array.isArray(d) && d.name === name);
+      if (index < 1) throw new Error(`venue listing: the perp DEX ${name} is not listed by perpDexs`);
+      const dex = obj(dexs[index], 'perpDexs[]');
+      const fullName = typeof dex.fullName === 'string' && dex.fullName !== '' ? dex.fullName : name;
+      const both = arr(await this.info({ type: 'metaAndAssetCtxs', dex: name }), `metaAndAssetCtxs ${name}`);
+      const ctxs = arr(both[1], `asset contexts ${name}`);
+      arr(obj(both[0], `metaAndAssetCtxs ${name} meta`).universe, `${name} universe`).forEach((entry, i) => {
+        const u = obj(entry, `${name} universe[]`);
+        if (u.isDelisted === true) return;
+        const ctx = ctxs[i];
+        if (!ctx || amt(obj(ctx, `${name} asset ctx`).openInterest, 'openInterest') === ZERO) return;
+        const coin = str(u.name, `${name} universe name`);
+        if (!coin.startsWith(`${name}:`)) throw new Error(`venue listing: ${coin} on the perp DEX ${name} does not carry its prefix`);
+        out.push({
+          symbol: `${coin}-PERP`,
+          kind: 'perpetual',
+          asset: 100_000 + index * 10_000 + i,
+          coin,
+          base: coin,
+          quote: PERP_QUOTE,
+          szDecimals: int(u.szDecimals, 'szDecimals'),
+          maxLeverage: int(u.maxLeverage, 'maxLeverage'),
+          onlyIsolated: u.onlyIsolated === true,
+          dex: { name, fullName },
+          canonical: true,
+        });
+      });
+    }
+    return out;
   }
 
   protected async market(symbol: string): Promise<HlMarket> {

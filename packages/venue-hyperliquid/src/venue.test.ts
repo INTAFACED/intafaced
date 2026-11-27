@@ -1587,7 +1587,7 @@ describe("public market data: best prices, prints and candles, no account (the d
   });
 });
 
-describe('HIP-3 perp DEXs: the stock, index and gold perpetuals (#11017)', () => {
+describe('HIP-3 perp DEXs: the stock, index and gold perpetuals', () => {
   // The test network's answers, cut down (read 27 Nov 2026): `perpDexs` lists the main DEX as null, then each HIP-3 DEX;
   // `metaAndAssetCtxs` with `dex` lists that DEX's markets under `<dex>:<coin>`, with their live open interest.
   const XYZ_DEPLOYER = '0x7770132f86dd4002d018edd7d348f4a0e4340777';

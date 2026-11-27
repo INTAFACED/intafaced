@@ -164,6 +164,8 @@ export interface StartHyperliquidVenueOptions {
   readonly clock?: () => Date;
   readonly nonceSource?: HyperliquidNonceSource;
   readonly timeoutMs?: number;
+  /** The HIP-3 perp DEXs listed beside the main one (`HyperliquidTestnetOptions.perpDexs`); none when omitted. */
+  readonly perpDexs?: readonly string[];
 }
 
 /** Start the Hyperliquid test network venue on loopback. Refuses outside APP_ENV dev/test and the beta posture, and on a non-loopback host. */
@@ -184,6 +186,7 @@ export async function startHyperliquidVenueServer(
     ...(opts.clock ? { clock: opts.clock } : {}),
     ...(opts.nonceSource ? { nonceSource: opts.nonceSource } : {}),
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    ...(opts.perpDexs ? { perpDexs: opts.perpDexs } : {}),
   });
   // The venue names no deposit route: a deposit to it is a bridge transfer on Arbitrum Sepolia, which this adapter
   // does not read yet (`depositRoutes` is not offered), so the app shows none rather than a guessed address.
