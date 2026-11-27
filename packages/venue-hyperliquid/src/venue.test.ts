@@ -671,6 +671,8 @@ describe('cancelling orders by the client id the venue holds: one signed `cancel
 
   it('each order is answered on its own: one already gone is unknown_order and the other still cancelled', async () => {
     const fake = fakeVenue();
+    // Gone, and the venue holds no record of it: never placed.
+    fake.info.orderStatus = () => ({ status: 'unknownOid' });
     const venue = venueWith(fake);
     const prepared = await venue.prepare(account, agentSigner, both);
     fake.exchange.push(
@@ -682,6 +684,33 @@ describe('cancelling orders by the client id the venue holds: one signed `cancel
       true,
       'unknown_order',
     ]);
+  });
+
+  it("an order the venue already cancelled is reported cancelled; a filled one is order_final, from the venue's record (#11179)", async () => {
+    // The venue answers every gone order with one text; a single cancel reads the order back for it, and so does each leg.
+    const goneText = 'Order was never placed, already canceled, or filled. asset=0';
+    for (const [status, expected] of [
+      ['canceled', 'accepted'],
+      ['filled', 'order_final'],
+      [null, 'unknown_order'],
+    ] as const) {
+      const fake = fakeVenue();
+      const base = fake.info.orderStatus!;
+      fake.info.orderStatus = (b) => {
+        if (status === null || b.oid !== A) return { status: 'unknownOid' };
+        const r = base(b) as { order: { status: string } };
+        r.order.status = status;
+        return r;
+      };
+      const venue = venueWith(fake);
+      const prepared = await venue.prepare(account, agentSigner, both);
+      fake.exchange.push(ok({ type: 'cancel', data: { statuses: [{ error: goneText }, 'success'] } }));
+      const outcome = await venue.submit(prepared, await sign(agentKey, prepared));
+      if (!outcome.definite || !outcome.accepted) throw new Error(`expected the batch taken, got ${JSON.stringify(outcome)}`);
+      const [gone, cancelled] = outcome.legs!;
+      expect(!gone!.definite ? null : gone!.accepted ? 'accepted' : gone!.refusal.code).toBe(expected);
+      expect(cancelled!.definite && cancelled!.accepted).toBe(true);
+    }
   });
 
   it('a whole-action error refuses it; a count of answers that does not match, or an unreadable one, is no answer', async () => {

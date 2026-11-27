@@ -205,30 +205,94 @@ function statusLine(response: Json): StatusLine {
 }
 
 /**
- * A batch cancel's answer (`cancelByCloid` with several cancels): one status per cancel, in the order sent. "success" is
- * that order cancelled; an error ("Order was never placed, already canceled, or filled.") is that order's own refusal,
- * and the rest still stand. A whole-action error refuses them all; an answer we cannot read is no answer.
+ * A cancel the venue answered "success", or answered that the order is gone: the venue's record of the order, read
+ * back by its client id, is the answer. Shared by a single cancel and each leg of a batch cancel.
  */
-function cancelsOutcome(venueId: string, json: Json, { sent, asOf }: { readonly sent: number; readonly asOf: Date }): VenueSubmitOutcome {
+async function cancelAnswer({
+  venueId,
+  read,
+  line,
+  asOf,
+}: {
+  readonly venueId: string;
+  readonly read: () => Promise<UserVenueOrder | null>;
+  readonly line: StatusLine;
+  readonly asOf: Date;
+}): Promise<VenueLegOutcome> {
+  let order: UserVenueOrder | null;
+  try {
+    order = await read();
+  } catch {
+    if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
+    return { definite: true, accepted: false, refusal: { venueId, code: 'venue_rejected', detail: line.text }, asOf };
+  }
+  if (order === null) {
+    // The venue said success: that wins. A read that finds nothing yet is "not found yet", never a refusal.
+    if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
+    return {
+      definite: true,
+      accepted: false,
+      refusal: { venueId, code: 'unknown_order', detail: 'no order with this client id on the venue' },
+      asOf,
+    };
+  }
+  if (order.status === 'canceled') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
+  // The venue said success, but its record still lists the order live: the read lags the cancel. Never hand
+  // that back as the answer, which would read "Open" after Cancel; the next read of the venue has the detail.
+  if (line.kind === 'accepted' && (order.status === 'open' || order.status === 'partially_filled'))
+    return { definite: true, accepted: true, venueRef: order.venueOrderId, order: null, asOf };
+  if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
+  return {
+    definite: true,
+    accepted: false,
+    refusal: { venueId, code: 'order_final', detail: `the order is already ${order.status}` },
+    asOf,
+  };
+}
+
+/** The venue's one text for every order it no longer holds: never placed, already cancelled, or filled. */
+const GONE_ORDER = /never placed|already canceled|already cancelled|filled/i;
+
+/**
+ * A batch cancel's answer (`cancelByCloid` with several cancels): one status per cancel, in the order sent. "success" is
+ * that order cancelled; an error is that order's own refusal, and the rest still stand. An error that the order is gone
+ * ("Order was never placed, already canceled, or filled.") is answered from the venue's record of that order, as a
+ * single cancel is (`gone`). A whole-action error refuses them all; an answer we cannot read is no answer.
+ */
+async function cancelsOutcome(
+  venueId: string,
+  json: Json,
+  {
+    cloids,
+    asOf,
+    gone,
+  }: { readonly cloids: readonly string[]; readonly asOf: Date; readonly gone: (cloid: string, text: string) => Promise<VenueLegOutcome> },
+): Promise<VenueSubmitOutcome> {
+  // Each leg is its answer, or the venue's text that the order is gone, which only its record answers.
+  let lines: (VenueLegOutcome | { readonly gone: string; readonly cloid: string })[];
   try {
     const answer = obj(json, 'exchange answer');
     if (answer.status === 'err') return classifyVenueError(venueId, str(answer.response, 'error text'), asOf);
     if (answer.status !== 'ok') return { definite: false, reason: 'venue_error_after_send' };
     const statuses = arr(obj(obj(answer.response ?? null, 'response').data, 'response.data').statuses, 'response.data.statuses');
-    if (statuses.length !== sent) return { definite: false, reason: 'venue_error_after_send' };
-    const legs = statuses.map((s): VenueLegOutcome => {
+    if (statuses.length !== cloids.length) return { definite: false, reason: 'venue_error_after_send' };
+    lines = statuses.map((s, i) => {
       if (s === 'success') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
       const error = obj(s, 'status').error;
       if (typeof error !== 'string') throw new Error('venue answer: a cancel status with neither success nor error');
+      const cloid = cloids[i];
+      if (cloid === undefined) throw new Error('venue answer: more cancel statuses than cancels sent');
+      if (GONE_ORDER.test(error)) return { gone: error, cloid };
       const leg = classifyVenueError(venueId, error, asOf);
       // A cancel's own answer is never "already sent": one we cannot place is no answer for the batch.
       if (!leg.definite) throw new Error('venue answer: a cancel status that is not a definite answer');
       return leg;
     });
-    return { definite: true, accepted: true, venueRef: null, order: null, legs, asOf };
   } catch {
     return { definite: false, reason: 'venue_error_after_send' };
   }
+  const legs = await Promise.all(lines.map((line) => ('gone' in line ? gone(line.cloid, line.gone) : line)));
+  return { definite: true, accepted: true, venueRef: null, order: null, legs, asOf };
 }
 
 /**
@@ -764,7 +828,21 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const sent = await this.post(body, accounts, String(built.action.type));
     if (sent.kind === 'unknown') return { definite: false, reason: sent.reason };
     const asOf = this.clock();
-    if (prepared.intent.kind === 'cancel_orders') return cancelsOutcome(venueId, sent.json, { sent: prepared.intent.orders.length, asOf });
+    if (prepared.intent.kind === 'cancel_orders') {
+      // The client ids as sent: `prepare` lower-cases each.
+      const cloids = prepared.intent.orders.map((o) => o.venueClientOrderId.toLowerCase());
+      return cancelsOutcome(venueId, sent.json, {
+        cloids,
+        asOf,
+        gone: (cloid, text) =>
+          cancelAnswer({
+            venueId,
+            read: async () => (await this.orderByClientId(prepared.account, cloid)).value,
+            line: { kind: 'error', text },
+            asOf,
+          }),
+      });
+    }
     let line: StatusLine;
     try {
       const answer = obj(sent.json, 'exchange answer');
@@ -783,37 +861,13 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const intent = prepared.intent;
     if (intent.kind === 'cancel_order') {
       // A repeat cancel, or a cancel of an order already gone: the venue's record of the order is the answer.
-      if (line.kind === 'accepted' || /never placed|already canceled|already cancelled|filled/i.test(line.text)) {
-        let order: UserVenueOrder | null;
-        try {
-          order = (await this.orderByClientId(prepared.account, prepared.venueClientOrderId!)).value;
-        } catch {
-          if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
-          return { definite: true, accepted: false, refusal: { venueId, code: 'venue_rejected', detail: line.text }, asOf };
-        }
-        if (order === null) {
-          // The venue said success: that wins. A read that finds nothing yet is "not found yet", never a refusal.
-          if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
-          return {
-            definite: true,
-            accepted: false,
-            refusal: { venueId, code: 'unknown_order', detail: 'no order with this client id on the venue' },
-            asOf,
-          };
-        }
-        if (order.status === 'canceled') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
-        // The venue said success, but its record still lists the order live: the read lags the cancel. Never hand
-        // that back as the answer, which would read "Open" after Cancel; the next read of the venue has the detail.
-        if (line.kind === 'accepted' && (order.status === 'open' || order.status === 'partially_filled'))
-          return { definite: true, accepted: true, venueRef: order.venueOrderId, order: null, asOf };
-        if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
-        return {
-          definite: true,
-          accepted: false,
-          refusal: { venueId, code: 'order_final', detail: `the order is already ${order.status}` },
+      if (line.kind === 'accepted' || GONE_ORDER.test(line.text))
+        return cancelAnswer({
+          venueId,
+          read: async () => (await this.orderByClientId(prepared.account, prepared.venueClientOrderId!)).value,
+          line,
           asOf,
-        };
-      }
+        });
       return classifyVenueError(venueId, line.text, asOf);
     }
     if (line.kind === 'error') return classifyVenueError(venueId, line.text, asOf);
