@@ -4,6 +4,7 @@ import type { VenueIntent } from '@intafaced/venue-contracts';
 export type BuiltIntentKind =
   | 'place_order'
   | 'cancel_order'
+  | 'cancel_orders'
   | 'amend_order'
   | 'replace_order'
   | 'update_leverage'
@@ -21,7 +22,6 @@ export type BuiltIntent = Extract<VenueIntent, { kind: BuiltIntentKind }>;
  * kind, move it into `BuiltIntentKind` and build it in `venue.ts`.
  */
 export const NOT_OFFERED: Readonly<Record<Exclude<VenueIntent['kind'], BuiltIntentKind>, string>> = {
-  cancel_orders: 'cancelling several orders in one signed action is not offered by this adapter yet',
   // Hyperliquid has one (`scheduleCancel`); this adapter's descriptor declares none until it is wired and cross-checked.
   schedule_cancel: 'a scheduled cancel is not offered by this adapter yet',
   create_sub_account: 'sub-accounts are not offered by this adapter yet',

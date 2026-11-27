@@ -9,6 +9,9 @@ import {
 } from '@intafaced/venue-contracts';
 import { HL_TESTNET_API_URL, assertTestnetUrl } from './signing.js';
 
+/** The most orders this adapter cancels in one signed `cancelByCloid` (`cancel_orders`, `cancelsPerAction`). */
+const HL_CANCELS_PER_ACTION = 20;
+
 /**
  * The Hyperliquid testnet adapter's base: its options, its transport to `POST /info`, and the venue's listing. The
  * reads (`reads.ts`) and the signed actions (`venue.ts`) build on it. What each part means is on
@@ -303,6 +306,10 @@ export abstract class HyperliquidCore {
       // An order, cancel or leverage change is an L1 action whose EIP-712 domain names chain 1337 (signing.ts L1_DOMAIN),
       // which no wallet signs on: it is signed by the trading session's agent key, approved once by the owner's wallet.
       tradesSignedBy: 'session_key',
+      // Hyperliquid's `cancelByCloid` takes a list of cancels in one signed action and publishes no most; this adapter
+      // declares ours, the same as the TEST venue's on its journeys. It is also how an open order this browser
+      // did not place (another browser, cleared storage, another sign-in) is cancelled: by the venue's client id.
+      cancelsPerAction: HL_CANCELS_PER_ACTION,
     };
     refuseTestVenueOutsideTest(this.venue, options.appEnv, options.betaPosture);
     this.fetchImpl = options.fetch ?? (globalThis.fetch as unknown as FetchLike);

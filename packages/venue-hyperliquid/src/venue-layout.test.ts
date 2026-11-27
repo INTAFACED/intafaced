@@ -18,7 +18,19 @@ import { HL_TESTNET_VENUE_ID, HyperliquidTestnetUserVenue, type FetchLike } from
  */
 
 /** The signed side's own members: preview, prepare, submit and what they build with. */
-const VENUE_OWN = ['constructor', 'preview', 'prepare', 'build', 'buildOwn', 'orderWire', 'submit', 'outcomeOf', 'post'];
+const VENUE_OWN = [
+  'constructor',
+  'preview',
+  'prepare',
+  'build',
+  'buildOwn',
+  'orderWire',
+  'submit',
+  'outcomeOf',
+  'cancelOutcome',
+  'cancelsOutcome',
+  'post',
+];
 
 const NOW = Date.UTC(2026, 10, 9, 0, 0, 0);
 const OWNER = '0x00000000000000000000000000000000000000a1';
@@ -41,7 +53,6 @@ const ORDER: PlaceUserOrderIntent = {
 
 /** A well-formed intent of every kind NOT_OFFERED names: a kind added there fails to compile until it is here too. */
 const NOT_OFFERED_INTENTS: { readonly [K in keyof typeof NOT_OFFERED]: Extract<VenueIntent, { kind: K }> } = {
-  cancel_orders: { kind: 'cancel_orders', orders: [{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }] },
   schedule_cancel: { kind: 'schedule_cancel', timeoutSec: 60, time: null },
   create_sub_account: { kind: 'create_sub_account', name: 'TEST sub', subAccountKey: 'sub:owner:1' },
   sub_account_transfer: {

@@ -3,6 +3,7 @@ import { add, compare, div, min, mul, parseAmount, sub, ZERO, type Amount } from
 import {
   assertSignatureMatches,
   assertSignerMaySign,
+  cancelsTakenTogether,
   venueClientOrderId,
   type AsOf,
   type MaybeKnown,
@@ -13,6 +14,7 @@ import {
   type UserVenueOrder,
   type VenueAssetAmount,
   type VenueIntent,
+  type VenueLegOutcome,
   type VenueOrderPreview,
   type VenueRefusalCode,
   type VenueSignature,
@@ -187,13 +189,20 @@ export function classifyVenueError(venueId: string, text: string, asOf: Date): V
 /** What the venue said about one order or cancel in an `ok` answer. */
 type StatusLine = { kind: 'accepted'; venueRef: string | null } | { kind: 'error'; text: string };
 
-function statusLine(response: Json): StatusLine {
+/** The venue's words for an order or cancel that is no longer resting (never placed, already cancelled, or filled). */
+const GONE = /never placed|already canceled|already cancelled|filled/i;
+
+/** One status per order or cancel the action carried (`expected`), in the order sent; any other count is not an answer. */
+function statusLines(response: Json, expected: number): StatusLine[] {
   const r = obj(response, 'response');
-  if (r.type === 'default') return { kind: 'accepted', venueRef: null };
+  if (r.type === 'default') return Array.from({ length: expected }, () => ({ kind: 'accepted', venueRef: null }));
   const data = obj(r.data, 'response.data');
   const statuses = arr(data.statuses, 'response.data.statuses');
-  if (statuses.length !== 1) throw new Error(`venue answer: expected one status, got ${statuses.length}`);
-  const s = statuses[0]!;
+  if (statuses.length !== expected) throw new Error(`venue answer: expected ${expected} statuses, got ${statuses.length}`);
+  return statuses.map(statusOf);
+}
+
+function statusOf(s: Json): StatusLine {
   if (typeof s === 'string') return { kind: 'accepted', venueRef: null }; // "success", "waitingForFill", "waitingForTrigger"
   const o = obj(s, 'status');
   if (typeof o.error === 'string') return { kind: 'error', text: o.error };
@@ -475,6 +484,23 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
         const m = await this.market(intent.symbol);
         return l1({ type: 'cancelByCloid', cancels: [{ asset: m.asset, cloid: venueClientOrderId(venueId, intent.clientOrderKey) }] });
       }
+      case 'cancel_orders': {
+        // Each order is named by the venue's own client id, so an order placed from any browser or sign-in is cancelled.
+        const most = cancelsTakenTogether(this.venue);
+        if (!Array.isArray(intent.orders) || intent.orders.length < 1)
+          throw refusal(venueId, 'venue_rejected', 'a batch cancel names at least one order');
+        if (intent.orders.length > most)
+          throw refusal(venueId, 'not_offered', `${this.venue.displayName} cancels at most ${most} orders in one signed action`);
+        if (new Set(intent.orders.map((o) => o?.venueClientOrderId)).size !== intent.orders.length)
+          throw refusal(venueId, 'venue_rejected', 'each order in a batch cancel is named once');
+        const cancels: MsgpackValue[] = [];
+        for (const o of intent.orders) {
+          if (typeof o?.venueClientOrderId !== 'string' || !/^0x[0-9a-f]{32}$/.test(o.venueClientOrderId))
+            throw refusal(venueId, 'venue_rejected', "each order in a batch cancel is named by the venue's client id");
+          cancels.push({ asset: (await this.market(o.symbol)).asset, cloid: o.venueClientOrderId });
+        }
+        return l1({ type: 'cancelByCloid', cancels });
+      }
       case 'replace_order': {
         // Hyperliquid's own `modify`: the venue cancels the resting order and places the replacement in one signed
         // action, so no moment passes with neither resting (a stop's position unprotected), as a cancel then a place
@@ -716,57 +742,105 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const sent = await this.post(body, accounts, String(built.action.type));
     if (sent.kind === 'unknown') return { definite: false, reason: sent.reason };
     const asOf = this.clock();
-    let line: StatusLine;
+    const together = prepared.intent.kind === 'cancel_orders' ? prepared.intent.orders.length : 1;
+    let lines: StatusLine[];
     try {
       const answer = obj(sent.json, 'exchange answer');
-      if (answer.status === 'err') line = { kind: 'error', text: str(answer.response, 'error text') };
-      else if (answer.status === 'ok') line = statusLine(answer.response ?? null);
+      // A refusal of the whole action (`err`: a signer the venue does not know, a used nonce) names no order: it is that refusal.
+      if (answer.status === 'err') {
+        const text = str(answer.response, 'error text');
+        if (prepared.intent.kind === 'cancel_orders') return classifyVenueError(this.venue.id, text, asOf);
+        lines = [{ kind: 'error', text }];
+      } else if (answer.status === 'ok') lines = statusLines(answer.response ?? null, together);
       else return { definite: false, reason: 'venue_error_after_send' };
     } catch {
       // An answer we cannot read after the bytes went out is not an answer.
       return { definite: false, reason: 'venue_error_after_send' };
     }
+    if (prepared.intent.kind === 'cancel_orders')
+      return this.cancelsOutcome({ account: prepared.account, orders: prepared.intent.orders, lines, asOf });
+    const [line] = lines;
+    if (line === undefined) return { definite: false, reason: 'venue_error_after_send' };
     return this.outcomeOf(prepared, line, asOf);
+  }
+
+  /** Each cancel of a `cancel_orders` in the order sent, answered as one `cancel_order` is; the venue took the action. */
+  private async cancelsOutcome(answer: {
+    readonly account: UserVenueAccount;
+    readonly orders: readonly { readonly venueClientOrderId: string }[];
+    readonly lines: readonly StatusLine[];
+    readonly asOf: Date;
+  }): Promise<VenueSubmitOutcome> {
+    const { account, orders, lines, asOf } = answer;
+    const legs: VenueLegOutcome[] = [];
+    for (const [i, o] of orders.entries()) {
+      // `statusLines` gave one status per cancel sent; a missing one is no answer for that cancel.
+      const line: StatusLine = lines[i] ?? { kind: 'error', text: 'the venue gave no answer for this cancel' };
+      const leg = await this.cancelOutcome({ account, cloid: o.venueClientOrderId, line, asOf });
+      // A leg is always the venue's answer: one it gave as a duplicate is still a refusal of that cancel, never a re-send.
+      legs.push(
+        leg.definite
+          ? leg
+          : {
+              definite: true,
+              accepted: false,
+              refusal: { venueId: this.venue.id, code: 'venue_rejected', detail: line.kind === 'error' ? line.text : '' },
+              asOf,
+            },
+      );
+    }
+    return { definite: true, accepted: true, venueRef: null, order: null, legs, asOf };
+  }
+
+  /** One cancel by client id: a repeat cancel, or a cancel of an order already gone, is answered by the venue's record of it. */
+  private async cancelOutcome(cancel: {
+    readonly account: UserVenueAccount;
+    readonly cloid: string;
+    readonly line: StatusLine;
+    readonly asOf: Date;
+  }): Promise<VenueSubmitOutcome> {
+    const { account, cloid, line, asOf } = cancel;
+    const venueId = this.venue.id;
+    // A repeat cancel, or a cancel of an order already gone: the venue's record of the order is the answer.
+    if (line.kind === 'accepted' || GONE.test(line.text)) {
+      let order: UserVenueOrder | null;
+      try {
+        order = (await this.orderByClientId(account, cloid)).value;
+      } catch {
+        if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
+        return { definite: true, accepted: false, refusal: { venueId, code: 'venue_rejected', detail: line.text }, asOf };
+      }
+      if (order === null) {
+        // The venue said success: that wins. A read that finds nothing yet is "not found yet", never a refusal.
+        if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
+        return {
+          definite: true,
+          accepted: false,
+          refusal: { venueId, code: 'unknown_order', detail: 'no order with this client id on the venue' },
+          asOf,
+        };
+      }
+      if (order.status === 'canceled') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
+      // The venue said success, but its record still lists the order live: the read lags the cancel. Never hand
+      // that back as the answer, which would read "Open" after Cancel; the next read of the venue has the detail.
+      if (line.kind === 'accepted' && (order.status === 'open' || order.status === 'partially_filled'))
+        return { definite: true, accepted: true, venueRef: order.venueOrderId, order: null, asOf };
+      if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
+      return {
+        definite: true,
+        accepted: false,
+        refusal: { venueId, code: 'order_final', detail: `the order is already ${order.status}` },
+        asOf,
+      };
+    }
+    return classifyVenueError(venueId, line.text, asOf);
   }
 
   private async outcomeOf(prepared: PreparedVenueAction, line: StatusLine, asOf: Date): Promise<VenueSubmitOutcome> {
     const venueId = this.venue.id;
     const intent = prepared.intent;
-    if (intent.kind === 'cancel_order') {
-      // A repeat cancel, or a cancel of an order already gone: the venue's record of the order is the answer.
-      if (line.kind === 'accepted' || /never placed|already canceled|already cancelled|filled/i.test(line.text)) {
-        let order: UserVenueOrder | null;
-        try {
-          order = (await this.orderByClientId(prepared.account, prepared.venueClientOrderId!)).value;
-        } catch {
-          if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
-          return { definite: true, accepted: false, refusal: { venueId, code: 'venue_rejected', detail: line.text }, asOf };
-        }
-        if (order === null) {
-          // The venue said success: that wins. A read that finds nothing yet is "not found yet", never a refusal.
-          if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: null, order: null, asOf };
-          return {
-            definite: true,
-            accepted: false,
-            refusal: { venueId, code: 'unknown_order', detail: 'no order with this client id on the venue' },
-            asOf,
-          };
-        }
-        if (order.status === 'canceled') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
-        // The venue said success, but its record still lists the order live: the read lags the cancel. Never hand
-        // that back as the answer, which would read "Open" after Cancel; the next read of the venue has the detail.
-        if (line.kind === 'accepted' && (order.status === 'open' || order.status === 'partially_filled'))
-          return { definite: true, accepted: true, venueRef: order.venueOrderId, order: null, asOf };
-        if (line.kind === 'accepted') return { definite: true, accepted: true, venueRef: order.venueOrderId, order, asOf };
-        return {
-          definite: true,
-          accepted: false,
-          refusal: { venueId, code: 'order_final', detail: `the order is already ${order.status}` },
-          asOf,
-        };
-      }
-      return classifyVenueError(venueId, line.text, asOf);
-    }
+    if (intent.kind === 'cancel_order')
+      return this.cancelOutcome({ account: prepared.account, cloid: venueClientOrderId(venueId, intent.clientOrderKey), line, asOf });
     if (line.kind === 'error') return classifyVenueError(venueId, line.text, asOf);
     if (intent.kind === 'replace_order' || intent.kind === 'amend_order') {
       // The venue took the one modify: the original was cancelled and the order now rests as changed. Its record is read
