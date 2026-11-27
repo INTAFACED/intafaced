@@ -12,7 +12,7 @@
  *                                             checkout's beta-front.mjs changed (syncFront); it exits after a round that
  *                                             changed this file, asking systemd to start the new copy at once
  *   node tooling/beta/beta-host.mjs round     one round: fetch main, move the checkout to it when main has moved and a
- *                                             move is due (moveDue: with invited testers, once a day at BETA_MOVE_AT or
+ *                                             move is due (moveDue: with testers seen lately, once a day at BETA_MOVE_AT or
  *                                             on demand, #11029), launch or update the stack, run the TEST funds check,
  *                                             wait until it is readied, write status.json: `updating` from before the
  *                                             checkout moves until then, so the front shows its updating page, never a
@@ -50,7 +50,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PUBLIC_ORIGIN } from './beta-front.mjs';
-import { invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
+import { INVITED_RECENT_MS, invitedPaths, readInvited, recordInvited } from './beta-invited.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -632,17 +632,22 @@ export function slotStart(now, at = BETA_MOVE_AT) {
 
 /**
  * Whether a moved main may reach the beta now, and why (#11029). Each move restarts the stack and reloads every open
- * tab onto the updating page, so with testers on it (anyone invited, beta-invited.mjs) main moves once a day, at the
- * first round after the slot, or on demand (`beta-host.mjs move`, for a fix testers need now). With nobody invited it
- * follows main each round (#10612). `why` reads after "moved to main <sha>" when due, alone when not.
+ * tab onto the updating page, so with testers on it (an invited viewer seen in the last 24 hours, beta-invited.mjs) main
+ * moves once a day, at the first round after the slot, or on demand (`beta-host.mjs move`, for a fix testers need now).
+ * With nobody seen lately it follows main each round (#10612, #11046). `testers` counts the recent viewers, `invited`
+ * everyone ever invited. `why` reads after "moved to main <sha>" when due, alone when not.
  */
-export function moveDue({ testers, now, updatedAt, at = BETA_MOVE_AT, asked = false }) {
+export function moveDue({ testers, invited = testers, now, updatedAt, at = BETA_MOVE_AT, asked = false }) {
   const last = slotStart(now, at);
   if (asked) return { due: true, why: 'on demand (beta-host.mjs move)' };
-  if (!testers) return { due: true, why: 'with each merge: nobody is invited yet' };
+  if (!testers)
+    return {
+      due: true,
+      why: invited ? `with each merge: ${invited} invited, none seen in the last 24 hours` : 'with each merge: nobody is invited yet',
+    };
   const moved = Date.parse(updatedAt ?? '');
   if (!Number.isFinite(moved) || moved < last) return { due: true, why: `at the daily slot, ${at} UTC` };
-  const who = `${testers} invited tester${testers === 1 ? '' : 's'}`;
+  const who = `${testers} invited tester${testers === 1 ? '' : 's'} seen in the last 24 hours`;
   return { due: false, why: `${who}: main waits for the daily slot at ${at} UTC (beta-host.mjs move moves it now)` };
 }
 
@@ -740,7 +745,8 @@ export async function round(paths = betaPaths(), io = {}) {
   let refused = served.refused?.sha === target ? served.refused : null;
   const asked = fs.existsSync(paths.moveNow);
   const slot = moveDue({
-    testers: readInvited(paths.invited).size,
+    testers: readInvited(paths.invited, { seenSince: now() - INVITED_RECENT_MS }).size,
+    invited: readInvited(paths.invited).size,
     now: now(),
     updatedAt: prev.updatedAt,
     at: process.env.BETA_MOVE_AT ?? BETA_MOVE_AT,

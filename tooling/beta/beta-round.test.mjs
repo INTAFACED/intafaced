@@ -481,7 +481,10 @@ test('moveDue: nobody invited follows main; with testers, main moves once a day 
   assert.match(moveDue({ testers: 0, now, updatedAt: '2026-11-23T08:59:00Z' }).why, /nobody is invited/);
   const held = moveDue({ testers: 2, now, updatedAt: '2026-11-23T06:00:00Z' });
   assert.equal(held.due, false);
-  assert.match(held.why, /2 invited testers: main waits for the daily slot at 20:00 UTC/);
+  assert.match(held.why, /2 invited testers seen in the last 24 hours: main waits for the daily slot at 20:00 UTC/);
+  const stale = moveDue({ testers: 0, invited: 1, now, updatedAt: '2026-11-23T08:59:00Z' });
+  assert.equal(stale.due, true, 'invited, but nobody seen in the last 24 hours (#11046)');
+  assert.match(stale.why, /with each merge: 1 invited, none seen in the last 24 hours/);
   assert.equal(moveDue({ testers: 2, now, updatedAt: '2026-11-22T19:59:00Z' }).due, true, 'not moved since the last slot');
   assert.match(moveDue({ testers: 2, now, updatedAt: '2026-11-22T19:59:00Z' }).why, /the daily slot/);
   assert.equal(moveDue({ testers: 2, now, updatedAt: '2026-11-23T06:00:00Z', asked: true }).due, true);
@@ -508,8 +511,22 @@ test('with testers on, a merge between slots does not reach them: the stack stay
   assert.equal(end.sha, OLD);
   assert.equal(end.mainAt, NEW);
   assert.equal(end.upSince, '2026-11-23T06:05:00Z', 'no restart, so no tab reloads');
-  assert.match(end.why, /1 invited tester: main waits for the daily slot at 20:00 UTC/);
-  assert.match(statusLine(readStatus(paths)), /^up: serves aaaaaaaaa; main is at bbbbbbbbb; 1 invited tester: main waits/);
+  assert.match(end.why, /1 invited tester seen in the last 24 hours: main waits for the daily slot at 20:00 UTC/);
+  assert.match(
+    statusLine(readStatus(paths)),
+    /^up: serves aaaaaaaaa; main is at bbbbbbbbb; 1 invited tester seen in the last 24 hours: main waits/,
+  );
+});
+
+test('a viewer last seen 25 hours ago holds nothing: the beta moves with the merge (#11046)', async () => {
+  const paths = home();
+  fs.writeFileSync(paths.invited, JSON.stringify({ kind: 'intafaced-beta-invited', tokens: { tester1: '2026-11-22T08:00:00Z' } }));
+  fs.writeFileSync(paths.status, JSON.stringify({ state: 'up', sha: OLD, updatedAt: '2026-11-23T06:00:00Z' }));
+  const { io, seen } = fakes(paths);
+  const end = await round(paths, io);
+  assert.ok(steps(seen).includes('checkout'), 'the checkout moves to main');
+  assert.equal(end.sha, NEW);
+  assert.match(end.why, /moved to main bbbbbbbbb with each merge: 1 invited, none seen in the last 24 hours/);
 });
 
 test('with testers on, the first round after the daily slot moves to main', async () => {
