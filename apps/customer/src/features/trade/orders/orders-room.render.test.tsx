@@ -6,7 +6,7 @@ import { tabSpecs } from '../../../app/menus';
 import { findRoom } from '../../../app/navigation';
 
 // The menus' Orders (Trade) and Order history (More) are one page, and with venue trading on it lists the trader's
-// venue orders, or says "No orders yet" in one plain line, never a wallet prompt standing in for the list.
+// venue orders, or says "No orders to show" in one plain line, never a wallet prompt standing in for the list.
 const state: { mode: VenueMode } = {
   mode: {
     mode: 'on',
@@ -52,10 +52,10 @@ describe('Trade > Orders', () => {
     expect(findRoom('/trade/orders')?.title).toBe('Order history');
   });
 
-  it('with venue trading on and no wallet yet, says "No orders yet" under the wallet bar', () => {
+  it('with venue trading on and no wallet yet, says "No orders to show" under the wallet bar', () => {
     const html = renderToString(<TradeRoutes path="/trade/orders" />);
     expect(html).toContain('data-mock="wallet-bar"');
-    expect(html).toContain('No orders yet');
+    expect(html).toContain('No orders to show');
     expect(html).not.toContain('You have no past orders');
   });
 });
