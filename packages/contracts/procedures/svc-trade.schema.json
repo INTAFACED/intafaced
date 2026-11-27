@@ -18019,6 +18019,255 @@
           }
         }
       ]
+    },
+    "trade.venue.deskSnapshot": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "venue.deskSnapshot",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-notify"]
+      },
+      "refusals": {
+        "trade.desk_snapshot_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["userId", "since"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "const": "off"
+              }
+            },
+            "required": ["state"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "const": "read"
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "asOf": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "weekStart": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "accounts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "owner": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "subAccount": {
+                      "type": ["string", "null"]
+                    },
+                    "accountValue": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "marginUsed": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "marginUse": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unrealisedPnl": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "positions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "symbol": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "side": {
+                            "type": "string",
+                            "enum": ["long", "short"]
+                          },
+                          "size": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d+)?$"
+                          },
+                          "entryPrice": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d+)?$"
+                          },
+                          "markPrice": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d+)?$"
+                          },
+                          "unrealisedPnl": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d+)?$"
+                          },
+                          "margin": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d+)?$"
+                          }
+                        },
+                        "required": ["symbol", "side", "size", "entryPrice", "markPrice", "unrealisedPnl", "margin"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["owner", "subAccount", "accountValue", "marginUsed", "marginUse", "unrealisedPnl", "positions"],
+                  "additionalProperties": false
+                }
+              },
+              "fills": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "fillId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "symbol": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": ["buy", "sell"]
+                    },
+                    "price": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "realisedPnl": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "fee": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d+)?$"
+                    },
+                    "feeAsset": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "filledAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    }
+                  },
+                  "required": ["fillId", "symbol", "side", "price", "amount", "realisedPnl", "fee", "feeAsset", "filledAt"],
+                  "additionalProperties": false
+                }
+              },
+              "week": {
+                "type": "object",
+                "properties": {
+                  "asset": {
+                    "type": "string"
+                  },
+                  "realisedPnl": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d+)?$"
+                  },
+                  "fees": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d+)?$"
+                  },
+                  "profit": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d+)?$"
+                  }
+                },
+                "required": ["asset", "realisedPnl", "fees", "profit"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["state", "test", "asOf", "weekStart", "accounts", "fills", "week"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "user-1",
+            "since": "2026-11-23T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "user-1",
+            "since": "yesterday"
+          }
+        }
+      ]
     }
   }
 }

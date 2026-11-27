@@ -124,8 +124,7 @@ run 'node tooling/scripts/local-test-stack.mjs fund <email> USDT 1000'        # 
 provider and svc-protocol's wallet messages accept that origin. A sign-in passkey made there does not work on the box's
 `localhost` page.
 
-**Known gaps on the public name:** the TEST bank pay-in's return link and the academy's videos point at the box's loopback. On a phone-width screen the desk's order-type
-tabs overlap, so "OTO" covers "Market".
+**Known gaps on the public name:** the TEST bank pay-in's return link and the academy's videos point at the box's loopback.
 
 ## Check a trading change on the test network, no browser
 

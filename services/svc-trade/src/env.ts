@@ -57,6 +57,12 @@ const schema = serviceEnvSchema
        * slower watch than the TEST venue, as each reading costs it two balance reads per account.
        */
       TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: z.string().default(''),
+      /**
+       * How many accounts the balance watch reads a minute (src/venue/account-pace.ts). Blank: every watched
+       * account on every tick. A whole number: that many a minute in turn, so on a venue that limits the box by weight a
+       * minute the watch's spend stays the same however many accounts there are, and each account is read less often.
+       */
+      TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE: z.string().default(''),
       /** NO DEFAULT drain bound: the largest notional of one agent order. Blank refuses every agent order `agents.order_bound_unset`. */
       TRADE_AGENT_MAX_ORDER_NOTIONAL: z.string().default(''),
       /** NO DEFAULT drain bound: the worst price an agent order may name, bps from the mark. Blank refuses `agents.price_bound_unset`. */
@@ -86,6 +92,11 @@ const schema = serviceEnvSchema
        */
       TRADE_BUILDER_FEE_POSTER: z.enum(['on', 'off']).default('on'),
       TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(10_000),
+      /**
+       * How many accounts' fills the builder-fee poster reads a minute, per venue (src/venue/account-pace.ts).
+       * Blank: every account each run. A whole number: that many a minute in turn; a complete run is a complete round.
+       */
+      TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE: z.string().default(''),
       /**
        * OWNER 288 change 1e: how often the builder-fee recon runs on its own over the last day, with the door on, and logs
        * `trade.builder_fee_recon_break` when the venue's fills or its own totals and the ledger disagree.

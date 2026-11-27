@@ -340,7 +340,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // allows 1200 weight a minute per IP, shared by everything on the box, and each balance read weighs 2: at the
           // engine's second, seven testers' accounts alone spent it (25 Nov 2026, every funding read answered 429). On the
           // test network the watch reads each account every 15 s; the TEST venue keeps the engine's second.
-          ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? { TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: '15000' } : {}),
+          // Read every 15 s, every account still grew the box's weight with the account count (about ten accounts,
+          // no desk open, spent 160 a minute on balances alone): there the watch reads 24 accounts a minute in turn, at most
+          // 96 weight a minute however many accounts there are (each account is read less often as they grow).
+          ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet'
+            ? { TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: '15000', TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE: '24' }
+            : {}),
           TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
           TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
           // `LOCAL_STACK_AGENT_MARKETS_ADD=<symbols>` adds a journey's own TEST markets to the list for one restart, so an
@@ -364,6 +369,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // account's fills at 20 weight or more, against the box's one 1200 a minute: every 30 s there.
           TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
           TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? '30000' : '2000',
+          // There it reads 6 accounts' fills a minute in turn, 20 weight or more each, whatever the account count.
+          ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet'
+            ? { TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE: '6' }
+            : {}),
           // Collect (J-derivatives-17, J-campaigns-03): every 2 seconds the TEST venue's own claim record is read and each
           // claim posts once; a claim exists only once a journey asks the TEST venue for one (`/test/builder-claim`).
           TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: '2000',

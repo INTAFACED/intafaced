@@ -110,5 +110,9 @@
   { "path": "statusPage.templates.define", "type": "mutation", "caller": "scope" },
   { "path": "statusPage.templates.list", "type": "query", "caller": "scope" },
   { "path": "statusPage.templates.retire", "type": "mutation", "caller": "scope" },
-  { "path": "supportCharts.alerts", "type": "mutation", "caller": "service" }
+  { "path": "supportCharts.alerts", "type": "mutation", "caller": "service" },
+  { "path": "telegram.linkCode", "type": "mutation", "caller": "scope" },
+  { "path": "telegram.setProfitTarget", "type": "mutation", "caller": "scope" },
+  { "path": "telegram.status", "type": "query", "caller": "scope" },
+  { "path": "telegram.unlink", "type": "mutation", "caller": "scope" }
 ]

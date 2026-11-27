@@ -28,12 +28,16 @@
 // never drop or repeat a journey; a plan that fails the check prints nothing and the workflow falls back to Playwright's
 // own split of every file.
 //
+// Launch-desk files and frozen journeys' files never share a shard (planByCustody): each shard's stack runs one custody
+// switch, launch's for the launch desk (launch-custody.mjs, #11077).
+//
 // `--only` plans a targeted run: only the journey files it names (targetFiles), which must all exist. The workflow
 // passes it only for a manual run on a branch other than main (owner decision 2026-10-30).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stackFresh } from '../../apps/customer/tests/real-app/world-line.mjs';
+import { fileCustody, readLaunchJourneyIds } from './launch-custody.mjs';
 
 export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 export const JOURNEY_FILE = /\.pw\.mjs$/;
@@ -325,8 +329,14 @@ export function shardTarget(durations) {
  * Problems with a plan against the journey files it must run: a file in no shard, a file in two shards or twice in one,
  * a name that is not one of the files, or an empty shard. An empty list means every file runs exactly once.
  */
-export function planCovers(plan, files, fresh = new Set()) {
+export function planCovers(plan, files, fresh = new Set(), custodyOf = null) {
   const problems = [];
+  // One shard runs one stack on one custody switch (launch-custody.mjs), so a shard never mixes the two.
+  if (custodyOf)
+    plan.forEach((bin, i) => {
+      const kinds = new Set(bin.files.map(custodyOf));
+      if (kinds.size > 1) problems.push(`shard ${i + 1} mixes custody ${[...kinds].sort().join(' and ')}`);
+    });
   // A file that needs a fresh stack runs first in its shard, so no other file has used that stack before it.
   plan.forEach((bin, i) => {
     const first = [...bin.files].sort()[0];
@@ -391,13 +401,15 @@ export function targetedShards(
   targetMs,
   limitMs = (JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES) * 60_000,
   pull = false,
+  custodyOf = null,
 ) {
   const totalMs = files.reduce((a, f) => a + (durations.get(f) ?? 0), 0);
   const uncapped = Math.min(files.length, shardCount(totalMs, targetMs, 1));
   // A pull request's run stops at its own cap (PR_MAX_SHARDS), never planned as a full run.
   if (pull) return Math.min(uncapped, PR_MAX_SHARDS);
   if (uncapped <= TARGETED_MAX_SHARDS) return uncapped;
-  const capped = planShards(files, durations, TARGETED_MAX_SHARDS);
+  // The plan CI runs keeps custody switches apart (planByCustody), so the cap is checked on that plan.
+  const capped = planByCustody(files, durations, TARGETED_MAX_SHARDS, new Set(), new Set(), custodyOf);
   if (Math.max(...capped.map((bin) => bin.ms)) <= limitMs) return TARGETED_MAX_SHARDS;
   const full = fullPlan();
   return Math.min(files.length, shardCount(totalMs, full.target, MIN_SHARDS, full.max));
@@ -456,6 +468,42 @@ export function planShards(files, durations, shards, fresh = new Set(), tape = n
   return bins.map((bin) => ({ ms: bin.ms, files: bin.files.sort() }));
 }
 
+/**
+ * How many of `shards` each custody group takes: in proportion to its time, at least one and never more than its files,
+ * and at least as many as its files that need a fresh stack. Pure, for the tests.
+ */
+export function custodyShares(groups, durations, shards, fresh = new Set()) {
+  const ms = (files) => files.reduce((a, f) => a + Math.max(1, durations.get(f) ?? 0), 0);
+  const total = groups.reduce((a, g) => a + ms(g.files), 0);
+  const floor = (g) => Math.max(1, g.files.filter((f) => fresh.has(f)).length);
+  const shares = groups.map((g) => Math.min(g.files.length, Math.max(floor(g), Math.round((shards * ms(g.files)) / total))));
+  // Settle the rounding on the group with the most time per shard (or the least, when taking one away).
+  for (let sum = shares.reduce((a, b) => a + b, 0); sum !== shards; sum = shares.reduce((a, b) => a + b, 0)) {
+    const room = groups
+      .map((g, i) => ({ i, per: ms(g.files) / shares[i] }))
+      .filter(({ i }) => (sum < shards ? shares[i] < groups[i].files.length : shares[i] > floor(groups[i])))
+      .sort((a, b) => (sum < shards ? b.per - a.per : a.per - b.per) || a.i - b.i);
+    if (!room.length) break;
+    shares[room[0].i] += sum < shards ? 1 : -1;
+  }
+  return shares;
+}
+
+/**
+ * planShards for each custody switch apart (launch-custody.mjs fileCustody), so no shard mixes a launch-desk file, whose
+ * stack runs custody as launch does, with a frozen journey's file on today's switch. Launch-desk shards come first.
+ * `custodyOf` absent plans as before. Throws as planShards does.
+ */
+export function planByCustody(files, durations, shards, fresh = new Set(), tape = new Set(), custodyOf = null) {
+  if (!custodyOf) return planShards(files, durations, shards, fresh, tape);
+  const by = Map.groupBy(files, custodyOf);
+  if (by.size < 2) return planShards(files, durations, shards, fresh, tape);
+  if (shards < by.size) throw new Error(`${shards} shard(s) cannot keep ${by.size} custody switches apart`);
+  const groups = [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([custody, list]) => ({ custody, files: list }));
+  const shares = custodyShares(groups, durations, shards, fresh);
+  return groups.flatMap((g, i) => planShards(g.files, durations, shares[i], fresh, tape));
+}
+
 // A file whose journeys alone run this much longer than the plan's median shard is named. (Failure it prevents: main's
 // runs 43653086390 and 43656238027, 15 Nov 2026, planned 64 shards of about 12 minutes, but five shards each held one
 // file of 14 to 23 minutes, J-wallet-05, J-algo-dev-04, J-merchant-02, J-charts-desk-09 and J-wallet-04, so the run
@@ -512,6 +560,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     estimateDurations(files, past, timed, stepCounts(JOURNEY_DIR, files)),
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
+  // Each shard's stack runs one custody switch: launch-desk files as launch does, the rest on today's (launch-custody.mjs).
+  const launchIds = readLaunchJourneyIds();
+  const custodyOf = (f) => fileCustody(f, launchIds);
   // Never more shards than files: a shard must have a file to run.
   // A targeted run takes as few stacks as its files need (from one), not the full suite's floor: a pull request's at
   // most PR_MAX_SHARDS, a run by hand's at most TARGETED_MAX_SHARDS while every shard stays clear of the limit
@@ -522,19 +573,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ? Math.min(Number(asked), pull ? PR_MAX_SHARDS : Infinity)
       : only === null
         ? Math.min(files.length, shardCount(totalMs, target, MIN_SHARDS, max))
-        : targetedShards(files, durations, target, undefined, pull);
+        : targetedShards(files, durations, target, undefined, pull, custodyOf);
   const fresh = freshFiles(JOURNEY_DIR, files);
   const tape = tapeFiles(JOURNEY_DIR, files);
   // A targeted run too small to give each file that needs a fresh stack a shard it runs first in takes one more shard.
   let plan = null;
   for (let n = shards; plan === null; n += 1) {
     try {
-      plan = planShards(files, durations, n, fresh, tape);
+      plan = planByCustody(files, durations, n, fresh, tape, custodyOf);
     } catch (err) {
-      if (n >= files.length || n >= max || !/fresh stack/.test(err.message)) throw err;
+      if (n >= files.length || n >= max || !/fresh stack|custody switches/.test(err.message)) throw err;
     }
   }
-  const problems = planCovers(plan, files, fresh);
+  const problems = planCovers(plan, files, fresh, custodyOf);
   if (problems.length) {
     for (const p of problems) console.error(`::error::the shard plan does not run every journey file once: ${p}`);
     process.exit(1);
@@ -543,7 +594,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only === null ? ` (a full run, on main or off it: at most ${MAX_SHARDS})` : ''}${only !== null && pull ? ` (a pull request's run: as many as the target asks, at most ${PR_MAX_SHARDS})` : ''}${only !== null && !pull ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit, else planned as a full run)` : ''}`,
   );
   plan.forEach((bin, i) =>
-    console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
+    console.error(
+      `shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs, custody ${custodyOf(bin.files[0])}`,
+    ),
   );
   for (const { file, ms, medianMs } of longFiles(plan, durations))
     console.error(

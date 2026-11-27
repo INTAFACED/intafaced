@@ -10,6 +10,7 @@ import {
   type UserVenueMarket,
 } from '@intafaced/venue-contracts';
 import type { BalanceWatchCursor, BalanceWatchStore } from './balance-watch-store.js';
+import type { AccountPace } from './account-pace.js';
 import type { OwnerSignedAccount } from './prepared-action-store.js';
 
 /**
@@ -217,13 +218,18 @@ export interface VenueBalanceWatchDeps {
   /** Publish one change to one person, under its business key. */
   readonly publish: (userId: string, change: VenueBalanceChange) => Promise<void>;
   readonly now: () => Date;
+  /**
+   * How many accounts a tick may read, a minute's worth at a time: on a venue that limits the box by weight a
+   * minute, the watch's spend stays the same however many accounts there are. Omitted: every account on every tick.
+   */
+  readonly pace?: AccountPace;
 }
 
 export class VenueBalanceWatch {
   constructor(private readonly deps: VenueBalanceWatchDeps) {}
 
   /** One reading of every watched account. An account whose reading fails is read again on the next tick. */
-  async tick(): Promise<{ accounts: number; published: number; failed: number }> {
+  async tick(): Promise<{ accounts: number; read: number; published: number; failed: number }> {
     const venue = await this.deps.venue();
     const venueId = venue.venue.id;
     const owners = new Map<string, { account: UserVenueAccount; users: string[] }>();
@@ -234,11 +240,12 @@ export class VenueBalanceWatch {
       if (!entry.users.includes(a.userId)) entry.users.push(a.userId);
       owners.set(k, entry);
     }
-    if (owners.size === 0) return { accounts: 0, published: 0, failed: 0 };
+    const due = this.deps.pace ? this.deps.pace.take([...owners.values()], (e) => accountTag(e.account)).due : [...owners.values()];
+    if (due.length === 0) return { accounts: owners.size, read: 0, published: 0, failed: 0 };
     const markets = (await venue.markets(null)).value;
     let published = 0;
     let failed = 0;
-    for (const { account, users } of owners.values()) {
+    for (const { account, users } of due) {
       try {
         published += await this.readOne({ venue, account, users, markets });
       } catch (err) {
@@ -248,7 +255,7 @@ export class VenueBalanceWatch {
         );
       }
     }
-    return { accounts: owners.size, published, failed };
+    return { accounts: owners.size, read: due.length, published, failed };
   }
 
   private async readOne(input: {
