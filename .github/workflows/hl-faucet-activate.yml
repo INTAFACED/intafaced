@@ -38,19 +38,22 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
 
-      # Every other run of this workflow on main counts against the cap of 2 ever, whatever its result: a failed run may
-      # still have spent. More runs need the owner's yes again.
+      # Every attempt of this workflow on main counts against the cap of 2 ever, whatever its result: a failed one may
+      # still have spent. A re-run keeps its run id and raises its attempt, so attempts are summed: each other run's
+      # run_attempt, plus this run's earlier attempts. More need the owner's yes again.
       - name: Count earlier runs
         id: count
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           n="$(gh api --paginate "repos/$REPO/actions/workflows/hl-faucet-activate.yml/runs?branch=main&per_page=100" \
-            --jq ".workflow_runs[] | select(.id != $RUN_ID) | .id" | wc -l | tr -d ' ')"
-          echo "earlier runs: $n"
+            --jq ".workflow_runs[] | select(.id != $RUN_ID) | .run_attempt" | awk '{ s += $1 } END { print s + 0 }')"
+          n=$((n + RUN_ATTEMPT - 1))
+          echo "earlier attempts: $n"
           echo "n=$n" >> "$GITHUB_OUTPUT"
 
       - name: Install
