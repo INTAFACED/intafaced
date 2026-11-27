@@ -235,6 +235,66 @@ describe('a recorded run of the venue journeys (hl-recorded)', () => {
     await expect(venue.openOrders(account)).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
   });
 
+  it("a session's agent, a new key with a new expiry each run, replays as the run's own; any other write is still refused", async () => {
+    const recordedAgent = key('recorded session agent').address.toLowerCase();
+    const runAgent = key('this run session agent').address.toLowerCase();
+    const approve = (agent: string, until: number) => ({
+      action: {
+        type: 'approveAgent',
+        signatureChainId: '0x66eee',
+        hyperliquidChain: 'Testnet',
+        agentAddress: agent,
+        agentName: `trading-session valid_until ${until}`,
+        nonce: until - 28_800_000,
+      },
+      nonce: until - 28_800_000,
+      vaultAddress: null,
+      expiresAfter: null,
+    });
+    const listed = (agent: string, until: number) => [{ name: 'trading-session', address: agent, validUntil: until }];
+    const recording = parseRecording({
+      label: 'TEST',
+      note: 'TEST',
+      trader: '<trader>',
+      calls: [
+        {
+          path: '/exchange',
+          request: approve(recordedAgent, 1795839731323),
+          status: 200,
+          answer: { status: 'ok', response: { type: 'default' } },
+          source: 'testnet',
+        },
+        {
+          path: '/info',
+          request: { type: 'extraAgents', user: '<trader>' },
+          status: 200,
+          answer: listed(recordedAgent, 1795839731323),
+          source: 'testnet',
+        },
+      ],
+    });
+    const fetch = replayRecording(recording, { trader: replayKey.address });
+    const post = async (path: string, body: unknown) =>
+      JSON.parse(
+        await (
+          await fetch(`https://api.hyperliquid-testnet.xyz${path}`, {
+            method: 'POST',
+            headers: {},
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(1_000),
+          })
+        ).text(),
+      ) as unknown;
+    expect(await post('/exchange', approve(runAgent, 1795842189062))).toEqual({ status: 'ok', response: { type: 'default' } });
+    expect(await post('/info', { type: 'extraAgents', user: replayKey.address })).toEqual(listed(runAgent, 1795842189062));
+    expect(fetch.misses).toEqual([]);
+    // The agent's address and expiry are all that is set aside: another agent name, chain or second approval is refused.
+    const other = { ...approve(runAgent, 1795842189063) };
+    other.action = { ...other.action, agentName: 'another-session valid_until 1795842189063' };
+    await expect(post('/exchange', other)).rejects.toBeInstanceOf(NotRecordedError);
+    expect(fetch.misses.map((m) => m.path)).toEqual(['/exchange']);
+  });
+
   it("a recording made for <trader> refuses to replay without the run's trader address", async () => {
     const { recording } = await record();
     expect(() => replayRecording(recording)).toThrow(/needs the trader address/);
