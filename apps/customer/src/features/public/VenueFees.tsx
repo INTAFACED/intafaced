@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import type { Loadable } from '../../data/types';
 import { useResource } from '../../shared/resource';
+import { useEmbeddedWalletAddress } from '../protocol';
 import {
   bpsToPercent,
   rateShown,
@@ -225,14 +226,29 @@ export function VenueTier() {
   );
 }
 
+/**
+ * The tier is read by address and signs nothing: a connected wallet's address, else the person's made INTAFACED wallet's,
+ * so a made wallet is never asked to connect again just to read its tier.
+ */
 function VenueTierBody() {
   const { t } = venueFeesCopy.useCopy();
-  const owner = useOwner();
+  const connected = useOwner();
+  const made = useEmbeddedWalletAddress();
+  const owner = connected ?? made;
   return (
     <section aria-labelledby="tier-venue" data-tier-page="venue">
       <h2 id="tier-venue">{t('tierTitle')}</h2>
       <p>{t('tierLead')}</p>
-      <WalletBar />
+      {connected || !made ? (
+        <WalletBar />
+      ) : (
+        <p data-tier-owner="made">
+          {t('tierMadeWallet')}{' '}
+          <span className="lt-mono lt-wrap" data-testid="tier-made-address">
+            {made}
+          </span>
+        </p>
+      )}
       {owner ? <OwnerTier owner={owner} /> : null}
     </section>
   );

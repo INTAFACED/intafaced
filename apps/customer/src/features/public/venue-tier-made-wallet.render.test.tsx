@@ -32,6 +32,11 @@ vi.mock('../trade', async (importOriginal) => {
   return {
     ...real,
     useVenueMode: () => ({ mode: 'on', status: { enabled: true, available: true, chainId: 998 }, reload: () => undefined }),
+    // The venue's answer is not needed here: only that the tier is asked for.
+    useVenueApi: () => ({
+      feeTier: () => new Promise(() => undefined),
+      publicFees: () => new Promise(() => undefined),
+    }),
   };
 });
 
@@ -44,6 +49,7 @@ describe('My fee tier: a made INTAFACED wallet', () => {
     expect(html).not.toContain('Connect INTAFACED wallet');
     expect(html).toContain(`data-tier-owner="made"`);
     expect(html).toContain(MADE);
+    expect(html).toContain('Reading the venue’s fees');
   });
 
   it('with no wallet made, it still offers the wallets this browser has', () => {
@@ -51,5 +57,6 @@ describe('My fee tier: a made INTAFACED wallet', () => {
     const html = renderToString(<VenueTier />);
     expect(html).toContain('Connect INTAFACED wallet');
     expect(html).not.toContain('data-tier-owner');
+    expect(html).not.toContain('Reading the venue’s fees');
   });
 });
