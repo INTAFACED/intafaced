@@ -227,6 +227,8 @@ function VenueCard({
   const convert = useConvertApi();
   const wallet = useWallet();
   const signing = useDeskSigning();
+  // Who signs this room's order, in its words: the trading session on a venue whose trades only a session key signs.
+  const bySession = signing?.tradesSignedBy === 'session_key';
   const orderSigner = useExitSigner(owner);
   const v = venueCopy.useCopy().t;
   const account = useVenueAccount(owner);
@@ -453,7 +455,7 @@ function VenueCard({
           {ct('Convert')} <TestMark test={status.test} />
         </h2>
       </div>
-      <p className="lt-hint">{t('Venue tagline')}</p>
+      <p className="lt-hint">{t(bySession ? 'Venue tagline session' : 'Venue tagline')}</p>
       <TabList
         label={ct('Convert mode')}
         value={tab}
@@ -655,7 +657,7 @@ function VenueCard({
       {reviewing && shown ? (
         <KitDialog title={t('Review conversion')} onClose={() => !busy && setReviewing(false)}>
           <div data-testid="cvt-review" className="lt-stack">
-            <p className="lt-hint">{t('Review hint')}</p>
+            <p className="lt-hint">{t(bySession ? 'Review hint session' : 'Review hint')}</p>
             <QuoteFacts quote={shown} t={t} testid="dlg-breakdown" />
             {stale ? (
               <p className="lt-refusal" role="alert" data-testid="dlg-stale">

@@ -526,7 +526,6 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
     expect(store.rows.get(made.conditional.id)!.triggerPrice).toBe(a('96'));
   });
 
-  // J-cex-spot-03 #7: the venue offers no good-till-date; the owner chose that we build it.
   it("on a venue whose trades a session key signs, an entry and a stop the venue holds are prepared for the person's session key", async () => {
     await approveAgent();
     // The person's trading session key, approved on the venue by their wallet (as session-key.ts starts one).
@@ -595,6 +594,7 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
     expect(store.rows.size).toBe(rows);
   });
 
+  // J-cex-spot-03 #7: the venue offers no good-till-date; the owner chose that we build it.
   describe('good-till-date (J-cex-spot-03 #7)', () => {
     let clock = Date.now();
     const timed = () =>
