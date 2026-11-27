@@ -646,6 +646,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     }
     const own = (taker: string, maker: string) => ({ makerFeeBps: rate(fees, maker), takerFeeBps: rate(fees, taker) });
     return this.asOf({
+      // Hyperliquid charges by the account's tier on every market; `markets()` with no account carries no rate.
+      ratesByTier: true,
       schedule: { tiers, volumeAsset: PERP_QUOTE, volumeDays: 14 },
       account: account
         ? {

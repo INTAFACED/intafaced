@@ -1,7 +1,7 @@
 import { renderToString } from 'react-dom/server';
 import type { VenueFeeTier, VenuePublicFees } from '@intafaced/contracts/trade-venue-door';
 import { describe, expect, it } from 'vitest';
-import { VenueTierView } from './VenueFees';
+import { VenueFeesView, VenueTierView } from './VenueFees';
 
 // J-cex-spot-21 #4: My tier reads our builder fee from a second request. Until it answers, the builder-fee cell
 // carries no value, so a reader never takes "loading" for "not set"; once it answers, the cell holds our fee. TEST rates only.
@@ -63,5 +63,47 @@ describe('My tier: our builder fee beside the staking discount', () => {
     expect(builderCell(html)).toContain('data-value=""');
     expect(html).toMatch(/data-cell="builder-fee"[^>]*>not offered here</);
     expect(html).not.toContain('Reading the venue’s fees');
+  });
+});
+
+// The public fee page lists what a withdrawal to the wallet costs, as the venue publishes it; a figure it gives
+// none of reads "not published", never zero, and a venue that publishes no terms says each withdrawal shows its fee.
+describe("/fees: a withdrawal's cost beside the trading fees", () => {
+  const fees = (withdrawal: VenuePublicFees['value']['withdrawal']) =>
+    ({
+      venueId: 'test',
+      asOf: '2026-11-27T00:00:00.000Z',
+      value: {
+        venue: { id: 'test', displayName: 'TEST venue' },
+        schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 },
+        markets: builder,
+        withdrawal,
+        test: true,
+      },
+    }) as VenuePublicFees;
+  const page = (data: VenuePublicFees) => renderToString(<VenueFeesView load={{ status: 'ready', data, asOf: 0 }} />);
+
+  it("the venue's fee, the network fee and the arrival time, as published", () => {
+    const html = page(fees({ asset: 'USDC', fee: rate('1'), networkFee: { known: false }, arrivalSeconds: 240 }));
+    expect(html).toContain('Taking USDC out to your wallet');
+    expect(html).toContain('The venue’s withdrawal fee: 1 USDC');
+    expect(html).toContain('Network fee: not published by the venue.');
+    expect(html).toContain('Arrives in about 4 min, as the venue says.');
+    expect(html).toContain('No trading fee and no fee of ours is taken on a withdrawal.');
+  });
+
+  it('a fee the venue does not publish reads "not published", never zero', () => {
+    const html = page(fees({ asset: 'USDC', fee: { known: false }, networkFee: { known: false }, arrivalSeconds: null }));
+    expect(html).toContain('not published before you send');
+    expect(html).toContain('Arrival time: not published by the venue.');
+    expect(html).not.toContain('0 USDC');
+  });
+
+  it('a venue that publishes no terms says each withdrawal shows its fee', () => {
+    expect(page(fees(null))).toContain('The venue publishes no withdrawal fee before you send.');
+  });
+
+  it('every market row names the rate a new account pays, and where your own is', () => {
+    expect(page(fees(null))).toContain('the ones a new account pays; your own, by your tier, are on My fee tier');
   });
 });

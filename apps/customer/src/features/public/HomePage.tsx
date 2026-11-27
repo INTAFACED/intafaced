@@ -25,7 +25,7 @@ import { useMarketCatalogue, type MarketCatalogue } from '../../data';
 import { compareDecimal, dec, str, sumOf, type Scaled } from '../../data/decimal';
 import { fmtPct, fmtPrice, fmtUsd } from '../../data/format';
 import type { Decimal, Loadable, MarketRow, TickerRow } from '../../data/types';
-import { bpsAsPercent, publicFeesFetcher, type PublicFeeSchedule } from './fees';
+import { bpsAsPercent, publicFeesFetcher, scheduleCharges, type PublicFeeSchedule } from './fees';
 import { landingCopy } from './landing-copy';
 import './landing.css';
 
@@ -88,18 +88,22 @@ function useLines(): { lines: Line[]; state: Loadable<unknown> } {
   return { lines, state: catalogue.markets };
 }
 
-/** The published fee schedule's default taker rate in basis points, or null when nothing is published. */
-function useTakerBps(): number | null {
+/**
+ * The published fee schedule's default taker rate in basis points, or null when nothing is published; `venue` when our
+ * own book is off, so every order pays the venue's fee and the schedule's rate is not one anyone pays.
+ */
+function useTakerBps(): { bps: number | null; venue: boolean } {
   const env = useDataEnv();
   const source = useMemo(
     () => env.poller.source<PublicFeeSchedule | null>('public-fees', publicFeesFetcher(env.api), { intervalMs: 60_000 }),
     [env],
   );
   const load = useSource(source);
-  if (load.status !== 'ready' || !load.data) return null;
+  if (load.status !== 'ready' || !load.data) return { bps: null, venue: false };
+  if (!scheduleCharges(load.data)) return { bps: null, venue: true };
   const group = load.data.groups.find((g) => g.isDefault) ?? load.data.groups[0];
   const rates = (group?.rows ?? []).filter((row) => !row.refusal).map((row) => (row.zeroFee ? 0 : row.takerBps));
-  return rates.length ? Math.min(...rates) : null;
+  return { bps: rates.length ? Math.min(...rates) : null, venue: false };
 }
 
 /**
@@ -114,7 +118,7 @@ export function popularOf<L extends Traded>(lines: readonly L[]): L[] {
 export function HomePage() {
   const { t } = landingCopy.useCopy();
   const { lines, state } = useLines();
-  const takerBps = useTakerBps();
+  const { bps: takerBps, venue: venueFees } = useTakerBps();
   const volume = useMemo(() => {
     const usd = lines.filter((l) => USD_QUOTES.has(l.market.quote) && l.ticker?.quoteVolume24h);
     return usd.length ? str(sumOf(usd.map((l) => dec(l.ticker!.quoteVolume24h) ?? 0n))) : null;
@@ -154,7 +158,7 @@ export function HomePage() {
             <Stat labelBelow label={t('statVolume')} value={volume === null ? null : fmtUsd(volume, { compact: true })} />
             <Stat
               labelBelow
-              label={takerBps === null ? t('statFeeBlank') : t('statFee')}
+              label={venueFees ? t('statFeeVenue') : takerBps === null ? t('statFeeBlank') : t('statFee')}
               value={takerBps === null ? null : bpsAsPercent(takerBps)}
             />
           </TileRow>

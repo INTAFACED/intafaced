@@ -1893,6 +1893,7 @@ installMarketDelistedPlace(TradeService);
 installCollarPlace(TradeService);
 installComboPlace(TradeService);
 registerPrivateRest(app, {
+  ownBookEnabled: env.TRADE_SPOT_ENABLED,
   userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   userVenueSpreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
   apiKeyRotation: createApiKeyRotationClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),

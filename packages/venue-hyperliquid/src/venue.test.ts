@@ -1545,7 +1545,15 @@ describe('feeStatus reads userFees and sends nothing (J-cex-spot-10 #2 #6)', () 
     const fake = fakeVenue();
     fake.info.userFees = () => ({});
     const s = (await venueWith(fake).feeStatus(null)).value;
-    expect(s).toEqual({ schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+    expect(s).toEqual({ ratesByTier: true, schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+  });
+
+  it('says it charges by tier: its markets read with no account carry no rate of their own', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => USER_FEES;
+    expect((await venueWith(fake).feeStatus(null)).value.ratesByTier).toBe(true);
+    const eth = (await venueWith(fake).markets(null)).value.find((m) => m.symbol === 'ETH-PERP')!;
+    expect(eth.takerFeeBps).toEqual({ known: false });
   });
 });
 
