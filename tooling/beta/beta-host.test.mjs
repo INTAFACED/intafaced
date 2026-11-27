@@ -504,6 +504,13 @@ test("the beta's balance watch reads the test network every 15 s, inside its 120
   assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, '15000');
   assert.equal(beta.TRADE_PROTECTION_ENGINE_INTERVAL_MS, '1000');
   for (const venue of ['on', 'hl-recorded']) assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, undefined, venue);
+  // The beta's background readers read a set number of accounts a minute in turn, so their weight does not grow with them.
+  assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, '24');
+  assert.equal(beta.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, '6');
+  for (const venue of ['on', 'hl-recorded']) {
+    assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, undefined, venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, undefined, venue);
+  }
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {

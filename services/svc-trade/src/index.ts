@@ -132,6 +132,7 @@ import { VenueProtections } from './venue/protections.js';
 import { SqlEngineProtectionStore } from './venue/protection-store.js';
 import { VenueAutoTopUp } from './venue/auto-top-up.js';
 import { SqlAutoTopUpStore } from './venue/auto-top-up-store.js';
+import { AccountPace, accountPaceSetting } from './venue/account-pace.js';
 import { VenueBalanceWatch } from './venue/balance-watch.js';
 import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
 import { busRiskAlertNotices, VenueRiskAlerts } from './venue/risk-alerts.js';
@@ -571,6 +572,13 @@ const venueBalanceWatch = userVenue
       venue: () => userVenue.venue(),
       accounts: (venueId) => userVenueStore.ownerSignedAccountsAll(venueId),
       store: new SqlBalanceWatchStore(sql),
+      ...(() => {
+        const perMinute = accountPaceSetting(
+          env.TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE,
+          'TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE',
+        );
+        return perMinute === null ? {} : { pace: new AccountPace(perMinute, () => new Date()) };
+      })(),
       publish: async (userId, change) => {
         await bus.publish('venueBalanceChanged', { ...change, userId }, { idempotencyKey: `${change.changeId}:${userId}` });
       },
