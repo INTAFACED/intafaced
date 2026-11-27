@@ -103,6 +103,7 @@ import {
   slotPorts,
   STACK_PORTS,
   MAKER_RECORD,
+  STACK_START_SETTINGS,
   stackPids,
   stackRecords,
   stackRecordsFile,
@@ -573,11 +574,12 @@ function ownedAlive(rec) {
 /**
  * The `LOCAL_STACK_*=off` values this command runs with, sorted: a journey that blanks an owner value restarts a service
  * with one (J-agents-15). Recorded on each process it starts, so the world restore can see a service left blank after
- * its file (apps/customer/tests/real-app/services.mjs) and start it again without them.
+ * its file (apps/customer/tests/real-app/services.mjs) and start it again without them. The stack's own start settings
+ * (STACK_START_SETTINGS: the custody switch) are not overrides.
  */
 export function offOverrides(env = process.env) {
   return Object.keys(env)
-    .filter((k) => /^LOCAL_STACK_[A-Z0-9_]+$/.test(k) && env[k] === 'off')
+    .filter((k) => /^LOCAL_STACK_[A-Z0-9_]+$/.test(k) && env[k] === 'off' && !STACK_START_SETTINGS.has(k))
     .sort();
 }
 
