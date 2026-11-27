@@ -2,16 +2,29 @@
 //! module here, so a test build links one binary, not one per file (intafaced#9589). Written by
 //! `node tooling/scripts/rust-test-roots.mjs`; do not edit by hand. One file's tests: `--test it -- <file>::`.
 
+#[path = "card_db.rs"]
+mod card_db;
+#[path = "card_parity.rs"]
+mod card_parity;
 #[path = "env_parity.rs"]
 mod env_parity;
 #[path = "input_parity.rs"]
 mod input_parity;
 #[path = "port_notes.rs"]
 mod port_notes;
+#[path = "profile_db.rs"]
+mod profile_db;
 #[path = "refusals.rs"]
 mod refusals;
+#[path = "shares_db.rs"]
+mod shares_db;
+#[path = "store_pg.rs"]
+mod store_pg;
 #[path = "wire_replay.rs"]
 mod wire_replay;
+
+// The helpers the files share: `use crate::<helper>;`, never a `mod` of their own.
+mod support;
 
 /// A `tests/*.rs` or `tests/*/main.rs` file this root does not list would never run.
 #[test]

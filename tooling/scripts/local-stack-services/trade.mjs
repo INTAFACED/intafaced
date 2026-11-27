@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { userVenueCount, userVenueSwitchOn } from '../local-test-venue.mjs';
+import { userVenueCount, userVenueKind, userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -129,6 +129,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // snapshot only when the schedule in force has a tier programme with a snapshot time (spot/fee-tier-jobs.ts), so
     // with the boot schedule below it does nothing; J-cex-spot-10 #5-#6 publishes a TEST programme. Blank is off.
     TRADE_FEE_TIER_JOBS_INTERVAL_MS: '5000',
+    // LOCAL TEST, not an owner decision (RC-cex-spot-05; J-cex-spot-15 #10): book snapshot capture interval and
+    // historical dataset materializer tick. `LOCAL_STACK_TRADE_HISTORY_BOOK_INTERVAL=off` leaves the owner book
+    // interval blank so book datasets refuse `trade.history_book_interval_unset`.
+    TRADE_HISTORY_BOOK_INTERVAL_MS:
+      process.env.LOCAL_STACK_TRADE_HISTORY_BOOK_INTERVAL === 'off' ? '' : testValue('TRADE_HISTORY_BOOK_INTERVAL_MS'),
+    TRADE_HISTORY_JOBS_INTERVAL_MS: '2000',
     TRADE_VIP_PROOF_KEY: secrets.tradeVipProofKey,
     // LOCAL TEST, not an owner decision (option B, 2026-10-13). Fee schedule reference: OKX's public
     // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
@@ -301,8 +307,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
           // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
           // J-derivatives-14's TEST perpetual XDEV-PERP (the one a developer reads and trades through our API).
+          // PURR-USDC: the one spot pair Hyperliquid's test network trades every day (its BTC-USDC has no bids and no
+          // print since 10 Nov 2026), so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
+          // PURR-USDC, so the seed skips it there.
           TRADE_USER_VENUE_TEST_LISTINGS:
-            'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
+            'BTC-USDC,PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
           // `LOCAL_STACK_USER_VENUE_ELIGIBILITY=off` leaves it blank, so the eligible list is empty with its reason.
           TRADE_USER_VENUE_ELIGIBILITY_LEVEL:
@@ -319,6 +328,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_AGENT_KEY_SEED: testValue('TRADE_AGENT_KEY_SEED'),
           // J-derivatives-03: our engine judges the venue-lacking protections (a trailing stop, a stop on the index) each second.
           TRADE_PROTECTION_ENGINE_INTERVAL_MS: '1000',
+          // J-cex-spot-15 #9's balance watch reads two balances per watched account on each pass. Hyperliquid's test network
+          // allows 1200 weight a minute per IP, shared by everything on the box, and each balance read weighs 2: at the
+          // engine's second, seven testers' accounts alone spent it (25 Nov 2026, every funding read answered 429). On the
+          // test network the watch reads each account every 15 s; the TEST venue keeps the engine's second.
+          ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? { TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: '15000' } : {}),
           TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
           TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
           // `LOCAL_STACK_AGENT_MARKETS_ADD=<symbols>` adds a journey's own TEST markets to the list for one restart, so an

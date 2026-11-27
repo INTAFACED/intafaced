@@ -29,6 +29,23 @@ describe('kit fields', () => {
     expect(out).toContain('<option value="de" lang="de" selected="">Deutsch</option>');
   });
 
+  it('SelectField: an option named but refused is shown and cannot be chosen', () => {
+    const out = html(
+      <SelectField
+        id="y"
+        label="Year"
+        value=""
+        onChange={none}
+        options={[
+          { value: '', label: 'Any' },
+          { value: 'tax', label: 'Tax year', disabled: true },
+        ]}
+      />,
+    );
+    expect(out).toContain('<option value="tax" disabled="">Tax year</option>');
+    expect(out).toContain('<option value="" selected="">Any</option>');
+  });
+
   it("TextAreaField: a refusal takes the hint's place, is announced and marks the box invalid", () => {
     const out = html(<TextAreaField id="c" label="Comment" value="" onChange={none} hint="Optional" error="Write a few words" />);
     expect(out).toBe(

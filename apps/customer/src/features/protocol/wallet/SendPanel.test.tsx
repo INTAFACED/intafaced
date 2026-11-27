@@ -24,9 +24,13 @@ vi.mock('../../session/session', () => ({ useApi: () => ({}) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement, root: Root;
 
+/** The control a field's label names, whether the label wraps it or points at it by id. */
 const field = (label: RegExp) => {
-  const span = [...host.ownerDocument.querySelectorAll('label span')].find((node) => label.test(node.textContent ?? ''));
-  return span?.parentElement?.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+  const found = [...host.ownerDocument.querySelectorAll('label')].find((node) =>
+    label.test((node.querySelector('span') ?? node).textContent ?? ''),
+  );
+  return (found?.querySelector('input, select') ?? (found?.htmlFor ? host.ownerDocument.getElementById(found.htmlFor) : null)) as
+    HTMLInputElement | HTMLSelectElement;
 };
 const type = async (element: HTMLInputElement | HTMLSelectElement, value: string) => {
   await act(async () => {

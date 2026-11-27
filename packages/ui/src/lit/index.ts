@@ -5,6 +5,8 @@
 export * from './contracts.js';
 export { flat, lit, litLight, solid, pro, litType, renderLitCss } from './tokens.js';
 export * from './components/index.js';
+export * from './components/b2-controls.js';
+export * from './components/b2-values.js';
 export { AssetIcon, hasAssetArt, type AssetIconProps } from './components/asset-icon.js';
 export { InfoTip, type InfoTipProps } from './components/info-tip.js';
 export { HeroFigure, HIDDEN_MASK, type HeroFigureProps } from './components/hero-figure.js';
@@ -16,9 +18,69 @@ export { ToastProvider, useToast, type ToastOptions, type ToastProviderProps } f
 export { Payee, type PayeeProps } from './components/payee.js';
 export { StatusNote, type StatusNoteProps } from './components/status-note.js';
 export { contrastRatio, deltaE2000, hue, luminance, parseColour, toHex } from './colour.js';
+export * from './components/controls.js';
+export { asOfIso, formatAsOf } from '../components/freshness.js';
 export { heldStateOf, totalFreshness, type HeldState } from '../components/freshness.js';
 export { useFreshnessClock } from '../components/use-freshness-clock.js';
 export { GridTable, type GridColumn, type GridTableProps } from './components/grid-table.js';
 export { FreshnessTag, type FreshnessTagProps } from './components/freshness-tag.js';
 export { SearchField, type SearchFieldProps } from './components/search-field.js';
 export { CardRow, type CardRowProps } from './components/card-row.js';
+export { PageGrid, PageColumn, TileRow, PanelHead, type PageGridProps, type PageLayout } from './components/page-grid.js';
+export {
+  MarketTable,
+  MarketName,
+  MoverTile,
+  MarketTile,
+  StatStrip,
+  MarketHeader,
+  type StatCell,
+  type MarketHeaderProps,
+  type MarketRow,
+  type MarketTableLabels,
+  type MarketTableProps,
+  type MoverTileProps,
+  type MarketTileProps,
+} from './components/market-parts.js';
+export {
+  ActionRow,
+  ActionButton,
+  PanelSection,
+  ProgressSegments,
+  ActivityRow,
+  ActivityList,
+  type ActionButtonProps,
+  type ActivityRowProps,
+} from './components/account-parts.js';
+export {
+  MarketBoard,
+  MarketHero,
+  MarketBoardSkeleton,
+  Dim,
+  ToolbarEnd,
+  FootNotes,
+  StarToggle,
+  type MarketHeroProps,
+  type StarToggleProps,
+} from './components/board-parts.js';
+export {
+  ButtonLink,
+  Display,
+  SectionTitle,
+  LiveDot,
+  TrustStrip,
+  WarnBadge,
+  FeaturedMarket,
+  type StripCell,
+  type FeaturedMarketProps,
+} from './components/display-parts.js';
+export {
+  BookLadder,
+  TradeTape,
+  type BookLadderProps,
+  type BookLevel,
+  type BookSide,
+  type TapePrint,
+  type TradeTapeProps,
+} from './components/exchange.js';
+export { ChoiceTile, RadioTrack, WalletCard, type RadioTrackOption } from './components/auth-parts.js';

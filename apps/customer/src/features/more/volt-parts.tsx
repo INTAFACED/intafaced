@@ -99,6 +99,7 @@ export function KitLimit({
   cap: number;
   onChange: (limit: number) => void;
 }) {
+  if (count < limit) return null;
   return (
     <div className="lt-stack">
       <small className="lt-hint">

@@ -1583,6 +1583,7 @@ function report(opts) {
     // Each moved call's path and the files its callers are in (run.mjs leaves a path whose caller then fails the typecheck).
     moved: [...result.done, ...planned.existing].map((r) => ({
       path: r.path,
+      record: r.name,
       files: [...new Set(r.sites.map((s) => relative(REPO, s.file)))],
     })),
     hand: planned.hand.map((h) => ({

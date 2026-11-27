@@ -33,7 +33,8 @@ test(`${J} part of #2 sending the verification reference and INTAFACED's decisio
   await verifiedBusiness(page, owner, merchantId);
 
   await page.goto('/pay/onboarding/verification');
-  const history = page.locator('section').filter({ has: page.getByRole('heading', { name: /Verification history/i }) });
+  // The section the heading titles, its nearest one: the flow template wraps the step in a region section of its own.
+  const history = page.getByRole('heading', { name: /Verification history/i }).locator('xpath=ancestor::section[1]');
   await expect(history).toContainText('In review to Approved');
   await expect(history).toContainText('Decided by INTAFACED');
   await expect(history).toContainText('Not sent to In review');

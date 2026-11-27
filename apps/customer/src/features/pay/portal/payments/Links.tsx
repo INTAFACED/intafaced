@@ -1,14 +1,12 @@
+// volt-room: /pay/links/new
+// volt-room: portal:link-new
 import { useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../../session';
-import { Button } from '@intafaced/ui/lit';
-import { Field } from '../../ui-kit';
-import { PayDetails, PaySection } from '../../components';
-import { PortalReview } from '../ui/PortalReview';
+import { Button, Field } from '@intafaced/ui/lit';
 import { validatedRecordMutation } from '../../BusinessPay';
 import { createBusinessPayApi, type BusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import * as s from '../../schemas';
-import { BackLink, Facts, SelectField } from '../components';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { w3cCopy } from './copy';
 import type { PortalApi } from '../api';
@@ -17,6 +15,9 @@ import type { PricedProduct } from '@intafaced/contracts/merchant-catalog';
 import { LinkPricePicker } from '../catalog/LinkPrice';
 import { catalogCopy } from '../catalog/copy';
 import { priceWords } from '../catalog/Prices';
+import { FlowRoom } from '../volt/FlowRoom';
+import { BackLink, Details, Facts, Section, SelectField } from '../volt/parts';
+import { Review } from '../volt/Review';
 import { useAssetChoices } from './asset-choices';
 import { addressOf } from './checkout-address';
 import { LinkAddress } from './LinkAddress';
@@ -78,16 +79,13 @@ export const createLinkInputSchema = z
     if (value.amount && !value.currency) context.addIssue({ code: 'custom', path: ['currency'], message: 'asset' });
   });
 
+/** `/pay/links/new` on the flow template: the owner alone creates payment links. */
+export function LinkNewRoom({ portal, authority }: { portal: PortalApi; authority: PayBusinessAuthority | null }) {
+  return <FlowRoom need="owner">{({ merchantId }) => <Links portal={portal} merchantId={merchantId} authority={authority} />}</FlowRoom>;
+}
+
 /** `/pay/links/new`: the way back to the links and the new link's form. The list and one link's page are `./LinkList`. */
-export function Links({
-  portal,
-  merchantId,
-  authority,
-}: {
-  portal: PortalApi;
-  merchantId: string;
-  authority: PayBusinessAuthority | null;
-}) {
+function Links({ portal, merchantId, authority }: { portal: PortalApi; merchantId: string; authority: PayBusinessAuthority | null }) {
   const { api, userId } = useSession();
   const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api, userId, authority]);
   const { t } = w3cCopy.useCopy();
@@ -119,7 +117,7 @@ function LinkRecovery({
   const [message, setMessage] = useState('');
   return (
     <div className="lt-stack">
-      <p className="pp-callout" role="status">
+      <p className="lt-callout" role="status">
         {t('lk_unresolved')}
       </p>
       <Button
@@ -150,6 +148,7 @@ function LinkRecovery({
     </div>
   );
 }
+
 export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayApi; merchantId: string; portal?: PortalApi }) {
   const { t } = w3cCopy.useCopy();
   const [form, setForm] = useState({
@@ -216,14 +215,14 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
     />
   );
   return (
-    <PaySection title={t('linkNew')}>
+    <Section title={t('linkNew')}>
       {noWrite && (
-        <p className="muted pp-note" role="note">
+        <p className="lt-hint" role="note">
           {t('linkOwnerOnly')}
         </p>
       )}
       <div data-testid="form-stack" className="lt-stack">
-        <fieldset className="pp-group">
+        <fieldset className="lt-group lt-stack">
           <legend>{t('groupCheckout')}</legend>
           {portal && (
             <LinkPricePicker
@@ -249,7 +248,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             />
           )}
           {field('label', t('linkLabel'), t('linkLabelHint'), true)}
-          <div className="form-row">
+          <div className="lt-field-row">
             {field('amount', t('fixedAmount'), fromPrice ? catalogCopy.t('linkPriceSets') : t('fixedAmountHint'), false, 'text', fromPrice)}
             <SelectField
               label={t('lk_asset')}
@@ -260,15 +259,15 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
               options={[['', t('lk_noAsset')], ...assets.map((a) => [a, a] as const)]}
             />
           </div>
-          {form.amount && !form.currency && <p className="error-text">{t('invalidAmountAsset')}</p>}
+          {form.amount && !form.currency && <p className="lt-error">{t('invalidAmountAsset')}</p>}
           {field('profileId', t('lk_profile'), t('profileHint'))}
         </fieldset>
-        <fieldset className="pp-group">
+        <fieldset className="lt-group lt-stack">
           <legend>{t('groupAvailability')}</legend>
           {field('expiry', t('expiry'), t('expiryHint'), false, 'datetime-local')}
           {field('maxUses', t('maxUses'), t('maxUsesHint'))}
         </fieldset>
-        <fieldset className="pp-group">
+        <fieldset className="lt-group lt-stack">
           <legend>{t('lk_groupAfter')}</legend>
           <SelectField
             label={t('lk_afterKind')}
@@ -307,14 +306,14 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
         </fieldset>
         {!parsed.success && <p className="lt-muted">{t('invalidForm')}</p>}
         <div title={noWrite ? t('linkOwnerOnly') : !parsed.success ? t('invalidForm') : undefined}>
-          <PortalReview
+          <Review
             key={recovered}
             title={t('reviewLink')}
             description={t('reviewLinkBody')}
             variant="primary"
             disabled={noWrite || !parsed.success || sent || locked}
             review={
-              <PayDetails
+              <Details
                 values={[
                   ...(priced
                     ? [
@@ -367,13 +366,13 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
           />
         )}
         {created && (
-          <PaySection title={t('publishedOnce')} description={t('publishedOnceBody')}>
+          <Section title={t('publishedOnce')} description={t('publishedOnceBody')}>
             <LinkAddress url={addressOf(created) ?? ''} />
             <Facts
               items={[
                 [
                   t('linkId'),
-                  <span data-testid="pp-mono" className="pp-copy pp-mono">
+                  <span data-testid="pp-mono" className="lt-mono">
                     {created.id}
                   </span>,
                 ],
@@ -384,9 +383,9 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             <Button tone="secondary" onClick={() => setCreated(null)}>
               {t('hideUrl')}
             </Button>
-          </PaySection>
+          </Section>
         )}
       </div>
-    </PaySection>
+    </Section>
   );
 }

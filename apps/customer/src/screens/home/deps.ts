@@ -2,20 +2,17 @@
 // feature registry (B2). Home draws from the Volt kit (@intafaced/ui/lit) and its own parts (./volt-parts).
 
 export {
-  direction,
   fmtAmount,
   fmtChangeLine,
   fmtPct,
-  fmtPrice,
   fmtUsd,
   classifyRefusal,
   refusalCopy,
   useActivity,
   useFavorites,
-  useMarkets,
+  useMarketCatalogue,
   useMovers,
   useSparklines,
-  useTickers,
 } from '../../data';
 export type { ActivityFeed, ActivityItem, Decimal, Loadable, MarketRow, TickerRow } from '../../data';
 // One total: Home reads the same source as the Money screen (the bank's valuation, which counts named accounts).

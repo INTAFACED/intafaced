@@ -126,7 +126,7 @@ describe('I lost my authenticator', () => {
     await submit('Start the reset');
     await act(async () => {
       await vi.waitFor(() =>
-        expect(host.querySelector('.public-auth-mfa-reset [role=status]')?.textContent).toContain(
+        expect(host.querySelector('[data-testid="public-auth-mfa-reset"] [role=status]')?.textContent).toContain(
           'Your second step is being reset. It waits until',
         ),
       );
@@ -227,6 +227,6 @@ describe('I lost my authenticator', () => {
     await lostAuthenticator();
     await submit('Back to sign in');
     expect(field('password')).not.toBeNull();
-    expect(host.querySelector('.public-auth-mfa-reset')).toBeNull();
+    expect(host.querySelector('[data-testid="public-auth-mfa-reset"]')).toBeNull();
   });
 });

@@ -10,7 +10,7 @@
  * - `useChartOptionsInPlace`: options applied to the chart in place whenever their key changes.
  * - `useMainSeriesLines`: labelled lines on the main series, drawn again whenever their key or the host changes.
  * - `useMainSeriesBars`: the bars on the main series: `update` for the newest, a full reset when the window moved, the
- *   view fitted once per fit key and otherwise kept on the same bars when older ones are put in front.
+ *   view fitted once per fit key; when older bars are put in front the library keeps the view on the same bars.
  * - `useCentredBar`: moves the view so an asked bar is in the middle, keeping the zoom.
  */
 import { useEffect, useRef, useState, type RefObject } from 'react';
@@ -235,15 +235,13 @@ export function useMainSeriesBars<B extends { t: number }, S extends StageSeries
     const plan = now.plan(before, bars);
     const { points, report } = now.points();
     if (plan.kind === 'reset') {
-      const range = api.timeScale().getVisibleLogicalRange();
-      const prepended = before && before.length > 0 ? bars.findIndex((bar) => bar.t === before[0]!.t) : -1;
+      // Older bars put in front need no move: the library keeps the view on the same bars by itself, and a study's
+      // series may have grown the time scale before this runs, so a move here would shift the view a second time.
       series.setData(points);
       if (fittedFor.current !== now.fitKey) {
         api.timeScale().fitContent();
         fittedFor.current = now.fitKey;
         now.onFit?.();
-      } else if (range && prepended > 0) {
-        api.timeScale().setVisibleLogicalRange({ from: range.from + prepended, to: range.to + prepended });
       }
     } else {
       for (const point of points.slice(plan.from)) series.update(point);

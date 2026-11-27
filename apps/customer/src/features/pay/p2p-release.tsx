@@ -5,7 +5,7 @@ import { displayAmount } from '../../shared/money';
 import { formatDateTime } from './portal/ui/format';
 import { StepUpConfirm } from '../money';
 import { payCopy } from './copy';
-import { PayAmount, PayDetails, ReviewedAction } from './components';
+import { PayAmount, PayDetails, ReviewedAction } from './volt/parts';
 import { CounterpartyName } from './p2p-counterparty/CounterpartyRoom';
 import type { PersonalPayApi } from './pay-api';
 import { releaseCopy } from './p2p-release-copy';
@@ -73,7 +73,7 @@ export function ReleaseAction({
       variant="primary"
       description={t('releaseWhy')}
       review={
-        <div className="p2p-order-review" data-testid="order-release-review">
+        <div className="lt-stack" data-testid="order-release-review">
           <PayDetails
             values={[
               [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
@@ -155,7 +155,7 @@ function ReleaseChecklist({
   // A new order on the same page starts unticked.
   useEffect(() => onChange(() => Object.fromEntries(CHECKS.map((key) => [key, false])) as Record<Check, boolean>), [trade.id]);
   return (
-    <fieldset className="p2p-paid-checklist" data-testid="order-release-checklist">
+    <fieldset className="lt-stack lt-stack-tight" data-testid="order-release-checklist">
       <legend>{t('checklist')}</legend>
       {CHECKS.map((key) => (
         <label key={key}>

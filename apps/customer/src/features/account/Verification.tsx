@@ -1,6 +1,6 @@
 // volt-room: /verification
 import { useEffect, useRef, useState } from 'react';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field, PageColumn, PageGrid, Surface } from '@intafaced/ui/lit';
 import { Dialog, FlowTemplate, StatusChip } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { Empty, Failure, Loading } from './kit-parts';
@@ -487,251 +487,264 @@ export function Verification() {
   const ready = resource.status === 'ready' ? resource.data : null;
   return (
     <div data-testid="verification" lang={languageFor('title')}>
-      <FlowTemplate
-        title={t('title')}
-        description={t('description')}
-        state={{ kind: 'ready' }}
-        step={
-          <div className="lt-stack">
+      <PageGrid layout="split" data-template="verification">
+        <PageColumn span="all">
+          <header className="lt-stack">
+            <h1 className="lt-title">{t('title')}</h1>
+            <p className="lt-description">{t('description')}</p>
             {/* Raw reference codes stay for screen readers and support, not on screen. */}
             <p className="lt-sr">
               <Copy k="owner" /> · <span lang="zxx">{userId}</span>
             </p>
-            <div className="lt-sections">
-              {originals}
-              {privateVisible && (problem || journal.failed) && (
-                <p className="lt-refusal" role="status">
-                  <Copy k={problem ?? 'storage'} />
-                </p>
-              )}
-              <VerificationTradingChecks
-                disabled={!userId || !api.canWrite()}
-                onDone={reload}
-                levelHeld={resource.status === 'loading' ? null : heldLevel !== 'none'}
-              />
-              <section data-testid="verification__list" className="lt-stack" aria-label={t('records')}>
-                {resource.status === 'loading' ? (
-                  <Loading />
-                ) : resource.status === 'failed' ? (
-                  <>
-                    <div lang="und">
-                      <Failure result={resource.failure} retry={reload} />
-                    </div>
-                    <p className="lt-muted">
-                      <Copy k="readBoundary" />
-                    </p>
-                  </>
-                ) : (
-                  <div data-testid="verification__tier" className="lt-stack">
-                    <span className="lt-muted">
-                      <Copy k="current" />
-                    </span>
-                    <h2
-                      className="lt-figure"
-                      data-testid="verification__level-tag"
-                      data-status={resource.data.tier === 'none' ? 'working' : 'filled'}
-                    >
-                      <Copy k={resource.data.tier} />
-                    </h2>
-                    <p className="lt-muted">
-                      <Copy k="currentBody" />
-                    </p>
-                  </div>
-                )}
-              </section>
-              <section data-testid="verification__request" className="lt-stack" aria-label={t('requestTitle')}>
-                <h2>
-                  <Copy k="requestTitle" />
-                </h2>
-                <p className="lt-muted">
-                  <Copy k="requestBody" />
-                </p>
-                {casesKey !== null && <VerificationAttempts recordsKey={`${casesKey}:${lockRefusals}`} onLocked={setLocked} />}
-                {offeredTiers.length > 0 ? (
-                  <form
-                    ref={form}
-                    className="lt-stack"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      open();
-                    }}
-                  >
-                    <label className="lt-field">
-                      <span>
-                        <Copy k="tier" />
-                      </span>
-                      <select
-                        value={privateVisible ? chosenTier : (offeredTiers[0] ?? 'basic')}
-                        disabled={blocked}
-                        onChange={(event) => {
-                          const parsed = requestedTier.safeParse(event.target.value);
-                          if (parsed.success) setTier(parsed.data);
-                        }}
-                      >
-                        {offeredTiers.map((level) => (
-                          <option key={level} value={level}>
-                            {t(level)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <Field
-                      label={t('country')}
-                      name="kyc-country"
-                      required
-                      minLength={2}
-                      maxLength={2}
-                      pattern="[a-zA-Z]{2}"
-                      value={privateVisible ? country : ''}
-                      disabled={blocked}
-                      onChange={(event) => setCountry(event.target.value)}
-                      hint={t('countryHint')}
-                    />
-                    <Button tone="primary" type="submit" disabled={blocked}>
-                      <Copy k="review" />
-                    </Button>
-                  </form>
-                ) : (
-                  <p>
-                    <Copy k="topLevel" />
-                  </p>
-                )}
-                <p className="lt-muted">
-                  <Copy k="documentBoundary" />
-                </p>
-                <a data-testid="text-link" className="lt-link" href="/support">
-                  <Copy k="help" /> <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
-                </a>
-              </section>
-              {ready && (
-                <section data-testid="verification__records" className="lt-stack" aria-label={t('records')}>
-                  <div className="lt-title-row">
-                    <h2>
-                      <Copy k="records" />
-                    </h2>
-                    <Button tone="secondary" onClick={reload}>
-                      <Copy k="refresh" />
-                    </Button>
+          </header>
+        </PageColumn>
+        <PageColumn>
+          <Surface className="lt-stack">
+            <section data-testid="verification__list" className="lt-stack" aria-label={t('records')}>
+              {resource.status === 'loading' ? (
+                <Loading />
+              ) : resource.status === 'failed' ? (
+                <>
+                  <div lang="und">
+                    <Failure result={resource.failure} retry={reload} />
                   </div>
                   <p className="lt-muted">
-                    <Copy k="window" params={{ limit }} />
+                    <Copy k="readBoundary" />
                   </p>
-                  {ready.records.length ? (
-                    <ul className="lt-sections">
-                      {ready.records.map((row) => (
-                        <li key={row.id} className="lt-stack">
-                          <div className="lt-title-row">
-                            <strong>
-                              <Copy k={row.tier} /> · <span lang="zxx">{row.jurisdiction}</span>
-                            </strong>
-                            {row.status === 'approved' ? (
-                              <StatusChip status="done" label={t(row.status)} />
-                            ) : (
-                              <span className="lt-muted">
-                                <Copy k={row.status} />
-                              </span>
-                            )}
-                          </div>
-                          <p className="lt-muted">{time(row.createdAt)}</p>
-                          <p className="lt-sr" lang="zxx">
-                            {row.id}
-                          </p>
-                          <div className="lt-actions">
-                            <Button tone="quiet" aria-label={t('inspectId', { id: row.id })} onClick={() => setSelected({ ...row })}>
-                              <Copy k="inspect" /> <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
-                            </Button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <Empty title={t('empty')}>
-                      <Copy k="emptyBody" />
-                    </Empty>
-                  )}
-                  {limit < 200 && ready.records.length === limit && (
-                    <Button tone="secondary" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-                      <Copy k="expand" params={{ limit: limit + 50 }} />
-                    </Button>
-                  )}
-                  {limit === 200 && (
-                    <p className="lt-muted">
-                      <Copy k="maximum" />
-                    </p>
-                  )}
-                  {privateVisible && selected && (
-                    <section className="lt-stack" aria-label={t('selected')}>
-                      <h2>
-                        <Copy k="selected" />
-                      </h2>
-                      {!ready.records.some((row) => row.id === selected.id) && (
-                        <p>
-                          <Copy k="selectionMissing" />
-                        </p>
-                      )}
-                      {record(selected)}
-                      <p className="lt-muted">
-                        <Copy k="recordBoundary" />
-                      </p>
-                    </section>
-                  )}
-                </section>
-              )}
-              <VerificationLadder
-                statusTier={ready ? ready.tier : null}
-                offered={offeredTiers}
-                verifyDisabled={blocked}
-                onVerify={(level) => {
-                  const parsed = requestedTier.safeParse(level);
-                  if (!parsed.success) return;
-                  setTier(parsed.data);
-                  jump();
-                }}
-              />
-              {casesKey === null ? (
-                <Loading />
-              ) : bankOpen ? (
-                <>
-                  {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
-                  {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}
-                  <VerificationSelfie recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
                 </>
               ) : (
-                <section className="lt-stack" aria-label={trading.t('bankTitle')} data-testid="verification__bank">
-                  <h2>
-                    <trading.Copy k="bankTitle" />
+                <div data-testid="verification__tier" className="lt-stack">
+                  <span className="lt-muted">
+                    <Copy k="current" />
+                  </span>
+                  <h2
+                    className="lt-figure"
+                    data-testid="verification__level-tag"
+                    data-status={resource.data.tier === 'none' ? 'working' : 'filled'}
+                  >
+                    <Copy k={resource.data.tier} />
                   </h2>
                   <p className="lt-muted">
-                    <trading.Copy k="bankBody" />
+                    <Copy k="currentBody" />
                   </p>
-                  <Button tone="secondary" onClick={() => setBankRoute(true)}>
-                    <trading.Copy k="bankOpen" />
-                  </Button>
-                </section>
+                </div>
               )}
-              {casesKey !== null && (
-                <>
-                  {/* Not the request form's hold: an attempts lockout or a pending request does not stop proof of address. */}
-                  <VerificationProofOfAddress recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
-                  <VerificationCapabilities recordsKey={casesKey} />
-                  <VerificationRestrictions recordsKey={casesKey} />
-                  <VerificationCases
-                    recordsKey={casesKey}
-                    offered={offeredTiers}
-                    resubmitDisabled={blocked}
-                    onResubmit={(level) => {
-                      const parsed = requestedTier.safeParse(level);
-                      if (!parsed.success) return;
-                      setTier(parsed.data);
-                      jump();
-                    }}
+            </section>
+            <VerificationTradingChecks
+              disabled={!userId || !api.canWrite()}
+              onDone={reload}
+              levelHeld={resource.status === 'loading' ? null : heldLevel !== 'none'}
+            />
+          </Surface>
+          <Surface className="lt-stack">
+            <section data-testid="verification__request" className="lt-stack" aria-label={t('requestTitle')}>
+              <h2>
+                <Copy k="requestTitle" />
+              </h2>
+              <p className="lt-muted">
+                <Copy k="requestBody" />
+              </p>
+              {casesKey !== null && <VerificationAttempts recordsKey={`${casesKey}:${lockRefusals}`} onLocked={setLocked} />}
+              {offeredTiers.length > 0 ? (
+                <form
+                  ref={form}
+                  className="lt-stack"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    open();
+                  }}
+                >
+                  <label className="lt-field">
+                    <span>
+                      <Copy k="tier" />
+                    </span>
+                    <select
+                      value={privateVisible ? chosenTier : (offeredTiers[0] ?? 'basic')}
+                      disabled={blocked}
+                      onChange={(event) => {
+                        const parsed = requestedTier.safeParse(event.target.value);
+                        if (parsed.success) setTier(parsed.data);
+                      }}
+                    >
+                      {offeredTiers.map((level) => (
+                        <option key={level} value={level}>
+                          {t(level)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Field
+                    label={t('country')}
+                    name="kyc-country"
+                    required
+                    minLength={2}
+                    maxLength={2}
+                    pattern="[a-zA-Z]{2}"
+                    value={privateVisible ? country : ''}
+                    disabled={blocked}
+                    onChange={(event) => setCountry(event.target.value)}
+                    hint={t('countryHint')}
                   />
-                </>
+                  <Button tone="primary" type="submit" disabled={blocked}>
+                    <Copy k="review" />
+                  </Button>
+                </form>
+              ) : (
+                <p>
+                  <Copy k="topLevel" />
+                </p>
               )}
-            </div>
+              <p className="lt-muted">
+                <Copy k="documentBoundary" />
+              </p>
+              <a data-testid="text-link" className="lt-link" href="/support">
+                <Copy k="help" /> <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+              </a>
+            </section>
+          </Surface>
+          <Surface className="lt-stack">
+            <VerificationLadder
+              statusTier={ready ? ready.tier : null}
+              offered={offeredTiers}
+              verifyDisabled={blocked}
+              onVerify={(level) => {
+                const parsed = requestedTier.safeParse(level);
+                if (!parsed.success) return;
+                setTier(parsed.data);
+                jump();
+              }}
+            />
+          </Surface>
+        </PageColumn>
+        <PageColumn>
+          <div className="lt-stack">
+            {originals}
+            {privateVisible && (problem || journal.failed) && (
+              <p className="lt-refusal" role="status">
+                <Copy k={problem ?? 'storage'} />
+              </p>
+            )}
           </div>
-        }
-      />
+          <Surface className="lt-stack">
+            {ready && (
+              <section data-testid="verification__records" className="lt-stack" aria-label={t('records')}>
+                <div className="lt-title-row">
+                  <h2>
+                    <Copy k="records" />
+                  </h2>
+                  <Button tone="secondary" onClick={reload}>
+                    <Copy k="refresh" />
+                  </Button>
+                </div>
+                <p className="lt-muted">
+                  <Copy k="window" params={{ limit }} />
+                </p>
+                {ready.records.length ? (
+                  <ul className="lt-sections">
+                    {ready.records.map((row) => (
+                      <li key={row.id} className="lt-stack">
+                        <div className="lt-title-row">
+                          <strong>
+                            <Copy k={row.tier} /> · <span lang="zxx">{row.jurisdiction}</span>
+                          </strong>
+                          {row.status === 'approved' ? (
+                            <StatusChip status="done" label={t(row.status)} />
+                          ) : (
+                            <span className="lt-muted">
+                              <Copy k={row.status} />
+                            </span>
+                          )}
+                        </div>
+                        <p className="lt-muted">{time(row.createdAt)}</p>
+                        <p className="lt-sr" lang="zxx">
+                          {row.id}
+                        </p>
+                        <div className="lt-actions">
+                          <Button tone="quiet" aria-label={t('inspectId', { id: row.id })} onClick={() => setSelected({ ...row })}>
+                            <Copy k="inspect" /> <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <Empty title={t('empty')}>
+                    <Copy k="emptyBody" />
+                  </Empty>
+                )}
+                {limit < 200 && ready.records.length === limit && (
+                  <Button tone="secondary" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
+                    <Copy k="expand" params={{ limit: limit + 50 }} />
+                  </Button>
+                )}
+                {limit === 200 && (
+                  <p className="lt-muted">
+                    <Copy k="maximum" />
+                  </p>
+                )}
+                {privateVisible && selected && (
+                  <section className="lt-stack" aria-label={t('selected')}>
+                    <h2>
+                      <Copy k="selected" />
+                    </h2>
+                    {!ready.records.some((row) => row.id === selected.id) && (
+                      <p>
+                        <Copy k="selectionMissing" />
+                      </p>
+                    )}
+                    {record(selected)}
+                    <p className="lt-muted">
+                      <Copy k="recordBoundary" />
+                    </p>
+                  </section>
+                )}
+              </section>
+            )}
+            {casesKey === null ? (
+              <Loading />
+            ) : bankOpen ? (
+              <>
+                {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
+                {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}
+                <VerificationSelfie recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
+              </>
+            ) : (
+              <section className="lt-stack" aria-label={trading.t('bankTitle')} data-testid="verification__bank">
+                <h2>
+                  <trading.Copy k="bankTitle" />
+                </h2>
+                <p className="lt-muted">
+                  <trading.Copy k="bankBody" />
+                </p>
+                <Button tone="secondary" onClick={() => setBankRoute(true)}>
+                  <trading.Copy k="bankOpen" />
+                </Button>
+              </section>
+            )}
+          </Surface>
+          <Surface className="lt-stack">
+            {casesKey !== null && (
+              <>
+                {/* Not the request form's hold: an attempts lockout or a pending request does not stop proof of address. */}
+                <VerificationProofOfAddress recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
+                <VerificationCapabilities recordsKey={casesKey} />
+                <VerificationRestrictions recordsKey={casesKey} />
+                <VerificationCases
+                  recordsKey={casesKey}
+                  offered={offeredTiers}
+                  resubmitDisabled={blocked}
+                  onResubmit={(level) => {
+                    const parsed = requestedTier.safeParse(level);
+                    if (!parsed.success) return;
+                    setTier(parsed.data);
+                    jump();
+                  }}
+                />
+              </>
+            )}
+          </Surface>
+        </PageColumn>
+      </PageGrid>
       {privateVisible && review && same(review) && (
         <Dialog title={t('reviewTitle')} closeLabel={ui.t('closeDialog')} onClose={close}>
           <p>

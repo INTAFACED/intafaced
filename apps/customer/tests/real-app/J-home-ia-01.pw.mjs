@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, ORIGIN, restartService, restartWithSetting, toUnits } from './stack.mjs';
-import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
+import { fundedTrader, openOrders, openHow, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { CHAIN_ID } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
@@ -118,6 +118,7 @@ test(`${J}, with the user-venue door off: Home shows the bank's total to the cen
 
   // EUR has no USD market: it is named as left out, never counted as zero.
   expect(summary.unpriced.map((row) => row.asset)).toContain('EUR');
+  await openHow(page);
   await expect(page.getByText(/Excludes \d+ coins? \(no USD price\)/)).toBeVisible();
 
   // The person picks BTC in View; Home then shows the bank's BTC total, or keeps dollars and says why.
@@ -154,7 +155,7 @@ test(`${J}, with the user-venue door off: the eye hides amounts and keeps prices
   await expect(totalOn(page, HOME_TOTAL)).toHaveAttribute('data-hidden', 'true');
   await expect(totalOn(page, HOME_TOTAL).getByLabel('Hidden')).toBeVisible();
   // Prices are not balances: the markets on Home still show theirs.
-  await expect(page.locator('[data-testid="hp-markets"] [role=row], [data-testid="home-cards"] > *').nth(1)).toContainText(/\d/);
+  await expect(page.getByTestId('hp-markets').getByRole('row').nth(1)).toContainText(/\d/);
   await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
 
   // A second device: a fresh browser with nothing stored, signed in as the same person.

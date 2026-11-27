@@ -178,7 +178,8 @@ test(`${J} #2 opens the gated list: each contract marked open or blocked for thi
   async function shownAsService(body, { on = page, symbols } = {}) {
     const p = panelOf(on);
     const listed =
-      symbols ?? (await on.getByTestId('venue-contract-list').getByRole('button').allInnerTexts()).map((b) => b.split(' · ')[0].trim());
+      symbols ??
+      (await on.getByTestId('venue-contract-list').getByRole('button').allInnerTexts()).map((b) => b.split('\n')[0].split(' · ')[0].trim());
     expect(body.value.map((c) => c.symbol).sort(), 'the gated list names every contract the desk offers, and no other').toEqual(
       [...listed].sort(),
     );

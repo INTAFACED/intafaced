@@ -437,7 +437,7 @@ const messages = {
   'No lead trade in your history': 'No lead trade in your history',
   'No lead trade resting': 'No lead trade resting',
   'No leader matches that name': 'No leader matches that name',
-  'No leaders are listed': 'No leaders are listed',
+  'No leaders are listed yet': 'No leaders are listed yet',
   'No markets are open for copying right now.': 'No markets are open for copying right now.',
   'No new slices are placed while it is paused. Slices already placed stay as they are.':
     'No new slices are placed while it is paused. Slices already placed stay as they are.',

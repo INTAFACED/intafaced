@@ -51,6 +51,12 @@ const schema = serviceEnvSchema
        * the venue's index), in milliseconds. Blank: the engine does not run, and such a stop stays armed, unjudged.
        */
       TRADE_PROTECTION_ENGINE_INTERVAL_MS: z.string().default(''),
+      /**
+       * How often the venue balance watch (J-cex-spot-15 #9) reads every watched account, in milliseconds. Blank or not all
+       * digits: as often as the protection engine; `0`: the watch is off. A venue that limits reads by weight a minute (Hyperliquid's test network: 1200 per IP) needs a
+       * slower watch than the TEST venue, as each reading costs it two balance reads per account.
+       */
+      TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: z.string().default(''),
       /** NO DEFAULT drain bound: the largest notional of one agent order. Blank refuses every agent order `agents.order_bound_unset`. */
       TRADE_AGENT_MAX_ORDER_NOTIONAL: z.string().default(''),
       /** NO DEFAULT drain bound: the worst price an agent order may name, bps from the mark. Blank refuses `agents.price_bound_unset`. */
@@ -833,6 +839,19 @@ const schema = serviceEnvSchema
        * the fee schedule's `tierProgram`.
        */
       TRADE_FEE_TIER_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * Owner value (RC-cex-spot-05; J-cex-spot-15 #10): how often book snapshots are captured for downloadable
+       * historical datasets, in ms. NO DEFAULT: blank refuses `trade.history_book_interval_unset` and builds no book
+       * snapshot dataset.
+       */
+      TRADE_HISTORY_BOOK_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * Operational tick interval in ms for materializing downloadable historical datasets (`spot/history-jobs.ts`).
+       * Blank → the background materializer is off.
+       */
+      TRADE_HISTORY_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * The key VIP application proof files are encrypted with (spot/vip-applications.ts): 32 bytes as base64 or 64 hex

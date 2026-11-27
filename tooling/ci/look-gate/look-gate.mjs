@@ -28,6 +28,10 @@
  * Reports for two weeks; then a failure on the kit gallery or on a page drawn in the new look blocks a pull request
  * that changes the kit, a baseline or a migrated room (policy.mjs). CI runs main's copy.
  *
+ * The key rooms are shot a second time with the venue on, as the beta runs it (`venue /trade`, `venue signed-out /`;
+ * venueTargets): answered by the demo world `pnpm shots` draws on (apps/customer/tests/demo-world/page.mjs), at the
+ * recording's time, with the seeded trader's TEST wallet; their baselines are `look-baselines/venue-<room>/`.
+ *
  * The founder console (apps/admin) is shot too, signed in as a TEST founder against a stand-in Edge (admin.mjs), at a
  * phone and a computer with no variants: its baselines catch a kit change that moves it. Rooms whose calls have no
  * fixture in look-fixtures.mjs still show their refuse state, said so in every report.
@@ -61,6 +65,7 @@ import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
 import { fixtureAnswer as answerAt } from './fixture-answer.mjs';
 import { adminRoutes, edgeAnswer, isAddressInUse, sealSession, startAdmin } from './admin.mjs';
+import { DEMO_ROOMS, connectDemoWallet, prepareDemoPage, startDemoNode } from '../../../apps/customer/tests/demo-world/page.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440, height: 900 } };
@@ -123,6 +128,31 @@ export const KIT_ROUTE = '/kit';
 
 /** The baseline room name of a route (policy.mjs, where a row's room decides what blocks). */
 export const roomName = policy.roomName;
+
+/**
+ * The key rooms again on the demo world (apps/customer/tests/demo-world), with the venue on as the beta runs it: the
+ * TEST account's fixtures switch the venue off, so without these the beta's code path went unjudged. Each is
+ * signed in or out as `pnpm shots` draws it; `routes` narrows them as it narrows the rooms. `node` is the demo chain's
+ * node the signed-in TEST wallet reads (startDemoNode).
+ */
+export function venueTargets(routes, node) {
+  return DEMO_ROOMS.filter((r) => !routes || routes.includes(r.path)).map((r) => {
+    const name = `venue ${r.signedIn ? '' : 'signed-out '}${r.path}`;
+    return {
+      name,
+      path: r.path,
+      room: policy.placeOf(name).room,
+      baselines: 'apps/customer/look-baselines',
+      customer: true,
+      venue: { signedIn: r.signedIn, node },
+    };
+  });
+}
+
+/** Signed in on the demo world, the room connects the TEST wallet where it asks, once it has loaded. */
+async function landed(page, target) {
+  if (target.venue) await connectDemoWallet(page, target.venue);
+}
 
 /** A static server for a built folder, with the production headers and a report endpoint. SPA fallback to index.html. */
 function serve(dir, reports, port) {
@@ -468,7 +498,8 @@ const fixtureAnswer = (href, method, body, { signedIn }) => answerAt(href, metho
  * account has no fixture for is refused.
  */
 async function prepare(page, target = {}) {
-  await page.clock.setFixedTime(FROZEN);
+  // A venue-on room runs at the recording's time, answered by the demo world (venueTargets).
+  if (!target.venue) await page.clock.setFixedTime(FROZEN);
   await page.addInitScript({ content: INIT });
   if (target.customer)
     await page.addInitScript(
@@ -481,6 +512,7 @@ async function prepare(page, target = {}) {
       },
       ['intafaced.customer.view.v1', world.VIEW],
     );
+  if (target.venue) return prepareDemoPage(page, { signedIn: target.venue.signedIn, node: target.venue.node, refusal: REFUSAL });
   const signedIn = Boolean(target.customer) && !world.SIGNED_OUT.includes(target.path);
   // The console's own /api is its server talking to the stand-in Edge (admin.mjs), which already refuses.
   if (!target.admin)
@@ -537,6 +569,7 @@ async function check(context, origin, target, vpName, opts) {
   try {
     await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    await landed(page, target);
     if (target.admin && target.path !== '/login' && new URL(page.url()).pathname === '/login')
       add('signin', ['landed on /login: the console refused the TEST founder session (admin.mjs seals it as founder-session.ts)']);
     row.lit = await page.evaluate(() => !!document.querySelector('[data-look="lit"], [data-moment][data-jurisdiction]'));
@@ -721,6 +754,16 @@ export const CLIPPED_COPY = (generatedId) => {
     return `${el.tagName.toLowerCase()}${id ? `#${id}` : cls ? `.${cls}` : ''}`;
   };
   const cuts = (v) => v === 'hidden' || v === 'clip';
+  // A box around the text that is visually hidden: clipped to nothing, or a 1 px box that cuts what it holds.
+  const hiddenAround = (el) => {
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const ac = getComputedStyle(a);
+      if (ac.clipPath.startsWith('inset(50%')) return true;
+      const ar = a.getBoundingClientRect();
+      if ((ar.width <= 1 || ar.height <= 1) && (cuts(ac.overflowX) || cuts(ac.overflowY))) return true;
+    }
+    return false;
+  };
   const out = new Map();
   for (const own of document.querySelectorAll('[data-look-gate-copy]')) {
     // The kit gallery's picture of a page (scaled down, cut by its frame on purpose) is not copy a person reads there.
@@ -735,6 +778,8 @@ export const CLIPPED_COPY = (generatedId) => {
     // readers (a 1 px clipped box): nobody sees it cut.
     const drawn = el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
     if (!drawn || c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
+    // Inside a visually hidden box (the kit's .lt-sr: a chart's data table for screen readers), the same: nobody sees it.
+    if (hiddenAround(el)) continue;
     const clamp = c.webkitLineClamp && c.webkitLineClamp !== 'none';
     const wide = (cuts(c.overflowX) || c.textOverflow === 'ellipsis') && el.scrollWidth > el.clientWidth + 1;
     const tall = (cuts(c.overflowY) || clamp) && el.scrollHeight > el.clientHeight + 1;
@@ -848,6 +893,7 @@ async function variants(browser, origin, target, opts) {
       await prepare(page, target);
       await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+      await landed(page, target);
       await page.addStyleTag({ content: FREEZE_CSS });
       if (setup.attr) await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
       if (setup.pseudo) {
@@ -1040,6 +1086,9 @@ async function main(opts) {
         baselines: 'apps/customer/look-baselines',
         customer: true,
       });
+    const node = await startDemoNode();
+    servers.push({ close: node.close });
+    for (const t of venueTargets(opts.routes, node.url)) targets.push({ ...t, origin: c.origin });
   }
   // `--routes` narrows a run to those Customer rooms, so the console runs only when asked for or in a whole run.
   if (opts.only === 'admin' || (!opts.only && !opts.routes)) {
@@ -1126,6 +1175,7 @@ async function picture(browser, origin, target, vpName) {
     await prepare(page, target);
     await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    await landed(page, target);
     await page.addStyleTag({ content: FREEZE_CSS });
     await page.waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 }).catch(() => {});
     await page.evaluate(() => document.fonts.ready);
@@ -1188,9 +1238,17 @@ async function prMain(opts) {
     throw new Error(`no @intafaced/i18n build for the 130% copy pass (${I18N_FIXTURES}): pnpm --filter @intafaced/i18n build`);
   const [k, n] = opts.shard;
   // The rooms, and the kit page (/kit), which draws every kit part: a kit change seen only there reaches it too.
-  const targets = (opts.routes ?? [...customerRoutes(), KIT_ROUTE])
-    .filter((_, i) => i % n === k - 1)
-    .map((route) => ({ name: route, path: route, room: roomName(route), baselines: 'apps/customer/look-baselines', customer: true }));
+  const node = await startDemoNode();
+  const targets = [
+    ...(opts.routes ?? [...customerRoutes(), KIT_ROUTE]).map((route) => ({
+      name: route,
+      path: route,
+      room: roomName(route),
+      baselines: 'apps/customer/look-baselines',
+      customer: true,
+    })),
+    ...venueTargets(opts.routes, node.url),
+  ].filter((_, i) => i % n === k - 1);
   const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});
   const started = Date.now();
   // Each side on the gate's one fixed port in turn, so a room that prints its own address draws the same one.
@@ -1306,6 +1364,7 @@ async function prMain(opts) {
     ({ kept: fresh, restored } = policy.restoredFindings(fresh, rows.parent));
   }
   await browser.close();
+  await node.close();
   const v = policy.prVerdict({ fresh, litTargets, today: new Date().toISOString().slice(0, 10) });
   const minutes = (ms) => (ms / 60_000).toFixed(1);
   const tag = opts.shard.join('-of-');
@@ -1390,6 +1449,8 @@ async function selfTestBrowser(eq) {
     );
     await cut(`<div data-look-gate-picture><div class="row" style="${box}">%</div></div>`);
     eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by div.row']], 'the marker without inert is no exemption');
+    await cut('<div class="lt-sr" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">%</div>');
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'text inside a visually hidden box is not cut');
 
     // Targets: two 16 px buttons stacked edge to edge clash; the same inside an inert picture of a page are no targets.
     const pair =
@@ -1653,6 +1714,23 @@ async function selfTest() {
     [policy.placeOf('kit table').room, policy.placeOf('admin /a/b').room, policy.placeOf('/trade/spot/BTC-USDT').room],
     ['kit-table', 'admin-a-b', 'trade-spot-btc-usdt'],
     'a row names its room as the runner names its baselines',
+  );
+  eq(
+    venueTargets(['/', '/trade'], 'http://127.0.0.1:1/demo-node').map((t) => [t.name, t.room, t.venue.signedIn]),
+    [
+      ['venue signed-out /', 'venue-signed-out-root', false],
+      ['venue signed-out /trade', 'venue-signed-out-trade', false],
+      ['venue /trade', 'venue-trade', true],
+    ],
+    'the key rooms run again venue-on, each named and placed as its own room',
+  );
+  eq(
+    [
+      policy.owns('apps/customer/look-baselines/venue-trade/phone.png', 'venue /trade', () => false),
+      policy.owns('apps/customer/look-baselines/trade/phone.png', 'venue /trade', () => false),
+    ],
+    [true, false],
+    "a venue-on room's baseline answers for its own rows, not the venue-off room's",
   );
   eq(roomName('/'), 'root', 'root room');
   // The TEST account: signed in, its fixtures wrapped as tRPC results, at the frozen time, and nothing it has no fixture for.

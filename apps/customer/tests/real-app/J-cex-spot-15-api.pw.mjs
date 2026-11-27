@@ -1,11 +1,13 @@
 // World: book, restart
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, restartService, STACK_PORTS } from './stack.mjs';
+import { signIn } from './desk.mjs';
 import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { testWalletKey } from './test-wallet.mjs';
@@ -114,6 +116,72 @@ test.beforeAll(async ({ browser }) => {
   } finally {
     await page.close();
   }
+});
+
+test(`${J} #4 reads which order types the API accepts: the same list the ticket shows`, async ({ page, stepPicture }) => {
+  test.setTimeout(240_000);
+  const s = state();
+  // The venue's own record of this spot market, read straight from the TEST venue.
+  const venueMarket = (await venueRecord(s.owner, '/markets')).value.find((m) => m.symbol === SYMBOL);
+  expect(venueMarket, `${SYMBOL} is listed on the TEST venue`).toBeTruthy();
+
+  // What the API itself says it takes: GET /api/v1/order-types, through the edge, matching the venue's spot market.
+  const answer = await page.request.get('/api/v1/order-types');
+  expect(answer.status(), await answer.text()).toBe(200);
+  const published = await answer.json();
+  expect(published.source).toBe('venue');
+  expect(published.symbol).toBe(SYMBOL);
+  expect(published.accepted.map((row) => row.id)).toEqual(venueMarket.orderTypes.filter((x) => x === 'limit' || x === 'market'));
+  for (const row of published.accepted) {
+    for (const tif of row.timeInForce) expect(venueMarket.timeInForce).toContain(tif);
+  }
+  // Asking by explicit symbol returns the same list; an unlisted symbol refuses by name.
+  const bySymbol = await page.request.get(`/api/v1/order-types?symbol=${encodeURIComponent(SYMBOL)}`);
+  expect(bySymbol.status(), await bySymbol.text()).toBe(200);
+  expect(await bySymbol.json()).toEqual(published);
+  const unknown = await page.request.get('/api/v1/order-types?symbol=NO-SUCH-PAIR');
+  expect(unknown.status(), await unknown.text()).toBe(400);
+  expect((await unknown.json()).intafacedCode).toBe('trade.venue.unknown_market');
+
+  // The portal's page names each accepted type and each refused type, in the API's order, with each example body whole.
+  await page.goto('/developers');
+  await page.getByRole('main').getByRole('link', { name: 'Order types', exact: true }).click();
+  await expect(page).toHaveURL(/\/developers\/order-types$/);
+  const accepted = page.getByTestId('order-types-accepted').locator('tbody tr');
+  await expect(accepted).toHaveCount(published.accepted.length);
+  expect(await accepted.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-type')))).toEqual(
+    published.accepted.map((row) => row.id),
+  );
+  const docNames = (await accepted.locator('th').allInnerTexts()).map((name) => name.trim());
+  const examples = await accepted.locator('pre').allInnerTexts();
+  expect(examples.map((text) => JSON.parse(text))).toEqual(published.accepted.map((row) => row.send.example));
+  const refused = page.getByTestId('order-types-refused').locator('tbody tr');
+  await expect(refused).toHaveCount(published.refused.length);
+  expect(await refused.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-type')))).toEqual(
+    published.refused.map((row) => row.id),
+  );
+  const docRefused = (await refused.locator('th').allInnerTexts()).map((name) => name.trim());
+  for (const row of published.refused) {
+    await expect(page.locator(`[data-testid="order-types-refused"] tbody tr[data-type="${row.id}"]`)).toContainText(row.code);
+  }
+
+  // The launch venue spot ticket a person sees: its type tabs, in order, and the kinds it lists as not offered.
+  await openVenueDesk(page, s.who, `/trade/spot/${SYMBOL}`, s.walletKey);
+  const ticket = page.getByTestId('dk-order');
+  const tabs = ticket.getByRole('tablist', { name: 'Order type', exact: true }).getByRole('tab');
+  await expect(tabs.first()).toBeVisible();
+  const ticketNames = (await tabs.allInnerTexts()).map((name) => name.trim());
+  expect(ticketNames, 'the API lists exactly the venue ticket’s types, in the ticket’s order').toEqual(docNames);
+  const notOffered = ticket.getByTestId('venue-order-types').getByRole('button');
+  await expect(notOffered).toHaveCount(docRefused.length);
+  for (const btn of await notOffered.all()) await expect(btn).toBeDisabled();
+  expect(
+    await notOffered.evaluateAll((btns) => btns.map((b) => b.getAttribute('data-not-offered'))),
+    'the API refuses the exact types the venue ticket disables, in order',
+  ).toEqual(published.refused.map((row) => row.id));
+  await expect(notOffered).toHaveText(docRefused.map((name) => `${name}: not offered by this venue`));
+  await ticket.scrollIntoViewIfNeeded();
+  await stepPicture();
 });
 
 test(`${J} #5 places an order with a client id through our API, looks it up by client id, cancels by client id: the venue order, then its state, then its cancel; a repeat returns the first outcome; the API signs with the user's agent permission only`, async () => {
@@ -411,4 +479,144 @@ test(`${J} #7 goes over the per-user budget: edge.rate_limited with the reset ti
   } finally {
     await page.context().close();
   }
+});
+
+// ── #10: historical tick, book and trade data downloads with checksum ──────────────────────────────────────────────────
+const HISTORY_BOOK_SWITCH = 'LOCAL_STACK_TRADE_HISTORY_BOOK_INTERVAL';
+const HISTORY_MARKET = 'BTC/USDT';
+
+test(`${J} #10 downloads historical tick, book and trade data: a file for a published window with its checksum`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+
+  // ── Documented schemas for trades, candles and book snapshots ───────────────────────────────────────────────────────
+  const schemasRes = await page.request.get('/api/v1/history/schemas');
+  expect(schemasRes.status(), await schemasRes.text()).toBe(200);
+  const schemasBody = await schemasRes.json();
+  expect(schemasBody.provenance).toBe("this venue's own matching sequence");
+  expect(schemasBody.schemas.map((entry) => entry.kind)).toEqual(['trades', 'candles', 'book_snapshots']);
+  for (const entry of schemasBody.schemas) {
+    expect(entry).toMatchObject({ format: 'ndjson', compression: 'gzip', checksumAlgorithm: 'sha256' });
+    expect(entry.fields.some((f) => /user|account|orderId/i.test(f.name))).toBe(false);
+  }
+
+  // ── Published manifests: wait for trades, candles and book_snapshots on BTC/USDT from the book world ────────────────
+  let published = null;
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(`/api/v1/history/datasets?symbol=${encodeURIComponent(HISTORY_MARKET)}`);
+        if (res.status() !== 200) return [];
+        const body = await res.json();
+        published = body;
+        return [...new Set(body.datasets.map((d) => d.kind))].sort();
+      },
+      { timeout: 60_000, intervals: [1_000, 2_000], message: 'trades, candles and book_snapshots datasets materialize' },
+    )
+    .toEqual(['book_snapshots', 'candles', 'trades']);
+
+  expect(published.bookSnapshotsStatus).toBe('configured');
+  expect(published.bookIntervalMs).toBeGreaterThan(0);
+
+  // The bot's API key reads the exact same dataset list through the edge's metered trade door.
+  const viaKey = await withKey(s.key, { path: `/api/v1/history/datasets?symbol=${encodeURIComponent(HISTORY_MARKET)}` });
+  expect(viaKey.status, JSON.stringify(viaKey.body)).toBe(200);
+  expect(viaKey.body.datasets.map((d) => d.id)).toEqual(published.datasets.map((d) => d.id));
+
+  // ── Download each kind through edge and verify SHA-256 checksum + gunzipped NDJSON contents ─────────────────────────
+  const byKind = Object.fromEntries(
+    ['trades', 'candles', 'book_snapshots'].map((kind) => [kind, published.datasets.find((d) => d.kind === kind)]),
+  );
+  for (const kind of ['trades', 'candles', 'book_snapshots']) {
+    const manifest = byKind[kind];
+    expect(manifest, `${kind} manifest exists`).toBeTruthy();
+    expect(manifest.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(manifest.windowStart).toBe(`${manifest.day}T00:00:00.000Z`);
+    expect(manifest.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(manifest.rowCount).toBeGreaterThan(0);
+    expect(manifest.provenance).toBe("this venue's own matching sequence");
+
+    const dl = await page.request.get(manifest.downloadPath);
+    expect(dl.status(), `download ${kind}`).toBe(200);
+    expect(dl.headers()['content-type']).toContain('application/gzip');
+    expect(dl.headers()['x-content-sha256']).toBe(manifest.sha256);
+    expect(dl.headers()['content-disposition']).toContain('.ndjson.gz');
+
+    const bytes = await dl.body();
+    expect(bytes.byteLength).toBe(manifest.byteLength);
+    expect(createHash('sha256').update(bytes).digest('hex'), `${kind} SHA-256 matches manifest`).toBe(manifest.sha256);
+
+    const rows = gunzipSync(bytes)
+      .toString('utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(rows).toHaveLength(manifest.rowCount);
+    for (const row of rows) {
+      expect(row.symbol).toBe(HISTORY_MARKET);
+      expect(row.schemaVersion).toBe(manifest.schemaVersion);
+      expect(row).not.toHaveProperty('userId');
+      expect(row).not.toHaveProperty('orderId');
+      expect(row).not.toHaveProperty('accountId');
+    }
+    if (kind === 'trades') {
+      expect(rows[0].id).toBe(String(rows[0].sequence));
+      expect(['buy', 'sell']).toContain(rows[0].side);
+      expect(typeof rows[0].price).toBe('string');
+      expect(typeof rows[0].qty).toBe('string');
+    } else if (kind === 'book_snapshots') {
+      expect(Array.isArray(rows[0].bids)).toBe(true);
+      expect(Array.isArray(rows[0].asks)).toBe(true);
+    }
+  }
+
+  // ── Unknown dataset id refuses with 404 trade.history_dataset_not_found ─────────────────────────────────────────────
+  const missing = await page.request.get('/api/v1/history/datasets/99999999-9999-4999-8999-999999999999/download');
+  expect(missing.status()).toBe(404);
+  expect((await missing.json()).intafacedCode).toBe('trade.history_dataset_not_found');
+
+  // ── Blank book interval refuses trade.history_book_interval_unset ───────────────────────────────────────────────────
+  await restartService('trade', { [HISTORY_BOOK_SWITCH]: 'off' });
+  try {
+    const refusedBook = await page.request.get('/api/v1/history/datasets?kind=book_snapshots');
+    expect(refusedBook.status(), await refusedBook.text()).toBe(400);
+    expect((await refusedBook.json()).intafacedCode).toBe('trade.history_book_interval_unset');
+    const unfiltered = await page.request.get(`/api/v1/history/datasets?symbol=${encodeURIComponent(HISTORY_MARKET)}`);
+    expect(unfiltered.status()).toBe(200);
+    expect(await unfiltered.json()).toMatchObject({
+      bookSnapshotsStatus: 'unset',
+      bookSnapshotsCode: 'trade.history_book_interval_unset',
+    });
+  } finally {
+    await restartService('trade', { [HISTORY_BOOK_SWITCH]: null });
+  }
+
+  // ── Customer Data downloads room under Markets shows the published windows, checksums and download links ────────────
+  // Sign in so All services (/more) is available, then click Data downloads as a trader does rather than deep-linking.
+  await signIn(page, s.who);
+  await page.goto('/more');
+  await page.getByRole('main').getByRole('link', { name: 'Data downloads', exact: true }).click();
+  await expect(page).toHaveURL(/\/trade\/markets\/downloads$/);
+  await expect(page.getByRole('heading', { name: 'Data downloads', level: 1, exact: true })).toBeVisible();
+  const table = page.getByTestId('history-datasets-table');
+  await expect(table).toBeVisible();
+  for (const kind of ['trades', 'candles']) {
+    const manifest = byKind[kind];
+    const row = table.locator(`tbody tr[data-dataset-id="${manifest.id}"]`);
+    await expect(row).toHaveCount(1);
+    await expect(row).toHaveAttribute('data-sha256', manifest.sha256);
+    await expect(row.getByTestId(`checksum-${manifest.id}`)).toHaveText(manifest.sha256);
+    await expect(row.getByTestId(`download-${manifest.id}`)).toHaveAttribute('href', manifest.downloadPath);
+  }
+  const bookManifest = byKind.book_snapshots;
+  const bookRow = table.locator(`tbody tr[data-dataset-id="${bookManifest.id}"]`);
+  await expect(bookRow).toHaveCount(1);
+  await expect(bookRow).toHaveAttribute('data-sha256', /^[0-9a-f]{64}$/);
+  const shownBookSha = await bookRow.getAttribute('data-sha256');
+  await expect(bookRow.getByTestId(`checksum-${bookManifest.id}`)).toHaveText(shownBookSha ?? '');
+  await expect(bookRow.getByTestId(`download-${bookManifest.id}`)).toHaveAttribute('href', bookManifest.downloadPath);
+  await stepPicture();
 });

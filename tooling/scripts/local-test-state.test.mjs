@@ -11,6 +11,8 @@ import {
   localPgOsUser,
   localPgBin,
   assertStackOwnership,
+  assertComposeOwnership,
+  composeSqlRead,
   processRecordMatches,
   postgresProcessMatches,
   readKernelStart,
@@ -295,3 +297,56 @@ if (process.platform === 'linux') {
   assert.equal(readKernelStart(process.pid), mine, 'and it does not move');
 }
 console.log('local-test-state: kernel birth mark checks passed');
+
+// A compose marker passes only when the database on its port holds its stack id and each named service answers.
+{
+  const marker = {
+    kind: 'intafaced-local-test-stack',
+    runtime: 'compose',
+    stackId: 'b'.repeat(32),
+    ports: { postgres: 5433, edge: 4000, identity: 4002 },
+    database: { host: '127.0.0.1', port: 5433, name: 'intafaced' },
+  };
+  const services = ['edge', 'identity'];
+  const healthy = { edge: 200, identity: 200 };
+  const reads = [];
+  const read =
+    (stackId, health = healthy) =>
+    (m, names) => {
+      reads.push(names);
+      return { stackId, health };
+    };
+  assert.deepEqual(assertComposeOwnership({ marker, services, read: read(marker.stackId) }), { marker });
+  assert.deepEqual(reads.at(-1), services);
+  const refused = (over, reader, why) =>
+    assert.throws(() => assertComposeOwnership({ marker: { ...marker, ...over }, services, read: reader }), why);
+  // Another stack on the same ports (another id, or none) never passes on stale files alone.
+  refused({}, read('c'.repeat(32)), /not this compose stack/);
+  refused({}, read(null), /not this compose stack/);
+  refused({}, read(marker.stackId, { edge: 200, identity: 0 }), /identity does not answer/);
+  // A marker that is not a compose one, has no id, or points the database off loopback is refused before anything is read.
+  const before = reads.length;
+  refused({ runtime: undefined }, read(marker.stackId), /not a compose marker/);
+  refused({ stackId: 'short' }, read(marker.stackId), /no stack id/);
+  refused({ database: { host: '10.0.0.5', port: 5433, name: 'intafaced' } }, read(marker.stackId), /loopback Postgres/);
+  refused({ ports: { postgres: 5433, edge: 4000 } }, read(marker.stackId), /no identity port/);
+  assert.equal(reads.length, before);
+  console.log('local-test-state: compose stack id and loopback health checks passed');
+
+  // The gates' database reads on a compose stack: the marker's loopback Postgres as a service role, compose's own password.
+  const runs = [];
+  const run = (db, sql) => {
+    runs.push([db, sql]);
+    return [['id-1', 'full']];
+  };
+  assert.deepEqual(composeSqlRead(marker, 'svc_identity', 'SELECT 1', { run }), [['id-1', 'full']]);
+  assert.deepEqual(runs, [['postgres://svc_identity:svc_identity@127.0.0.1:5433/intafaced', 'SELECT 1']]);
+  const sqlRefused = (m, role, why) => assert.throws(() => composeSqlRead(m, role, 'SELECT 1', { run }), why);
+  sqlRefused({ ...marker, runtime: undefined }, 'svc_identity', /not a compose marker/);
+  sqlRefused({ ...marker, database: { host: '10.0.0.5', port: 5433, name: 'intafaced' } }, 'svc_identity', /loopback Postgres/);
+  sqlRefused({ ...marker, database: { host: '127.0.0.1', port: 5432, name: 'intafaced' } }, 'svc_identity', /loopback Postgres/);
+  sqlRefused(marker, 'postgres', /not a service role/);
+  sqlRefused(marker, "svc_identity' OR 1", /not a service role/);
+  assert.equal(runs.length, 1);
+  console.log('local-test-state: compose database reads stay on the marker loopback Postgres as a service role');
+}

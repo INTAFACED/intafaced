@@ -1,4 +1,5 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, createContext, lazy, useContext, type ReactNode } from 'react';
+import { Surface } from '@intafaced/ui/lit';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
@@ -36,56 +37,120 @@ export function launchStanding(venue: VenueUp | null, portfolio: Loadable<unknow
   return portfolio.status === 'refused' && classifyRefusal(portfolio.code) === 'verify' ? null : venue;
 }
 
-export function HomeStanding({ status, hidden, pro = false }: { status: VenueUp; hidden: boolean; pro?: boolean }) {
+/** Where the person stands, read once for the whole page: the hero draws the total, the side column Spendable now. */
+type Read = {
+  status: VenueUp;
+  owner: string | null;
+  standing?: ReturnType<typeof useStanding>;
+};
+const StandingContext = createContext<Read | null>(null);
+
+/**
+ * The wallet and the standing read for everything inside it: Home's hero and its side column share one read. Without
+ * the launch model (`status` null) it draws its children as they are.
+ */
+export function StandingScope({ status, children }: { status: VenueUp | null; children: ReactNode }) {
+  if (!status) return <>{children}</>;
   const chainId = status.chainId ?? APP_CHAIN_ID;
   return (
     <WalletProvider chainId={chainId} scope="home">
-      <Standing status={status} chainId={chainId} hidden={hidden} pro={pro} />
+      <Owner status={status} chainId={chainId}>
+        {children}
+      </Owner>
     </WalletProvider>
   );
 }
 
-function Standing({ status, chainId, hidden, pro }: { status: VenueUp; chainId: number; hidden: boolean; pro: boolean }) {
-  const { t } = standingCopy.useCopy();
+function Owner({ status, chainId, children }: { status: VenueUp; chainId: number; children: ReactNode }) {
   const owner = useOwner();
-  if (!owner)
+  if (!owner) return <StandingContext.Provider value={{ status, owner: null }}>{children}</StandingContext.Provider>;
+  return (
+    <OwnerRead owner={owner} status={status} chainId={chainId}>
+      {children}
+    </OwnerRead>
+  );
+}
+
+function OwnerRead({ owner, status, chainId, children }: { owner: string; status: VenueUp; chainId: number; children: ReactNode }) {
+  const { displayCurrency } = usePreferences();
+  const standing = useStanding(
+    owner,
+    chainId,
+    { network: networkLabel(chainId).name, venue: status.venue.displayName, venueTest: status.test },
+    displayCurrency === 'BTC' ? 'BTC' : 'USD',
+  );
+  return <StandingContext.Provider value={{ status, owner, standing }}>{children}</StandingContext.Provider>;
+}
+
+/** Where the person stands, as Home's hero reads it (inside a `StandingScope`); null before a wallet or without the launch model. */
+export function useHomeStanding(): ReturnType<typeof useStanding>['standing'] | null {
+  return useContext(StandingContext)?.standing?.standing ?? null;
+}
+
+/** The total where the person stands (inside a `StandingScope`): before a wallet, the partner's part and Connect. */
+export function StandingFigure({
+  hidden,
+  pro = false,
+  headline = false,
+  change,
+  foldLead,
+}: {
+  hidden: boolean;
+  pro?: boolean;
+  /** Simple Home: the figure, today's change and the parts line, every other line in the total's own fold. */
+  headline?: boolean;
+  change?: ReactNode;
+  foldLead?: ReactNode;
+}) {
+  const { t } = standingCopy.useCopy();
+  const { displayCurrency } = usePreferences();
+  const read = useContext(StandingContext);
+  if (!read) return null;
+  if (!read.owner || !read.standing)
     return (
       <>
-        <PartnerBeforeWallet hidden={hidden} pro={pro} />
+        <PartnerBeforeWallet hidden={hidden} pro={pro} headline={headline} foldLead={foldLead} />
         <div data-testid="home-standing-connect" className="lt-stack">
           <p className="lt-hint">{t('Connect first')}</p>
           <WalletBar />
         </div>
       </>
     );
-  return <Read owner={owner} status={status} chainId={chainId} hidden={hidden} pro={pro} />;
+  return (
+    <StandingTotal
+      standing={read.standing.standing}
+      pricesFailed={read.standing.pricesFailed}
+      displayCurrency={displayCurrency}
+      hidden={hidden}
+      pro={pro}
+      testId="home-standing"
+      face={headline ? 'headline' : 'full'}
+      change={change}
+      foldLead={foldLead}
+    />
+  );
 }
 
-function Read({ owner, status, chainId, hidden, pro }: { owner: string; status: VenueUp; chainId: number; hidden: boolean; pro: boolean }) {
-  const { displayCurrency } = usePreferences();
-  const { standing, pricesFailed, wallet, venue, partner } = useStanding(
-    owner,
-    chainId,
-    { network: networkLabel(chainId).name, venue: status.venue.displayName, venueTest: status.test },
-    displayCurrency === 'BTC' ? 'BTC' : 'USD',
+/** J-bank-31: Spendable now and Pay yourself (inside a `StandingScope`), loaded with its own copy once a wallet is read. */
+export function StandingSpendable({ hidden, panel, fold = false }: { hidden: boolean; panel?: string; fold?: boolean }) {
+  const read = useContext(StandingContext);
+  if (!read?.owner || !read.standing || hidden) return null;
+  const { partner, venue, wallet } = read.standing;
+  const body = (
+    <Suspense fallback={null}>
+      <PayYourself owner={read.owner} status={read.status} partner={partner} venue={venue} wallet={wallet} fold={fold} />
+    </Suspense>
   );
+  return panel ? <Surface className={panel}>{body}</Surface> : body;
+}
+
+/** Home Pro's total: the figure and Spendable now together, as one block. */
+export function HomeStanding({ status, hidden, pro = false }: { status: VenueUp; hidden: boolean; pro?: boolean }) {
   return (
-    <>
-      <StandingTotal
-        standing={standing}
-        pricesFailed={pricesFailed}
-        displayCurrency={displayCurrency}
-        hidden={hidden}
-        pro={pro}
-        testId="home-standing"
-      />
-      {/* J-bank-31: Spendable now and Pay yourself, loaded with its own copy only when Home shows where you stand. */}
-      {hidden ? null : (
-        <Suspense fallback={null}>
-          <PayYourself owner={owner} status={status} partner={partner} venue={venue} wallet={wallet} />
-        </Suspense>
-      )}
-    </>
+    <StandingScope status={status}>
+      <StandingFigure hidden={hidden} pro={pro} />
+      <StandingSpendable hidden={hidden} />
+    </StandingScope>
   );
 }
 
@@ -95,7 +160,17 @@ function Read({ owner, status, chainId, hidden, pro }: { owner: string; status: 
  * and the venue account are not in it until a wallet is connected, and the line under it says so. Nothing while the
  * partner holds none of this person's money or its first answer is on its way.
  */
-function PartnerBeforeWallet({ hidden, pro }: { hidden: boolean; pro: boolean }) {
+function PartnerBeforeWallet({
+  hidden,
+  pro,
+  headline,
+  foldLead,
+}: {
+  hidden: boolean;
+  pro: boolean;
+  headline: boolean;
+  foldLead?: ReactNode;
+}) {
   const { displayCurrency } = usePreferences();
   const { partner, standing, pricesFailed } = usePartnerStanding(displayCurrency === 'BTC' ? 'BTC' : 'USD');
   if (partner.state === 'none' || partner.state === 'reading') return null;
@@ -107,6 +182,8 @@ function PartnerBeforeWallet({ hidden, pro }: { hidden: boolean; pro: boolean })
       hidden={hidden}
       pro={pro}
       testId="home-standing-before-wallet"
+      face={headline ? 'headline' : 'full'}
+      foldLead={foldLead}
     />
   );
 }

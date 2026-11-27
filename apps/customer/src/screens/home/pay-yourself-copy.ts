@@ -4,6 +4,7 @@ import { defineCopy } from '../../shared/i18n';
 // each name is the one its own source gives.
 export const payYourselfCopy = defineCopy('home.payYourself', {
   spendableTitle: 'Spendable now',
+  howTitle: 'How this is worked out',
   spendableTotal: '{amount} USD',
   spendableNoTotal: 'No total: a source below couldn’t be read, so nothing is added up.',
   spendableNote:

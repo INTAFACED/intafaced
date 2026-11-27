@@ -334,13 +334,6 @@
   .pfo-top {
     gap: var(--if-space-4);
   }
-  /* the business switcher and search need the room: the mark alone stands for the brand */
-  .pfo-brand .brand-bar__wide {
-    display: none;
-  }
-  .pfo-brand .brand-bar__compact {
-    display: block;
-  }
   .pfo-search-button {
     width: 180px;
   }

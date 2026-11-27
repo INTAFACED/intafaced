@@ -162,4 +162,34 @@ describe('user-venue wire', () => {
     expect(typeof (back.marginAccount as { value: { name: unknown } }).value.name).toBe('string');
     expect(() => decodeVenueWire({ funding: { known: true, value: { rate: 0.0001 } } })).toThrow(/decimal string/);
   });
+
+  it("round-trips a market's dynamic price band (J-derivatives-02 #8) as decimal strings and refuses JSON numbers", () => {
+    const band = {
+      known: true,
+      value: {
+        widthBps: parseAmount('1200'),
+        usualWidthBps: parseAmount('500'),
+        bandReference: parseAmount('100'),
+        bandLow: parseAmount('88'),
+        bandHigh: parseAmount('112'),
+        widened: true,
+        reason: 'TEST widened',
+      },
+    };
+    const wire = JSON.parse(JSON.stringify(encodeVenueWire({ priceBand: band })));
+    expect(wire.priceBand.value).toEqual({
+      widthBps: '1200',
+      usualWidthBps: '500',
+      bandReference: '100',
+      bandLow: '88',
+      bandHigh: '112',
+      widened: true,
+      reason: 'TEST widened',
+    });
+    expect(decodeVenueWire<{ priceBand: typeof band }>(wire).priceBand).toEqual(band);
+    expect(decodeVenueWire({ symbol: 'XRSK-PERP', widthBps: null })).toEqual({ symbol: 'XRSK-PERP', widthBps: null });
+    expect(() => decodeVenueWire({ priceBand: { known: true, value: { ...wire.priceBand.value, widthBps: 1200 } } })).toThrow(
+      VenueWireError,
+    );
+  });
 });

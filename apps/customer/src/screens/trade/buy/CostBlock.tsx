@@ -19,7 +19,15 @@ export function CostBlock({ rows, side, baseAsset, places }: { rows: CostRows; s
     },
     {
       label: t('Fee'),
-      value: rows.fee === null ? null : `${fmtAmount(rows.fee.amount, { places: 8 })} ${rows.fee.asset ?? ''}`.trim(),
+      value:
+        rows.fee === null
+          ? null
+          : [
+              `${fmtAmount(rows.fee.amount, { places: 8 })} ${rows.fee.asset ?? ''}`.trim(),
+              rows.fee.usd === null ? null : t('Fee in dollars', { value: fmtUsd(rows.fee.usd) }),
+            ]
+              .filter(Boolean)
+              .join(' '),
     },
     { label: t('You get about'), value: getValue },
     { label: buying ? t('Most you can pay') : t('Least you get'), value: rows.limit === null ? null : fmtUsd(rows.limit) },

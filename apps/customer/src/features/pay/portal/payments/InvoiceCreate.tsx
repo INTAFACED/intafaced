@@ -1,13 +1,14 @@
+// volt-room: /pay/invoices/new
+// volt-room: portal:invoice-new
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { TextAreaField } from '@intafaced/ui/lit/templates';
-import { Field } from '../../ui-kit';
 import { navigate } from '../../../../app/location';
-import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
-import { Facts, Money, SelectField } from '../components';
 import { DateTime } from '../ui/DateTime';
-import { PortalReview } from '../ui/PortalReview';
+import { FlowRoom } from '../volt/FlowRoom';
+import { BackLink, Facts, MoneyText, Section, SelectField } from '../volt/parts';
+import { Review } from '../volt/Review';
 import {
   blankDraft,
   blankLine,
@@ -29,6 +30,11 @@ import { DEFAULT_ASSET, useAssetChoices } from './asset-choices';
 import { invoiceHref, LineTable } from './Invoices';
 import './refusals';
 import type { InvoiceLine } from './schemas';
+
+/** `/pay/invoices/new` on the flow template: creates a draft invoice for roles with `invoices.write`. */
+export function InvoiceNewRoom({ portal }: { portal: PortalApi }) {
+  return <FlowRoom need="invoices.write">{({ merchantId }) => <InvoiceCreate portal={portal} merchantId={merchantId} />}</FlowRoom>;
+}
 
 /** `/pay/invoices/new`: an amount (or line items that add up to it), who it is for, when it is due. Review shows the exact total; a lost reply is safe to resend. */
 export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merchantId?: string }) {
@@ -56,16 +62,14 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
   const asset = draft.assetId.trim();
   return (
     <div className="lt-stack">
-      <a className="text-link pp-back" href="/pay/invoices">
-        ← {t('inv_back')}
-      </a>
-      <PaySection title={t('inv_createTitle')} description={t('inv_createBody')}>
+      <BackLink href="/pay/invoices">{t('inv_back')}</BackLink>
+      <Section title={t('inv_createTitle')} description={t('inv_createBody')}>
         <div data-testid="form-stack" className="lt-stack">
-          <div className="form-row">
+          <div className="lt-field-row">
             {hasLines ? (
-              <div data-testid="pp-line-total" className="field pp-line-total" role="group" aria-label={t('inv_fieldTotal')}>
+              <div data-testid="pp-line-total" className="lt-field" role="group" aria-label={t('inv_fieldTotal')}>
                 <span>{t('inv_fieldTotal')}</span>
-                <strong className="lt-num">{total ? <Money value={total} asset={asset} /> : '—'}</strong>
+                <strong className="lt-num">{total ? <MoneyText value={total} asset={asset} /> : '—'}</strong>
                 <small>{shown('lineItems') ?? t('inv_hintTotal')}</small>
               </div>
             ) : (
@@ -86,14 +90,14 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
               options={assets.map((a) => [a, a] as const)}
             />
           </div>
-          <fieldset className="pp-group pp-lines">
+          <fieldset className="lt-group lt-stack">
             <legend>{t('inv_linesTitle')}</legend>
             <p className="lt-muted">{t(hasLines ? 'inv_linesBody' : 'inv_linesBodyEmpty')}</p>
             {draft.lineItems.map((line, index) => {
               const problem = touched.lineItems ? lineProblem(line) : null;
               const amount = lineAmount(line);
               return (
-                <div className="pp-line-row" role="group" aria-label={t('inv_lineN', { n: index + 1 })} key={index}>
+                <div className="lt-field-row" role="group" aria-label={t('inv_lineN', { n: index + 1 })} key={index}>
                   <SelectField
                     label={t('inv_lineKind')}
                     value={line.kind}
@@ -130,12 +134,12 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
                           : undefined
                     }
                   />
-                  <div className="pp-line-amount">
+                  <div className="lt-field">
                     <span>{t('inv_lineAmount')}</span>
-                    <strong className="lt-num">{amount ? <Money value={amount} asset={asset} /> : '—'}</strong>
+                    <strong className="lt-num">{amount ? <MoneyText value={amount} asset={asset} /> : '—'}</strong>
                   </div>
                   <Button
-                    variant="ghost"
+                    tone="quiet"
                     aria-label={t('inv_lineRemoveN', { n: index + 1 })}
                     onClick={() => setLines(draft.lineItems.filter((_, i) => i !== index))}
                   >
@@ -146,7 +150,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
             })}
             <div className="lt-actions">
               <Button
-                variant="secondary"
+                tone="secondary"
                 onClick={() => setLines([...draft.lineItems, blankLine()])}
                 disabled={draft.lineItems.length >= MAX_INVOICE_LINES}
               >
@@ -154,7 +158,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
               </Button>
             </div>
           </fieldset>
-          <div className="form-row">
+          <div className="lt-field-row">
             <Field
               label={t('inv_fieldCustomer')}
               value={draft.customerRef}
@@ -190,7 +194,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
             hint={t('inv_hintDescription')}
             error={shown('description')}
           />
-          <PortalReview
+          <Review
             title={t('inv_create')}
             variant="primary"
             description={t('inv_reviewCreateBody')}
@@ -201,7 +205,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
                 <>
                   <Facts
                     items={[
-                      [t('inv_colAmount'), <Money value={total} asset={asset} />],
+                      [t('inv_colAmount'), <MoneyText value={total} asset={asset} />],
                       [t('inv_colCustomer'), draft.customerRef.trim() || '—'],
                       [t('inv_fieldEmail'), draft.customerEmail.trim() || '—'],
                       [t('inv_colDue'), draft.dueDate ? <DateTime value={dueAtOf(draft.dueDate)} dayOnly /> : t('inv_noDue')],
@@ -223,7 +227,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
             }}
           />
         </div>
-      </PaySection>
+      </Section>
     </div>
   );
 }

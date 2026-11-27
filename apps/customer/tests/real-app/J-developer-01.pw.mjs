@@ -20,15 +20,16 @@ const ACCESS = {
   'Exchange API':
     'Public market data needs no key. Your own orders, balances and positions need a key from your signed-in account, and a key does only what its permissions allow. Withdrawals are never reachable with a key.',
   Institutional:
-    'FIX sessions are not opened from this portal: FIX access waits for its onboarding and session policy (DV-fix-01). The connectivity options say what is available today.',
+    'FIX sessions are not opened from this portal: FIX access is waiting on onboarding and session policy. The connectivity options say what is available today.',
   Embedded: 'For merchant accounts: payment keys and webhooks are made inside the merchant portal, and sandboxes in the developer sandbox.',
   Broker: 'A registered app acts for a person only after that person consents to the permissions it asks for.',
   'Best practice': 'Open to everyone: reading these pages needs no account.',
 };
 
 /**
- * The floor: every section this build lists, by audience, with the slice an unbuilt one waits for (null when it has a
- * page). The portal's index may add sections; it may never drop one of these or lose a blocker.
+ * The floor: every section this build lists, by audience, with the plain-language blocker and roadmap slice an unbuilt
+ * one waits for (null when it has a page). The portal's index may add sections; it may never drop one of these or lose
+ * a blocker.
  */
 const FLOOR = {
   'Exchange API': {
@@ -42,18 +43,22 @@ const FLOOR = {
     'Order types': null,
     'Bot policy': null,
     Idempotency: null,
-    Versioning: 'DV-versioning-01',
+    Versioning: { blocker: 'the API versioning guide', slice: 'DV-versioning-01' },
     Changelog: null,
     'Market data terms': null,
   },
-  Institutional: { Connectivity: null, FIX: 'DV-fix-01', 'Choosing a protocol': 'DV-websocket-01' },
+  Institutional: {
+    Connectivity: null,
+    FIX: { blocker: 'FIX onboarding and session policy', slice: 'DV-fix-01' },
+    'Choosing a protocol': { blocker: 'the protocol comparison guide', slice: 'DV-websocket-01' },
+  },
   Embedded: { Webhooks: null, Sandbox: null },
   Broker: { 'Registered apps': null },
   'Best practice': {
     Quickstart: null,
-    Libraries: 'DV-tools-01',
-    'Command line': 'DV-tools-02',
-    'Assistant tools': 'DV-tools-02',
+    Libraries: { blocker: 'official client libraries', slice: 'DV-tools-01' },
+    'Command line': { blocker: 'the command-line tool', slice: 'DV-tools-02' },
+    'Assistant tools': { blocker: 'assistant tools', slice: 'DV-tools-02' },
     'API explorer': null,
     'Machine-readable specs': null,
     'Developer support': null,
@@ -64,7 +69,7 @@ const FLOOR = {
 /**
  * The portal's own section list, read from the running app: /developers/index.md, the markdown variant of the portal home,
  * which lists every section under its audience as `- <title>: <target>`, the target being its page here
- * (`/developers/<id>`), the page it is published at, or `Waits for <slice>`.
+ * (`/developers/<id>`), the page it is published at, or `Not published — waiting on <blocker>`.
  */
 async function portalSections(page) {
   const response = await page.request.get('/developers/index.md');
@@ -79,8 +84,8 @@ async function portalSections(page) {
     const entry = /^- (.+?): (.+)$/.exec(line);
     if (entry) {
       const [, title, target] = entry;
-      const waits = /^Waits for (\S+)$/.exec(target);
-      audiences.get(current).sections.push({ title, href: waits ? null : target, waitsFor: waits ? waits[1] : null });
+      const waits = /^Not published — waiting on (.+)$/.exec(target);
+      audiences.get(current).sections.push({ title, href: waits ? null : target, blocker: waits ? waits[1] : null });
     } else if (line && !heading && !audiences.get(current).access) audiences.get(current).access = line;
   }
   return audiences;
@@ -178,10 +183,11 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
   const portal = await portalSections(page);
   // The portal's own list has every audience, each with its sections.
   expect([...portal.keys()]).toEqual(AUDIENCES);
-  // None of the floor's sections is dropped, and each unbuilt one still waits for its named slice.
+  // None of the floor's sections is dropped, and each unbuilt one still waits for its named blocker.
   for (const audience of AUDIENCES) {
-    const listed = Object.fromEntries(portal.get(audience).sections.map((section) => [section.title, section.waitsFor]));
-    for (const [title, waitsFor] of Object.entries(FLOOR[audience])) expect(listed[title], `${audience}: ${title}`).toBe(waitsFor);
+    const listed = Object.fromEntries(portal.get(audience).sections.map((section) => [section.title, section.blocker]));
+    for (const [title, expected] of Object.entries(FLOOR[audience]))
+      expect(listed[title], `${audience}: ${title}`).toBe(expected ? expected.blocker : null);
   }
   const all = [...portal.values()].flatMap((audience) => audience.sections);
   expect(new Set(all.map((section) => section.title)).size).toBe(all.length);
@@ -189,7 +195,7 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
   await page.goto('/developers');
   await expect(page.getByRole('heading', { name: 'Developers', level: 1 })).toBeVisible();
   await expect(card(page, 'Who gets access')).toContainText(
-    'Access follows the account and the permissions on its key. No access tiers are published in this build, so none are listed here.',
+    'Access follows your account and the permissions on your API key. No separate access tiers are published.',
   );
 
   for (const audience of AUDIENCES) {
@@ -209,25 +215,33 @@ test(`${J} #1 opens /developers: sections per audience with an access statement 
       section.route = await link.getAttribute('href');
       const item = region.getByRole('listitem').filter({ has: page.getByRole('link', { name: section.title, exact: true }) });
       await expect(item, section.title).toBeVisible();
-      // Its state: the slice it waits for; published, when its page is elsewhere; else its page here or published.
-      if (section.waitsFor) await expect(item, section.title).toContainText(`Waits for ${section.waitsFor}`);
-      else if (section.href !== section.route) await expect(item, section.title).toContainText('Published');
-      else await expect(item, section.title).toContainText(/Page in this portal|Published/);
+      // Its state: the blocker it waits on; published, when its page is elsewhere; else a local portal page.
+      if (section.blocker) {
+        section.waitsFor = await item.getAttribute('data-waits-for');
+        await expect(item, section.title).toHaveAttribute('data-section-state', 'waiting');
+        await expect(item, section.title).toContainText(`Not published — waiting on ${section.blocker}`);
+      } else if (section.href !== section.route) {
+        await expect(item, section.title).toHaveAttribute('data-section-state', 'published');
+        await expect(item, section.title).toContainText('Published');
+      } else {
+        await expect(item, section.title).toHaveAttribute('data-section-state', /^(page|published)$/);
+      }
     }
   }
 
-  // Each section opens as itself. A section not yet built shows its named blocker: the slice it waits for, a real slice id.
+  // Each section opens as itself. A section not yet built shows its named blocker and links to a real slice id.
   const sliceIds = new Set(JSON.parse(readFileSync(path.join(ROOT, 'docs/roadmap/slices.json'), 'utf8')).map((slice) => slice.id));
   for (const section of all) {
     await page.goto(section.route);
     const main = page.getByRole('main');
     await expect(main.getByRole('heading').first(), section.title).toBeVisible();
     await expect(page.getByRole('heading', { name: /No such (developer )?page/ }), section.title).toHaveCount(0);
-    if (section.waitsFor) {
+    if (section.blocker) {
       expect(sliceIds.has(section.waitsFor), `${section.title} waits for ${section.waitsFor}`).toBe(true);
       await expect(main.getByRole('heading', { name: section.title, level: 1 })).toBeVisible();
+      await expect(main.getByRole('status'), section.title).toHaveAttribute('data-waits-for', section.waitsFor);
       await expect(main.getByRole('status'), section.title).toHaveText(
-        `No page is published for this section in this build. It waits for ${section.waitsFor}.`,
+        `No page is published for this section. It is waiting on ${section.blocker}.`,
       );
     } else if (section.href !== section.route) {
       // A section published elsewhere links to that page, and the page opens as itself.
@@ -599,7 +613,7 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   );
 
   // The agent index lists every portal docs page exactly once, each beside its markdown variant. The portal's docs pages
-  // are the home page, its base-address table, and each section /developers marks "Page in this portal"; the two of
+  // are the home page, its base-address table, and each section /developers marks `data-section-state="page"`; the two of
   // those that read live notices (status, changelog) are listed once by their own address instead.
   const index = await page.request.get('/developers/llms.txt');
   expect(index.ok()).toBe(true);
@@ -608,7 +622,7 @@ test(`${J} #5 downloads the OpenAPI file and a collection, and opens the agent d
   expect(indexText).not.toMatch(/<!doctype html/i);
   await page.goto('/developers');
   // evaluateAll does not wait, so wait for the rendered list first.
-  const portalLinks = page.getByRole('main').getByRole('listitem').filter({ hasText: 'Page in this portal' }).getByRole('link');
+  const portalLinks = page.getByRole('main').locator('li[data-section-state="page"]').getByRole('link');
   await expect(portalLinks.first()).toBeVisible();
   const written = await portalLinks.evaluateAll((links) => links.map((link) => link.getAttribute('href')));
   const livePages = ['/developers/status', '/developers/changelog'];

@@ -14,7 +14,7 @@ import { VENUE_POLL_MS, outcomeText, useVenueApi } from '../../../features/trade
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { refusalOf, useSignPrepared, type Refusal } from '../futures/VenueProtect';
 import { canonical } from '../futures/venue-protect-logic';
-import { Button } from './deps';
+import { Button } from '@intafaced/ui/lit';
 import { spotConditionalCopy } from './spot-conditional-copy';
 import { SPOT_FIELDS, legsOutOfOrder, optionalField, spotClientId, type SpotField } from './spot-conditional-logic';
 
@@ -30,9 +30,9 @@ export function VenueConditionalOrders({ market, owner, venueName }: { market: V
   const { t } = spotConditionalCopy.useCopy();
   if (!owner) return null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('Title')} data-testid="spot-conditional">
-      <h2 className="dk-tab-title">{t('Title')}</h2>
-      <p className="lt-muted">{t('Note')}</p>
+    <section className="lt-panel" aria-label={t('Title')} data-testid="spot-conditional">
+      <h2 className="lt-panel-title">{t('Title')}</h2>
+      <p className="lt-note">{t('Note')}</p>
       <ConditionalForm market={market} owner={owner} venueName={venueName} />
     </section>
   );
@@ -53,9 +53,9 @@ function RefusalAlert({ refusal }: { refusal: Refusal | null }) {
   const { t } = spotConditionalCopy.useCopy();
   if (!refusal) return null;
   return (
-    <div className="lt-refusal" role="alert" data-testid="spot-conditional-refusal">
+    <div className="lt-callout lt-callout-bad" role="alert" data-testid="spot-conditional-refusal">
       <p>{refusal.message}</p>
-      {refusal.code ? <p className="lt-muted">{t('Code', { code: refusal.code })}</p> : null}
+      {refusal.code ? <p className="lt-note">{t('Code', { code: refusal.code })}</p> : null}
     </div>
   );
 }
@@ -166,12 +166,12 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
 
   return (
     <div className="lt-stack" data-testid="spot-conditional-form" data-client-order-id={clientId}>
-      <div role="group" aria-label={t('Kind')} className="dk-order-opts">
+      <div role="group" aria-label={t('Kind')} className="lt-row">
         {SPOT_CONDITIONAL_KINDS.map((k) => (
           <Button
             key={k}
-            size={32}
-            variant={kind === k ? 'primary' : 'secondary'}
+            size="sm"
+            tone={kind === k ? 'secondary' : 'quiet'}
             aria-pressed={kind === k}
             onClick={() => {
               setKind(k);
@@ -183,12 +183,12 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
           </Button>
         ))}
       </div>
-      <div role="group" aria-label={t('Side')} className="dk-order-opts">
+      <div role="group" aria-label={t('Side')} className="lt-row">
         {(['buy', 'sell'] as const).map((x) => (
           <Button
             key={x}
-            size={32}
-            variant={side === x ? 'primary' : 'secondary'}
+            size="sm"
+            tone={side === x ? 'secondary' : 'quiet'}
             aria-pressed={side === x}
             onClick={() => {
               setSide(x);
@@ -202,7 +202,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
       <p data-testid="spot-conditional-where" data-where={engine}>
         {engine === 'engine' ? t('where_engine') : t('where_venue')}
       </p>
-      {engine === 'engine' ? <p className="lt-muted">{t('where_engine_note', { venue: venueName })}</p> : null}
+      {engine === 'engine' ? <p className="lt-note">{t('where_engine_note', { venue: venueName })}</p> : null}
       {engine === 'engine' ? <AgentPermission owner={owner} /> : null}
       <NumberField
         label={t('Size', { base: market.baseAsset })}
@@ -224,19 +224,21 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
         />
       ))}
       {kind === 'bracket' || kind === 'oto' ? (
-        <div role="group" aria-label={t('Entry tif')} className="dk-order-opts">
+        <div role="group" aria-label={t('Entry tif')} className="lt-row">
           {(['GTC', 'IOC'] as const).map((x) => (
-            <Button key={x} size={32} variant={tif === x ? 'primary' : 'secondary'} aria-pressed={tif === x} onClick={() => setTif(x)}>
+            <Button key={x} size="sm" tone={tif === x ? 'secondary' : 'quiet'} aria-pressed={tif === x} onClick={() => setTif(x)}>
               {t(`tif_${x}`)}
             </Button>
           ))}
         </div>
       ) : null}
-      <div className="dk-order-opts">
-        <Button variant="secondary" onClick={() => void doReview()}>
+      <div className="lt-row">
+        <Button tone="secondary" onClick={() => void doReview()}>
           {t('Review')}
         </Button>
-        <Button onClick={() => void place()}>{t('Place')}</Button>
+        <Button tone="secondary" onClick={() => void place()}>
+          {t('Place')}
+        </Button>
       </div>
       {review ? <ReviewRows legs={review} /> : null}
       <RefusalAlert refusal={refusal} />
@@ -254,7 +256,7 @@ function ReviewRows({ legs }: { legs: SpotFeeLeg[] }) {
   const { t } = spotConditionalCopy.useCopy();
   return (
     <section aria-label={t('Review title')} data-testid="spot-conditional-review" className="lt-stack">
-      <h3 className="dk-tab-title">{t('Review title')}</h3>
+      <h3 className="lt-label">{t('Review title')}</h3>
       <ul>
         {legs.map((leg) => {
           const base = {
@@ -323,16 +325,18 @@ export function AgentPermission({ owner }: { owner: string }) {
   const approved = agent.data?.approved === true || accepted;
   return (
     <section className="lt-stack" aria-label={t('Agent permission')} data-testid="spot-agent">
-      <h3 className="dk-tab-title">{t('Agent permission')}</h3>
+      <h3 className="lt-label">{t('Agent permission')}</h3>
       <p>{t('Agent note')}</p>
       {approved ? (
         <p role="status">{t('Agent approved')}</p>
       ) : agent.failure ? (
         <RefusalAlert refusal={{ message: agent.failure.message, code: agent.failure.code ?? null }} />
       ) : agent.data ? (
-        <Button onClick={() => void approve()}>{t('Agent approve')}</Button>
+        <Button tone="primary" onClick={() => void approve()}>
+          {t('Agent approve')}
+        </Button>
       ) : (
-        <p className="lt-muted">{t('Agent checking')}</p>
+        <p className="lt-note">{t('Agent checking')}</p>
       )}
       <RefusalAlert refusal={refusal} />
     </section>
@@ -353,32 +357,32 @@ function PendingList({
   const { t } = spotConditionalCopy.useCopy();
   return (
     <section aria-label={t('Pending title')} data-testid="spot-conditional-pending" className="lt-stack">
-      <h3 className="dk-tab-title">{t('Pending title')}</h3>
+      <h3 className="lt-label">{t('Pending title')}</h3>
       {failure ? (
-        <p className="lt-refusal">{failure}</p>
+        <p className="lt-note lt-note-bad">{failure}</p>
       ) : orders.length === 0 ? (
         loaded ? (
-          <p className="lt-muted">{t('Pending empty')}</p>
+          <p className="lt-note">{t('Pending empty')}</p>
         ) : null
       ) : (
-        <div className="dk-spot-pending-scroll">
-          <table className="dk-table">
-            <thead>
-              <tr>
-                {(['kind', 'side', 'size', 'trigger', 'reference', 'status', 'where', 'legs', 'actions'] as const).map((c) => (
-                  <th key={c} scope="col">
-                    {t(`col_${c}`)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o) => (
-                <PendingRow key={o.id} order={o} onChanged={onChanged} />
+        // The list sits in the desk's narrow ticket column, too narrow for its nine columns at any width: each order stacks
+        // as labelled lines, so its Modify and Cancel stay inside the panel.
+        <table className="lt-table" data-stack="always">
+          <thead>
+            <tr>
+              {(['kind', 'side', 'size', 'trigger', 'reference', 'status', 'where', 'legs', 'actions'] as const).map((c) => (
+                <th key={c} scope="col">
+                  {t(`col_${c}`)}
+                </th>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((o) => (
+              <PendingRow key={o.id} order={o} onChanged={onChanged} />
+            ))}
+          </tbody>
+        </table>
       )}
     </section>
   );
@@ -434,28 +438,41 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
   const asset = (leg: SpotLegView) => leg.lockedAsset ?? '';
   return (
     <tr data-client-order-id={o.clientOrderId} data-kind={o.kind} data-status={o.status} data-id={o.id}>
-      <td data-cell="kind">{t(`kind_${o.kind}`)}</td>
-      <td data-cell="side">{t(`side_${o.side}`)}</td>
-      <td data-cell="size">{canonical(o.quantity)}</td>
-      <td data-cell="trigger">{o.triggerPrice ? canonical(o.triggerPrice) : ''}</td>
-      <td data-cell="reference">
+      <td data-cell="kind" data-label={t('col_kind')}>
+        {t(`kind_${o.kind}`)}
+      </td>
+      <td data-cell="side" data-label={t('col_side')}>
+        {t(`side_${o.side}`)}
+      </td>
+      <td data-cell="size" data-label={t('col_size')}>
+        {canonical(o.quantity)}
+      </td>
+      <td data-cell="trigger" data-label={t('col_trigger')}>
+        {o.triggerPrice ? canonical(o.triggerPrice) : ''}
+      </td>
+      <td data-cell="reference" data-label={t('col_reference')}>
         {o.referencePrice ? `${canonical(o.referencePrice)} (${t('Reference note')})` : live ? t('reference_none') : ''}
       </td>
-      <td data-cell="status">
-        {t(`status_${o.status}`)}
-        {/* A sent order says what became of it on the venue: filled, partly filled, open or cancelled. */}
-        {o.status === 'fired' && o.legs[0] ? <span> · {t(`leg_${o.legs[0].status}`)}</span> : null}
-        {o.failure ? <span className="lt-refusal"> · {t('Failure', { failure: o.failure })}</span> : null}
-        {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
-        {o.expireAt ? (
-          <span data-expire-at={o.expireAt}>
-            {' · '}
-            {t(o.status === 'expired' ? 'Expired at' : 'Expires at', { at: new Date(o.expireAt).toLocaleString() })}
-          </span>
-        ) : null}
+      <td data-cell="status" data-label={t('col_status')}>
+        {/* One block, so its words wrap together when the list stacks in the narrow ticket column. */}
+        <span>
+          {t(`status_${o.status}`)}
+          {/* A sent order says what became of it on the venue: filled, partly filled, open or cancelled. */}
+          {o.status === 'fired' && o.legs[0] ? <span> · {t(`leg_${o.legs[0].status}`)}</span> : null}
+          {o.failure ? <span className="lt-note-bad"> · {t('Failure', { failure: o.failure })}</span> : null}
+          {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
+          {o.expireAt ? (
+            <span data-expire-at={o.expireAt}>
+              {' · '}
+              {t(o.status === 'expired' ? 'Expired at' : 'Expires at', { at: new Date(o.expireAt).toLocaleString() })}
+            </span>
+          ) : null}
+        </span>
       </td>
-      <td data-cell="where">{o.label}</td>
-      <td data-cell="legs">
+      <td data-cell="where" data-label={t('col_where')}>
+        {o.label}
+      </td>
+      <td data-cell="legs" data-label={t('col_legs')}>
         <ul>
           {o.legs.map((leg) => (
             <li key={leg.role} data-leg={leg.role} data-leg-status={leg.status} data-rests-on={leg.restsOn}>
@@ -464,29 +481,31 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
           ))}
         </ul>
       </td>
-      <td data-cell="actions">
-        {modifiable && !editing ? (
-          <Button size={32} variant="secondary" aria-label={`${t('Modify')} ${o.clientOrderId}`} onClick={() => setEditing(true)}>
-            {t('Modify')}
-          </Button>
-        ) : null}
-        {editing ? (
-          <span className="lt-stack">
-            <NumberField label={t('Modify trigger')} value={trigger} onChange={setTrigger} />
-            {o.kind === 'stop_limit' || o.limitPrice !== null ? (
-              <NumberField label={t('Modify limit')} value={limit} onChange={setLimit} />
-            ) : null}
-            <Button size={32} onClick={() => void save()}>
-              {t('Save')}
+      <td data-cell="actions" data-label={t('col_actions')}>
+        <span className="lt-actions">
+          {modifiable && !editing ? (
+            <Button size="sm" tone="secondary" aria-label={`${t('Modify')} ${o.clientOrderId}`} onClick={() => setEditing(true)}>
+              {t('Modify')}
             </Button>
-          </span>
-        ) : null}
-        {live || resting ? (
-          <Button size={32} variant="secondary" aria-label={`${t('Cancel')} ${o.clientOrderId}`} onClick={() => void cancel()}>
-            {t('Cancel')}
-          </Button>
-        ) : null}
-        <RefusalAlert refusal={refusal} />
+          ) : null}
+          {editing ? (
+            <span className="lt-stack-tight lt-tight">
+              <NumberField label={t('Modify trigger')} value={trigger} onChange={setTrigger} />
+              {o.kind === 'stop_limit' || o.limitPrice !== null ? (
+                <NumberField label={t('Modify limit')} value={limit} onChange={setLimit} />
+              ) : null}
+              <Button tone="primary" size="sm" onClick={() => void save()}>
+                {t('Save')}
+              </Button>
+            </span>
+          ) : null}
+          {live || resting ? (
+            <Button size="sm" tone="secondary" aria-label={`${t('Cancel')} ${o.clientOrderId}`} onClick={() => void cancel()}>
+              {t('Cancel')}
+            </Button>
+          ) : null}
+          <RefusalAlert refusal={refusal} />
+        </span>
       </td>
     </tr>
   );

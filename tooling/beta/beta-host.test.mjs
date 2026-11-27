@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { userVenueKind } from '../scripts/local-test-venue.mjs';
+import opsService from '../scripts/local-stack-services/ops.mjs';
+import tradeService from '../scripts/local-stack-services/trade.mjs';
+import { GRANT } from './beta-invited.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,7 +13,6 @@ import {
   BETA_OWN_HOSTS,
   BETA_SLOT,
   MAILBOX_PORT,
-  UPDATE_EVERY_MS,
   anvilLauncher,
   betaPaths,
   decide,
@@ -26,6 +28,7 @@ import {
   mailboxRows,
   outsideAddresses,
   reservedHost,
+  selfRestart,
   stackEnv,
   stopCommands,
   unitText,
@@ -277,20 +280,15 @@ test('decide: no screening file builds nothing; a moved main updates; the same c
   assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
 });
 
-test('decide: a moved main updates at most once every 2 hours; between, the round only launches', () => {
-  const now = Date.parse('2026-11-23T08:00:00Z');
-  const ago = (ms) => new Date(now - ms).toISOString();
-  assert.equal(UPDATE_EVERY_MS, 2 * 3600_000);
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(30 * 60_000), now }), 'launch');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS - 1), now }), 'launch');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: ago(UPDATE_EVERY_MS), now }), 'update');
-  assert.equal(decide({ screening: true, head: 'a', target: 'b', updatedAt: undefined, now }), 'update');
-  assert.equal(decide({ screening: false, head: 'a', target: 'b', updatedAt: ago(1), now }), 'blocked');
+test('decide: every round moves to a moved main; the same commit only launches', () => {
+  assert.equal(decide({ screening: true, head: 'a', target: 'b' }), 'update');
+  assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
+  assert.equal(decide({ screening: false, head: 'a', target: 'b' }), 'blocked');
 });
 
 test('the page names the commit served, and the newer main it waits for', () => {
   const html = mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'bbbbbbbbb222' } });
-  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta updates at most every 2 hours\)/);
+  assert.match(html, /Beta: up on main aaaaaaaaa \(main is at bbbbbbbbb; the beta moves to it in its next round\)/);
   assert.doesNotMatch(mailboxPage([], { status: { state: 'up', sha: 'aaaaaaaaa111', mainAt: 'aaaaaaaaa111' } }), /main is at/);
 });
 
@@ -338,6 +336,30 @@ test('the service keeps the supervisor running from the beta checkout and leaves
   assert.match(unit, /KillMode=process/);
 });
 
+test('a new copy of the supervisor starts at once, so the TEST mailbox is never down for the restart delay (#10888)', () => {
+  // Exiting left systemd's RestartSec=60 between the old copy and the new one: the mailbox (MAILBOX_PORT) refused
+  // every tester waiting for a sign-up code for that minute. Under its own unit, the supervisor asks systemd to
+  // restart it now; run by hand, it exits as before.
+  const calls = [];
+  const systemctl =
+    (pid) =>
+    (...args) => {
+      calls.push(args);
+      if (args[0] === 'show') return { status: 0, stdout: `MainPID=${pid}\n` };
+      return { status: 0, stdout: '' };
+    };
+  assert.equal(selfRestart({ pid: 4242, systemctl: systemctl(4242) }), 'restart');
+  assert.deepEqual(calls.at(-1), ['restart', '--no-block', 'intafaced-beta.service']);
+
+  calls.length = 0;
+  assert.equal(selfRestart({ pid: 4242, systemctl: systemctl(999) }), 'exit', 'run by hand, not as the unit');
+  assert.ok(!calls.some((a) => a[0] === 'restart'));
+
+  const refused = (...args) => (args[0] === 'show' ? { status: 0, stdout: 'MainPID=4242\n' } : { status: 1, stdout: '' });
+  assert.equal(selfRestart({ pid: 4242, systemctl: refused }), 'exit', 'a refused restart falls back to exiting');
+  assert.equal(selfRestart({ pid: 4242, systemctl: () => ({ status: 1, stdout: '' }) }), 'exit', 'no systemd');
+});
+
 test('reserved names never reach a service, so they pass; a real host that only looks like one does not', () => {
   // What a real stack held on 22 Nov: svc-mining-pool, svc-pay and svc-ops settings on reserved names.
   for (const h of [
@@ -376,6 +398,64 @@ test("the beta's Customer build shows only rooms finished in Volt; the switch is
   // reads exactly 'off', and the beta wins over a shell.
   assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_TEST_MARKETS, 'off');
   assert.equal(stackEnv(betaPaths('/home/x'), { LOCAL_STACK_TEST_MARKETS: 'on' }).LOCAL_STACK_TEST_MARKETS, 'off');
+  // The beta publishes svc-ops' labelled TEST price list (#10632): without it valuation.prices returns
+  // valuation.prices_unset and Home and Money show "No total" even after the tester's TEST partner account is funded.
+  const betaVal = stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_VALUATION_PRICES;
+  assert.equal(betaVal, 'test');
+  assert.equal(stackEnv(betaPaths('/home/x'), { LOCAL_STACK_VALUATION_PRICES: 'off' }).LOCAL_STACK_VALUATION_PRICES, 'test');
+  const opsProfile = JSON.parse(fs.readFileSync(new URL('../profiles/test-owner-values/ops.json', import.meta.url), 'utf8'));
+  const prices = opsProfile.values.OPS_VALUATION_TEST_PRICES?.value ?? '';
+  assert.match(
+    prices,
+    new RegExp(`(?:^|,)${GRANT.asset}=\\d+(?:\\.\\d+)?(?:,|$)`),
+    `OPS_VALUATION_TEST_PRICES must price the invited tester's ${GRANT.asset} grant`,
+  );
+  // Check the exact wiring into local-stack-services/ops.mjs: setting the beta's value populates OPS_VALUATION_TEST_PRICES
+  // from the ops profile, and leaving it unset leaves it absent (the journeys' default).
+  const readOpsEnv = () =>
+    opsService({
+      c: () => ({}),
+      secrets: {},
+      dbUrl: () => 'postgres://127.0.0.1/db',
+      urlOf: (n) => `http://127.0.0.1/${n}`,
+      PORTS: { ops: 1 },
+      opsOutreachEnv: () => ({}),
+    }).env();
+  const prevVal = process.env.LOCAL_STACK_VALUATION_PRICES;
+  try {
+    delete process.env.LOCAL_STACK_VALUATION_PRICES;
+    assert.equal(readOpsEnv().OPS_VALUATION_TEST_PRICES, undefined);
+    process.env.LOCAL_STACK_VALUATION_PRICES = betaVal;
+    assert.equal(readOpsEnv().OPS_VALUATION_TEST_PRICES, prices);
+  } finally {
+    if (prevVal === undefined) delete process.env.LOCAL_STACK_VALUATION_PRICES;
+    else process.env.LOCAL_STACK_VALUATION_PRICES = prevVal;
+  }
+});
+
+test("the beta's balance watch reads the test network every 15 s, inside its 1200 weight a minute per IP; the TEST venue keeps the engine's second", () => {
+  const tradeEnv = (venue) => {
+    const prev = process.env.LOCAL_STACK_USER_VENUE;
+    try {
+      process.env.LOCAL_STACK_USER_VENUE = venue;
+      return tradeService({
+        c: () => ({}),
+        secrets: {},
+        dbUrl: () => 'postgres://127.0.0.1/db',
+        urlOf: (n) => `http://127.0.0.1/${n}`,
+        PORTS: { trade: 1 },
+        P: { data: '/tmp/beta-data', root: '/tmp/beta', state: '/tmp/beta-state' },
+        TEST_FUTURES_LADDER_POLICY: '',
+      }).env();
+    } finally {
+      if (prev === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+      else process.env.LOCAL_STACK_USER_VENUE = prev;
+    }
+  };
+  const beta = tradeEnv(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE);
+  assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, '15000');
+  assert.equal(beta.TRADE_PROTECTION_ENGINE_INTERVAL_MS, '1000');
+  for (const venue of ['on', 'hl-recorded']) assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, undefined, venue);
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {
@@ -438,4 +518,36 @@ test("the beta runs its TEST chain with the journeys' pinned anvil image, so the
   );
   assert.equal(fs.existsSync(paths.anvil), false);
   assert.equal(stackEnv(paths, {}).LOCAL_STACK_ANVIL_BIN, undefined);
+});
+
+test("passkeys and wallet messages work on the beta's public name: svc-identity's relying party is its host, svc-protocol accepts its origin, and the TEST funds check still passes", async () => {
+  const { localTestServiceEnvs, PLAN_SECRETS, publicOrigin } = await import('../scripts/local-test-stack.mjs');
+  const origin = stackEnv(betaPaths('/home/x'), { LOCAL_STACK_PUBLIC_ORIGIN: 'https://other.example.com' }).LOCAL_STACK_PUBLIC_ORIGIN;
+  assert.equal(origin, 'https://beta.intafaced.com', 'the beta wins over a shell');
+  const identityEnv = () => localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'identity').env;
+  const prior = process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+  try {
+    delete process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+    assert.equal(identityEnv().WEBAUTHN_RP_ID, 'localhost', 'unset: the stack keeps its localhost relying party');
+    process.env.LOCAL_STACK_PUBLIC_ORIGIN = origin;
+    const identity = identityEnv();
+    assert.equal(identity.WEBAUTHN_RP_ID, 'beta.intafaced.com');
+    assert.equal(identity.WEBAUTHN_ORIGIN, 'https://beta.intafaced.com');
+    assert.deepEqual(
+      outsideAddresses(Object.entries(identity), BETA_OWN_HOSTS).filter((a) => a.key.startsWith('WEBAUTHN')),
+      [],
+    );
+    // Connect to the venue signs a wallet message naming the page's origin (protocol.wallet_session_origin_unlisted).
+    const protocol = localTestServiceEnvs(PLAN_SECRETS).find((d) => d.name === 'protocol').env;
+    assert.ok(protocol.PROTOCOL_WALLET_SESSION_ORIGINS.split(',').includes('https://beta.intafaced.com'));
+    assert.ok(
+      protocol.PROTOCOL_WALLET_SESSION_ORIGINS.split(',').some((o) => /^http:\/\/localhost:\d+$/.test(o)),
+      'the stack keeps its own',
+    );
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_PUBLIC_ORIGIN;
+    else process.env.LOCAL_STACK_PUBLIC_ORIGIN = prior;
+  }
+  for (const bad of ['http://beta.intafaced.com', 'https://beta.intafaced.com/', 'https://beta.intafaced.com/app', 'beta.intafaced.com'])
+    assert.throws(() => publicOrigin({ LOCAL_STACK_PUBLIC_ORIGIN: bad }), /LOCAL_STACK_PUBLIC_ORIGIN must be one https origin/, bad);
 });

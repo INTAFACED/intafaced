@@ -40,7 +40,7 @@ const en = {
   keysTitle: 'Keys',
   keysNote: 'We never hold your keys, so there is nothing to export. Back up your wallet’s recovery phrase in the wallet itself.',
   linkTitle: 'Link to my exchange account',
-  linkNote: 'Linking uses a signature that authorises nothing. It needs sign-in and the wallet balances slice.',
+  linkNote: 'Connect your wallet to your trading account by signing a message. It moves no funds and grants no key.',
   section_overview: 'Overview',
   section_activity: 'Activity',
   section_send: 'Send',
@@ -55,6 +55,9 @@ const en = {
   section_claimLinks: 'Claim links',
   section_venue: 'Venue account',
   section_embedded: 'My wallet',
+  embeddedNote:
+    'Your own self-custody wallet, made with a passkey and no seed phrase. Your key stays with your wallet provider; only you can sign with it.',
+  embeddedOpen: 'Open My wallet',
   sections: 'Wallet sections',
   empty_activity: 'No wallet activity to show. Activity appears once the indexer reads this address.',
   empty_approvals: 'No live approvals: this wallet has not allowed anyone to move the tokens the network’s pools trade.',

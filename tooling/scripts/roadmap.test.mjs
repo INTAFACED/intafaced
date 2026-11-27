@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   analyse,
   buildIndex,
@@ -28,6 +30,7 @@ import {
   progress,
   queue,
   untangle,
+  PROGRESS_LOG_MAX_BYTES,
 } from './roadmap.mjs';
 
 test('a slice heading and its table rows are read', () => {
@@ -262,6 +265,16 @@ test('a deferred journey or step leaves the scoreboard and the slice order', () 
   const page = progress([], [], '2026-10-20T09:00:00Z', journeys, passed);
   assert.match(page, /Passing in the real app on main: 1 of 1 journeys \(2 of 2 steps\)\. Order 1: 1 of 1\./);
   assert.match(page, /Deferred \(launch prep, or set aside by an owner decision\) and not counted: 1 journey and 2 steps\./);
+});
+
+test('DEFERRED in brackets defers only the slices it names; the step stays live', () => {
+  const text = JOURNEY.replace(
+    '| 2 | Places a limit buy | It rests | SP-order-entry-01, SP-lifecycle-history-01 | none |',
+    '| 2 | Places a limit buy | It rests | SP-order-entry-01 (history: SP-lifecycle-history-01, DEFERRED until launch prep) | none |',
+  );
+  const step = parseJourneys(text, 'cex-spot')[0].steps[1];
+  assert.equal(step.deferred, undefined, 'the step is still counted');
+  assert.deepEqual(step.slices, ['SP-order-entry-01']);
 });
 
 test('a parked journey or step stays in the map, leaves the count and the slice order, and comes back unparked (OWNER 183)', () => {
@@ -730,4 +743,24 @@ test('--check fails when the words of a journey change and the list does not fol
   // A missing list is behind, not empty-and-fine.
   const none = { journeysFile: join(dir, 'none.json'), slicesFile: files.slicesFile };
   assert.equal(listDrift(dir, none).behind, true);
+});
+
+test("--progress reads main's whole 120-day log, past node's 1 MiB default", () => {
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const log = execFileSync('git', ['log', 'HEAD', '--since=120 days ago', '--format=%cI%x09%s'], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: PROGRESS_LOG_MAX_BYTES,
+  });
+  assert.ok(
+    Buffer.byteLength(log) < PROGRESS_LOG_MAX_BYTES / 4,
+    `the log is ${Buffer.byteLength(log)} bytes: raise PROGRESS_LOG_MAX_BYTES`,
+  );
+  const run = spawnSync(process.execPath, ['tooling/scripts/roadmap.mjs', '--progress', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  assert.doesNotMatch(run.stderr, /ENOBUFS/);
+  assert.equal(run.status, 0, run.stderr.slice(0, 500));
 });

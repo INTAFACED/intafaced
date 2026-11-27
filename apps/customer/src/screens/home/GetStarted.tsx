@@ -1,6 +1,7 @@
-import { Check, ChevronRight, Clock, X } from 'lucide-react';
-import { Button } from '@intafaced/ui/lit';
+import { Check, ChevronRight, Clock } from 'lucide-react';
+import { Button, ButtonLink, Fold, ProgressSegments } from '@intafaced/ui/lit';
 import { homeCopy } from './copy';
+import { commandCopy } from './command-copy';
 import { Ghost, StatusTag } from './volt-parts';
 import { progress, type Step, type StepId, type StepStatus } from './started';
 
@@ -11,6 +12,15 @@ const TITLE = {
   deposit: 'Step deposit',
   trade: 'Step trade',
   alert: 'Step alert',
+} as const satisfies Record<StepId, string>;
+/** Each step's short name under its progress segment (the family picture). */
+const LABEL = {
+  register: 'Step label register',
+  verify: 'Step label verify',
+  secure: 'Step label secure',
+  deposit: 'Step label deposit',
+  trade: 'Step label trade',
+  alert: 'Step label alert',
 } as const satisfies Record<StepId, string>;
 const HINT = {
   register: 'Step register hint',
@@ -82,25 +92,84 @@ function Row({ step }: { step: Step }) {
  * "Get started" (ROADMAP M8, HM-widgets-02): six steps, from creating the account to a first price alert. Each shows done or not from the real answers; a step
  * whose answer has not come, or could not be read, never claims to be done. The person can hide the list.
  */
-export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => void }) {
+export function GetStarted({
+  steps,
+  onHide,
+  main = false,
+}: {
+  steps: Step[];
+  onHide: () => void;
+  /** The step's action is the page's one main action (the family picture's first days): Home's Deposit key steps back. */
+  main?: boolean;
+}) {
   const { t } = homeCopy.useCopy();
+  const command = commandCopy.useCopy();
   const count = progress(steps);
+  // Your next step (Home A): the first one not done, large, with the steps' progress under it, its one action and Later.
+  const next = steps.find((step) => step.status === 'todo') ?? steps.find((step) => step.status === 'review' || step.status === 'unknown');
   return (
-    <section data-testid="home-started" className="lt-stack" aria-labelledby="home-started-title">
-      <div className="lt-title-row">
-        <h2 id="home-started-title">{t('Get started')}</h2>
+    <section data-testid="home-started" className="hm-started" aria-labelledby="home-started-title">
+      <div className="hm-started-head">
+        <h2 id="home-started-title">{command.t('Your next step')}</h2>
         <span data-testid="home-started__count" className="lt-hint">
           {count.settled ? t('Steps done', { done: count.done, total: count.total }) : <Ghost shape="text" count={1} />}
         </span>
+      </div>
+      {next ? (
+        <>
+          <p className="hm-started-headline">{t(TITLE[next.id])}</p>
+          <p className="hm-started-hint">{t(next.status === 'review' ? 'Step verify review' : HINT[next.id])}</p>
+        </>
+      ) : null}
+      <div className="hm-started-progress">
+        <ProgressSegments total={count.total} done={count.done} label={t('Steps done', { done: count.done, total: count.total })} />
+        <ol className="hm-step-labels" aria-hidden="true">
+          {steps.map((step) => (
+            <li key={step.id} data-done={step.status === 'done'}>
+              {command.t(LABEL[step.id])}
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="hm-started-actions">
+        {next && next.status === 'todo' ? (
+          <ButtonLink tone={main ? 'primary' : 'secondary'} href={next.href} data-testid="home-started__go">
+            {command.t(next.id === 'verify' ? 'Step go verify' : 'Step go')}
+          </ButtonLink>
+        ) : null}
         <Button tone="quiet" onClick={onHide} aria-label={t('Hide Get started')}>
-          <X size={16} aria-hidden="true" />
+          {command.t('Later')}
         </Button>
       </div>
-      <ul className="lt-rows">
-        {steps.map((step) => (
-          <Row key={step.id} step={step} />
-        ))}
-      </ul>
+      <Fold title={command.t('All steps')} count={count.total} className="hm-started-all">
+        <ul className="hm-started-list">
+          {steps.map((step) => (
+            <Row key={step.id} step={step} />
+          ))}
+        </ul>
+      </Fold>
     </section>
+  );
+}
+
+/**
+ * "Your next step" when Get started has no open step to lead with (every step done, or still being read): the card's
+ * heading, and the steps' progress when they are read. What needs the person follows it in the same card.
+ */
+export function NextStepHead({ steps }: { steps: Step[] }) {
+  const { t } = homeCopy.useCopy();
+  const command = commandCopy.useCopy();
+  const count = progress(steps);
+  const read = steps.length > 0 && count.settled;
+  return (
+    <div className="hm-started" data-testid="home-next-head">
+      <div className="hm-started-head">
+        <h2>{command.t('Your next step')}</h2>
+        {read ? <span className="lt-hint">{t('Steps done', { done: count.done, total: count.total })}</span> : null}
+      </div>
+      {read ? (
+        <ProgressSegments total={count.total} done={count.done} label={t('Steps done', { done: count.done, total: count.total })} />
+      ) : null}
+    </div>
   );
 }

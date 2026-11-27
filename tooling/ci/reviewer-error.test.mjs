@@ -94,6 +94,12 @@ test('down: the weekly limit waits for its reset, named in Bali time', () => {
   assert.equal(c.signIn, false);
   assert.equal(c.action, 'wait for the reset at Nov 14, 18:00 Bali time (Nov 14, 10am UTC)');
   assert.equal(resetOf('resets 3pm (UTC)', NOW), 'Nov 10, 23:00 Bali time (3pm UTC)');
+  assert.equal(
+    resetOf('resets 3pm (UTC)', new Date('2026-11-25T15:28:44Z')),
+    'Nov 26, 23:00 Bali time (3pm UTC)',
+    'a time with no date already past today is tomorrow (project-state#4075)',
+  );
+  assert.equal(resetOf('resets 11am (UTC)', NOW), 'Nov 11, 19:00 Bali time (11am UTC)', 'the same minute as NOW is past: tomorrow');
   assert.equal(resetOf('resets soon', NOW), 'soon', 'words it cannot read as a UTC time are kept as said');
   assert.equal(resetOf('limit reached', NOW), null);
 });
@@ -255,11 +261,11 @@ function runStep(name, { keys, plan, edit = (s) => s, setup = () => {} }) {
   const bin = join(temp, 'reviewer', 'node_modules', '.bin');
   execFileSync('mkdir', ['-p', bin, join(temp, 'review')]);
   const log = join(root, 'calls.log');
-  // The planted CLI: logs which key it holds and whether any spare key (the second or the third) reached it, then
+  // The planted CLI: logs which key it holds and whether any spare key (the second to the fifth) reached it, then
   // answers by the key.
   writeFileSync(
     join(bin, CLI),
-    `#!/usr/bin/env bash\ncat > /dev/null\necho "$CLAUDE_CODE_OAUTH_TOKEN spares-in-env:\${CLAUDE_CODE_OAUTH_TOKEN_2:+2}\${CLAUDE_CODE_OAUTH_TOKEN_3:+3}" >> ${JSON.stringify(log)}\n` +
+    `#!/usr/bin/env bash\ncat > /dev/null\necho "$CLAUDE_CODE_OAUTH_TOKEN spares-in-env:\${CLAUDE_CODE_OAUTH_TOKEN_2:+2}\${CLAUDE_CODE_OAUTH_TOKEN_3:+3}\${CLAUDE_CODE_OAUTH_TOKEN_4:+4}\${CLAUDE_CODE_OAUTH_TOKEN_5:+5}" >> ${JSON.stringify(log)}\n` +
       `case "$CLAUDE_CODE_OAUTH_TOKEN" in\n${Object.entries(plan)
         .map(([k, a]) => `  ${k}) echo '${JSON.stringify(a).replace(/'/g, "'\\''")}'; exit ${a.is_error ? 1 : 0};;`)
         .join('\n')}\nesac\nexit 9\n`,
@@ -517,4 +523,47 @@ test("--key says `other` only for the key's own refusals", () => {
   // The model's own text naming a limit is never the key's refusal.
   assert.equal(otherKey(classify(JSON.stringify({ is_error: true, result: "You've hit your weekly limit" }), 1, now)), false);
   assert.equal(otherKey(classify('', 1, now)), false);
+});
+
+// Five keys (the owner, 26 Nov 2026): the fourth and fifth are asked in order after
+// the third, on the Review step and the Proof read step alike, one key per call; all five used up is the judge down.
+const FIVE = { ...THREE, CLAUDE_CODE_OAUTH_TOKEN_4: 'k4', CLAUDE_CODE_OAUTH_TOKEN_5: 'k5' };
+test('the Review step: with four keys used up, the call is answered on the fifth; all five used up is the judge down', () => {
+  const r = runStep('Review', { keys: FIVE, plan: { k1: LIMIT, k2: LIMIT, k3: LIMIT, k4: LIMIT, k5: ANSWER }, edit: reviewEdit });
+  assert.equal(r.code, 0, r.stdout);
+  assert.deepEqual(
+    r.calls,
+    ['k1', 'k2', 'k3', 'k4', 'k5'].map((k) => `${k} spares-in-env:`),
+  );
+  assert.match(r.stdout, /asked again on CLAUDE_CODE_OAUTH_TOKEN_5/);
+  assert.match(r.outputs, /^key=fifth$/m);
+  assert.ok(!/k[1-5]/.test(r.stdout), 'no key in the log');
+  const all = runStep('Review', { keys: FIVE, plan: { k1: LIMIT, k2: LIMIT, k3: LIMIT, k4: LIMIT, k5: LIMIT }, edit: reviewEdit });
+  assert.equal(all.code, 0);
+  assert.equal(all.calls.length, 5);
+  assert.match(all.outputs, /^kind=down$/m);
+  // Only the fifth set beside the first: it is the next key.
+  const gap = runStep('Review', {
+    keys: { CLAUDE_CODE_OAUTH_TOKEN: 'k1', CLAUDE_CODE_OAUTH_TOKEN_5: 'k5' },
+    plan: { k1: LIMIT, k5: ANSWER },
+    edit: reviewEdit,
+  });
+  assert.equal(gap.code, 0, gap.stdout);
+  assert.deepEqual(gap.calls, ['k1 spares-in-env:', 'k5 spares-in-env:']);
+});
+
+test('the proof read: with four keys used up, both calls are answered on the fifth', () => {
+  const r = runStep('Read the steps (proof v2)', {
+    keys: FIVE,
+    plan: { k1: LIMIT, k2: LIMIT, k3: LIMIT, k4: LIMIT, k5: ANSWER },
+    edit: readEdit,
+  });
+  assert.equal(r.code, 0, r.stdout);
+  assert.ok(r.calls.filter((c) => c.startsWith('k5')).length >= 1, r.calls.join(','));
+  assert.ok(
+    r.calls.every((c) => c.endsWith('spares-in-env:')),
+    'one key per call',
+  );
+  assert.match(r.stdout, /reviewer key: fifth/);
+  assert.ok(!/k[1-5]/.test(r.stdout), 'no key in the log');
 });

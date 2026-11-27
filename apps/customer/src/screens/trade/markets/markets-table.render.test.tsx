@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { betaRoomList } from '../../../app/beta-volt';
 import { betaHidden } from '../../../app/feature-registry';
 import { rooms } from '../../../app/navigation';
-import { voltCount } from '../../../app/volt-count';
+import betaScreens from '../../../app/beta-screens.json';
 import { appPath } from '../../../app/beta-links';
 import type { Entry } from './select';
 
@@ -15,7 +15,7 @@ vi.mock('../../../shared/preferences', async (original) => {
 vi.mock('../../../features/session/session', () => ({ useSession: () => ({ session: null }) }));
 
 import { MarketsTable } from './MarketsTable';
-import { TopCards } from './TopCards';
+import { Board } from './Board';
 
 const entry = (base: string, last: string, change: string): Entry => ({
   market: {
@@ -98,7 +98,8 @@ describe('the markets table on the kit', () => {
 });
 
 // The beta's build draws a link to a room it hides as nothing, with every word inside it (src/app/beta-links.ts).
-// With the beta's own room list, Pro's desk is hidden; a row must still name its pair, outside any link the beta drops.
+// With the beta's own room list, a row must name its pair outside any link the beta drops. The spot desk is in Volt,
+// so its link stays; a room the beta hides still may not carry a pair's name.
 describe("the markets table and top cards in the beta's build", () => {
   afterEach(() => vi.unstubAllGlobals());
   const droppedLinks = (html: string) =>
@@ -110,17 +111,19 @@ describe("the markets table and top cards in the beta's build", () => {
       });
 
   it('names every pair, in Pro, with no link the beta would drop', () => {
-    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(voltCount().rooms, rooms));
-    expect(betaHidden('/trade/spot/BTC-USDT')).toBe(true); // the case the beta walk saw; when the desk joins Volt this test reads as the plain case
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(betaScreens.rooms, rooms));
+    expect(betaHidden('/trade/spot/BTC-USDT')).toBe(false); // an Order 1 step shows the desk: the beta shows it
     const table = renderToStaticMarkup(
       <MarketsTable label="Markets" entries={rows} mode="pro" columns={['name', 'price', 'action']} sort={null} onSortChange={() => {}} />,
     );
-    const cards = renderToStaticMarkup(<TopCards cards={[{ id: 'popular', entries: rows }]} mode="pro" onSeeAll={() => {}} />);
-    for (const html of [table, cards]) {
-      expect(droppedLinks(html)).toEqual([]);
-      expect(html).toMatch(/BTC<span[^>]*>\/USDT<\/span>/);
-      expect(html).toMatch(/ETH<span[^>]*>\/USDT<\/span>/);
-    }
-    expect(cards.match(/data-testid="mkt-card__row"/g)).toHaveLength(2);
+    // The board above the list (hero and movers) replaced the top cards; the same guard holds for its links.
+    const board = renderToStaticMarkup(<Board entries={rows} mode="pro" />);
+    for (const html of [table, board]) expect(droppedLinks(html)).toEqual([]);
+    expect(table).toMatch(/BTC<span[^>]*>\/USDT<\/span>/);
+    expect(table).toMatch(/ETH<span[^>]*>\/USDT<\/span>/);
+    expect(board).toContain('BTC/USDT');
+    expect(board).toContain('ETH/USDT');
+    expect(board.match(/class="lt-mover"/g)).toHaveLength(2);
+    expect(board).toMatch(/href="\/trade\/spot\/BTC-USDT"/);
   });
 });

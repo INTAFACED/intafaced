@@ -75,7 +75,7 @@ it('opens under its own title on the catalogue template', () => {
 it('keeps the guided session switched off with the real reason and sends nothing', () => {
   mutate.mockClear();
   const html = render();
-  expect(html).toContain('The Blueprint service does not publish its question list');
+  expect(html).toContain('Blueprint questions are not published');
   expect(html).toMatch(/<button[^>]*disabled[^>]*>Create your Blueprint<\/button>/);
   expect(html).toMatch(/<fieldset[^>]*disabled/);
   expect(html).toContain('Opt in to mentor availability');
@@ -85,7 +85,7 @@ it('keeps the guided session switched off with the real reason and sends nothing
 
 it('keeps the erasure, export and crew controls and readable choices', () => {
   const html = render();
-  for (const words of ['Type ERASE BLUEPRINT', 'Review permanent erasure', 'Export Blueprint JSON', 'Guided Blueprint session'])
+  for (const words of ['Type ERASE BLUEPRINT', 'Review permanent erasure', 'Download your Blueprint data', 'Guided Blueprint session'])
     expect(html).toContain(words);
   expect(html).toContain('id="blueprint-crew"');
   expect(html).toMatch(/<option value="private"[^>]*>Only me<\/option>/);

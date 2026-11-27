@@ -1,10 +1,11 @@
 import 'server-only';
-import { founderControlAuditListSchema, type FounderControlAuditListInput } from '@intafaced/contracts';
-import { asList, asTier, parseWith, payCall, type PayCallContext, payRecordRead, payRecordCall } from '@/lib/merchants';
+import { type FounderControlAuditListInput } from '@intafaced/contracts';
+import { asList, asTier, type PayCallContext, payRecordRead, payRecordCall } from '@/lib/merchants';
 import { one, PAGE_LIMIT, type Query } from './read-model';
 import {
   PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
   PAY_FOUNDER_ADMIN_CONTROL_LIMIT_REQUESTS_LIST,
+  PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
@@ -27,5 +28,5 @@ export function loadLimitRequests(ctx: PayCallContext, query: Query | undefined)
 }
 
 export function loadControlAudit(ctx: PayCallContext, input: FounderControlAuditListInput) {
-  return payCall(ctx, 'founderAdmin.control.audit.list', 'GET', input, parseWith(founderControlAuditListSchema));
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_CONTROL_AUDIT_LIST, input);
 }

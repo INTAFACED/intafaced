@@ -8407,6 +8407,7 @@
     "transfers.resume": 1810,
     "transfers.schedule": 1812,
     "transfers.scheduleToUser": 1820,
+    "transfers.sent": 1786,
     "transfers.settleWithdrawal": 1828,
     "transfers.toUser": 1834,
     "transfers.updateSchedule": 1844,

@@ -1,0 +1,504 @@
+/* Home's command centre (the owner's pick, Home A, 25 Nov 2026): net worth with its line, where it sits and the four
+   keys; the markets table under it; the next step, what needs you and what happened beside it. Values only from the
+   kit's role tokens; sizes with no token in rem. */
+
+.hm .hm-band:empty {
+  display: none;
+}
+
+.hm-hero {
+  display: grid;
+  /* The panel takes its column's width, never its figure's: at 200% text the figure shrinks to fit, the page never
+     scrolls sideways. */
+  grid-template-columns: minmax(0, 1fr);
+  container-type: inline-size;
+  gap: 1.25rem;
+  padding: 1.5rem 1.5rem 1.5rem;
+}
+.hm-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem 1.5rem;
+  flex-wrap: wrap;
+}
+.hm-hero-figure {
+  display: grid;
+  flex: 1 1 16rem;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+.hm-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.hm-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  color: var(--lit-text-1);
+  font-weight: 600;
+  font-size: var(--lit-type-label-size);
+  text-decoration: none;
+}
+.hm-link:hover {
+  color: var(--lit-accent-text);
+}
+
+/* The big figure: Home A's size. */
+.hm-hero [data-slot='hero-number'] {
+  font-size: min(clamp(2.75rem, 4.6vw, 5.25rem), 14cqi);
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+
+.hm-chart {
+  block-size: clamp(11rem, 17vw, 15.75rem);
+  margin-inline: -0.5rem;
+  position: relative;
+}
+.hm-chart .lt-chart,
+.hm-chart .lt-chart svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+.hm-chart .lt-ghost {
+  block-size: 100%;
+}
+.hm-chart-note {
+  display: grid;
+  place-items: center;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+  text-align: center;
+}
+.hm-chart-note p {
+  margin: 0;
+  max-inline-size: 28rem;
+}
+.hm-chart-flat {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+}
+.hm-chart-flat path {
+  stroke: var(--lit-line);
+  stroke-width: 1;
+  fill: none;
+}
+.hm-chart-note p {
+  position: relative;
+}
+
+/* The markets panel. */
+.hm-markets {
+  padding: 1.25rem 0.75rem 0.75rem;
+}
+.hm-markets > .lt-panel-head {
+  padding-inline: 0.75rem;
+}
+
+/* The side column's panels. */
+/* The rail (the family picture): plain sections under a hairline each, no panels. */
+.hm-rail-sec {
+  display: grid;
+  gap: 0.75rem;
+  padding-block: 1.25rem;
+}
+.hm-rail-sec + .hm-rail-sec {
+  border-block-start: 1px solid var(--lit-line);
+}
+.hm-rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.hm-rail-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hm-rail-rows > li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-block: 0.625rem;
+}
+.hm-rail-rows > li + li {
+  border-block-start: 1px solid var(--lit-line);
+}
+.hm-rail-lines {
+  display: grid;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+.hm-rail-lines .lt-hint {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-rail-figure {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hm-rail-figure[data-sign='up'] {
+  color: var(--lit-up-text);
+}
+.hm-rail-figure[data-sign='down'] {
+  color: var(--lit-down-text);
+}
+.hm-rail-kv {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+.hm-rail-kv > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.hm-rail-kv dt {
+  color: var(--lit-text-2);
+}
+.hm-rail-kv dd {
+  margin: 0;
+}
+.hm-rail-sec.hm-spendable {
+  padding-inline: 1.25rem;
+}
+.hm-rail-foot {
+  padding-block: 1rem;
+}
+.hm-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+}
+.hm-started-progress {
+  display: grid;
+  gap: 0.5rem;
+}
+.hm-step-labels {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-step-labels > [data-done='true'] {
+  color: var(--lit-text-2);
+}
+.hm-rail-sec > section {
+  margin: 0;
+}
+
+/* A phone: tighter panels. */
+@container lt-page (max-width: 40rem) {
+  .hm-hero {
+    padding: 1.25rem 1rem;
+  }
+  .hm-rail-sec {
+    padding-inline: 0.25rem;
+  }
+}
+
+/* Pill tabs on a sunken track (Home A's range and view switches), until the kit's own land. */
+.hm .lt-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  max-inline-size: 100%;
+  gap: 0.125rem;
+  padding: 0.1875rem;
+  border: 0;
+  border-radius: 62rem;
+  background: var(--lit-solid-bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--lit-line);
+}
+.hm .lt-segment {
+  flex: none;
+  min-block-size: 0;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  border-radius: 62rem;
+  font-size: var(--lit-type-label-size);
+  line-height: 1.25;
+}
+.hm .lt-segment[aria-checked='true'] {
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-solid-lip);
+}
+
+/* A balance the bank refuses (not verified yet): the step itself, large, where the figure would be. */
+.hm-hero [data-slot='state-block'][data-kind='refused'] {
+  border: 0;
+  padding: 0;
+  background: none;
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+}
+.hm-hero [data-slot='state-block'][data-kind='refused'] > :first-child {
+  font-size: clamp(1.75rem, 2.6vw, 2.75rem);
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.hm-hero [data-slot='state-block'][data-kind='refused'] .lt-button {
+  background: var(--lit-primary-bg);
+  box-shadow: var(--lit-primary-shadow);
+  color: var(--lit-primary-fg);
+}
+
+.hm {
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-size: var(--lit-type-body-size);
+  line-height: var(--lit-type-body-line);
+}
+
+/* Get started as Home A's next step: the first open step large, the progress in segments, the steps compact under it. */
+.hm-started {
+  display: grid;
+  gap: 1rem;
+}
+.hm-started-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-started-head h2 {
+  margin: 0;
+  flex: 1;
+  font-size: var(--lit-type-label-size);
+  font-weight: 500;
+  color: var(--lit-text-2);
+}
+.hm-started-next {
+  display: grid;
+  gap: 0.375rem;
+  color: var(--lit-text-1);
+  text-decoration: none;
+}
+.hm-started-headline {
+  font-size: clamp(1.375rem, 1.6vw, 1.625rem);
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.hm-started-hint {
+  color: var(--lit-text-2);
+}
+.hm-started-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hm-started-list li + li {
+  border-block-start: 1px solid var(--lit-line);
+}
+.hm-started-list .lt-row-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-block-size: 3.25rem;
+  padding-block: 0.5rem;
+  color: var(--lit-text-1);
+  text-decoration: none;
+}
+.hm-started-list .lt-lines {
+  display: grid;
+  flex: 1;
+  min-inline-size: 0;
+}
+.hm-started-list .lt-hint {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.hm-started-list [data-status='done'] [data-testid='home-started__title'] {
+  color: var(--lit-text-3);
+}
+.hm-started-list .lt-row-link > [data-status]:first-child {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.09375rem var(--lit-line-strong);
+  color: var(--lit-up-text);
+  flex: none;
+}
+.hm-started-list .lt-row-link > [data-status='done']:first-child {
+  box-shadow: none;
+  background: var(--lit-solid-bg-raised);
+}
+.hm-started-list svg {
+  color: var(--lit-text-3);
+}
+
+/* Side panels' titles: Home A's quiet panel heads, not page headings. */
+.hm-rail-sec h2 {
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.hm-rail-sec .lt-title-row {
+  margin-block-end: 0.25rem;
+}
+.hm-rail-sec [data-slot='state-block'] {
+  padding: 0.5rem 0 0;
+  border: 0;
+  background: none;
+}
+.hm-rail-sec [data-slot='state-block'] > :first-child {
+  font-size: var(--lit-type-body-size);
+  font-weight: 600;
+}
+.hm-rail-sec [data-slot='state-block'] p {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.hm-started-list [data-slot='status-tag'],
+.hm-started-list .lt-row-link > :last-child {
+  white-space: nowrap;
+  flex: none;
+}
+
+/* One column (a phone, a narrow window): the next step comes right after the total, then the markets, then the rest. */
+@container lt-page (max-width: 63.99rem) {
+  .hm .lt-page-grid {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+  .hm .hm-main,
+  .hm .hm-side {
+    display: contents;
+  }
+  .hm .hm-band {
+    order: 0;
+  }
+  .hm .hm-hero {
+    order: 1;
+  }
+  .hm .hm-next {
+    order: 2;
+  }
+  .hm .hm-markets {
+    order: 3;
+  }
+  .hm .hm-rail-sec:not(.hm-next) {
+    order: 4;
+  }
+  .hm .hm-rail-foot {
+    order: 5;
+  }
+}
+
+/* Record rows in the side panels (Recent activity, Your crypto): a mark, the words taking the room, the figure at the
+   end (Home B's Recent). */
+.hm-rail-sec .lt-rows > li {
+  padding-block: 0.625rem;
+}
+.hm-rail-sec .lt-rows > li:last-child {
+  border-block-end: 0;
+}
+.hm-rail-sec .lt-rows .lt-row-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  inline-size: 100%;
+}
+.hm-rail-sec .lt-rows .lt-row-link > .lt-lines {
+  flex: 1 1 auto;
+}
+.hm-rail-sec .lt-rows .lt-row-link > :last-child:not(.lt-lines) {
+  flex: none;
+  white-space: nowrap;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.hm-rail-sec .lt-rows .lt-row-link[data-dir='in'] > :last-child {
+  color: var(--lit-up-text);
+}
+.hm-rail-sec .lt-lines .lt-hint {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+
+.hm-hero [data-testid='home-change'] {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+  color: var(--lit-text-2);
+}
+.hm-hero .lt-hint {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+
+/* Where the person stands (the launch model), in the hero: its sources side by side where there is room, each one's
+   figure before who reports it. Layout only: the look comes from the kit. */
+.hm-hero [data-standing] > * {
+  max-inline-size: none;
+}
+.hm-hero [data-testid='standing-parts'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.625rem 1.5rem;
+}
+.hm-hero [data-testid='standing-parts'] > li > .lt-hint {
+  order: 2;
+}
+
+/* "How this is worked out": closed by default, its lines kept in the page; open, one quiet block under the figure. */
+
+/* The markets table: Trade on every row, not only on hover (Home A). */
+.hm-markets .lt-market-table .lt-market-action {
+  opacity: 1;
+}
+
+/* Your next step: its action and Later on one line; every step behind All steps. */
+.hm-started-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The markets head: the view tabs at the start, Open the desk at the end. */
+.hm-markets > .lt-panel-head {
+  display: flex;
+}
+.hm-markets > .lt-panel-head > .lt-panel-aside {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* Spendable now's own "How this is worked out": closed, each source line and note stays in the page, unseen. */
+.hm [data-how='closed'] :is([data-how-line], [data-part-source]) {
+  display: none;
+}
+
+/* Inside Your next step, what needs the person reads as the step itself. */
+.hm-next section[aria-labelledby='home-work-title'] .lt-rows {
+  font-size: 1.125rem;
+}

@@ -24,7 +24,9 @@ use service_kit::edge;
 use service_kit::json::{self, Json};
 use service_kit::server::Request;
 use service_kit::time::Instant;
+use svc_blueprint::db::Store;
 use svc_blueprint::door::{self, BlueprintDoor, DoorConfig, Slice};
+use svc_blueprint::env::Settings;
 
 const GOLDEN: &str = include_str!("../../../services/svc-blueprint/src/wire-replay.golden.json");
 /// Recordings made while errors carried tRPC's stack hold it masked; the wire sends none now (the TypeScript test drops
@@ -41,14 +43,28 @@ const CALLERS: [(&str, Option<&[&str]>, &str); 4] = [
     ("all-US", Some(&["blueprint:read", "blueprint:write"]), "US"),
 ];
 
-/// The owner settings the recording ran under. The door reads none of them; each is a handler's.
-const SETTINGS: [&str; 2] = ["blank", "set"];
+/// The owner settings the recording ran under (`SETTINGS` in `wire-replay.test.ts`).
+fn settings_matrix() -> [(&'static str, Settings); 2] {
+    [
+        ("blank", Settings::default()),
+        (
+            "set",
+            Settings {
+                crew_capacity: Some(6),
+                mentor_shortlist_size: Some(3),
+                season: Some(1),
+                shares_per_owner: Some(5),
+                opens_list_limit: Some(50),
+            },
+        ),
+    ]
+}
 
 fn now() -> Instant {
     Instant(1_795_046_400_000)
 }
 
-fn serve() -> BlueprintDoor {
+fn serve(settings: Settings) -> BlueprintDoor {
     // The TypeScript replay's process: vitest sets NODE_ENV to `test`; the test stubs the rest.
     let env: BTreeMap<String, String> = [
         ("APP_ENV", "test"),
@@ -63,6 +79,11 @@ fn serve() -> BlueprintDoor {
         edge_secret: SECRET.to_owned(),
         env,
         now,
+        // The recording's database: a stub that refuses any call with its own name.
+        store: Store::Down("replay stub: sql".to_owned()),
+        // The recording's renderer is a stub too; no call reaches it past the refusing database.
+        renderer: Box::new(svc_blueprint::card::renderer::Unconfigured),
+        settings,
     })
     .unwrap()
 }
@@ -199,7 +220,10 @@ fn the_door_answers_as_the_typescript_router_did() {
         })
         .collect();
 
-    let door = serve();
+    let doors: Vec<(&str, BlueprintDoor)> = settings_matrix()
+        .into_iter()
+        .map(|(name, settings)| (name, serve(settings)))
+        .collect();
     let mut now: BTreeMap<String, (String, Slice)> = BTreeMap::new();
     for (path, s) in samples {
         let call = door::call(path).unwrap();
@@ -212,12 +236,12 @@ fn the_door_answers_as_the_typescript_router_did() {
             ("sample", Some(text(s, "sample"))),
             ("sample-nulls", Some(text(s, "sample-nulls"))),
         ];
-        for settings in SETTINGS {
+        for (settings, door) in &doors {
             for (input_name, input) in &inputs {
                 for (i, (caller, ..)) in CALLERS.iter().enumerate() {
                     now.insert(
                         format!("{settings} {path} {input_name} {caller}"),
-                        (hit(&door, path, query, input.as_deref(), i), call.slice),
+                        (hit(door, path, query, input.as_deref(), i), call.slice),
                     );
                 }
             }

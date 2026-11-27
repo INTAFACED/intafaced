@@ -18,7 +18,7 @@ import {
 } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { fundAtPartner, holdAtPartner, partnerBookMoves, partnerMainBalance, withPartner } from './partner.mjs';
+import { fundAtPartner, holdAtPartner, partnerBookAccounts, partnerBookMoves, partnerMainBalance, withPartner } from './partner.mjs';
 
 // J-pay-01, in the running app (docs/roadmap/journeys.json): send TEST money to a person by handle and see it complete.
 // One test per step, titled "J-pay-01 #<n>", run in order on TEST accounts: A sends, B receives. INTAFACED holds none of
@@ -220,6 +220,13 @@ test.afterAll(() => {
   if (run.read().lastStepRan) ownerRules(false);
 });
 
+/** Sets A's TEST partner switches through A's own kept session (setPartner signs in afresh, which spends a code). */
+async function aPartner(change) {
+  const res = await (await session(people().sender)).post('/api/bank/trpc/testPartner.set', change);
+  if (res.status !== 200) throw new Error(`testPartner.set refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
+  return res.body.result.data;
+}
+
 /** Every move out of A to another person on the TEST partner's own book. */
 async function movesOut() {
   const { senderId } = run.read();
@@ -392,30 +399,50 @@ test(`${J} #2 types a handle in To and sees who it is, or a plain answer, and a 
 
 test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note, and sees the exact amount, the note, the source space and the fee line`, async ({
   page,
+  stepPicture,
 }) => {
   const { sender, recipient } = people();
+  const { senderId } = run.read();
+  // The accounts and balances the TEST partner bank's own book holds for A, read on loopback straight from the
+  // stand-in (partner.mjs -> venue.mjs): Send's picker, available balance and source must match them, and the
+  // ledger holds none of it.
+  const partnerUsdt = await partnerMainBalance(senderId, 'USDT');
+  const partnerBtc = await partnerMainBalance(senderId, 'BTC');
+  const partnerAccounts = await partnerBookAccounts(senderId);
+  expect(partnerAccounts).toEqual(
+    expect.arrayContaining([
+      { asset: 'USDT', spaceId: null, amount: partnerUsdt },
+      { asset: 'BTC', spaceId: null, amount: partnerBtc },
+    ]),
+  );
+  expect(await ledgerUsdt(sender)).toBe('0');
+
   await signIn(page, sender);
   await page.goto('/pay');
   await lookUp(page, recipient.handle);
   await expect(page.getByTestId('to-status').getByTestId('recipient-handle')).toHaveText(`@${recipient.handle}`);
 
-  // The picker lists the stablecoin first and starts on it; A also holds BTC, listed after.
+  // The picker lists the stablecoin first and starts on it; A also holds BTC, listed after, each with the partner's balance.
   // The picker is the browser's own select (the Volt kit's SelectField): its options are read and chosen in place.
   const picker = page.getByRole('combobox', { name: 'Asset to send', exact: true });
   const options = picker.getByRole('option');
   await expect(options.first()).toHaveText('USDT');
   await expect(options.filter({ hasText: 'BTC' })).toHaveCount(1);
   await expect(picker.locator('option:checked')).toHaveText('USDT');
-  // A real pick: away to BTC, whose amount the summary then reads in BTC, and back to the stablecoin.
+  await expect(page.getByTestId('pay-available')).toHaveText(`Available ${shown(partnerUsdt)} USDT`);
+  // A real pick: away to BTC, whose balance, amount and source match the partner's BTC account, and back to the stablecoin.
   await picker.selectOption({ label: 'BTC' });
   await expect(picker.locator('option:checked')).toHaveText('BTC');
+  await expect(page.getByTestId('pay-available')).toHaveText(`Available ${shown(partnerBtc)} BTC`);
   await page.getByLabel('Amount to send', { exact: true }).fill('0.005');
   await expect(page.getByTestId('pay-summary-amount')).toHaveText('0.005 BTC');
+  await expect(page.getByTestId('pay-summary-source')).toHaveText(`Your BTC account at ${PARTNER_BANK}`);
   await picker.selectOption({ label: 'USDT' });
   await expect(picker.locator('option:checked')).toHaveText('USDT');
+  await expect(page.getByTestId('pay-available')).toHaveText(`Available ${shown(partnerUsdt)} USDT`);
 
   // The amount is shown in exact units: every digit typed, nothing rounded or padded.
-  const amount = page.getByLabel('Amount to send');
+  const amount = page.getByLabel('Amount to send', { exact: true });
   await amount.fill('25.000001');
   await expect(page.getByTestId('pay-summary-amount')).toHaveText('25.000001 USDT');
   await amount.fill(AMOUNT);
@@ -464,6 +491,14 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   await amount.fill('25.5');
   await amount.fill(AMOUNT);
   await expect(line).toHaveText(`${expected.fee}. ${expected.network} ${expected.perPayment}`);
+  await expect(page.getByTestId('pay-summary-amount')).toHaveText(`${AMOUNT} USDT`);
+  await expect(page.getByTestId('pay-summary-source')).toHaveText(await mainSpace(sender));
+  await expect(page.getByTestId('pay-summary-note')).toHaveText(NOTE);
+  // Nothing moved on the partner's own book while picking, typing or hitting the refusal.
+  expect(await partnerMainBalance(senderId, 'USDT')).toBe(partnerUsdt);
+  expect(await partnerMainBalance(senderId, 'BTC')).toBe(partnerBtc);
+  expect(await movesOut()).toEqual([]);
+  await stepPicture();
 });
 
 test(`${J} #4 presses Review and sees amount, recipient identity, source, note, fee and today's allowance, with a first-time caution and no test payment`, async ({
@@ -618,7 +653,7 @@ async function statusPage(page) {
   await expect(page).toHaveURL(/\/money\/activity\/[^/?]+/);
 }
 
-test(`${J} #6 reads the payment status page: Completed for both parties, no Cancel button and a pointer to refund; a held send reads In review with the reason class`, async ({
+test(`${J} #6 reads the payment status page: Confirming, then Completed for both parties with the partner reference, no Cancel button and a pointer to refund; a held send reads In review with the reason class`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -688,6 +723,62 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
   expect(await usdt(sender)).toBe(before.sender);
   expect(await usdt(recipient)).toBe(before.recipient);
   expect(await sentOf(held)).toEqual([]);
+
+  // Confirming, then Completed: A sends TEST 2 USDT, and the partner makes the move but its answer to the bank is lost
+  // (the TEST partner's switch), so the bank cannot yet say it went through and Send waits on it. While the partner does
+  // not answer (its TEST switch), the payment's status page reads Confirming; once it answers, the same page reads
+  // Completed under the partner's one move, and Send stops waiting.
+  const confirming = '2';
+  const start = { sender: await usdt(sender), recipient: await usdt(recipient) };
+  await aPartner({ nextReply: 'lost' });
+  await sendForm(page, { amount: confirming, note: null, signedIn: true });
+  await page.getByTestId('pay-review').click();
+  await page.getByTestId('pay-send').click();
+  await expect(stepUp).toBeVisible();
+  await stepUp.getByLabel('Authenticator code', { exact: true }).fill(await aCode());
+  await page.getByTestId('pay-step-up-confirm').click();
+  const waiting = page.getByTestId('pay-waiting');
+  await expect(waiting).toContainText('We’re still confirming your last payment.');
+  await expect(page.getByTestId('pay-receipt')).toHaveCount(0);
+  // The partner made the move once, under the bank's key for this send.
+  const made = await sentOf(confirming);
+  expect(made).toHaveLength(1);
+  const transferId = made[0].key.match(/^bank\.transfer\.p2p:(.+):0$/)?.[1];
+  expect(transferId, 'the partner’s move carries the bank’s key for the send').toBeTruthy();
+  await aPartner({ down: true });
+  try {
+    await waiting.getByTestId('pay-waiting-status').click();
+    await expect(page).toHaveURL(new RegExp(`/pay/history/${transferId}$`));
+    const status = page.getByTestId('payment-status');
+    await expect(status).toHaveText('Confirming');
+    await expect(status).toHaveAttribute('data-status', 'confirming');
+    await expect(page.getByTestId('payment-sent-note')).toHaveText(
+      'We’re confirming this payment with the bank that holds your money. It is sent at most once; check again in a moment.',
+    );
+    await expect(page.getByTestId('payment-partner-reference')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+  } finally {
+    await aPartner({ down: false });
+  }
+  await page.getByRole('button', { name: 'Check again', exact: true }).click();
+  const status = page.getByTestId('payment-status');
+  await expect(status).toHaveText('Completed');
+  await expect(status).toHaveAttribute('data-status', 'completed');
+  await expect(page.getByTestId('payment-sent-note')).toHaveText('This payment is complete.');
+  await expect(page.getByTestId('payment-partner-reference')).toHaveText(made[0].id);
+  await expect(page.getByText(`${PARTNER_BANK} reference`, { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+  // The money moved once: one partner move, each balance by exactly 2, the ledger untouched; and Send waits no more.
+  expect(await sentOf(confirming)).toEqual(made);
+  expect(toUnits(start.sender) - toUnits(await usdt(sender))).toBe(toUnits(confirming));
+  expect(toUnits(await usdt(recipient)) - toUnits(start.recipient)).toBe(toUnits(confirming));
+  expect(toUnits(start.sender) - toUnits(await book(sender))).toBe(toUnits(confirming));
+  expect({ sender: await ledgerUsdt(sender), recipient: await ledgerUsdt(recipient) }).toEqual({ sender: '0', recipient: '0' });
+  run.write({ confirming });
+  await page.goto('/pay');
+  await expect(page.getByTestId('send-panel')).toBeVisible();
+  await expect(page.getByTestId('pay-waiting')).toHaveCount(0);
 });
 
 /**
@@ -788,10 +879,11 @@ test(`${J} #8 either person opens the balance page: the partner's balance with i
   test.setTimeout(180_000);
   const { sender, recipient } = people();
   run.write({ lastStepRan: true });
-  const { reference, before, second, fees } = run.read();
+  const { reference, before, second, confirming, fees } = run.read();
   if (!fees) throw new Error(`${J} #4 kept no quote, so there are no fees to read`);
   if (!reference || !second) throw new Error(`${J} #5 sent nothing, so there is no balance to read`);
-  const moved = toUnits(AMOUNT) + toUnits(second);
+  if (!confirming) throw new Error(`${J} #6 sent no confirming payment, so the balance this run moved is not known`);
+  const moved = toUnits(AMOUNT) + toUnits(second) + toUnits(confirming);
   for (const side of [
     { who: sender, signIn: () => signInA(page), expected: toUnits(before.sender) - moved, direction: 'out' },
     { who: recipient, signIn: () => signIn(page, recipient), expected: toUnits(before.recipient) + moved, direction: 'in' },

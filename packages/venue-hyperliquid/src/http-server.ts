@@ -70,6 +70,14 @@ export interface UserVenueRequest {
   readonly rawBody: string;
 }
 
+/**
+ * An answer as the bytes sent. The wallet's typed data passes the wire encoding untouched, and a user-signed action's
+ * uint64 nonce in it is a bigint: it travels as its decimal string, which a wallet signs as the same number.
+ */
+export function userVenueAnswerJson(payload: unknown): string {
+  return JSON.stringify(payload, (_key, value: unknown) => (typeof value === 'bigint' ? value.toString() : value));
+}
+
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /** One request's answer, for any `UserVenue`. Exported so a test can drive it without a socket. */
@@ -132,7 +140,7 @@ export function userVenueHandler(venue: UserVenue, info: UserVenueServerInfo): h
       answerUserVenue(venue, info, { method: req.method ?? 'GET', path, rawBody: Buffer.concat(chunks).toString('utf8') })
         .then(([status, payload]) => {
           res.writeHead(status, { 'content-type': 'application/json' });
-          res.end(JSON.stringify(payload));
+          res.end(userVenueAnswerJson(payload));
         })
         .catch((err: unknown) => {
           res.writeHead(500, { 'content-type': 'application/json' });
@@ -168,7 +176,11 @@ export async function startHyperliquidVenueServer(
   const venue = new HyperliquidTestnetUserVenue({
     appEnv: opts.appEnv,
     betaPosture: opts.betaPosture ?? null,
-    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    // The wallet signs a user-signed action on the chain `GET /venue` names, so the typed data's domain names that chain too.
+    walletChainId: HL_TESTNET_WALLET_CHAIN_ID,
+    // Live, every tester's reads leave from this one address, which the venue limits by weight a minute: reads are shared.
+    // A recording played back answers every read as recorded, so its reads stay one call each.
+    ...(opts.fetch ? { fetch: opts.fetch } : { shareReads: true }),
     ...(opts.clock ? { clock: opts.clock } : {}),
     ...(opts.nonceSource ? { nonceSource: opts.nonceSource } : {}),
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),

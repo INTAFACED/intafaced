@@ -108,6 +108,8 @@ import { reachesLook } from './look-paths.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
+/** A venue journey's Hyperliquid recording, by its journey file's name (hl-venue-daily.mjs optIn). */
+export const HL_RECORDING = /^packages\/venue-hyperliquid\/recordings\/(J-[A-Za-z0-9._-]+-venue)\.json$/;
 
 /** A changed path as printed in a log line: a pull request names its own paths, so a control character (a newline that
  *  would start a workflow command) is shown as `?`, never written. */
@@ -120,6 +122,9 @@ export const JOURNEY_CI = [
   'tooling/ci/journey-touch.mjs',
   'tooling/ci/journey-verdict.mjs',
   'tooling/ci/journey-verdict.test.mjs',
+  // The hosted beta's rule the verdict runs (notOnBeta).
+  'tooling/ci/beta-hides.mjs',
+  'tooling/ci/beta-proof-held.json',
   // The scoreboard's shard download ("Merge the shards").
   'tooling/ci/shard-download.mjs',
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
@@ -128,6 +133,9 @@ export const JOURNEY_CI = [
   // What finds the journeys run's reach among tooling no rule places (quietTooling).
   'tooling/ci/tooling-reach.mjs',
   'tooling/ci/post-merge-trust.mjs',
+  // Which steps the menus reach on the hosted beta's build, from the crawl's record (menu-reach.pw.mjs).
+  'tooling/ci/menu-reach.mjs',
+  'tooling/ci/menu-reach.test.mjs',
   'tooling/ci/review-marker.mjs',
   // The paths that draw a Customer room or kit part, read by the seal's review rule and the journeys pick.
   'tooling/ci/look-paths.mjs',
@@ -204,6 +212,7 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/journey-fail-fast-retries.test.mjs',
   'tooling/scripts/journey-freeze-guard.test.mjs',
   'tooling/scripts/journey-reach.test.mjs',
+  'tooling/scripts/journey-screens.test.mjs',
   'tooling/scripts/journey-world.test.mjs',
   'tooling/scripts/local-founder-seed.test.mjs',
   'tooling/scripts/local-tester-seed.test.mjs',
@@ -485,6 +494,12 @@ function kindOf(p) {
       kind: 'full',
       why: 'a run file that holds no journey steps (a look sweep), which no report lists, so only a clean full run shows it broke nothing',
     };
+  // A venue journey's Hyperliquid recording is read only by the journey file named after it (hl-venue-daily.mjs optIn
+  // holds the name), so a change to it runs that file. (Failure it prevents: #10910, the daily run's recordings, ran
+  // only the CANARY, since a product path no recorded run narrows, and never the two files that replay them.)
+  const recording = HL_RECORDING.exec(p);
+  if (recording && JOURNEY_TEST.test(`apps/customer/tests/real-app/${recording[1]}.pw.mjs`))
+    return { kind: 'file', file: `${recording[1]}.pw.mjs` };
   if (JOURNEY_CI.includes(p)) return { kind: 'full', why: 'a check the journeys run uses (JOURNEY_CI)' };
   if (FACTORY_SCRIPTS.includes(p)) return { kind: 'none' };
   for (const [re, why] of FULL_RULES) if (re.test(p)) return { kind: 'full', why };

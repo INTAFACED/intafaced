@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { PayFailure } from './components';
+import { PayFailure } from './volt/parts';
 import { Button } from '@intafaced/ui/lit';
 import { formatDateTime } from './portal/ui/format';
 import { StepUpConfirm } from '../money';

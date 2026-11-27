@@ -88,7 +88,7 @@ jobs:
       pull-requests: read # the journey list guard reads the pull request's current body
     # What tells main-bisect's automatic revert (exact-revert.mjs autoRevertOf): its branch, author, commit count, head and
     # head repository (the test judge runs only for this repository's own). Read by the test-diff guard, lint-ratchet and
-    # the kit-ceilings and volt-off-kit tests (in `pnpm gates`) and look drift, which judge a proven revert of X against X^
+    # the kit-ceilings test (in `pnpm gates`) and look drift, which judge a proven revert of X against X^
     # (project-state#3635, #3697). Empty on a push.
     env:
       PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -532,18 +532,25 @@ jobs:
           if [ -f apps/customer/dist/index.html ]; then pnpm --filter @intafaced/customer test:deployment
           else echo "the Customer app was not built: nothing to test"; fi
       # The tooling tests that read a build (NEEDS_BUILD in tooling/scripts/tooling-tests.mjs; the Doctrine gates job runs
-      # the rest unbuilt). They run whenever this job built packages/contracts, as every tooling/ change does but a lint
-      # rule or a gate's baseline file (ci-affected.mjs isGateOnlyTooling), which no NEEDS_BUILD test reads.
+      # the rest unbuilt). Each runs when the build output it names is there: a change that builds none of what a test
+      # reads cannot move what it checks (tooling-tests.test.mjs proves each one's inputs build its output). A build of the
+      # whole repo (every push to main) has every output, so one missing there is an error, never a skip.
       - name: Tooling tests that need the build
+        env:
+          FULL: ${{ needs.changes.outputs.full }}
         run: |
-          if [ -f packages/contracts/dist/index.js ]; then
-            # An empty or unreadable list must fail: `node --test` with no files would discover tests across the whole repo.
-            list=$(node -e "import('./tooling/scripts/tooling-tests.mjs').then((m) => console.log(m.NEEDS_BUILD.join('\n')))")
-            [ -n "$list" ] || { echo "::error::NEEDS_BUILD is empty or unreadable"; exit 1; }
-            mapfile -t files <<< "$list"
-            for f in "${files[@]}"; do [ -f "$f" ] || { echo "::error::NEEDS_BUILD names $f, which does not exist"; exit 1; }; done
-            node --test "${files[@]}"
-          else echo "packages/contracts was not built: nothing to test"; fi
+          # An empty or unreadable list must fail: `node --test` with no files would discover tests across the whole repo.
+          list=$(node -e "import('./tooling/scripts/tooling-tests.mjs').then((m) => { for (const e of Object.entries(m.NEEDS_BUILD)) console.log(e.join(' ')) })")
+          [ -n "$list" ] || { echo "::error::NEEDS_BUILD is empty or unreadable"; exit 1; }
+          files=()
+          while read -r f out; do
+            [ -f "$f" ] || { echo "::error::NEEDS_BUILD names $f, which does not exist"; exit 1; }
+            if [ -f "$out" ]; then files+=("$f")
+            elif [ "$FULL" = true ]; then echo "::error::the whole repo was built, but $out, which $f reads, is not there"; exit 1
+            else echo "not run: $f (this change did not build $out)"; fi
+          done <<< "$list"
+          if [ ${#files[@]} -gt 0 ]; then node --test "${files[@]}"
+          else echo "this change built nothing a NEEDS_BUILD test reads: nothing to test"; fi
       # turbo prefixes every line with its task, so setup-node's tsc matcher never fires and a red job said only
       # "pnpm run typecheck exited (1)". This turns the first ten type errors (GitHub keeps ten per step) into annotations, so tooling/ci/why-red.mjs
       # names them without the job log. Output only: it changes no result.

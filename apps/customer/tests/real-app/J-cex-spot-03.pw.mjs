@@ -50,7 +50,7 @@ const ONE = toUnits('1');
 const ENGINE_FUNDED = '60000';
 const engineTab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 async function enginePickTif(page, label) {
-  await page.getByRole('combobox', { name: 'Time in force' }).click();
+  await page.getByRole('combobox', { name: /Time in force/i }).click();
   await page.getByRole('option', { name: label, exact: true }).click();
 }
 /** A local "date and time" field value for `ms`, as the person would type it. */
@@ -64,9 +64,15 @@ async function engineLimitBuy(page, { tif, price, amount }) {
   const sent = placements(page);
   await engineTab(page, 'Limit').click();
   await enginePickTif(page, tif);
-  await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(price);
-  await previewed(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amount));
-  await buyForm(page).getByRole('button', { name: 'Buy BTC' }).click();
+  await buyForm(page).getByRole('textbox', { name: /Price/i }).fill(price);
+  await previewed(page, () =>
+    buyForm(page)
+      .getByRole('textbox', { name: /Amount/i })
+      .fill(amount),
+  );
+  await buyForm(page)
+    .getByRole('button', { name: /Buy BTC/i })
+    .click();
   await expect(reviewSheet(page)).toContainText(tif);
   await confirm(page, 'buy');
   await expect.poll(() => sent.length).toBe(1);
@@ -102,6 +108,13 @@ async function desk(page) {
 
 const buyForm = (page) => page.locator('form[data-testid="dk-form"][data-side="buy"]');
 const sellForm = (page) => page.locator('form[data-testid="dk-form"][data-side="sell"]');
+/** The ticket shows one side at a time, as the perps desk does: choose it first. */
+const pickSide = (page, side) =>
+  page
+    .getByTestId('dk-order')
+    .getByRole('group', { name: 'Buy or sell', exact: true })
+    .getByRole('button', { name: side === 'buy' ? 'Buy' : 'Sell', exact: true })
+    .click();
 const orderTab = (page, name) => page.getByTestId('dk-order').locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 const line = (scope, name) => scope.locator(`[data-line="${name}"]`);
 const tifTrigger = (page) => page.getByTestId('venue-tif').getByRole('combobox');
@@ -212,10 +225,11 @@ async function pickTif(page, name) {
 /** A limit on one side's form, reviewed (the venue previews it first). Returns the review sheet. */
 async function reviewLimit(page, side, price, amount) {
   const form = side === 'buy' ? buyForm(page) : sellForm(page);
+  await pickSide(page, side);
   await orderTab(page, 'Limit').click();
-  await form.getByRole('textbox', { name: 'Price' }).fill(price);
+  await form.getByRole('textbox', { name: /Price/i }).fill(price);
   const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-  await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
+  await form.getByRole('textbox', { name: /Amount/i }).fill(amount);
   expect((await answer).status()).toBe(200);
   await form.getByRole('button', { name: side === 'buy' ? 'Buy BTC' : 'Sell BTC' }).click();
   await expect(reviewSheet(page)).toBeVisible();
@@ -227,13 +241,13 @@ async function confirmAndSign(page, wallet, side) {
   const sheet = reviewSheet(page);
   // A spot sell carries our builder fee: until the wallet has approved it, the review asks for that approval first and
   // Confirm sell waits (J-cex-spot-01 #11). The approval is one signature of its own.
-  const approve = sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' });
+  const approve = sheet.getByRole('button', { name: /Approve our builder fee in your wallet/i });
   if (side === 'sell' && (await approve.count()) > 0) {
     const before = wallet.requests.length;
     await approve.click();
     await continueInWallet(page);
     await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(before + 1);
-    await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeEnabled({ timeout: 20_000 });
+    await expect(sheet.getByRole('button', { name: /Confirm sell/i })).toBeEnabled({ timeout: 20_000 });
   }
   const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
   const asked = wallet.requests.length;
@@ -281,8 +295,10 @@ async function marketOffWithoutProtection(earlier, side, setting = PRICE_PROTECT
     const sent = writes(page);
     const asked = wallet.requests.length;
     const form = side === 'buy' ? buyForm(page) : sellForm(page);
+    await pickSide(page, side);
+    await pickSide(page, side);
     await orderTab(page, 'Market').click();
-    await form.getByRole('textbox', { name: 'Amount' }).fill('0.001');
+    await form.getByRole('textbox', { name: /Amount/i }).fill('0.001');
     const note = form.locator(`[data-code="${setting.code}"]`);
     await expect(note).toContainText('protection not set', { timeout: 30_000 });
     const button = form.getByRole('button', { name: side === 'buy' ? 'Buy BTC' : 'Sell BTC' });
@@ -441,6 +457,7 @@ test(`${J} #3 asks for a market sell: offered where the protection is published,
   const bound = await protectionBound('sell');
   await orderTab(page, 'Market').click();
   const form = sellForm(page);
+  await pickSide(page, 'sell');
   const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
   await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
   expect((await answer).status()).toBe(200);
@@ -634,7 +651,7 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
     await expect(review).toContainText('Good till date');
     // The review's Expires row is the time that was picked, as this browser writes it.
     const picked = await enginePage.evaluate((ms) => new Date(ms).toLocaleString(), at);
-    await expect(review.locator('div', { has: enginePage.locator('dt', { hasText: /^Expires$/ }) }).locator('dd')).toHaveText(picked);
+    await expect(review.locator('dl > div', { has: enginePage.locator('dt', { hasText: /^Expires$/ }) }).locator('dd')).toHaveText(picked);
     await confirm(enginePage, 'buy');
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ timeInForce: 'GTD', expireAt: new Date(at).toISOString() });

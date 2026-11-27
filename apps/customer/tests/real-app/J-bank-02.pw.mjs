@@ -1,36 +1,61 @@
 // World: none
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { setPartner, withPartner } from './partner.mjs';
+import { partnerBookAccounts, partnerBookMoves, partnerMainBalance, rampPartnerReport, setPartner, withPartner } from './partner.mjs';
 
 // J-bank-02, in the running app (docs/roadmap/journeys.json): I add money to my bank balance. One test per step, titled
 // "J-bank-02 #<n>", run in order on one TEST account funded with TEST 50 USDT. The stack connects no real payment partner
 // (BANK_RAMP_MODE none), so from DE every way to pay names the rail it needs and a request is kept refused (#1, #2); from
 // NL the stack's TEST pay-in partner answers a bank transfer with its own TEST reference and the TEST account to pay to
 // (#2), which takes no money and credits nothing until the partner says it was paid.
-// Balances are read through the person's own bank API. #6 links a bank account, which asks for a fresh confirmation, so
-// it sets up an authenticator app first; every later sign-in through the API and in the browser then sends the next code.
+// Balances are read through the person's own bank API and, on #2, #3, #5 and #8, compared straight against the TEST
+// partner bank's own book and the TEST ramp partner's own report on loopback (partner.mjs -> venue.mjs). #6 links a bank
+// account, which asks for a fresh confirmation, so it sets up an authenticator app first; every later sign-in through the
+// API and in the browser then sends the next code.
 // #4 asks from NL, which the stack's TEST rate stand-in prices (BANK_ONRAMP_RATES=ramp-sim; its bank-transfer price
 // holds 20 seconds), and lets the price run out. #3 and #5 pay by bank from NL through the stack's TEST pay-in stand-in
 // (BANK_ONRAMP_PARTNER=payin-sim, which takes no money): it answers with its own TEST payment page, where the payer
 // approves and is sent back, and its signed "paid" call, made here as the partner would, is credited by the partner. They
 // pay as a second TEST person, who starts with nothing and whose bank money is held at the stack's TEST partner bank
-// (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226): the partner credits the balance once, the app
+// (`testPartner.set({ custody: 'off' })`, the launch model): the partner credits the balance once, the app
 // reads it back, and the ledger posts nothing for them. #7 has the partner send #3's payment back, taken out of the
 // balance once, as the partner reports. The first person's 50 USDT stays as #4 to #7 read it. #8 runs on the stack's
 // TEST plan, which publishes a TEST overdraft fee (a plan that allows a negative balance): the payer, whose money the TEST partner holds, pays 10 USDT more than the partner reports into a second account of theirs,
 // and the partner refuses it with its own figure (`bank.partner_insufficient_funds`), and nothing moves.
 const J = 'J-bank-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const BANK_PROFILE = JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/bank.json'), 'utf8')).values;
+const ONRAMP_CATALOGUE = JSON.parse(BANK_PROFILE.BANK_ONRAMP_SIM_JSON.value);
+const PAYIN_CATALOGUE = JSON.parse(BANK_PROFILE.BANK_PAYIN_SIM_JSON.value);
+const INCOMING_PARTNER = 'partner:incoming-payments';
 const WAYS = [
   ['bank_transfer', 'Bank transfer', 'rail.bank'],
   ['pay_by_bank', 'Pay by bank', 'rail.bank'],
   ['card', 'Card', 'rail.card'],
   ['wallet_pay', 'Wallet pay', 'rail.card'],
 ];
+
+/** Expected pay amount from the TEST rate stand-in's catalogue for one ask (exact decimal arithmetic, no float). */
+function cataloguePayAmount(country, method, asset, amount) {
+  const line = ONRAMP_CATALOGUE.quotes.find((q) => q.country === country && q.method === method && q.asset === asset);
+  if (!line) throw new Error(`no TEST rate line for ${country} ${method} ${asset}`);
+  const one = toUnits('1');
+  const product = toUnits(amount) * toUnits(line.rate);
+  const roundedUp = (product + one - 1n) / one;
+  return { payCurrency: line.payCurrency, payAmount: fromUnits(roundedUp + toUnits(line.fee)) };
+}
+
+/** The TEST ramp partner's order counts by state and total, read straight from its loopback report. */
+async function rampOrderSummary(readerId) {
+  const report = await rampPartnerReport(readerId);
+  const byState = Object.fromEntries(report.orders.map((o) => [o.state, o.count]));
+  const total = Object.values(byState).reduce((sum, n) => sum + n, 0);
+  return { report, byState, total };
+}
 
 test.describe.configure({ mode: 'default' });
 
@@ -134,6 +159,8 @@ async function bank(who) {
   }).then((r) => r.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  const userId = login.result.data.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} named no user id`);
   const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
   const answer = async (res) => {
     const body = await res.json();
@@ -141,6 +168,7 @@ async function bank(who) {
     return { ok: true, data: body.result.data };
   };
   return {
+    userId,
     query: (procedure, input) =>
       fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
         headers,
@@ -167,6 +195,8 @@ async function session(who, { withCode = true } = {}) {
   }).then((r) => r.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  const userId = login.result.data.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} named no user id`);
   const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
   const answer = async (res) => {
     const body = await res.json();
@@ -185,7 +215,7 @@ async function session(who, { withCode = true } = {}) {
         body: JSON.stringify(input),
       }).then(answer),
   });
-  return { ...doors('bank'), identity: doors('identity') };
+  return { userId, ...doors('bank'), identity: doors('identity') };
 }
 
 async function usdt(who) {
@@ -317,13 +347,16 @@ test(`${J} #1 presses Add money: every way to pay with its fee and delivery esti
 
 test(`${J} #2 picks bank transfer: the partner's reference code and the account to pay to with the ownership rule, and with no partner the rail.bank notice and the request kept`, async ({
   page,
+  stepPicture,
 }) => {
   const who = person();
+  const { userId: ownerId } = await bank(who);
+  const rampBefore = await rampOrderSummary(ownerId);
   await signIn(page, who);
   await waysToPay(page);
   const confirm = await ask(page, 'bank_transfer');
   await expect(confirm).toContainText('The account you pay from must be in your name');
-  await confirm.getByRole('button', { name: 'Ask for this payment' }).click();
+  await confirm.getByRole('button', { name: 'Ask for this payment', exact: true }).click();
   const refused = page.getByTestId('add-money-refused');
   await expect(refused).toContainText('This way to pay is switched off');
   await expect(refused).toContainText('rail.bank');
@@ -335,7 +368,7 @@ test(`${J} #2 picks bank transfer: the partner's reference code and the account 
   const kept = await requests(who);
   expect(kept).toHaveLength(1);
   expect(kept[0]).toMatchObject({ method: 'bank_transfer', amount: '20', assetId: 'USDT', rail: 'rail.bank', status: 'refused' });
-  // Asking again with the same request id is the same request, and nothing reached the balance.
+  // Asking again with the same request id is the same request, and nothing reached the balance or the ramp partner's book.
   const again = await (
     await bank(who)
   ).mutate('addMoney.start', {
@@ -348,17 +381,23 @@ test(`${J} #2 picks bank transfer: the partner's reference code and the account 
   expect(again).toMatchObject({ ok: true, data: { requestId: kept[0].requestId, status: 'refused' } });
   expect(await requests(who)).toHaveLength(1);
   expect(await usdt(who)).toBe('50');
+  const rampAfterRefusal = await rampOrderSummary(ownerId);
+  expect(rampAfterRefusal.total).toBe(rampBefore.total);
+  expect(rampAfterRefusal.byState.approved).toBe(rampBefore.byState.approved);
+  expect(rampAfterRefusal.byState.paid).toBe(rampBefore.byState.paid);
 
   // From NL the stack's TEST pay-in partner opens a bank transfer: its own reference and the account to pay to.
-  await page.getByLabel('Country you pay from').fill('NL');
+  await page.getByLabel('Country you pay from', { exact: true }).fill('NL');
   const answered = page.waitForResponse((res) => res.url().includes('/api/bank/trpc/addMoney.methods') && res.status() === 200);
-  await page.getByRole('button', { name: 'See ways to pay' }).click();
+  await page.getByRole('button', { name: 'See ways to pay', exact: true }).click();
   const quote = (await (await answered).json()).result.data.methods.find((m) => m.method === 'bank_transfer')?.quote;
   expect(quote, 'the TEST rate stand-in prices a bank transfer from NL').toBeTruthy();
+  const expectedPay = cataloguePayAmount('NL', 'bank_transfer', 'USDT', '20');
+  expect(quote).toMatchObject({ payAmount: expectedPay.payAmount, payCurrency: expectedPay.payCurrency });
   await expect(page.getByTestId('method-bank_transfer')).toContainText('TEST bank details from a stand-in');
   const withPartnerConfirm = await ask(page, 'bank_transfer');
   await expect(withPartnerConfirm).toContainText('The account you pay from must be in your name');
-  await withPartnerConfirm.getByRole('button', { name: 'Ask for this payment' }).click();
+  await withPartnerConfirm.getByRole('button', { name: 'Ask for this payment', exact: true }).click();
   const opened = page.getByTestId('add-money-opened');
   await expect(opened).toBeVisible();
   const [asked, refusedFirst] = await requests(who);
@@ -367,45 +406,64 @@ test(`${J} #2 picks bank transfer: the partner's reference code and the account 
     method: 'bank_transfer',
     country: 'NL',
     status: 'opened',
-    onramp: { partnerRail: 'payin-sim', hostedUrl: null, payAmount: quote.payAmount, payCurrency: 'EUR' },
+    onramp: { partnerRail: 'payin-sim', hostedUrl: null, payAmount: expectedPay.payAmount, payCurrency: expectedPay.payCurrency },
   });
   const { reference, accountName, accountRef } = asked.onramp.bankInstructions;
-  // The partner's own reference for this payment, and its TEST account: nothing made up from the request.
+  // The partner's own reference for this payment, and its TEST account from the pay-in partner's catalogue: nothing made up.
   expect(reference).toMatch(/^TEST-[0-9A-F]{12}$/);
+  expect(reference).toBe(`TEST-${asked.onramp.onrampId.replace(/-/g, '').slice(0, 12).toUpperCase()}`);
   expect(accountName).toMatch(/^TEST\b/);
+  expect(accountName).toBe(PAYIN_CATALOGUE.bankTransfer.accountName);
   expect(accountRef).toMatch(/^[A-Z]{2}\d{2}[A-Z0-9]+$/);
+  expect(accountRef).toBe(PAYIN_CATALOGUE.bankTransfer.accountRef);
   const facts = opened.locator('dl');
   await expect(facts).toContainText(`Payment reference${reference}`);
   await expect(facts).toContainText(`Account name${accountName}`);
   await expect(facts).toContainText(`Account${accountRef}`);
-  await expect(facts).toContainText(new RegExp(`You pay${quote.payAmount.replace('.', '\\.')}(\\.0+)? EUR`));
+  await expect(facts).toContainText(new RegExp(`You pay${expectedPay.payAmount.replace('.', '\\.')}(\\.0+)? EUR`));
   // The ownership rule stays with the details: the payer's name must match.
   await expect(opened.getByTestId('add-money-ownership')).toHaveText(
     'The account you pay from must be in your name. A payment from someone else is sent back.',
   );
+  // The TEST ramp partner's own book on loopback opened this one order and paid nothing; nothing is credited yet.
+  const rampAfterOpen = await rampOrderSummary(ownerId);
+  expect(rampAfterOpen.total - rampBefore.total).toBe(1);
+  expect(rampAfterOpen.byState.approved).toBe(rampBefore.byState.approved);
+  expect(rampAfterOpen.byState.paid).toBe(rampBefore.byState.paid);
+  expect(rampAfterOpen.byState.opened + rampAfterOpen.byState.expired - (rampBefore.byState.opened + rampBefore.byState.expired)).toBe(1);
   // Asking for the details is not paying: nothing is credited and the request list holds both, the refusal kept.
   expect(await usdt(who)).toBe('50');
   expect(await requests(who)).toHaveLength(2);
+  await stepPicture();
 });
 
 test(`${J} #3 picks pay by bank: sent to the provider's page its response named, back here pending, then credited once`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const who = await signUp(page, 'jb2pay');
   await verify(page, who);
-  run.reset({ ...run.read(), payer: who });
-  // TEST setup: the payer's bank money is held at the TEST partner bank (OWNER 226), for #3 to #7.
+  // TEST setup: the payer's bank money is held at the TEST partner bank (launch money model), for #3 to #8.
   await setPartner(who, { custody: 'off' });
+  const payerBank = await bank(who);
+  const payerId = payerBank.userId;
+  run.reset({ ...run.read(), payer: who, payerId });
   const ledgerStart = await ledgerOf(who);
   // The payer starts with nothing: a new account holds no currency, so they add USDT to it first (as on the Bank Overview).
-  expect((await (await bank(who)).mutate('currencies.add', { assetId: 'USDT' })).ok).toBe(true);
+  expect((await payerBank.mutate('currencies.add', { assetId: 'USDT' })).ok).toBe(true);
   await signIn(page, who);
   const before = await usdtUnits(who);
   expect(before).toBe(0n);
   expect(await partnerUsdt(who)).toBe(0n);
+  // Read straight from the TEST partner bank's own book and the TEST ramp partner's own report on loopback.
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe('0');
+  expect(await partnerBookMoves(payerId)).toEqual([]);
+  const rampBefore = await rampOrderSummary(payerId);
 
   const { quote, row } = await payByBankFromNL(page, '20');
+  const expectedPay = cataloguePayAmount('NL', 'pay_by_bank', 'USDT', '20');
+  expect(quote).toMatchObject({ payAmount: expectedPay.payAmount, payCurrency: expectedPay.payCurrency });
   // The stand-in's TEST price: 20 USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR.
   await expect(row).toContainText(/You pay: 41(\.0+)? EUR/);
   await expect(row.getByTestId('method-receive')).toHaveText('You receive: 20 USDT');
@@ -413,18 +471,30 @@ test(`${J} #3 picks pay by bank: sent to the provider's page its response named,
   expect(asked.onramp.quoteId).toBe(quote.quoteId);
   await expect(page.getByTestId('payin-sim-amount')).toHaveText(`Pay ${quote.payAmount} EUR to add 20 USDT`);
   expect(await usdtUnits(who)).toBe(before);
+  const rampOpened = await rampOrderSummary(payerId);
+  expect(rampOpened.total - rampBefore.total).toBe(1);
+  expect(rampOpened.byState.approved).toBe(rampBefore.byState.approved);
+  expect(rampOpened.byState.paid).toBe(rampBefore.byState.paid);
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe('0');
+  expect(await partnerBookMoves(payerId)).toEqual([]);
 
   // The payer approves on the provider's page and is sent back here, to this request.
-  await page.getByRole('button', { name: 'Approve payment' }).click();
+  await page.getByRole('button', { name: 'Approve payment', exact: true }).click();
   await page.waitForURL(`${ORIGIN}/bank/ramps/new?request=${asked.requestId}`);
   const tracker = page.getByTestId('add-money-tracker');
   await expect(tracker).toHaveAttribute('data-status', 'pending');
   await expect(tracker).toContainText('Pending: you approved it, the money is on its way');
   await expect(tracker.locator('[data-step=credited]')).toHaveAttribute('data-state', 'todo');
   await expect(page.getByTestId('tracker-credited')).toHaveCount(0);
-  // Pending adds nothing.
+  // Pending adds nothing at the bank or on the partner's own book; the ramp partner notes the approval.
   expect(await request(who, asked.requestId)).toMatchObject({ status: 'pending', creditedAt: null, creditedAmount: null });
   expect(await usdtUnits(who)).toBe(before);
+  const rampPending = await rampOrderSummary(payerId);
+  expect(rampPending.total - rampBefore.total).toBe(1);
+  expect(rampPending.byState.approved - rampBefore.byState.approved).toBe(1);
+  expect(rampPending.byState.paid).toBe(rampBefore.byState.paid);
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe('0');
+  expect(await partnerBookMoves(payerId)).toEqual([]);
 
   // The provider says the money arrived: the page, still open, turns to credited on its own.
   const paid = await partnerPaid({ requestId: asked.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
@@ -433,8 +503,21 @@ test(`${J} #3 picks pay by bank: sent to the provider's page its response named,
   await expect(tracker.locator('[data-step=credited]')).toHaveAttribute('data-state', 'done');
   await expect(page.getByTestId('tracker-credited')).toHaveText('Credited: 20 USDT');
   expect(await usdtUnits(who)).toBe(before + toUnits('20'));
+  const rampPaid = await rampOrderSummary(payerId);
+  expect(rampPaid.total - rampBefore.total).toBe(1);
+  expect(rampPaid.byState.approved).toBe(rampBefore.byState.approved);
+  expect(rampPaid.byState.paid - rampBefore.byState.paid).toBe(1);
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe('20');
+  const movesAfterPaid = await partnerBookMoves(payerId);
+  expect(movesAfterPaid).toHaveLength(1);
+  expect(movesAfterPaid[0]).toMatchObject({
+    key: `pay-in:purchase:${payerId}|deposit:payin-sim:add-money:${asked.requestId}`,
+    from: { owner: INCOMING_PARTNER, assetId: 'USDT', spaceId: null },
+    to: { owner: payerId, assetId: 'USDT', spaceId: null },
+    amount: '20',
+  });
 
-  // Once: the provider saying paid again is the same credit, and nothing more is added.
+  // Once: the provider saying paid again is the same credit, and nothing more is added on the partner's own book.
   const again = await partnerPaid({ requestId: asked.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
   expect(again).toEqual(paid);
   await page.reload();
@@ -444,9 +527,13 @@ test(`${J} #3 picks pay by bank: sent to the provider's page its response named,
   const kept = await requests(who);
   expect(kept).toHaveLength(1);
   expect(kept[0]).toMatchObject({ requestId: asked.requestId, status: 'credited', creditedAmount: '20' });
-  // Credited by the partner: its own figure is the 20 USDT, the app read the same back, and the ledger posted nothing.
+  // Credited by the partner: its own book holds 20 USDT with one pay-in move, the app reads the same back, and the ledger posted nothing.
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe('20');
+  expect(await partnerBookMoves(payerId)).toEqual(movesAfterPaid);
+  expect((await rampOrderSummary(payerId)).byState.paid - rampBefore.byState.paid).toBe(1);
   expect(await partnerUsdt(who)).toBe(toUnits('20'));
   expect(await ledgerOf(who)).toEqual(ledgerStart);
+  await stepPicture();
 });
 
 test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept, charged or added`, async ({ page }) => {
@@ -504,23 +591,35 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
 
 test(`${J} #5 pays and watches the order: the tracker from created to credited, and the amount is the quote's receive amount exactly`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const who = payer();
+  const payerId = run.read().payerId ?? (await bank(who)).userId;
   await signIn(page, who);
   const before = await usdtUnits(who);
   const partnerBefore = await partnerUsdt(who);
   expect(partnerBefore).toBe(before);
+  const bookBefore = await partnerMainBalance(payerId, 'USDT');
+  expect(toUnits(bookBefore)).toBe(before);
+  const movesBefore = await partnerBookMoves(payerId);
+  const rampBefore = await rampOrderSummary(payerId);
   const ledgerStart = await ledgerOf(who);
 
   // An amount with decimals, so "exactly" has something to lose: the quote's receive amount is the bank's own string.
   const { quote, row } = await payByBankFromNL(page, '12.345678');
-  expect(quote).toMatchObject({ assetId: 'USDT', amount: '12.345678', payCurrency: 'EUR' });
+  const expectedPay = cataloguePayAmount('NL', 'pay_by_bank', 'USDT', '12.345678');
+  expect(quote).toMatchObject({
+    assetId: 'USDT',
+    amount: '12.345678',
+    payCurrency: expectedPay.payCurrency,
+    payAmount: expectedPay.payAmount,
+  });
   await expect(row.getByTestId('method-receive')).toHaveText(`You receive: ${quote.amount} USDT`);
   const asked = await askAndGoToPage(page, who);
-  expect(asked.onramp).toMatchObject({ quoteId: quote.quoteId, amount: quote.amount, payAmount: quote.payAmount });
+  expect(asked.onramp).toMatchObject({ quoteId: quote.quoteId, amount: quote.amount, payAmount: expectedPay.payAmount });
   await expect(page.getByTestId('payin-sim-amount')).toHaveText(`Pay ${quote.payAmount} EUR to add ${quote.amount} USDT`);
-  await page.getByRole('button', { name: 'Approve payment' }).click();
+  await page.getByRole('button', { name: 'Approve payment', exact: true }).click();
   await page.waitForURL(`${ORIGIN}/bank/ramps/new?request=${asked.requestId}`);
 
   // The tracker: created, sent to the payment page and pending, each with when; credited still waiting.
@@ -537,12 +636,21 @@ test(`${J} #5 pays and watches the order: the tracker from created to credited, 
   await expect(steps.nth(3)).toHaveAttribute('data-state', 'todo');
   await expect(steps.nth(3)).toContainText('Waiting');
   await expect(page.getByTestId('tracker-receive')).toHaveText(`You receive: ${quote.amount} USDT`);
+  const rampPending = await rampOrderSummary(payerId);
+  expect(rampPending.total - rampBefore.total).toBe(1);
+  expect(rampPending.byState.approved - rampBefore.byState.approved).toBe(1);
+  expect(rampPending.byState.paid).toBe(rampBefore.byState.paid);
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe(bookBefore);
+  expect(await partnerBookMoves(payerId)).toEqual(movesBefore);
 
-  // A "paid" for any other amount than the payment opened credits nothing.
+  // A "paid" for any other amount than the payment opened credits nothing, at the bank or on the partner's own book.
   const short = fromUnits(toUnits(quote.payAmount) - 1n);
   const wrong = await partnerCall('paid', { requestId: asked.requestId, paidAmount: short, payCurrency: 'EUR' });
   expect(wrong).toMatchObject({ status: 400, answer: { code: 'bank.onramp_paid_mismatch' } });
   expect(await usdtUnits(who)).toBe(before);
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe(bookBefore);
+  expect(await partnerBookMoves(payerId)).toEqual(movesBefore);
+  expect((await rampOrderSummary(payerId)).byState.paid).toBe(rampBefore.byState.paid);
 
   // Paid: the tracker reaches credited on its own, with the quote's receive amount exactly.
   await partnerPaid({ requestId: asked.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
@@ -558,16 +666,32 @@ test(`${J} #5 pays and watches the order: the tracker from created to credited, 
   // Each step happened after the one before it.
   const at = [done.createdAt, done.openedAt, done.pendingAt, done.creditedAt].map((t) => Date.parse(t));
   expect(at.every((t, n) => Number.isFinite(t) && (n === 0 || t >= at[n - 1]))).toBe(true);
-  // The balance moved by the receive amount, to the last unit, as the partner reports it; the ledger posted nothing.
+  // The balance moved by the receive amount, to the last unit, on the partner's own book; the ramp partner notes it paid; the ledger posted nothing.
   expect(done.creditedBy).toBe('partner');
+  const rampPaid = await rampOrderSummary(payerId);
+  expect(rampPaid.total - rampBefore.total).toBe(1);
+  expect(rampPaid.byState.approved).toBe(rampBefore.byState.approved);
+  expect(rampPaid.byState.paid - rampBefore.byState.paid).toBe(1);
+  const bookAfter = await partnerMainBalance(payerId, 'USDT');
+  expect(toUnits(bookAfter) - toUnits(bookBefore)).toBe(toUnits(quote.amount));
+  const newMoves = (await partnerBookMoves(payerId)).slice(movesBefore.length);
+  expect(newMoves).toHaveLength(1);
+  expect(newMoves[0]).toMatchObject({
+    key: `pay-in:purchase:${payerId}|deposit:payin-sim:add-money:${asked.requestId}`,
+    from: { owner: INCOMING_PARTNER, assetId: 'USDT', spaceId: null },
+    to: { owner: payerId, assetId: 'USDT', spaceId: null },
+    amount: quote.amount,
+  });
   expect((await partnerUsdt(who)) - partnerBefore).toBe(toUnits(quote.amount));
   expect((await usdtUnits(who)) - before).toBe(toUnits(quote.amount));
+  expect(await usdtUnits(who)).toBe(toUnits(bookAfter));
   expect(await ledgerOf(who)).toEqual(ledgerStart);
   // The request list says the same.
   const listed = page.getByTestId('add-money-request').first();
   await expect(listed).toContainText('Pay by bank');
   await expect(listed).toContainText(`${quote.amount} USDT`);
   await expect(listed).toContainText('Credited');
+  await stepPicture();
 });
 
 test(`${J} #6 links an external bank account: listed unverified with rail.bank, and cashing out to it is refused`, async ({ page }) => {
@@ -744,20 +868,24 @@ test(`${J} #7 reads incoming payments: when each arrived, that it is available, 
 
 test(`${J} #8 pays more than the bank holds on a plan that allows a negative balance: the partner holding the money refuses it, and nothing moves`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
-  // The payer's bank money is held at the stack's TEST partner bank since #3 (`custody: 'off'`, the launch model, OWNER
-  // 226), so the partner, not the ledger, is the bank that holds it and the one that says yes or no to a payment from it.
+  // The payer's bank money is held at the stack's TEST partner bank since #3 (`custody: 'off'`, the launch money model),
+  // so the partner, not the ledger, is the bank that holds it and the one that says yes or no to a payment from it.
   const who = payer();
   const api = await session(who, { withCode: false });
+  const payerId = api.userId;
   const spaceOf = async (id) => (await api.query('spaces.list', { limit: 50 })).data.find((s) => s.id === id);
 
   // The plan allows a negative balance: the owner's TEST terms publish an overdraft fee.
   const terms = await api.query('accounts.features', undefined);
   expect(terms).toMatchObject({ ok: true, data: { tier: 'TEST base tier', overdraftFee: '1' } });
 
-  // What the partner holds for the payer, as the partner reports it; the app shows the same figure.
-  const held = await partnerUsdt(who);
+  // What the partner's own book holds for the payer, read straight on loopback; the bank API and the app show the same figure.
+  const bookHeldStr = await partnerMainBalance(payerId, 'USDT');
+  const held = toUnits(bookHeldStr);
+  expect(await partnerUsdt(who)).toBe(held);
   const main = (await api.query('spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
   expect(toUnits(main.balance)).toBe(held);
   // A second USDT account of the payer's, at the same partner, to pay into.
@@ -765,25 +893,50 @@ test(`${J} #8 pays more than the bank holds on a plan that allows a negative bal
   expect(opened.ok, JSON.stringify(opened.body ?? '').slice(0, 300)).toBe(true);
   const pot = opened.data.id;
   expect((await spaceOf(pot)).balance).toBe('0');
+  const movesBefore = await partnerBookMoves(payerId);
+  const accountsBefore = await partnerBookAccounts(payerId);
+  expect(accountsBefore.find((a) => a.asset === 'USDT' && a.spaceId === null)?.amount).toBe(bookHeldStr);
+  expect(accountsBefore.find((a) => a.asset === 'USDT' && a.spaceId === pot)?.amount ?? '0').toBe('0');
   const ledgerStart = await ledgerOf(who);
   const asked = fromUnits(held + toUnits('10'));
 
-  // In the app: paying 10 USDT more than the partner holds is refused at the review, with the partner's figure.
+  // In the app: paying 10 USDT more than the partner holds is first refused at the review, with the partner's figure.
   await signIn(page, who);
   await page.goto('/bank/transfers');
   const sent = [];
   page.on('request', (req) => req.method() === 'POST' && /\/api\/bank\/trpc\/transfers\./.test(req.url()) && sent.push(req.url()));
-  await page.getByLabel('From your space').selectOption(main.id);
-  await page.getByLabel('Destination').selectOption({ label: 'One of my accounts' });
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('From your space', { exact: true }).selectOption(main.id);
+  await page.getByRole('combobox', { name: 'Destination', exact: true }).selectOption({ label: 'One of my accounts' });
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('To which of your accounts').selectOption(pot);
+  await dialog.getByRole('combobox', { name: 'To which of your accounts', exact: true }).selectOption(pot);
   await dialog.getByLabel(/Amount \(USDT\)/).fill(asked);
-  await dialog.getByRole('button', { name: 'Review' }).click();
+  await dialog.getByRole('button', { name: 'Review', exact: true }).click();
   await expect(dialog).toContainText(`This is 10 USDT more than this space holds (${fromUnits(held)} USDT).`);
   expect(sent).toEqual([]);
 
-  // The same payment sent to the bank reaches the partner, and the partner refuses it with its own figure.
+  // Now confirm a 10 USDT transfer in the browser: it passes the local review (10 <= 12.345678) and reaches the partner
+  // holding the money, which holds back the purchase until its release time so 0 can move now, and refuses it on screen
+  // (`bank.partner_insufficient_funds`) with its own live figure.
+  const overLive = '10';
+  const partnerBrowserSays = `The partner holds back ${bookHeldStr} USDT of a purchase until its release time, so 0 can move now, less than ${overLive}. Nothing was moved.`;
+  await dialog.getByLabel(/Amount \(USDT\)/).fill(overLive);
+  await dialog.getByRole('button', { name: 'Review', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+  const failure = dialog.getByTestId('failure');
+  await expect(failure).toBeVisible();
+  await expect(failure).toContainText(partnerBrowserSays);
+  await expect(dialog).not.toContainText('This request may have completed');
+  expect(sent).toHaveLength(1);
+  await stepPicture();
+
+  // Nothing moved on the partner's own book from the refused browser payment.
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe(bookHeldStr);
+  expect(await partnerBookMoves(payerId)).toEqual(movesBefore);
+  expect(await partnerBookAccounts(payerId)).toEqual(accountsBefore);
+
+  // The same payment for 10 USDT more than the partner holds, sent directly to the bank, reaches the partner, and the
+  // partner refuses it with its own figure every time: never a second attempt that lands.
   const transferId = `jb2-8-over-${who.handle}`;
   const pay = () => api.mutate('transfers.create', { transferId, fromSpaceId: main.id, toSpaceId: pot, amount: asked });
   const partnerSays = `The partner reports ${fromUnits(held)} USDT in this account, less than ${asked}. Nothing was moved.`;
@@ -797,8 +950,11 @@ test(`${J} #8 pays more than the bank holds on a plan that allows a negative bal
   expect(again.body?.error?.data?.cause?.code).toBe('bank.partner_insufficient_funds');
   expect(again.body?.error?.message).toBe(partnerSays);
 
-  // Nothing moved: the partner still holds the same for the payer and never went below zero, the other account got
-  // nothing, and the ledger posted nothing.
+  // Nothing moved: the partner's own book still holds the same for the payer with no new moves and never went below zero,
+  // the other account got nothing, and the ledger posted nothing.
+  expect(await partnerMainBalance(payerId, 'USDT')).toBe(bookHeldStr);
+  expect(await partnerBookMoves(payerId)).toEqual(movesBefore);
+  expect(await partnerBookAccounts(payerId)).toEqual(accountsBefore);
   expect(await partnerUsdt(who)).toBe(held);
   expect(toUnits((await spaceOf(main.id)).balance)).toBe(held);
   expect((await spaceOf(pot)).balance).toBe('0');
