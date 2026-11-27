@@ -813,7 +813,11 @@ test(`${J} #10 holds a stock perpetual through a TEST split: the position settle
       status: 'canceled',
     });
     expect((await venueRecord(owner, '/positions')).value.filter((p) => p.symbol === MARGINED)).toEqual([]);
-    await page.getByTestId('venue-blotter').getByRole('button', { name: 'Orders' }).click();
+    // The page shows the position settled once its next read lands; until then the held row (and its
+    // "Exit orders XSTD-PERP" button) is still drawn, so the tab is pressed by its exact name, after the row is gone.
+    await page.getByTestId('venue-blotter').getByRole('button', { name: 'Positions', exact: true }).click();
+    await expect(page.getByTestId('venue-positions').locator(`tr[data-symbol="${MARGINED}"]`)).toHaveCount(0, { timeout: 20_000 });
+    await page.getByTestId('venue-blotter').getByRole('button', { name: 'Open orders', exact: true }).click();
     await expect(page.getByTestId('venue-blotter').getByText(order.venueClientOrderId)).toHaveCount(0);
 
     // The result of the settlement in my history: the venue's own figures, with the time.

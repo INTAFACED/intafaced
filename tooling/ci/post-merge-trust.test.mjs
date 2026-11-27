@@ -14,6 +14,10 @@ import {
   commitLines,
   decideCheck,
   flakyIssueActions,
+  flakyIssueBase,
+  flakyIssueSteps,
+  flakyPromotionBody,
+  flakyPromotions,
   flakyIssueBody,
   flakyIssueTitle,
   issueSteps,
@@ -415,4 +419,110 @@ test('issue labels: every issue for a red main opens labelled', () => {
     [{ labels: ['regression'] }],
     'an issue opened before the labels existed gets them on its next comment',
   );
+});
+
+// #11160: 27 Nov 2026. #11149 filed J-wallet-01 #5 flaky (it passed run alone on 62be92b, settle run 46009828564),
+// then it failed outright in every full main run after. The runs, their commits (in main's order) and the step's state
+// are read from each run's real-app-journeys report (every one "unexpected: failed/failed"). Main trust runs as each run
+// finishes, against the newest run created before it that had finished by then (earlierRuns).
+const MAIN_ORDER = [
+  '9a143510875a4560f07f37d4d6b1e55161458630',
+  '62be92b2a5dd1d06fec1778a1231efdd677b6514',
+  '30d1f5d523e65da97d032c99908f725a1af7ceee',
+  '2738089d4822ca8b15ce025c32c8fd14aa601d83',
+  '71dbbf2172f522c2487ce1940eafc5679304f7c5',
+  'f121d622538f79fa914e92b0f7f24319df9e6537',
+];
+const NOV27_RUNS = [
+  { id: 46004958494, head_sha: MAIN_ORDER[0], created_at: '2026-11-27T13:11:25Z', updated_at: '2026-11-27T13:47:05Z' },
+  { id: 46006145880, head_sha: MAIN_ORDER[1], created_at: '2026-11-27T13:19:41Z', updated_at: '2026-11-27T15:03:54Z' },
+  { id: 46010928139, head_sha: MAIN_ORDER[2], created_at: '2026-11-27T13:52:54Z', updated_at: '2026-11-27T14:46:17Z' },
+  { id: 46021278410, head_sha: MAIN_ORDER[3], created_at: '2026-11-27T15:02:21Z', updated_at: '2026-11-27T15:34:16Z' },
+  { id: 46025439088, head_sha: MAIN_ORDER[4], created_at: '2026-11-27T15:30:01Z', updated_at: '2026-11-27T16:03:56Z' },
+  { id: 46029980405, head_sha: MAIN_ORDER[5], created_at: '2026-11-27T16:01:15Z', updated_at: '2026-11-27T16:34:49Z' },
+].map((r) => ({ ...r, html_url: `https://github.com/INTAFACED/intafaced/actions/runs/${r.id}` }));
+const ISSUE_11149 = {
+  number: 11149,
+  state: 'open',
+  created_at: '2026-11-27T14:00:30Z',
+  title: 'Flaky step on main: J-wallet-01 #5',
+  labels: [{ name: 'flaky' }, { name: 'beta' }],
+  body: '`J-wallet-01 #5` failed on main ([red run](https://github.com/INTAFACED/intafaced/actions/runs/46004958494)), traced to no single merge, and passed run alone on main\'s head `62be92b2a5` ([settle run](https://github.com/INTAFACED/intafaced/actions/runs/46009828564)).\n\n<!-- flaky: J-wallet-01#5 -->\n<!-- money-flaky: J-wallet-01#5 -->\n<!-- journeys-settle v1 {"v":1,"steps":["J-wallet-01#5"],"red_run":46004958494,"sha":"62be92b2a5dd1d06fec1778a1231efdd677b6514","run":"https://github.com/INTAFACED/intafaced/actions/runs/46009828564","result":"pass","at":"2026-11-27T14:00:30.173Z"} -->',
+};
+// GitHub's compare base...head: ahead when the head is a later commit on main.
+const newerOnMain = async (base, run) =>
+  base.sha ? MAIN_ORDER.indexOf(run.head_sha) > MAIN_ORDER.indexOf(base.sha) : run.created_at > base.at;
+
+/** Replays the runs in the order they finished; `state(run)` is the step's state in each. Returns the run that promoted, or null. */
+async function replay(state) {
+  const issue = structuredClone(ISSUE_11149);
+  const done = [];
+  for (const nowRun of [...NOV27_RUNS].sort((a, b) => (a.updated_at < b.updated_at ? -1 : 1))) {
+    const prevRun = done.filter((r) => r.created_at < nowRun.created_at).sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+    done.push(nowRun);
+    // The red run itself is before the issue existed: Main trust saw no flaky issue then.
+    if (nowRun.updated_at < issue.created_at) continue;
+    const got = await flakyPromotions({
+      issues: [issue],
+      now: { 'J-wallet-01#5': state(nowRun) },
+      prev: { 'J-wallet-01#5': prevRun ? state(prevRun) : undefined },
+      nowRun,
+      prevRun,
+      newer: newerOnMain,
+    });
+    if (got.length) {
+      assert.deepEqual(
+        got.map((g) => [g.issue.number, g.step]),
+        [[11149, 'J-wallet-01#5']],
+      );
+      return { nowRun, prevRun };
+    }
+  }
+  return null;
+}
+
+test('#11160: 27 Nov replayed, #11149 becomes a regression after the second full red since it was filed', async () => {
+  const hit = await replay(() => 'failed');
+  // The first full red on a newer commit than the settle's is 46010928139 (30d1f5d); the second is 46021278410 (2738089).
+  assert.equal(hit?.nowRun.id, 46021278410);
+  assert.equal(hit.prevRun.id, 46010928139);
+  const body = flakyPromotionBody({ step: 'J-wallet-01#5', ...hit });
+  assert.match(body, /J-wallet-01 #5` failed outright, on every try, in two full runs on main in a row/);
+  assert.match(body, /runs\/46010928139\) on `30d1f5d523`/);
+  assert.match(body, /runs\/46021278410\) on `2738089d48`/);
+});
+
+test('#11160: a pass, or a pass only on its retry, between the full reds leaves the step flaky', async () => {
+  for (const between of ['passed', 'flaky']) {
+    // 46021278410 is the one in between; 46025439088 then fails with a pass before it: still flaky.
+    const hit = await replay((r) => (r.id === 46021278410 ? between : r.id === 46029980405 ? 'passed' : 'failed'));
+    assert.equal(hit, null, `with ${between} between`);
+  }
+});
+
+test('#11160: already a regression, closed, or on the settle commit itself, nothing changes', async () => {
+  const [, onSettle, first, second] = NOV27_RUNS;
+  const args = { now: { 'J-wallet-01#5': 'failed' }, prev: { 'J-wallet-01#5': 'failed' }, newer: newerOnMain };
+  assert.deepEqual(
+    await flakyPromotions({
+      ...args,
+      issues: [{ ...ISSUE_11149, labels: [{ name: 'flaky' }, { name: 'regression' }] }],
+      nowRun: second,
+      prevRun: first,
+    }),
+    [],
+  );
+  assert.deepEqual(await flakyPromotions({ ...args, issues: [{ ...ISSUE_11149, state: 'closed' }], nowRun: second, prevRun: first }), []);
+  assert.deepEqual(await flakyPromotions({ ...args, issues: [ISSUE_11149], nowRun: first, prevRun: onSettle }), []);
+  assert.equal((await flakyPromotions({ ...args, issues: [ISSUE_11149], nowRun: second, prevRun: first })).length, 1);
+});
+
+test('#11160: a flaky issue names its steps and where it was filed', () => {
+  assert.deepEqual(flakyIssueSteps(ISSUE_11149), ['J-wallet-01#5']);
+  assert.deepEqual(flakyIssueSteps({ title: 'Flaky step on main: J-p2p-21 #1 #3', body: '' }), ['J-p2p-21#1', 'J-p2p-21#3']);
+  assert.deepEqual(flakyIssueBase(ISSUE_11149), { sha: '62be92b2a5dd1d06fec1778a1231efdd677b6514' });
+  const mine = flakyIssueBody({ step: 'J-x-01#2', money: false }, 'u', 'abcdef1234567');
+  assert.deepEqual(flakyIssueSteps({ body: mine }), ['J-x-01#2']);
+  assert.deepEqual(flakyIssueBase({ body: mine }), { sha: 'abcdef1234567' });
+  assert.deepEqual(flakyIssueBase({ body: 'no mark', created_at: '2026-11-27T14:00:30Z' }), { at: '2026-11-27T14:00:30Z' });
 });

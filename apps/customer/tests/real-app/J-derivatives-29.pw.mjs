@@ -210,7 +210,7 @@ test(`${J} #2 in standard mode, with all the USDC in perps, opens a spot buy of 
 
 /**
  * #3's page, kept open for #4: the same move is sent again from the page that sent it, as the person would press it
- * there. #4 alone has no page to send it from, and says so.
+ * there. #4 alone has no page to send it from, and says so; it takes its step picture of that page before closing it.
  */
 let movePage = null;
 let moveWallet = null;
@@ -254,7 +254,7 @@ test(`${J} #3 signs the move: the venue moves the USDC once; perps falls and spo
   expect(await ledgerOf()).toEqual(state().ledger);
 });
 
-test(`${J} #4 sends the same move again: nothing moves; the first move's result is shown`, async () => {
+test(`${J} #4 sends the same move again: nothing moves; the first move's result is shown`, async ({ stepPicture }) => {
   test.setTimeout(180_000);
   const { owner, moved } = state();
   const page = movePage;
@@ -280,6 +280,8 @@ test(`${J} #4 sends the same move again: nothing moves; the first move's result 
     // Nothing moved at the venue, and the venue received no new action.
     await nextModeReads(page, 2);
     expect(await modeOf(owner)).toEqual(before);
+    // #3's page is closed below, so its picture is taken here, with the resend's answer and the first result on screen.
+    await stepPicture(page);
   } finally {
     await page.close();
     movePage = null;

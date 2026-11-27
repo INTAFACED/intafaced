@@ -17,6 +17,7 @@ import {
   listedPlaces,
   offeredTif,
   tagProblem,
+  ownClientIdProblem,
   valueOf,
   venueSelfTrade,
   intentOf,
@@ -145,6 +146,26 @@ describe('the client id held for retry', () => {
     expect(changed).not.toBe(first);
     draft.settle(changed);
     expect(draft.keyFor({ ...limitBuy, price: '60000.2' })).not.toBe(changed);
+  });
+
+  it('the person’s own client order id is the key, whatever the order: a changed order under it goes to the door to refuse (J-cex-spot-02 #5)', () => {
+    let now = 1_500;
+    const draft = new HeldDraft(OWNER, MARKET.symbol, () => now++);
+    const own = draft.keyFor({ ...limitBuy });
+    const first = draft.hold(limitBuy, null, 'my-bot-7').key;
+    expect(first).toBe('order:0x1234567890abcdef1234567890abcdef1234abcd:btc-usdc:own-my-bot-7');
+    expect(first).not.toBe(own);
+    // Another price under the same id is the same key: the desk never mints its way past the door's conflict.
+    expect(draft.hold({ ...limitBuy, price: '60000.2' }, null, 'my-bot-7').key).toBe(first);
+    draft.settle(first);
+    expect(draft.hold(limitBuy, null, ' my-bot-7 ').key).toBe(first);
+    // Blank is the desk's own minted id, never the own one.
+    expect(draft.hold(limitBuy, null, '').key).not.toBe(first);
+    expect(ownClientIdProblem('')).toBe(false);
+    expect(ownClientIdProblem('my-bot-7')).toBe(false);
+    expect(ownClientIdProblem('my bot')).toBe(true);
+    expect(ownClientIdProblem('a:b')).toBe(true);
+    expect(ownClientIdProblem('x'.repeat(33))).toBe(true);
   });
 
   it('a market order’s worst price is held with its key: polled best prices never change the intent sent for a key', () => {

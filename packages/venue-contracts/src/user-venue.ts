@@ -1800,6 +1800,20 @@ export interface VenueBestPrices {
 }
 
 /**
+ * A perpetual's prices as the venue publishes them in one public read, no account: its mark, its oracle (index) price,
+ * its price 24 hours ago and its 24h volume in contracts (`baseVolume`) and in the quote asset (`volume`). A figure the
+ * venue does not publish is left out, never guessed.
+ */
+export interface VenuePerpetualPrice {
+  readonly symbol: string;
+  readonly markPrice: Amount;
+  readonly indexPrice?: Amount;
+  readonly openPrice?: Amount;
+  readonly baseVolume?: Amount;
+  readonly volume?: Amount;
+}
+
+/**
  * A venue market's own state: `trading` takes orders; `limit_only` takes limit orders only; `halted` takes no new order;
  * `cancel_only` takes cancels only; `delisted` is gone from the venue. The venue refuses an order its state does not
  * admit (`market_limit_only`, `market_halted`, `market_cancel_only`, `market_delisted`).
@@ -2153,6 +2167,12 @@ export interface UserVenue {
    * does not list. Optional: a venue that publishes no book leaves it out, and a market order then has no worst price.
    */
   bestPrices?(symbol: string): Promise<AsOf<VenueBestPrices>>;
+
+  /**
+   * Every listed perpetual's published prices in one read, no account (the markets list's perpetual rows). Optional: a
+   * venue (or an adapter) that publishes none leaves it out, and those rows then show no price.
+   */
+  perpetualPrices?(): Promise<AsOf<readonly VenuePerpetualPrice[]>>;
 
   /**
    * The funding rates this venue published for the perpetual `symbol` at each settled interval since `since`, oldest

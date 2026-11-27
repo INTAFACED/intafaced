@@ -11,6 +11,7 @@ import { add, compare, div, formatAmount, mul, parseAmount, sub, ZERO, type Amou
 import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, tradeTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import { upcomingMaintenanceFor } from '@intafaced/contracts/market-maintenance';
+import type { VenueTickerRow } from '@intafaced/contracts/trade-venue-door';
 import { venueBoundPrice } from './venue-price.js';
 import {
   annualisedFundingRate,
@@ -39,6 +40,7 @@ import {
   type UserVenueWithdrawalTerms,
   type UserVenueMarket,
   type VenueBestPrices,
+  type VenuePerpetualPrice,
   type VenueIntent,
   type VenueRefusal,
   type VenueSignature,
@@ -149,6 +151,32 @@ export const AGENT_ACCOUNT_INTENTS: ReadonlySet<VenueIntent['kind']> = new Set<V
   'create_sub_account',
   'sub_account_transfer',
 ]);
+
+/**
+ * A perpetual's ticker row from the venue's published prices: its mark, its index, its price 24 hours ago and the move
+ * since then (mark minus that price, and that over it as a ratio). It has no last print, high, low, bid or ask here.
+ */
+function perpetualTicker(p: VenuePerpetualPrice): VenueTickerRow {
+  const fmt = (value: Amount | undefined) => (value === undefined ? null : formatAmount(value));
+  const change = p.openPrice === undefined ? undefined : sub(p.markPrice, p.openPrice);
+  const changePct = change === undefined || p.openPrice === undefined || p.openPrice === ZERO ? undefined : div(change, p.openPrice);
+  return {
+    symbol: p.symbol,
+    last: null,
+    high: null,
+    low: null,
+    baseVolume: fmt(p.baseVolume),
+    quoteVolume: fmt(p.volume),
+    bid: null,
+    ask: null,
+    spread: null,
+    mark: formatAmount(p.markPrice),
+    index: fmt(p.indexPrice),
+    open: fmt(p.openPrice),
+    change: fmt(change),
+    changePct: fmt(changePct),
+  };
+}
 
 /** How the agent account (agent-account.ts) calls the door for its own actions. */
 export interface DoorCaller {
@@ -1591,26 +1619,17 @@ export class UserVenueDoor {
     return { ...(await venue.book(symbol, depth)), test: isTestVenue(venue.venue) };
   }
 
-  /** Public venue tickers for every listed spot market (J-cex-spot-14 #8), computed from the venue's own book and 24h prints. */
+  /**
+   * Public venue tickers (J-cex-spot-14 #8): every listed spot market's from the venue's own book and 24h prints, and
+   * every listed perpetual's from the venue's own published prices, read once for all of them (`perpetualPrices`). A
+   * venue that publishes none leaves the perpetuals out, and their rows show no price.
+   */
   async publicTickers() {
     const venue = await this.venue();
     const listed = await this.markets();
     const spots = listed.value.filter((m) => m.kind === 'spot');
     const cutoffMs = listed.asOf.getTime() - 24 * 60 * 60_000;
-    const rows: Record<
-      string,
-      {
-        symbol: string;
-        last: string | null;
-        high: string | null;
-        low: string | null;
-        baseVolume: string;
-        quoteVolume: string;
-        bid: string | null;
-        ask: string | null;
-        spread: string | null;
-      }
-    > = {};
+    const rows: Record<string, VenueTickerRow> = {};
     let asOf = listed.asOf;
     await Promise.all(
       spots.map(async (m) => {
@@ -1649,6 +1668,13 @@ export class UserVenueDoor {
         };
       }),
     );
+    const perps = new Set(listed.value.filter((m) => m.kind === 'perpetual').map((m) => m.symbol));
+    if (perps.size > 0 && venue.perpetualPrices) {
+      // A failed perpetual read leaves those rows out (each then shows no price) and never takes the spot rows with it.
+      const read = await venue.perpetualPrices().catch(() => null);
+      if (read && read.asOf.getTime() > asOf.getTime()) asOf = read.asOf;
+      for (const p of read?.value ?? []) if (perps.has(p.symbol)) rows[p.symbol] = perpetualTicker(p);
+    }
     return { venueId: listed.venueId, value: rows, asOf, test: isTestVenue(venue.venue) };
   }
 

@@ -124,6 +124,10 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Tag label': 'Tag (optional)',
   'Tag bad': 'A tag is up to 32 letters, digits, spaces, dots, dashes or underscores.',
   'Tag note': 'Your tag is kept on this device beside the order; the venue doesn’t store it.',
+  'Own client id label': 'Your client order id (optional)',
+  'Own client id bad': 'A client order id is up to 32 letters, digits or dashes.',
+  'Own client id note':
+    'Leave it blank and the desk makes one for each order. The same id is always the same order: sent again it is never a second order, and a changed order under it is refused before you sign.',
   'Nothing traded': 'Nothing traded: the order ended without resting, and the venue released what it locked.',
   'Partly traded': 'Filled {filled} {asset}; the rest ended without resting, and the venue released what it locked for it.',
   'Post only refused': 'Not placed: a post-only order that would trade at once is refused, so nothing was placed and nothing moved.',

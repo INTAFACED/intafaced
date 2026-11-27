@@ -29,6 +29,7 @@ export const USER_VENUE_READS = {
   book: { path: '/book', args: ['symbol', 'depth'] },
   preview: { path: '/preview', args: ['account', 'intent'] },
   bestPrices: { path: '/best-prices', args: ['symbol'] },
+  perpetualPrices: { path: '/perpetual-prices', args: [] },
   fundingHistory: { path: '/funding-history', args: ['symbol', 'since'] },
   priceHistory: { path: '/price-history', args: ['symbol', 'kind', 'since'] },
   trades: { path: '/trades', args: ['symbol', 'limit'] },

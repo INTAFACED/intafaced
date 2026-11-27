@@ -23,6 +23,13 @@ export const utcDay = (at) => new Date(ms(at)).toISOString().slice(0, 10);
 /** The UTC minute `at` (ms or Date) falls in, as `YYYY-MM-DDTHH:MM` (a datetime-local input's value). */
 export const utcMinuteOf = (at) => new Date(minuteStart(at)).toISOString().slice(0, 16);
 
+/** A "date and time" field's value for `at` in this machine's own time zone, to the minute, as a person types it. */
+export function localMinuteField(at) {
+  const d = new Date(ms(at));
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /** Time for a fill stamped in a minute's last moment to be stored and counted in its candle. */
 const SETTLE = 5_000;
 

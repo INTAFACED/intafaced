@@ -558,7 +558,7 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
               {allowlistCopy.t('title')} ↗
             </a>{' '}
             <a className="text-link" href="/uc/assets">
-              {supportedAssetsCopy.t('linkLabel')} ↗
+              {supportedAssetsCopy.t('linkLabel')} <span aria-hidden="true">↗</span>
             </a>
           </p>
         )}

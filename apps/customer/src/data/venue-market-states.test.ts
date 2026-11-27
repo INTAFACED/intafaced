@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { venueListingOf, venueListingStatuses, venueMarketRow, venueModeOf, type VenueMarketState } from './venue-market-states';
+import {
+  venueListingOf,
+  venueListingStatuses,
+  venueMarketRow,
+  venueModeOf,
+  venueTickerRow,
+  type VenueMarketState,
+} from './venue-market-states';
 import { listedCount, pickSource, venueSpotMarkets } from './market-catalogue';
 import { modesFrom, type MarketMode } from '../features/public/status';
 import type { Loadable, MarketRow } from './types';
@@ -223,6 +230,42 @@ describe('modesFrom (/status)', () => {
       opensAt: Date.parse('2026-11-24T12:00:00.000Z'),
       maintenance: { status: 'scheduled', endsAt: null },
     });
+  });
+});
+
+// A perpetual's row on the markets list is priced at the venue's mark, with its 24h move from the venue's price 24 hours
+// ago; a spot market keeps its last print. TEST figures.
+describe('venueTickerRow', () => {
+  const row = {
+    symbol: 'BTC-PERP',
+    last: null,
+    high: null,
+    low: null,
+    baseVolume: '12.5',
+    quoteVolume: '780000',
+    bid: null,
+    ask: null,
+    spread: null,
+  };
+  it('prices a perpetual at its mark and moves it from its open', () => {
+    expect(
+      venueTickerRow({ ...row, mark: '62620', index: '61628', open: '61000', change: '1620', changePct: '0.026557377049180327' }),
+    ).toMatchObject({
+      last: '62620',
+      open24h: '61000',
+      change24h: '1620',
+      changePct24h: '0.026557377049180327',
+      baseVolume24h: '12.5',
+      quoteVolume24h: '780000',
+    });
+  });
+  it('keeps a spot print and leaves an unpublished figure null', () => {
+    expect(venueTickerRow({ ...row, symbol: 'PURR-USDC', last: '4.55' })).toMatchObject({
+      last: '4.55',
+      open24h: null,
+      changePct24h: null,
+    });
+    expect(venueTickerRow(row)).toMatchObject({ last: null, change24h: null });
   });
 });
 

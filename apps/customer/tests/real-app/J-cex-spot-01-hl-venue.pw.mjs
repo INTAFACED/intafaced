@@ -4,7 +4,16 @@ import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, toUnits } from './stack.mjs';
 import { confirm, reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { continueInWallet, hyperliquidForThisFile, openVenueDesk, sameDecimal, testDeposit, venueBalance, venueRecord } from './venue.mjs';
+import {
+  continueInWallet,
+  startVenueSession,
+  hyperliquidForThisFile,
+  openVenueDesk,
+  sameDecimal,
+  testDeposit,
+  venueBalance,
+  venueRecord,
+} from './venue.mjs';
 
 // J-cex-spot-01 #10 on Hyperliquid's own test network: a first tester's spot order after funding. They rest a TEST limit
 // buy on PURR-USDC well below the market, see it Open, cancel it, and cancel it again; each leg is read back from the
@@ -76,17 +85,6 @@ async function desk(page) {
   return { wallet, owner: wallet.address.toLowerCase() };
 }
 
-/** The trading session a session-key venue needs before any order, from the desk's own panel, signed once by the wallet. */
-async function startSession(page) {
-  if (!sessionVenue) return;
-  const session = page.getByTestId('venue-session');
-  const live = session.locator('[data-testid="venue-session-line"][data-session="live"]');
-  if (await live.isVisible()) return;
-  await session.getByTestId('venue-session-start').click();
-  await continueInWallet(page);
-  await live.waitFor({ timeout: 60_000 });
-}
-
 /** An action signed: on the simulator the wallet's sheet is passed; on Hyperliquid the session key signed it already. */
 const signed = sessionVenue ? async () => {} : continueInWallet;
 
@@ -131,7 +129,7 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   const before = await venueBalance(owner, 'USDC');
 
   // Rests the limit buy from the desk's own ticket: reviewed on the venue's own preview, confirmed and signed.
-  await startSession(page);
+  if (sessionVenue) await startVenueSession(page);
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
   await page
     .getByTestId('dk-order')

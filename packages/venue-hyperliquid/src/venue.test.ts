@@ -1672,6 +1672,36 @@ describe("public market data: best prices, prints and candles, no account (the d
     expect(read.reportedAt?.getTime()).toBe(NOW);
   });
 
+  it('perpetual prices: each listed perpetual from metaAndAssetCtxs by its own universe; an unpublished figure left out', async () => {
+    const fake = fakeVenue();
+    let asked: Record<string, unknown> = {};
+    // The answer's own universe order differs from the listing's; a coin we do not list is left out.
+    fake.info.metaAndAssetCtxs = (b) => {
+      asked = b;
+      return [
+        { universe: [{ name: 'ETH' }, { name: 'BTC' }, { name: 'NEW' }] },
+        [
+          { markPx: '2010.5', oraclePx: '2009.1', prevDayPx: '2000', dayBaseVlm: '12.5', dayNtlVlm: '25000.75' },
+          { markPx: '62620', oraclePx: '61628' },
+          { markPx: '1' },
+        ],
+      ];
+    };
+    const read = await venueWith(fake).perpetualPrices();
+    expect(asked).toEqual({ type: 'metaAndAssetCtxs' });
+    expect(read.value).toEqual([
+      { symbol: 'BTC-PERP', markPrice: a('62620'), indexPrice: a('61628') },
+      {
+        symbol: 'ETH-PERP',
+        markPrice: a('2010.5'),
+        indexPrice: a('2009.1'),
+        openPrice: a('2000'),
+        baseVolume: a('12.5'),
+        volume: a('25000.75'),
+      },
+    ]);
+  });
+
   it('prints: newest first, at most limit, the taker side named, the id kept exact (a hash past a safe number)', async () => {
     const fake = fakeVenue();
     let asked: Record<string, unknown> = {};

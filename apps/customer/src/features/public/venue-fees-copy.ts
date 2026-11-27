@@ -46,7 +46,8 @@ export const venueFeesCopy = defineCopy('venue-fees', {
   taker: 'taker',
   tierTitle: 'Your tier on the venue',
   tierLead:
-    'Read from the venue for your connected wallet: the tier it placed your venue account in, the volume it counted, and the rates it charges you.',
+    'Read from the venue for your wallet: the tier it placed your venue account in, the volume it counted, and the rates it charges you.',
+  tierMadeWallet: 'Read for your INTAFACED wallet, with nothing to connect or sign:',
   yourTier: 'Your venue tier',
   volumeCounted: 'Volume the venue counted ({days} days)',
   updatedAt: 'The venue last placed you',

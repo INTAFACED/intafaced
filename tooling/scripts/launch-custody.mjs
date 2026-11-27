@@ -8,6 +8,8 @@
 // tooling/scripts/roadmap.mjs; a journey marked later for custody is never Order 1). Every other journey is frozen until
 // launch and keeps today's setting, the stack's default (local-test-state.mjs startCustodyLayer: on). A file that names no
 // journey (menu-reach, registry-blockers) keeps it too, and so does a launch-desk file in NOT_YET_OFF until it is fixed.
+// A launch-desk journey's custodial checks (custody on by design, the custodial Later branch) live in its own part file
+// named `<journey>-custodial.pw.mjs`, which keeps today's switch too (#11102).
 //
 // Usage: node tooling/scripts/launch-custody.mjs --files "<journey files>"
 // Prints `off` when every file is a launch-desk file, `on` when none is; a mix exits 1, naming the files, since one
@@ -32,12 +34,22 @@ export const LAUNCH_ORDER = 1;
  * is fixed. Three files left it after #11129, whose failures custody off were only the world restore starting the
  * stack custody on again (svc-ledger then exits on restart): J-derivatives-01-hl-venue, J-derivatives-01-venue and
  * J-derivatives-05, each passing whole custody off in run 46006848956.
+ * J-identity-13 and J-identity-22 left it once they stopped funding the person through our ledger (`local:fund`, refused
+ * custody off): J-identity-13 holds its TEST money at the TEST partner bank, and J-identity-22 tries its order on the
+ * person's own venue account, the launch desk.
+ * J-cex-spot-03 left it once its own engine's fill-or-kill and good-till-date checks, which need our own book and a
+ * ledger-funded trader, moved to J-cex-spot-03-custodial.pw.mjs (CUSTODIAL_PART).
+ * J-p2p-21 and J-wallet-01 joined it in #11159, the one addition: those three runs passed them only because the world
+ * restore started their stacks custody on again (#11129 ended that), and both fund their person through our ledger
+ * (J-p2p-21's seller, whose sell ad's total svc-p2p checks against a ledger balance; J-wallet-01 #5's retired asset's
+ * history), refused custody off. launch-custody.test.mjs now fails any file that runs custody off and funds that way.
+ * J-wallet-01 left it once #5 paid its retired coin in at the TEST partner bank and read its history from the partner's
+ * own line; today's custodial Deposit and Withdraw pickers moved to J-wallet-01-custodial.pw.mjs (CUSTODIAL_PART).
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
   'J-agents-02',
   'J-agents-08',
-  'J-cex-spot-03',
   'J-cex-spot-10',
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
@@ -51,14 +63,16 @@ export const NOT_YET_OFF = new Set([
   'J-home-ia-01',
   'J-home-ia-11',
   'J-identity-01',
-  'J-identity-13',
-  'J-identity-22',
   'J-ops-console-02-customer-record',
+  'J-p2p-21',
   'J-portfolio-01',
   'J-portfolio-03',
   'J-support-public-20',
   'J-support-public-20-venue',
 ]);
+
+/** A launch-desk part file of custodial checks (custody on by design): `<journey>-custodial.pw.mjs` keeps today's switch. */
+export const CUSTODIAL_PART = /-custodial\.pw\.mjs$/;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const JOURNEYS_JSON = path.join(ROOT, 'docs/roadmap/journeys.json');
@@ -83,14 +97,16 @@ export function readLaunchJourneyIds(file = JOURNEYS_JSON) {
 
 /**
  * The custody switch a journey file's stack runs: LAUNCH_CUSTODY_LAYER for a launch-desk journey's file, else today's,
- * and today's for a launch-desk file still in `notYet` (NOT_YET_OFF).
+ * and today's for a launch-desk file still in `notYet` (NOT_YET_OFF) or a custodial part file (CUSTODIAL_PART).
  */
 export function fileCustody(file, launchIds, notYet = NOT_YET_OFF) {
   const name = String(file)
     .split('/')
     .pop()
     .replace(/\.pw\.mjs$/, '');
-  return launchIds.has(journeyIdOf(file)) && !notYet.has(name) ? LAUNCH_CUSTODY_LAYER : FROZEN_CUSTODY_LAYER;
+  return launchIds.has(journeyIdOf(file)) && !notYet.has(name) && !CUSTODIAL_PART.test(String(file))
+    ? LAUNCH_CUSTODY_LAYER
+    : FROZEN_CUSTODY_LAYER;
 }
 
 /** The one switch a shard of `files` runs; throws naming both kinds when they mix. Pure, for the tests. */

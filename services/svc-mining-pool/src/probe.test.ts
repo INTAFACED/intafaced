@@ -55,11 +55,11 @@ describe('reachability probe', () => {
   });
 
   /** A socket that never connects: it reports the wait running out, or an error, exactly as told. */
-  function fakeConnect(outcome: { timeout: true } | { error: string }) {
+  function fakeConnect(outcome: { timeout: true; earlyMs?: number } | { error: string }) {
     return () => {
       const socket = new EventEmitter() as EventEmitter & { setTimeout: (ms: number) => void; destroy: () => void };
       socket.setTimeout = (ms) => {
-        setTimeout(() => socket.emit('timeout'), 'timeout' in outcome ? ms : ms * 10);
+        setTimeout(() => socket.emit('timeout'), 'timeout' in outcome ? ms - (outcome.earlyMs ?? 0) : ms * 10);
         if ('error' in outcome) setTimeout(() => socket.emit('error', Object.assign(new Error(outcome.error), { code: outcome.error })), 5);
       };
       socket.destroy = () => undefined;
@@ -70,7 +70,11 @@ describe('reachability probe', () => {
   it('a host that never answers is timed out after the whole wait, never a success', async () => {
     const outcome = await dialPool('pool.test', 9, 200, fakeConnect({ timeout: true }));
     expect(outcome.kind).toBe('timed_out');
-    expect(outcome.roundTripMs).toBeGreaterThanOrEqual(195);
+    expect(outcome.roundTripMs).toBeGreaterThanOrEqual(200);
+    // The socket's idle timer runs on the monotonic clock, so the wall clock can read a millisecond or more short of
+    // the wait it ran out (999 for 1000 in a journey run): a time-out still reports at least the whole wait.
+    const early = await dialPool('pool.test', 9, 1000, fakeConnect({ timeout: true, earlyMs: 990 }));
+    expect(early).toEqual({ kind: 'timed_out', roundTripMs: 1000 });
   });
 
   it('an error before the wait ends is not reached, never a time-out; the system connect time-out is a time-out', async () => {
