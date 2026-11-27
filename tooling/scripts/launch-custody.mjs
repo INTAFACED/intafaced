@@ -32,6 +32,9 @@ export const LAUNCH_ORDER = 1;
  * is fixed. Three files left it after #11129, whose failures custody off were only the world restore starting the
  * stack custody on again (svc-ledger then exits on restart): J-derivatives-01-hl-venue, J-derivatives-01-venue and
  * J-derivatives-05, each passing whole custody off in run 46006848956.
+ * J-identity-13 and J-identity-22 left it once they stopped funding the person through our ledger (`local:fund`, refused
+ * custody off): J-identity-13 holds its TEST money at the TEST partner bank, and J-identity-22 tries its order on the
+ * person's own venue account, the launch desk.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -51,8 +54,6 @@ export const NOT_YET_OFF = new Set([
   'J-home-ia-01',
   'J-home-ia-11',
   'J-identity-01',
-  'J-identity-13',
-  'J-identity-22',
   'J-ops-console-02-customer-record',
   'J-portfolio-01',
   'J-portfolio-03',
