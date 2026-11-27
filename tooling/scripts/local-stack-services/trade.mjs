@@ -1,3 +1,4 @@
+import { startCustodyLayer } from '../local-test-state.mjs';
 import path from 'node:path';
 import { userVenueCount, userVenueKind, userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
@@ -66,8 +67,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     QUANT_URL: urlOf('quant'), // the strategy version a live run trades, read as the person (J-algo-dev-07)
     MATCHING_URL: urlOf('matching'),
     // Our own order book's spot plane follows the custody switch (OWNER 288): unset, TRADE_SPOT_ENABLED is on only with
-    // LEDGER_CUSTODY_LAYER on. The same value as svc-ledger's (ledger.mjs), as matching.mjs carries.
-    LEDGER_CUSTODY_LAYER: 'on',
+    // LEDGER_CUSTODY_LAYER on. The same value as svc-ledger's (ledger.mjs, startCustodyLayer), as matching.mjs carries.
+    LEDGER_CUSTODY_LAYER: startCustodyLayer(),
     NOTIFY_URL: urlOf('notify'), // market maintenance windows on the lifecycle read (J-cex-spot-14 #5)
     TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
     IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
