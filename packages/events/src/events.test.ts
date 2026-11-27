@@ -1531,6 +1531,18 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       asked: '1.5',
       raisedAt: ts(),
     },
+    venueProfitLockReady: {
+      offerKey: `profit-lock:u:test-venue-sim:0x1111111111111111111111111111111111111111:2026-11-23T00:00:00.000Z`,
+      userId: uid(),
+      asset: 'USDC',
+      profit: '250.5',
+      target: '200',
+      share: '50',
+      amount: '125.25',
+      coldWallet: '0x2222222222222222222222222222222222222222',
+      weekFrom: ts(),
+      raisedAt: ts(),
+    },
     supportTicketResolved: {
       ticketId: uid(),
       userId: uid(),

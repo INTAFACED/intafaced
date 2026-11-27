@@ -16383,6 +16383,903 @@
         }
       ]
     },
+    "trade.profitLock.decline": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "profitLock.decline",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.profit_lock_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.profit_lock_request_invalid": "BAD_REQUEST",
+        "trade.profit_lock_no_offer": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "offerKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": ["owner", "offerKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "lockId": {
+            "type": ["string", "null"]
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "share": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "coldWallet": {
+                    "type": "string"
+                  },
+                  "savedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["target", "share", "coldWallet", "savedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "week": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "readable": {
+                "type": "boolean"
+              },
+              "profit": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "asOf": {
+                "type": ["string", "null"]
+              },
+              "lastReadAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["from", "readable", "profit", "asOf", "lastReadAt"],
+            "additionalProperties": false
+          },
+          "offer": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "offerKey": {
+                    "type": "string"
+                  },
+                  "weekFrom": {
+                    "type": "string"
+                  },
+                  "profit": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "target": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "share": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "coldWallet": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": ["ready", "declined", "signed"]
+                  },
+                  "withdrawalKey": {
+                    "type": "string"
+                  },
+                  "nonce": {
+                    "type": ["string", "null"]
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offerKey",
+                  "weekFrom",
+                  "profit",
+                  "target",
+                  "share",
+                  "amount",
+                  "coldWallet",
+                  "state",
+                  "withdrawalKey",
+                  "nonce",
+                  "at"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "withdrawal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "cut": {
+                    "type": "boolean"
+                  },
+                  "free": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "withdrawable": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "fee": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "value": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["known", "value"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": false
+                          }
+                        },
+                        "required": ["known"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "networkFee": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "value": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["known", "value"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": false
+                          }
+                        },
+                        "required": ["known"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "asOf": {
+                    "type": "string"
+                  }
+                },
+                "required": ["amount", "cut", "free", "withdrawable", "fee", "networkFee", "asOf"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["venue", "owner", "asset", "lockId", "setting", "week", "offer", "withdrawal"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "offerKey": "profit-lock:u:test-venue-sim:0x1111111111111111111111111111111111111111:2026-11-23T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "offerKey": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.profitLock.get": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "profitLock.get",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.profit_lock_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.profit_lock_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["owner"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "lockId": {
+            "type": ["string", "null"]
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "share": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "coldWallet": {
+                    "type": "string"
+                  },
+                  "savedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["target", "share", "coldWallet", "savedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "week": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "readable": {
+                "type": "boolean"
+              },
+              "profit": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "asOf": {
+                "type": ["string", "null"]
+              },
+              "lastReadAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["from", "readable", "profit", "asOf", "lastReadAt"],
+            "additionalProperties": false
+          },
+          "offer": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "offerKey": {
+                    "type": "string"
+                  },
+                  "weekFrom": {
+                    "type": "string"
+                  },
+                  "profit": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "target": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "share": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "coldWallet": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": ["ready", "declined", "signed"]
+                  },
+                  "withdrawalKey": {
+                    "type": "string"
+                  },
+                  "nonce": {
+                    "type": ["string", "null"]
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offerKey",
+                  "weekFrom",
+                  "profit",
+                  "target",
+                  "share",
+                  "amount",
+                  "coldWallet",
+                  "state",
+                  "withdrawalKey",
+                  "nonce",
+                  "at"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "withdrawal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "cut": {
+                    "type": "boolean"
+                  },
+                  "free": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "withdrawable": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "fee": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "value": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["known", "value"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": false
+                          }
+                        },
+                        "required": ["known"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "networkFee": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "value": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["known", "value"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": false
+                          }
+                        },
+                        "required": ["known"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "asOf": {
+                    "type": "string"
+                  }
+                },
+                "required": ["amount", "cut", "free", "withdrawable", "fee", "networkFee", "asOf"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["venue", "owner", "asset", "lockId", "setting", "week", "offer", "withdrawal"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.profitLock.set": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "profitLock.set",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.profit_lock_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.profit_lock_request_invalid": "BAD_REQUEST",
+        "trade.profit_lock_field_invalid": "BAD_REQUEST",
+        "trade.profit_lock_address_ours": "BAD_REQUEST",
+        "trade.profit_lock_address_mistyped": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "share": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "coldWallet": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["owner", "target", "share", "coldWallet"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "lockId": {
+            "type": ["string", "null"]
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "share": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "coldWallet": {
+                    "type": "string"
+                  },
+                  "savedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["target", "share", "coldWallet", "savedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "week": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "readable": {
+                "type": "boolean"
+              },
+              "profit": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "asOf": {
+                "type": ["string", "null"]
+              },
+              "lastReadAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["from", "readable", "profit", "asOf", "lastReadAt"],
+            "additionalProperties": false
+          },
+          "offer": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "offerKey": {
+                    "type": "string"
+                  },
+                  "weekFrom": {
+                    "type": "string"
+                  },
+                  "profit": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "target": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "share": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "coldWallet": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": ["ready", "declined", "signed"]
+                  },
+                  "withdrawalKey": {
+                    "type": "string"
+                  },
+                  "nonce": {
+                    "type": ["string", "null"]
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "offerKey",
+                  "weekFrom",
+                  "profit",
+                  "target",
+                  "share",
+                  "amount",
+                  "coldWallet",
+                  "state",
+                  "withdrawalKey",
+                  "nonce",
+                  "at"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "withdrawal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "cut": {
+                    "type": "boolean"
+                  },
+                  "free": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "withdrawable": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "fee": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "value": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["known", "value"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": false
+                          }
+                        },
+                        "required": ["known"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "networkFee": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "value": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["known", "value"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "known": {
+                            "type": "boolean",
+                            "const": false
+                          }
+                        },
+                        "required": ["known"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "asOf": {
+                    "type": "string"
+                  }
+                },
+                "required": ["amount", "cut", "free", "withdrawable", "fee", "networkFee", "asOf"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["venue", "owner", "asset", "lockId", "setting", "week", "offer", "withdrawal"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "target": "200",
+            "share": "50",
+            "coldWallet": "0x2222222222222222222222222222222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "target": "200"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "trade.rfq.accept": {
       "service": "svc-trade",
       "module": "trade",

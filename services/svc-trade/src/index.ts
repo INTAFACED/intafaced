@@ -137,6 +137,8 @@ import { VenueBalanceWatch } from './venue/balance-watch.js';
 import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
 import { busRiskAlertNotices, VenueRiskAlerts } from './venue/risk-alerts.js';
 import { SqlRiskAlertStore } from './venue/risk-alerts-store.js';
+import { busProfitLockNotices, VenueProfitLocks } from './venue/profit-lock.js';
+import { ageProfitLock, SqlProfitLockStore } from './venue/profit-lock-store.js';
 import { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
@@ -602,6 +604,21 @@ const venueDailyLoss = userVenue ? new VenueDailyLossLimits({ door: userVenue, s
 const venueRiskAlerts = userVenue
   ? new VenueRiskAlerts({ door: userVenue, store: new SqlRiskAlertStore(sql), notices: busRiskAlertNotices(bus), now: () => new Date() })
   : null;
+// The weekly Profit lock on the person's own venue account (J-wallet-26): one offer and one message per week, published to
+// svc-notify after its row is written, ticked with the protections. INTAFACED's own addresses (the venue builder address)
+// are refused as a cold wallet. Off with the door.
+const venueProfitLocks = userVenue
+  ? new VenueProfitLocks({
+      door: userVenue,
+      store: new SqlProfitLockStore(sql),
+      actions: new SqlPreparedActionStore(sql),
+      notices: busProfitLockNotices(bus),
+      ourAddresses: [parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS)?.address ?? '']
+        .map((a) => a.trim().toLowerCase())
+        .filter((a) => a !== ''),
+      now: () => new Date(),
+    })
+  : null;
 const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   : 0;
@@ -610,7 +627,13 @@ if (venueProtections && protectionEngineMs > 0) {
   setInterval(() => {
     if (busy) return;
     busy = true;
-    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick(), venueAutoTopUp?.tick(), venueRiskAlerts?.tick()])
+    Promise.all([
+      venueProtections.tick(),
+      venueSpotConditionals?.tick(),
+      venueAutoTopUp?.tick(),
+      venueRiskAlerts?.tick(),
+      venueProfitLocks?.tick(),
+    ])
       .catch((err: unknown) =>
         process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
       )
@@ -1033,6 +1056,7 @@ export const appRouter = createTradeRouter(
     : null,
   venueDailyLoss,
   userVenue,
+  venueProfitLocks,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1849,7 +1873,7 @@ registerTestAgeDoor(app, {
   open: testAgeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
-  subjects: { 'otc-quote': ageOtcQuote(sql), 'recurring-buy': ageRecurringBuy(sql) },
+  subjects: { 'otc-quote': ageOtcQuote(sql), 'recurring-buy': ageRecurringBuy(sql), 'profit-lock': ageProfitLock(sql) },
   installRawBody: false,
 });
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);

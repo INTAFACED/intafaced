@@ -164,6 +164,7 @@ export const EVENT_BUS_MATRIX = {
   recurringBuySuspended: { kind: 'live' },
   venueDelistingScheduled: { kind: 'live' },
   venueRiskAlerted: { kind: 'live' },
+  venueProfitLockReady: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
   quantOrderFilled: { kind: 'live' },
