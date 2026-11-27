@@ -97,6 +97,12 @@ test("a launch-desk journey's custodial part file keeps today's switch; its othe
 // J-p2p-21 did, once #11129 stopped the world restore turning custody back on).
 const LEDGER_FUND_CALL = [/\bfund\(/, /['"]local-test-stack\.mjs['"]\s*,\s*['"]fund['"]/];
 const STACK_FUND_IMPORT = /import\s*\{[^}]*\bfund\b[^}]*\}\s*from\s*'\.\/stack\.mjs'/;
+/** `stack.fund(` through `import * as stack from './stack.mjs'`. */
+const stackSpaceFunds = (src) =>
+  [...src.matchAll(/import\s*\*\s*as\s+(\w+)\s*from\s*'\.\/stack\.mjs'/g)].some((m) =>
+    new RegExp(`(?<![\\w.])${m[1]}\\.fund\\(`).test(src),
+  );
+const fundsDirectly = (src) => STACK_FUND_IMPORT.test(src) || LEDGER_FUND_CALL[1].test(src) || stackSpaceFunds(src);
 /** The local names `src` binds to `names` exported by `./<from>`: named imports (with `as`), and `ns.<name>` of a namespace import. */
 const localNames = (src, from, names) => {
   const mod = `'\\./${from.replace(/\./g, '\\.')}'`;
@@ -119,7 +125,7 @@ const calls = (code, name) => new RegExp(`(?<![\\w.])${name.replace('.', '\\.')}
  * command, or a function another helper exports that does (`helpers`, module file to its funding exports). Pure.
  */
 function ledgerFunders(src, helpers = {}) {
-  const direct = STACK_FUND_IMPORT.test(src) || LEDGER_FUND_CALL[1].test(src);
+  const direct = fundsDirectly(src);
   const via = Object.entries(helpers).flatMap(([file, names]) => localNames(src, file, names));
   if (!direct && via.length === 0) return [];
   return src
@@ -151,13 +157,15 @@ function fundingHelpers(dir) {
 
 /** Whether a journey file funds through the ledger, itself or by calling a funding export of `helpers`. */
 function fundsThroughLedger(src, helpers = {}) {
-  if (STACK_FUND_IMPORT.test(src) || LEDGER_FUND_CALL[1].test(src)) return true;
+  if (fundsDirectly(src)) return true;
   return Object.entries(helpers).some(([file, names]) => localNames(src, file, names).some((n) => calls(src, n)));
 }
 
 test('a file that runs custody off never funds a customer through our ledger, which custody off refuses (#11159)', () => {
   assert.ok(fundsThroughLedger("import { api, fund, tool } from './stack.mjs';"));
   assert.ok(fundsThroughLedger("tool('local-test-stack.mjs', 'fund', email, 'USDT', '5')"));
+  assert.ok(fundsThroughLedger("import * as stack from './stack.mjs';\nstack.fund(email, 'USDT', '5');"));
+  assert.ok(!fundsThroughLedger("import * as stack from './stack.mjs';\nstack.api(who);"));
   assert.ok(!fundsThroughLedger("import { api, tool } from './stack.mjs';\nconst fund = async () => {};"));
   const helper =
     "import { api, fund } from './stack.mjs';\nexport async function rich(p) {\n  fund(p, 'USDT', '9');\n}\nexport function plain() {}\n";
