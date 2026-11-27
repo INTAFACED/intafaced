@@ -57,7 +57,10 @@ const SWEEP = {
   'pay-terms': { at: '/pay/send/limits', shows: 'No limits are published, so none is shown.' },
   'pay-scan': { at: '/pay/scan', shows: 'A payment code or link from this app opens Send' },
   'pay-bill-detail': { at: '/pay/bills/invoices/TEST-not-a-record', shows: 'there is no biller network behind INTAFACED' },
-  'oauth-apps': { at: '/developers/apps', shows: 'The owner has not published the lifetime that signing in with apps needs' },
+  'oauth-apps': {
+    proof:
+      'a bare /oauth/authorize names the missing request fields; a well-formed request is refused with oauth.lifetime_unset while the lifetimes are blank (svc-identity oauth.pg.test.ts), and the page shows that refusal in words',
+  },
   'trade-news-calendar': { at: '/trade/news', shows: 'News needs a news data feed.' },
   p2p: { silent: 'the room does not name the missing instrument encryption provider' },
   // Status components and support hours are set by other journeys on the shared stack; no journey publishes a rulebook.
