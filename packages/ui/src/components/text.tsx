@@ -6,7 +6,7 @@ import type { TypeRole } from '../lit/contracts.js';
  * Text in one of the kit's type roles (`typeRoles`, packages/ui/src/lit/contracts.ts): hero, figure, title, heading, body,
  * label and micro, each drawn from `--lit-type-<role>-size|line|weight|tracking`. A room sets type with this, never with
  * raw type classes (`text-sm`, `font-medium`: garden/no-raw-type-class). Figures and the hero take the figure face; micro
- * takes the mono face, in capitals.
+ * takes the mono face, in sentence case.
  */
 export interface TextProps extends React.HTMLAttributes<HTMLElement> {
   variant: TypeRole;
@@ -26,7 +26,7 @@ export function Text({ variant, as: Tag = 'p', className, style, ...rest }: Text
     <Tag
       {...rest}
       data-type-role={variant}
-      className={cn('m-0', variant === 'micro' && 'uppercase', (variant === 'hero' || variant === 'figure') && 'tabular-nums', className)}
+      className={cn('m-0', (variant === 'hero' || variant === 'figure') && 'tabular-nums', className)}
       style={{
         fontFamily: FACE[variant],
         fontSize: `var(${v}-size)`,

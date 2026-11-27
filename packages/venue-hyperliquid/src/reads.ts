@@ -26,6 +26,7 @@ import {
 } from '@intafaced/venue-contracts';
 import {
   BPS_PER_X,
+  FILLS_GRID_MS,
   FILLS_PAGE_CAP,
   HyperliquidCore,
   PERP_COLLATERAL_ASSET,
@@ -104,8 +105,12 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         // market is trading. Never null here, which a reader takes as not known (and the markets list as not open).
         status: 'trading',
       };
-      // What this adapter does not read from the venue: `market-terms.ts`, never here.
-      return { ...read, ...unreadMarketTerms() };
+      // What this adapter does not read from the venue: `market-terms.ts`, never here. Who listed a HIP-3 market is read
+      // with the listing: the DEX's own name for itself (`perpDexs` fullName).
+      const listedBy: UserVenueMarket['listedBy'] = m.dex
+        ? { known: true, value: { kind: 'hip3', name: m.dex.fullName } }
+        : { known: false };
+      return { ...read, ...unreadMarketTerms(), listedBy };
     });
     return this.asOf(list);
   }
@@ -144,9 +149,9 @@ export abstract class HyperliquidReads extends HyperliquidCore {
   /** The venue's mid price of every listed market (`allMids`), by our symbol. A coin we do not list is left out. */
   async mids(): Promise<AsOf<ReadonlyMap<string, Amount>>> {
     const { byCoin } = await this.loadMarkets();
-    const answer = obj(await this.info({ type: 'allMids' }), 'allMids');
+    const answers = await this.perDex(async (dex) => obj(await this.info({ type: 'allMids', ...dex }), 'allMids'));
     const out = new Map<string, Amount>();
-    for (const [coin, px] of Object.entries(answer)) {
+    for (const [coin, px] of answers.flatMap((answer) => Object.entries(answer))) {
       const m = byCoin.get(coin);
       if (m) out.set(m.symbol, amt(px, `mid of ${coin}`));
     }
@@ -204,8 +209,10 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     if (!HL_CANDLE_INTERVALS.has(interval)) throw refusal(this.venue.id, 'not_offered', `this venue publishes no ${interval} candles`);
     const m = await this.market(symbol);
     const stepMs = VENUE_CANDLE_INTERVALS[interval] * 1000;
-    const endTime = this.clock().getTime();
-    const startTime = since ? since.getTime() : endTime - limit * stepMs;
+    // The window ends where the current candle ends, not at this millisecond, so every desk asking within one candle asks
+    // the same read and shares it (`shareReads`); the venue answers only candles that have opened.
+    const endTime = (Math.floor(this.clock().getTime() / stepMs) + 1) * stepMs - 1;
+    const startTime = since ? since.getTime() : endTime + 1 - limit * stepMs;
     const rows = arr(
       await this.info({ type: 'candleSnapshot', req: { coin: m.coin, interval, startTime, endTime } }),
       'candleSnapshot',
@@ -332,8 +339,19 @@ export abstract class HyperliquidReads extends HyperliquidCore {
     };
   }
 
+  /**
+   * One read per perp DEX the listing names: the main one (its request unchanged, no `dex`), then each HIP-3 DEX with
+   * `dex`. The venue keeps each DEX's positions, orders and marks apart.
+   */
+  protected perDex<T>(read: (dex: Record<string, Json>) => Promise<T>): Promise<T[]> {
+    return Promise.all([read({}), ...this.perpDexs.map((dex) => read({ dex }))]);
+  }
+
   async openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {
-    const raw = arr(await this.info({ type: 'frontendOpenOrders', user: this.user(account) }), 'open orders');
+    const user = this.user(account);
+    const raw = (
+      await this.perDex(async (dex) => arr(await this.info({ type: 'frontendOpenOrders', user, ...dex }), 'open orders'))
+    ).flat();
     const lev = this.leverageLookup(account);
     const list: UserVenueOrder[] = [];
     for (const r of raw) list.push(await this.toOrder(account, obj(r, 'open order'), null, lev));
@@ -390,7 +408,12 @@ export abstract class HyperliquidReads extends HyperliquidCore {
    */
   async fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
     const seen = new Map<string, { [key: string]: Json }>();
-    let startTime = since.getTime();
+    /** Every fill id a page answered, before `since` too: paging stops on a page that adds none. */
+    const paged = new Set<string>();
+    // Read from the hour `since` falls in (`FILLS_GRID_MS`), so asks a few seconds apart are one shared read; the
+    // fills before `since` are left out below.
+    const sinceMs = since.getTime();
+    let startTime = Math.floor(sinceMs / FILLS_GRID_MS) * FILLS_GRID_MS;
     for (;;) {
       const page = arr(await this.info({ type: 'userFillsByTime', user: this.user(account), startTime, aggregateByTime: false }), 'fills');
       let added = 0;
@@ -398,10 +421,12 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       for (const entry of page) {
         const f = obj(entry, 'fill');
         const id = fillIdOf(f);
-        lastTime = Math.max(lastTime, int(f.time, 'fill time'));
-        if (!seen.has(id)) {
-          seen.set(id, f);
+        const time = int(f.time, 'fill time');
+        lastTime = Math.max(lastTime, time);
+        if (!paged.has(id)) {
+          paged.add(id);
           added += 1;
+          if (time >= sinceMs) seen.set(id, f);
         }
       }
       if (page.length < FILLS_PAGE_CAP || added === 0) break;
@@ -444,46 +469,53 @@ export abstract class HyperliquidReads extends HyperliquidCore {
   }
 
   async positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>> {
-    const [state, ctxs] = await Promise.all([
-      this.info({ type: 'clearinghouseState', user: this.user(account) }),
-      this.info({ type: 'metaAndAssetCtxs' }),
-    ]);
-    // The mark comes from the same answer's own universe: its contexts are indexed by that list, not by a cached one.
-    const both = arr(ctxs, 'metaAndAssetCtxs');
-    const universe = arr(obj(both[0], 'metaAndAssetCtxs meta').universe, 'metaAndAssetCtxs universe');
-    const assetCtxs = arr(both[1], 'asset contexts');
-    const indexOfCoin = new Map<string, number>();
-    universe.forEach((u, i) => indexOfCoin.set(str(obj(u, 'universe entry').name, 'universe name'), i));
-    const markOf = (coin: string): Amount | null => {
-      const i = indexOfCoin.get(coin);
-      const ctx = i === undefined ? undefined : assetCtxs[i];
+    const user = this.user(account);
+    const dexes = await this.perDex(async (dex) => {
+      const [state, ctxs] = await Promise.all([
+        this.info({ type: 'clearinghouseState', user, ...dex }),
+        this.info({ type: 'metaAndAssetCtxs', ...dex }),
+      ]);
+      // The mark comes from the same answer's own universe: its contexts are indexed by that list, not by a cached one.
+      const both = arr(ctxs, 'metaAndAssetCtxs');
+      const universe = arr(obj(both[0], 'metaAndAssetCtxs meta').universe, 'metaAndAssetCtxs universe');
+      const assetCtxs = arr(both[1], 'asset contexts');
+      const marks = new Map<string, Json>();
+      universe.forEach((u, i) => {
+        const ctx = assetCtxs[i];
+        if (ctx) marks.set(str(obj(u, 'universe entry').name, 'universe name'), ctx);
+      });
+      return { s: obj(state, 'clearinghouseState'), marks };
+    });
+    const markOf = (marks: Map<string, Json>, coin: string): Amount | null => {
+      const ctx = marks.get(coin);
       return ctx ? amt(obj(ctx, 'asset ctx').markPx, 'markPx') : null;
     };
-    const s = obj(state, 'clearinghouseState');
+    const time = dexes[0]?.s.time;
     const list: UserVenuePosition[] = [];
-    for (const ap of arr(s.assetPositions, 'assetPositions')) {
-      const p = obj(obj(ap, 'assetPosition').position, 'position');
-      const coin = str(p.coin, 'position coin');
-      const szi = amt(p.szi, 'szi');
-      if (szi === ZERO) continue;
-      const leverage = obj(p.leverage, 'position leverage');
-      const mark = markOf(coin);
-      if (mark === null) throw refusal(this.venue.id, 'venue_rejected', `no mark price reported for ${coin}`);
-      list.push({
-        symbol: await this.symbolOfCoin(coin),
-        side: compare(szi, ZERO) > 0 ? 'long' : 'short',
-        size: abs(szi),
-        entryPrice: amt(p.entryPx, 'entryPx'),
-        markPrice: mark,
-        unrealisedPnl: amt(p.unrealizedPnl, 'unrealizedPnl'),
-        marginMode: leverage.type === 'isolated' ? 'isolated' : 'cross',
-        margin: amt(p.marginUsed, 'marginUsed'),
-        leverageBps: int(leverage.value, 'leverage value') * BPS_PER_X,
-        liquidationPrice: typeof p.liquidationPx === 'string' ? { known: true, value: parseAmount(p.liquidationPx) } : { known: false },
-      });
-    }
+    for (const { s: dexState, marks } of dexes)
+      for (const ap of arr(dexState.assetPositions, 'assetPositions')) {
+        const p = obj(obj(ap, 'assetPosition').position, 'position');
+        const coin = str(p.coin, 'position coin');
+        const szi = amt(p.szi, 'szi');
+        if (szi === ZERO) continue;
+        const leverage = obj(p.leverage, 'position leverage');
+        const mark = markOf(marks, coin);
+        if (mark === null) throw refusal(this.venue.id, 'venue_rejected', `no mark price reported for ${coin}`);
+        list.push({
+          symbol: await this.symbolOfCoin(coin),
+          side: compare(szi, ZERO) > 0 ? 'long' : 'short',
+          size: abs(szi),
+          entryPrice: amt(p.entryPx, 'entryPx'),
+          markPrice: mark,
+          unrealisedPnl: amt(p.unrealizedPnl, 'unrealizedPnl'),
+          marginMode: leverage.type === 'isolated' ? 'isolated' : 'cross',
+          margin: amt(p.marginUsed, 'marginUsed'),
+          leverageBps: int(leverage.value, 'leverage value') * BPS_PER_X,
+          liquidationPrice: typeof p.liquidationPx === 'string' ? { known: true, value: parseAmount(p.liquidationPx) } : { known: false },
+        });
+      }
     list.sort((a, b) => a.symbol.localeCompare(b.symbol));
-    return this.asOf(list, typeof s.time === 'number' ? s.time : undefined);
+    return this.asOf(list, typeof time === 'number' ? time : undefined);
   }
 
   async withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>> {

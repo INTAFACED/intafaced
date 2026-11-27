@@ -1,7 +1,7 @@
 // volt-room: /login
 // volt-room: /login/returnUrl/:returnUrl
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Field, Logo, PageColumn, PageGrid, Surface, WalletCard } from '@intafaced/ui/lit';
+import { Button, Display, Field, Logo, PageColumn, PageGrid, Surface, WalletCard } from '@intafaced/ui/lit';
 import { SelectField } from '@intafaced/ui/lit/templates';
 import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
@@ -567,7 +567,7 @@ export function AuthForm({ register }: { register: boolean }) {
       ? recoveryLanguageFor('title')
       : publicLanguageFor('SIGN IN');
   const flow = (
-    <PageGrid layout="even" data-template="sign-in">
+    <PageGrid layout="even" data-template="sign-in" data-stage="start">
       <PageColumn>
         <Surface className="lt-stack lt-auth-panel" data-testid="auth-form" lang={publicLanguageFor('SIGN IN')}>
           <header className="lt-stack">
@@ -931,7 +931,7 @@ export function AuthForm({ register }: { register: boolean }) {
       <PageColumn>
         <Surface className="lt-stack lt-auth-stage" lang={publicLanguageFor('SIGN IN')}>
           <WalletCard mark={<Logo variant="wordmark" size={18} />} label={p('YOUR ACCOUNT, CONNECTED')} value={p('Use a passkey')} />
-          <h2 className="lt-hero-line">
+          <Display as="h2">
             {register ? (
               <>
                 {p('Make your')} {p('next move.')}
@@ -941,7 +941,7 @@ export function AuthForm({ register }: { register: boolean }) {
                 {p('Welcome')} {p('back.')}
               </>
             )}
-          </h2>
+          </Display>
           <p className="lt-description">
             {p('Money, trading and payments.')} {p('One place to keep perspective.')}
           </p>

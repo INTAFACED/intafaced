@@ -54,6 +54,7 @@ async function mount(level: VenueEligibilityLevel | null, fees: InMemoryBuilderF
     stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
     builder: { address: BUILDER, feeBps: parseAmount('0.5') },
     slippageCapBps: null,
+    closeSlippageBps: 1000,
     spreadLimitBps: 100,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', SYMBOL])),

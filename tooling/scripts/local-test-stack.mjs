@@ -2206,14 +2206,46 @@ async function pinOpsFounders() {
   await startNodeService(serviceDefs(readJson(P.secrets)).find((d) => d.name === 'ops'));
 }
 
-export async function startCustomer({ stop = stopForNewBuild } = {}) {
+/**
+ * What a start does with a banner site's own running process (pure): `ready` when its page answers 200 with today's
+ * BANNER_TEXT; `restart` when it answers but with another banner, so a process started before the banner's text changed
+ * keeps no stale page up (the status table would call it DOWN, #10863); `start` when it is not running or not answering.
+ */
+export function bannerSiteDecision({ owned, status, text }, banner = BANNER_TEXT) {
+  if (!owned || status !== 200) return 'start';
+  return text.includes(banner) ? 'ready' : 'restart';
+}
+
+/**
+ * True when the site's own process already serves today's page; stops it (and waits for its port) when it serves a stale
+ * banner. `io` stands in for the process checks, the page read and the stop in a test.
+ */
+export async function bannerSiteReady(name, rec, url, port, io = {}) {
+  const { alive = ownedAlive, get = httpGet, stop = stopProc, open = portOpen } = io;
+  const owned = alive(rec);
+  const res = owned ? await get(url, 2000) : { status: 0, text: '' };
+  const decision = bannerSiteDecision({ owned, ...res });
+  if (decision === 'ready') return true;
+  if (decision === 'restart') {
+    say(`  ${name}: restarting, its page lacks the current TEST banner`);
+    await stop(name, rec);
+    for (let i = 0; i < 50 && (await open(port)); i++) await sleep(200);
+  }
+  return false;
+}
+
+export async function startCustomer({ stop = stopForNewBuild, ready = bannerSiteReady } = {}) {
   const build = currentBuild('customerBuild');
   await stop('customer', readProcs().customer, build, PORTS.customer);
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
-  if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
+  if (await ready('customer', procs.customer, url, PORTS.customer)) return;
   if (await portOpen(PORTS.customer)) portTaken(PORTS.customer, 'customer');
-  const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
+  const env = {
+    ...baseEnv(),
+    CUSTOMER_WS_URL: customerWsUpstream(),
+    ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}),
+  };
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
 }
@@ -2244,6 +2276,9 @@ async function startRailStatements() {
  * its keys live only in it and its own state file (test-wallet-provider.json, mode 0600), and passkey assertions are accepted only from the Customer app's own origins.
  */
 async function startTestWalletProvider() {
+  // It serves the package code it loaded, so a new build restarts it, as a service's does (stopForNewBuild).
+  const build = currentBuild('backendBuild');
+  await stopForNewBuild('test-wallet-provider', readProcs()['test-wallet-provider'], build, PORTS['test-wallet-provider']);
   const procs = readProcs();
   const url = `${urlOf('test-wallet-provider')}/health`;
   if (ownedAlive(procs['test-wallet-provider']) && (await httpGet(url, 2000)).status === 200) return;
@@ -2253,6 +2288,7 @@ async function startTestWalletProvider() {
     [process.execPath, SCRIPT, '__serve-test-wallet-provider'],
     { ...baseEnv(), APP_ENV: 'dev', ...(publicOrigin() ? { LOCAL_STACK_PUBLIC_ORIGIN: publicOrigin() } : {}) },
     REPO,
+    { build },
   );
   await waitHealthy('test-wallet-provider', url, pid, 20_000);
 }
@@ -2271,6 +2307,10 @@ export function userVenueOn(env = process.env) {
 
 /** The LOCAL TEST venue simulator (local-test-venue.mjs), for svc-trade's user-venue door. TEST figures only. */
 async function startTestVenue(name = 'test-venue') {
+  // A venue serves the adapter code it loaded (packages/venue-hyperliquid among it), so a new build restarts it, as a
+  // service's does: a long-lived beta otherwise kept a venue from before a fix while reporting the newer commit.
+  const build = currentBuild('backendBuild');
+  await stopForNewBuild(name, readProcs()[name], build, PORTS[name]);
   const procs = readProcs();
   const url = `${urlOf(name)}/health`;
   // Which venue and source this start wants: a running one that answers for another (the simulator where
@@ -2317,7 +2357,7 @@ async function startTestVenue(name = 'test-venue') {
     LOCAL_STACK_HL_TRADER: hl.trader ?? '',
   };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
-  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
+  const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO, { build });
   await waitHealthy(name, url, pid, 20_000);
 }
 
@@ -2337,12 +2377,12 @@ export function venueAnswersFor(healthText, kind, hl) {
 }
 
 /** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
-export async function startInvitation({ stop = stopForNewBuild } = {}) {
+export async function startInvitation({ stop = stopForNewBuild, ready = bannerSiteReady } = {}) {
   const build = currentBuild('invitationBuild');
   await stop('invitation', readProcs().invitation, build, PORTS.invitation);
   const procs = readProcs();
   const url = `${INVITATION_ORIGIN}/`;
-  if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
+  if (await ready('invitation', procs.invitation, url, PORTS.invitation)) return;
   if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
   if (await portOpen(PORTS.invitation)) portTaken(PORTS.invitation, 'invitation');
   const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO, { build });
@@ -2365,11 +2405,12 @@ function writeApexStandIn() {
   );
 }
 
-async function startApex() {
+export async function startApex({ ready = bannerSiteReady } = {}) {
   const procs = readProcs();
   const url = `${APEX_ORIGIN}/`;
+  const serving = await ready('apex', procs.apex, url, PORTS.apex);
   writeApexStandIn();
-  if (ownedAlive(procs.apex) && (await httpGet(url, 2000)).status === 200) return;
+  if (serving) return;
   if (await portOpen(PORTS.apex)) portTaken(PORTS.apex, 'apex');
   const pid = startProc('apex', [process.execPath, SCRIPT, '__serve-apex'], baseEnv(), REPO);
   await waitHealthy('apex', url, pid, 20_000);
@@ -3463,9 +3504,20 @@ function proxyHeaders(req, { upgrade = false } = {}) {
     if (lk.startsWith('x-intafaced-') || lk.startsWith('x-service-')) continue; // only Edge may mint these
     headers[k] = v;
   }
-  headers['x-forwarded-for'] = req.socket.remoteAddress ?? HOST;
+  headers['x-forwarded-for'] = forwardedFor(req.headers['x-forwarded-for'], req.socket.remoteAddress ?? HOST, publicOrigin() !== null);
   headers['x-forwarded-proto'] = 'http';
   return headers;
+}
+
+/**
+ * The X-Forwarded-For this server sends Edge and svc-ws. A stack opened on a public name (LOCAL_STACK_PUBLIC_ORIGIN, the
+ * hosted beta) sits behind its own front on loopback (tooling/beta/beta-front.mjs), which writes the caller's address:
+ * this server appends its own peer after it, and Edge and svc-ws trust only loopback hops (EDGE_TRUST_PROXY,
+ * WS_TRUST_PROXY), so each caller keeps their own budget (#11027). Any other stack is reached directly: its peer alone.
+ */
+export function forwardedFor(incoming, peer, behindFront) {
+  const prior = (Array.isArray(incoming) ? incoming.join(', ') : String(incoming ?? '')).trim();
+  return behindFront && prior ? `${prior}, ${peer}` : peer;
 }
 
 function serveCustomer(port = PORTS.customer, site = SITES.customer) {

@@ -51,6 +51,7 @@ async function mount(acks: VenueAdlAcks | null = memoryVenueAdlAcks()) {
     },
     builder: null,
     slippageCapBps: null,
+    closeSlippageBps: 1000,
     spreadLimitBps: 100,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-PERP', 'XLIQ-PERP'])),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MarketHeader, MarketTable, MoverTile, StatStrip, type MarketRow } from '../index.js';
+import { MarketHeader, MarketTable, MarketTile, MoverTile, StatStrip, type MarketRow } from '../index.js';
 
 const labels = { caption: 'Markets', market: 'Market', price: 'Price', change: '24h', trend: '7 days', volume: 'Volume' };
 const btc: MarketRow = {
@@ -22,6 +22,10 @@ describe('MarketTable', () => {
     );
     expect(html).toContain('class="lt-market-symbol">BTC</span>');
     expect(html).toContain('class="lt-market-full">Bitcoin</span>');
+    // The symbol stands over its name, in one stacked block beside the coin.
+    expect(html).toContain(
+      '<span class="lt-market-text"><span class="lt-market-symbol">BTC</span><span class="lt-market-full">Bitcoin</span></span>',
+    );
     expect(html).toContain('href="/trade/spot/BTC-USD"');
     expect(html).toMatch(/data-label="Price" data-align="end">.*\$97,240\.12/);
     expect(html).toContain('data-direction="up"');
@@ -53,6 +57,14 @@ describe('MoverTile', () => {
     const html = renderToStaticMarkup(<MoverTile symbol="DOGE" price="0.38120" change="−4.94%" trend={['2', '1']} href="/m/DOGE" />);
     expect(html).toContain('<a class="lt-mover" href="/m/DOGE">');
     expect(html).toContain('data-direction="down"');
+  });
+
+  it('draws the coin’s mark from `asset` when the symbol is a whole pair, keeping the pair’s words', () => {
+    const pair = renderToStaticMarkup(<MoverTile symbol="BTC/USDT" asset="BTC" price="1" change="+1%" />);
+    expect(pair).toContain('<svg');
+    expect(pair).toContain('BTC/USDT');
+    // Without `asset`, the pair's name has no art: the lettered disc, never a guessed logo.
+    expect(renderToStaticMarkup(<MoverTile symbol="BTC/USDT" price="1" change="+1%" />)).not.toContain('<svg');
   });
 });
 
@@ -107,6 +119,12 @@ describe('MarketHeader', () => {
     expect(html).toContain('data-unknown="true"');
     expect(html).not.toContain('lt-stat-strip');
   });
+
+  it('leaves out a 24h change the venue does not publish, so no dash sits beside the price', () => {
+    const html = renderToStaticMarkup(<MarketHeader label="Market" asset="PURR" symbol="PURR/USDC" price="4.5342" change={null} />);
+    expect(html).not.toContain('data-slot="pct"');
+    expect(html).toContain('4.5342');
+  });
 });
 
 describe('MoverTile quote', () => {
@@ -125,5 +143,23 @@ describe('big figures draw their cents as the look sets them', () => {
     const table = renderToStaticMarkup(<MarketTable labels={labels} rows={[btc]} />);
     expect(table).toContain('$97,240.12');
     expect(table).not.toContain('lt-cents');
+  });
+});
+
+describe('MarketTile', () => {
+  it('draws the pair, its change and its last price, and marks the market the desk is on', () => {
+    const html = renderToStaticMarkup(<MarketTile symbol="BTC-USD" price="97,240.12" change="+1.84%" selected />);
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('<span class="lt-market-symbol">BTC-USD</span>');
+    expect(html).toContain('+1.84%');
+    expect(html).toContain('lt-market-tile-price');
+  });
+
+  it('leaves out a price and a change the venue does not publish, never a dash', () => {
+    const html = renderToStaticMarkup(<MarketTile symbol="PURR/USDC" price={null} change={null} />);
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).not.toContain('data-slot="pct"');
+    expect(html).not.toContain('lt-market-tile-price');
+    expect(html).not.toContain('data-unknown');
   });
 });

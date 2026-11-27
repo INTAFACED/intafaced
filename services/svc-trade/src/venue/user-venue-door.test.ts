@@ -206,6 +206,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       stepUp: opts.stepUp ?? stepUp('approve').check,
       builder: opts.builder === undefined ? BUILDER : opts.builder,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: opts.now ?? (() => new Date()),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -300,6 +301,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       stepUp: stepUp('approve').check,
       builder: BUILDER,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -705,6 +707,7 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       stepUp: stepUp('approve').check,
       builder: BUILDER,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });

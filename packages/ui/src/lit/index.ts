@@ -31,6 +31,7 @@ export {
   MarketTable,
   MarketName,
   MoverTile,
+  MarketTile,
   StatStrip,
   MarketHeader,
   type StatCell,
@@ -39,6 +40,7 @@ export {
   type MarketTableLabels,
   type MarketTableProps,
   type MoverTileProps,
+  type MarketTileProps,
 } from './components/market-parts.js';
 export {
   ActionRow,
@@ -51,6 +53,17 @@ export {
   type ActivityRowProps,
 } from './components/account-parts.js';
 export {
+  MarketBoard,
+  MarketHero,
+  MarketBoardSkeleton,
+  Dim,
+  ToolbarEnd,
+  FootNotes,
+  StarToggle,
+  type MarketHeroProps,
+  type StarToggleProps,
+} from './components/board-parts.js';
+export {
   ButtonLink,
   Display,
   SectionTitle,
@@ -61,4 +74,13 @@ export {
   type StripCell,
   type FeaturedMarketProps,
 } from './components/display-parts.js';
+export {
+  BookLadder,
+  TradeTape,
+  type BookLadderProps,
+  type BookLevel,
+  type BookSide,
+  type TapePrint,
+  type TradeTapeProps,
+} from './components/exchange.js';
 export { ChoiceTile, RadioTrack, WalletCard, type RadioTrackOption } from './components/auth-parts.js';

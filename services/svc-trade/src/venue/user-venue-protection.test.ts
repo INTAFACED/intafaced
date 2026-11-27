@@ -123,6 +123,8 @@ function door(
     builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
     slippageCapBps,
     spreadLimitBps,
+    // A labelled TEST close tolerance: 10%, so a reduce-only close is priced.
+    closeSlippageBps: 1000,
     now: () => new Date(),
     // Our listing shows the one market these orders use (J-cex-spot-16).
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'BAR-USDC', 'BAR-PERP'], 'stub')),

@@ -76,6 +76,9 @@ export const venueStatusSchema = z.union([
       .object({ minLeadMs: z.number().int().min(0), timeoutsSec: z.array(z.number().int().positive()).nullable() })
       .nullable()
       .optional(),
+    // The owner's close tolerance in bps (svc-trade TRADE_CLOSE_SLIPPAGE_BPS): how far a reduce-only close crosses from
+    // the mark. Null is blank, and svc-trade refuses every such close `trade.close_slippage_unset`; absent from an older door.
+    closeSlippageBps: z.number().int().positive().nullable().optional(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
     // Every configured venue with its health and the position modes it offers (J-derivatives-28, J-derivatives-05 #1 #3).
@@ -815,6 +818,14 @@ export const venueMarketStateSchema = z.object({
   zone: z.enum(['higher_risk']).nullable().optional(),
   zoneOrderCap: decimalSchema.nullable().optional(),
   upcomingMaintenance: venueUpcomingMaintenanceSchema.optional(),
+  /**
+   * A perpetual's facts as the venue publishes them, each absent (or null) until a read carries it; the markets list then
+   * shows "—", never a made-up figure. `maxLeverage` is a multiple ("40"), `funding1h` the hourly funding rate as a ratio
+   * ("0.000012"), `openInterest` the open contracts' value in the quote asset.
+   */
+  maxLeverage: decimalSchema.nullable().optional(),
+  funding1h: signedDecimalSchema.nullable().optional(),
+  openInterest: decimalSchema.nullable().optional(),
 });
 export type VenueMarketState = z.infer<typeof venueMarketStateSchema>;
 export const venueMarketStatesSchema = asOf(

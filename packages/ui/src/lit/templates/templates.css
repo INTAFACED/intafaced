@@ -93,9 +93,10 @@
   flex: 1 1 12rem;
   min-inline-size: 0;
 }
-/* A first part that must never break across lines (a hero price): it keeps its whole width, so the actions move under it. */
+/* A first part that must never break across lines (a hero price): it keeps its whole width, so the actions move under it.
+   It is never wider than its row: a refusal shown in its place (a long title at 130% text on a phone) wraps instead. */
 .lt-title-row-wrap > .lt-unbroken {
-  min-inline-size: max-content;
+  min-inline-size: min(max-content, 100%);
 }
 
 /* A figure that stays on one line (an amount beside a name); the name beside it wraps instead. */
@@ -1072,10 +1073,14 @@ pre.lt-code {
   flex-direction: column;
 }
 
+/* A row too narrow for its label and value side by side (a two-column order ticket) puts the value on its own line,
+   still at the end, never over the next column (#10831). */
 .lt-kv > :is(div, section) {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: var(--lit-gap-item);
+  column-gap: var(--lit-gap-item);
+  row-gap: 0;
   min-block-size: var(--lit-row-h);
   align-items: center;
   border-block-end: 1px solid var(--lit-line);
@@ -1099,11 +1104,19 @@ pre.lt-code {
 
 .lt-kv dd {
   margin: 0;
+  margin-inline-start: auto;
+  max-inline-size: 100%;
   text-align: end;
   font-variant-numeric: tabular-nums;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+}
+
+/* A value wider than the whole row, even on its own line, breaks between its figure and its unit, not into the next column. */
+.lt-kv dd:is(.lt-num),
+.lt-kv dd .lt-num {
+  white-space: normal;
 }
 
 .lt-kv > div[data-total] {
@@ -1386,6 +1399,22 @@ button.lt-tab:focus-visible {
   min-block-size: 2rem;
   padding-inline: var(--lit-gap-item);
   font-size: var(--lit-type-label-size);
+}
+
+/* Soft tabs (Tabs soft): small pills with no rim; only the shown one is filled. */
+.lt-tabs-soft {
+  gap: 0.2857rem;
+}
+.lt-tabs-soft .lt-tab {
+  min-block-size: 2.2857rem;
+  padding-inline: 0.8571rem;
+  border-color: transparent;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.lt-tabs-soft .lt-tab[aria-selected='true'] {
+  background: var(--lit-secondary-bg);
+  border-color: transparent;
 }
 
 .lt-tab-panel {
@@ -1898,6 +1927,10 @@ button.lt-tab:focus-visible {
 .lt-chart[data-tone='down'] .lt-chart-line {
   stroke: var(--lit-down);
 }
+/* A flat day's line is quiet text, not the accent: the accent is the main action's alone (the owner's pick, 25 Nov). */
+.lt-chart[data-tone='neutral'] .lt-chart-line {
+  stroke: var(--lit-text-2);
+}
 
 /* Sparkline: a card's small trend line; in a table row, a shorter and fixed-width one. */
 .lt-spark svg {
@@ -2232,8 +2265,14 @@ button.lt-tab:focus-visible {
 
 /* ---- segmented switch (Buy or Sell) ---- */
 
+/* A segmented control sets its own type, so it reads the same in a panel's title slot as anywhere else (the landing's
+   board tabs grew to the 20px heading when headings did). */
 .lt-segmented {
   display: flex;
+  font-size: var(--lit-type-body-size);
+  line-height: var(--lit-type-body-line);
+  font-weight: var(--lit-type-body-weight);
+  letter-spacing: normal;
   padding: 0.25rem;
   gap: 0.25rem;
   border: 1px solid var(--lit-line);
@@ -2347,7 +2386,7 @@ button.lt-tab:focus-visible {
 
 :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):is(:checked, :indeterminate) {
   border-color: transparent;
-  background: var(--lit-accent-fill);
+  background: var(--lit-accent);
 }
 
 :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {
@@ -2696,7 +2735,6 @@ button.lt-tab:focus-visible {
   color: var(--lit-text-2);
   font-size: var(--lit-type-micro-size);
   letter-spacing: var(--lit-type-micro-tracking);
-  text-transform: uppercase;
 }
 .lt-strong {
   font-weight: 600;

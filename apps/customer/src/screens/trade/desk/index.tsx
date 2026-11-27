@@ -1,6 +1,7 @@
 // volt-room: /trade/spot/:pair
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import './exchange-desk.css';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
@@ -226,7 +227,13 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   );
 
   return (
-    <div data-testid="if-desk" data-market={market.symbol} data-preset={layout.preset} data-arranging={arranging ? 'true' : undefined}>
+    <div
+      className="xd"
+      data-testid="if-desk"
+      data-market={market.symbol}
+      data-preset={layout.preset}
+      data-arranging={arranging ? 'true' : undefined}
+    >
       <DeskTemplate
         title={`${market.base}/${market.quote}`}
         mode="pro"

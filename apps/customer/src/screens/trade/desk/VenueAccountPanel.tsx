@@ -180,7 +180,7 @@ export function VenueAccountPanel({
           })
         : null}
       <p>
-        <Button tone="primary" disabled={!owner} onClick={onDeposit}>
+        <Button tone="secondary" disabled={!owner} onClick={onDeposit}>
           {t('Deposit')}
         </Button>{' '}
         <Button tone="secondary" disabled={!owner} onClick={onWithdraw}>

@@ -620,6 +620,10 @@ describe('b2 parts carry what the spot desk needs, so it uses them and no second
       <B2.Tabs id="bt" items={[{ label: 'Order book', value: 'book' }]} value="book" onChange={() => undefined} className="lt-grow" />,
     );
     expect(tabs).toContain('<div class="lt-tabs lt-grow" role="tablist">');
+    // Soft tabs (a board's own) add their class beside the row's; the tabs inside are the same tabs.
+    const soft = html(<B2.Tabs id="sb" soft items={[{ label: 'Popular', value: 'popular' }]} value="popular" onChange={() => undefined} />);
+    expect(soft).toContain('<div class="lt-tabs lt-tabs-soft" role="tablist">');
+    expect(soft).toContain('aria-selected="true"');
     const panel = html(
       <B2.TabPanel id="bt" value="book" current="book" className="lt-stack" testId="dk-bottom-body">
         <p>Rows</p>
@@ -777,5 +781,29 @@ describe('a price alert handle on a drawn chart', () => {
       '<button type="button" aria-label="Move alert" data-mark="alert" class="lt-chart-mark" style="inset-block-start:42px">Above 100</button>',
     );
     expect(css).toMatch(/\.lt-chart-mark\[data-mark='alert'\] \{[^}]*inset-inline-end: 4\.5rem;[^}]*pointer-events: auto;/);
+  });
+});
+
+describe('a tag', () => {
+  it("is the pick's soft pill: sentence case in the page's type, quiet grey unless toned, never lime by default", () => {
+    const at = css.indexOf('.lit-tag {');
+    const body = css.slice(at, css.indexOf('}', at));
+    expect(body).not.toContain('text-transform');
+    expect(body).not.toContain('font-family');
+    expect(body).not.toContain('clip-path');
+    expect(body).not.toContain('--lit-accent');
+    expect(body).toContain('border-radius: var(--lit-radius-key);');
+  });
+});
+
+describe('a disabled main action', () => {
+  it('keeps its place with a lime rim and no fill, after the rule that darkens every other disabled tone', () => {
+    const all = css.indexOf('.lit-button[data-tone]:disabled {');
+    const at = css.indexOf(".lit-button[data-tone='primary']:disabled {");
+    expect(all).toBeGreaterThan(-1);
+    expect(at).toBeGreaterThan(all);
+    const body = css.slice(at, css.indexOf('}', at));
+    expect(body).toContain('background: none;');
+    expect(body).toContain('box-shadow: inset 0 0 0 1px var(--lit-accent-fill);');
   });
 });

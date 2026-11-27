@@ -18,27 +18,15 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
-import { DEMO_NOW, demoAnswer } from '../../apps/customer/tests/demo-world/index.mjs';
-import { demoWalletKey } from '../../apps/customer/tests/demo-world/seed.mjs';
-import { installTestWallet } from '../../apps/customer/tests/real-app/test-wallet.mjs';
+import { DEMO_NOW } from '../../apps/customer/tests/demo-world/index.mjs';
+import { DEMO_ROOMS, connectDemoWallet, prepareDemoPage, startDemoNode } from '../../apps/customer/tests/demo-world/page.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const DIST = join(ROOT, 'apps/customer/dist');
 const PORT = Number(process.env.SHOTS_PORT ?? 47390);
 
-/** The key rooms (intafaced #10839), each signed out or in. */
-export const ROOMS = [
-  { path: '/', signedIn: false },
-  { path: '/home', signedIn: true },
-  { path: '/trade', signedIn: false },
-  { path: '/trade', signedIn: true },
-  { path: '/trade/spot/PURR-USDC', signedIn: true },
-  { path: '/trade/futures', signedIn: true },
-  { path: '/money', signedIn: true },
-  { path: '/uc/recharge', signedIn: true },
-  { path: '/verification', signedIn: true },
-  { path: '/trade/convert', signedIn: true },
-];
+/** The key rooms, each signed out or in: the look gate judges the same ones venue-on. */
+export const ROOMS = DEMO_ROOMS;
 export const WIDTHS = [390, 1440, 2560];
 const HEIGHT = { 390: 844, 1440: 900, 2560: 1440 };
 
@@ -117,11 +105,14 @@ const EMPTY_PROBE = () => {
 async function main() {
   const o = args(process.argv.slice(2));
   if (o.build || !existsSync(join(DIST, 'index.html')))
-    execFileSync('pnpm', ['--filter', '@intafaced/customer', 'build'], { cwd: ROOT, stdio: 'inherit' });
+    // Through turbo, so the packages the app imports are built first (a fresh checkout has none built).
+    execFileSync('pnpm', ['exec', 'turbo', 'run', 'build', '--filter', '@intafaced/customer'], { cwd: ROOT, stdio: 'inherit' });
   mkdirSync(o.out, { recursive: true });
   const require = createRequire(join(ROOT, 'apps/customer/package.json'));
   const { chromium } = require('@playwright/test');
   const server = await serve();
+  // Where the seeded trader's browser wallet (the journeys' TEST wallet, a fixed TEST key) reads the venue's network.
+  const node = await startDemoNode();
   const browser = await chromium.launch();
   const report = { at: new Date(DEMO_NOW).toISOString(), recording: 'tooling/shots/recording', shots: [] };
   const rooms = ROOMS.filter((r) => !o.routes || o.routes.includes(r.path));
@@ -134,42 +125,20 @@ async function main() {
           colorScheme: 'dark',
         });
         const page = await ctx.newPage();
-        await page.clock.setFixedTime(new Date(DEMO_NOW));
         await page.addInitScript({ content: INIT });
         const unanswered = new Set();
-        await page.route('**/api/**', (route) => {
-          const r = route.request();
-          const answer = demoAnswer(r.url(), r.method(), r.postData(), { signedIn: room.signedIn, now: DEMO_NOW });
-          if (answer) return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.json) });
-          // Signed out, the session check is refused as identity refuses it with no session (401), so the app draws its
-          // signed-out page instead of waiting on an answer that never comes.
-          if (!room.signedIn && r.url().includes('/api/identity/trpc/auth.refresh'))
-            return route.fulfill({
-              status: 401,
-              contentType: 'application/json',
-              body: JSON.stringify({ error: { message: 'No session.', code: -32001, data: { code: 'UNAUTHORIZED', httpStatus: 401 } } }),
-            });
-          unanswered.add(`${r.method()} ${new URL(r.url()).pathname}`);
-          return route.fulfill({
-            status: 503,
-            contentType: 'application/json',
-            body: JSON.stringify({ code: 'shots.no_answer', message: 'The demo world has no answer for this call.' }),
-          });
+        await prepareDemoPage(page, {
+          signedIn: room.signedIn,
+          node: node.url,
+          refusal: { code: 'shots.no_answer', message: 'The demo world has no answer for this call.' },
+          onUnanswered: (call) => unanswered.add(call),
         });
-        await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: 'shots' }));
-        // The seeded trader's browser wallet (the journeys' TEST wallet, a fixed TEST key), connected where a room asks.
-        const status = demoAnswer(`http://x/api/v1/venue/status`, 'GET', null, { signedIn: true })?.json;
-        if (room.signedIn && status?.chainId) await installTestWallet(page, { chainId: status.chainId, privateKey: demoWalletKey() });
         await page.goto(`http://127.0.0.1:${PORT}${room.path}`);
         await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
-        const connect = page.getByRole('button', { name: 'Connect TEST Wallet' }).first();
-        if (room.signedIn && (await connect.isVisible().catch(() => false))) {
-          await connect.click();
-          const sheet = page.getByRole('button', { name: 'Continue in wallet' });
-          if (await sheet.isVisible({ timeout: 1500 }).catch(() => false)) await sheet.click();
-          await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
-        }
+        await connectDemoWallet(page, { signedIn: room.signedIn });
         await page.addStyleTag({ content: FREEZE_CSS });
+        // A lazy room shows its loading line first; draw what it settles on, as the look gate does.
+        await page.waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 }).catch(() => {});
         // From the top with nothing focused, so a sticky header is drawn once and no focus ring shows.
         await page.evaluate(() => {
           document.activeElement?.blur?.();
@@ -197,6 +166,7 @@ async function main() {
   } finally {
     await browser.close();
     server.close();
+    await node.close();
   }
   writeFileSync(join(o.out, 'shots.json'), JSON.stringify(report, null, 1) + '\n');
   console.log(`${report.shots.length} pictures in ${o.out}`);

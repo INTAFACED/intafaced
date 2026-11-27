@@ -242,12 +242,19 @@ async function serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind, re
     };
   }
   const source = { kind, recording, trader, misses: () => misses() };
-  const started = await hl.startHyperliquidVenueServer({ host, port, appEnv, betaPosture, source, ...(fetch ? { fetch } : {}) });
+  // On the live test network the venue also lists the HIP-3 DEX that carries its stock, index and gold
+  // perpetuals (`xyz`, the one such DEX the test network trades). A recording holds no answer for its reads, so a
+  // replay lists the main DEX only.
+  const perpDexs = kind === 'hl-testnet' ? HL_TESTNET_PERP_DEXS : [];
+  const started = await hl.startHyperliquidVenueServer({ host, port, appEnv, betaPosture, source, perpDexs, ...(fetch ? { fetch } : {}) });
   process.stdout.write(
     `${JSON.stringify({ msg: 'test-venue.listening', label: 'TEST', url: started.url, venue: started.venue.venue.id, kind, recording, trader })}\n`,
   );
   return started;
 }
+
+/** The HIP-3 perp DEXs the live test network venue lists beside the main one. */
+const HL_TESTNET_PERP_DEXS = Object.freeze(['xyz']);
 
 /** Where the Hyperliquid recordings live: one per journey file, `<name>.json`. */
 const HL_RECORDINGS_DIR = path.join(REPO, 'packages', 'venue-hyperliquid', 'recordings');

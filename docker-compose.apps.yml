@@ -740,6 +740,9 @@ services:
       # Widest venue spread (bps of the best bid) a venue spot market order is sent at.
       # Empty = refuse every venue spot market order (`trade.spread_limit_unset`). Never invented.
       TRADE_MARKET_SPREAD_LIMIT_BPS: ${TRADE_MARKET_SPREAD_LIMIT_BPS:-}
+      # How far a stop's market exit and a reduce-only close cross the market (bps).
+      # Empty = refuse every such close (`trade.close_slippage_unset`). Never invented.
+      TRADE_CLOSE_SLIPPAGE_BPS: ${TRADE_CLOSE_SLIPPAGE_BPS:-}
       # MAY A FUTURES MARKET ACCEPT AN ORDER? Default `false`, and the default is
       # the decision this line exists to make explicit rather than leave to a zod
       # schema nobody reads at deploy time.

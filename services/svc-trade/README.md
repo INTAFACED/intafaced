@@ -172,6 +172,10 @@ its worst price off the best price on the side it meets (blank: `trade.slippage_
 than that share of the best bid (blank: `trade.spread_limit_unset`; wider: `trade.venue.spread_too_wide`). Never a
 default; `GET /api/v1/venue/best-prices` answers both as known or unknown, so the desk closes market orders while either is
 blank (J-cex-spot-03 #2).
+A stop's market exit and a reduce-only close on a perpetual cross the market by at most the owner's close tolerance,
+`TRADE_CLOSE_SLIPPAGE_BPS` (`src/venue/close-slippage.ts`, its one home): blank refuses every such stop and close
+`trade.close_slippage_unset`. `GET /api/v1/venue/status` answers it as `closeSlippageBps` (null: blank), and the desk's
+closes, flatten and close-all price from it, never from a figure of their own.
 
 **The trader's account reads (J-derivatives-12).** `GET /api/v1/venue/eligible-instruments` lists every perpetual we
 show on the venue, each with its settle asset, when the account meets the owner's eligibility level

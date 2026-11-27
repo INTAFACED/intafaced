@@ -1949,6 +1949,11 @@ export class TradeService {
     return twap.resumeAlgo(this.internal, principal, parentId);
   }
 
+  /** A TWAP's quantity down, or its trigger while it waits (SP-conditional-algo-04). */
+  async amendAlgo(principal: Principal, parentId: string, change: { totalQty?: Amount; triggerPrice?: Amount }): Promise<TwapParent> {
+    return twap.amendAlgo(this.internal, principal, { parentId, change });
+  }
+
   async cancelAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
     return twap.cancelAlgo(this.internal, principal, parentId);
   }

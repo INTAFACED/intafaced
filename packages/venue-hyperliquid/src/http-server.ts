@@ -10,7 +10,7 @@ import {
   type UserVenueDepositRoute,
   type VenueSignature,
 } from '@intafaced/venue-contracts';
-import type { FetchLike, HyperliquidNonceSource } from './core.js';
+import type { FetchLike, HyperliquidNonceSource, VenueWeightMinute } from './core.js';
 import { HyperliquidTestnetUserVenue } from './venue.js';
 
 /**
@@ -164,6 +164,8 @@ export interface StartHyperliquidVenueOptions {
   readonly clock?: () => Date;
   readonly nonceSource?: HyperliquidNonceSource;
   readonly timeoutMs?: number;
+  /** The HIP-3 perp DEXs listed beside the main one (`HyperliquidTestnetOptions.perpDexs`); none when omitted. */
+  readonly perpDexs?: readonly string[];
 }
 
 /** Start the Hyperliquid test network venue on loopback. Refuses outside APP_ENV dev/test and the beta posture, and on a non-loopback host. */
@@ -178,10 +180,20 @@ export async function startHyperliquidVenueServer(
     betaPosture: opts.betaPosture ?? null,
     // The wallet signs a user-signed action on the chain `GET /venue` names, so the typed data's domain names that chain too.
     walletChainId: HL_TESTNET_WALLET_CHAIN_ID,
-    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    // Live, every tester's reads leave from this one address, which the venue limits by weight a minute: reads are shared.
+    // A recording played back answers every read as recorded, so its reads stay one call each.
+    // Live, the weight spent at the venue each minute is one log line, so the limit shows before it refuses.
+    ...(opts.fetch
+      ? { fetch: opts.fetch }
+      : {
+          shareReads: true,
+          onWeightMinute: (spent: VenueWeightMinute) =>
+            process.stdout.write(`${JSON.stringify({ msg: 'hl.venue_weight_minute', limit: 1200, ...spent })}\n`),
+        }),
     ...(opts.clock ? { clock: opts.clock } : {}),
     ...(opts.nonceSource ? { nonceSource: opts.nonceSource } : {}),
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    ...(opts.perpDexs ? { perpDexs: opts.perpDexs } : {}),
   });
   // The venue names no deposit route: a deposit to it is a bridge transfer on Arbitrum Sepolia, which this adapter
   // does not read yet (`depositRoutes` is not offered), so the app shows none rather than a guessed address.

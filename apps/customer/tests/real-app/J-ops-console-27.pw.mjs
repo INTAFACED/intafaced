@@ -5,7 +5,7 @@ import { createPublicClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ROOT, STACK_PORTS, fromUnits, journeyState, restartService, toUnits } from './stack.mjs';
-import { confirm, deskPath, openDesk, reviewSheet, signIn, signUp, verify } from './desk.mjs';
+import { confirm, deskPath, openDesk, openHow, reviewSheet, signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator } from './identity-factors.mjs';
 import { ADMIN } from './admin.mjs';
 import { bankOn, nextRunCode, numberShown, personApi, walletPerson } from './own-wallet-person.mjs';
@@ -878,7 +878,10 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
     const total = await standing.getByTestId('standing-figure').getAttribute('data-total-usd');
     expect(total ? fromUnits(toUnits(total)) : null, 'Where you stand: the total is its valued parts added up').toBe(expected);
   }).toPass({ timeout: 30_000 });
-  // The picture: Home, with Where you stand and Spendable now, each part with its source, and the partner's credit.
+  // The picture: Home, with Where you stand and Spendable now, each part with its source, and the partner's credit. The
+  // sources sit behind each block's "How this is worked out", closed by default: both are opened for the picture.
+  await openHow(page);
+  await page.getByTestId('spendable-now').getByRole('button', { name: 'How this is worked out', exact: true }).click();
   await page.getByTestId('spendable-now').scrollIntoViewIfNeeded();
   await stepPicture(page);
   await ledgerHoldsNothing('after moving profit to spending');
@@ -1066,6 +1069,8 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
     venueEnd.free,
   );
   // The picture: Home, where the venue account reads what is left under one lot and one payout unit, in the venue’s own name and time.
+  // The parts sit in Home's "How this is worked out", closed by default: open it, then bring the venue part into view.
+  await openHow(page);
   await venuePart.scrollIntoViewIfNeeded();
   await stepPicture(page);
   await ledgerHoldsNothing('after the last withdrawal');

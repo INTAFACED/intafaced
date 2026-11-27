@@ -1,6 +1,6 @@
 import { defineCopy } from '../../../shared/i18n';
 
-// The bot policy and order types pages' words (J-cex-spot-15 #3, #4). The policy text is the owner's, and the type
+// The bot policy and order types pages' words (J-cex-spot-15 #3, #4, and the algo order states of #6). The policy text is the owner's, and the type
 // list, its fields and its codes come from svc-trade's GET /api/v1/order-types.
 export const tradingApiCopy = defineCopy(
   'developers-trading-api',
@@ -37,6 +37,18 @@ export const tradingApiCopy = defineCopy(
     loadFailed: 'This could not be read just now.',
     tryAgain: 'Try again',
     back: 'Developer home',
+    algoTitle: 'Algo orders',
+    algoLead:
+      'An algo order is placed with POST /api/v1/algo/orders, read with GET /api/v1/algo/orders/:id, amended with PATCH and cancelled with DELETE on the same path. Every answer carries the order’s state, one of these for every kind:',
+    algoAmend:
+      'An amend lowers a TWAP’s totalQty, or moves its triggerPrice while it still waits; nothing else changes. A larger quantity is refused trade.amend_qty_up, and one no more than already scheduled trade.algo_amend_below_placed.',
+    colState: 'State',
+    colMeaning: 'Means',
+    state_live: 'Running, paused or waiting for its trigger price.',
+    state_effective: 'Finished, filled whole.',
+    state_partially_effective: 'Finished, part filled.',
+    state_canceled: 'Cancelled: no new slices are placed.',
+    state_order_failed: 'Halted, or finished with nothing filled.',
   },
   {
     es: {
@@ -69,6 +81,18 @@ export const tradingApiCopy = defineCopy(
       loadFailed: 'No se pudo leer ahora mismo.',
       tryAgain: 'Reintentar',
       back: 'Inicio para desarrolladores',
+      algoTitle: 'Órdenes algorítmicas',
+      algoLead:
+        'Una orden algorítmica se coloca con POST /api/v1/algo/orders, se lee con GET /api/v1/algo/orders/:id, se modifica con PATCH y se cancela con DELETE en la misma ruta. Cada respuesta lleva el estado de la orden, uno de estos para todos los tipos:',
+      algoAmend:
+        'Una modificación reduce la totalQty de un TWAP, o mueve su triggerPrice mientras aún espera; nada más cambia. Una cantidad mayor se rechaza con trade.amend_qty_up, y una no mayor que lo ya programado con trade.algo_amend_below_placed.',
+      colState: 'Estado',
+      colMeaning: 'Significa',
+      state_live: 'En curso, en pausa o esperando su precio de activación.',
+      state_effective: 'Terminada, ejecutada entera.',
+      state_partially_effective: 'Terminada, ejecutada en parte.',
+      state_canceled: 'Cancelada: no se colocan más tramos.',
+      state_order_failed: 'Detenida, o terminada sin nada ejecutado.',
     },
     fr: {
       botLead: 'Quel trading automatisé via l’API est autorisé, et à quelles conditions. Le propriétaire le publie.',
@@ -100,6 +124,18 @@ export const tradingApiCopy = defineCopy(
       loadFailed: 'Lecture impossible pour le moment.',
       tryAgain: 'Réessayer',
       back: 'Accueil développeurs',
+      algoTitle: 'Ordres algorithmiques',
+      algoLead:
+        'Un ordre algorithmique se place avec POST /api/v1/algo/orders, se lit avec GET /api/v1/algo/orders/:id, se modifie avec PATCH et s’annule avec DELETE sur le même chemin. Chaque réponse porte l’état de l’ordre, l’un de ceux-ci pour tous les types :',
+      algoAmend:
+        'Une modification baisse la totalQty d’un TWAP, ou déplace son triggerPrice tant qu’il attend encore ; rien d’autre ne change. Une quantité plus grande est refusée trade.amend_qty_up, et une quantité pas plus grande que ce qui est déjà programmé trade.algo_amend_below_placed.',
+      colState: 'État',
+      colMeaning: 'Signifie',
+      state_live: 'En cours, en pause ou en attente de son prix de déclenchement.',
+      state_effective: 'Terminé, exécuté en entier.',
+      state_partially_effective: 'Terminé, exécuté en partie.',
+      state_canceled: 'Annulé : aucune nouvelle tranche n’est placée.',
+      state_order_failed: 'Arrêté, ou terminé sans rien d’exécuté.',
     },
   },
 );

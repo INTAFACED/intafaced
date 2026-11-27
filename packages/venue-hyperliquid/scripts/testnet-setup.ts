@@ -223,7 +223,7 @@ export async function runSetup(deps: SetupDeps): Promise<SetupExit> {
   if (sends.length === 0) out('send: none; other and third already hold what the suite needs');
   else if (compare(traderFree, total) < 0) {
     err(
-      `send: refused; trader holds ${formatAmount(traderFree)} perp USDC free, the sends need ${formatAmount(total)}. Top trader up from the testnet faucet.`,
+      `send: refused; trader holds ${formatAmount(traderFree)} perp USDC free, the sends need ${formatAmount(total)}. The faucet paid this account its one claim (19 Nov 2026); only a send from another funded testnet account refills it.`,
     );
     failed = true;
   } else {

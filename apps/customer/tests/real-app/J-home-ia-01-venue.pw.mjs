@@ -3,11 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, restartWithSetting } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { openHow, signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
-import { testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-home-ia-01 #1 #2 #3, in the running app (docs/roadmap/journeys.json): I open the app and see where I stand, on the
 // launch model (OWNER 226): INTAFACED holds none of the money. Tests titled "J-home-ia-01 #<n>" prove a whole step; #4 to
@@ -111,6 +111,32 @@ async function openHome(page) {
   await connectWhenAsked(page, standing);
   await expect(standing.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
   return standing;
+}
+
+/**
+ * A price on the TEST venue's BTC-USDC market, so Home has one to keep showing while amounts are masked: two other TEST
+ * traders, funded on the TEST venue only, cross one small order at `price`. Neither touches this person's money.
+ */
+async function btcTradesAt(price) {
+  const tag = `${J}-print-${Date.now()}`;
+  const buyer = `${tag}-buyer`;
+  const seller = `${tag}-seller`;
+  await testDeposit(otherTraderKey(buyer).address, 'USDC', '1000', `seed:${buyer}:USDC`);
+  await testDeposit(otherTraderKey(seller).address, 'BTC', '0.01', `seed:${seller}:BTC`);
+  const order = (side, who) => ({
+    kind: 'place_order',
+    symbol: 'BTC-USDC',
+    side,
+    type: 'limit',
+    amount: '0.001',
+    price,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${who}:${side}`,
+    builderFee: null,
+  });
+  expect(await otherTraderRun(buyer, order('buy', buyer))).toMatchObject({ definite: true, accepted: true });
+  expect(await otherTraderRun(seller, order('sell', seller))).toMatchObject({ definite: true, accepted: true });
 }
 
 /** Waits until the page's total is the one worked out from the sources just before or just after it was read. */
@@ -254,11 +280,15 @@ async function savedToAccount(page, act) {
 test(`${J} #2 the eye turns every amount on Home to bullets and keeps prices, and the choice is the same on another device after sign-in`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
+  // The market's last price, set on the TEST venue by two other traders before Home opens (see btcTradesAt).
+  await btcTradesAt('60000');
   await withWallet(page);
   const standing = await openHome(page);
   const amounts = page.locator('main [data-slot="hero-number"], main [data-slot="money"], main [data-slot="amount"]');
+  await openHow(page);
   await expect(standing.getByTestId('standing-part-value').first()).toBeVisible();
   await savedToAccount(page, () => page.getByRole('button', { name: 'Hide balances' }).first().click());
   try {
@@ -271,9 +301,12 @@ test(`${J} #2 the eye turns every amount on Home to bullets and keeps prices, an
     // Prices are not amounts: the price source line and Home's market prices still show, none of them masked.
     await expect(standing.getByTestId('standing-prices')).toContainText('Valued at the prices TEST price list states.');
     const markets = page.locator('section[aria-labelledby="home-markets-title"], [data-testid="hp-markets"]').first();
-    await expect(markets).toContainText(/\d/);
+    // BTC's own row shows the price the venue last traded at, unmasked; never a count in the panel's header.
+    await expect(markets.getByRole('row', { name: /BTC/ })).toContainText('60,000');
     await expect(markets.locator('[data-hidden]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
+    // The step's picture: Home with every amount masked and the prices showing, before the second device and the reset.
+    await stepPicture();
 
     // A second device: a fresh browser with nothing stored, the same person signed in with the same wallet.
     const other = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
@@ -367,6 +400,7 @@ test(`with no wallet connected, Home and Assets total the partner account and sa
     await page.goto('/');
     await balancesShown(page);
     const home = page.getByTestId('home-standing-before-wallet');
+    await openHow(page, home);
     await expect(partOf(home, 'partner')).toBeVisible({ timeout: 30_000 });
     await expect(home.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
     // Only the partner's part, valued at svc-ops' published TEST price: TEST 50 USDT at 1 is $50.00, and so is the total.

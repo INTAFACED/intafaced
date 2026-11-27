@@ -5,8 +5,10 @@ The Customer app on the latest `main`, always on, on TEST funds only, for the ow
 - **Link:** `https://beta.intafaced.com/`, behind a login only invited emails pass
 - **TEST mailbox** (the codes the app sends): `https://beta-mail.intafaced.com/`, behind the same login
 - **On the box itself:** `http://localhost:6210/` and `http://localhost:6290/`
-- **State now:** `node tooling/beta/beta-host.mjs status` on the box (`~/.intafaced/beta/status.json`): `up` with the
-  main commit it shows, `updating` while a round moves it to main, `blocked` or `down` with the reason.
+- **State now:** `node tooling/beta/beta-host.mjs status` on the box (`~/.intafaced/beta/status.json`): its first line
+  names the state, the commit served, main's commit when it differs, and why (`up`, `updating` while a round moves it,
+  `blocked` or `down` with the reason).
+- **Move it now:** `node tooling/beta/beta-host.mjs move` on the box, for a fix testers need before the daily slot.
 
 ## How it works
 
@@ -16,6 +18,14 @@ never move. The systemd user service `intafaced-beta.service` runs `tooling/beta
 minutes fetches main and runs `verify launch`, which readies the stack the way a journeys shard is readied and restarts
 what is down. When main has moved, it first moves the checkout to main and installs, so the launch rebuilds what
 changed: a merge to main is on the link within about 35 minutes. The mailbox page names the commit served.
+
+**While testers are on** (anyone invited has opened the TEST mailbox, `~/.intafaced/beta/invited.json`), each move
+restarts the stack and sends every open tab to the updating page, so main moves only once a day, at the first round after
+the daily slot (20:00 UTC, 04:00 in Bali; `BETA_MOVE_AT=HH:MM` in the service's environment sets another), or on demand
+(`beta-host.mjs move`, which the supervisor picks up within 15 seconds). With nobody invited it follows main each round.
+A moved commit that fails its install, its launch, the TEST funds check or readied goes back to the last commit that came
+up, behind the updating page, and that commit is refused, even on demand, until main moves past it
+(`~/.intafaced/beta/served.json`; #11029).
 
 **While it updates:** the update rebuilds and restarts the stack in its one checkout, which takes about five minutes on
 the box. From before the checkout moves until the new stack passes the TEST funds check and Markets lists priced markets,
@@ -126,8 +136,9 @@ tabs overlap, so "OTO" covers "Market".
   under `umask 077`, straight into `~/.intafaced/beta/state/vendors.local.json`; then delete the key and the download.
   Show only that each name is set, never a value. No service reads them until a start asks: svc-identity and
   svc-protocol with `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey`, svc-pay with `LOCAL_STACK_PAY_SCREENER=opensanctions`.
-  The beta sets neither yet. A wallet at his provider can't sign from the Customer app yet, so a tester could not
-  approve a trading session. With the TEST list, the vendor clears no custodial send.
+  The beta sets the wallet provider's switch (`beta-host.mjs`, `BETA_STACK_SETTINGS`): each new tester's wallet is
+  made at his provider, and a tester who already has a TEST wallet keeps signing at the TEST provider. It leaves the
+  screening vendor's switch off: with the TEST list, the vendor clears no custodial send.
 - **`down`:** the reason names the step; the round's log is `~/.intafaced/beta/round.log`. The next round tries again.
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main
   removes it.

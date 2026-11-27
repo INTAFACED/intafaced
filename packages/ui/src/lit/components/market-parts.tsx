@@ -71,8 +71,11 @@ export function MarketName({ symbol, name }: { symbol: string; name?: string }) 
   return (
     <span className="lt-market-name">
       {symbol === '' ? <span className="lt-market-bone" aria-hidden="true" /> : <AssetIcon asset={symbol} />}
-      <span className="lt-market-symbol">{symbol}</span>
-      {name ? <span className="lt-market-full">{name}</span> : null}
+      {/* The symbol over its name (BTC / Bitcoin), as every family picture draws a market row. */}
+      <span className="lt-market-text">
+        <span className="lt-market-symbol">{symbol}</span>
+        {name ? <span className="lt-market-full">{name}</span> : null}
+      </span>
     </span>
   );
 }
@@ -138,6 +141,8 @@ function toneOf(change: string | null): 'up' | 'down' | 'neutral' {
 
 export interface MoverTileProps {
   symbol: string;
+  /** The coin whose mark is drawn, when `symbol` is a whole pair or a perpetual's name (BTC for "BTC/USDT"); default `symbol`. */
+  asset?: string;
   /** The quote side, drawn quieter after the symbol ("/USDT"), so two pairs of one coin never read as one market. */
   quote?: string;
   price: string | null;
@@ -149,14 +154,17 @@ export interface MoverTileProps {
   className?: string;
 }
 
-/** One market as a tile: symbol and change on top, the price large, its line under it. A link when `href` is given. */
-export function MoverTile({ symbol, quote, price, change, trend, trendLabel, href, className }: MoverTileProps) {
+/** One market as a tile: its mark, symbol and change on top, the price large, its line under it. A link when `href` is given. */
+export function MoverTile({ symbol, asset, quote, price, change, trend, trendLabel, href, className }: MoverTileProps) {
   const body = (
     <>
       <span className="lt-mover-top">
-        <span>
-          <span className="lt-market-symbol">{symbol}</span>
-          {quote ? <span className="lt-market-full">/{quote}</span> : null}
+        <span className="lt-mover-name">
+          <AssetIcon asset={asset ?? symbol} />
+          <span>
+            <span className="lt-market-symbol">{symbol}</span>
+            {quote ? <span className="lt-market-full">/{quote}</span> : null}
+          </span>
         </span>
         <Pct value={change} />
       </span>
@@ -230,7 +238,7 @@ export interface MarketHeaderProps {
   badges?: React.ReactNode;
   /** Formatted last price, or null when there is no print. */
   price: string | null;
-  /** Formatted signed 24h change, or null. */
+  /** Formatted signed 24h change, or null when the venue publishes none (then nothing is drawn). */
   change: string | null;
   /** The rest of the line: best bid and ask, mark, funding, volume. */
   stats?: readonly StatCell[];
@@ -271,10 +279,47 @@ export function MarketHeader({
       </span>
       <span className="lt-market-header-price">
         <Price className="lt-market-header-last" value={price} cents={!dense} data-testid={priceTestId} />
-        <Pct value={change} arrow />
+        {/* An unpublished change is left out, never drawn as a dash beside the price. */}
+        {change !== null ? <Pct value={change} arrow /> : null}
       </span>
       {stats && stats.length > 0 ? <StatStrip cells={stats} dense /> : null}
       {aside !== undefined ? <span className="lt-market-header-aside">{aside}</span> : null}
     </section>
+  );
+}
+
+export interface MarketTileProps {
+  /** The market as the venue lists it ("BTC-USD", "PURR/USDC"). */
+  symbol: string;
+  /** Formatted last price, or null when the venue publishes none (then no price line is drawn). */
+  price: string | null;
+  /** Formatted signed 24h change, or null when the venue publishes none (then nothing is drawn). */
+  change: string | null;
+  /** The market the desk is on now. */
+  selected?: boolean;
+  onSelect?: () => void;
+  className?: string;
+  'data-testid'?: string;
+}
+
+/**
+ * One market in a desk's strip of pairs: a flat tile with the symbol and its 24h change on top and the last price under
+ * them, pressed to switch the desk to it. A figure the venue does not publish is left out, never drawn as a dash.
+ */
+export function MarketTile({ symbol, price, change, selected, onSelect, className, 'data-testid': testId }: MarketTileProps) {
+  return (
+    <button
+      type="button"
+      className={clsx('lt-market-tile', className)}
+      aria-pressed={selected ?? false}
+      onClick={onSelect}
+      data-testid={testId}
+    >
+      <span className="lt-market-tile-top">
+        <span className="lt-market-symbol">{symbol}</span>
+        {change !== null ? <Pct value={change} /> : null}
+      </span>
+      {price !== null ? <Price className="lt-market-tile-price" value={price} cents /> : null}
+    </button>
   );
 }

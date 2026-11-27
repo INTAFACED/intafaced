@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { compare, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
-import type { UserVenueMarket } from '@intafaced/venue-contracts';
+import { venueSymbolBody, type UserVenueMarket } from '@intafaced/venue-contracts';
 import { feeScheduleRowAt } from '../spot/fee-schedule-store.js';
 
 /**
@@ -97,7 +97,8 @@ export function parseBuilderFees(raw: unknown): BuilderFeeBook | null {
     if (e.marketGroups !== undefined) {
       if (!rec(e.marketGroups)) blank(`builderFees.${venueId}.marketGroups must be an object of symbol to group`);
       for (const [symbol, group] of Object.entries(e.marketGroups as Record<string, unknown>)) {
-        if (!ID.test(symbol)) blank(`builderFees.${venueId}.marketGroups names a symbol that is not an id: ${JSON.stringify(symbol)}`);
+        if (!ID.test(venueSymbolBody(symbol)))
+          blank(`builderFees.${venueId}.marketGroups names a symbol that is not an id: ${JSON.stringify(symbol)}`);
         if (typeof group !== 'string' || !groups.has(group)) blank(`builderFees.${venueId}.marketGroups.${symbol} names no group of it`);
         marketGroups.set(symbol, group as string);
       }

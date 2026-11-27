@@ -156,6 +156,7 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
       listings: new StoreVenueRoutingGate(listings),
       ordersPageMax: 100,
       slippageCapBps: 500,
+      closeSlippageBps: 1000,
       spreadLimitBps: 5000,
       now: () => new Date(),
     } as never);

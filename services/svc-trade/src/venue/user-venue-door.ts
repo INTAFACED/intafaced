@@ -52,6 +52,7 @@ import type { MarketMaintenanceBoard } from '../market-maintenance-read.js';
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
 import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, type VenueRoutingGate } from './venue-listing.js';
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
+import { requireCloseSlippageBps } from './close-slippage.js';
 import {
   AMEND_KEY_PREFIX,
   VENUE_ORDER_LABEL_RE,
@@ -265,6 +266,7 @@ export type UserVenueDoorCode =
   | 'trade.venue_session_none'
   | 'trade.venue_session_unavailable'
   | 'trade.venue_session_superseded'
+  | 'trade.venue_session_signed_out'
   | 'trade.venue_own_key_misused'
   | 'trade.venue_sub_account_not_own'
   // J-derivatives-12 #4 #5: the eligibility level for the venue's perpetuals (venue-eligibility.ts), and the builder-fee read.
@@ -491,6 +493,12 @@ export interface UserVenueDoorDeps {
    * on preview and on prepare, before anything is prepared. Never a default.
    */
   readonly spreadLimitBps?: number | null;
+  /**
+   * The owner's close tolerance in basis points (TRADE_CLOSE_SLIPPAGE_BPS, close-slippage.ts), or null/absent when blank.
+   * `status` publishes it for the desk's closes; blank refuses a perpetual's reduce-only market or IOC order
+   * `trade.close_slippage_unset`, on preview and on prepare. Never a default.
+   */
+  readonly closeSlippageBps?: number | null;
   /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
   readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
@@ -855,6 +863,9 @@ export class UserVenueDoor {
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
       // J-derivatives-30 #1: our builder address alone, so an approval stays readable and revocable while the fee is blank.
       builderAddress: this.publishedBuilderAddress(),
+      // The owner's close tolerance (TRADE_CLOSE_SLIPPAGE_BPS): how far the desk's reduce-only closes cross from the mark;
+      // null is blank, and every such close is refused here by name.
+      closeSlippageBps: this.deps.closeSlippageBps ?? null,
     };
   }
 
@@ -993,6 +1004,12 @@ export class UserVenueDoor {
    * reduce-only closes always pass and, with a cap published, the futures ticket's typed worst price goes to the venue.
    */
   private async assertMarketProtection(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
+    // A reduce-only close that takes the book now (a market order, or an IOC limit at a close's worst price) on a
+    // perpetual is priced by the owner's close tolerance (close-slippage.ts): blank refuses before anything is prepared.
+    const takesNow = intent.type === 'market' || intent.timeInForce === 'IOC';
+    if (intent.reduceOnly && takesNow && (await this.market(venue, intent.symbol)).kind !== 'spot') {
+      requireCloseSlippageBps(this.deps.closeSlippageBps);
+    }
     if (intent.type !== 'market') return;
     const market = await this.market(venue, intent.symbol);
     if (market.kind !== 'spot') {
@@ -1934,6 +1951,7 @@ export class UserVenueDoor {
         detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
       });
     }
+    if (req.signer.role === 'agent') await this.assertSessionKeyOfThisSignIn(principal, req.signer.address);
     // An agent key is approved once, under one business key, and never again, on any venue account and by any route,
     // the session routes included (user-venue.ts:177-180: a venue that prunes nonces could accept a replay of an old
     // key's actions). The same key asked again is the same stored approval (`reuse` below), never a second one.
@@ -2131,6 +2149,29 @@ export class UserVenueDoor {
     return this.deps.store.listByPrefix(principal.userId, prefix);
   }
 
+  /**
+   * A trading session's key signs only in the sign-in that started it (J-wallet-22 #8: the key "ends at its expiry, when
+   * you end the session, or when you sign out"). A sign-out cannot revoke it at the venue without the owner's wallet, so
+   * the door ends it here: an agent key approved under `session-key:<user>:<venue>:<fam>.<n>` is refused for any other
+   * sign-in (`fam`), or a credential with none, before anything is stored or sent. Other agents (a named key the
+   * owner approved through the plain door) are not session keys and are not bound to a sign-in.
+   */
+  private async assertSessionKeyOfThisSignIn(principal: Principal, signerAddress: string): Promise<void> {
+    const address = (signerAddress ?? '').toLowerCase();
+    const signIns = (await this.deps.store.agentApprovals(principal.userId, address))
+      .filter((row) => row.businessKey.startsWith(SESSION_KEY_PREFIX))
+      .map((row) => /:([A-Za-z0-9_-]+)\.\d+$/.exec(row.businessKey)?.[1]);
+    if (signIns.length === 0) return;
+    const fam = (principal.fam ?? '').trim();
+    if (!fam || !signIns.includes(fam)) {
+      throw new UserVenueDoorError(
+        'this trading session ended when its sign-in did: its key signs nothing now; start a new session',
+        'trade.venue_session_signed_out',
+        403,
+      );
+    }
+  }
+
   async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
     const deadlineAt = parseRequestDeadline(caller?.requestDeadline);
     const key = (actionKey ?? '').trim();
@@ -2175,6 +2216,10 @@ export class UserVenueDoor {
           409,
         );
       }
+    }
+    // An action a session key was to sign, never sent, and now asked to be sent from another sign-in: refused.
+    if (!row.signature && row.prepared.signer.role === 'agent') {
+      await this.assertSessionKeyOfThisSignIn(principal, row.prepared.signer.address);
     }
     if (
       !signature ||

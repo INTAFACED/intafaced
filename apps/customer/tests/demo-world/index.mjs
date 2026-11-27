@@ -79,6 +79,13 @@ export function demoAnswer(href, method, body, { signedIn, now = DEMO_NOW }) {
     const seeded = SEEDED[url.pathname];
     return typeof seeded === 'function' ? seeded(url) : seeded;
   }
+  // The person's verification is one story, told whole by one layer: the recording holds every `kyc.*` read its
+  // tester made (level, ladder, cases, capabilities, proof of address), so the TEST account's lone `kyc.status` never
+  // mixes a second person's level into it.
+  if (signedIn && url.pathname.startsWith('/api/identity/trpc/kyc.')) {
+    const told = recordedTrpc(href, method);
+    if (told) return told;
+  }
   return (
     recordedAnswer(href, method, { signedIn }) ??
     fixtureAnswer(href, method, body, { signedIn, now }) ??

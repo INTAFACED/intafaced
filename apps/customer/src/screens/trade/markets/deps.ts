@@ -6,18 +6,14 @@ export {
   refusalCopy,
   useDataEnv,
   useFavorites,
-  useMarkets,
+  useMarketCatalogue,
   useSource,
   useSparklines,
-  useTickers,
   useVenueMarketStates,
-  useVenueTickers,
-  venueDoorOff,
   venueListingStatuses,
   venueMarketRow,
-  venueTickerRow,
 } from '../../../data';
-export type { Decimal, Loadable, MarketRow as MarketData, TickerRow, VenueMarketStates, VenueTickersRead } from '../../../data';
+export type { Decimal, Loadable, MarketRow as MarketData, TickerRow } from '../../../data';
 
 export { isHiddenPath } from '../../../app/feature-registry';
 export { navigate } from '../../../app/location';

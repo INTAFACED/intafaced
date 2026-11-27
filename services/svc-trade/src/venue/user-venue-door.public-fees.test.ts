@@ -39,6 +39,7 @@ describe('UserVenueDoor.publicFees (J-cex-spot-10 #2)', () => {
       stepUp: allowAll,
       builder: BUILDER,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'TFEE-USDC'])),
     });

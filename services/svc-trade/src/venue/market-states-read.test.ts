@@ -72,6 +72,7 @@ async function mount(
     stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
     builder: null,
     slippageCapBps: null,
+    closeSlippageBps: 1000,
     spreadLimitBps: 100,
     now: () => NOW,
     listings: gate(),

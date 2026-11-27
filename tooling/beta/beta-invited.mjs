@@ -18,7 +18,9 @@
  *       (`testPartner.set({ custody: 'off' })`, `testPartner.fund`), where the launch model holds a person's money and
  *       which Home and Money read (#10632): on every pass, once per account and fund id, so a restart of svc-bank (which
  *       empties the TEST partner) puts it back. It is made as that person on their own live session; an account not
- *       signed in waits for the next pass. An invited account holding full that has made its own embedded wallet gets
+ *       signed in waits for the next pass. On a stack whose svc-ledger runs custody off, as the beta's does and launch will
+ *       (#11019), the ledger holds no tester's money: the grant posts nothing there (`local:fund` to a person refuses then)
+ *       and is kept only at the TEST partner. An invited account holding full that has made its own embedded wallet gets
  *       TEST USDC on Hyperliquid's TEST network in that wallet, once (beta-testnet.mjs, #10842). Prints one line per
  *       action and nothing when there is nothing to do. `--root` holds invited.json, granted.json and
  *       testnet-funded.json (default ~/.intafaced/beta); `--checkout` is the stack's checkout whose tools it runs (default: this file's own).
@@ -114,17 +116,35 @@ const writePrivate = (file, value) => {
   fs.renameSync(tmp, file);
 };
 
-/** The recorded tokens, as a Set. */
-export const readInvited = (file) => new Set(Object.keys(readJson(file, {})?.tokens ?? {}));
+/**
+ * How recent a view must be for its viewer to count as testing now (#11046): a viewer seen once days ago holds nothing.
+ */
+export const INVITED_RECENT_MS = 24 * 3_600_000;
+/** A repeat view rewrites the viewer's time at most this often: the mailbox page reloads every 10 seconds. */
+const SEEN_EVERY_MS = 10 * 60_000;
 
-/** Record a token the mailbox saw on an Access-verified request; true when it is new. A malformed token is never kept. */
+/**
+ * The recorded tokens, as a Set; with `seenSince` (ms), only viewers last seen at or after it. Without it, everyone ever
+ * invited: the invited pass approves and funds each of them whenever they come back.
+ */
+export function readInvited(file, { seenSince } = {}) {
+  const tokens = Object.entries(readJson(file, {})?.tokens ?? {});
+  if (seenSince === undefined) return new Set(tokens.map(([t]) => t));
+  return new Set(tokens.filter(([, at]) => Date.parse(at) >= seenSince).map(([t]) => t));
+}
+
+/**
+ * Record a token the mailbox saw on an Access-verified request, with the time of its last view; true when it is new. A
+ * malformed token is never kept.
+ */
 export function recordInvited(file, token, now = new Date()) {
   if (!TOKEN_RE.test(String(token ?? ''))) return false;
   const doc = readJson(file, null) ?? { kind: 'intafaced-beta-invited', label: 'TEST beta: tokens of invited viewers', tokens: {} };
-  if (doc.tokens?.[token]) return false;
+  const seen = doc.tokens?.[token];
+  if (seen && !(now.getTime() - Date.parse(seen) >= SEEN_EVERY_MS)) return false;
   doc.tokens = { ...doc.tokens, [token]: now.toISOString() };
   writePrivate(file, doc);
-  return true;
+  return !seen;
 }
 
 async function pass({ root, checkout }) {
@@ -138,6 +158,9 @@ async function pass({ root, checkout }) {
     const { users, approved, pending } = gates.listAccountsAndTiers(secrets);
     return planPass({ users, approved, pending, tokens, granted: readJson(files.granted, {}) });
   };
+  // Custody off (the beta's stack, launch's money model): the ledger holds no customer money, so the grant is the partner's.
+  const { stackCustodyOff } = await import(pathToFileURL(path.join(checkout, 'tooling', 'scripts', 'local-test-state.mjs')).href);
+  const ledgerGrant = !stackCustodyOff();
   let plan = read();
   if (plan.approve.length) {
     const ctx = await gates.makeContext({ log: (l) => console.log(l) });
@@ -149,6 +172,15 @@ async function pass({ root, checkout }) {
     plan = read();
   }
   for (const f of plan.fund) {
+    if (!ledgerGrant) {
+      const granted = readJson(files.granted, {});
+      granted[f.userId] = { token: f.token, asset: GRANT.asset, amount: GRANT.amount, at: new Date().toISOString(), ledger: false };
+      writePrivate(files.granted, granted);
+      console.log(
+        `invited ${f.email}: ${GRANT.amount} TEST ${GRANT.asset} granted at the TEST partner only (custody off: nothing in the ledger)`,
+      );
+      continue;
+    }
     const r = spawnSync(
       process.execPath,
       [

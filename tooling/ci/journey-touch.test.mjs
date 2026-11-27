@@ -128,6 +128,20 @@ test('pathKind: what needs the full run, what touches only its own journey file,
     kind: 'file',
     file: 'J-ops-console-02-documents.pw.mjs',
   });
+  // A venue journey's recording runs the file named after it; any other recording stays a product path.
+  assert.deepEqual(pathKind('packages/venue-hyperliquid/recordings/J-cex-spot-04-hl-venue.json'), {
+    kind: 'file',
+    file: 'J-cex-spot-04-hl-venue.pw.mjs',
+  });
+  for (const p of ['packages/venue-hyperliquid/recordings/order-btc-perp.json', 'packages/venue-hyperliquid/recordings/J-x-venue.ts'])
+    assert.equal(pathKind(p).kind, 'full', p);
+  assert.deepEqual(
+    journeyTouch([
+      'packages/venue-hyperliquid/recordings/J-cex-spot-04-hl-venue.json',
+      'packages/venue-hyperliquid/recordings/J-derivatives-01-hl-venue.json',
+    ]).files,
+    ['J-cex-spot-04-hl-venue.pw.mjs', 'J-derivatives-01-hl-venue.pw.mjs'],
+  );
   // A look sweep holds no journey steps, so no report's `ran` lists it: a files verdict could never seal it.
   assert.equal(pathKind('apps/customer/tests/real-app/look-sweep-390.pw.mjs').kind, 'full');
   assert.equal(pathKind('apps/customer/tests/real-app/registry-blockers.pw.mjs').kind, 'full');

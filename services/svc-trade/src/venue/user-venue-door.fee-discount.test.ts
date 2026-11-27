@@ -89,6 +89,7 @@ describe('UserVenueDoor: our builder fee at the winning discount (J-campaigns-09
       stepUp: allowAll,
       builder: BUILDER,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       ...(feeDiscounts ? { feeDiscounts } : {}),
@@ -121,6 +122,7 @@ describe('UserVenueDoor: our builder fee at the winning discount (J-campaigns-09
       builder: BUILDER,
       builderFeesAt: async () => book,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -152,6 +154,7 @@ describe('UserVenueDoor: our builder fee at the winning discount (J-campaigns-09
       builderFeesAt: async (when) => (when < cutoff ? v1 : v2),
       feeDiscounts: { rankBps: async () => 25, coupons: new FixedFeeSaver(COUPON, 1) },
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => at,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });

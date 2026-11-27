@@ -1,6 +1,7 @@
 /**
  * People the customer has chosen to pay, kept on this device only until the service keeps a recipient list.
- * A saved entry is a convenience: the person is looked up again by exact handle before any money moves.
+ * A saved entry is a convenience: the person is looked up again by exact handle before any money moves. Shared, not the
+ * money feature's own, so Home's Send to reads it without loading the money feature (src/data/core-imports.test.ts).
  */
 export type Payee = { userId: string; handle: string };
 export interface PayeeStorage {

@@ -96,6 +96,7 @@ describe('UserVenueDoor: an order over the API with an Idempotency-Key (J-develo
         listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),
         ordersPageMax,
         slippageCapBps: null,
+        closeSlippageBps: 1000,
       }),
     };
   }

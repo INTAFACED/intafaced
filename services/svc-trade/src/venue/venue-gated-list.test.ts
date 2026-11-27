@@ -38,6 +38,7 @@ async function mount(builder: BuilderFeeValue | null, account: { code: string; m
     builder,
     // Blank: the gated list places no order, so the market protection is never read.
     slippageCapBps: null,
+    closeSlippageBps: 1000,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', ...PERPS])),
   });

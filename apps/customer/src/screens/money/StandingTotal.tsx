@@ -1,4 +1,5 @@
-import { Tag, heldStateOf, totalFreshness, useFreshnessClock, type HeldState } from '@intafaced/ui/lit';
+import type { ReactNode } from 'react';
+import { Fold, Tag, heldStateOf, totalFreshness, useFreshnessClock, type HeldState } from '@intafaced/ui/lit';
 import type { UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
 import { useAsOfText } from '../../features/trade/venue/VenueKit';
 import { STANDING_STALE_AFTER_MS, shownUsd, type PartId, type Standing, type ValuedPart } from './standing';
@@ -81,6 +82,12 @@ export function StandingTotal({
   displayCurrency,
   hidden,
   testId,
+  face = 'full',
+  foldLead,
+  foldMore,
+  change,
+  lineStart,
+  lineEnd,
 }: {
   standing: Standing;
   pricesFailed: boolean;
@@ -88,26 +95,44 @@ export function StandingTotal({
   hidden: boolean;
   pro?: boolean;
   testId: string;
+  /**
+   * `full` (Home's): every line on the face. `headline` (Assets, owner's pick A): the figure and one line naming each
+   * part's value; every other line (times, price source, each part's source, what is left out) in a closed fold below,
+   * still in the page with the same marks.
+   */
+  face?: 'full' | 'headline';
+  /** `headline` only: what comes first in the fold, before the total's own lines (Assets: what the room shows). */
+  foldLead?: ReactNode;
+  /** `headline` only: what follows the total's own lines in the fold (Assets: the valuation note and the movers). */
+  foldMore?: ReactNode;
+  /** `headline` only: a line drawn right under the figure, before the parts line (Home: today's change). */
+  change?: ReactNode;
+  /** `headline` only: what the line under the figure starts with, before the parts (Assets: today's change). */
+  lineStart?: ReactNode;
+  /** `headline` only: what the line under the figure ends with, after the parts (Assets: what is moving, not in the total). */
+  lineEnd?: ReactNode;
 }) {
   const { t } = standingCopy.useCopy();
   const asOfText = useAsOfText();
   const { totalUsd, btc, prices } = standing;
   const btcTotal = btc !== null && btc.total !== null ? btc.total : null;
   const test = Boolean(prices?.test) || standing.parts.some((part) => part.test);
-  return (
-    <section data-testid={testId} data-standing="" className="lt-stack" aria-label={t('Title')}>
-      <div data-testid="standing-figure" data-unit={btcTotal !== null ? 'BTC' : 'USD'} data-total-usd={totalUsd ?? ''}>
-        {totalUsd === null ? (
-          <span data-testid="standing-no-total">{t('No total')}</span>
-        ) : (
-          <HeroTotal parts={btcTotal !== null ? btcParts(btcTotal) : usdParts(totalUsd)} hidden={hidden} unknownLabel={t('No total')} />
-        )}{' '}
-        {test ? (
-          <span className="lt-test" data-testid="standing-test" title={t('TEST note')}>
-            {t('TEST')}
-          </span>
-        ) : null}
-      </div>
+  const figure = (
+    <div data-testid="standing-figure" data-unit={btcTotal !== null ? 'BTC' : 'USD'} data-total-usd={totalUsd ?? ''}>
+      {totalUsd === null ? (
+        <span data-testid="standing-no-total">{t('No total')}</span>
+      ) : (
+        <HeroTotal parts={btcTotal !== null ? btcParts(btcTotal) : usdParts(totalUsd)} hidden={hidden} unknownLabel={t('No total')} />
+      )}{' '}
+      {test ? (
+        <span className="lt-test" data-testid="standing-test" title={t('TEST note')}>
+          {t('TEST')}
+        </span>
+      ) : null}
+    </div>
+  );
+  const lines = (
+    <>
       {totalUsd === null ? null : <TotalAsOf standing={standing} t={t} asOfText={asOfText} />}
       <p data-testid="standing-prices" className="lt-hint" data-state={pricesFailed ? 'failed' : prices ? 'published' : 'unpublished'}>
         {pricesFailed ? (
@@ -145,7 +170,67 @@ export function StandingTotal({
           {t('Unpriced note', { assets: standing.unpriced.join(', ') })}
         </p>
       ) : null}
+    </>
+  );
+  if (face === 'headline')
+    return (
+      <section data-testid={testId} data-standing="" data-face="headline" className="lt-stack lt-stack-tight" aria-label={t('Title')}>
+        {figure}
+        {change}
+        <PartsLine standing={standing} hidden={hidden} t={t} start={lineStart} end={lineEnd} />
+        <Fold title={t('Worked out')} data-testid="standing-worked-out">
+          <div className="lt-stack">
+            <div className="lt-stack lt-stack-tight">
+              {foldLead}
+              {lines}
+            </div>
+            {foldMore}
+          </div>
+        </Fold>
+      </section>
+    );
+  return (
+    <section data-testid={testId} data-standing="" className="lt-stack" aria-label={t('Title')}>
+      {figure}
+      {lines}
     </section>
+  );
+}
+
+const LINE_NAME = { wallet: 'Line wallet', venue: 'Line venue', partner: 'Line partner' } as const satisfies Record<PartId, string>;
+
+/**
+ * The headline's one line under the figure: each part by its short name and its value ("Wallet $1,388.40 · Venue
+ * $20,098.12"), or in words why it has none (not known, not valued, holds nothing), never a zero.
+ */
+function PartsLine({ standing, hidden, t, start, end }: { standing: Standing; hidden: boolean; t: T; start?: ReactNode; end?: ReactNode }) {
+  if (standing.parts.length === 0) return null;
+  return (
+    <p className="lt-hint" data-testid="standing-line">
+      {start ? <>{start} </> : null}
+      {standing.parts.map((part, index) => {
+        const name = t(LINE_NAME[part.id]);
+        return (
+          <span key={part.id} data-line-part={part.id}>
+            {index > 0 ? ' · ' : null}
+            {part.state === 'reading' ? (
+              t('Line reading', { part: name })
+            ) : part.state === 'unread' ? (
+              t('Line not known', { part: name })
+            ) : part.rows.length === 0 ? (
+              t('Line empty', { part: name })
+            ) : part.valueUsd === null ? (
+              t('Line not valued', { part: name })
+            ) : (
+              <>
+                {name} <Shown text={dollars(part.valueUsd)} hidden={hidden} />
+              </>
+            )}
+          </span>
+        );
+      })}
+      {end ? <> {end}</> : null}
+    </p>
   );
 }
 

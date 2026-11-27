@@ -68,6 +68,8 @@ export interface TicketPick {
 export interface TicketHandle {
   flatten: (amount: string, worst: string | null) => void;
   pick: (pick: TicketPick) => void;
+  /** A book level or a print clicked: its price on a limit ticket, the size kept, nothing reviewed or sent. */
+  price: (at: string) => void;
 }
 
 type Live =
@@ -105,6 +107,7 @@ export function VenueSideForm({
   waiting,
   settledKeys,
   handle,
+  hidden = false,
 }: {
   side: VenueSide;
   type: VenueOrderType;
@@ -128,6 +131,8 @@ export function VenueSideForm({
   settledKeys: readonly string[];
   /** Flatten (J-cex-spot-05 #8): the sell ticket registers here how it types all the free base in and opens its review. */
   handle?: Ref<TicketHandle>;
+  /** The other side while this one is chosen: kept mounted, so a pick from the book or chart still lands on it. */
+  hidden?: boolean;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
@@ -291,6 +296,11 @@ export function VenueSideForm({
       if (!order) return;
       void (instant && kind === 'limit' && tif !== 'GTD' ? sendNow(order) : reviewOf(order));
     },
+    price(at: string) {
+      setPrice(at);
+      setResult(null);
+      setProblem(null);
+    },
     flatten(all: string, worstNow: string | null) {
       // The ticket shows the same market sell the review holds, so its draft keeps the one key for it.
       setUnit('base');
@@ -429,6 +439,7 @@ export function VenueSideForm({
 
   return (
     <form
+      hidden={hidden}
       data-testid="dk-form"
       className="lt-stack"
       data-side={side}
@@ -512,17 +523,12 @@ export function VenueSideForm({
           {t('Worst price line', { price: displayAmount(shownWorst), quote: market.quoteAsset })}
         </p>
       ) : null}
-      <Button
-        busy={busy}
-        type="submit"
-        tone={side === 'buy' ? 'up' : 'down'}
-        size="md"
-        block
-        disabled={!canSend}
-        aria-describedby={`dk-reason-${side}`}
-      >
-        {verb}
-      </Button>
+      {/* Pinned at the ticket column's foot, as on the perps desk: a long ticket never hides the one primary button. */}
+      <div className="xd-ticket-go">
+        <Button busy={busy} type="submit" tone="primary" size="md" block disabled={!canSend} aria-describedby={`dk-reason-${side}`}>
+          {verb}
+        </Button>
+      </div>
       <div className="lt-stack-tight lt-tight" id={`dk-reason-${side}`} aria-live="polite">
         {cancelOnly ? (
           <p className="lt-note lt-note-bad" role="alert">

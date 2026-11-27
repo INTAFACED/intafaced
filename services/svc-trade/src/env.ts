@@ -51,6 +51,12 @@ const schema = serviceEnvSchema
        * the venue's index), in milliseconds. Blank: the engine does not run, and such a stop stays armed, unjudged.
        */
       TRADE_PROTECTION_ENGINE_INTERVAL_MS: z.string().default(''),
+      /**
+       * How often the venue balance watch (J-cex-spot-15 #9) reads every watched account, in milliseconds. Blank or not all
+       * digits: as often as the protection engine; `0`: the watch is off. A venue that limits reads by weight a minute (Hyperliquid's test network: 1200 per IP) needs a
+       * slower watch than the TEST venue, as each reading costs it two balance reads per account.
+       */
+      TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: z.string().default(''),
       /** NO DEFAULT drain bound: the largest notional of one agent order. Blank refuses every agent order `agents.order_bound_unset`. */
       TRADE_AGENT_MAX_ORDER_NOTIONAL: z.string().default(''),
       /** NO DEFAULT drain bound: the worst price an agent order may name, bps from the mark. Blank refuses `agents.price_bound_unset`. */
@@ -269,6 +275,12 @@ const schema = serviceEnvSchema
        * `trade.spread_limit_unset` ("protection not set"), on preview and on prepare. Never invented.
        */
       TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+      /**
+       * How far a stop's fired market exit and a reduce-only close on the person's own venue account may cross the
+       * market, in bps from the price it is judged on (venue/close-slippage.ts): the one home of the close tolerance.
+       * NO DEFAULT. Blank / unset / non-integer → null, and every such close refuses `trade.close_slippage_unset`.
+       */
+      TRADE_CLOSE_SLIPPAGE_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").

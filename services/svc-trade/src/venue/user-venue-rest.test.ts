@@ -68,6 +68,8 @@ function door(
     slippageCapBps,
     // A labelled TEST spread limit, wide of the TEST simulator's ladder.
     spreadLimitBps: 100,
+    // A labelled TEST close tolerance: 10%, so a reduce-only close is priced.
+    closeSlippageBps: 1000,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP'])),
   });
@@ -446,6 +448,9 @@ describe('/api/v1/venue/*', () => {
     const unlisted = await app.inject({ method: 'GET', url: '/api/v1/venue/trades?symbol=ETH-USDC' });
     expect(unlisted.statusCode).toBe(422);
     expect(unlisted.json().intafacedCode).toBe('trade.venue.not_offered');
+    // A HIP-3 market's symbol keeps its DEX: read as a market, not refused as a malformed symbol.
+    for (const path of ['/api/v1/venue/trades?symbol=xyz:TSLA-PERP', '/api/v1/venue/candles?symbol=xyz%3ATSLA-PERP&interval=15m'])
+      expect((await app.inject({ method: 'GET', url: path })).json().intafacedCode, path).toBe('trade.venue.not_offered');
     for (const path of [
       '/api/v1/venue/candles?symbol=BTC-USDC&interval=7m',
       '/api/v1/venue/book?symbol=BTC-USDC&depth=99',

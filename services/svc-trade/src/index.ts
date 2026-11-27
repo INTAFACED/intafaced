@@ -530,6 +530,8 @@ const venueProtections = userVenue
       door: userVenue,
       store: new SqlEngineProtectionStore(sql),
       keySeed: env.TRADE_AGENT_KEY_SEED,
+      // The owner's close tolerance a stop's market exit crosses by (blank: every such stop refuses).
+      closeSlippageBps: env.TRADE_CLOSE_SLIPPAGE_BPS,
       // The person's level from identity before each order the engine sends (fails closed: nothing is sent).
       liveTier: (userId) => protectionTier.tierOf(userId),
       // The person's own freeze from identity before each order the engine sends (fails closed: nothing is sent).
@@ -597,7 +599,10 @@ if (venueProtections && protectionEngineMs > 0) {
       });
   }, protectionEngineMs).unref();
 }
-if (venueBalanceWatch && protectionEngineMs > 0) {
+const balanceWatchMs = /^\d+$/.test(env.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS.trim())
+  ? Number(env.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS.trim())
+  : protectionEngineMs;
+if (venueBalanceWatch && protectionEngineMs > 0 && balanceWatchMs > 0) {
   let busy = false;
   setInterval(() => {
     if (busy) return;
@@ -610,7 +615,7 @@ if (venueBalanceWatch && protectionEngineMs > 0) {
       .finally(() => {
         busy = false;
       });
-  }, protectionEngineMs).unref();
+  }, balanceWatchMs).unref();
 }
 // Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
 // from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`

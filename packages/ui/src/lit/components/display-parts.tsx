@@ -117,9 +117,8 @@ export interface FeaturedMarketProps {
   href?: string;
 }
 
-/** The busiest market in a sunken tile: its mark and name, the price large, its change, and its chart filling the end. */
+/** The busiest market in a sunken tile: its mark and name, the price large, its change, and its chart in ink filling the end. */
 export function FeaturedMarket({ symbol, name, price, change, points, chartLabel, asset, href }: FeaturedMarketProps) {
-  const dir = change?.trim().startsWith('+') ? 'up' : change?.trim().match(/^[−-]/) ? 'down' : 'neutral';
   const body = (
     <>
       <span className="lt-featured-figure">
@@ -132,7 +131,8 @@ export function FeaturedMarket({ symbol, name, price, change, points, chartLabel
         <Pct value={change} />
       </span>
       <span className="lt-featured-chart">
-        {points && points.length > 1 ? <AreaChart soft fit tone={dir} label={chartLabel} asset={asset} points={points} /> : null}
+        {/* The chart is drawn in ink: colour stays in the change figure and the sparklines. */}
+        {points && points.length > 1 ? <AreaChart soft fit tone="ink" label={chartLabel} asset={asset} points={points} /> : null}
       </span>
     </>
   );

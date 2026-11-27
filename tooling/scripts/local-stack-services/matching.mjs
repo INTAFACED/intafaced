@@ -1,3 +1,4 @@
+import { startCustodyLayer } from '../local-test-state.mjs';
 import path from 'node:path';
 
 export default ({ c, urlOf, PORTS, P, localOperatorIds, PLACEHOLDER_OPERATOR_IDS }) => ({
@@ -7,9 +8,9 @@ export default ({ c, urlOf, PORTS, P, localOperatorIds, PLACEHOLDER_OPERATOR_IDS
   env: () => ({
     ...c('svc-matching', PORTS.matching),
     // Our own engine follows the custody switch (OWNER 288): unset, it runs only with LEDGER_CUSTODY_LAYER on, and on with
-    // custody off refuses boot. The same value as svc-ledger's (ledger.mjs), so this stack's book runs exactly when its
-    // ledger can settle the book's fills.
-    LEDGER_CUSTODY_LAYER: 'on',
+    // custody off refuses boot. The same value as svc-ledger's (ledger.mjs, startCustodyLayer), so this stack's book runs
+    // exactly when its ledger can settle the book's fills.
+    LEDGER_CUSTODY_LAYER: startCustodyLayer(),
     MATCHING_SNAPSHOT_EVERY: '0', // required, owner-unpublished; 0 = snapshotting off (no magnitude invented)
     MATCHING_JOURNAL_PATH: path.join(P.data, 'matching', 'engine_journal.ndjson'),
     // Opening a market needs a two-person approval that matching consumes from identity

@@ -33,6 +33,8 @@ const person = {
 const wallet = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade protections')));
 const owner = wallet.address.toLowerCase();
 const BUILDER = '0x00000000000000000000000000000000000000b3';
+/** The owner's close tolerance on this TEST stack: 10% (1000 bps), as the owner decided for stop-loss and reduce-only closes. */
+const CLOSE_BPS = 1000;
 /** The region of the request that arms a stop: one where trading is open. */
 const REGION = 'DE';
 
@@ -99,13 +101,22 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       builder: { address: BUILDER, feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore([ETH])),
       slippageCapBps: 50,
+      closeSlippageBps: CLOSE_BPS,
       ordersPageMax: 100,
       now: () => new Date(),
     } as never);
     identity = 'basic';
     freeze = new MemoryFreezeRead();
     store = new InMemoryEngineProtectionStore();
-    p = new VenueProtections({ door, store, keySeed: 'intafaced unit TEST protection seed', liveTier, freeze, now: () => new Date() });
+    p = new VenueProtections({
+      door,
+      store,
+      keySeed: 'intafaced unit TEST protection seed',
+      closeSlippageBps: CLOSE_BPS,
+      liveTier,
+      freeze,
+      now: () => new Date(),
+    });
   });
 
   /** A TEST long of `size` ETH on the person's venue account: funded, 5x, our builder fee approved, bought at market. */
@@ -136,6 +147,43 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
         type: 'market',
         amount: a(size),
         price: a('3100'),
+        timeInForce: 'IOC',
+        reduceOnly: false,
+        clientOrderKey: `order:${owner}:${id('open')}`,
+        builderFee: null,
+      },
+    });
+    expect((await send(opened)).outcome).toMatchObject({ definite: true, accepted: true });
+  }
+
+  /** A TEST short of `size` ETH on the person's venue account: as `long`, sold at market. */
+  async function short(size: string) {
+    const account = await door.account(owner);
+    sim.deposit(account, 'USDC', a('100000'), `chain:protections:${id('d')}`);
+    const lev = await door.prepare(person, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'update_leverage', symbol: ETH, leverageBps: 50_000, marginMode: 'isolated' },
+      actionKey: `leverage:${owner}:${id('lev')}`,
+    });
+    await send(lev);
+    const fee = await door.prepare(person, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_builder_fee', builder: BUILDER, maxFeeBps: a('5') },
+      actionKey: `builder-fee:${owner}:${id('fee')}`,
+    });
+    await send(fee);
+    const opened = await door.prepare(person, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: {
+        kind: 'place_order',
+        symbol: ETH,
+        side: 'sell',
+        type: 'market',
+        amount: a(size),
+        price: a('2900'),
         timeInForce: 'IOC',
         reduceOnly: false,
         clientOrderKey: `order:${owner}:${id('open')}`,
@@ -246,6 +294,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       door,
       store,
       keySeed: 'intafaced unit TEST protection seed',
+      closeSlippageBps: CLOSE_BPS,
       liveTier,
       freeze,
       now: () => new Date(),
@@ -374,5 +423,90 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     expect((await p.list(person, owner)).find((x) => x.id === closed.protection.id)).toMatchObject({ status: 'failed' });
     expect(await fills()).toBe(before);
     expect((await sim.positions(account)).value.find((x) => x.symbol === ETH)).toMatchObject({ size: a('1') });
+  });
+
+  // A stop's market exit and a desk's reduce-only close cross by the owner's close tolerance, 10% on this stack
+  // (TRADE_CLOSE_SLIPPAGE_BPS), never a figure of their own.
+  it("a long's stop loss rests on the venue at 10% below its trigger, a short's at 10% above", async () => {
+    await flat();
+    await long('1');
+    const sell = await p.create(person, base({ kind: 'stop_loss', triggerPrice: '2900' }), REGION);
+    if (sell.restsOn !== 'venue') throw new Error('expected the venue');
+    expect(sell.prepared.intent).toMatchObject({ side: 'sell', type: 'market', reduceOnly: true, price: a('2610') });
+    await flat();
+    await short('1');
+    const buy = await p.create(person, base({ kind: 'stop_loss', side: 'buy', triggerPrice: '3100' }), REGION);
+    if (buy.restsOn !== 'venue') throw new Error('expected the venue');
+    expect(buy.prepared.intent).toMatchObject({ side: 'buy', type: 'market', reduceOnly: true, price: a('3410') });
+    await flat();
+  });
+
+  it('an engine stop fires its market exit 10% past the mark it crossed at', async () => {
+    await flat();
+    await long('1');
+    await send(await p.prepareAgent(person, owner)).catch(() => undefined);
+    const made = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }), REGION);
+    if (made.restsOn !== 'engine') throw new Error('expected the engine');
+    const prepared = vi.spyOn(door, 'prepare');
+    sim.setMark(ETH, a('2800'));
+    sim.setIndex(ETH, a('2890'));
+    await p.tick();
+    const sent = prepared.mock.calls.map(([, input]) => input.intent).find((i) => i.kind === 'place_order');
+    prepared.mockRestore();
+    expect(sent).toMatchObject({ side: 'sell', type: 'market', reduceOnly: true, price: a('2520') });
+    await flat();
+  });
+
+  it('with the close tolerance blank, no stop is armed and no reduce-only close is prepared: refused by name', async () => {
+    await flat();
+    await long('1');
+    const blank = new VenueProtections({
+      door,
+      store,
+      keySeed: 'intafaced unit TEST protection seed',
+      closeSlippageBps: null,
+      liveTier,
+      freeze,
+      now: () => new Date(),
+    });
+    await expect(blank.create(person, base({ kind: 'stop_loss', triggerPrice: '2900' }), REGION)).rejects.toMatchObject({
+      code: 'trade.close_slippage_unset',
+    });
+    expect(store.rows.size).toBe(0);
+    const blankDoor = new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 5000 }),
+      appEnv: 'test',
+      store: new InMemoryPreparedActionStore(),
+      stepUp: { check: async () => ({ ok: true }) } as never,
+      builder: { address: BUILDER, feeBps: a('1') },
+      listings: new StoreVenueRoutingGate(listedTestStore([ETH])),
+      slippageCapBps: 50,
+      closeSlippageBps: null,
+      ordersPageMax: 100,
+      now: () => new Date(),
+    } as never);
+    expect(await blankDoor.status()).toMatchObject({ closeSlippageBps: null });
+    expect(await door.status()).toMatchObject({ closeSlippageBps: CLOSE_BPS });
+    for (const type of ['market', 'limit'] as const) {
+      await expect(
+        blankDoor.prepare(person, {
+          owner,
+          signer: { role: 'owner', address: owner },
+          intent: {
+            kind: 'place_order',
+            symbol: ETH,
+            side: 'sell',
+            type,
+            amount: a('1'),
+            price: a('2700'),
+            timeInForce: 'IOC',
+            reduceOnly: true,
+            clientOrderKey: `order:${owner}:${id('blank')}`,
+            builderFee: null,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'trade.close_slippage_unset' });
+    }
+    await flat();
   });
 });

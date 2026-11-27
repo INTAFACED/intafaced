@@ -1,3 +1,4 @@
+import { startCustodyLayer } from '../local-test-state.mjs';
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 import { userVenueKind } from '../local-test-venue.mjs';
@@ -378,11 +379,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN, testC
     // LOCAL TEST tax-effect map (J-portfolio-03 #7; refused at boot outside dev/test): made up for test stacks, not the
     // owner's or counsel's call, and the answer and the screen say TEST.
     BANK_TAX_EFFECTS: 'test',
-    // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
-    // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
+    // The custody switch as svc-bank reads it, the same value as svc-ledger's (startCustodyLayer): on, the TEST stack runs
+    // the custodial layer for the journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
     // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
     // partner-held (OWNER 226).
-    LEDGER_CUSTODY_LAYER: 'on',
+    LEDGER_CUSTODY_LAYER: startCustodyLayer(),
     // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
     // through the pay-in stand-in below.

@@ -12,6 +12,10 @@ import {
   UNKNOWN_AFTER_MS,
   liveDeps,
   readTestnet,
+  info,
+  judgeAccount,
+  judgeLive,
+  JUDGE_LIVE_MS,
   testnetCandidates,
   testnetKey,
   testnetStep,
@@ -221,6 +225,35 @@ test('a person whose earlier accounts made no wallet still gets their later one 
   w.done();
 });
 
+test("the daily check's own fresh accounts are not held by the per-person cap; any other account of that invite still is", async () => {
+  const judge = 'zenyoda33-0123456789';
+  const local = new Set([judge]);
+  const email = (i) => `${judge}.ready2026112510${String(i).padStart(2, '0')}@local-test.invalid`;
+  assert.equal(judgeAccount(email(1), judge), true);
+  assert.equal(judgeAccount(`${judge}.demo1@local-test.invalid`, judge), false);
+  assert.equal(judgeAccount(`${alice}.ready202611251000@local-test.invalid`, alice), false);
+  assert.equal(judgeAccount(`${judge}.ready1@local-test.invalid`, judge), false);
+  const users = [1, 2, 3, 4, 5].map((i) => ({ id: `j${i}`, email: email(i) }));
+  users.push({ id: 'd1', email: `${judge}.demo1@local-test.invalid` });
+  const approved = full(...users.map((u) => u.id));
+  const records = Object.fromEntries([1, 2, 3].map((i) => [`k${i}`, { userId: `j${i}`, token: judge, state: 'sent' }]));
+  assert.deepEqual(
+    testnetCandidates({ users, approved, tokens: local, accounts: records, now: Date.UTC(2026, 10, 25, 10, 10) }).map((c) => c.userId),
+    ['j4', 'j5'],
+  );
+  // The step sends to a fourth judge account although the invite holds three records.
+  const w = world({ wallets: { j4: addr(44), d1: addr(45) } });
+  fs.writeFileSync(w.file, JSON.stringify({ accounts: records }));
+  await w.step([{ userId: 'j4', email: email(4), token: judge }]);
+  assert.equal(w.dispatches.length, 1);
+  w.finishRuns();
+  await w.step([]);
+  // Any other account of that invite is held: its three records stand.
+  await w.step([{ userId: 'd1', email: `${judge}.demo1@local-test.invalid`, token: judge }]);
+  assert.equal(w.dispatches.length, 1);
+  w.done();
+});
+
 test('a funder under the grant sends nothing and says so once in round.log', async () => {
   const w = world({ wallets: { u1: addr(1) }, funderFree: '24.99' });
   await w.step([cand('u1')]);
@@ -229,6 +262,9 @@ test('a funder under the grant sends nothing and says so once in round.log', asy
   assert.equal(w.records().length, 0);
   assert.equal(w.lines.length, 1);
   assert.match(w.lines[0], new RegExp(`NOT sent to ${addr(1)}: the funder ${FUNDER} holds 24.99 free TEST USDC, under 25`));
+  // The line says how the funder refills, so nobody asks a person for a faucet deposit already made (#11030).
+  assert.match(w.lines[0], /its one faucet claim is spent/);
+  assert.match(w.lines[0], /only a send from another funded testnet account refills it/);
   w.done();
 });
 
@@ -245,4 +281,49 @@ test('amounts are compared as scaled integers, and the live reads sum perps and 
   const deps = liveDeps({ fetchImpl });
   assert.equal(await deps.usdcAt(addr(1)), '306.5');
   assert.equal(await deps.spotFree(FUNDER), '284.5');
+});
+
+test('a testnet read the shared address answers 429 is tried again after 2, 4 and 8 s; a fourth 429 stops the pass', async () => {
+  const run = async (codes) => {
+    const waits = [];
+    let calls = 0;
+    const fetchImpl = async () => {
+      const status = codes[calls++] ?? 200;
+      return { ok: status === 200, status, json: async () => ({ calls }) };
+    };
+    try {
+      return { out: await info({ type: 'spotClearinghouseState', user: '0xa' }, fetchImpl, async (ms) => waits.push(ms)), waits, calls };
+    } catch (e) {
+      return { error: e.message, waits, calls };
+    }
+  };
+  assert.deepEqual(await run([429, 429, 200]), { out: { calls: 3 }, waits: [2000, 4000], calls: 3 });
+  assert.deepEqual(await run([429, 429, 429, 429]), {
+    error: 'testnet info spotClearinghouseState: HTTP 429',
+    waits: [2000, 4000, 8000],
+    calls: 4,
+  });
+  assert.deepEqual(await run([500]), { error: 'testnet info spotClearinghouseState: HTTP 500', waits: [], calls: 1 });
+});
+
+test("a judge account whose walk has ended is never sent: the walk's passkey is gone, so the grant would strand", () => {
+  const judge = 'zenyoda33-0123456789';
+  const at = Date.UTC(2026, 10, 25, 14, 2);
+  const email = `${judge}.ready202611251402@local-test.invalid`;
+  assert.equal(judgeLive(email, at + 60_000), true);
+  assert.equal(judgeLive(email, at + JUDGE_LIVE_MS), true);
+  assert.equal(judgeLive(email, at + JUDGE_LIVE_MS + 1), false);
+  assert.equal(judgeLive(email, at - JUDGE_LIVE_MS - 60_000), false, 'a stamp far in the future is not live either');
+  assert.equal(judgeLive(`${judge}.demo1@local-test.invalid`, at), false);
+  const users = [
+    { id: 'old', email },
+    { id: 'new', email: `${judge}.ready202611260000@local-test.invalid` },
+    { id: 'demo', email: `${judge}.demo1@local-test.invalid` },
+  ];
+  const approved = full('old', 'new', 'demo');
+  assert.deepEqual(
+    testnetCandidates({ users, approved, tokens: new Set([judge]), accounts: {}, now: Date.UTC(2026, 10, 26, 0, 5) }).map((c) => c.userId),
+    ['new', 'demo'],
+    'the ended walk is skipped; a live walk and an ordinary account of the invite are not',
+  );
 });

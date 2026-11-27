@@ -312,8 +312,10 @@ const TILES: Partial<RoleMap> = {
   'solid-bg-raised': '#151616',
   'radius-panel': '6px',
   'radius-tile': '6px',
+  'solid-rim': 'rgba(255, 255, 255, 0)',
+  'solid-rim-dim': 'rgba(255, 255, 255, 0)',
 };
-/** No panel paint: a panel is the black page itself, grouped by hairlines (the owner's batch2/15). */
+/** No panel paint: a panel is the black page itself, edged by one even hairline (the solid rim, set in voltDark) as the picked samples draw it (the owner's batch2/15). */
 const NO_PANELS: Partial<RoleMap> = {
   'solid-bg': '#000000',
   'solid-bg-raised': '#1A1A1A',
@@ -342,22 +344,27 @@ const voltDark: Partial<RoleMap> = {
   'text-disabled': '#86857F',
   line: 'rgba(243, 242, 236, 0.07)',
   'line-strong': 'rgba(243, 242, 236, 0.13)',
-  accent: '#E0F83A',
-  'accent-hot': '#F2FFB0',
-  'accent-deep': '#2F3A05',
+  // Lime only on the one main action, as the owner's pick draws it: the accent family a
+  // link, the current step, a checked box, a chart line, a split bar's first part or an active chip reads is bone. The
+  // main action's lime is `primary-bg`; `accent-fill` stays lime for the older rooms' primary keys (`--if-lime`).
+  accent: '#F3F2EC',
+  'accent-hot': '#FFFFFF',
+  'accent-deep': '#1C1C1A',
   'accent-pair': '#F3F2EC',
-  'accent-text': '#E0F83A',
+  'accent-text': '#F3F2EC',
   'accent-fill': '#E0F83A',
   'accent-fill-2': '#CDE82A',
   'on-accent': '#0A0A09',
   up: '#3DDC97',
   down: '#FF5E57',
   'up-text': '#3DDC97',
-  'down-text': '#FF7A73',
+  // One red for losses, lines and errors: a second, lighter red read as a different meaning.
+  'down-text': '#FF5E57',
+  'error-text': '#FF5E57',
   'solid-bg-sunken': '#0A0A0A',
   'solid-lip': 'none',
-  'solid-rim': 'rgba(255, 255, 255, 0)',
-  'solid-rim-dim': 'rgba(255, 255, 255, 0)',
+  'solid-rim': 'rgba(243, 242, 236, 0.1)',
+  'solid-rim-dim': 'rgba(243, 242, 236, 0.1)',
   'solid-wall': '#050505',
   'solid-shadow': 'none',
   sheen: 'linear-gradient(transparent, transparent)',
@@ -373,13 +380,14 @@ const voltDark: Partial<RoleMap> = {
   'primary-bg': '#E0F83A',
   'primary-fg': '#0A0A09',
   'primary-shadow': 'none',
-  'secondary-bg': 'linear-gradient(180deg, #1F1F1D, #161615)',
+  // Keys and secondary buttons are plain #1A1A1A, flat, with no lip or inner rim (the owner's plain-keys pick).
+  'secondary-bg': '#1A1A1A',
   'secondary-fg': '#F3F2EC',
-  'secondary-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(255, 255, 255, 0.05)',
-  'key-bg': 'linear-gradient(180deg, #1F1F1D, #161615)',
-  'key-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 0 0 #050505',
-  'key-lit-bg': 'linear-gradient(180deg, #2A2A27, #1E1E1C)',
-  'key-lit-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 0 #050505',
+  'secondary-shadow': 'none',
+  'key-bg': '#1A1A1A',
+  'key-shadow': 'none',
+  'key-lit-bg': '#2A2A27',
+  'key-lit-shadow': 'none',
   'object-bg':
     'radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 55%), linear-gradient(160deg, #1D1D1B, #050505 72%)',
   'object-fg': '#F3F2EC',
@@ -387,7 +395,8 @@ const voltDark: Partial<RoleMap> = {
     'inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 0 0 #000000, 0 30px 50px -24px rgba(0, 0, 0, 1)',
   'object-spark-bg': 'linear-gradient(180deg, #EAFF6A, #E0F83A 45%, #CDE82A)',
   'object-spark-fg': '#0A0A09',
-  'control-bg': '#0E0E0D',
+  // The sunken shade: #0E0E0D sat one step from the Pro tile (#0D0E0E), so a field vanished on a desk tile.
+  'control-bg': '#0A0A0A',
   'control-rim': 'rgba(243, 242, 236, 0.37)',
   'control-rim-active': 'rgba(243, 242, 236, 0.6)',
   focus: '#FFFFFF',
@@ -405,7 +414,8 @@ const voltDark: Partial<RoleMap> = {
   'radius-panel': '28px',
   'radius-tile': '20px',
   'radius-key': '999px',
-  'radius-control': '999px',
+  // Fields are rounded rectangles, not pills; Pro's are 8px (its density block).
+  'radius-control': '16px',
   ...NO_PANELS,
 };
 
@@ -491,8 +501,10 @@ const volt = {
   type: {
     hero: { size: '56px', line: '56px', weight: '300', tracking: '-0.035em' },
     figure: { size: '28px', line: '32px', weight: '300', tracking: '-0.02em' },
-    title: { size: '30px', line: '36px', weight: '500', tracking: '-0.025em' },
-    heading: { size: '17px', line: '24px', weight: '600', tracking: '-0.01em' },
+    title: { size: '28px', line: '34px', weight: '600', tracking: '-0.025em' },
+    heading: { size: '20px', line: '26px', weight: '600', tracking: '-0.01em' },
+    // The smallest text is 12px in sentence case: boxed tracked caps read as filler.
+    micro: { size: '12px', line: '16px', weight: '500', tracking: '0' },
   },
 };
 
@@ -514,6 +526,7 @@ export const pro: Partial<RoleMap> = {
   'pad-panel': '14px',
   'row-h': '40px',
   'control-h': '36px',
+  'radius-control': '8px',
 };
 
 /** Type roles. `flatType` maps to today's text styles. */
@@ -664,6 +677,14 @@ ${decl(roleVars(solid)).replace(/^/gm, '  ')}
 /* Pro density. */
 ${L.replace('])', "][data-mode='pro'])")} {
 ${decl(roleVars(pro))}
+}
+
+/* The top bar: 60px from 1000px up, 56px below (the family pages' one top bar, 25 Nov). Whole pixels, so nothing under
+   the bar sits off the pixel grid (a fractional height moved a drawn chart point a pixel, J-charts-desk-05 #1). */
+@media (min-width: 1000px) {
+  ${L} {
+    --lit-topbar-h: 60px;
+  }
 }
 
 /* Flat tiles on a board that asks for them (the markets board): its panels are tiles, in Simple too. */

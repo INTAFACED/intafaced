@@ -6,7 +6,8 @@
  * `protocol.embeddedWallet.status` record, read as that person) gets TESTNET_GRANT sent to that wallet's address by the
  * dispatch-only workflow `hl-testnet-send.yml` on main, the only place the platform's funded testnet key is used
  * (project-state decision PR #3883); the box only dispatches it with `gh` and never holds that key. At most
- * MAX_FUNDED_PER_PERSON accounts per person, as the ledger grant.
+ * MAX_FUNDED_PER_PERSON accounts per person, as the ledger grant; the daily check's own fresh accounts (judgeAccount) are
+ * not counted against that cap.
  *
  * Each send is kept in `testnet-funded.json` beside granted.json under its business key (testnetKey: account and
  * address), written as `dispatching` BEFORE the dispatch. So a crash anywhere after that line leaves a record, never a
@@ -23,7 +24,14 @@
  * pending one, so a second dispatch while one waits could cancel a tester's run.
  *
  * Before every send the funder's free TEST USDC is read on the testnet (its address is the one the workflow's own log
- * names, `USDC <funder> -> <to>`); under the grant, nothing is sent and round.log names it once.
+ * names, `USDC <funder> -> <to>`); under the grant, nothing is sent and round.log names it once, with how it refills.
+ *
+ * How the funder refills (#11030): Hyperliquid's testnet faucet is the unsigned info request `{"type":"claimDrip","user"}`
+ * (what app.hyperliquid-testnet.xyz/drip posts to api-ui.hyperliquid-testnet.xyz/info; no key), and it pays 1,000 TEST
+ * USDC once per address that exists on mainnet. The funder qualified and was paid on 19 Nov 2026; on 27 Nov its claim
+ * answered "Drip already claimed", and a fresh address answers "does not exist on mainnet". So the faucet never refills
+ * it again: what refills it is a send from another funded testnet account (that account's own faucet claim, moved with
+ * its key) and the judge walks handing back what they did not use.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -43,6 +51,36 @@ export const RETRY_AFTER_MS = 5 * 60_000;
 /** How long a send whose run id is unknown waits before it counts as failed: longer than any run of the workflow. */
 export const UNKNOWN_AFTER_MS = 20 * 60_000;
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+/** What round.log says when the funder is short: the faucet paid it once, so a person's faucet deposit is not the fix. */
+const FUNDER_REFILL =
+  "Hyperliquid's testnet faucet pays each mainnet address once and paid this one on 19 Nov 2026, so only a send from another funded testnet account refills it";
+
+/**
+ * The daily check's own fresh account (project-state tooling/beta/ready.mjs): made under the agents' invite, whose
+ * token starts with `zenyoda`, with the address `<token>.ready<12 digits>@local-test.invalid`. Each run signs up anew, so
+ * the per-person cap would stop its step 3 after three runs; it is exempt (Nino's guide on project-state#4046, 25 Nov).
+ * The funder's balance still bounds it, and the check runs only after beta merges that touch the tester path. It is sent
+ * only while its walk runs (judgeLive); the walk hands what is left back to the funder before it ends.
+ */
+export function judgeAccount(email, token) {
+  return String(token ?? '').startsWith('zenyoda') && /^[^@]+\.ready\d{12}@local-test\.invalid$/.test(String(email ?? ''));
+}
+
+/**
+ * How long after its walk starts a judge account may still be sent TEST USDC: the walk signs up in about two minutes and
+ * waits ten for the money, then closes its browser, and with it the wallet's only passkey. A send after that strands the
+ * grant for good: on 26 Nov 2026 the funder's first refill went to seven walks that had ended hours before (182 TEST USDC
+ * with fees, project-state#4067). The walk's address carries its start, `ready<YYYYMMDDHHmm>` in UTC.
+ */
+export const JUDGE_LIVE_MS = 30 * 60_000;
+
+/** Whether a judge account's walk can still use a send at `now`: its stamp is at most JUDGE_LIVE_MS old. */
+export function judgeLive(email, now = Date.now()) {
+  const m = /\.ready(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})@/.exec(String(email ?? ''));
+  if (!m) return false;
+  const started = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  return now - started <= JUDGE_LIVE_MS && started - now <= JUDGE_LIVE_MS;
+}
 
 /** The business key of one account's one testnet send. */
 export const testnetKey = (userId, address) => `beta-testnet:${userId}:${String(address).toLowerCase()}`;
@@ -63,7 +101,7 @@ const holdsGrant = (amount) => units(amount) >= units(TESTNET_GRANT.amount);
  * later account from ever being sent (testnetStep checks the cap again as it picks the one to send).
  * `users` [{ id, email }], `approved` Map userId -> Set of tiers, `tokens` Set, `accounts` the file's records.
  */
-export function testnetCandidates({ users, approved, tokens, accounts }) {
+export function testnetCandidates({ users, approved, tokens, accounts, now = Date.now() }) {
   const perPerson = new Map();
   const has = new Set();
   for (const r of Object.values(accounts)) {
@@ -78,7 +116,9 @@ export function testnetCandidates({ users, approved, tokens, accounts }) {
     if (!(tiers.has('full') || tiers.has('institutional'))) continue;
     // Only send records count: an account with no wallet yet takes no place under the cap (testnetStep holds it as
     // it sends, one send per pass, each recorded before its dispatch).
-    if ((perPerson.get(token) ?? 0) >= MAX_FUNDED_PER_PERSON) continue;
+    const judge = judgeAccount(u.email, token);
+    if (judge && !judgeLive(u.email, now)) continue; // its walk has ended: nothing could ever use the send
+    if (!judge && (perPerson.get(token) ?? 0) >= MAX_FUNDED_PER_PERSON) continue;
     out.push({ userId: u.id, email: u.email, token });
   }
   return out;
@@ -152,7 +192,7 @@ export async function testnetStep({ file, candidates, deps, log, now = () => Dat
   if (!next) {
     const records = (token) => Object.values(doc.accounts).filter((r) => r.token === token).length;
     for (const c of candidates) {
-      if (records(c.token) >= MAX_FUNDED_PER_PERSON) continue;
+      if (!judgeAccount(c.email, c.token) && records(c.token) >= MAX_FUNDED_PER_PERSON) continue;
       const address = await deps.walletOf(c.userId);
       if (!address) continue;
       if (!ADDRESS_RE.test(address)) {
@@ -176,7 +216,8 @@ export async function testnetStep({ file, candidates, deps, log, now = () => Dat
     if (doc.funderLow !== why) {
       doc.funderLow = why;
       save();
-      log(`invited ${next.userId}: testnet TEST USDC NOT sent to ${next.address}: ${why}, under ${next.amount}`);
+      const refill = free === null ? '' : `; its one faucet claim is spent: ${FUNDER_REFILL}`;
+      log(`invited ${next.userId}: testnet TEST USDC NOT sent to ${next.address}: ${why}, under ${next.amount}${refill}`);
     }
     return;
   }
@@ -211,15 +252,26 @@ const lastLine = (r) =>
     .split('\n')
     .at(-1);
 
-async function info(body, fetchImpl) {
-  const res = await fetchImpl(TESTNET_INFO_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`testnet info ${body.type}: HTTP ${res.status}`);
-  return res.json();
+/**
+ * A testnet read. The box's one address shares the testnet's per-address limit with every local stack on it, and the
+ * limit answers 429 for seconds at a time; a read is safe to repeat, so a 429 is tried again after 2, 4 and 8 s before
+ * the pass stops (it stopped on the first 429 for ten minutes on 2026-11-25, and a tester got no TEST USDC).
+ */
+export async function info(body, fetchImpl, wait = (ms) => new Promise((r) => setTimeout(r, ms))) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchImpl(TESTNET_INFO_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 429 && attempt < 3) {
+      await wait(2000 * 2 ** attempt);
+      continue;
+    }
+    if (!res.ok) throw new Error(`testnet info ${body.type}: HTTP ${res.status}`);
+    return res.json();
+  }
 }
 const fmt = (u) => `${u / 10n ** BigInt(SCALE)}.${String(u % 10n ** BigInt(SCALE)).padStart(SCALE, '0')}`.replace(/\.?0+$/, '');
 

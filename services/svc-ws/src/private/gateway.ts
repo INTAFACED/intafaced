@@ -13,7 +13,7 @@ import { type PrivateOrderHub, type PrivateStreamChannel } from './hub.js';
 import { EMPTY_PRIVATE_BOOK, type PrivateBookPort } from './book.js';
 import { CodController, type CodLeaseRange, type TradeCancelPort } from './cod.js';
 import { assertLiveCredential, type LiveCredentialPort } from './live-credential.js';
-import { callerIpFromUpgrade } from './caller-ip.js';
+import { publicCallerIp } from './caller-ip.js';
 import { requestOriginFromUpgrade } from './key-origin.js';
 import { foreignUpgradeOrigin } from '../customer-origin.js';
 import { requestAccountIdFromUpgrade } from './key-account.js';
@@ -187,6 +187,11 @@ export interface PrivateWebSocketGatewayOptions {
    * foreign Origin. Missing Origin and a same-host Origin stay allowed.
    */
   readonly customerOrigins?: readonly string[];
+  /**
+   * The reverse proxy's exact addresses (`WS_TRUST_PROXY`): its `x-forwarded-for` names the caller a key's IP allowlist
+   * is checked against (`publicCallerIp`). Omitted: the TCP peer.
+   */
+  readonly trustedProxies?: readonly string[];
 }
 
 export interface PrivateWebSocketGateway {
@@ -507,6 +512,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     liveCredential = null,
     authority = null,
     customerOrigins,
+    trustedProxies = [],
     positions = null,
   } = options;
   const book = configuredBook ?? EMPTY_PRIVATE_BOOK;
@@ -640,7 +646,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           return;
         }
 
-        const callerIp = callerIpFromUpgrade(req);
+        const callerIp = publicCallerIp(req, trustedProxies);
         const requestOrigin = requestOriginFromUpgrade(req);
         const accountId = requestAccountIdFromUpgrade(req);
         const policy = { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId, ...(stream ? { signedMint: true } : {}) };

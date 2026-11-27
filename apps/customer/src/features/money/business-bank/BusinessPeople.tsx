@@ -11,7 +11,7 @@ import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
 import { DisabledAction, Failure, Loading, Panel, ResourceView } from '../bank-settings/parts';
 import { RecipientPicker } from './RecipientPicker';
-import type { Payee } from '../payees';
+import type { Payee } from '../../../shared/payees';
 import { businessCopy } from '../business-copy';
 import {
   canSend,
