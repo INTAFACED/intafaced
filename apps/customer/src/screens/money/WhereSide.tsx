@@ -4,7 +4,7 @@ import { useSession } from '../../features/session';
 import { useResource } from '../../shared/resource';
 import { KeyValue, Stepper } from '@intafaced/ui/lit/templates';
 import type { VenueDeposit } from '@intafaced/contracts/protocol-venue-account';
-import { useWallet } from '../../features/protocol';
+import { useWallet, WalletAccountLink } from '../../features/protocol';
 import { shortAddress } from '../../features/protocol/wallet/eip1193';
 import type { Resource } from '../../shared/resource';
 import { isHiddenPath } from './deps';
@@ -128,6 +128,7 @@ function OwnWallet({ owner, t }: { owner: string; t: T }) {
         <Tag tone="up">{t('Own wallet connected')}</Tag>
       </div>
       <p className="lt-hint">{t('Own wallet note')}</p>
+      <WalletAccountLink address={owner} href={isHiddenPath('/wallet/venue') ? null : '/wallet/venue'} />
       <div className="lt-actions">
         <Button tone="secondary" size="sm" onClick={wallet.disconnect} data-testid="assets-disconnect">
           {t('Disconnect')}
