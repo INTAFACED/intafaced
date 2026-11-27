@@ -60,7 +60,8 @@ async function makerRests(side, price) {
     amount: '1',
     price,
     timeInForce: 'GTC',
-    reduceOnly: false,
+    // The maker opens short on each sell it rests, and its buy only ever closes that short.
+    reduceOnly: side === 'buy',
     clientOrderKey: `order:${owner}:jpf19:${tag()}`,
     builderFee: null,
   });
