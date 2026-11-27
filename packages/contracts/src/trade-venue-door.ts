@@ -1204,6 +1204,32 @@ export interface BreakevenRequest {
   signer?: { role: 'owner' | 'agent'; address: string };
 }
 
+/**
+ * `POST /api/v1/venue/protections/move` (svc-trade src/venue/protections.ts `move`, J-derivatives-32): the one action
+ * that moves a resting stop or take profit in place to `triggerPrice`, to sign and send through `/api/v1/venue/submit`.
+ */
+export const triggerMoveAnswerSchema = z.object({
+  symbol: z.string(),
+  venueClientOrderId: z.string(),
+  role: z.enum(['take_profit', 'stop_loss']),
+  from: decimalSchema,
+  triggerPrice: decimalSchema,
+  price: decimalSchema,
+  actionKey: z.string(),
+  prepared: preparedAnswerSchema.shape.prepared,
+  reused: z.boolean(),
+});
+export type TriggerMoveAnswer = z.infer<typeof triggerMoveAnswerSchema>;
+
+/** One drag of a stop or target line: the resting order by the venue's client id, and the trigger it moves to. */
+export interface TriggerMoveRequest {
+  owner: string;
+  symbol: string;
+  venueClientOrderId: string;
+  triggerPrice: string;
+  signer?: { role: 'owner' | 'agent'; address: string };
+}
+
 /** One protection to arm: only the price fields its kind takes are sent. Amounts are decimal strings. */
 export interface ProtectionRequest {
   owner: string;

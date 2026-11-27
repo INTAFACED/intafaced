@@ -825,6 +825,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       ...(options.positionMoves ? { positionMoves: true } : {}),
       ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
       ...(options.amendsInPlace ? { amendsInPlace: true } : {}),
+      // As Hyperliquid's own modify does: a resting trigger order's price moves in place (J-derivatives-32).
+      movesTriggersInPlace: true,
       ...(options.cancelsPerAction !== undefined ? { cancelsPerAction: options.cancelsPerAction } : {}),
       ...(options.scheduledCancelMinLeadMs !== undefined ? { scheduledCancel: { minLeadMs: options.scheduledCancelMinLeadMs } } : {}),
     };
@@ -1771,7 +1773,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         ? venueClientOrderId(this.venue.id, intent.clientOrderKey)
         : intent.kind === 'replace_order'
           ? venueClientOrderId(this.venue.id, intent.order.clientOrderKey)
-          : intent.kind === 'amend_order'
+          : intent.kind === 'amend_order' || intent.kind === 'move_trigger'
             ? intent.venueClientOrderId
             : null;
     const builderFee: PreparedVenueAction['builderFee'] =
@@ -1902,6 +1904,29 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           clientOrderKey: 'amend:check',
           builderFee: null,
         });
+        return;
+      }
+      case 'move_trigger': {
+        // Moved in place: a waiting trigger order of this account, to a trigger on the tick that does not fire at once.
+        const resting = this.restingOrder(state, intent.symbol, intent.venueClientOrderId);
+        const trigger = resting.order.trigger;
+        if (!trigger || trigger.state !== 'waiting')
+          refuse(this.venue.id, 'not_offered', 'only a waiting stop or take profit moves in place: this order is not one');
+        const market = this.market(intent.symbol);
+        if (compare(intent.triggerPrice, ZERO) <= 0 || compare(intent.price, ZERO) <= 0)
+          refuse(this.venue.id, 'venue_rejected', 'a trigger price and its order price must be above zero');
+        if (intent.triggerPrice % market.tickSize !== ZERO || intent.price % market.tickSize !== ZERO)
+          refuse(this.venue.id, 'venue_rejected', `the trigger price is not a multiple of the tick size on ${market.symbol}`);
+        const now = this.sourcePrice(market.symbol, trigger.source);
+        const moved: VenueTrigger = { price: intent.triggerPrice, source: trigger.source, role: trigger.role };
+        if (now !== null && crossed(resting.order.side, moved, now)) {
+          const want = (trigger.role === 'take_profit') === (resting.order.side === 'sell') ? 'above' : 'below';
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `a ${trigger.role === 'take_profit' ? 'take profit' : 'stop loss'} on this side must trigger ${want} the ${trigger.source} price ${formatAmount(now)}: this one would fire at once`,
+          );
+        }
         return;
       }
       case 'replace_order': {
@@ -3941,6 +3966,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         this.release(existing, 'canceled');
         return accepted(existing.order.venueOrderId, existing.order);
       }
+      case 'move_trigger': {
+        // Moved in place: the same order and client id, its trigger and order price now the signed ones; its size, side,
+        // lock and builder fee as they rest. The same move sent again finds it there and answers the same.
+        const resting = this.restingOrder(state, intent.symbol, intent.venueClientOrderId);
+        const o = resting.order;
+        if (!o.trigger) return refused('not_offered', 'only a waiting stop or take profit moves in place: this order is not one');
+        resting.order = { ...o, price: intent.price, trigger: { ...o.trigger, price: intent.triggerPrice } };
+        this.runTriggers();
+        return accepted(resting.order.venueOrderId, resting.order);
+      }
       case 'amend_order': {
         // Lowered in place: the same order, its place in the queue (`seq`) kept, its lock cut by what the cut amount locked.
         const resting = this.restingOrder(state, intent.symbol, intent.venueClientOrderId);
@@ -5019,7 +5054,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
             intent.kind === 'update_leverage' ||
             intent.kind === 'update_isolated_margin' ||
             intent.kind === 'amend_order' ||
-            intent.kind === 'replace_order'
+            intent.kind === 'replace_order' ||
+            intent.kind === 'move_trigger'
           ? [intent.symbol]
           : [];
     for (const symbol of symbols) {

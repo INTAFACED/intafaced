@@ -37,6 +37,9 @@ export const NOT_OFFERED: Readonly<Record<Exclude<VenueIntent['kind'], BuiltInte
   // The venue holds one net position per contract and moves no open position between accounts: there is nothing to build.
   set_position_mode: 'a position mode switch is not offered: the venue holds one net position per contract',
   move_position: 'moving an open position between accounts is not offered by the venue',
+  // Hyperliquid's `modify` would move a trigger order in place, but it carries no builder field, and #11021 refuses
+  // dropping our builder fee: a stop or target there is moved by cancelling it and placing it again (the breakeven press).
+  move_trigger: 'moving a stop or target in place is not offered on this venue: its one-action change carries no builder fee',
   // Hyperliquid has one (`vaultTransfer`), and lists its vaults; this adapter builds neither the move nor the reads yet.
   vault_transfer: 'a move into or out of a vault is not offered by this adapter yet',
   // Hyperliquid has these (`cDeposit`, `cWithdraw`, `tokenDelegate`) and lists its validators; this adapter builds none yet.

@@ -10,6 +10,9 @@
  *   POST   /api/v1/venue/protections/breakeven          { owner, symbol, clientOrderId, signer? }: the fee-adjusted
  *                                                         breakeven of the open perp position and the unsigned actions,
  *                                                         in order, that leave exactly one reduce-only stop there
+ *   POST   /api/v1/venue/protections/move               { owner, symbol, venueClientOrderId, triggerPrice, signer? }: the
+ *                                                         one unsigned action that moves a resting stop or take profit in
+ *                                                         place, on a venue that moves trigger orders in place
  *   DELETE /api/v1/venue/protections/:id                an engine stop that has not fired
  *   GET    /api/v1/venue/protection-agent?owner=        the protection key and whether the venue lists it approved
  *   POST   /api/v1/venue/protection-agent/prepare       { owner }: the unsigned approval of that key, for the wallet
@@ -97,6 +100,13 @@ export function attachProtectionRoutes(
     if (!principal) return;
     // Nothing is sent: each step is signed by the person and sent through /api/v1/venue/submit, in order.
     return answer(reply, (p) => p.breakeven(principal, raw(req)));
+  });
+
+  app.post(`${PROTECTIONS_PATH}/move`, privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    // Nothing is sent: the person signs the one move and sends it through /api/v1/venue/submit.
+    return answer(reply, (p) => p.move(principal, raw(req)));
   });
 
   app.delete<{ Params: { id: string } }>(`${PROTECTIONS_PATH}/:id`, privateWrite, async (req, reply) => {

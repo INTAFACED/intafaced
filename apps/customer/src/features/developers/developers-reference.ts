@@ -1730,6 +1730,15 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'Move your stop to breakeven: the price at which closing the whole perp position nets zero after the venue’s fees and ours, and the unsigned actions, in order, that leave exactly one reduce-only stop resting there on the venue',
   },
   {
+    name: 'venueProtectionMove',
+    method: 'POST',
+    path: '/api/v1/venue/protections/move',
+    product: 'accounts',
+
+    summary:
+      'Move a resting stop or take profit to a new trigger in place, on a venue that moves trigger orders in place: the one unsigned action for your wallet, the same order and client id, never a second one',
+  },
+  {
     name: 'venueProtectionCancel',
     method: 'DELETE',
     path: '/api/v1/venue/protections/:id',
