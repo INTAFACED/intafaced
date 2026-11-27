@@ -574,6 +574,11 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
     const venueId = this.venue.id;
     if (intent.type === 'market' && intent.timeInForce === 'ALO')
       throw refusal(venueId, 'not_offered', 'a market order cannot be post-only');
+    // The wire below is a plain order: a trigger, or an order attached to an entry, would go out without its condition
+    // and trade at once (a stop would close the position the moment it is sent). Refused until the trigger wire is built.
+    if (intent.trigger) throw refusal(venueId, 'not_offered', 'a trigger order is not offered on this venue yet');
+    if (intent.parentClientOrderKey)
+      throw refusal(venueId, 'not_offered', 'an order attached to an entry is not offered on this venue yet');
     const sizeIssue = sizeProblem(intent.amount, m.szDecimals);
     if (sizeIssue) throw refusal(venueId, 'venue_rejected', `${m.symbol}: ${sizeIssue}`);
     const priceIssue = priceProblem(intent.price, m.szDecimals, m.kind);
