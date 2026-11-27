@@ -19,12 +19,18 @@ export { useWallet, waitMined, WalletProvider, type MinedOutcome, type SequenceR
 export { isFactoryUnset, toWei, utcTime } from './wallet/wallet-text';
 export { EmbeddedWalletAnnouncer } from './embedded-wallet/EmbeddedWalletAnnouncer';
 export {
+  answerSessionKeyAsks,
+  bindLiveKey,
   createTradingSessionApi,
   freshKey,
   heldKey,
+  joinLiveSession,
   keyFor,
+  keyFromOtherTab,
+  orderKey,
   signWithSessionKey,
   type HeldKey,
+  type KeyChannel,
   type SessionView,
   type TradingSessionApi,
 } from './embedded-wallet/trading-session';
