@@ -2464,6 +2464,8 @@ import { RISK_ALERTS_GET, RISK_ALERTS_SET, RISK_ALERTS_OFF, RISK_ALERTS_LIST } f
 
 import { TRADE_SIGNALS_WEBHOOKS_CREATE } from './trade-signals-procedures.js';
 
+import { VENUE_ORDER_LABELS_LIST } from './trade-venue-order-labels-procedures.js';
+
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 
 import type { ProcedureRecord } from './procedure.js';
@@ -5042,6 +5044,8 @@ const part_trade_risk_alerts_procedures: readonly ProcedureRecord[] = [RISK_ALER
 
 const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE];
 
+const part_trade_venue_order_labels_procedures: readonly ProcedureRecord[] = [VENUE_ORDER_LABELS_LIST];
+
 const part_ws_procedures: readonly ProcedureRecord[] = [WS_SBE_CONSUMERS];
 
 /** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */
@@ -5392,5 +5396,6 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_rfq_procedures,
   ...part_trade_risk_alerts_procedures,
   ...part_trade_signals_procedures,
+  ...part_trade_venue_order_labels_procedures,
   ...part_ws_procedures,
 ];

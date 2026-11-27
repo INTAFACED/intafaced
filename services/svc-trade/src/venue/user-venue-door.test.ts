@@ -882,6 +882,16 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     expect(open).toMatchObject({ origin: 'user', originRef: null, label: 'grid-7' });
     const byId = (await d.orderByClientId(principal, account, cloid)).value;
     expect(byId).toMatchObject({ origin: 'user', originRef: null, label: 'grid-7' });
+    // The labels alone, from our record (a browser reading its own orders from the venue adds them): only this
+    // person's own; another person asking for the same wallet gets none.
+    expect(await d.orderLabelsOf(principal, owner)).toEqual({ labels: [{ venueClientOrderId: cloid.toLowerCase(), label: 'grid-7' }] });
+    const stranger = {
+      ...principal,
+      sub: '99999999-9999-4999-8999-999999999999',
+      userId: '99999999-9999-4999-8999-999999999999',
+    } as Principal;
+    expect(await d.orderLabelsOf(stranger, owner)).toEqual({ labels: [] });
+    await expect(d.orderLabelsOf(principal, 'not-a-wallet')).rejects.toMatchObject({ code: 'trade.venue_request_invalid', status: 400 });
     const rec = await d.orderRecord(principal, account, cloid);
     expect(rec).toMatchObject({ venueName: sim.venue.displayName, origin: 'user', originRef: null, label: 'grid-7' });
     const page = await d.orderHistory(principal, account, { label: 'grid-7', origin: 'user' });

@@ -551,14 +551,26 @@ export const features: readonly Feature[] = [
     tab: 'pay',
   },
   {
+    id: 'developer-apps',
+    label: 'Registered apps',
+    paths: ['/developers/apps'],
+    status: 'live',
+    reason:
+      "A developer registers an app, reads its status and changes a server app's secret through svc-identity; while the owner has not published the token lifetimes the room says so (oauth.lifetime_unset) and no app can sign a person in.",
+    unlock: 'already live',
+    tab: 'person',
+    checked:
+      'apps.render.test.tsx: registration, the one-time secret and the oauth.lifetime_unset notice; J-cex-spot-15 #1 opens it (issue 11177)',
+  },
+  {
     id: 'oauth-apps',
-    label: 'Registered apps and app sign-in',
-    paths: ['/developers/apps', '/oauth/authorize'],
+    label: 'App sign-in',
+    paths: ['/oauth/authorize'],
     status: 'blocked',
     reason:
-      'oauth.lifetime_unset: the owner has not published the authorisation code and access token lifetimes, no service accepts an issued token, and the operator approval queue is not in the admin app',
+      'oauth.lifetime_unset: the owner has not published the authorisation code and access token lifetimes, so no app can sign a person in and no token is issued',
     unlock:
-      'publish OAUTH_CODE_TTL_SECONDS and OAUTH_ACCESS_TOKEN_TTL_SECONDS, add the token check to the services and the approval queue to admin',
+      'publish OAUTH_CODE_TTL_SECONDS and OAUTH_ACCESS_TOKEN_TTL_SECONDS, and add the token check to the services that will accept an app token',
     tab: 'person',
   },
   {
@@ -585,11 +597,13 @@ export const features: readonly Feature[] = [
     id: 'developer-portal',
     label: 'Developer portal',
     paths: ['/developers', '/developers/*'],
-    status: 'blocked',
+    status: 'live',
     reason:
-      'developer.hosts: no read for the owner host settings is connected, so every base address reads host not set; most section pages are not written',
-    unlock: 'add the developer.hosts read in the payments settings and publish the section pages',
+      'The portal reads the published hosts, terms and bot policy from svc-trade (developer-portal-rest.ts): a blank owner setting reads not set and refuses with its typed code. A section whose page is not written shows the slice it waits for.',
+    unlock: 'already live',
     tab: 'public',
+    checked:
+      'Real-app journeys run 12722 on main (2026-11-27): J-developer-01 #1 to #7 and J-cex-spot-15 #1 to #4, #6 and #7 passed. /developers/apps has its own developer-apps row.',
   },
   {
     id: 'trade-news-calendar',
@@ -822,13 +836,25 @@ export const features: readonly Feature[] = [
     checked: '2026-11-24, Real-app journeys run 11739 (J-identity-13 #1 passed on the real stack with proof v2 FAITHFUL).',
   },
   {
+    id: 'platform-status',
+    label: 'Platform status',
+    paths: ['/status'],
+    status: 'live',
+    reason:
+      "svc-notify serves the founders' status components and maintenance notices, and each market's trading mode is its own reported state; with no components set the page says so and shows no overall status",
+    unlock: 'already live',
+    tab: 'public',
+    checked:
+      '2026-11-27, Real-app journeys run 12722 on main (J-cex-spot-14 #2, #3, #4 and #5 passed on the real stack; their only hidden path was /status).',
+  },
+  {
     id: 'owner-blank-pages',
-    label: 'Platform status, trading rulebook, support chat and the money mule policy',
-    paths: ['/status', '/rulebook', '/support/chat', '/help/mule-policy'],
+    label: 'Trading rulebook, support chat and the money mule policy',
+    paths: ['/rulebook', '/support/chat', '/help/mule-policy'],
     status: 'blocked',
     reason:
-      'Owner values not set: the components the status page reports on, the published rulebook, support hours and the mule policy wording, so each page says it is blank or shows TEST text',
-    unlock: 'the owner sets the status components, publishes the rulebook and the mule policy, and sets support hours',
+      'Owner values not set: the published rulebook, support hours and the mule policy wording, so each page says it is blank or shows TEST text',
+    unlock: 'the owner publishes the rulebook and the mule policy, and sets support hours',
     tab: 'public',
   },
   {

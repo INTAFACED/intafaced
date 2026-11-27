@@ -112,6 +112,23 @@ export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both'
 export type VenueOrderOrigin = 'user' | 'stop' | 'take_profit' | 'liquidation' | 'adl';
 export const VENUE_ORDER_ORIGINS: readonly VenueOrderOrigin[] = ['user', 'stop', 'take_profit', 'liquidation', 'adl'];
 
+/** Where an order came from, using the venue's own `origin` first and falling back to its trigger role. */
+export function orderOriginOf(order: Pick<UserVenueOrder, 'origin' | 'trigger'>): VenueOrderOrigin {
+  if (order.origin) return order.origin;
+  if (order.trigger) return order.trigger.role === 'take_profit' ? 'take_profit' : 'stop';
+  return 'user';
+}
+
+/**
+ * A venue order as the door shows it to its owner: its resolved origin and origin ref, and the person's own label
+ * (J-derivatives-04 #2) from `labels` (by lower-case venue client order id) where the venue carries none. The door and
+ * the person's browser (which reads their own orders from the venue itself) both show an order through this one function.
+ */
+export function withOwnOrderLabel(order: UserVenueOrder, labels: ReadonlyMap<string, string>): UserVenueOrder {
+  const label = order.label ?? (order.venueClientOrderId ? (labels.get(order.venueClientOrderId.toLowerCase()) ?? null) : null);
+  return { ...order, origin: orderOriginOf(order), originRef: order.originRef ?? null, label };
+}
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;

@@ -18268,6 +18268,75 @@
           }
         }
       ]
+    },
+    "trade.venueOrderLabels.list": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "venueOrderLabels.list",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.user_venue_off": "SERVICE_UNAVAILABLE",
+        "trade.venue_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["owner"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "venueClientOrderId": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": ["venueClientOrderId", "label"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["labels"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": 7
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
     }
   }
 }

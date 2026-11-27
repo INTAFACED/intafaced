@@ -1,9 +1,9 @@
 import type { Amount } from '@intafaced/ledger-client/money';
 import {
   VENUE_ORDER_ORIGINS,
+  orderOriginOf,
   type AsOf,
   type UserVenueAccount,
-  type UserVenueOrder,
   type UserVenueOrderRecord,
   type VenueOrderOrigin,
   type VenueOrderStatus,
@@ -28,12 +28,7 @@ export const HISTORY_PAGE_SIZES: readonly number[] = [20, 50, 100];
 /** A trader's own label on a venue order: up to 36 letters, digits and `. _ : -` with no spaces. */
 export const VENUE_ORDER_LABEL_RE = /^[A-Za-z0-9._:-]{1,36}$/;
 
-/** Where an order came from, using the venue's own `origin` first and falling back to its trigger role. */
-export function orderOriginOf(order: Pick<UserVenueOrder, 'origin' | 'trigger'>): VenueOrderOrigin {
-  if (order.origin) return order.origin;
-  if (order.trigger) return order.trigger.role === 'take_profit' ? 'take_profit' : 'stop';
-  return 'user';
-}
+export { orderOriginOf };
 
 export interface VenueHistoryQuery {
   readonly side: 'buy' | 'sell' | null;

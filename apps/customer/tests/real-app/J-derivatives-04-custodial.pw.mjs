@@ -9,7 +9,8 @@ import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 // (#1 to #7) are proven on the person's own venue account in J-derivatives-04-venue.pw.mjs. The tests here keep the
 // custodial Later book coverage alive without claiming proof of launch steps. The contract is the TEST perpetual
 // `local-test-gates.mjs futures` lists; its mark follows the stack's TEST book, which the TEST market maker walks a few
-// basis points at a time. Every figure is read back through the customer's own API.
+// basis points at a time. Every figure is read back through the customer's own API. As a custodial part file it keeps
+// today's custody switch (launch-custody.mjs CUSTODIAL_PART), since it funds its trader through our ledger.
 const J = 'J-derivatives-04';
 const DESK = '/trade/futures';
 const ROOM = '/trade/orders?product=futures';

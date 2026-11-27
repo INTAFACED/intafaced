@@ -88,6 +88,9 @@ test("a launch-desk journey's custodial part file keeps today's switch; its othe
   assert.equal(fileCustody('J-a-1-custodial-venue.pw.mjs', ids), 'off');
   assert.equal(journeyIdOf('J-a-1-custodial.pw.mjs'), 'J-a-1');
   assert.equal(fileCustody('J-cex-spot-03-custodial.pw.mjs', readLaunchJourneyIds()), 'on');
+  assert.equal(fileCustody('J-derivatives-04-custodial.pw.mjs', readLaunchJourneyIds()), 'on');
+  assert.equal(fileCustody('J-derivatives-01-custodial.pw.mjs', readLaunchJourneyIds()), 'on');
+  assert.equal(fileCustody('J-derivatives-01-venue.pw.mjs', readLaunchJourneyIds()), 'off');
   assert.equal(fileCustody('J-cex-spot-03.pw.mjs', readLaunchJourneyIds()), 'off');
 });
 

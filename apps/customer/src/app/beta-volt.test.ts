@@ -120,7 +120,7 @@ describe("the beta's menus", () => {
     expect(simpleTrade?.items.map((item) => item.href)).toContain('/trade/buy');
   });
 
-  it('shows API keys and the API permissions reference (/developers/permissions) on the beta while keeping /developers blocked (J-developer-03 #7 #9)', () => {
+  it('shows API keys and the API permissions reference (/developers/permissions) on the beta (J-developer-03 #7 #9)', () => {
     const betaList = betaRoomList(betaScreens.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
     for (const [route, sample] of [
@@ -134,11 +134,6 @@ describe("the beta's menus", () => {
       expect(betaOffFeatureFor(sample), sample).toBeUndefined();
       expect(isHiddenPath(sample), sample).toBe(false);
     }
-    expect(betaOffFeatureFor('/developers')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/hosts')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/fix')?.id).toBe('developer-portal');
-    expect(isHiddenPath('/developers')).toBe(true);
-    expect(isHiddenPath('/developers/hosts')).toBe(true);
   });
 
   it('shows Notices (/notice, /notice/:id, /announcement, /announcement/:id) on the beta while keeping Lab, App and Partner blocked (J-cex-spot-10 #10)', () => {
@@ -198,23 +193,47 @@ describe("the beta's menus", () => {
     }
   });
 
-  it('shows Idempotent order placement (/developers/idempotency) on the beta while keeping /developers blocked (J-developer-05 #5)', () => {
+  it('shows Idempotent order placement (/developers/idempotency) on the beta (J-developer-05 #5)', () => {
     const betaList = betaRoomList(betaScreens.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
     expect(shownRooms.has('/developers/idempotency')).toBe(true);
     expect(betaHides('/developers/idempotency', betaList)).toBe(false);
     expect(betaOffFeatureFor('/developers/idempotency')).toBeUndefined();
     expect(isHiddenPath('/developers/idempotency')).toBe(false);
-    expect(betaOffFeatureFor('/developers')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/hosts')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/fix')?.id).toBe('developer-portal');
-    expect(betaOffFeatureFor('/developers/status')?.id).toBe('developer-portal');
-    expect(isHiddenPath('/developers')).toBe(true);
-    expect(isHiddenPath('/developers/hosts')).toBe(true);
-    expect(isHiddenPath('/developers/status')).toBe(true);
   });
 
-  it('shows Official channels (/help/official-channels) on the beta while keeping Status, Rulebook, Support chat and Money mule policy blocked (J-identity-13 #1)', () => {
+  it('shows the developer portal and the market data downloads on the beta, so J-cex-spot-15 can be proven there (#11177)', () => {
+    const betaList = betaRoomList(betaScreens.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    // Every page J-cex-spot-15's steps open (#1 to #4, #6, #7 on /developers, #10 on /trade/markets/downloads), and a
+    // section still waiting for its slice (/developers/fix), which shows that slice rather than being hidden.
+    for (const path of [
+      '/developers',
+      '/developers/errors',
+      '/developers/errors/auth',
+      '/developers/changelog',
+      '/developers/bot-policy',
+      '/developers/order-types',
+      '/developers/rate-limits',
+      '/developers/hosts',
+      '/developers/status',
+      '/developers/fix',
+      '/trade/markets/downloads',
+    ]) {
+      expect(betaHides(path, betaList), path).toBe(false);
+      expect(betaOffFeatureFor(path), path).toBeUndefined();
+      expect(isHiddenPath(path), path).toBe(false);
+    }
+    // Registered apps is shown too (J-cex-spot-15 #1 opens every section the home page lists): the room registers apps and
+    // names its blocker, the unpublished token lifetimes (oauth.lifetime_unset). Signing in with an app (/oauth/authorize)
+    // is what those lifetimes switch off, so that page keeps the oauth-apps row and stays off the beta.
+    expect(betaHides('/developers/apps', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/developers/apps')).toBeUndefined();
+    expect(isHiddenPath('/developers/apps')).toBe(false);
+    expect(betaOffFeatureFor('/oauth/authorize')?.id).toBe('oauth-apps');
+  });
+
+  it('shows Official channels (/help/official-channels) on the beta while keeping Rulebook, Support chat and Money mule policy blocked (J-identity-13 #1)', () => {
     const betaList = betaRoomList(betaScreens.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
     expect(shownRooms.has('/help/official-channels')).toBe(true);
@@ -223,10 +242,19 @@ describe("the beta's menus", () => {
     expect(isHiddenPath('/help/official-channels')).toBe(false);
     expect(allServices().flatMap((group) => group.rooms.map((room) => room.path))).toContain('/help/official-channels');
     expect(searchRooms('official channels', 'Personal').map((room) => room.path)).toContain('/help/official-channels');
-    for (const blockedPath of ['/status', '/rulebook', '/support/chat', '/help/mule-policy']) {
+    for (const blockedPath of ['/rulebook', '/support/chat', '/help/mule-policy']) {
       expect(betaOffFeatureFor(blockedPath)?.id, blockedPath).toBe('owner-blank-pages');
       expect(isHiddenPath(blockedPath), blockedPath).toBe(true);
     }
+  });
+
+  it('shows Platform status (/status) on the beta, the page J-cex-spot-14 #2 to #5 open (#11178)', () => {
+    const betaList = betaRoomList(betaScreens.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    expect(shownRooms.has('/status')).toBe(true);
+    expect(betaHides('/status', betaList)).toBe(false);
+    expect(betaOffFeatureFor('/status')).toBeUndefined();
+    expect(isHiddenPath('/status')).toBe(false);
   });
 
   it('keep every door and row with the switch off, as on the test stack and in CI', () => {
