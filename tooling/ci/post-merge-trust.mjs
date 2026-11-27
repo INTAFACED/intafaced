@@ -38,6 +38,8 @@
  *   money step or not, by the lead's decision of 12 Nov 2026 under OWNER 296 and 297): open one "Flaky step on main:
  *   <step>" issue, labelled `flaky`, naming its area, unless one is open already (or the older "Flaky money step on
  *   main" one). Its owner closes it with the fix; the step never counts as proven from that run meanwhile.
+ *   An open `flaky` issue one of whose steps fails outright in this run and in the run before it, both on commits newer
+ *   than the one it was filed on, also gets `regression`, so it goes out first (#11160; flakyPromotions).
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -178,7 +180,7 @@ export const flakyIssueTitle = (row) => `Flaky step on main: ${row.step.replace(
 const oldFlakyIssueTitle = (row) => `Flaky money step on main: ${row.step.replace('#', ' #')}`;
 
 /** The issue for a step that failed, then passed on its retry, on main (a row of set-aside.json's `flaky`). */
-export function flakyIssueBody(row, runUrl) {
+export function flakyIssueBody(row, runUrl, sha) {
   return [
     `\`${row.step.replace('#', ' #')}\` failed, then passed on its retry, on main in [this run](${runUrl}) (tooling/ci/journey-verdict.mjs).`,
     '',
@@ -188,6 +190,8 @@ export function flakyIssueBody(row, runUrl) {
     `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real bug can look like this.`,
     '',
     `<!-- flaky-step: ${row.step} -->`,
+    // The commit it was filed on: a full run on a newer commit that fails it outright counts towards flakyPromotions.
+    ...(sha ? [`<!-- flaky-since: ${sha} -->`] : []),
     // A money step (setAsideGuard; a row with no `money` counts as money): project-state's pull ranks its fix first.
     ...(row.money !== false ? [`<!-- money-flaky: ${row.step} -->`] : []),
     '_Opened by tooling/ci/post-merge-trust.mjs._',
@@ -203,6 +207,77 @@ export function flakyIssueActions(rows, issues) {
     seen.add(r.step);
     return !open.has(flakyIssueTitle(r)) && !open.has(oldFlakyIssueTitle(r));
   });
+}
+
+/**
+ * A `flaky` step that is really broken (#11160): on 27 Nov J-wallet-01 #5 was filed flaky (#11149) because it passed
+ * run alone on main's head, then failed outright on every full main run after, and sat behind other work as flaky for
+ * hours. So an open `flaky` issue also gets `regression` (it goes out first, like any main red) once one of its steps
+ * fails outright, on every try, in this full run and in the finished run before it, both on commits newer than the one
+ * it was filed on. A pass, or a pass only on its retry, in either run leaves it flaky. It keeps `flaky`, so the seal's
+ * tracking (journey-seal.mjs trackingIssue) and the pull's grouping still read it.
+ */
+const FLAKY_MARK = /<!-- (?:money-)?flaky(?:-step)?: (J-[\w-]+?#\d+) -->/g;
+const FLAKY_TITLE_STEPS = /^Flaky (?:money )?step on main: (J-[\w-]+)((?: #\d+)+)\s*$/;
+
+/** The steps a flaky issue names: its marks, else its title. Pure. */
+export function flakyIssueSteps(issue) {
+  const marked = [...String(issue?.body ?? '').matchAll(FLAKY_MARK)].map((m) => m[1]);
+  if (marked.length) return [...new Set(marked)];
+  const t = FLAKY_TITLE_STEPS.exec(String(issue?.title ?? ''));
+  return t
+    ? t[2]
+        .trim()
+        .split(/\s+/)
+        .map((n) => `${t[1]}${n}`)
+    : [];
+}
+
+/** Where a flaky issue was filed: the commit (the settle's, journeys-revert.mjs, or `flaky-since`), else its opening time. */
+export function flakyIssueBase(issue) {
+  const body = String(issue?.body ?? '');
+  const settle = /<!-- journeys-settle v1 (\{.*?\}) -->/.exec(body);
+  let sha = /<!-- flaky-since: ([0-9a-f]{7,40}) -->/.exec(body)?.[1] ?? null;
+  if (!sha && settle) {
+    try {
+      sha = JSON.parse(settle[1]).sha ?? null;
+    } catch {
+      sha = null;
+    }
+  }
+  return sha ? { sha } : { at: issue?.created_at ?? null };
+}
+
+/**
+ * Which open flaky issues become regressions after this run. `issues`: open `flaky` issues; `now`, `prev`: readReport
+ * states of this run and the finished run before it; `nowRun`, `prevRun`: those runs ({ head_sha, created_at });
+ * `newer(base, run)`: whether the run's commit is newer than the issue's base (compare says ahead; a base time: the run
+ * was created after it). Returns [{ issue, step }]. Async only for `newer`.
+ */
+export async function flakyPromotions({ issues, now, prev, nowRun, prevRun, newer }) {
+  if (!prevRun || !nowRun) return [];
+  const out = [];
+  for (const issue of issues ?? []) {
+    const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l?.name));
+    if (issue.state !== 'open' || issue.pull_request || !labels.includes('flaky') || labels.includes('regression')) continue;
+    const step = flakyIssueSteps(issue).find((s) => now[s] === 'failed' && prev[s] === 'failed');
+    if (!step) continue;
+    const base = flakyIssueBase(issue);
+    if ((await newer(base, prevRun)) && (await newer(base, nowRun))) out.push({ issue, step });
+  }
+  return out;
+}
+
+/** The comment on a flaky issue that becomes a regression. Pure. */
+export function flakyPromotionBody({ step, nowRun, prevRun }) {
+  const s = step.replace('#', ' #');
+  return [
+    `\`${s}\` failed outright, on every try, in two full runs on main in a row since this issue was filed: [run ${prevRun.id}](${prevRun.html_url}) on \`${prevRun.head_sha.slice(0, 10)}\` and [run ${nowRun.id}](${nowRun.html_url}) on \`${nowRun.head_sha.slice(0, 10)}\`. That is broken, not flaky: it is now a \`regression\` and goes out first, like any red on main.`,
+    '',
+    'Find what makes it fail in the full run (often an earlier test changing shared state), and fix it there; never by weakening the test.',
+    '',
+    '_Posted by tooling/ci/post-merge-trust.mjs._',
+  ].join('\n');
 }
 
 const CHECK_RED = /failed twice on `([0-9a-f]{7,40})`/g;
@@ -611,7 +686,7 @@ async function setAsideCheck({ repo, runId, runUrl }) {
 }
 
 /** One open `flaky` issue per step that passed only on its retry in this run and no set-aside tracks. */
-async function flakyCheck({ repo, runId, runUrl }) {
+async function flakyCheck({ repo, runId, runUrl, sha }) {
   const list = await journeyReport(repo, runId, 'set-aside.json');
   // `moneyFlaky`: the same list in a run from before 12 Nov 2026.
   const rows = list?.flaky ?? list?.moneyFlaky ?? [];
@@ -622,10 +697,32 @@ async function flakyCheck({ repo, runId, runUrl }) {
   for (const row of flakyIssueActions(rows, found?.items ?? [])) {
     const { json } = await gh('POST', `/repos/${repo}/issues`, {
       title: flakyIssueTitle(row),
-      body: flakyIssueBody(row, runUrl),
+      body: flakyIssueBody(row, runUrl, sha),
       labels: ['flaky'],
     });
     lines.push(`- ${row.step} passed only on its retry (owner: ${row.owner ?? 'none named'}): opened #${json?.number}`);
+  }
+  return lines;
+}
+
+/** Open flaky issues whose step failed outright in this run and the one before it become regressions (flakyPromotions). */
+async function promoteFlaky({ repo, runId, sha, createdAt }, now, prev, prevRun) {
+  const { json: issues } = await gh('GET', `/repos/${repo}/issues?labels=flaky&state=open&per_page=100`);
+  if (!Array.isArray(issues)) return ['- Flaky issues not read, so none was checked for a regression.'];
+  const nowRun = { id: runId, head_sha: sha, created_at: createdAt, html_url: `https://github.com/${repo}/actions/runs/${runId}` };
+  const seen = new Map();
+  const newer = async (base, run) => {
+    if (!base.sha) return Boolean(base.at && run.created_at > base.at);
+    const k = `${base.sha}...${run.head_sha}`;
+    if (!seen.has(k)) seen.set(k, (await gh('GET', `/repos/${repo}/compare/${k}?per_page=1`)).json?.status === 'ahead');
+    return seen.get(k);
+  };
+  const lines = [];
+  const promoted = await flakyPromotions({ issues, now: readReport(now).states, prev: readReport(prev).states, nowRun, prevRun, newer });
+  for (const { issue, step } of promoted) {
+    await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, { body: flakyPromotionBody({ step, nowRun, prevRun }) });
+    await gh('POST', `/repos/${repo}/issues/${issue.number}/labels`, { labels: ['regression'] });
+    lines.push(`- #${issue.number} (${step}) failed outright in two full runs in a row: now a regression`);
   }
   return lines;
 }
@@ -694,6 +791,8 @@ async function journeysCheck(ctx) {
   lines.push(
     `- Tests with no step title newly broken (${testsBroken.length}): ${testsBroken.map((k) => `\`${k.split('#test ')[1]}\``).join(', ') || 'none'}${testsBroken.length ? " (the run's verdict judges them; no revert starts for them)" : ''}`,
   );
+
+  lines.push(...(await promoteFlaky(ctx, now, prev, prevRun)));
 
   // Close journey issues whose named steps all pass now. One search for all of them (search allows 30 calls a minute).
   for (const issue of await openIssuesTitled(repo, journeyIssueTitle(''))) {

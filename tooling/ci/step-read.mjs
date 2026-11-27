@@ -166,8 +166,14 @@ export async function buildReads({
     const text = after.has(jf) ? after.get(jf) : await src.read(head, jf);
     if (text == null) continue;
     headFiles.set(jf, text);
-    for (const t of testsIn(text, j)) if (!headTests.has(t.step)) headTests.set(t.step, jf);
+    for (const t of testsIn(text, j)) {
+      const files = headTests.get(t.step) ?? [];
+      if (!files.includes(jf)) files.push(jf);
+      headTests.set(t.step, files);
+    }
   }
+  // The file a step's read is recorded under: one the PR changed when it holds a test for the step, else the first.
+  const testFile = (s) => headTests.get(s).find((jf) => after.has(jf)) ?? headTests.get(s)[0];
   const notRead = [];
   const asked = [...new Set([...own, ...claimed])].sort();
   for (const s of asked) if (!headTests.has(s)) notRead.push({ step: s, why: 'no test for it at the head' });
@@ -209,7 +215,8 @@ export async function buildReads({
     ];
     let size = parts.reduce((n, p) => n + Buffer.byteLength(p) + 1, 0);
     const left = [];
-    for (const jf of [...new Set(steps.map((s) => headTests.get(s)))].sort()) {
+    // Every file holding a test for a read step (a split journey's sibling files included), as READ.md says.
+    for (const jf of [...new Set(steps.flatMap((s) => headTests.get(s)))].sort()) {
       const block = `\nBEGIN UNTRUSTED FILE at the head (${head.slice(0, 10)}) ${jf}\n${fence(headFiles.get(jf))}\nEND UNTRUSTED FILE`;
       const b = Buffer.byteLength(block) + 1;
       if (size + b > MAX_PROMPT_BYTES - 64_000) left.push(jf);
@@ -240,7 +247,7 @@ export async function buildReads({
     second: second.length ? promptFor(second) : null,
     required: reads,
     secondRequired: second,
-    read: { steps: reads.map((s) => ({ step: s, test_file: headTests.get(s), own: own.has(s), second: secondReason(s, count) })), notRead },
+    read: { steps: reads.map((s) => ({ step: s, test_file: testFile(s), own: own.has(s), second: secondReason(s, count) })), notRead },
     shingleTexts: reads.flatMap((s) => {
       const w = words.get(s);
       return [w.title, w.does, w.sees, ...WORD_FIELDS.map((k) => w.fields?.[k] ?? '')];

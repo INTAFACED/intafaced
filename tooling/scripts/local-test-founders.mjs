@@ -12,7 +12,7 @@
  * .env.founder.local or .env.founder-secrets.local. Never enrols a test operator.
  */
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { GuardError, enrolFounderAccounts, generateInvites, randomPassword } from './local-founder-seed.mjs';
 import { readLatestEmailConfirmToken } from './local-test-state.mjs';
@@ -67,10 +67,14 @@ export function isDockerFounderHandle(handle) {
   return handle === 'local_nitro' || handle === 'local_phantom';
 }
 
+// Written whole, then renamed into place: a reader never sees a half-written file. Identity's watcher on the tester
+// compose stack reads the vault every second (local-tester-identity.mjs, #10815).
 function writePrivate(file, text) {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  writeFileSync(file, text, { mode: 0o600 });
-  chmodSync(file, 0o600);
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, text, { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, file);
 }
 
 /** The only vault the local test world may read. Absolute state dir, or nothing. */
