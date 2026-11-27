@@ -99,6 +99,7 @@ export function deleteLayout(value: DeskLayoutsValue, id: string, now: Date): De
   const layout = value.layouts.find((one) => one.id === id);
   if (!layout) return value;
   return {
+    ...value,
     layouts: value.layouts.filter((one) => one.id !== id),
     active: value.active === id ? null : value.active,
     deleted: [...value.deleted.filter((one) => one.id !== id), { ...layout, deletedAt: now.toISOString() }],
