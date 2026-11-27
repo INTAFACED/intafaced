@@ -199,6 +199,27 @@ describe('a recorded run of the venue journeys (hl-recorded)', () => {
     ).rejects.toBeInstanceOf(NotRecordedError);
   });
 
+  it("a read about an account the recording never names is refused and listed as another account's; the trader's own is not", async () => {
+    const { recording } = await record();
+    const fetch = replayRecording(recording, { trader: replayKey.address });
+    const ask = (body: unknown) =>
+      fetch('https://api.hyperliquid-testnet.xyz/info', {
+        method: 'POST',
+        headers: {},
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(1_000),
+      });
+    // Another file's account on the same stack: the replay never answers it.
+    const stranger = privateKeyToAccount(keccak256(toHex('another file on the stack'))).address;
+    await expect(ask({ type: 'frontendOpenOrders', user: stranger })).rejects.toBeInstanceOf(NotRecordedError);
+    // The run's own trader, and a read naming no account, asking what the recording never holds.
+    await expect(ask({ type: 'userFillsByTime', user: replayKey.address, startTime: 1, aggregateByTime: true })).rejects.toBeInstanceOf(
+      NotRecordedError,
+    );
+    await expect(ask({ type: 'allMids' })).rejects.toBeInstanceOf(NotRecordedError);
+    expect(fetch.misses.map((m) => m.otherAccount)).toEqual([true, false, false]);
+  });
+
   it('a read answers the state its epoch settled on, however often it is asked; a read first recorded later has none', async () => {
     const { recording } = await record();
     const venue = venueWith(replayRecording(recording, { trader: replayKey.address }));
