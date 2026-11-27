@@ -1150,6 +1150,11 @@ export interface ProtectionRequest {
   clientOrderId: string;
   /** The entry order's own client order key, for a take profit or stop loss attached to it. */
   attachTo?: string;
+  /**
+   * Who signs a trigger order that rests on the venue: the owner's wallet when absent, or the trading session's key on a
+   * venue whose trades only a session key signs (status `tradesSignedBy: session_key`).
+   */
+  signer?: { role: 'owner' | 'agent'; address: string };
 }
 
 // ── Conditional spot orders (J-cex-spot-08; svc-trade src/venue/spot-conditionals.ts) ─────────────────────────────

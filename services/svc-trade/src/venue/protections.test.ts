@@ -246,7 +246,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     expect(listed.venueOrderId).toMatch(/^sim-/);
   });
 
-  it("on a venue whose trades a session key signs, a stop loss and a take profit are prepared for the person's session key, which signs them with no wallet prompt (#11031)", async () => {
+  it("on a venue whose trades a session key signs, a stop loss and a take profit are prepared for the person's session key, which signs them with no wallet prompt", async () => {
     await flat();
     await long('1');
     // The person's trading session key, approved on the venue by their wallet (as session-key.ts starts one).
@@ -272,7 +272,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       expect(sent.outcome).toMatchObject({ accepted: true, order: { status: 'open' } });
     }
     // The wallet's own signer stays the default, and a signer that is neither is refused before anything is prepared.
-    const plain = await p.create(person, base({ kind: 'stop_loss', triggerPrice: '2800' }), REGION);
+    const plain = await p.create(person, base({ kind: 'stop_loss', triggerPrice: '2800', quantity: '0.5' }), REGION);
     if (plain.restsOn !== 'venue') throw new Error('stop loss rests on the venue');
     expect(plain.prepared.signer).toEqual({ role: 'owner', address: owner });
     expect(

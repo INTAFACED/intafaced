@@ -22,7 +22,19 @@ import {
   type VenueMarket,
   type VenuePosition,
 } from '../../../features/trade/venue-api';
-import { VENUE_POLL_MS, outcomeText, useVenueApi, type ActionResult, type RunAction } from '../../../features/trade/venue/VenueKit';
+import {
+  SESSION_KEY_GONE,
+  SESSION_NEEDED,
+  VENUE_POLL_MS,
+  outcomeText,
+  useDeskSigning,
+  useExitSignerChoice,
+  useVenueApi,
+  type ExitSigner,
+  type ActionResult,
+  type RunAction,
+} from '../../../features/trade/venue/VenueKit';
+import { signWithSessionKey } from '../../../features/protocol';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueProtectCopy } from './venue-protect-copy';
 import { PROTECTION_FIELDS, canonical, closingSide, coverage, protectionClientId, whereItRests } from './venue-protect-logic';
@@ -31,13 +43,32 @@ type PT = ReturnType<typeof venueProtectCopy.useCopy>['t'];
 type Field = 'quantity' | 'triggerPrice' | 'limitPrice' | 'trailingDistance';
 
 /**
- * The person's wallet signs one action the door already prepared (a protection's trigger order, the agent permission),
- * and the door sends it to the venue: the same submit as every other venue action. An action the door holds as signed
- * already answers its recorded outcome and is never signed again.
+ * Who signs a position's exit order that rests on the venue (a trigger order is an order): the desk's live trading
+ * session key on a venue whose trades only a session key signs (Hyperliquid's orders name chain 1337, which a wallet
+ * refuses), else the owner's wallet. With no session on such a venue it answers the desk's refusal, and nothing is
+ * prepared.
+ */
+export function useExitSigner(owner: string): () => ExitSigner | { refusal: Refusal } {
+  const exitSigner = useExitSignerChoice(owner);
+  const v = venueCopy.useCopy().t;
+  return useCallback(() => {
+    const choice = exitSigner();
+    return 'needs' in choice ? { refusal: { message: v('Session needed'), code: SESSION_NEEDED } } : choice;
+  }, [exitSigner, v]);
+}
+
+/**
+ * One action the door already prepared (a protection's trigger order, the agent permission) is signed and sent to the
+ * venue: the same submit as every other venue action. Prepared for the person's wallet, the wallet signs it; prepared
+ * for the desk's trading session key, that key signs it here with no wallet prompt, and a key that is no longer the
+ * desk's live one signs nothing. An action the door holds as signed already answers its recorded outcome and is never
+ * signed again.
  */
 export function useSignPrepared(owner: string) {
   const venue = useVenueApi();
   const wallet = useWallet();
+  const signing = useDeskSigning();
+  const v = venueCopy.useCopy().t;
   return useCallback(
     async (answer: Pick<PreparedAnswer, 'actionKey' | 'prepared'> & Partial<Pick<PreparedAnswer, 'signed' | 'lastOutcome'>>) => {
       const p = answer.prepared;
@@ -47,10 +78,20 @@ export function useSignPrepared(owner: string) {
           ? ({ kind: 'outcome', outcome: last, reused: true, clientOrderId: p.venueClientOrderId, nonce: p.nonce } as const)
           : ({ kind: 'unknown', clientOrderId: p.venueClientOrderId, nonce: p.nonce } as const);
       }
-      const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
-      if (signed.status === 'rejected') return { kind: 'rejected' } as const;
-      if (signed.status !== 'signed') return { kind: 'wallet_failed', message: signed.status === 'failed' ? signed.message : '' } as const;
-      const sent = await venue.submit(answer.actionKey, { digest: p.digest, signature: signed.signature, signedBy: owner });
+      let signature: { digest: string; signature: string; signedBy: string };
+      if (p.signer.role === 'agent') {
+        const live = signing?.live ?? null;
+        if (!live || live.address.toLowerCase() !== p.signer.address.toLowerCase())
+          return { kind: 'refused', code: SESSION_KEY_GONE, message: v('Session key gone'), beforeWallet: true } as const;
+        signature = await signWithSessionKey(live, p);
+      } else {
+        const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
+        if (signed.status === 'rejected') return { kind: 'rejected' } as const;
+        if (signed.status !== 'signed')
+          return { kind: 'wallet_failed', message: signed.status === 'failed' ? signed.message : '' } as const;
+        signature = { digest: p.digest, signature: signed.signature, signedBy: owner };
+      }
+      const sent = await venue.submit(answer.actionKey, signature);
       if (!sent.ok) {
         return sent.reason === 'uncertain'
           ? ({ kind: 'unknown', clientOrderId: p.venueClientOrderId, nonce: p.nonce } as const)
@@ -60,7 +101,7 @@ export function useSignPrepared(owner: string) {
       if (!outcome.definite) return { kind: 'unknown', clientOrderId: p.venueClientOrderId, nonce: p.nonce } as const;
       return { kind: 'outcome', outcome, reused: false, clientOrderId: p.venueClientOrderId, nonce: p.nonce } as const;
     },
-    [venue, wallet, owner],
+    [venue, wallet, owner, signing, v],
   );
 }
 
@@ -119,6 +160,7 @@ export function ProtectDialog({
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
   const sign = useSignPrepared(owner);
+  const exitSigner = useExitSigner(owner);
   const [kind, setKind] = useState<ProtectionKind>('take_profit');
   const [source, setSource] = useState<ProtectionSource>('mark');
   const [fields, setFields] = useState<Record<Field, string>>({ quantity: '', triggerPrice: '', limitPrice: '', trailingDistance: '' });
@@ -151,6 +193,12 @@ export function ProtectDialog({
       clientOrderId: protectionClientId(Date.now(), counter.current++),
     };
     for (const f of takes) request[f] = canonical(fields[f]);
+    // A kind that rests on the venue is a trigger order: signed by the desk's session key where the venue needs one.
+    if (where === 'venue') {
+      const chosen = exitSigner();
+      if ('refusal' in chosen) return setRefusal(chosen.refusal);
+      request.signer = chosen.signer;
+    }
     busy.current = true;
     try {
       const created = await venue.createProtection(request);
