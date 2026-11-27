@@ -500,7 +500,7 @@ describe('prepare builds exactly what the wallet signs', () => {
     await refusedWith(venue.prepare(account, agentSigner, { kind: 'revoke_agent', agentAddress: AGENT }), 'agent_not_permitted');
   });
 
-  it('approveBuilderFee and approveAgent: the testnet typed data; a nameless agent, a revoke of no agent and amend refuse', async () => {
+  it('approveBuilderFee and approveAgent: the testnet typed data; a nameless agent and a revoke of no agent refuse', async () => {
     const fake = fakeVenue();
     const venue = venueWith(fake);
     const fee = await venue.prepare(account, ownerSigner, { kind: 'approve_builder_fee', builder: BUILDER, maxFeeBps: a('1') });
@@ -547,16 +547,6 @@ describe('prepare builds exactly what the wallet signs', () => {
         asset: 'USDC',
         amount: 1n,
         moveKey: 'move:owner:1',
-      }),
-      'not_offered',
-    );
-    await refusedWith(
-      venue.prepare(account, ownerSigner, {
-        kind: 'amend_order',
-        symbol: 'ETH-PERP',
-        venueClientOrderId: '0x00000000000000000000000000000001',
-        amount: a('1'),
-        price: a('1'),
       }),
       'not_offered',
     );
@@ -1710,5 +1700,138 @@ describe('HIP-3 perp DEXs: the stock, index and gold perpetuals', () => {
     const symbols = (await venueWith(fake).markets(null)).value.map((m) => m.symbol);
     expect(symbols.some((s) => s.includes(':'))).toBe(false);
     expect(fake.infoTypes).not.toContain('perpDexs');
+  });
+});
+
+describe('moving a resting order: one signed `modify`, never cancel then place (#11020)', () => {
+  const RESTING = order({ clientOrderKey: 'order:test-user:desk:resting' });
+  const restingId = venueClientOrderId(HL_TESTNET_VENUE_ID, RESTING.clientOrderKey);
+  const replacement = order({ clientOrderKey: 'order:test-user:desk:replacement', price: a('1990') });
+  const replacementId = venueClientOrderId(HL_TESTNET_VENUE_ID, replacement.clientOrderKey);
+  const move: VenueIntent = { kind: 'replace_order', symbol: 'ETH-PERP', venueClientOrderId: restingId, order: replacement };
+  const modifyOf = (oid: string, c: string, p: string, s: string) => ({
+    type: 'modify',
+    oid,
+    order: { a: 1, b: true, p, s, r: false, t: { limit: { tif: 'Gtc' } }, c },
+  });
+
+  it('replace_order is one modify of the resting order, the replacement under its own client id, signed once and sent once', async () => {
+    const fake = fakeVenue();
+    // The venue's record after the modify: the order at its new price, under the replacement's client id.
+    fake.info.orderStatus = (b) => ({
+      status: 'order',
+      order: {
+        status: 'open',
+        statusTimestamp: NOW,
+        order: {
+          coin: 'ETH',
+          side: 'B',
+          limitPx: '1990',
+          sz: '0.5',
+          origSz: '0.5',
+          oid: 78,
+          cloid: b.oid,
+          tif: 'Gtc',
+          orderType: 'Limit',
+          reduceOnly: false,
+        },
+      },
+    });
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, move);
+    expect(prepared.venueClientOrderId).toBe(replacementId);
+    const action = modifyOf(restingId, replacementId, '1990', '0.5');
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(prepared.nonce)));
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(fake.exchangeBodies).toHaveLength(1);
+    expect(fake.exchangeBodies[0]!.action).toEqual(action);
+    if (!outcome.definite || !outcome.accepted) throw new Error('expected the modify accepted');
+    const [cancelled, placed] = outcome.legs ?? [];
+    expect(cancelled).toMatchObject({ definite: true, accepted: true });
+    expect(placed).toMatchObject({ definite: true, accepted: true, venueRef: '78' });
+    expect(placed?.definite && placed.accepted ? placed.order : null).toMatchObject({
+      venueClientOrderId: replacementId,
+      price: a('1990'),
+      status: 'open',
+    });
+  });
+
+  it('a modify refused, or racing a fill, says so, keeps the venue words, and is never sent again', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, move);
+    fake.exchange.push(err('Cannot modify canceled or filled order'));
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(fake.exchangeBodies).toHaveLength(1);
+    expect(outcome).toEqual({
+      definite: true,
+      accepted: false,
+      refusal: { venueId: HL_TESTNET_VENUE_ID, code: 'order_final', detail: 'Cannot modify canceled or filled order' },
+      asOf: new Date(NOW),
+    });
+    const other = await venue.prepare(account, ownerSigner, move);
+    fake.exchange.push(err('Order must have minimum value of $10.'));
+    const refused = await venue.submit(other, await sign(ownerKey, other));
+    expect(refused.definite && !refused.accepted ? refused.refusal : null).toMatchObject({
+      code: 'venue_rejected',
+      detail: 'Order must have minimum value of $10.',
+    });
+  });
+
+  it('a lost modify answer is not definite: it is read back by the replacement client id and never resent', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const prepared = await venue.prepare(account, ownerSigner, move);
+    fake.exchange.push('timeout');
+    expect(await venue.submit(prepared, await sign(ownerKey, prepared))).toEqual({ definite: false, reason: 'timeout' });
+    expect(fake.exchangeBodies).toHaveLength(1);
+    const read = await venue.orderByClientId(account, prepared.venueClientOrderId!);
+    expect(read.value?.venueClientOrderId).toBe(replacementId);
+    expect(fake.exchangeBodies).toHaveLength(1);
+  });
+
+  it('a replacement the one modify cannot carry is refused before anything is signed', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const replace = (o: Partial<PlaceUserOrderIntent>, symbol = 'ETH-PERP'): VenueIntent => ({
+      kind: 'replace_order',
+      symbol,
+      venueClientOrderId: restingId,
+      order: { ...replacement, ...o },
+    });
+    await refusedWith(venue.prepare(account, ownerSigner, replace({ clientOrderKey: RESTING.clientOrderKey })), 'venue_rejected');
+    await refusedWith(venue.prepare(account, ownerSigner, replace({}, 'BTC-PERP')), 'venue_rejected');
+    await refusedWith(venue.prepare(account, ownerSigner, replace({ type: 'market', timeInForce: 'IOC' })), 'not_offered');
+    await refusedWith(
+      venue.prepare(account, ownerSigner, replace({ trigger: { price: a('1900'), source: 'mark', role: 'stop_loss' } })),
+      'not_offered',
+    );
+    await refusedWith(venue.prepare(account, ownerSigner, replace({ builderFee: { builder: BUILDER, feeBps: a('0.5') } })), 'not_offered');
+    await refusedWith(venue.prepare(account, ownerSigner, replace({ amount: a('0.123456') })), 'venue_rejected');
+    expect(fake.exchangeBodies).toHaveLength(0);
+  });
+
+  it('amend_order is one modify that keeps the client id, the side and the time in force the venue holds', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const amend: VenueIntent = {
+      kind: 'amend_order',
+      symbol: 'ETH-PERP',
+      venueClientOrderId: restingId,
+      amount: a('0.3'),
+      price: a('1995'),
+    };
+    const prepared = await venue.prepare(account, ownerSigner, amend);
+    expect(prepared.venueClientOrderId).toBe(restingId);
+    const action = modifyOf(restingId, restingId, '1995', '0.3');
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(prepared.nonce)));
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(fake.exchangeBodies).toHaveLength(1);
+    expect(fake.exchangeBodies[0]!.action).toEqual(action);
+    expect(outcome).toMatchObject({ definite: true, accepted: true });
+    // An order the venue no longer holds open is not amended: nothing is signed.
+    fake.info.orderStatus = () => ({ status: 'unknownOid' });
+    await refusedWith(venueWith(fake).prepare(account, ownerSigner, amend), 'unknown_order');
+    expect(fake.exchangeBodies).toHaveLength(1);
   });
 });
