@@ -266,7 +266,18 @@ async function serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind, re
   // perpetuals (`xyz`, the one such DEX the test network trades). A recording holds no answer for its reads, so a
   // replay lists the main DEX only.
   const perpDexs = kind === 'hl-testnet' ? HL_TESTNET_PERP_DEXS : [];
-  const started = await hl.startHyperliquidVenueServer({ host, port, appEnv, betaPosture, source, perpDexs, ...(fetch ? { fetch } : {}) });
+  // Live, also while recording, reads are shared: the venue limits this one address by weight a minute.
+  const live = kind === 'hl-testnet';
+  const started = await hl.startHyperliquidVenueServer({
+    host,
+    port,
+    appEnv,
+    betaPosture,
+    source,
+    perpDexs,
+    live,
+    ...(fetch ? { fetch } : {}),
+  });
   process.stdout.write(
     `${JSON.stringify({ msg: 'test-venue.listening', label: 'TEST', url: started.url, venue: started.venue.venue.id, kind, recording, trader })}\n`,
   );

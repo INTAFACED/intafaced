@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { READ_FRESH_MS, type FetchLike, type Json } from './core.js';
+import { startHyperliquidVenueServer } from './http-server.js';
 import { HyperliquidTestnetUserVenue } from './venue.js';
 
 /**
@@ -182,5 +183,41 @@ describe('shared venue reads', () => {
     const off = setup(false, [429]);
     await expect(off.venue.read({ type: 'userFees', user: '0xa' })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
     expect(off.calls).toHaveLength(1);
+  });
+});
+
+describe('the venue server shares reads whenever its answers are live', () => {
+  /** A server whose venue reads go to `fetch`, counted by type, and a person's open orders read twice through its door. */
+  async function openOrdersTwice(live: boolean | undefined) {
+    const calls: string[] = [];
+    const fetch: FetchLike = async (_url, init) => {
+      calls.push(String((JSON.parse(init.body) as { type: string }).type));
+      return { ok: true, status: 200, text: async () => JSON.stringify([]) };
+    };
+    const started = await startHyperliquidVenueServer({
+      host: '127.0.0.1',
+      port: 0,
+      appEnv: 'test',
+      fetch,
+      ...(live === undefined ? {} : { live }),
+    });
+    try {
+      const account = { venueId: started.venue.venue.id, owner: '0x00000000000000000000000000000000000000ab' };
+      for (let i = 0; i < 2; i += 1) {
+        const res = await globalThis.fetch(`${started.url}/open-orders`, { method: 'POST', body: JSON.stringify({ account }) });
+        expect(res.status, await res.text()).toBe(200);
+      }
+    } finally {
+      started.server.close();
+    }
+    return calls.filter((type) => type === 'frontendOpenOrders').length;
+  }
+
+  it('live while recording: two reads of the same account inside their freshness are one call to the venue', async () => {
+    expect(await openOrdersTwice(true)).toBe(1);
+  });
+
+  it('a recording played back (a fetch, not live) answers every read itself, one call each', async () => {
+    expect(await openOrdersTwice(undefined)).toBe(2);
   });
 });

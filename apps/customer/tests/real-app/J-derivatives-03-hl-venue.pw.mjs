@@ -4,7 +4,15 @@ import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { continueInWallet, hyperliquidForThisFile, openVenueDesk, sameDecimal, testDeposit, venueRecord } from './venue.mjs';
+import {
+  continueInWallet,
+  startVenueSession,
+  hyperliquidForThisFile,
+  openVenueDesk,
+  sameDecimal,
+  testDeposit,
+  venueRecord,
+} from './venue.mjs';
 
 // J-derivatives-03 #1 on Hyperliquid's own test network: what a first tester does after funding. They start a
 // trading session, set a leverage, open a small long on ETH-PERP, and set a stop loss and a take profit for the whole
@@ -29,36 +37,17 @@ const run = journeyState(`${J}-hl-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}
 
 test.describe.configure({ mode: 'default' });
 /**
- * TEST teardown, the flatten a tester does by hand: every exit order on ETH-PERP cancelled from its dialog and the
- * position closed in full, reduce-only, each leg confirmed on the venue's own record. On the live test network this keeps
- * the funded account flat for the next day's run. Declared before the venue's own switch, so it runs while the door is
- * still on (Playwright runs a file's afterAll hooks in the order they are declared).
+ * TEST teardown: the account flattened (`flatten`), so the funded account holds nothing into the next day's run.
+ * Declared before the venue's own switch, so it runs while the door is still on (Playwright runs a file's afterAll hooks
+ * in the order they are declared).
  */
 test.afterAll(async ({ browser }) => {
   test.setTimeout(240_000);
-  const s = run.read();
-  if (!s.account) return;
+  if (!run.read().account) return;
   const page = await browser.newPage();
   try {
     const { owner } = await desk(page);
-    if ((await positionOf(owner)) === null) return;
-    const dialog = await exitOrders(page);
-    const resting = async () => (await openOrders(owner)).filter((o) => o.trigger).length;
-    for (const id of s.exits ?? []) {
-      const before = await resting();
-      await item(dialog, id).getByRole('button', { name: 'Cancel', exact: true }).click();
-      await signed(page);
-      await expect.poll(resting, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` }).toBe(before - 1);
-    }
-    expect(await resting()).toBe(0);
-    await page.keyboard.press('Escape');
-    await expect(dialog).toHaveCount(0);
-    const close = row(page).getByTestId('venue-close');
-    await close.getByRole('textbox').fill('100');
-    await close.getByRole('button', { name: 'Close 100%', exact: true }).click();
-    await signed(page);
-    await expect.poll(async () => positionOf(owner), { timeout: 30_000, message: 'the position closed' }).toBeNull();
-    expect(await openOrders(owner)).toEqual([]);
+    await flatten(page, owner);
   } finally {
     await page.close();
   }
@@ -101,15 +90,34 @@ async function desk(page) {
 }
 
 /**
- * The trading session a session-key venue needs before any order: started from the desk's own panel and signed once by
- * the wallet, then live under this tab's key. The simulator's orders are signed by the wallet, so it shows no panel.
+ * TEST, the flatten a tester does by hand: every exit order on ETH-PERP cancelled from its dialog and the position closed
+ * in full, reduce-only, each leg confirmed on the venue's own record. Every exit order listed, not only this run's: a run
+ * cut short leaves its own on the funded account, and the next day's
+ * run starts by clearing them. A new page holds no session key, so it starts its own session first.
  */
-async function startSession(page) {
-  if (!sessionVenue) return;
-  const session = page.getByTestId('venue-session');
-  await session.getByTestId('venue-session-start').click();
-  await continueInWallet(page);
-  await session.locator('[data-testid="venue-session-line"][data-session="live"]').waitFor({ timeout: 60_000 });
+async function flatten(page, owner) {
+  if ((await positionOf(owner)) === null) return;
+  if (sessionVenue) await startVenueSession(page);
+  const dialog = await exitOrders(page);
+  const resting = async () => (await openOrders(owner)).filter((o) => o.trigger).length;
+  const listedOrders = listed(dialog).locator('li[data-client-order-id]');
+  while ((await listedOrders.count()) > 0) {
+    const before = await resting();
+    const id = await listedOrders.first().getAttribute('data-client-order-id');
+    await listedOrders.first().getByRole('button', { name: 'Cancel', exact: true }).click();
+    await signed(page);
+    await expect.poll(resting, { timeout: 20_000, message: `exit order ${id} cancelled on the venue` }).toBe(before - 1);
+    await expect(item(dialog, id)).toHaveCount(0, { timeout: 20_000 });
+  }
+  expect(await resting()).toBe(0);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  const close = row(page).getByTestId('venue-close');
+  await close.getByRole('textbox').fill('100');
+  await close.getByRole('button', { name: 'Close 100%', exact: true }).click();
+  await signed(page);
+  await expect.poll(async () => positionOf(owner), { timeout: 30_000, message: 'the position closed' }).toBeNull();
+  expect(await openOrders(owner)).toEqual([]);
 }
 
 /** TEST funding of the simulator's venue account; throws when the simulator credits nothing. */
@@ -166,6 +174,8 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   const { owner } = await desk(page);
   // TEST funding on the simulator only: on the test network the trader's own account already holds TEST USDC.
   if (!sessionVenue) await fundOnSimulator(owner);
+  // TEST setup: whatever an earlier run cut short left on the funded account is flattened first.
+  await flatten(page, owner);
   const market = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === SYMBOL);
   expect(market, `${SYMBOL} is on the venue's own market list`).toBeTruthy();
   // What the venue judges trigger orders on: its mark (Hyperliquid triggers on the mark price).
@@ -178,7 +188,7 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   const stopLoss = times(toUnits(bid), 6_000, market.tickSize, false);
 
   // The journey's start: a trading session where the venue needs one, a leverage, and a TEST long open on the venue.
-  await startSession(page);
+  if (sessionVenue) await startVenueSession(page);
   const margin = page.getByTestId('venue-margin');
   await margin.getByRole('textbox', { name: 'Leverage (times)', exact: true }).fill(LEVERAGE);
   await margin.getByRole('button', { name: 'Sign this leverage setting', exact: true }).click();
@@ -226,9 +236,7 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
     return answer.request().postDataJSON();
   };
   const tp = await arm('Take profit', takeProfit);
-  run.write({ exits: [tp.clientOrderId] });
   const sl = await arm('Stop loss', stopLoss);
-  run.write({ exits: [tp.clientOrderId, sl.clientOrderId] });
   expect(tp).toMatchObject({ kind: 'take_profit', side: 'sell', triggerPrice: takeProfit, triggerSource: 'mark' });
   expect(sl).toMatchObject({ kind: 'stop_loss', side: 'sell', triggerPrice: stopLoss, triggerSource: 'mark' });
   // Each is signed by what signs the venue's orders: the session key on Hyperliquid, the wallet on the simulator.
