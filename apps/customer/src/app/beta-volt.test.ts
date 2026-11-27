@@ -214,6 +214,34 @@ describe("the beta's menus", () => {
     expect(isHiddenPath('/developers/status')).toBe(true);
   });
 
+  it('shows the developer portal and the market data downloads on the beta, so J-cex-spot-15 can be proven there (#11177)', () => {
+    const betaList = betaRoomList(betaScreens.rooms, rooms);
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
+    // Every page J-cex-spot-15's steps open (#1 to #4, #6, #7 on /developers, #10 on /trade/markets/downloads), and a
+    // section still waiting for its slice (/developers/fix), which shows that slice rather than being hidden.
+    for (const path of [
+      '/developers',
+      '/developers/errors',
+      '/developers/errors/auth',
+      '/developers/changelog',
+      '/developers/bot-policy',
+      '/developers/order-types',
+      '/developers/rate-limits',
+      '/developers/hosts',
+      '/developers/status',
+      '/developers/fix',
+      '/trade/markets/downloads',
+    ]) {
+      expect(betaHides(path, betaList), path).toBe(false);
+      expect(betaOffFeatureFor(path), path).toBeUndefined();
+      expect(isHiddenPath(path), path).toBe(false);
+    }
+    // Registered apps keeps its own blocker (oauth-apps: the token lifetimes are unpublished), so J-cex-spot-15 #1, which
+    // opens every section the home page lists, is still named off the beta until that row is live.
+    expect(betaOffFeatureFor('/developers/apps')?.id).toBe('oauth-apps');
+    expect(isHiddenPath('/developers/apps')).toBe(true);
+  });
+
   it('shows Official channels (/help/official-channels) on the beta while keeping Status, Rulebook, Support chat and Money mule policy blocked (J-identity-13 #1)', () => {
     const betaList = betaRoomList(betaScreens.rooms, rooms);
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaList);
