@@ -731,6 +731,14 @@ export default function Portfolio() {
             </span>
           </a>
         )}
+        {isHiddenPath('/money/journal') ? null : (
+          <a data-testid="money-journal-link" className="lt-row-link" href="/money/journal">
+            <span className="lt-stack">
+              <span>{t('Journal link')}</span>
+              <span className="lt-hint">{t('Journal link hint')}</span>
+            </span>
+          </a>
+        )}
       </>
     );
   }

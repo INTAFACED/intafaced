@@ -13,7 +13,7 @@ export {
   type VenuePublicFees,
 } from './venue-api';
 export { bpsToPercent, rateShown } from './venue/fee-rates';
-export { useAsOfText, useOwner, useVenueApi, VenueFrame } from './venue/VenueKit';
+export { TestMark, useAsOfText, useOwner, useVenueApi, VenueFrame } from './venue/VenueKit';
 export { WalletBar } from './venue/WalletBar';
 export { VenueFrame as VoltVenueFrame, WalletBar as VoltWalletBar } from './venue/volt/VoltVenue';
 export { venueCopy } from './venue/venue-copy';
