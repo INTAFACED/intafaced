@@ -132,7 +132,7 @@ export function OutcomeLine({ result, owner, venueId }: { result: ActionResult |
   const { t } = venueCopy.useCopy();
   if (!result) return null;
   return (
-    <div role="status" data-testid="venue-outcome" data-code={result.kind === 'refused' ? (result.code ?? '') : undefined}>
+    <div role="status" data-testid="venue-outcome">
       <p>{outcomeText(t, result)}</p>
       {result.kind === 'unknown' && result.clientOrderId && owner ? (
         <ReadBack owner={owner} clientOrderId={result.clientOrderId} {...(venueId ? { venueId } : {})} />
