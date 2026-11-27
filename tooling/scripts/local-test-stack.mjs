@@ -122,6 +122,8 @@ import {
   testVenueKind,
   userVenueCount,
   userVenueKind,
+  liveTestNetworkRefusal,
+  LIVE_TEST_NETWORK_SWITCH,
   userVenueSwitchOn,
 } from './local-test-venue.mjs';
 import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
@@ -2319,6 +2321,9 @@ async function startTestVenue(name = 'test-venue') {
   // Which venue and source this start wants: a running one that answers for another (the simulator where
   // Hyperliquid is wanted, another recording or trader) is stopped and started again, never kept.
   const kind = userVenueKind(process.env.LOCAL_STACK_USER_VENUE) ?? '';
+  // The live test network is the hosted beta's alone (#11061): refused here, before anything starts, and again by the venue.
+  const liveRefused = liveTestNetworkRefusal(kind, process.env);
+  if (liveRefused) fail(liveRefused, 2);
   let hl;
   try {
     hl = hlSource(process.env);
@@ -2358,6 +2363,7 @@ async function startTestVenue(name = 'test-venue') {
     // The Hyperliquid recording and the address it is for; blank: none. Never a key.
     LOCAL_STACK_HL_RECORDING: hl.recording ?? '',
     LOCAL_STACK_HL_TRADER: hl.trader ?? '',
+    [LIVE_TEST_NETWORK_SWITCH]: process.env[LIVE_TEST_NETWORK_SWITCH] ?? '',
   };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
   const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO, { build });

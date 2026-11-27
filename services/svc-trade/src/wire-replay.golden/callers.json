@@ -208,6 +208,7 @@
   { "path": "forex.settlementStatus", "type": "query", "caller": "scope" },
   { "path": "futures.policy", "type": "query", "caller": "public" },
   { "path": "health", "type": "query", "caller": "public" },
+  { "path": "journal.closedTrades", "type": "query", "caller": "scope" },
   { "path": "markets.get", "type": "query", "caller": "public" },
   { "path": "markets.list", "type": "query", "caller": "public" },
   { "path": "options.catalogue", "type": "query", "caller": "scope" },

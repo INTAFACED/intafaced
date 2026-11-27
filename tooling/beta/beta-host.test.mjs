@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { userVenueKind } from '../scripts/local-test-venue.mjs';
+import { liveTestNetworkRefusal, userVenueKind } from '../scripts/local-test-venue.mjs';
 import opsService from '../scripts/local-stack-services/ops.mjs';
 import tradeService from '../scripts/local-stack-services/trade.mjs';
 import { GRANT } from './beta-invited.mjs';
@@ -436,6 +436,13 @@ test("the beta's Customer build shows only rooms finished in Volt; the switch is
     'the beta wins over a shell',
   );
   assert.equal(userVenueKind(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_USER_VENUE), 'hl-testnet');
+  // The live test network is the beta's alone (#11061): its stack sets the switch a builder's stack lacks, and the beta
+  // wins over a shell, so the venue process's refusal (local-test-venue.mjs liveTestNetworkRefusal) never stops the beta.
+  for (const shell of [{}, { LOCAL_STACK_LIVE_TEST_NETWORK: 'off' }]) {
+    const beta = stackEnv(betaPaths('/home/x'), shell);
+    assert.equal(beta.LOCAL_STACK_LIVE_TEST_NETWORK, 'on');
+    assert.equal(liveTestNetworkRefusal(userVenueKind(beta.LOCAL_STACK_USER_VENUE), beta), null);
+  }
   // The journeys' TEST markets stay off the beta's board (#10599): the stack's switch (local-stack-services/trade.mjs)
   // reads exactly 'off', and the beta wins over a shell.
   assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_TEST_MARKETS, 'off');

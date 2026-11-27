@@ -10,7 +10,8 @@ import { useSession } from '../../session';
 import { StepUpConfirm } from '../../money';
 import type { StepUpBegin } from '../../account';
 import { useWallet } from '../wallet/WalletProvider';
-import { APP_CHAIN_ID, type TypedDataDocument } from '../wallet/eip1193';
+import { APP_CHAIN_ID, type ChainGuard, type TypedDataDocument } from '../wallet/eip1193';
+import { networkLabel } from '../blockers';
 import { transferCalldata } from '../wallet/transfer';
 import { createVenueWalletApi, type VenueConnection } from './venue-wallet-api';
 import {
@@ -260,6 +261,33 @@ export function readFailedState(failure: Failed, refusal: Refusal | null, t: T):
       action: { label: t('tryAgain'), href: '/wallet/venue' },
     },
   };
+}
+
+/**
+ * The connection is signed on the app's network. A wallet on another one (a venue desk's) gets the switch here, as the
+ * wallet panels and the desk give it, so nobody has to change network inside the wallet and back. Nothing when it is right.
+ */
+export function NetworkSwitch({
+  guard,
+  problem,
+  onSwitch,
+  t,
+}: {
+  guard: ChainGuard | null;
+  problem: string | null;
+  onSwitch: () => void;
+  t: T;
+}) {
+  if (!guard || guard.ok) return null;
+  return (
+    <div role="alert" data-venue-network="chain_mismatch">
+      <p>{t('networkWrong', { name: networkLabel(guard.configured).name })}</p>
+      <Button tone="primary" onClick={onSwitch}>
+        {t('switchNetwork')}
+      </Button>
+      {problem ? <p>{problem}</p> : null}
+    </div>
+  );
 }
 
 export function VenueWalletRoom() {
@@ -709,7 +737,11 @@ export function VenueWalletRoom() {
                 </Button>
               ))}
             </>
-          ) : connection ? (
+          ) : null}
+          {address ? (
+            <NetworkSwitch guard={wallet.guard} problem={wallet.problem} onSwitch={() => void wallet.switchNetwork()} t={t} />
+          ) : null}
+          {!address ? null : connection ? (
             <>
               <h2>{blocked ? t('sanctionedTitle') : expired ? t('expiredTitle') : t('connectedTitle')}</h2>
               <dl>
