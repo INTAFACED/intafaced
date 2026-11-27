@@ -33,7 +33,15 @@ export const dailyLossViewSchema = z.object({
   /** A loosening asked and still waiting out its 24 hours: `terms` null is turning the limit off. */
   pending: z.object({ terms: dailyLossTermsSchema.nullable(), effectiveAt: z.string() }).nullable(),
   /** Today's loss (since `since`, 00:00 UTC) on the venue's own fills; `null` when the venue could not be read just now. */
-  today: z.object({ loss: decimal.nullable(), since: z.string(), reached: z.boolean() }),
+  today: z.object({
+    loss: decimal.nullable(),
+    since: z.string(),
+    /** The venue's own time for the fills `loss` was counted from; `null` with `loss`. */
+    asOf: z.string().nullable(),
+    /** The next 00:00 UTC: when today's loss starts again from zero. */
+    resetsAt: z.string(),
+    reached: z.boolean(),
+  }),
 });
 
 const refuse = (map: Record<string, 'BAD_REQUEST' | 'SERVICE_UNAVAILABLE'>): Refusals => Object.freeze(map);

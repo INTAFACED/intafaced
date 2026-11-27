@@ -192,6 +192,9 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
     expect(view.active).toBeNull();
     // TEST: the venue's realised -1 on the half closed, plus its fees and our builder fee on both fills.
     expect(view.today).toMatchObject({ loss: '3.475275', reached: false });
+    // The venue's as-of time for the fills it was counted from, and the next 00:00 UTC, when the count starts again.
+    expect(view.today.asOf).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(view.today.resetsAt).toBe(new Date(Date.parse(view.today.since) + 86_400_000).toISOString());
   });
 
   it('off (the default), an opening order is prepared with no warning', async () => {
@@ -214,6 +217,7 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
     expect(refused).toMatchObject({ code: 'trade.daily_loss_limit_reached', status: 422 });
     expect(refused!.message).toContain('reaching your daily loss limit of 3 USDC');
     expect(refused!.message).toContain('reduce-only orders that close a position still go through');
+    expect(refused!.message).toContain(`until the day resets at ${view.today.resetsAt} (00:00 UTC); nothing was sent`);
     expect(await actions.find(USER, opening.clientOrderKey)).toBeNull();
     // The other side of an open position is refused too unless it is reduce-only.
     expect(await refusalOf(prepare(order({ side: 'sell', price: a('3500') })))).toMatchObject({ code: 'trade.daily_loss_limit_reached' });

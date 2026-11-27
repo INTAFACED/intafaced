@@ -15159,11 +15159,17 @@
               "since": {
                 "type": "string"
               },
+              "asOf": {
+                "type": ["string", "null"]
+              },
+              "resetsAt": {
+                "type": "string"
+              },
               "reached": {
                 "type": "boolean"
               }
             },
-            "required": ["loss", "since", "reached"],
+            "required": ["loss", "since", "asOf", "resetsAt", "reached"],
             "additionalProperties": false
           }
         },
@@ -15319,11 +15325,17 @@
               "since": {
                 "type": "string"
               },
+              "asOf": {
+                "type": ["string", "null"]
+              },
+              "resetsAt": {
+                "type": "string"
+              },
               "reached": {
                 "type": "boolean"
               }
             },
-            "required": ["loss", "since", "reached"],
+            "required": ["loss", "since", "asOf", "resetsAt", "reached"],
             "additionalProperties": false
           }
         },
@@ -15482,11 +15494,17 @@
               "since": {
                 "type": "string"
               },
+              "asOf": {
+                "type": ["string", "null"]
+              },
+              "resetsAt": {
+                "type": "string"
+              },
               "reached": {
                 "type": "boolean"
               }
             },
-            "required": ["loss", "since", "reached"],
+            "required": ["loss", "since", "asOf", "resetsAt", "reached"],
             "additionalProperties": false
           }
         },

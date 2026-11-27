@@ -129,3 +129,26 @@ export class SqlDailyLossLimitStore implements DailyLossLimitStore {
     });
   }
 }
+
+/**
+ * The TEST age door's subject (`daily-loss-limit`, svc-trade src/test-age-door.ts): the waiting loosening of the venue
+ * account `owner` is moved `ms` earlier, as if that much time had gone by, so a journey sees its 24 hours pass on a TEST
+ * clock. A limit with nothing waiting is not touched (answers null). Test stacks only: the door is shut elsewhere.
+ */
+export function ageDailyLossLimit(sql: Sql) {
+  return async (owner: string, ms: number) => {
+    const rows = z
+      .object({ pending_effective_at: z.date() })
+      .array()
+      .parse(
+        await sql`
+          UPDATE trade.user_venue_daily_loss_limits
+          SET pending_effective_at = pending_effective_at - make_interval(secs => ${ms / 1000}),
+              updated_at = updated_at - make_interval(secs => ${ms / 1000})
+          WHERE owner = ${owner.toLowerCase()} AND pending
+          RETURNING pending_effective_at`,
+      );
+    const row = rows[0];
+    return row ? { pendingEffectiveAt: row.pending_effective_at.toISOString() } : null;
+  };
+}
