@@ -163,7 +163,10 @@ test('a stack that never readies is down after the wait, never up, and the front
   const end = await round(paths, io);
   assert.equal(end.state, 'down');
   assert.match(end.reason, /not readied 5 minutes after the launch: none yet/);
-  assert.equal(seen.filter((s) => s.step === 'readied').length, READY_WAIT_MS / 10_000 + 1);
+  // The new commit waits its full time, then the round goes back to the last good one (#11029), which here never
+  // readies either: each waits the full time, and the round ends down.
+  assert.equal(seen.filter((s) => s.step === 'readied').length, 2 * (READY_WAIT_MS / 10_000 + 1));
+  assert.equal(end.refused.sha, NEW);
   assert.equal(holdOf(readStatus(paths)), 'closed');
 });
 
@@ -548,7 +551,9 @@ test('a moved commit that fails its check goes back to the last good commit, whi
   const end = await round(paths, io);
   assert.deepEqual(steps(seen).slice(0, 4), ['checkout', 'install', 'launch', 'check'], 'the new commit is tried first');
   assert.ok(steps(seen).slice(4).includes('stop'), 'the failed stack is stopped');
-  assert.deepEqual(steps(seen).slice(-5), ['checkout', 'install', 'launch', 'check', 'readied'], 'then the last good one is started');
+  const back = steps(seen).slice(steps(seen).lastIndexOf('checkout'));
+  assert.deepEqual(back.slice(0, 4), ['checkout', 'install', 'launch', 'check'], 'then the last good one is started');
+  assert.equal(back.at(-1), 'readied');
   for (const s of seen) assert.equal(s.shown, 'updating', `${s.step}: testers see the updating page, never the failed build`);
   assert.equal(end.state, 'up');
   assert.equal(end.sha, OLD);
