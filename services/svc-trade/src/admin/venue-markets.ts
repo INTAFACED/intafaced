@@ -19,7 +19,7 @@
  */
 import { compare, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import type { Principal } from '@intafaced/auth';
-import { isTestVenue, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
+import { isTestVenue, venueSymbolBody, type UserVenue, type UserVenueMarket } from '@intafaced/venue-contracts';
 import {
   delistingNoticeKey,
   VENUE_ROUTING_STATES,
@@ -254,7 +254,8 @@ export class VenueMarketsAdmin {
 
   private symbolOf(input: WriteBase): { venueSymbol: string } {
     const s = (input.symbol ?? '').trim();
-    if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(s)) throw new TradeOpsError('trade.venue_symbol_invalid', 'symbol is not a venue symbol');
+    if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(venueSymbolBody(s)))
+      throw new TradeOpsError('trade.venue_symbol_invalid', 'symbol is not a venue symbol');
     return { venueSymbol: s };
   }
 

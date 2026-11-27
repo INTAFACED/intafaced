@@ -311,8 +311,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // PURR-USDC: the one spot pair Hyperliquid's test network trades every day (its BTC-USDC has no bids and no
           // print since 10 Nov 2026), so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
           // PURR-USDC, so the seed skips it there.
+          // On Hyperliquid's test network, the live stock, index and gold perpetuals of its `xyz` HIP-3 DEX
+          // (local-test-venue.mjs HL_TESTNET_PERP_DEXS); the TEST venue lists none of them, so the seed skips them there.
           TRADE_USER_VENUE_TEST_LISTINGS:
-            'BTC-USDC,PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP',
+            'BTC-USDC,PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,' +
+            'xyz:TSLA-PERP,xyz:NVDA-PERP,xyz:AAPL-PERP,xyz:XYZ100-PERP,xyz:GOLD-PERP,xyz:SILVER-PERP',
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
           // `LOCAL_STACK_USER_VENUE_ELIGIBILITY=off` leaves it blank, so the eligible list is empty with its reason.
           TRADE_USER_VENUE_ELIGIBILITY_LEVEL:
