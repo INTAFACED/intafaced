@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./wallet-reads": {
+      "types": "./dist/wallet-reads.d.ts",
+      "default": "./dist/wallet-reads.js"
     }
   },
   "scripts": {

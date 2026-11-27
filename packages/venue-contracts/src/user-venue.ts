@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import { compare, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import type { VenueDescriptor } from './adapter.js';
 import type { VenueOrderStatus, VenueOrderType } from './account.js';
@@ -2384,7 +2385,8 @@ const BUSINESS_KEY_RE = /^[a-z][a-z0-9.-]*:.+$/;
  */
 export function venueClientOrderId(venueId: string, clientOrderKey: string): string {
   const key = assertBusinessKey(venueId, clientOrderKey, 'client order key');
-  const hex = createHash('sha256').update(`${venueId}\u0000${key}`).digest('hex').slice(0, 32);
+  // sha256 from @noble/hashes, not node:crypto, so the app's browser bundle can carry this package.
+  const hex = bytesToHex(sha256(utf8ToBytes(`${venueId}\u0000${key}`))).slice(0, 32);
   return `0x${hex}`;
 }
 

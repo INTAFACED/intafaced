@@ -13,7 +13,7 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import { creditDepositLogs, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
-import { HttpUserVenue, readDepositRoute } from './http-user-venue.js';
+import { HttpUserVenue, readDepositRoute, readWalletReads } from './http-user-venue.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
@@ -713,7 +713,42 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     });
 
   it('status names the venue’s deposit route: where the customer’s own wallet sends the token', async () => {
-    expect(await door().status()).toMatchObject({ enabled: true, available: true, label: 'TEST', deposit: ROUTE });
+    // The simulator names no wallet reads: every read of the account comes through the door.
+    expect(await door().status()).toMatchObject({ enabled: true, available: true, label: 'TEST', deposit: ROUTE, walletReads: null });
+  });
+
+  it('status names where the browser reads the person’s own wallet when the venue names it, and only a well-formed one', async () => {
+    const named = { baseUrl: 'https://api.hyperliquid-testnet.xyz', perpDexs: ['xyz'] };
+    const withReads = (walletReads: unknown) =>
+      new UserVenueDoor({
+        connect: () =>
+          HttpUserVenue.connect({
+            baseUrl: url,
+            timeoutMs: 2000,
+            fetch: async (input, init) => {
+              const res = await fetch(input, init);
+              if (new URL(String(input)).pathname !== '/venue') return res;
+              const body = (await res.json()) as Record<string, unknown>;
+              return new Response(JSON.stringify({ ...body, walletReads }), { status: res.status });
+            },
+          }),
+        appEnv: 'test',
+        store: new InMemoryPreparedActionStore(),
+        stepUp: stepUp('approve').check,
+        builder: BUILDER,
+        slippageCapBps: null,
+        closeSlippageBps: 1000,
+        listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+        now: () => new Date(),
+      });
+    expect(await withReads(named).status()).toMatchObject({ available: true, walletReads: named });
+    expect(await withReads({ baseUrl: 'http://api.hyperliquid-testnet.xyz', perpDexs: [] }).status()).toMatchObject({ walletReads: null });
+    expect(readWalletReads(named)).toEqual(named);
+    expect(readWalletReads(null)).toBeNull();
+    expect(readWalletReads({ baseUrl: 'https://api.hyperliquid-testnet.xyz/info', perpDexs: [] })).toBeNull();
+    expect(readWalletReads({ baseUrl: 'https://api.hyperliquid-testnet.xyz' })).toBeNull();
+    expect(readWalletReads({ baseUrl: 'https://api.hyperliquid-testnet.xyz', perpDexs: ['XYZ'] })).toBeNull();
+    expect(readWalletReads({ baseUrl: 'https://a.b;connect-src *', perpDexs: [] })).toBeNull();
   });
 
   it('a withdrawal reads back over HTTP pending, then done, with the venue fee and the network fee or "not known"', async () => {

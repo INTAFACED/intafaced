@@ -60,6 +60,16 @@ export const venueStatusSchema = z.union([
       .nullable()
       .optional(),
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
+    // The venue's public read endpoint (an https origin, by address with no key) and the perp DEXs it is read on,
+    // where the desk reads the person's own fills, balances and positions from their own browser. Null or absent: every
+    // read goes through the door (a simulator, a recording played back, an older door).
+    walletReads: z
+      .object({
+        baseUrl: z.string().regex(/^https:\/\/[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/),
+        perpDexs: z.array(z.string().regex(/^[a-z0-9]{1,15}$/)),
+      })
+      .nullable()
+      .optional(),
     // J-derivatives-30 #1: our builder address alone, published even while the fee is blank (null: blank too).
     builderAddress: address.nullable().optional(),
     // J-derivatives-03 #9: the most orders the venue takes in one signed action; above 1, a reverse is signed once.

@@ -40,6 +40,33 @@ export interface HttpVenueInfo {
   readonly chainId: number;
   /** Where a wallet sends a token to fund its account on this venue; `null` when the venue names none. */
   readonly depositRoute: UserVenueDepositRoute | null;
+  /** Where a person's browser makes their own-wallet reads itself; `null` when every read comes through the venue. */
+  readonly walletReads: VenueWalletReads | null;
+}
+
+/**
+ * A venue's public read endpoint, by address with no key, as `GET /venue` names it: the desk's own-wallet reads
+ * go there from the person's own browser, so they count against the person's IP and not the box's one.
+ */
+export interface VenueWalletReads {
+  /** An https origin, nothing after it. */
+  readonly baseUrl: string;
+  /** The venue's named perp DEXs, read beside its main one. */
+  readonly perpDexs: readonly string[];
+}
+
+/** The venue's wallet reads as `GET /venue` names them, or null; one that is named but malformed is not used. */
+export function readWalletReads(raw: unknown): VenueWalletReads | null {
+  if (raw === null || raw === undefined || typeof raw !== 'object' || !('baseUrl' in raw) || !('perpDexs' in raw)) return null;
+  const { baseUrl, perpDexs } = raw;
+  if (typeof baseUrl !== 'string' || !/^https:\/\/[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(baseUrl)) return null;
+  if (!Array.isArray(perpDexs)) return null;
+  const dexs: string[] = [];
+  for (const d of perpDexs) {
+    if (typeof d !== 'string' || !/^[a-z0-9]{1,15}$/.test(d)) return null;
+    dexs.push(d);
+  }
+  return { baseUrl, perpDexs: dexs };
 }
 
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
@@ -115,12 +142,13 @@ export class HttpUserVenue implements Pick<UserVenue, 'venue' | 'submit'> {
     readonly chainId: number,
     private readonly opts: HttpUserVenueOptions,
     readonly depositRoute: UserVenueDepositRoute | null = null,
+    readonly walletReads: VenueWalletReads | null = null,
   ) {}
 
   /** Read the venue's descriptor (`GET /venue`) and build the client. Throws `VenueRefusalError('venue_down')` when unreachable. */
   static async connect(opts: HttpUserVenueOptions): Promise<ConnectedHttpUserVenue> {
     const info = await HttpUserVenue.info(opts);
-    const client = new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute);
+    const client = new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute, info.walletReads);
     // Every read (venue-contracts user-venue-calls.ts): a new read is a line there, never a method here.
     return Object.assign(
       client,
@@ -137,7 +165,7 @@ export class HttpUserVenue implements Pick<UserVenue, 'venue' | 'submit'> {
     } catch (err) {
       throw new VenueRefusalError({ ...unknownVenue, detail: `the venue did not answer: ${classifyFetchFailure(err).detail}` });
     }
-    let body: { venue?: UserVenueDescriptor; chainId?: unknown; deposit?: unknown };
+    let body: { venue?: UserVenueDescriptor; chainId?: unknown; deposit?: unknown; walletReads?: unknown };
     try {
       body = (await res.json()) as typeof body;
     } catch {
@@ -155,7 +183,12 @@ export class HttpUserVenue implements Pick<UserVenue, 'venue' | 'submit'> {
     ) {
       throw new VenueRefusalError({ ...unknownVenue, detail: `the venue's descriptor is not usable (HTTP ${res.status})` });
     }
-    return { venue: v, chainId: body.chainId, depositRoute: readDepositRoute(body.deposit) };
+    return {
+      venue: v,
+      chainId: body.chainId,
+      depositRoute: readDepositRoute(body.deposit),
+      walletReads: readWalletReads(body.walletReads),
+    };
   }
 
   private down(detail: string): VenueRefusalError {
