@@ -70,7 +70,7 @@ export function Deposit() {
       description={t('lead')}
       actions={
         <a className="text-link" href="/uc/assets">
-          {supportedAssetsCopy.t('linkLabel')} ↗
+          {supportedAssetsCopy.t('linkLabel')} <span aria-hidden="true">↗</span>
         </a>
       }
     >
