@@ -101,6 +101,9 @@ async function flatten(page, owner) {
   const dialog = await exitOrders(page);
   const resting = async () => (await openOrders(owner)).filter((o) => o.trigger).length;
   const listedOrders = listed(dialog).locator('li[data-client-order-id]');
+  // The dialog lists every exit order the venue holds once it has read them, so the count waited for is the venue's.
+  const onVenue = await resting();
+  await expect(listedOrders, `the dialog lists the venue's ${onVenue} exit order(s)`).toHaveCount(onVenue, { timeout: 20_000 });
   while ((await listedOrders.count()) > 0) {
     const before = await resting();
     const id = await listedOrders.first().getAttribute('data-client-order-id');
