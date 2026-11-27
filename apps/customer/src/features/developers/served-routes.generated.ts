@@ -255,6 +255,7 @@ export const SERVED_ROUTES: readonly string[] = [
   'POST /api/v1/venue/preview private trade:write',
   'POST /api/v1/venue/protection-agent/prepare private trade:write',
   'POST /api/v1/venue/protections private trade:write',
+  'POST /api/v1/venue/protections/breakeven private trade:write',
   'POST /api/v1/venue/route-preview private trade:write',
   'POST /api/v1/venue/session/end private trade:write',
   'POST /api/v1/venue/session/start private trade:write',

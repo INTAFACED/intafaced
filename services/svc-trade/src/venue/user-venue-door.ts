@@ -37,6 +37,7 @@ import {
   type UserVenueAccount,
   type UserVenueOrder,
   type UserVenueDepositRoute,
+  type UserVenueWithdrawalTerms,
   type UserVenueMarket,
   type VenueBestPrices,
   type VenuePerpetualPrice,
@@ -134,6 +135,8 @@ export function assertOwnWalletWithdrawal(principal: Principal, owner: string, i
   }
 }
 
+/** The asset a trader withdraws from the venue to their own wallet (J-cex-spot-01 #12), whose terms the fee page lists. */
+const WITHDRAWAL_ASSET = 'USDC';
 const MARKET_KINDS_TTL_MS = 60_000;
 /** On a symbol the list doesn't hold, the list is read again at most this often, so unlisted symbols can't each cost a venue read. */
 const MARKET_MISS_REREAD_MS = 5_000;
@@ -1332,6 +1335,11 @@ export class UserVenueDoor {
       throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no fee tiers' });
     const status = await venue.feeStatus(null);
     const listed = await this.markets();
+    // A venue that charges by tier publishes no rate of a market's own: a market read with no account shows the rate a
+    // new account pays there, the first tier's for its kind. A venue whose markets carry their own rates keeps a blank one
+    // blank ("not set").
+    const first = status.value.ratesByTier ? (status.value.schedule.tiers?.[0] ?? null) : null;
+    const base = (kind: 'spot' | 'perpetual') => (first ? (kind === 'spot' ? first.spot : first.perpetual) : null);
     const markets = [];
     for (const m of listed.value) {
       // The kind comes from the list just read, so a market listed seconds ago is priced, not refused from an older list.
@@ -1339,11 +1347,21 @@ export class UserVenueDoor {
       markets.push({
         symbol: m.symbol,
         kind: m.kind,
-        makerFeeBps: m.makerFeeBps,
-        takerFeeBps: m.takerFeeBps,
+        makerFeeBps: m.makerFeeBps.known ? m.makerFeeBps : (base(m.kind)?.makerFeeBps ?? m.makerFeeBps),
+        takerFeeBps: m.takerFeeBps.known ? m.takerFeeBps : (base(m.kind)?.takerFeeBps ?? m.takerFeeBps),
         builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
         builderFeeBps: ours && ours.carries ? { known: true, value: ours.feeBps } : { known: false },
       });
+    }
+    // What taking USDC out to the trader's own wallet costs, as the venue publishes it (J-cex-spot-01 #12), listed
+    // beside the trading fees. A venue that publishes no terms answers null, shown "not published", never as free.
+    let withdrawal: UserVenueWithdrawalTerms | null = null;
+    if (venue.withdrawalTerms) {
+      try {
+        withdrawal = (await venue.withdrawalTerms(WITHDRAWAL_ASSET)).value;
+      } catch (err) {
+        if (!(err instanceof VenueRefusalError && err.refusal.code === 'not_offered')) throw err;
+      }
     }
     const test = isTestVenue(venue.venue);
     return {
@@ -1352,6 +1370,7 @@ export class UserVenueDoor {
         venue: { id: venue.venue.id, displayName: venue.venue.displayName },
         schedule: status.value.schedule,
         markets,
+        withdrawal,
         test,
         ...(test ? { label: 'TEST' } : {}),
       },

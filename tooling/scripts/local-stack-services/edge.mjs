@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { profileEnvFor } from '../owner-settings.mjs';
+import { edgeUpstreamsOff, profileOff } from '../local-stack-profile.mjs';
 
 export default ({
   c,
@@ -56,6 +57,14 @@ export default ({
     };
     for (const [k, service] of Object.entries(EDGE_UPSTREAMS)) env[k] = urlOf(service);
     for (const k of Object.keys(EDGE_ABSENT)) env[k] = UNUSED; // nothing listens; answers 502 by design
+    // A service LOCAL_STACK_PROFILE leaves off answers as not connected here (svc-edge EDGE_UPSTREAMS_OFF), not as a
+    // network fault: the app says so plainly.
+    const off = edgeUpstreamsOff(EDGE_UPSTREAMS);
+    if (off.length) env.EDGE_UPSTREAMS_OFF = off.join(',');
+    // Edge reads svc-matching's venue halt before each new trade commitment and refuses when it can't; with matching off
+    // there is no venue of ours to halt, so it is left unset (svc-edge: unset skips). The same for svc-fix's status door.
+    if (off.includes('MATCHING_URL')) delete env.MATCHING_URL;
+    if (profileOff('fix')) delete env.FIX_STATUS_URL;
     // Screening: pass through ONLY what is already in the caller's environment.
     // Never set, default or invent a sanctions list.
     return env;

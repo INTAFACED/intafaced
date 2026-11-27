@@ -269,17 +269,75 @@ describe('prepare builds exactly what the wallet signs', () => {
     await refusedWith(venue.prepare(account, ownerSigner, order({ type: 'market', timeInForce: 'ALO' })), 'not_offered');
   });
 
-  it('#11048: a trigger order or one attached to an entry is refused, never sent as a plain order that fills at once', async () => {
-    // On the testnet a reduce-only stop 3,000 under the mark went out as a plain IOC and closed the position at once.
-    const venue = venueWith(fakeVenue());
+  it("#11070: a reduce-only stop goes out as the venue's trigger order (the SDK's tpsl wire), never as a plain order", async () => {
+    // On the testnet a reduce-only stop 3,000 under the mark once went out as a plain IOC and closed the position.
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const stop = { price: a('1800'), source: 'mark' as const, role: 'stop_loss' as const };
+    const market = { type: 'market' as const, timeInForce: 'IOC' as const, side: 'sell' as const, reduceOnly: true, price: a('1620') };
+    const prepared = await venue.prepare(account, ownerSigner, order({ ...market, trigger: stop }));
+    const cloid = venueClientOrderId(HL_TESTNET_VENUE_ID, 'order:test-user:desk:1');
+    // Key order is the Python SDK's (`test_l1_action_signing_tpsl_order_matches`): isMarket, triggerPx, tpsl.
+    const action = {
+      type: 'order',
+      orders: [
+        { a: 1, b: false, p: '1620', s: '0.5', r: true, t: { trigger: { isMarket: true, triggerPx: '1800', tpsl: 'sl' } }, c: cloid },
+      ],
+      grouping: 'na',
+    };
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(actionHash(action, null, BigInt(prepared.nonce)));
+    fake.exchange.push(orderStatus('waitingForTrigger'));
+    const outcome = await venue.submit(prepared, await sign(ownerKey, prepared));
+    expect(outcome.definite && outcome.accepted).toBe(true);
+    expect(JSON.stringify(fake.exchangeBodies[0]!.action)).toBe(JSON.stringify(action));
+
+    // A take profit is `tp`; a triggered limit carries isMarket false and its own price.
+    const tp = await venue.prepare(
+      account,
+      ownerSigner,
+      order({ side: 'sell', reduceOnly: true, price: a('2500'), trigger: { price: a('2400'), source: 'mark', role: 'take_profit' } }),
+    );
+    const tpAction = {
+      type: 'order',
+      orders: [
+        { a: 1, b: false, p: '2500', s: '0.5', r: true, t: { trigger: { isMarket: false, triggerPx: '2400', tpsl: 'tp' } }, c: cloid },
+      ],
+      grouping: 'na',
+    };
+    expect((tp.typedData as L1TypedData).message.connectionId).toBe(actionHash(tpAction, null, BigInt(tp.nonce)));
+  });
+
+  it('#11070: a trigger the venue cannot carry is refused before signing, never sent without its condition', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
     const stop = { price: a('1800'), source: 'mark' as const, role: 'stop_loss' as const };
     const market = { type: 'market' as const, timeInForce: 'IOC' as const, side: 'sell' as const, reduceOnly: true };
-    await refusedWith(venue.prepare(account, ownerSigner, order({ ...market, trigger: stop })), 'not_offered');
+    // Judged on the last price: the venue judges triggers on its mark only.
+    await refusedWith(venue.prepare(account, ownerSigner, order({ ...market, trigger: { ...stop, source: 'last' } })), 'not_offered');
+    // Not reduce-only: a trigger here only closes.
+    await refusedWith(venue.prepare(account, ownerSigner, order({ ...market, reduceOnly: false, trigger: stop })), 'not_offered');
+    // A trigger price off the venue's price rule (6 significant figures).
+    await refusedWith(
+      venue.prepare(account, ownerSigner, order({ ...market, trigger: { ...stop, price: a('1800.12') } })),
+      'venue_rejected',
+    );
+    // On spot: the venue's triggers are on perpetuals here.
+    await refusedWith(
+      venue.prepare(
+        account,
+        ownerSigner,
+        order({ ...market, symbol: 'PURR-USDC', amount: a('10'), price: a('0.2'), trigger: { ...stop, price: a('0.1') } }),
+      ),
+      'not_offered',
+    );
+    // A preview would show it filling now; it fills only once crossed.
     await refusedWith(venue.preview(account, order({ ...market, trigger: stop })), 'not_offered');
+    // Attached to an entry needs the venue's grouping, not built.
     await refusedWith(
       venue.prepare(account, ownerSigner, order({ ...market, parentClientOrderKey: 'order:0xabc:entry:1' })),
       'not_offered',
     );
+    expect(fake.exchangeBodies).toHaveLength(0);
   });
 
   it('price and size follow the venue rules, refused before signing and never rounded', async () => {
@@ -968,6 +1026,42 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     ]);
   });
 
+  it("#11070: a resting stop reads back with its trigger, as the venue's own open-order record states it", async () => {
+    const fake = fakeVenue();
+    const common = { coin: 'ETH', side: 'A', sz: '0.5', origSz: '0.5', tif: null, reduceOnly: true, isTrigger: true };
+    fake.info.frontendOpenOrders = () => [
+      {
+        ...common,
+        limitPx: '1620',
+        oid: 21,
+        cloid: `0x${'a'.repeat(32)}`,
+        orderType: 'Stop Market',
+        triggerPx: '1800',
+        triggerCondition: 'Price below 1800',
+      },
+      {
+        ...common,
+        limitPx: '2500',
+        oid: 22,
+        cloid: `0x${'b'.repeat(32)}`,
+        orderType: 'Take Profit Limit',
+        triggerPx: '2400',
+        triggerCondition: 'Price above 2400',
+      },
+      { coin: 'ETH', side: 'B', limitPx: '1900', sz: '0.1', origSz: '0.1', oid: 23, tif: 'Gtc', orderType: 'Limit', reduceOnly: false },
+    ];
+    const open = (await venueWith(fake).openOrders(account)).value;
+    expect(open.map((o) => [o.venueOrderId, o.type, o.reduceOnly, o.trigger ?? null])).toEqual([
+      ['21', 'market', true, { price: a('1800'), source: 'mark', role: 'stop_loss', state: 'waiting', triggeredAt: null, failure: null }],
+      ['22', 'limit', true, { price: a('2400'), source: 'mark', role: 'take_profit', state: 'waiting', triggeredAt: null, failure: null }],
+      ['23', 'limit', false, null],
+    ]);
+    // Every perpetual lists the mark as the price its triggers are judged on; spot lists none.
+    const markets = (await venueWith(fakeVenue()).markets(null)).value;
+    expect(markets.find((m) => m.symbol === 'ETH-PERP')!.triggerSources).toEqual(['mark']);
+    expect(markets.find((m) => m.symbol === 'PURR-USDC')!.triggerSources).toEqual([]);
+  });
+
   it('open orders: a spot buy holds its notional; a perp order its margin at the account leverage', async () => {
     const fake = fakeVenue();
     fake.info.frontendOpenOrders = () => [
@@ -1545,7 +1639,15 @@ describe('feeStatus reads userFees and sends nothing (J-cex-spot-10 #2 #6)', () 
     const fake = fakeVenue();
     fake.info.userFees = () => ({});
     const s = (await venueWith(fake).feeStatus(null)).value;
-    expect(s).toEqual({ schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+    expect(s).toEqual({ ratesByTier: true, schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+  });
+
+  it('says it charges by tier: its markets read with no account carry no rate of their own', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => USER_FEES;
+    expect((await venueWith(fake).feeStatus(null)).value.ratesByTier).toBe(true);
+    const eth = (await venueWith(fake).markets(null)).value.find((m) => m.symbol === 'ETH-PERP')!;
+    expect(eth.takerFeeBps).toEqual({ known: false });
   });
 });
 
@@ -2122,12 +2224,37 @@ describe('shared reads across testers: one IP, 1,200 weight a minute (#11028)', 
     expect(told).toHaveLength(1);
     expect(told[0]).toMatchObject({
       minute: new Date(NOW).toISOString(),
-      byType: { userFillsByTime: { requests: 1, weight: 22 }, l2Book: { requests: 1, weight: 2 } },
+      byType: { userFillsByTime: { requests: 1, weight: 22, accounts: 1 }, l2Book: { requests: 1, weight: 2 } },
     });
+    // A market read names no account.
+    expect(told[0]!.byType.l2Book).not.toHaveProperty('accounts');
     // The listing read on the way (meta, spotMeta) is counted too: the total is every request's weight.
     const byType = Object.values(told[0]!.byType);
     expect(told[0]!.weight).toBe(byType.reduce((n, r) => n + r.weight, 0));
     expect(told[0]!.byType.meta).toEqual({ requests: 1, weight: 20 });
+  });
+
+  it('names how many different accounts each account read was for, so a reader of every account shows apart', async () => {
+    const fake = fakeVenue();
+    fake.info.clearinghouseState = () => ({ marginSummary: { accountValue: '0' }, withdrawable: '0', assetPositions: [] });
+    fake.info.spotClearinghouseState = () => ({ balances: [] });
+    const told: VenueWeightMinute[] = [];
+    let now = NOW;
+    const venue = sharedVenue(
+      fake,
+      () => now,
+      (spent) => told.push(spent),
+    );
+    const other = { ...account, owner: '0x00000000000000000000000000000000000000b2' };
+    // Three reads of two accounts, each past the light reads' keeping, so each one leaves for the venue.
+    for (const a of [account, other, account]) {
+      await venue.balances(a).catch(() => null);
+      now += 3_000;
+    }
+    now += 60_000;
+    await venue.book('BTC-PERP', 5).catch(() => null);
+    expect(told[0]!.byType.clearinghouseState).toEqual({ requests: 3, weight: 6, accounts: 2 });
+    expect(told[0]!.byType.spotClearinghouseState).toEqual({ requests: 3, weight: 6, accounts: 2 });
   });
 });
 

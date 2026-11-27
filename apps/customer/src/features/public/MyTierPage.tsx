@@ -9,6 +9,7 @@ import { useLocation } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import { useSession } from '../session';
 import { feeTierFetcher, snapshotTime, type FeeTier, type FeeTierBenefits } from './fee-tier';
+import { publicFeesFetcher, scheduleCharges, type PublicFeeSchedule } from './fees';
 import { feeTierCopy } from './fee-tier-copy';
 import { VipApply } from './VipApply';
 import { VenueTier } from './VenueFees';
@@ -50,12 +51,33 @@ export function MyTierPage() {
 function SignedInTier() {
   const env = useDataEnv();
   const source = useMemo(() => env.poller.source<FeeTier | null>('my-fee-tier', feeTierFetcher(env.api), { intervalMs: 15_000 }), [env]);
-  return <MyTierView load={useSource(source)} apply={<VipApply />} venue={<VenueTier />} />;
+  const schedule = useMemo(
+    () => env.poller.source<PublicFeeSchedule | null>('public-fees', publicFeesFetcher(env.api), { intervalMs: 60_000 }),
+    [env],
+  );
+  const published = useSource(schedule);
+  const ownBook = !(published.status === 'ready' && published.data && !scheduleCharges(published.data));
+  return <MyTierView load={useSource(source)} apply={<VipApply />} venue={<VenueTier />} ownBook={ownBook} />;
 }
 
 /** `apply` is the VIP application: shown whatever the tier read answers, so a pending application stays in view. */
 /** `venue` is the venue's own tier for the connected wallet (J-cex-spot-10 #6), beside our programme's. */
-export function MyTierView({ load, apply, venue }: { load: Loadable<FeeTier | null>; apply?: ReactNode; venue?: ReactNode }) {
+/**
+ * `ownBook` false: our own order book is off, so every order pays the venue's tier, by the venue's own volume window, and
+ * our programme (its 30-day volume, snapshots and thresholds) counts nothing; the page names that instead of a second
+ * tier and a second volume window.
+ */
+export function MyTierView({
+  load,
+  apply,
+  venue,
+  ownBook = true,
+}: {
+  load: Loadable<FeeTier | null>;
+  apply?: ReactNode;
+  venue?: ReactNode;
+  ownBook?: boolean;
+}) {
   const copy = feeTierCopy.useCopy();
   return (
     <div data-room="my-tier">
@@ -82,7 +104,13 @@ export function MyTierView({ load, apply, venue }: { load: Loadable<FeeTier | nu
               </section>
             ) : null}
             {venue}
-            {load.status === 'ready' && load.data ? <Tier tier={load.data} /> : null}
+            {load.status === 'ready' && load.data && ownBook ? <Tier tier={load.data} /> : null}
+            {!ownBook ? (
+              <section role="status" data-tier-page="own-book-off" aria-labelledby="tier-own-book-off">
+                <h2 id="tier-own-book-off">{copy.t('ownBookOffTitle')}</h2>
+                <p>{copy.t('ownBookOffBody')}</p>
+              </section>
+            ) : null}
             {apply}
           </>
         }

@@ -439,6 +439,23 @@ test(`${J} #2 opens the public fee page: the venue's schedule and our builder fe
   }
   // The network fee for sending a coin out is its own line, never inside a trading rate.
   await expect(page.locator('[data-fees="network"]')).toContainText('Network fee on withdrawals');
+  // And what taking USDC out of the venue costs, as the venue publishes it before anything is signed, beside the rates.
+  const terms = (await testVenue('/withdrawal-terms', { asset: 'USDC' })).body.value;
+  const out = section.locator('[data-fees="withdrawal"]');
+  await expect(out.locator('h3')).toHaveText('Taking USDC out to your wallet');
+  await expect(out.locator('[data-cell="withdrawal-fee"]')).toHaveText(
+    terms.fee.known
+      ? `The venue’s withdrawal fee: ${terms.fee.value} USDC`
+      : 'The venue’s withdrawal fee: not published before you send. Each withdrawal shows the fee the venue took.',
+  );
+  await expect(out.locator('[data-cell="withdrawal-network-fee"]')).toHaveText(
+    terms.networkFee.known ? `Network fee: ${terms.networkFee.value} USDC` : 'Network fee: not published by the venue.',
+  );
+  await expect(out.locator('[data-cell="withdrawal-arrival"]')).toHaveText(
+    terms.arrivalSeconds === null
+      ? 'Arrival time: not published by the venue.'
+      : `Arrives in about ${Math.max(1, Math.ceil(terms.arrivalSeconds / 60))} min, as the venue says.`,
+  );
 });
 
 test(`${J} #3 trades where our builder fee is not set: refused "builder fee not set" before signing`, async ({ page }) => {

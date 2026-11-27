@@ -142,6 +142,15 @@ describe('/fees/my-tier', () => {
     expect(stopped).toContain('Snapshots are not running');
   });
 
+  it("with our own book off, names the venue's tier and no 30-day programme of ours", () => {
+    const html = renderToString(<MyTierView load={ready(tier)} ownBook={false} />);
+    expect(html).toContain('data-tier-page="own-book-off"');
+    expect(html).toContain('Your tier is the venue’s');
+    expect(html).not.toContain('30-day');
+    expect(html).not.toContain('data-tier-page="tier"');
+    expect(html).not.toContain('data-tier-page="volume"');
+  });
+
   it('an unpublished schedule says so', () => {
     expect(renderToString(<MyTierView load={ready(null)} />)).toContain('The trading fee schedule is not set');
   });

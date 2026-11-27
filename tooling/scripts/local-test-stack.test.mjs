@@ -1238,7 +1238,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // the market check, and stops first.
   assert.match(
     source,
-    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(admin && \(!only \|\| only\.includes\('admin'\)\)\) await startAdmin\(secrets\);\s*if \(admin && \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
+    /if \(on\('customer'\) && \(!only \|\| only\.includes\('customer'\)\)\) await startCustomer\(\);\s*if \(on\('invitation'\) && \(!only \|\| only\.includes\('invitation'\)\)\) await startInvitation\(\);\s*if \(on\('apex'\) && \(!only \|\| only\.includes\('apex'\)\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(admin && \(!only \|\| only\.includes\('admin'\)\)\) await startAdmin\(secrets\);\s*if \(admin && \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
   );
   // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS. A second
   // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against. The TEST
@@ -1849,6 +1849,11 @@ console.log('local-test-stack: customer folder override checks passed');
   const down = async () => ({ status: 0 });
   const absentRow = await serviceHealthRow('indexer', { procs: {}, chain: null, read: down });
   assert.equal(absentRow[3], 'absent (no TEST chain)');
+  // A service LOCAL_STACK_PROFILE leaves off reads off without being read, and doesn't fail the start (#11075).
+  const offRow = await serviceHealthRow('p2p', { procs: {}, chain, read: down, off: (n) => n === 'p2p' });
+  assert.equal(offRow[3], 'off (not in this profile)');
+  assert.equal(healthAllOk([offRow, ['market-maker', '-', '-', 'down']]), true);
+  assert.deepEqual(adaptersWanted({ LOCAL_STACK_PROFILE: 'launch-desk' })['test-wallet-provider'], true);
   assert.equal(
     (await serviceHealthRow('indexer', { procs: {}, chain, read: down }))[3],
     'DOWN (0)',
@@ -2122,10 +2127,13 @@ console.log('local-test-stack: customer folder override checks passed');
         .find((d) => d.name === 'trade')
         .env.TRADE_USER_VENUE_TEST_LISTINGS.split(',');
     };
-    const testnet = listings('hl-testnet');
-    assert.ok(!testnet.includes('BTC-USDC'), 'hl-testnet seeds no BTC-USDC');
-    assert.ok(testnet.includes('PURR-USDC') && testnet.includes('BTC-PERP'), 'hl-testnet keeps PURR-USDC and BTC-PERP');
-    for (const raw of ['on', 'two', 'hl-recorded']) assert.ok(listings(raw).includes('BTC-USDC'), `${raw} seeds BTC-USDC`);
+    // Live and replayed alike: a replay lists what the live run that wrote its recording listed.
+    for (const raw of ['hl-testnet', 'hl-recorded']) {
+      const testnet = listings(raw);
+      assert.ok(!testnet.includes('BTC-USDC'), `${raw} seeds no BTC-USDC`);
+      assert.ok(testnet.includes('PURR-USDC') && testnet.includes('BTC-PERP'), `${raw} keeps PURR-USDC and BTC-PERP`);
+    }
+    for (const raw of ['on', 'two']) assert.ok(listings(raw).includes('BTC-USDC'), `${raw} seeds BTC-USDC`);
   } finally {
     if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = saved;

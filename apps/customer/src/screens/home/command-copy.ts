@@ -55,6 +55,7 @@ const messages = {
   Manage: 'Manage',
   'Set one up': 'Set one up',
   'Agent unread': 'Your agents can’t be read right now.',
+  'Agent off': 'Agents aren’t connected here, so there are none to show.',
   'Agent none': 'No agent yet. Give one its limits, and approve what it may do before it trades. You can turn it off at any time.',
   'Agent version {version}': 'Version {version}',
   'Agent published': 'On',

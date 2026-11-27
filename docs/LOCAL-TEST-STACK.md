@@ -66,6 +66,8 @@ Test: the money. `local:fund` posts a `deposit` recipe on rail `local-test` with
 
 ### Custody off
 
+`LOCAL_STACK_PROFILE=launch-desk` on a start runs only the launch desk's processes (`tooling/scripts/local-stack-profile.mjs`; the beta runs it): every other service is not started, reads `off` in the health table, and edge answers its routes as not connected here. Unset, everything starts.
+
 `LOCAL_STACK_CUSTODY_LAYER=off` on a start runs svc-ledger, svc-bank, svc-pay, svc-trade and svc-matching with `LEDGER_CUSTODY_LAYER` off together (unset: on, for the journeys marked Later: custody); the beta runs it off (#11019), and so does each CI journeys shard of the launch desk, the Order 1 journeys, from the one value both read (`tooling/scripts/launch-custody.mjs`, #11077). svc-ledger refuses to boot custody off on a book that still holds a customer balance (`ledger.custody_layer_open_balances`), so switch an existing state folder only onto a fresh database. With svc-ledger started with `LEDGER_CUSTODY_LAYER` off, as the launch build runs it (OWNER 226, OWNER 288; `docs/adr/2026-11-10-launch-money-model.md`), INTAFACED's ledger holds no customer money, so the TEST tools never post to a person's account. The stack records the switch on each process it starts with one (`run/processes.json`); `node tooling/scripts/local-test-stack.mjs custody` prints `on` or `off`, and the tools follow that record, not their own environment:
 
 - `local:fund <person>` refuses, exit 3, `local_test.custody_layer_off`, before anything is read or posted. A TEST person's money is where launch keeps it: at the TEST partner (`testPartner.fund`) or on their own TEST venue account. `local:fund house` (INTAFACED's own Convert inventory) still posts.

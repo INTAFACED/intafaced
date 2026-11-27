@@ -64,6 +64,14 @@ const readJsonOr = (file, fallback) => {
 export const stackRecordsFile = (state) => path.join(state, 'run', 'processes.json');
 /** The maker's name in `stackRecords`; never a service's (svc-market's record is `market`). */
 export const MAKER_RECORD = 'market-maker';
+/**
+ * `LOCAL_STACK_*` values that are the whole stack's start setting, not an owner value a journey blanked: a process
+ * started with one `off` is not recorded as overridden, and the world restore restarts a blanked service keeping it
+ * (local-test-stack.mjs offOverrides, apps/customer/tests/real-app/services.mjs withoutOff). Failure it prevents (#11102):
+ * the restore read a custody-off shard's switch as a blanked owner value and restarted every service custody on, so the
+ * files after it ran on the setting launch won't run, and svc-ledger then refused to boot custody off again.
+ */
+export const STACK_START_SETTINGS = new Set(['LOCAL_STACK_CUSTODY_LAYER']);
 // Before the market's record moved here it lived in run/market.json; a stack started then is still read whole.
 // Drop this fallback once no running stack predates it (after 2026-12-01).
 const legacyMarketFile = (state) => path.join(state, 'run', 'market.json');
