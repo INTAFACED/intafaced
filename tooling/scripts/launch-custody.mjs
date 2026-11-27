@@ -43,6 +43,8 @@ export const LAUNCH_ORDER = 1;
  * restore started their stacks custody on again (#11129 ended that), and both fund their person through our ledger
  * (J-p2p-21's seller, whose sell ad's total svc-p2p checks against a ledger balance; J-wallet-01 #5's retired asset's
  * history), refused custody off. launch-custody.test.mjs now fails any file that runs custody off and funds that way.
+ * J-wallet-01 left it once #5 paid its retired coin in at the TEST partner bank and read its history from the partner's
+ * own line; today's custodial Deposit and Withdraw pickers moved to J-wallet-01-custodial.pw.mjs (CUSTODIAL_PART).
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -67,7 +69,6 @@ export const NOT_YET_OFF = new Set([
   'J-portfolio-03',
   'J-support-public-20',
   'J-support-public-20-venue',
-  'J-wallet-01',
 ]);
 
 /** A launch-desk part file of custodial checks (custody on by design): `<journey>-custodial.pw.mjs` keeps today's switch. */

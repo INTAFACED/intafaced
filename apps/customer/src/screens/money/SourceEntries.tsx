@@ -20,8 +20,8 @@ function sourceFromSearch(search: string): SourceKind | null {
 
 /**
  * Whether `/money/balance/:asset` asks for the sources' own records: only a link that names a source (`?source=` one of
- * wallet, venue, partner or all) does, which every Assets row and this page's own switch carry. A link with none, like
- * the asset list's "history" link for a retired asset, asks for what our ledger recorded for the coin.
+ * wallet, venue, partner or all) does, which every Assets row, the asset list's history link on the launch model and
+ * this page's own switch carry. A link with none (the custodial branch) asks for what our ledger recorded for the coin.
  */
 export function asksForSourceRecords(search: string): boolean {
   const value = new URLSearchParams(search).get('source');
