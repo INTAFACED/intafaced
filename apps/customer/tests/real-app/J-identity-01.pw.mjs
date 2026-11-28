@@ -745,10 +745,14 @@ async function doorKnows(who, owner, symbol) {
     timeInForce: 'GTC',
     reduceOnly: false,
     builderFee: null,
+    clientOrderKey: `order:${owner}:${symbol.toLowerCase()}:${J}-listed`,
   };
-  await expect
-    .poll(async () => (await session.post('/api/v1/venue/preview', { owner, intent })).status, { timeout: 30_000, intervals: [2_000] })
-    .toBe(200);
+  // The door's answer, status first, so a refusal that never clears names itself.
+  const answer = async () => {
+    const res = await session.post('/api/v1/venue/preview', { owner, intent });
+    return `${res.status} ${JSON.stringify(res.body).slice(0, 300)}`;
+  };
+  await expect.poll(answer, { timeout: 30_000, intervals: [2_000] }).toMatch(/^200 /);
 }
 
 /** Identity restarted with no blocked list at all (no list, no rows, fail-closed on), or back on the stack's own list. */
