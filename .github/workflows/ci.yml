@@ -360,8 +360,9 @@ jobs:
   # A bug fix's test, shown failing on the code before the fix (#11267): every changed file that is not a test goes back
   # to main (HEAD^1 of the merge commit), each test file the pull request added or changed runs there, and the job passes
   # when one fails by its own expect or assert (tooling/ci/bug-test-base.mjs). It reads the head, so the order of pushes
-  # does not matter; a test pushed alone first is no longer the only way to show it. Not a required check yet (#11267:
-  # only after a real fix's replay passes it and a planted test that passes on the base fails it, both shown on its PR).
+  # does not matter; a test pushed alone first is no longer the only way to show it. A red here holds the merge: the seal
+  # fails on any red job it does not otherwise read (ci-jobs-seal.mjs otherRedJobs). #11267 allowed that once a real fix's
+  # replay passed it and a planted test that passes on the base failed it, both shown on its pull request (#11280).
   # Main's copy of the script decides; the pull request's own only while main has none (the pull request that adds it).
   bug-test:
     name: Bug test on the base

@@ -328,7 +328,12 @@ async function which() {
     const res = await githubFetch(`https://api.github.com/repos/${repo}/issues/${n}`, {
       headers: { authorization: `Bearer ${githubToken()}`, accept: 'application/vnd.github+json' },
     });
-    if (!res.ok) throw new Error(`reading #${n}: GitHub answered ${res.status}`);
+    // An issue that can't be read is checked as a bug: the bug test runs, rather than every job after this one stopping.
+    if (!res.ok) {
+      console.log(`::warning::could not read #${n} (GitHub answered ${res.status}); the bug test runs for it`);
+      bug = String(n);
+      break;
+    }
     const issue = await res.json();
     if (!issue.pull_request && (issue.labels ?? []).some((l) => (l.name ?? l) === 'bug')) {
       bug = String(n);

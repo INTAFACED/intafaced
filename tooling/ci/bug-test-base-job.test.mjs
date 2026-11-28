@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { otherRedJobs } from './ci-jobs-seal.mjs';
 
 const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const job = (name) => {
@@ -27,6 +28,10 @@ test('a pull request that closes a bug runs its tests on the code before the fix
   assert.match(bug, /git cat-file -e FETCH_HEAD:tooling\/ci\/bug-test-base\.mjs/);
 });
 
-test('not a required check yet: the seal does not wait for it (#11267, Limits)', () => {
-  assert.doesNotMatch(job('merge-seal'), /needs: \[[^\]]*bug-test/);
+test('a red bug test holds the merge: the seal fails on a red job it does not otherwise read', () => {
+  const name = /\n {2}bug-test:\n {4}name: (.+)\n/.exec(ci)?.[1];
+  assert.equal(name, 'Bug test on the base');
+  const red = otherRedJobs([{ id: 1, name, status: 'completed', conclusion: 'failure' }]);
+  assert.deepEqual(red, [`${name} was failure (a job that ran red stays red)`]);
+  assert.deepEqual(otherRedJobs([{ id: 1, name, status: 'completed', conclusion: 'skipped' }]), []);
 });
