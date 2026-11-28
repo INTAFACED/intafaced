@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { trace, type Span } from '@opentelemetry/api';
+import { partial } from '@intafaced/service-kit/testing';
+import { describe, expect, it, vi } from 'vitest';
 import {
   capturedOverCapTotal,
   emitCapturedOverCap,
@@ -53,11 +52,34 @@ describe('captured_over_cap signal', () => {
   });
 
   it('the alert event is the active span event, and index wires the log listener', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const source = readFileSync(join(here, 'over-cap-signal.ts'), 'utf8');
-    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(source).toContain("addEvent('payment.captured_over_cap'");
-    expect(index).toContain('onCapturedOverCap(');
-    expect(index).toContain("app.log.warn({ event: 'payment.captured_over_cap'");
+    // The booted service's log listener is index.db.test.ts ("the alert event is the active span event, and index
+    // wires the log listener"). Here: the event lands on whatever span is active, named and with the signal's fields.
+    const events: Array<[string, Record<string, unknown> | undefined]> = [];
+    const span: Span = partial<Span>({
+      addEvent: (name: string, attributes?: Record<string, unknown>) => {
+        events.push([name, attributes]);
+        return span;
+      },
+    });
+    const active = vi.spyOn(trace, 'getActiveSpan').mockReturnValue(span);
+    try {
+      emitCapturedOverCap(signal({ exceeded: ['daily_intake', 'single_payment'] }));
+      active.mockReturnValue(undefined);
+      expect(() => emitCapturedOverCap(signal())).not.toThrow();
+    } finally {
+      active.mockRestore();
+    }
+    expect(events).toEqual([
+      [
+        'payment.captured_over_cap',
+        {
+          'intafaced.payment_id': 'pay-1',
+          'intafaced.merchant_id': 'mer-1',
+          'intafaced.asset_id': 'USDT',
+          'intafaced.amount': '10',
+          'intafaced.exceeded': 'daily_intake,single_payment',
+        },
+      ],
+    ]);
   });
 });

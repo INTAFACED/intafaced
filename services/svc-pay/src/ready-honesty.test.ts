@@ -2,14 +2,10 @@
  * GET /ready must not sell configured PAY_CRYPTO_CHAIN_ID / RPC as a live chain.
  * chain.description is a log line. This process does not eth_chainId on /ready.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ChainNotConfiguredError, UnconfiguredChain } from './rails/chain-port.js';
 import { PAY_CHAIN_NOT_CONFIGURED, PAY_CHAIN_SANDBOX, PAY_CHAIN_UNPROBED, payChainReadyHonesty } from './ready-honesty.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('pay ready honesty — configured is not a live chain', () => {
   const apps: FastifyInstance[] = [];
@@ -68,13 +64,12 @@ describe('pay ready honesty — configured is not a live chain', () => {
     expect(JSON.stringify(body)).not.toMatch(/live EVM/);
   });
 
-  it('index.ts serves /ready via payChainReadyHonesty, not chain.description', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    const errorSrc = readFileSync(join(here, 'rails/chain-port.ts'), 'utf8');
-    expect(indexSrc).toContain('payChainReadyHonesty');
-    expect(indexSrc).toContain('chain: payChainReadyHonesty(chain.posture)');
-    expect(indexSrc).not.toMatch(/app\.get\('\/ready'[\s\S]{0,400}chain:\s*chain\.description/);
-    expect(errorSrc).toContain("readonly code = 'pay.chain_not_configured'");
+  it('the absent chain refuses with the code /ready names, pay.chain_not_configured', async () => {
+    const chain = new UnconfiguredChain();
+    expect(chain.posture).toBe('absent');
+    await expect(chain.acceptanceAddress()).rejects.toBeInstanceOf(ChainNotConfiguredError);
+    await expect(chain.acceptanceAddress()).rejects.toMatchObject({ code: PAY_CHAIN_NOT_CONFIGURED });
     expect(PAY_CHAIN_NOT_CONFIGURED).toBe('pay.chain_not_configured');
+    expect(payChainReadyHonesty('absent')).toMatchObject({ code: PAY_CHAIN_NOT_CONFIGURED });
   });
 });

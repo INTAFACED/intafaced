@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import type { Sql } from 'postgres';
+import { describe, expect, it, vi } from 'vitest';
+import { scriptedSql } from '../scripted-sql.testkit.js';
+import { TeamService } from './team.js';
 import {
   emailInviteToken,
   isReservedTeamUserId,
@@ -12,8 +12,6 @@ import {
   stashInviteEmail,
   teamEventMemberUserId,
 } from './team-email.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('team email invite normalisation and budget', () => {
   it('normalises case and refuses a shape that is not one mailbox', () => {
@@ -70,10 +68,33 @@ describe('team email invite normalisation and budget', () => {
     });
   });
 
-  it('the email invite path does not read an account table', () => {
-    const src = readFileSync(join(here, 'team.ts'), 'utf8');
-    const body = src.slice(src.indexOf('private async inviteByEmail'), src.indexOf('private assertEmailInviteConfigured'));
-    expect(body).not.toMatch(/FROM users/i);
-    expect(body).not.toMatch(/identity\./);
+  it('the email invite path does not read an account table', async () => {
+    // Two mailboxes, one that may hold an account and one that cannot, take the same path: the same questions to the
+    // database, none of them about accounts, and no call to another service.
+    const caller = { merchantId: 'm-1', userId: 'owner-1', role: 'owner', viaApiKey: false, interactive: true } as const;
+    const limit = { maxPerWindow: 5, windowMs: 60_000, ttlMs: 86_400_000 };
+    const fetched = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the invite called out'));
+    const invite = async (email: string) => {
+      const { sql, calls } = scriptedSql<Sql>((call) => (call.text.includes('RETURNING id') ? [{ id: 'member-1' }] : []));
+      const outcome = await new TeamService(sql, limit).invite(caller, { email, role: 'viewer' }).then(
+        () => 'answered',
+        (err: { code?: string }) => err.code ?? 'threw',
+      );
+      return { outcome, texts: calls.map((c) => c.text) };
+    };
+    try {
+      const registered = await invite('owner-of-an-account@example.com');
+      const unknown = await invite('nobody-registered@example.org');
+      expect(registered.texts.length).toBeGreaterThan(0);
+      expect(registered.texts.some((text) => text.includes('INSERT INTO pay.merchant_team_members'))).toBe(true);
+      expect(unknown).toEqual(registered);
+      for (const text of registered.texts) {
+        expect(text).not.toMatch(/FROM users/i);
+        expect(text).not.toMatch(/identity\./);
+      }
+      expect(fetched).not.toHaveBeenCalled();
+    } finally {
+      fetched.mockRestore();
+    }
   });
 });

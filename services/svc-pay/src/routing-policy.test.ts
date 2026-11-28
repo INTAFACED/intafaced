@@ -1,7 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { Context } from '@intafaced/contracts';
 import { describe, expect, it } from 'vitest';
+import type { PayService } from './payment-service.js';
+import { RailRegistry } from './rails/registry.js';
+import { describeRoutingPolicy as describeMountedRoutingPolicy } from './routing/routing-policy.js';
+import { createPayRouter } from './router.js';
+import type { UserMoneyService } from './user-money-service.js';
 import { FORBIDDEN_ROUTING_SCORE_FIELDS } from './routing-inputs.js';
 import {
   REFERENCE_PROFILE_RAIL_IDS,
@@ -11,9 +14,6 @@ import {
   ROUTING_REQUIRED_DIMENSIONS,
   describeRoutingPolicy,
 } from './routing-policy.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const routerSource = readFileSync(join(here, 'router.ts'), 'utf8');
 
 describe('describeRoutingPolicy', () => {
   it('states mechanism honesty without inventing approval rates or payer rails', () => {
@@ -36,7 +36,12 @@ describe('describeRoutingPolicy', () => {
 });
 
 describe('routing.policy route (pay.routing honesty door)', () => {
-  it('router mounts describeRoutingPolicy on routing.policy', () => {
-    expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeRoutingPolicy\(\)\)/);
+  it('router mounts describeRoutingPolicy on routing.policy', async () => {
+    // A public read: a caller with no principal gets the board. The door answers routing/routing-policy.ts's board (the
+    // smart-routing one), not this file's describeRoutingPolicy, which the tracker mount reads (routing/mount-vs-tracker.ts).
+    const router = createPayRouter({} as PayService, new RailRegistry([]), {} as UserMoneyService);
+    const caller = router.createCaller({ principal: null, service: null, region: 'DE', requestId: 'routing-policy' } as Context);
+    await expect(caller.routing.policy()).resolves.toEqual(describeMountedRoutingPolicy());
+    expect(describeMountedRoutingPolicy()).toMatchObject({ inventsApprovalRates: false, inventsCostWeights: false, movesMoney: false });
   });
 });

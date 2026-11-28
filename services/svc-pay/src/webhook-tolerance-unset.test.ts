@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { payEnv } from './env.testkit.js';
+import { CardSandboxAdapter } from './rails/card-sandbox.js';
+import { MemoryChain } from './rails/chain-port.js';
+import { CryptoNativeAdapter } from './rails/crypto-native.js';
 
 /**
  * Owner signed-webhook replay window is refuse-closed when unset.
@@ -13,10 +17,12 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('PAY_WEBHOOK_TOLERANCE_SECONDS unset refuse', () => {
-  it('env.ts does not default blank to 300', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
-    expect(envTs).toMatch(/PAY_WEBHOOK_TOLERANCE_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(30\),/);
-    expect(envTs).not.toMatch(/PAY_WEBHOOK_TOLERANCE_SECONDS:[\s\S]{0,80}\.default\(300\)/);
+  it('the boot settings refuse a blank window rather than defaulting it to 300', () => {
+    for (const blank of [undefined, '', ' ', '0', '29']) {
+      expect(() => payEnv({ PAY_WEBHOOK_TOLERANCE_SECONDS: blank })).toThrow(/PAY_WEBHOOK_TOLERANCE_SECONDS/);
+    }
+    expect(payEnv({ PAY_WEBHOOK_TOLERANCE_SECONDS: '300' }).PAY_WEBHOOK_TOLERANCE_SECONDS).toBe(300);
+    expect(payEnv({ PAY_WEBHOOK_TOLERANCE_SECONDS: '30' }).PAY_WEBHOOK_TOLERANCE_SECONDS).toBe(30);
   });
 
   it('compose refuses missing — never a baked 300', () => {
@@ -30,12 +36,46 @@ describe('PAY_WEBHOOK_TOLERANCE_SECONDS unset refuse', () => {
     expect(block).not.toMatch(/PAY_WEBHOOK_TOLERANCE_SECONDS:\s*['"]?300/);
   });
 
-  it('inbound rails do not invent 300', () => {
-    const card = readFileSync(join(ROOT, 'services/svc-pay/src/rails/card-sandbox.ts'), 'utf8');
-    const crypto = readFileSync(join(ROOT, 'services/svc-pay/src/rails/crypto-native.ts'), 'utf8');
-    expect(card).not.toMatch(/toleranceSeconds \?\? 300/);
-    expect(crypto).not.toMatch(/toleranceSeconds \?\? 300/);
-    expect(card).toMatch(/readonly toleranceSeconds: number;/);
-    expect(crypto).toMatch(/readonly toleranceSeconds: number;/);
+  it('inbound rails take the window they are given — never 300 of their own', () => {
+    // The window is a required number on both rails' options; what each rail then accepts is exactly that window.
+    const now = new Date('2026-11-28T12:00:00.000Z');
+    const secret = 'webhook-tolerance-secret-at-least-32-chars';
+    const payload = { id: 'evt_1', ref: 'ch_1', type: 'captured', amount: '1' };
+    const ago = (seconds: number) => new Date(now.getTime() - seconds * 1000);
+    for (const windowSeconds of [60, 600]) {
+      const card = new CardSandboxAdapter({ secret, toleranceSeconds: windowSeconds, now: () => now });
+      const crypto = new CryptoNativeAdapter({
+        chain: new MemoryChain(),
+        secret,
+        minConfirmations: 6,
+        toleranceSeconds: windowSeconds,
+        now: () => now,
+      });
+      for (const rail of [card, crypto]) {
+        expect(
+          rail.verifyWebhook(rail.signWebhook(payload, ago(windowSeconds - 10))),
+          `${rail.id} inside ${windowSeconds}s`,
+        ).not.toBeNull();
+        expect(rail.verifyWebhook(rail.signWebhook(payload, ago(windowSeconds + 10))), `${rail.id} past ${windowSeconds}s`).toBeNull();
+      }
+    }
+    // Built with the window missing, neither rail takes 300 of its own: it either refuses to build, or a delivery signed
+    // just past 300 seconds ago is judged otherwise than a 300-second window would judge it.
+    const cardOptions = { secret, toleranceSeconds: 300, now: () => now };
+    const cryptoOptions = { chain: new MemoryChain(), secret, minConfirmations: 6, toleranceSeconds: 300, now: () => now };
+    Reflect.deleteProperty(cardOptions, 'toleranceSeconds');
+    Reflect.deleteProperty(cryptoOptions, 'toleranceSeconds');
+    for (const build of [() => new CardSandboxAdapter(cardOptions), () => new CryptoNativeAdapter(cryptoOptions)]) {
+      let rail: CardSandboxAdapter | CryptoNativeAdapter;
+      try {
+        rail = build();
+      } catch {
+        continue;
+      }
+      const at300 = new CardSandboxAdapter({ secret, toleranceSeconds: 300, now: () => now });
+      const late = rail.signWebhook(payload, ago(310));
+      expect(at300.verifyWebhook(at300.signWebhook(payload, ago(310)))).toBeNull();
+      expect(rail.verifyWebhook(late), `${rail.id} with no window`).not.toBeNull();
+    }
   });
 });

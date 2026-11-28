@@ -21,9 +21,6 @@
  *   mergeRouters + createEdgeContext + registerSubscriptionCycleRoutes
  *   (Phase A shell doors — wire honesty, do not rebuild pay).
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { partial } from '@intafaced/service-kit/testing';
 import Fastify from 'fastify';
@@ -31,7 +28,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import type { Principal } from '@intafaced/auth';
 import { WITHHELD_FROM_SESSION } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, mergeRouters, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
-import { parseAmount as amt } from '@intafaced/ledger-client';
+import { InvalidEntryError, MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { createPayRouter } from './router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
@@ -42,7 +39,9 @@ import { registerSubscriptionCycleRoutes } from './subscriptions/internal-cycle-
 import type { UserMoneyService } from './user-money-service.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
-import { payServiceSource } from './payment-service/source.testkit.js';
+import { paymentStatusEnum } from './db/schema.js';
+import { registerPublicPayRest } from './public-rest.js';
+import { MemoryRestIdempotencyStore } from './rest-idempotency.js';
 
 const EDGE_SECRET = 'pay-promise-falsify-public-doors-edge-secret-32';
 const INTERNAL_SECRET = 'pay-promise-falsify-public-doors-internal-secret';
@@ -55,7 +54,6 @@ const MANDATE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const SUB = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const SETTLEMENT = '33333333-3333-4333-8333-333333333333';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const edgeContext = createEdgeContext({ secret: EDGE_SECRET, serviceName: 'svc-pay' });
 const rails = new RailRegistry([new CardSandboxAdapter({ secret: 'pay-promise-falsify-rail-sandbox-secret-32b', toleranceSeconds: 300 })]);
 
@@ -308,6 +306,24 @@ async function post(
   return { statusCode: res.statusCode, body: res.json() as WireBody };
 }
 
+/** Every route the merchant REST door mounts, one `METHOD /full/path` per line. */
+async function merchantRestRoutes(): Promise<string> {
+  const app = Fastify({ logger: false });
+  const routes: string[] = [];
+  app.addHook('onRoute', (route) => {
+    for (const method of [route.method].flat()) routes.push(`${method} ${route.url}`);
+  });
+  await registerPublicPayRest(app, {
+    edgeSecret: EDGE_SECRET,
+    serviceName: 'svc-pay',
+    pay: partial<PayService>({}),
+    idempotency: new MemoryRestIdempotencyStore(),
+  });
+  await app.ready();
+  await app.close();
+  return routes.join('\n');
+}
+
 describe('D26-P2-01b refuse-closed defaults (no invent)', () => {
   it('pay:* scopes stay WITHHELD_FROM_SESSION — agents cannot invent a session grant', () => {
     expect(WITHHELD_FROM_SESSION['pay:read']).toMatch(/merchant onboarding/i);
@@ -316,10 +332,21 @@ describe('D26-P2-01b refuse-closed defaults (no invent)', () => {
     expect(WITHHELD_FROM_SESSION['pay:payout']).toMatch(/step-up/i);
   });
 
-  it('chargeback recipes remain OWNER SIGN-OFF / NOT WIRED — no invent reverse-money', () => {
-    const recipe = readFileSync(join(here, '../../../packages/ledger-client/src/recipes/chargeback.ts'), 'utf8');
-    expect(recipe).toMatch(/OWNER SIGN-OFF REQUIRED/);
-    expect(recipe).toMatch(/NOT WIRED/);
+  it('chargeback recipes never invent reverse-money: no empty chargeback, no shortfall the house fund cannot pay', async () => {
+    const base = {
+      disputeId: 'dsp-invent',
+      paymentId: 'pay-invent',
+      merchantId: MERCHANT,
+      merchantUserId: USER,
+      assetId: 'USDT',
+      rail: 'card-sandbox',
+    };
+    expect(() => recipes.chargebackOpen({ ...base, fromClearing: 0n, fromMerchantBalance: 0n })).toThrow(InvalidEntryError);
+    expect(() => recipes.chargebackShortfall({ ...base, amount: 0n })).toThrow(InvalidEntryError);
+    // The house fund holds nothing here, so the book refuses the shortfall rather than inventing the money.
+    const ledger = new MemoryLedger();
+    await expect(ledger.post(recipes.chargebackShortfall({ ...base, amount: amt('5') }))).rejects.toThrow();
+    expect(ledger.journal()).toEqual([]);
   });
 });
 
@@ -555,32 +582,25 @@ describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () =
 });
 
 describe('D26-P2-01b public doors — dispute refuse invent reverse-money', () => {
-  it('dispute case doors exist; merchant REST has no reverse-money chargeback door', () => {
-    const routerSrc = readFileSync(join(here, 'router.ts'), 'utf8');
-    const restSrc = readFileSync(join(here, 'public-rest.ts'), 'utf8');
-    const paySrc = payServiceSource();
-
-    expect(routerSrc).toMatch(/openDispute|contestDispute|getDispute/);
-    expect(routerSrc).not.toMatch(/recipes\.chargeback/);
+  it('dispute case doors exist; merchant REST has no reverse-money chargeback door', async () => {
+    const procedures = Object.keys(
+      createPayRouter(partial<PayService>({}), new RailRegistry([]), partial<UserMoneyService>({}))._def.procedures,
+    );
+    expect(procedures).toEqual(expect.arrayContaining(['fraud.openDispute', 'fraud.contestDispute', 'fraud.getDispute']));
+    const routes = await merchantRestRoutes();
+    expect(routes).toMatch(/payments/);
     // Merchant public REST still has no dispute / chargeback reverse-money door.
-    expect(restSrc).not.toMatch(/\/dispute|chargeback/i);
-    expect(paySrc).not.toMatch(/recipes\.chargeback/);
-    expect(paySrc).toMatch(/postDisputeWon/);
-    expect(paySrc).toMatch(/postDisputeShortfall/);
+    expect(routes).not.toMatch(/dispute|chargeback/i);
   });
 
-  it('payment status disputed is case-reachable; merchant REST has no reverse-money dispute door', () => {
-    const schema = readFileSync(join(here, 'db/schema.ts'), 'utf8');
-    // Schema declares the status; honesty requires the case-only / NOT WIRED banner.
-    expect(schema).toMatch(/disputed/);
-    expect(schema).toMatch(/NOT WIRED|OWNER SIGN-OFF|case/i);
-
-    const rest = readFileSync(join(here, 'public-rest.ts'), 'utf8');
+  it('payment status disputed is case-reachable; merchant REST has no reverse-money dispute door', async () => {
+    expect(paymentStatusEnum.enumValues).toContain('disputed');
+    const routes = await merchantRestRoutes();
     // Merchant REST mutates: create / authorize / capture / refund only.
-    expect(rest).toMatch(/payments\/:id\/authorize/);
-    expect(rest).toMatch(/payments\/:id\/capture/);
-    expect(rest).toMatch(/payments\/:id\/refund/);
-    expect(rest).not.toMatch(/payments\/:id\/dispute/);
+    for (const door of ['POST /v1/payments/:id/authorize', 'POST /v1/payments/:id/capture', 'POST /v1/payments/:id/refund']) {
+      expect(routes, door).toContain(door);
+    }
+    expect(routes).not.toMatch(/payments\/:id\/dispute/);
   });
 
   it('mounted settlement surface cannot be used to invent a dispute status flip', async () => {

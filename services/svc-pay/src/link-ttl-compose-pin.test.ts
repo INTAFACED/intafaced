@@ -27,6 +27,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { payEnv } from './env.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -41,16 +42,16 @@ const WEBHOOK_TOLERANCE =
 
 describe('compose payment-link TTL and webhook tolerance for svc-pay', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
   const block = payServiceBlock(compose);
 
-  it('env.ts still declares the flags this pin tracks, matching compose defaults', () => {
-    expect(envTs).toMatch(/PAY_LINK_DEFAULT_TTL_DAYS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(3_650\),/);
-    expect(envTs).not.toMatch(/PAY_LINK_DEFAULT_TTL_DAYS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(3_650\)\.default\(30\)/);
-    expect(envTs).toMatch(/PAY_LINK_MAX_TTL_DAYS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(3_650\),/);
-    expect(envTs).not.toMatch(/PAY_LINK_MAX_TTL_DAYS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(3_650\)\.default\(365\)/);
-    expect(envTs).toMatch(/PAY_WEBHOOK_TOLERANCE_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(30\),/);
-    expect(envTs).not.toMatch(/PAY_WEBHOOK_TOLERANCE_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(30\)\.default\(300\)/);
+  it('svc-pay refuses each of the three missing, as compose does — no 30, 365 or 300 of its own', () => {
+    for (const key of ['PAY_LINK_DEFAULT_TTL_DAYS', 'PAY_LINK_MAX_TTL_DAYS', 'PAY_WEBHOOK_TOLERANCE_SECONDS']) {
+      expect(() => payEnv({ [key]: undefined })).toThrow(new RegExp(key));
+      expect(() => payEnv({ [key]: '' })).toThrow(new RegExp(key));
+    }
+    expect(() => payEnv({ PAY_WEBHOOK_TOLERANCE_SECONDS: '29' })).toThrow(/PAY_WEBHOOK_TOLERANCE_SECONDS/);
+    const given = payEnv({ PAY_LINK_DEFAULT_TTL_DAYS: '30', PAY_LINK_MAX_TTL_DAYS: '365', PAY_WEBHOOK_TOLERANCE_SECONDS: '300' });
+    expect([given.PAY_LINK_DEFAULT_TTL_DAYS, given.PAY_LINK_MAX_TTL_DAYS, given.PAY_WEBHOOK_TOLERANCE_SECONDS]).toEqual([30, 365, 300]);
   });
 
   it('compose svc-pay block passes unique keys once; default/max TTL and webhook tolerance refuse', () => {

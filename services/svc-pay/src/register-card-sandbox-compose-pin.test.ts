@@ -29,6 +29,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { payEnv } from './env.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -74,19 +75,44 @@ const KEY_NO_VALUE = [
 
 describe('compose PAY_REGISTER_CARD_SANDBOX for svc-pay', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
   const block = payServiceBlock(compose);
 
-  it('env.ts still declares optional true|false enum (empty string invalid)', () => {
-    expect(envTs).toMatch(/PAY_REGISTER_CARD_SANDBOX:\s*z\.enum\(\['true',\s*'false'\]\)\.optional\(\)/);
+  it('svc-pay reads PAY_REGISTER_CARD_SANDBOX as optional true|false (an empty string is refused)', () => {
+    expect(payEnv({ PAY_REGISTER_CARD_SANDBOX: undefined }).PAY_REGISTER_CARD_SANDBOX).toBeUndefined();
+    expect(payEnv({ PAY_REGISTER_CARD_SANDBOX: 'true' }).PAY_REGISTER_CARD_SANDBOX).toBe('true');
+    expect(payEnv({ PAY_REGISTER_CARD_SANDBOX: 'false' }).PAY_REGISTER_CARD_SANDBOX).toBe('false');
+    expect(() => payEnv({ PAY_REGISTER_CARD_SANDBOX: '' })).toThrow(/PAY_REGISTER_CARD_SANDBOX/);
+    expect(() => payEnv({ PAY_REGISTER_CARD_SANDBOX: 'yes' })).toThrow(/PAY_REGISTER_CARD_SANDBOX/);
   });
 
-  it('env.ts still declares optional live-crypto keys (empty string invalid)', () => {
-    expect(envTs).toMatch(/PAY_CRYPTO_RPC_URL:\s*z\.string\(\)\.url\(\)\.optional\(\)/);
-    expect(envTs).toMatch(/PAY_CRYPTO_CHAIN_ID:\s*z\.coerce\.number\(\)\.int\(\)\.positive\(\)\.optional\(\)/);
-    expect(envTs).toMatch(/PAY_CRYPTO_DEPOSIT_SOURCE:\s*z\.enum\(\['testnet'\]\)\.optional\(\)/);
-    expect(envTs).toMatch(/PAY_CRYPTO_SIGNER:\s*z\.enum\(\['testnet'\]\)\.optional\(\)/);
-    expect(envTs).toMatch(/PAY_CRYPTO_ASSETS:\s*z\.string\(\)\.min\(1\)\.optional\(\)/);
+  it('svc-pay reads the live-crypto keys as optional (an empty string is refused)', () => {
+    const unset = payEnv(Object.fromEntries(KEY_NO_VALUE.map(([name]) => [name, undefined])));
+    for (const [name] of KEY_NO_VALUE) expect(unset[name], name).toBeUndefined();
+    for (const name of [
+      'PAY_CRYPTO_RPC_URL',
+      'PAY_CRYPTO_CHAIN_ID',
+      'PAY_CRYPTO_DEPOSIT_SOURCE',
+      'PAY_CRYPTO_SIGNER',
+      'PAY_CRYPTO_ASSETS',
+    ]) {
+      expect(() => payEnv({ [name]: '' }), name).toThrow(new RegExp(name));
+    }
+    const given = payEnv({
+      PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
+      PAY_CRYPTO_CHAIN_ID: '31337',
+      PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
+      PAY_CRYPTO_SIGNER: 'testnet',
+      PAY_CRYPTO_ASSETS: 'ETH:native',
+    });
+    expect([
+      given.PAY_CRYPTO_RPC_URL,
+      given.PAY_CRYPTO_CHAIN_ID,
+      given.PAY_CRYPTO_DEPOSIT_SOURCE,
+      given.PAY_CRYPTO_SIGNER,
+      given.PAY_CRYPTO_ASSETS,
+    ]).toEqual(['http://127.0.0.1:8545', 31337, 'testnet', 'testnet', 'ETH:native']);
+    expect(() => payEnv({ PAY_CRYPTO_RPC_URL: 'not a url' })).toThrow(/PAY_CRYPTO_RPC_URL/);
+    expect(() => payEnv({ PAY_CRYPTO_SIGNER: 'mnemonic' })).toThrow(/PAY_CRYPTO_SIGNER/);
   });
 
   it('compose svc-pay block has each optional key once as key-no-value', () => {

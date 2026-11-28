@@ -1,18 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { Sql } from 'postgres';
 import { describe, expect, it, vi } from 'vitest';
+import { parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createFounderAuthority } from '../founder-authority.js';
 import { createPayNamespaces, findUnguardedFounderProcedures } from '../namespaces/index.js';
 import type { MerchantRole } from '../merchant-ops/roles.js';
+import { scriptedSql } from '../scripted-sql.testkit.js';
+import { parsePositiveAmount } from './money.js';
 import { createB2bRampRouter, type B2bRampCreditPort } from './router.js';
+import { BankStatementReconciliation } from './socket.js';
 import type { B2bCreditInput, B2bCreditResult } from './socket.js';
 import type { B2bRampAccess } from './access.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const id = () => randomUUID();
 const merchantId = id();
 const userId = id();
@@ -299,19 +300,69 @@ describe('b2b ramp route inventory', () => {
   it('is mounted on the pay namespaces, and founder status is guarded ahead of input', () => {
     const r = createPayNamespaces({ founderAuthority: createFounderAuthority({ ...identity, fetcher: vi.fn() }) });
     expect(findUnguardedFounderProcedures(r, ['b2bRamp.founderStatus'])).toEqual([]);
-    const src = readFileSync(join(here, '..', 'namespaces', 'index.ts'), 'utf8');
-    expect(src).toContain('createB2bRampRouter');
+    const paths = Object.keys(r._def.procedures);
+    expect(paths.filter((path) => path.startsWith('b2bRamp.')).sort()).toEqual([
+      'b2bRamp.credit',
+      'b2bRamp.founderStatus',
+      'b2bRamp.get',
+      'b2bRamp.status',
+    ]);
   });
 
-  it('does not post to the ledger from this module', () => {
-    const files = readdirSync(here).filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'));
-    for (const name of files) {
-      const src = readFileSync(join(here, name), 'utf8');
-      expect(src, name).not.toMatch(/ledger\.post|postTransfer|createLedgerClient|MemoryLedger/);
-      if (name !== 'money.ts') expect(src, name).not.toMatch(/@intafaced\/ledger-client/);
+  it('does not post to the ledger from this module', async () => {
+    // A credit is admitted on its own rows: the only writes are the bank line and the credit, no other service is
+    // called (svc-ledger is reached over HTTP), and the answer says nothing was posted. That nothing in the whole folder
+    // posts is ledger-isolation.test.ts; that only money.ts loads ledger-client is ledger-import.test.ts.
+    const line = {
+      id: 'line-pk-1',
+      merchant_id: merchantId,
+      amount: '12345678901234567.89',
+      asset: 'USD',
+      reference: 'ref-1',
+      posted_at: new Date(),
+    };
+    const { sql, calls } = scriptedSql<Sql>((call) => {
+      if (call.text.includes('INSERT INTO pay.b2b_ramp_bank_lines')) return [{ id: line.id }];
+      if (call.text.includes('FROM pay.b2b_ramp_bank_lines')) return [line];
+      if (call.text.includes('INSERT INTO pay.b2b_ramp_credits')) return [{ id: creditId }];
+      return [];
+    });
+    const fetched = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the ramp called out'));
+    try {
+      const socket = new BankStatementReconciliation(sql, on);
+      await socket.recordBankLine({
+        source: 'bank_statement',
+        lineId: 'stmt-1',
+        merchantId,
+        amount: '12345678901234567.89',
+        asset: 'USD',
+        reference: 'ref-1',
+        postedAt: line.posted_at.toISOString(),
+      } as Parameters<BankStatementReconciliation['recordBankLine']>[0]);
+      // Past 2^53, so a Number reading of either side would not match exactly.
+      await expect(
+        socket.credit({ merchantId, bankLineId: 'stmt-1', amount: '12345678901234567.890', asset: 'USD' }),
+      ).resolves.toMatchObject({
+        creditId,
+        amount: '12345678901234567.89',
+        reconciled: true,
+        ledgerPosted: false,
+      });
+      await expect(socket.credit({ merchantId, bankLineId: 'stmt-1', amount: '12345678901234567.88', asset: 'USD' })).rejects.toMatchObject(
+        {
+          code: 'pay.b2b_ramp_unreconciled',
+        },
+      );
+      expect(fetched).not.toHaveBeenCalled();
+    } finally {
+      fetched.mockRestore();
     }
-    const money = readFileSync(join(here, 'money.ts'), 'utf8');
-    expect(money).toMatch(/parseAmount/);
-    expect(money).toMatch(/formatAmount/);
+    const writes = calls.map((c) => c.text.trim()).filter((text) => /^(INSERT|UPDATE|DELETE)\b/i.test(text));
+    expect(writes.length).toBe(2);
+    for (const write of writes) expect(write).toMatch(/^INSERT INTO pay\.b2b_ramp_(bank_lines|credits)\b/);
+    expect(parsePositiveAmount('9007199254740993.000000000000000001')).toEqual({
+      scaled: parseAmount('9007199254740993.000000000000000001'),
+      canonical: '9007199254740993.000000000000000001',
+    });
   });
 });
