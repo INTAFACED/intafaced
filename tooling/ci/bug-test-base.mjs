@@ -24,6 +24,11 @@
  * node:test. A change whose only tests are of those kinds passes with that warning. A change that touches no test file
  * fails.
  *
+ * A change whose every changed file is a test (the bug was in a test, as in #11305) has no code before the fix: nothing
+ * goes back to the base, so the base run would be the head run and could never fail. It is not run there; it passes
+ * with a notice that the fix is in the tests themselves and that their head run, the package's own CI tests, is the
+ * proof (#11309). One changed file that is not a test brings the base run back at full strength.
+ *
  * It changes the checkout and puts the changed files back at the end; files the base's build writes (`dist/`) stay.
  * Run it on a clean checkout of the change:
  *
@@ -164,8 +169,11 @@ export function importProblems(output, relFile, text = '') {
   return out;
 }
 
-/** The job's verdict: { ok, lines: [{ level: error|warning|notice, text }] }. */
-export function verdict({ issue, results }) {
+/**
+ * The job's verdict: { ok, lines: [{ level: error|warning|notice, text }] }. `testOnly`: every file the change touches
+ * is a test, so `results` are the test files found, not run on the base (there is no code before the fix to run them on).
+ */
+export function verdict({ issue, results, testOnly = false }) {
   const lines = [];
   const say = (level, text) => lines.push({ level, text });
   const ran = results.filter((r) => r.state !== 'gap');
@@ -175,6 +183,13 @@ export function verdict({ issue, results }) {
       `this fix for #${issue} adds or changes no test file, so nothing shows it catches the bug. Add a test that fails on the code before the fix.`,
     );
     return { ok: false, lines };
+  }
+  if (testOnly) {
+    say(
+      'notice',
+      `every file this fix for #${issue} changes is a test (${results.map((r) => `\`${r.file}\``).join(', ')}), so the fix is in the tests themselves: there is no code before the fix, and the base would run the head's own code. Their head run, the package's own CI tests, is the proof.`,
+    );
+    return { ok: true, lines };
   }
   for (const r of results) {
     if (r.state === 'caught') say('notice', `\`${r.file}\` fails on the code before this fix, by its own check (${r.why}).`);
@@ -369,6 +384,8 @@ function check(issue, base) {
   console.log(
     `base ${git(['rev-parse', '--short', base]).trim()}: ${code.length} changed file(s) go back to it; ${tests.length} test path(s) stay`,
   );
+  // Every changed file a test: nothing goes back, so the base is the head; each test is named, not run (see the top).
+  const testOnly = code.length === 0;
   try {
     for (const c of code) {
       if (c.status === 'A') rmSync(join(ROOT, c.path), { force: true });
@@ -380,7 +397,8 @@ function check(issue, base) {
       const pkg = packageOf(t.path);
       const kind = kindOf(t.path, text, pkg.json);
       if (kind === null) continue;
-      if (kind === 'node') results.push(runNode(t.path, out));
+      if (testOnly) results.push({ file: t.path });
+      else if (kind === 'node') results.push(runNode(t.path, out));
       else if (kind === 'vitest') vitest.set(pkg.dir, { pkg, files: [...(vitest.get(pkg.dir)?.files ?? []), t.path] });
       else results.push({ file: t.path, state: 'gap', why: kind.gap });
     }
@@ -393,13 +411,20 @@ function check(issue, base) {
     git(['reset', '--quiet']);
     rmSync(out, { recursive: true, force: true });
   }
-  const v = verdict({ issue, results });
+  const v = verdict({ issue, results, testOnly });
   const summary = [`### A test for #${issue}, run on the code before the fix`, ''];
   for (const l of v.lines) {
     console.log(`::${l.level}::${l.text}`);
-    summary.push(`- ${l.level === 'notice' ? 'shown failing' : l.level}: ${l.text}`);
+    summary.push(`- ${l.level === 'notice' && !testOnly ? 'shown failing' : l.level}: ${l.text}`);
   }
-  summary.push('', v.ok ? 'Shown failing on the base.' : 'Not shown failing on the base.');
+  summary.push(
+    '',
+    testOnly && v.ok
+      ? 'Not run on the base: the fix is in the tests.'
+      : v.ok
+        ? 'Shown failing on the base.'
+        : 'Not shown failing on the base.',
+  );
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary.join('\n')}\n`);
   console.log(summary.join('\n'));
   return v.ok;
