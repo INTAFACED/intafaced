@@ -28,7 +28,7 @@ import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './rout
 import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
 import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
 import { RailRegistry } from './rails/registry.js';
-import { railFailure } from './rails/rail-adapter.js';
+import { railFailure, type RailEvent, type RailWebhookRequest } from './rails/rail-adapter.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
@@ -2195,6 +2195,54 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(outcome.applied).toBe(false);
       expect(await clearingOf(m.id)).toBe('100');
       expect(await events(payment.id)).toContain('webhook.refunded');
+    });
+
+    it('a voided event is refused by both v1 rails, and a rail that reports one moves nothing and changes no status', async () => {
+      // Neither v1 adapter parses `voided`: a signed one is refused at the door, before the ledger.
+      const m = await merchant();
+      const payment = await cardPayment(m.id, '100');
+      const voided = { id: 'evt_voided_ext', type: 'voided', ref: payment.railRef };
+      expect(card.verifyWebhook(signed('card-sandbox', voided))).toBeNull();
+      expect(crypto.verifyWebhook(signed('crypto-native', voided))).toBeNull();
+      const posts = vi.spyOn(ledger, 'post');
+      try {
+        await expect(pay.handleWebhook('card-sandbox', signed('card-sandbox', voided))).rejects.toMatchObject({
+          code: 'pay.webhook_invalid',
+        });
+        await expect(pay.handleWebhook('crypto-native', signed('crypto-native', voided))).rejects.toMatchObject({
+          code: 'pay.webhook_invalid',
+        });
+
+        // A rail that does report `voided` on this payment: the core records it and acts on nothing.
+        class VoidingCard extends CardSandboxAdapter {
+          override verifyWebhook(req: RailWebhookRequest): RailEvent | null {
+            const event = super.verifyWebhook(req);
+            return event ? { ...event, type: 'voided' } : null;
+          }
+        }
+        const voiding = new VoidingCard({ secret: SECRET, toleranceSeconds: 300 });
+        const local = new PayService(sql, ledger, new RailRegistry([voiding, crypto, new BankPayoutAbsentAdapter()]), {
+          checkoutRiskBand: 'low',
+          payoutDestinations: dests,
+          routingProfiles: TEST_CHECKOUT_PROFILES,
+          linkDefaultTtlDays: 30,
+          linkMaxTtlDays: 365,
+          checkoutSessionTtlSeconds: 900,
+          maxOpenSessionsPerLink: 25,
+        });
+        const before = (await pay.getPayment(payment.id)).status;
+        const outcome = await local.handleWebhook(
+          'card-sandbox',
+          signed('card-sandbox', { id: 'evt_voided_reported', type: 'refunded', ref: payment.railRef }),
+        );
+        expect(outcome).toMatchObject({ type: 'voided', duplicate: false, applied: false, paymentId: payment.id });
+        expect((await pay.getPayment(payment.id)).status).toBe(before);
+        expect(await events(payment.id)).toContain('webhook.voided');
+        expect(posts).not.toHaveBeenCalled();
+      } finally {
+        posts.mockRestore();
+      }
+      expect(await clearingOf(m.id)).toBe('0');
     });
 
     it('a capture queues no status email and sends no receipt: no queue table here, no outside call, and it still books', async () => {

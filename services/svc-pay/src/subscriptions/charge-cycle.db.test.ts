@@ -1195,17 +1195,23 @@ describe('svc-pay subscription charge cycle PG-hard', () => {
 
     it('wired port records attempted before the invoice and capture still fail-closes', async () => {
       const seen: Array<{ type: string; occurrence: number }> = [];
+      // How many invoices were open when the notice went: the notice is recorded before the invoice opens.
+      const invoicesAtNotice: number[] = [];
       const { subs } = build({
         defaultFeeBps: 250,
         notifyPreCharge: (event) => {
           seen.push({ type: event.type, occurrence: event.occurrence });
+          invoicesAtNotice.push(opened.length);
         },
       });
       const m = await merchant();
       const { sub } = await mandateAndSubscription(subs, { merchantId: m.id });
 
-      await subs.runDueSubscriptions({ limit: 50, now: JAN });
+      const report = await subs.runDueSubscriptions({ limit: 50, now: JAN });
       expect(seen).toEqual([{ type: 'subscription.invoice_upcoming', occurrence: 0 }]);
+      expect(invoicesAtNotice).toEqual([0]);
+      // Handing the notice to the port is an attempt, never a claim that the customer was notified.
+      expect(report.outcomes[0]!.notifyStatus).toBe('attempted');
       const [cycle] = await cyclesOf(subs, sub.id);
       expect(cycle!.notifyStatus).toBe('attempted');
       expect(cycle!.notifyCode).toBeNull();

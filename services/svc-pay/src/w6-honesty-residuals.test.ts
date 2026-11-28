@@ -29,7 +29,8 @@ vi.mock('@intafaced/auth', async (importOriginal) => {
  *
  * The webhook door's dispute and refund branches are driven in payment-service.test.ts ("dispute.opened posts
  * chargebackOpen from clearing and marks disputed", "records a refund webhook without acting on it"); every dispute
- * post being exactly its ledger-client recipe is chargeback-unwired.test.ts.
+ * post being exactly its ledger-client recipe is chargeback-unwired.test.ts; a voided event moving nothing is payment-service.test.ts
+ * ("a voided event is refused by both v1 rails, and a rail that reports one moves nothing and changes no status").
  */
 
 const open = (pay: ReturnType<typeof scriptedCheckout>['pay']) => pay.openCheckoutSession({ linkToken: 'pl_test_token', geoCountry: 'DE' });

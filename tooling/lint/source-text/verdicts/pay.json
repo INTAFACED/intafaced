@@ -1075,7 +1075,7 @@
       "kind": "test",
       "ref": "services/svc-pay/src/subscriptions/charge-cycle.db.test.ts#wired port records attempted before the invoice"
     },
-    "why": "That test runs a cycle on a real database: notify attempted, then the invoice, and capture still fail-closes."
+    "why": "That test runs a cycle on a real database: notify attempted, then the invoice, and capture still fail-closes; it now also asserts the notice went while no invoice was open (notify before openInvoice) and that the outcome says attempted, never notified."
   },
   {
     "file": "services/svc-pay/src/subscriptions/crypto-invoice-and-watch.pin.test.ts",
@@ -1196,7 +1196,7 @@
       "kind": "test",
       "ref": "services/svc-pay/src/subscriptions/charge-cycle.db.test.ts#wired port records attempted before the invoice"
     },
-    "why": "That test runs a cycle on a real database and asserts the attempted record precedes the invoice; \"unwired port writes skipped_unwired\" holds the unwired status."
+    "why": "That test runs a cycle on a real database and asserts the attempted record precedes the invoice; \"unwired port writes skipped_unwired\" holds the unwired status; it now also asserts the notice went while no invoice was open (notify before openInvoice) and that the outcome says attempted, never notified."
   },
   {
     "file": "services/svc-pay/src/w6-honesty-residuals.test.ts",
@@ -1212,24 +1212,24 @@
   {
     "file": "services/svc-pay/src/w6-honesty-residuals.test.ts",
     "target": "payment-service/webhooks.ts",
-    "verdict": "delete",
-    "asserts": "A dispute.opened webhook books the opening or records the named refusal.",
+    "verdict": "rewrite",
+    "asserts": "The webhook door books dispute.opened via the chargeback recipe or a named refusal, books dispute resolutions, records a refund without acting, and has no voided branch: a voided event moves nothing and changes no status.",
     "guard": {
       "kind": "test",
-      "ref": "services/svc-pay/src/payment-service.test.ts#dispute.opened posts chargebackOpen from clearing and marks disputed"
+      "ref": "services/svc-pay/src/payment-service.test.ts#a voided event is refused by both v1 rails"
     },
-    "why": "That test delivers a signed dispute.opened on a real database and asserts the opening post and the case; \"records a refund webhook without acting on it\" holds the refunded branch."
+    "why": "The guard sends a signed voided event to both v1 rails (each refuses it, pay.webhook_invalid) and through a rail that reports voided (recorded as webhook.voided, applied false, status unchanged, ledger.post never called); dispute.opened is payment-service.test.ts 'dispute.opened posts chargebackOpen from clearing and marks disputed', won and lost are fraud/dispute-case-store.db.test.ts, refunded is 'records a refund webhook without acting on it'."
   },
   {
     "file": "services/svc-pay/src/w6-honesty-residuals.test.ts",
     "target": "rails/rail-adapter.ts",
-    "verdict": "delete",
-    "asserts": "A refund webhook is recorded and not acted on.",
+    "verdict": "rewrite",
+    "asserts": "The rail event set declares voided and the dispute events; a refund webhook is recorded and not acted on.",
     "guard": {
       "kind": "test",
-      "ref": "services/svc-pay/src/payment-service.test.ts#records a refund webhook without acting on it"
+      "ref": "services/svc-pay/src/payment-service.test.ts#a voided event is refused by both v1 rails"
     },
-    "why": "That test delivers a signed refunded event and asserts it is recorded, not applied, with clearing unchanged; the card rail parses no voided event at all."
+    "why": "The guard builds a RailEvent of type voided (it compiles only while RailEventType declares it) and asserts what the core does with it; 'records a refund webhook without acting on it' holds the refund half."
   },
   {
     "file": "services/svc-pay/src/webhook-tolerance-unset.test.ts",
