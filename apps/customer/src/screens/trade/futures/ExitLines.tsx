@@ -35,11 +35,15 @@ type LineKind = 'stop' | 'target' | 'entry';
 type Drag = { kind: LineKind; y: number; from: number };
 type Note = { tone: 'good' | 'bad'; text: string; code?: string | null };
 
+/** Where the first label on a price starts, from the chart's inline start: the kit's own inset for a line's label. */
+const LABEL_START_PX = 8;
+/** The gap between two marks set side by side on one row. */
+const LABEL_GAP_PX = 8;
 /**
- * How far below the entry line its actions (Breakeven) start: the menu hangs from its top, so at the line itself it would
- * cover the lower half of the entry handle, and a press there would reach Breakeven instead of the line.
+ * Two labels whose prices sit closer than this many pixels would cover each other (each is at least 24px tall, centred
+ * on its price), so the later one is set after the earlier one on the same row instead of on top of it.
  */
-const ENTRY_ACTIONS_BELOW_PX = 14;
+const LABEL_NEAR_PX = 26;
 /** A pointer that moves less than this many pixels between down and up is a press on the line, not a drag. */
 const DRAG_MIN_PX = 4;
 const NOTE_CLASS = { good: 'lt-note lt-note-good', bad: 'lt-note lt-note-bad' } as const;
@@ -96,6 +100,20 @@ export function ExitLines({
   const [busy, setBusy] = useState(false);
   const working = useRef(false);
   const counter = useRef(0);
+  // Each drawn mark's size, measured, so a label near another price is set beside it, never over its figures.
+  const [sizes, setSizes] = useState<Partial<Record<'stop' | 'target' | 'entry' | 'actions', { w: number; h: number }>>>({});
+  const measure = (key: 'stop' | 'target' | 'entry' | 'actions') => (el: HTMLElement | null) => {
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const read = () => {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      setSizes((was) => (was[key]?.w === w && was[key]?.h === h ? was : { ...was, [key]: { w, h } }));
+    };
+    read();
+    const watch = new ResizeObserver(read);
+    watch.observe(el);
+    return () => watch.disconnect();
+  };
   // The overlay follows the chart: a redraw on a pan, a zoom, a resize and while the price scale moves.
   useChartOverlay(host, { onCrosshair: () => undefined, onContextMenu: () => undefined });
 
@@ -231,7 +249,7 @@ export function ExitLines({
   });
 
   /** One exit line's handle: at the venue's price, or at the pointer while dragged, with its figures there. */
-  const exitLine = (kind: 'stop' | 'target', order: VenueOrder | null) => {
+  const exitLine = (kind: 'stop' | 'target', order: VenueOrder | null, x: number) => {
     const held = order?.trigger?.price ?? null;
     if (!held) return null;
     const moving = drag?.kind === kind;
@@ -250,6 +268,8 @@ export function ExitLines({
         as="button"
         kind="line"
         y={y}
+        x={x}
+        ref={measure(kind)}
         data-testid={`exit-line-${kind}`}
         data-side={kind === 'stop' ? 'sell' : 'buy'}
         data-held={held}
@@ -269,6 +289,24 @@ export function ExitLines({
 
   const entryY = drag?.kind === 'entry' ? drag.y : yOf(position.entryPrice);
   const entryFigures = drag?.kind === 'entry' && dragged ? figures(dragged) : null;
+  // The labels' row positions: the stop first at the kit's inset, then the target, then the entry, each set after any
+  // earlier label whose price sits within LABEL_NEAR_PX of its own; Breakeven sits on the entry's row, after its label.
+  const lineY = (kind: 'stop' | 'target', order: VenueOrder | null) => {
+    const held = order?.trigger?.price ?? null;
+    if (!held) return null;
+    return drag?.kind === kind ? drag.y : yOf(held);
+  };
+  const placed: { y: number; end: number }[] = [];
+  const place = (key: 'stop' | 'target' | 'entry', y: number | null) => {
+    if (y === null) return LABEL_START_PX;
+    const x = placed.reduce((at, p) => (Math.abs(p.y - y) < LABEL_NEAR_PX ? Math.max(at, p.end + LABEL_GAP_PX) : at), LABEL_START_PX);
+    placed.push({ y, end: x + (sizes[key]?.w ?? 0) });
+    return x;
+  };
+  const stopX = place('stop', lineY('stop', stop));
+  const targetX = place('target', lineY('target', target));
+  const entryX = place('entry', entryY);
+  const actionsX = entryX + (sizes.entry?.w ?? 0) + LABEL_GAP_PX;
   // The lines are drawn only once the chart reads a price back from a pixel (it has its bars): before then a line could
   // be pressed but never dropped at a price.
   const edges = { top: priceAt(pane.top), bottom: priceAt(pane.top + pane.height) };
@@ -283,13 +321,15 @@ export function ExitLines({
             data-price-top={edges.top}
             data-price-bottom={edges.bottom}
           >
-            {exitLine('stop', stop)}
-            {exitLine('target', target)}
+            {exitLine('stop', stop, stopX)}
+            {exitLine('target', target, targetX)}
             {entryY !== null && (
               <ChartMark
                 as="button"
                 kind="line"
                 y={entryY}
+                x={entryX}
+                ref={measure('entry')}
                 data-testid="exit-line-entry"
                 data-price={drag?.kind === 'entry' && dragged ? dragged : position.entryPrice}
                 data-net={entryFigures?.net ?? ''}
@@ -307,7 +347,14 @@ export function ExitLines({
               </ChartMark>
             )}
             {entryY !== null && drag === null && (
-              <ChartMark kind="menu" y={entryY + ENTRY_ACTIONS_BELOW_PX} data-testid="exit-line-entry-actions">
+              <ChartMark
+                kind="menu"
+                // The menu hangs from its top: half its height above the line centres it on the entry's row.
+                y={entryY - (sizes.actions?.h ?? 0) / 2}
+                x={actionsX}
+                ref={measure('actions')}
+                data-testid="exit-line-entry-actions"
+              >
                 <Button
                   tone="secondary"
                   size="sm"
