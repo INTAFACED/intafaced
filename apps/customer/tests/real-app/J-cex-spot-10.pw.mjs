@@ -6,6 +6,7 @@ import { grantVipTrial, reviewVipApplication } from '../../../../tooling/scripts
 import { api, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { utcMinuteOf } from './clock.mjs';
 import { J, SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, tiersAt } from './cex-spot-10.mjs';
 
 // J-cex-spot-10 #5 #7, in the running app (docs/roadmap/journeys.json): the steps that are ours alone, our tier programme
@@ -63,7 +64,7 @@ test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is
 
     await signIn(page, who);
     await page.goto('/fees/my-tier');
-    await expect(page.getByRole('heading', { level: 1, name: 'My fee tier' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'My fee tier', exact: true })).toBeVisible();
     await expect(page.locator('h2[data-tier=regular]')).toHaveText('Your tier: Regular');
     await expect(page.locator(`[data-volume="${tier.volume.amount}"]`)).toHaveText(
       `${tier.volume.amount} counted toward the next snapshot so far, from ${count} trades`,
@@ -76,7 +77,7 @@ test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is
     for (const code of tier.excluded) await expect(page.locator(`[data-excluded=${code}]`)).toBeVisible();
     await expect(page.locator('[data-excluded=assets]')).toHaveText('Assets you hold: not counted (no asset thresholds set).');
     await expect(page.locator(`[data-next-snapshot="${snapshotAt.toISOString()}"]`)).toContainText(
-      `Next snapshot: ${snapshotAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+      `Next snapshot: ${utcMinuteOf(snapshotAt).replace('T', ' ')} UTC`,
     );
     await expect(page.locator('[data-tier-page=snapshots]')).toContainText('No snapshot has included you yet.');
     // The step's picture: the tier, the volume and what it counts, what is excluded and the next threshold.

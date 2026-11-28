@@ -6,6 +6,7 @@ import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits, tool } from './stack.mjs';
 import { awayBid, confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
+import { utcMinuteOf } from './clock.mjs';
 import { J, SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, published } from './cex-spot-10.mjs';
 
 // J-cex-spot-10's checks of today's custodial desk, custody on by design (CUSTODIAL_PART in
@@ -402,7 +403,7 @@ test(`${J}, part of #5, checked on today's custodial desk: opens My tier: the ti
 
     await signIn(page, who);
     await page.goto('/fees/my-tier');
-    await expect(page.getByRole('heading', { level: 1, name: 'My fee tier' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'My fee tier', exact: true })).toBeVisible();
     await expect(page.locator('h2[data-tier=regular]')).toHaveText('Your tier: Regular');
     await expect(page.locator(`[data-volume="${tier.volume.amount}"]`)).toHaveText(
       `${tier.volume.amount} counted toward the next snapshot so far, from ${count} trades`,
@@ -415,7 +416,7 @@ test(`${J}, part of #5, checked on today's custodial desk: opens My tier: the ti
     for (const code of tier.excluded) await expect(page.locator(`[data-excluded=${code}]`)).toBeVisible();
     await expect(page.locator('[data-excluded=assets]')).toHaveText('Assets you hold: not counted (no asset thresholds set).');
     await expect(page.locator(`[data-next-snapshot="${snapshotAt.toISOString()}"]`)).toContainText(
-      `Next snapshot: ${snapshotAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+      `Next snapshot: ${utcMinuteOf(snapshotAt).replace('T', ' ')} UTC`,
     );
     await expect(page.locator('[data-tier-page=snapshots]')).toContainText('No snapshot has included you yet.');
   } finally {
@@ -491,12 +492,12 @@ test(`${J}, part of #6, checked on today's custodial desk: crosses the threshold
       countedFills: now.volume.fills,
       scheduleVersion: version,
     });
-    expect(after.lastSnapshot.key).toMatch(new RegExp(`^tier-snapshot:${snapshotAt.toISOString().slice(0, 16)}Z:`));
+    expect(after.lastSnapshot.key).toMatch(new RegExp(`^tier-snapshot:${utcMinuteOf(snapshotAt)}Z:`));
     expect(after.snapshots[0]).toEqual(after.lastSnapshot);
 
     await page.goto('/fees/my-tier');
     await expect(page.locator('h2[data-tier=test-vip-1]')).toHaveText('Your tier: test-vip-1');
-    const minute = `${snapshotAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+    const minute = `${utcMinuteOf(snapshotAt).replace('T', ' ')} UTC`;
     await expect(page.locator('[data-tier-page=tier]')).toContainText(`From the snapshot at ${minute}.`);
     const row = page.locator(`tr[data-snapshot="${after.lastSnapshot.key}"]`);
     await expect(row.locator('th')).toHaveText(minute);
