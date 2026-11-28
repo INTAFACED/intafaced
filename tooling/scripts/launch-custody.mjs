@@ -79,7 +79,6 @@ export const NOT_YET_OFF = new Set([
   'J-cex-spot-10',
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
-  'J-derivatives-02',
   'J-derivatives-06',
   'J-home-ia-01',
   'J-p2p-21',
