@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { timingSafeEqual } from 'node:crypto';
+import { describe, expect, it, vi } from 'vitest';
 import {
   MemoryNonceStore,
   REQUEST_SIGN_WINDOW_SECONDS,
@@ -13,6 +11,12 @@ import {
   signaturesEqual,
   type RequestSignMaterial,
 } from './api-key-request-sign.js';
+
+// The real compare, watched: every signature verdict must come from it.
+vi.mock('node:crypto', async (original) => {
+  const crypto = await original<typeof import('node:crypto')>();
+  return { ...crypto, timingSafeEqual: vi.fn(crypto.timingSafeEqual) };
+});
 
 const SECRET = 'ifs_test-signing-secret';
 const KEY = '33333333-3333-4333-8333-333333333333';
@@ -90,13 +94,25 @@ describe('inbound API key request signature', () => {
     expect(store.consume(KEY, 'nonce-skew-01', after, signedAt)).toBe(true);
   });
 
-  it('compares signatures in constant time and does not throw on a short signature', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'api-key-request-sign.ts'), 'utf8');
-    expect(src).toContain('timingSafeEqual');
-    expect(src).not.toMatch(/signature\s*===/);
-    expect(src).not.toMatch(/=== expected/);
-    expect(signaturesEqual('ab', signRequest(SECRET, 'canonical'))).toBe(false);
-    expect(signaturesEqual(signRequest(SECRET, 'canonical'), signRequest(SECRET, 'canonical'))).toBe(true);
+  it('compares signatures in constant time and does not throw on a short signature', async () => {
+    const compare = vi.mocked(timingSafeEqual);
+    compare.mockClear();
+    const good = signRequest(SECRET, 'canonical');
+    const flipped = `${good.slice(0, -1)}${good.endsWith('0') ? '1' : '0'}`;
+    expect(signaturesEqual(good, signRequest(SECRET, 'canonical'))).toBe(true);
+    expect(signaturesEqual(flipped, good)).toBe(false);
+    // Both verdicts on equal-length signatures were the constant-time compare's own answers.
+    expect(compare.mock.results.map((r) => r.value)).toEqual([true, false]);
+    compare.mockClear();
+    for (const short of ['ab', '', 'zz', `${good}00`]) expect(signaturesEqual(short, good), short).toBe(false);
+    expect(compare).not.toHaveBeenCalled();
+    // The verifier reaches its tampered verdict through the same compare, never a string equality.
+    const signed = material();
+    await expect(assess(true, { ...signed, bodyHash: hashBody('{"amount":"9.99"}') }, new MemoryNonceStore())).resolves.toEqual({
+      ok: false,
+      reason: 'tampered',
+    });
+    expect(compare.mock.results.map((r) => r.value)).toEqual([false]);
   });
 
   it('requires a non-empty IP allowlist only when the key opts in', () => {

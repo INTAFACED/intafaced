@@ -1,0 +1,838 @@
+[
+  {
+    "file": "services/svc-p2p/src/access-log-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/instrument-service.ts",
+    "verdict": "rewrite",
+    "asserts": "instruments.accessLog never reads a page the caller did not size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/access-log-limit-unset.test.ts#accessLogFor reads the log by the limit it was given, capped at 500"
+    },
+    "why": "Calls accessLogFor over a recording SQL client: omitted refuses p2p.access_log_limit_unset with no query; 100 reaches the LIMIT; 501 is capped to 500."
+  },
+  {
+    "file": "services/svc-p2p/src/affiliate-accrue.test.ts",
+    "target": "p2p-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A release accrues the affiliate fee only after escrowRelease is posted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/affiliate-release.pg.test.ts#posts escrowRelease, then accrues the fee, then pays it out, once each"
+    },
+    "why": "Against Postgres a confirmed trade records the ledger post, the accrue and the payout in that order, each once with the fee leg, and a refund pays none; moved beside the service as a test of settle."
+  },
+  {
+    "file": "services/svc-p2p/src/affiliate-accrue.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The running service accrues through the HTTP affiliate client, not the no-op.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/index-boot.test.ts#hands the service the HTTP affiliate accrue and payout clients for IDENTITY_URL"
+    },
+    "why": "Imports the real entrypoint (Postgres and JetStream stood in) and asserts createAffiliateAccrueClient got IDENTITY_URL and the internal secret and is the client the booted P2pService holds."
+  },
+  {
+    "file": "services/svc-p2p/src/affiliate-payout.test.ts",
+    "target": "p2p-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A release pays the affiliate fee out after accrue, after escrowRelease.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/affiliate-release.pg.test.ts#posts escrowRelease, then accrues the fee, then pays it out, once each"
+    },
+    "why": "The same Postgres test: the recorded order is ledger escrowRelease, accrue, payout; a second settle pays nothing twice."
+  },
+  {
+    "file": "services/svc-p2p/src/affiliate-payout.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The running service pays out through the HTTP affiliate client, not the no-op.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/index-boot.test.ts#hands the service the HTTP affiliate accrue and payout clients for IDENTITY_URL"
+    },
+    "why": "The booted entrypoint built createAffiliatePayoutClient(IDENTITY_URL, internal secret) and handed that client to P2pService."
+  },
+  {
+    "file": "services/svc-p2p/src/affiliate-payout.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "IDENTITY_URL is optional with no localhost default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/affiliate-payout.test.ts#names fleet identity, does not bake P2P_FEE_BPS, does not restamp JWT"
+    },
+    "why": "Loads the real env.ts: unset stays undefined, a URL is kept, a non-URL refuses boot."
+  },
+  {
+    "file": "services/svc-p2p/src/closure/closure-check.pg.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "The running service mounts the signed closure check on the internal secret.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/index-boot.test.ts#mounts the signed closure check: refused without the internal secret, answered with it"
+    },
+    "why": "The booted entrypoint answers /internal/closure-check 401 unsigned or signed with another secret, and 200 signed with INTERNAL_SERVICE_SECRET."
+  },
+  {
+    "file": "services/svc-p2p/src/compose-dispute-sla-pin.test.ts",
+    "target": "../../../services/svc-p2p/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The dispute SLA and escalation re-check have no git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/compose-dispute-sla-pin.test.ts#env.ts leaves both clocks unset when the host gives none, and reads a published value"
+    },
+    "why": "Loads the real env.ts unset and blank (both null) and published (604800, 3600)."
+  },
+  {
+    "file": "services/svc-p2p/src/compose-escrow-deadline-pin.test.ts",
+    "target": "../../../services/svc-p2p/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The escrow, payment, release and sweep clocks and the house take have no git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/compose-escrow-deadline-pin.test.ts#env.ts leaves the four clocks unset when the host gives none, and reads a published value"
+    },
+    "why": "Loads the real env.ts unset and blank (each null) and published; the house-take test loads it with no P2P_FEE_BPS (null)."
+  },
+  {
+    "file": "services/svc-p2p/src/compose-instrument-retention-pin.test.ts",
+    "target": "../../../services/svc-p2p/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "Instrument retention has no git-default 90.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/compose-instrument-retention-pin.test.ts#env.ts leaves the retention unset when the host gives none"
+    },
+    "why": "Loads the real env.ts: unset and blank null, 90 kept, 29 refuses boot."
+  },
+  {
+    "file": "services/svc-p2p/src/dispute-list-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/p2p-service.ts",
+    "verdict": "rewrite",
+    "asserts": "disputes.list never reads a page the caller did not size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/dispute-list-limit-unset.test.ts#listDisputes refuses an omitted limit before any query, and pages by the limit it was given"
+    },
+    "why": "Calls listDisputes over a recording SQL client: omitted refuses with no query; 50 reaches the LIMIT; 201 is capped to 200."
+  },
+  {
+    "file": "services/svc-p2p/src/escrow-retention-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The escrow clock and retention have no git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/escrow-retention-unset.test.ts#env.ts leaves the escrow clock and the retention unset when the host gives none"
+    },
+    "why": "Loads the real env.ts unset and blank (null) and published (120, 90)."
+  },
+  {
+    "file": "services/svc-p2p/src/escrow-retention-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/instrument-service.ts",
+    "verdict": "delete",
+    "asserts": "The purge never invents a 90-day retention.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/escrow-retention-unset.test.ts#purge refuses when retentionDays was omitted — never 90"
+    },
+    "why": "That test calls purgeExpiredSnapshots on a service built without retentionDays and asserts p2p.instrument_retention_unset."
+  },
+  {
+    "file": "services/svc-p2p/src/fee-bps-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The house take has no git-default 30.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/fee-bps-unset.test.ts#env.ts leaves the house take unset when the host gives none — never 30"
+    },
+    "why": "Loads the real env.ts: unset and blank null, 0 and 30 kept as published."
+  },
+  {
+    "file": "services/svc-p2p/src/instrument-id-required.pin.test.ts",
+    "target": "instrument-service.ts",
+    "verdict": "rewrite",
+    "asserts": "Adding an instrument never mints its id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/instrument-id-required.pin.test.ts#does not mint a UUID on add"
+    },
+    "why": "Blank and whitespace ids refuse p2p.instrument_id_required with no query; against Postgres a given id is the stored id, read back by listInstruments."
+  },
+  {
+    "file": "services/svc-p2p/src/instrument-kms.test.ts",
+    "target": "../../../services/svc-p2p/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The env declares no KMS setting that would pretend one is wired.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/instrument-kms.test.ts#does not ship an env that pretends KMS is wired"
+    },
+    "why": "Loads the real env.ts with three KMS-named keys set and asserts the parsed env holds no key naming KMS."
+  },
+  {
+    "file": "services/svc-p2p/src/instrument-list-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/instrument-service.ts",
+    "verdict": "rewrite",
+    "asserts": "instruments.list reads by the caller page size, never a hard-coded 200.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/instrument-list-limit-unset.test.ts#listInstruments reads by the limit it was given, capped at 200"
+    },
+    "why": "Over a recording SQL client: omitted refuses with no query; 50 and 7 reach the LIMIT; 201 is capped to 200."
+  },
+  {
+    "file": "services/svc-p2p/src/jwt-access-ttl-compose-pin.test.ts",
+    "target": "../../../packages/config/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "authEnvSchema defaults TTL 900, issuer intafaced, audience intafaced.api.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/jwt-access-ttl-compose-pin.test.ts#authEnvSchema still defaults TTL / issuer / audience"
+    },
+    "why": "Parses @intafaced/config authEnvSchema with only the secret (the three defaults) and at the TTL bounds: 60 and 3600 kept, 59 and 3601 refused."
+  },
+  {
+    "file": "services/svc-p2p/src/late-settlements-list-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/p2p-service.ts",
+    "verdict": "rewrite",
+    "asserts": "ops.lateSettlements never reads a queue page the caller did not size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/late-settlements-list-limit-unset.test.ts#listLateSettlements refuses an omitted limit before any query, and reads by the limit it was given"
+    },
+    "why": "Over a recording SQL client: omitted refuses with no query; 100 reaches the LIMIT; 201 is capped to 200."
+  },
+  {
+    "file": "services/svc-p2p/src/late-settlements-list-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/router.ts",
+    "verdict": "delete",
+    "asserts": "The router hands an omitted lateSettlements limit to the service, inventing no 100.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/router.mount.test.ts#ops.lateSettlements omit is PRECONDITION_FAILED — never invents a 100-row page"
+    },
+    "why": "That test calls ops.lateSettlements through the mounted router with no limit (PRECONDITION_FAILED from the service refusal) and with 100 (answered)."
+  },
+  {
+    "file": "services/svc-p2p/src/merchant-history-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/merchant-service.ts",
+    "verdict": "rewrite",
+    "asserts": "merchants.history never dumps the whole event log.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/merchant-history-limit-unset.test.ts#history reads the event log by the limit it was given, capped at 200"
+    },
+    "why": "Over a recording SQL client: omitted refuses with no query; 50 reaches the LIMIT; 201 is capped to 200."
+  },
+  {
+    "file": "services/svc-p2p/src/merchant-history-limit-unset.test.ts",
+    "target": "services/svc-p2p/src/router.ts",
+    "verdict": "delete",
+    "asserts": "The router hands an omitted history limit to the service, inventing no 50.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/router.mount.test.ts#omit is PRECONDITION_FAILED — never invents a 50-row page"
+    },
+    "why": "That test calls merchants.history through the mounted router (its record schema included) with no limit (PRECONDITION_FAILED p2p.merchant_history_limit_unset) and with 50 (answered)."
+  },
+  {
+    "file": "services/svc-p2p/src/merchant-limits.test.ts",
+    "target": "merchant-limits.ts",
+    "verdict": "rewrite",
+    "asserts": "No offer ceiling exists unless the owner sets one.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/merchant-limits.test.ts#does not bake a numeric default into NO_OFFER_LIMITS or this module"
+    },
+    "why": "Asserts NO_OFFER_LIMITS whole, that the module exports nothing named default, and that unset and blank env give no ceiling for every status and let a huge offer through."
+  },
+  {
+    "file": "services/svc-p2p/src/merchant-programme.test.ts",
+    "target": "merchant-programme.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-p2p grows no second API-key plane.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/merchant-programme.test.ts#does not grow a second key table, mint, or revoke API in this module"
+    },
+    "why": "Imports the programme module and MerchantService and asserts neither exposes a key, mint, revoke, issue or secret operation."
+  },
+  {
+    "file": "services/svc-p2p/src/method-schema-list-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/instrument-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The method registry is read by the caller page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/method-schema-list-limit-unset.test.ts#listMethodSchemas reads the registry by the limit it was given, capped at 200"
+    },
+    "why": "Over a recording SQL client: omitted refuses with no query; 50 and 7 reach the LIMIT; 201 is capped to 200."
+  },
+  {
+    "file": "services/svc-p2p/src/moderation-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "delete",
+    "asserts": "The running service serves moderationOnPublicDoor on /health and /ready, never moderationReachable.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/index-boot.test.ts#serves the moderation posture on /health and /ready as configured and unprobed, never reachable"
+    },
+    "why": "The booted entrypoint, with a moderator allowlist, answers both doors with moderationConfigured true, moderation configured/unprobed and no moderationReachable."
+  },
+  {
+    "file": "services/svc-p2p/src/moderation-honesty.test.ts",
+    "target": "router.ts",
+    "verdict": "delete",
+    "asserts": "The tRPC health serves moderationOnPublicDoor, never moderationReachable.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/router.mount.test.ts#discloses moderationConfigured on health when an allowlist is set — never reachable"
+    },
+    "why": "That test calls health through the mounted router with an allowlist and asserts the whole reply (configured/unprobed, no reachable key); the anonymous one beside it asserts the unset reply whole."
+  },
+  {
+    "file": "services/svc-p2p/src/offer-list-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/p2p-service.ts",
+    "verdict": "rewrite",
+    "asserts": "offers.list never reads a board page the caller did not size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/offer-list-limit-unset.test.ts#listOffers refuses an omitted limit before any query, and reads the board by the limit it was given"
+    },
+    "why": "Over a recording SQL client: omitted refuses with no query; 50 reaches the LIMIT; 201 is capped to 200."
+  },
+  {
+    "file": "services/svc-p2p/src/ops/ops-acceptance.test.ts",
+    "target": "../../../../services/svc-identity/src/auth/action-approval-audience.ts",
+    "verdict": "rewrite",
+    "asserts": "p2p.dispute_resolve approvals stay operator-level: svc-p2p is an operator target and p2p. no founder namespace.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/action-approval-founder.test.ts#a target service that is not on the operator list is founder-only"
+    },
+    "why": "The read of another service's source is gone. svc-identity's own behaviour tests hold it: that test asserts an action on svc-p2p is operator, and the audience table's 'p2p.method_register -> operator' fails if p2p. became a founder prefix. The p2p test keeps its env and compose halves."
+  },
+  {
+    "file": "services/svc-p2p/src/ops/ops-acceptance.test.ts",
+    "target": "../../../../services/svc-p2p/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The four-eyes dispute ruling ships off; only an explicit on turns it on.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/ops/ops-acceptance.test.ts#svc-p2p is already an operator-level target, so this type needs no identity change"
+    },
+    "why": "Loads the real env.ts: unset, blank and off are false; true, on, yes and 1 are true; another word refuses boot."
+  },
+  {
+    "file": "services/svc-p2p/src/purge-snapshots-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/instrument-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The snapshot purge never invents a 500-row batch.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/purge-snapshots-limit-unset.test.ts#purgeExpiredSnapshots purges by the batch it was given, capped at 5000"
+    },
+    "why": "Over a recording SQL client: omitted refuses with no query; 500 reaches the LIMIT; 5001 is capped to 5000."
+  },
+  {
+    "file": "services/svc-p2p/src/purge-snapshots-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/index.ts",
+    "verdict": "delete",
+    "asserts": "The running sweep publishes the purge batch, 500.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/index-boot.test.ts#sweeps at boot with published batch sizes: 100 settlements, 100 deadlines, 500 purged snapshots"
+    },
+    "why": "The booted entrypoint ran its boot sweep, which called purgeExpiredSnapshots(500)."
+  },
+  {
+    "file": "services/svc-p2p/src/sla-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "Payment, release, sweep and dispute clocks have no git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/sla-unset.test.ts#env.ts leaves payment/release/sweep/dispute clocks unset when the host gives none"
+    },
+    "why": "Loads the real env.ts unset and whitespace: all five are null."
+  },
+  {
+    "file": "services/svc-p2p/src/sweep-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/p2p-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The settlement and deadline sweeps never invent a 100-row batch.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/sweep-limit-unset.test.ts#sweepSettlements refuses an omitted batch before any query, and sweeps by the batch it was given"
+    },
+    "why": "Over a recording SQL client, for sweepSettlements and (its own test) sweepDeadlines: omitted refuses with no query; 100 reaches the LIMIT; 201 is capped to 200."
+  },
+  {
+    "file": "services/svc-p2p/src/sweep-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/index.ts",
+    "verdict": "delete",
+    "asserts": "The running sweep publishes its batches: sweepSettlements(100), sweepDeadlines(undefined, 100).",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/index-boot.test.ts#sweeps at boot with published batch sizes: 100 settlements, 100 deadlines, 500 purged snapshots"
+    },
+    "why": "The booted entrypoint ran its boot sweep, which called sweepSettlements(100) and sweepDeadlines(undefined, 100)."
+  },
+  {
+    "file": "services/svc-p2p/src/take-id-required.pin.test.ts",
+    "target": "p2p-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A take never mints its trade id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/take-id-required.pin.test.ts#does not mint a UUID on take"
+    },
+    "why": "Blank and whitespace ids refuse p2p.trade_id_required with no query; the given-id half is held by affiliate-release.pg.test.ts, which takes under a fixed id and confirms by it."
+  },
+  {
+    "file": "services/svc-p2p/src/take-id-required.pin.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The take handler hands the caller tradeId to the service.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/take-id-required.pin.test.ts#the take record requires a tradeId uuid, and the handler passes it on"
+    },
+    "why": "Calls trades.take through the router with a signed principal and records the tradeId and taker the service was handed."
+  },
+  {
+    "file": "services/svc-p2p/src/trade-list-limit-unset.test.ts",
+    "target": "../../../services/svc-p2p/src/p2p-service.ts",
+    "verdict": "rewrite",
+    "asserts": "trades.list never reads a page the caller did not size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/trade-list-limit-unset.test.ts#listTrades refuses an omitted limit before any query, and reads by the limit it was given"
+    },
+    "why": "Over a recording SQL client: omitted refuses with no query; 50 reaches the LIMIT; 201 is capped to 200."
+  },
+  {
+    "file": "services/svc-p2p/src/trade-list-limit-unset.test.ts",
+    "target": "services/svc-p2p/src/router.ts",
+    "verdict": "delete",
+    "asserts": "The list record lets an omitted limit reach the named refusal; the handler invents no 50.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-p2p/src/router.mount.test.ts#trades.list omit is PRECONDITION_FAILED — never invents a 50-row page"
+    },
+    "why": "That test calls trades.list through the mounted router with {} and with no input (PRECONDITION_FAILED p2p.trade_list_limit_unset, so the record accepts the omission and maps the refusal) and with 50 (answered)."
+  },
+  {
+    "file": "services/svc-edge/src/api-key-request-sign.test.ts",
+    "target": "api-key-request-sign.ts",
+    "verdict": "rewrite",
+    "asserts": "A request signature is compared in constant time.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/api-key-request-sign.test.ts#compares signatures in constant time and does not throw on a short signature"
+    },
+    "why": "Spies on node:crypto's timingSafeEqual: both verdicts on equal-length signatures are its own answers, a short one is false without it, and the verifier's tampered verdict goes through it."
+  },
+  {
+    "file": "services/svc-edge/src/body-limit-compose-pin.test.ts",
+    "target": "../../../services/svc-edge/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank EDGE_BODY_LIMIT_BYTES refuses; nothing invents 1048576.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/body-limit-compose-pin.test.ts#env.ts refuses blank body-limit — no 1048576 default"
+    },
+    "why": "Loads the real env.ts with the value unset and blank and asserts the typed refusal, and with a value that it is used."
+  },
+  {
+    "file": "services/svc-edge/src/enroll-after-last-admit-all.test.ts",
+    "target": "enroll-after-last-admit-all.ts",
+    "verdict": "rewrite",
+    "asserts": "The admit-all door is assertSessionPasskey and nothing else: no challenge, no session, no one-request admit.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/enroll-after-last-admit-all.test.ts#answers every passkey body as assertSessionPasskey does"
+    },
+    "why": "Asserts the module's only export and that it answers each passkey body identity can send exactly as assertSessionPasskey, with no fetch."
+  },
+  {
+    "file": "services/svc-edge/src/enroll-after-last-admit.test.ts",
+    "target": "enroll-after-last-admit.ts",
+    "verdict": "rewrite",
+    "asserts": "The admit door is assertSessionPasskey and nothing else.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/enroll-after-last-admit.test.ts#answers every passkey body as assertSessionPasskey does"
+    },
+    "why": "Asserts the module's only export and that it answers each passkey body exactly as assertSessionPasskey, with no fetch."
+  },
+  {
+    "file": "services/svc-edge/src/enroll-after-last-drop-all-admissions.test.ts",
+    "target": "enroll-after-last-drop-all-admissions.ts",
+    "verdict": "rewrite",
+    "asserts": "The drop-all door is assertSessionPasskey and nothing else, not admit-all.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/enroll-after-last-drop-all-admissions.test.ts#answers every passkey body as assertSessionPasskey does"
+    },
+    "why": "Asserts the module's only export and that it answers each passkey body exactly as assertSessionPasskey, with no fetch."
+  },
+  {
+    "file": "services/svc-edge/src/env-body-limit-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "EDGE_BODY_LIMIT_BYTES out of range refuses; an in-range value is kept.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/env-body-limit-refuse-closed.test.ts#the loaded env refuses an out-of-range value and keeps an in-range one"
+    },
+    "why": "Loads the real env.ts with each refused value and both bounds and asserts the refusal or the parsed number."
+  },
+  {
+    "file": "services/svc-edge/src/env-rate-limit-max-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "EDGE_RATE_LIMIT_MAX out of range refuses; an in-range value is kept.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/env-rate-limit-max-refuse-closed.test.ts#the loaded env refuses an out-of-range value and keeps an in-range one"
+    },
+    "why": "Loads the real env.ts with each refused value and the bound and asserts the refusal or the parsed number."
+  },
+  {
+    "file": "services/svc-edge/src/env-rate-limit-window-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "EDGE_RATE_LIMIT_WINDOW_MS out of range refuses; an in-range value is kept.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/env-rate-limit-window-refuse-closed.test.ts#the loaded env refuses an out-of-range value and keeps an in-range one"
+    },
+    "why": "Loads the real env.ts with each refused value and both bounds and asserts the refusal or the parsed number."
+  },
+  {
+    "file": "services/svc-edge/src/env-schema.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "The edge process holds no DATABASE_URL, NATS_URL or INTERNAL_SERVICE_SECRET, and no git-default limits.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/env-schema.test.ts#does not accept DATABASE_URL, NATS_URL, or INTERNAL_SERVICE_SECRET"
+    },
+    "why": "Loads the real env.ts with the forbidden values set in the host env and asserts none reaches the process; each limit refuses unset or out of range."
+  },
+  {
+    "file": "services/svc-edge/src/gateway-plane.test.ts",
+    "target": "gateway-plane.ts",
+    "verdict": "rewrite",
+    "asserts": "identity.apikeys is the only key plane; the plane keeps no second table.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/gateway-plane.test.ts#names identity.apikeys as the only key plane"
+    },
+    "why": "Asserts the declared key plane, that the module exports no function that keeps, mints or stores a key, and that the loaded edge env takes no DATABASE_URL."
+  },
+  {
+    "file": "services/svc-edge/src/gateway-plane.test.ts",
+    "target": "gateway-plane.ts",
+    "verdict": "rewrite",
+    "asserts": "Refusals stay in two dialects and the shared edge vocabulary; no third taxonomy.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/gateway-plane.test.ts#keeps two dialects and does not invent a third error taxonomy"
+    },
+    "why": "Runs decideGateway over keys, doors, methods, hosts and an exhausted bucket and asserts every refusal body is CCXT, tRPC or the edge vocabulary."
+  },
+  {
+    "file": "services/svc-edge/src/gateway-plane.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The edge reads the raw Host header against EDGE_SANDBOX_HOSTS, never x-forwarded-host.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#x-forwarded-host naming the sandbox host changes nothing"
+    },
+    "why": "Boots index.ts with EDGE_SANDBOX_HOSTS set: a sandbox key at the live host is env.mismatch with or without x-forwarded-host naming the sandbox host, and passes the rule at the sandbox host."
+  },
+  {
+    "file": "services/svc-edge/src/gateway-plane.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The proxy consults the gateway plane after the principal exchange and marks a key call with its environment.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#a sandbox key at the live host is env.mismatch, marked sandbox, and forwarded nowhere"
+    },
+    "why": "The booted edge answers an opened sandbox key at the live host env.mismatch with x-intafaced-key-env: sandbox and nothing reaches the pay stand-in."
+  },
+  {
+    "file": "services/svc-edge/src/jwt-ttl-kill-state-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts declares JWT_ACCESS_TTL_SECONDS and EDGE_KILL_STATE_PATH as compose passes them.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/jwt-ttl-kill-state-compose-pin.test.ts#env.ts still declares the flags this pin tracks, matching compose defaults"
+    },
+    "why": "Loads the real env.ts with each flag set and unset and asserts the parsed values match the compose defaults."
+  },
+  {
+    "file": "services/svc-edge/src/last-passkey-session.test.ts",
+    "target": "last-passkey-session.ts",
+    "verdict": "rewrite",
+    "asserts": "The last-passkey door is assertSessionPasskey and nothing else.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/last-passkey-session.test.ts#answers every passkey body as assertSessionPasskey does"
+    },
+    "why": "Asserts the module's only export and that it answers each passkey body exactly as assertSessionPasskey, with no fetch."
+  },
+  {
+    "file": "services/svc-edge/src/ledger-url-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "LEDGER_URL is optional and must be a URL; the edge holds no ledger credential.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/ledger-url-compose-pin.test.ts#env.ts still declares LEDGER_URL optional"
+    },
+    "why": "Loads the real env.ts with LEDGER_URL unset (absent), set (kept) and not a URL (refused)."
+  },
+  {
+    "file": "services/svc-edge/src/rate-limit-compose-flags-pin.test.ts",
+    "target": "../../../services/svc-edge/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts declares the rate-limit flags compose passes; MAX and WINDOW have no git-default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/rate-limit-compose-flags-pin.test.ts#env.ts still declares the flags this pin tracks"
+    },
+    "why": "Loads the real env.ts: MAX and WINDOW unset refuse, set are kept, and EDGE_RATE_LIMIT_ENABLED parses as compose passes it."
+  },
+  {
+    "file": "services/svc-edge/src/recovery-admit-recovered.test.ts",
+    "target": "recovery-admit-recovered.ts",
+    "verdict": "rewrite",
+    "asserts": "The recovered-session admit door is that door only: no drop-other, stream, key revoke, challenge or session.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/recovery-admit-recovered.test.ts#is only the recovered-session admit door"
+    },
+    "why": "Asserts the module's exports and its answer on each recovery-code case, with no fetch."
+  },
+  {
+    "file": "services/svc-edge/src/recovery-drop-other-admissions.test.ts",
+    "target": "recovery-drop-other-admissions.ts",
+    "verdict": "rewrite",
+    "asserts": "The recovered admission door is that door only, not a streams redo.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/recovery-drop-other-admissions.test.ts#is only the recovered admission door"
+    },
+    "why": "Asserts the module's exports and its answer on each recovery-code case, with no fetch."
+  },
+  {
+    "file": "services/svc-edge/src/recovery-mint-key-revoke-session.test.ts",
+    "target": "recovery-mint-key-revoke-session.ts",
+    "verdict": "rewrite",
+    "asserts": "The mint-key revoke door asks identity as assertIdentityApiKeyLive does and only inverts its verdict.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/recovery-mint-key-revoke-session.test.ts#asks identity as assertIdentityApiKeyLive does and inverts only its verdict"
+    },
+    "why": "For each identity answer, records what both functions ask identity and asserts the same request and the inverted verdict."
+  },
+  {
+    "file": "services/svc-edge/src/remaining-passkey-session.test.ts",
+    "target": "remaining-passkey-session.ts",
+    "verdict": "rewrite",
+    "asserts": "The remaining-passkey door is assertSessionPasskey and nothing else.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/remaining-passkey-session.test.ts#answers every passkey body as assertSessionPasskey does"
+    },
+    "why": "Asserts the module's only export and that it answers each passkey body exactly as assertSessionPasskey, with no fetch."
+  },
+  {
+    "file": "services/svc-edge/src/sandbox-hosts-compose-pin.test.ts",
+    "target": "../../../services/svc-edge/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "EDGE_SANDBOX_HOSTS is validated by sandboxHostsValid and has no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/sandbox-hosts-compose-pin.test.ts#env.ts refines the value with sandboxHostsValid and gives it no default"
+    },
+    "why": "Loads the real env.ts: unset is absent, a host list is kept, and each value sandboxHostsValid refuses is refused at load."
+  },
+  {
+    "file": "services/svc-edge/src/api-key-refusal.test.ts",
+    "target": "./index.ts",
+    "verdict": "rewrite",
+    "asserts": "A presented key the edge cannot open is refused at the edge with its own body, and forwarded nowhere.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#a key identity names revoked is answered with its own refusal body and forwarded nowhere"
+    },
+    "why": "Boots index.ts: identity naming the key revoked gives 401 apiKeyRefusalBody(API_KEY_REVOKED) with the request id, the bank stand-in gets nothing; identity down is the 503, an unverifiable JWT still goes up anonymous."
+  },
+  {
+    "file": "services/svc-edge/src/api-key-revoked.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "Key JWTs are checked against IDENTITY_URL under IDENTITY_OWNERSHIP_SECRET, never INTERNAL_SERVICE_SECRET.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#reads the session from IDENTITY_URL signed with IDENTITY_OWNERSHIP_SECRET"
+    },
+    "why": "The booted edge, with INTERNAL_SERVICE_SECRET set in its env, signs its identity read so that it verifies with the ownership secret and not the internal one, and no request to any stand-in carries the internal secret."
+  },
+  {
+    "file": "services/svc-edge/src/auth-errors-catalogue.test.ts",
+    "target": "./index.ts",
+    "verdict": "rewrite",
+    "asserts": "The edge's 503 when identity cannot be asked is edge.authority_unavailable with no intafacedCode, as catalogued.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#answers 503 edge.authority_unavailable with retry-after 1 and the catalogue entry"
+    },
+    "why": "The booted edge's reply when identity answers 503: code edge.authority_unavailable, no intafacedCode, and the catalogue entry's status equals the reply's, answeredBy edge."
+  },
+  {
+    "file": "services/svc-edge/src/identity-user-status.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "Account status is read from IDENTITY_URL under IDENTITY_OWNERSHIP_SECRET, never INTERNAL_SERVICE_SECRET.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#reads the session from IDENTITY_URL signed with IDENTITY_OWNERSHIP_SECRET"
+    },
+    "why": "The booted edge signs its identity read with the ownership secret only, and no request it sends carries the internal secret."
+  },
+  {
+    "file": "services/svc-edge/src/live-authority-unavailable.test.ts",
+    "target": "./index.ts",
+    "verdict": "rewrite",
+    "asserts": "Identity not answering is 503 edge.authority_unavailable with Retry-After, never an anonymous forward.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#answers 503 edge.authority_unavailable with retry-after 1 and the catalogue entry, and forwards nothing"
+    },
+    "why": "The booted edge with identity answering 503 replies 503, retry-after 1, the named code, and the bank stand-in gets nothing."
+  },
+  {
+    "file": "services/svc-edge/src/matching-operator-door.test.ts",
+    "target": "./index.ts",
+    "verdict": "rewrite",
+    "asserts": "The in-flight read reaches matching only with MATCHING_URL and EDGE_PRINCIPAL_SECRET both set.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#with MATCHING_URL and EDGE_PRINCIPAL_SECRET set, the in-flight read goes to matching as the signed operator"
+    },
+    "why": "Two booted edges: with both set the read reaches matching signed, without the bearer; with MATCHING_URL unset it is edge.matching_unwired; without EDGE_PRINCIPAL_SECRET the edge does not start."
+  },
+  {
+    "file": "services/svc-edge/src/matching-venue-halt.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The halt-all guard reads MATCHING_URL with no operator and no internal secret.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#a halt-all from MATCHING_URL refuses a new order, read by GET /health with no operator or credential"
+    },
+    "why": "The booted edge refuses a new order 503 edge.venue_halted when matching says halted; matching got exactly GET /health with no body, no authorization and no x-intafaced or operator header."
+  },
+  {
+    "file": "services/svc-edge/src/proxy-s2s-keys.test.ts",
+    "target": "./index.ts",
+    "verdict": "rewrite",
+    "asserts": "The proxy forward carries the prepared caller headers and the request id, and signs nothing as a service.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#carries the caller headers as prepared, the edge-signed person and the reply’s own request id, and no service identity"
+    },
+    "why": "The booted edge holds its own S2S key (dual mode) and signs identity calls with it, yet the bank forward has no x-intafaced-s2s or service header (forged ones stripped), carries the signed person, and its x-request-id is the reply id."
+  },
+  {
+    "file": "services/svc-edge/src/ready-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "/ready serves readyUpstreamHonesty over the process env and fetches nothing.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#serves readyUpstreamHonesty over the process env and fetches no upstream"
+    },
+    "why": "The booted edge's /ready upstreamConfiguration equals readyUpstreamHonesty over the env it was given, has no upstreamWiring, and no stand-in got a request."
+  },
+  {
+    "file": "services/svc-edge/src/refresh-cookie-proxy.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "A cookie refresh from a foreign origin is refused before anything is proxied.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#a cookie refresh from an origin not on the allowlist is refused before anything is proxied"
+    },
+    "why": "The booted edge answers 403 edge.origin_not_allowed and identity gets nothing; from the allowed origin the cookie goes up and the rotated Set-Cookie comes back on the public path."
+  },
+  {
+    "file": "services/svc-edge/src/reply-envelope.test.ts",
+    "target": "./index.ts",
+    "verdict": "rewrite",
+    "asserts": "Each reply carries its own request id (also sent upstream), preflights too; edge refusals get the full body and service bodies only the id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#a refused checkout redirect is the edge’s own 502, not marked as the service’s body"
+    },
+    "why": "The booted edge: a preflight is stamped, an edge 404 and a refused checkout redirect get the full edge body, a bank error gains only the request id, the forward carries the reply id, never the caller’s."
+  },
+  {
+    "file": "services/svc-edge/src/session-revoked.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "Session ownership is read from IDENTITY_URL under IDENTITY_OWNERSHIP_SECRET, never INTERNAL_SERVICE_SECRET.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#reads the session from IDENTITY_URL signed with IDENTITY_OWNERSHIP_SECRET"
+    },
+    "why": "The booted edge signs its session read so that it verifies with the ownership secret and not the internal one, and no request it sends carries the internal secret."
+  },
+  {
+    "file": "services/svc-edge/src/widget-ramp.test.ts",
+    "target": "widget-ramp.ts",
+    "verdict": "rewrite",
+    "asserts": "The retired widget serves no framable page and reads no licence or white-label setting.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/widget-ramp.test.ts#no longer serves any framable page, licence or white-label env"
+    },
+    "why": "With the old INFRA_* settings set in the host env, the loaded env holds none of them and the route still answers 410 JSON with framing denied."
+  },
+  {
+    "file": "services/svc-edge/src/widget-ramp.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint mounts the retired widget route ahead of the /api proxy.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/index-wiring.boot.e2e.test.ts#is mounted ahead of the /api proxy"
+    },
+    "why": "The booted edge answers the widget path 410 with framing denied and no stand-in gets a request."
+  },
+  {
+    "file": "services/svc-edge/src/widget-ramp.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts holds no INFRA_LICENCE or INFRA_WIDGET setting.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-edge/src/widget-ramp.test.ts#no longer serves any framable page, licence or white-label env"
+    },
+    "why": "Loads the real env.ts with those settings in the host env and asserts no INFRA_* key reaches the process env."
+  }
+]

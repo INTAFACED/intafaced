@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { EDGE_API_KEY_RATE_BUCKET, EDGE_RATE_COST } from './hardening.js';
@@ -19,12 +16,12 @@ import {
   sandboxOf,
   scopeRefuseBody,
 } from './gateway-plane.js';
+import { loadEdgeEnv } from './testing/env-load-fixture.js';
 import { KeyBuckets } from './rate-bucket.js';
 
 const LIMIT = { tier: 'base', burst: 10, refillPerMinute: 600, user: { burst: 100, refillPerMinute: 6000 } } as const;
 const COSTS = [{ route: '* /api/**', cost: 1 }] as const;
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const USER = '11111111-1111-4111-8111-111111111111';
 const SESSION = '22222222-2222-4222-8222-222222222222';
 
@@ -44,22 +41,89 @@ function principal(overrides: Partial<Principal> = {}): Principal {
 }
 
 describe('api.gateway plane', () => {
-  it('names identity.apikeys as the only key plane — no second table', () => {
+  it('names identity.apikeys as the only key plane — no second table', async () => {
     expect(GATEWAY_KEY_PLANE).toBe('identity.apikeys');
-    const src = readFileSync(join(HERE, 'gateway-plane.ts'), 'utf8');
-    expect(src).not.toMatch(/createTable|pgTable|api_keys_v2|gateway_keys/i);
-    expect(src).toMatch(/identity\.apikeys/);
+    // The plane decides and shapes refusals; it has nothing that keeps, mints or stores a key of its own.
+    const plane = await import('./gateway-plane.js');
+    const keeping = Object.entries(plane).filter(
+      ([name, value]) => typeof value === 'function' && /table|store|insert|persist|mint|create|issue/i.test(name),
+    );
+    expect(keeping).toEqual([]);
+    // And nowhere to keep one: the edge process takes no database at all.
+    expect(await loadEdgeEnv({ DATABASE_URL: 'postgres://edge:edge@127.0.0.1:5432/edge' })).not.toHaveProperty('DATABASE_URL');
   });
 
   it('keeps two dialects and does not invent a third error taxonomy', () => {
     expect(GATEWAY_DIALECTS).toEqual({ trade: 'ccxt', pay: 'pay' });
     expect(Object.keys(GATEWAY_DIALECTS)).toEqual(['trade', 'pay']);
-    const src = readFileSync(join(HERE, 'gateway-plane.ts'), 'utf8');
-    expect(src).toMatch(/PermissionDenied/);
-    expect(src).toMatch(/intafacedCode: 'scope\.denied'/);
-    expect(src).toMatch(/edge\.rate_limited/);
-    expect(src).not.toMatch(/edge\.gateway_/);
-    expect(src).not.toMatch(/unifiedError|third.?taxonom/i);
+    // Every refusal the plane sends, over keys, doors, methods, hosts and an exhausted bucket, is in one of the two
+    // dialects or the shared edge vocabulary: CCXT PermissionDenied, tRPC FORBIDDEN, scope.denied, edge.rate_limited.
+    const bodies: Record<string, unknown>[] = [];
+    const paths = [
+      '/api/v1/markets',
+      '/api/trade/trpc/orders.create',
+      '/api/pay/trpc/health',
+      '/api/pay/v1/payments',
+      '/api/identity/trpc/x',
+    ];
+    const keys = [
+      principal({ scopes: [] }),
+      principal({ scopes: ['trade:read', 'trade:write', 'pay:read', 'pay:write'] }),
+      principal({ key_env: 'sandbox', scopes: ['pay:read', 'pay:write'] }),
+      principal({ kid: undefined, key_env: undefined, scopes: [] }),
+    ];
+    const tight = { ...LIMIT, burst: 1, refillPerMinute: 1 };
+    for (const pathname of paths) {
+      for (const method of ['GET', 'POST']) {
+        for (const key of keys) {
+          for (const [keyRateLimit, costs] of [
+            [LIMIT, COSTS],
+            [tight, COSTS],
+            [LIMIT, []],
+            [null, COSTS],
+          ] as const) {
+            const buckets = new KeyBuckets();
+            for (let n = 0; n < 3; n++) {
+              const decided = decideGateway({
+                pathname,
+                method,
+                principal: key,
+                buckets,
+                keyRateLimit,
+                costs,
+                now: 0,
+                host: 'api.example',
+                sandboxHosts: parseSandboxHosts('sandbox.example'),
+              });
+              if (!decided.allow) bodies.push(decided.body);
+            }
+          }
+        }
+      }
+    }
+    const codesOf = (body: Record<string, unknown>) => {
+      const data = (body.error as { data?: Record<string, unknown> } | undefined)?.data ?? {};
+      return [body.code, body.intafacedCode, data.code, data.intafacedCode].filter((c): c is string => typeof c === 'string');
+    };
+    const codes = new Set(bodies.flatMap(codesOf));
+    expect(codes).toContain('PermissionDenied');
+    expect(codes).toContain('FORBIDDEN');
+    expect(codes).toContain('scope.denied');
+    expect(codes).toContain('edge.rate_limited');
+    for (const code of codes) {
+      expect(code).not.toMatch(/^edge\.gateway_/);
+      expect([
+        'PermissionDenied',
+        'FORBIDDEN',
+        'scope.denied',
+        'env.mismatch',
+        'edge.rate_limited',
+        'edge.cost_unset',
+        'edge.limits_unset',
+        'edge.api_key_bearer_required',
+      ]).toContain(code);
+    }
+    expect(quotaRefuseBody(1)).toMatchObject({ code: 'edge.rate_limited' });
   });
 
   it('maps trade CCXT and pay prefixes; no invented data door', () => {
@@ -308,13 +372,6 @@ describe('api.gateway plane', () => {
     it('CORS preflight is not refused (it carries no credentials)', () => {
       expect(decide(sandboxPay, '127.0.0.1:14500', '/api/pay/v1/payments', 'OPTIONS').allow).toBe(true);
     });
-
-    it('index.ts passes the raw Host header and the parsed EDGE_SANDBOX_HOSTS', () => {
-      const src = readFileSync(join(HERE, 'index.ts'), 'utf8');
-      expect(src).toMatch(/host: req\.headers\.host,/);
-      expect(src).toMatch(/parseSandboxHosts\(env\.EDGE_SANDBOX_HOSTS\)/);
-      expect(src).not.toMatch(/x-forwarded-host/i);
-    });
   });
 
   it('interactive sessions (no kid) are not this plane', () => {
@@ -391,12 +448,5 @@ describe('api.gateway plane', () => {
     expect(sandboxOf(principal({ key_env: 'live' }))).toBe(false);
     expect(sandboxOf(principal({ key_env: undefined }))).toBe(false);
     expect(sandboxOf(null)).toBe(false);
-  });
-
-  it('index.ts consults this plane after principal exchange', () => {
-    const src = readFileSync(join(HERE, 'index.ts'), 'utf8');
-    expect(src).toMatch(/decideGateway/);
-    expect(src).toMatch(/from '\.\/gateway-plane\.js'/);
-    expect(src).toMatch(/x-intafaced-key-env/);
   });
 });

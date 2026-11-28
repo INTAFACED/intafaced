@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { AUTH_ERROR_CATALOGUE, AUTH_ERRORS_PATH, type AuthErrorEntry } from '@intafaced/contracts/auth-errors';
 import * as refusals from './api-key-refusal.js';
@@ -57,7 +56,6 @@ const gatewayRefusal = (principal: Principal, method: string, host?: string) => 
 // A key without trade:write placing an order, and a live key at the sandbox host.
 const scopeRefusal = () => gatewayRefusal(key({ scopes: ['trade:read'] }), 'POST', 'api.example');
 const environmentRefusal = () => gatewayRefusal(key({ scopes: ['trade:read', 'trade:write'] }), 'GET', 'sandbox.example');
-const SEND_503 = /\.code\(503\)[\s\S]{0,120}?\.send\((\{[^}]*\})\)/g;
 
 describe('the authentication and permission catalogue', () => {
   it('lists every key and signature refusal the edge sends, with its status and codes, anchored by its code', () => {
@@ -79,14 +77,6 @@ describe('the authentication and permission catalogue', () => {
       expect(entry && shape(entry), cause).toBe(shape(sent));
       expect(entry!.answeredBy).toBe('edge');
     }
-  });
-
-  it('lists the edge’s 503 when identity cannot be asked', () => {
-    const index = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const sent = [...index.matchAll(SEND_503)].map((m) => m[1]!).find((body) => body.includes('edge.authority_unavailable')) ?? '';
-    expect(sent).toContain("code: 'edge.authority_unavailable'");
-    expect(sent).not.toContain('intafacedCode');
-    expect(AUTH_ERROR_CATALOGUE.find((e) => e.code === 'edge.authority_unavailable')).toMatchObject({ status: 503, answeredBy: 'edge' });
   });
 
   it('holds no edge entry the edge does not send', () => {

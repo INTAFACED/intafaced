@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
@@ -24,9 +21,6 @@ const policy = (standard: string | null, merchant: string | null): OfferLimitPol
 
 /** Every status the programme can be in, so a new one cannot be added silently. */
 const ALL_STATUSES: MerchantStatus[] = ['applied', 'approved', 'rejected', 'suspended', 'withdrawn'];
-
-const here = dirname(fileURLToPath(import.meta.url));
-const limitsSource = readFileSync(join(here, 'merchant-limits.ts'), 'utf8');
 
 describe('merchant offer limits', () => {
   describe('unset env stays unlimited — no invented ceiling', () => {
@@ -57,13 +51,18 @@ describe('merchant offer limits', () => {
       ).toBe(true);
     });
 
-    it('does not bake a numeric default into NO_OFFER_LIMITS or this module', () => {
-      expect(NO_OFFER_LIMITS.standardMaxAmount).toBeNull();
-      expect(NO_OFFER_LIMITS.merchantMaxAmount).toBeNull();
-      expect(limitsSource).toMatch(/standardMaxAmount:\s*null/);
-      expect(limitsSource).toMatch(/merchantMaxAmount:\s*null/);
-      expect(limitsSource).not.toMatch(/DEFAULT_OFFER_MAX/);
-      expect(limitsSource).not.toMatch(/P2P_OFFER_MAX_(?:STANDARD|MERCHANT).*(?:\?\?|\.default\()/);
+    it('does not bake a numeric default into NO_OFFER_LIMITS or this module', async () => {
+      expect(NO_OFFER_LIMITS).toEqual({ standardMaxAmount: null, merchantMaxAmount: null, standardMode: 'unset', merchantMode: 'unset' });
+      const module = await import('./merchant-limits.js');
+      expect(Object.keys(module).filter((name) => /default/i.test(name))).toEqual([]);
+      for (const env of [{}, { P2P_OFFER_MAX_STANDARD: '', P2P_OFFER_MAX_MERCHANT: '  ' }]) {
+        const policy = offerLimitsFromEnv(env);
+        expect(policy).toEqual(NO_OFFER_LIMITS);
+        for (const status of [null, ...ALL_STATUSES]) {
+          expect(limitFor(status, policy)).toBeNull();
+          expect(checkOfferLimit({ status, maxAmt: parseAmount('1000000000'), asset: 'USDT', policy })).toEqual({ withinLimit: true });
+        }
+      }
     });
 
     it('still parses an owner-set decimal when present — magnitudes stay env-only', () => {

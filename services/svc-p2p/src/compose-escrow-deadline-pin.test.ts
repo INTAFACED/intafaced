@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { loadP2pEnv } from './testing/env-load-fixture.js';
 
 /**
  * Unit card — compose stack passes escrow clocks into svc-p2p
@@ -44,14 +45,16 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes p2p.escrow clocks into svc-p2p', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-p2p/src/env.ts'), 'utf8');
   const block = p2pComposeBlock();
 
-  it('env.ts still declares the clocks this pin tracks', () => {
-    expect(envTs).not.toMatch(/P2P_ESCROW_DEADLINE_SECONDS:[\s\S]{0,200}?\.default\(\s*120\s*\)/);
-    expect(envTs).not.toMatch(/P2P_PAYMENT_DEADLINE_SECONDS:[\s\S]{0,200}?\.default\(\s*15\s*\*\s*60\s*\)/);
-    expect(envTs).not.toMatch(/P2P_RELEASE_DEADLINE_SECONDS:[\s\S]{0,200}?\.default\(\s*30\s*\*\s*60\s*\)/);
-    expect(envTs).not.toMatch(/P2P_SWEEP_INTERVAL_SECONDS:[\s\S]{0,200}?\.default\(\s*30\s*\)/);
+  it('env.ts leaves the four clocks unset when the host gives none, and reads a published value', async () => {
+    const names = OWNER_EMPTY.map(([name]) => name);
+    for (const host of [{}, Object.fromEntries(names.map((name) => [name, '']))]) {
+      const env = await loadP2pEnv(host);
+      for (const name of names) expect(env[name], name).toBeNull();
+    }
+    const published = await loadP2pEnv(Object.fromEntries(OWNER_EMPTY));
+    for (const [name, value] of OWNER_EMPTY) expect(published[name], name).toBe(Number(value));
   });
 
   it('compose svc-p2p block passes each clock from the host empty — never baked hours', () => {
@@ -69,9 +72,9 @@ describe('compose passes p2p.escrow clocks into svc-p2p', () => {
     }
   });
 
-  it('passes house take empty — never a baked 30', () => {
+  it('passes house take empty — never a baked 30', async () => {
     expect(block).toMatch(/P2P_FEE_BPS:\s*\$\{P2P_FEE_BPS:-\}/);
     expect(block).not.toMatch(/P2P_FEE_BPS:\s*\$\{P2P_FEE_BPS:-30\}/);
-    expect(envTs).not.toMatch(/P2P_FEE_BPS:[\s\S]{0,120}\.default\(\s*30\s*\)/);
+    expect((await loadP2pEnv()).P2P_FEE_BPS).toBeNull();
   });
 });
