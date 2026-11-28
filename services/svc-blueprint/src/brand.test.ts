@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { FORBIDDEN } from '../../../tooling/ci/brand-scan.mjs';
 
 /**
  * THE COPY-SCAN, FROM THE INSIDE (§7.2, Doctrine §0.7).
@@ -17,7 +18,7 @@ import { describe, expect, it } from 'vitest';
  * for a separate CI step someone can be tempted to skip.
  *
  * ── Why it reads the scanner instead of listing names ───────────────────────
- * The vocabulary is extracted from `tooling/ci/brand-scan.mjs` at runtime, not
+ * The vocabulary is imported from `tooling/ci/brand-scan.mjs` (its `FORBIDDEN`), not
  * duplicated here. Two reasons, and the second is the real one:
  *
  *   1. A name added to the scanner is enforced here immediately, with no second
@@ -39,35 +40,13 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, '..');
 const repoRoot = join(packageRoot, '..', '..');
-const scannerPath = join(repoRoot, 'tooling', 'ci', 'brand-scan.mjs');
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', 'coverage']);
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.mjs', '.json', '.md', '.sql', '.yaml', '.yml'];
 
-/**
- * Pull the forbidden patterns out of the scanner's `FORBIDDEN` array.
- *
- * Parsing source is ordinarily a bad idea; here it is the point. The scanner is
- * an ESM script with a top-level `walk` over the repo, so importing it would run
- * a full scan as a side effect. Reading the one declaration is cheaper, and the
- * test below asserts the extraction actually found something — a refactor that
- * moves or renames that array fails loudly instead of silently vacuously
- * passing.
- */
+/** The scanner's own patterns, imported: importing it scans nothing (it scans only when run as a script). */
 function forbiddenPatterns(): RegExp[] {
-  const source = readFileSync(scannerPath, 'utf8');
-  const start = source.indexOf('const FORBIDDEN = [');
-  expect(start, 'brand-scan.mjs no longer declares FORBIDDEN — this test cannot enforce anything').toBeGreaterThan(-1);
-  const end = source.indexOf('];', start);
-  const block = source.slice(start, end);
-
-  const patterns: RegExp[] = [];
-  const declaration = /pattern:\s*\/((?:[^/\\\n]|\\.)+)\/([gimsuy]*)/g;
-  let match: RegExpExecArray | null;
-  while ((match = declaration.exec(block)) !== null) {
-    patterns.push(new RegExp(match[1]!, match[2]!.replace('g', '')));
-  }
-  return patterns;
+  return FORBIDDEN.map(({ pattern }) => new RegExp(pattern.source, pattern.flags.replace('g', '')));
 }
 
 function* walk(dir: string): Generator<string> {

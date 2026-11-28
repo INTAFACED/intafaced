@@ -2,24 +2,24 @@
   {
     "file": "services/svc-blueprint/src/brand.test.ts",
     "target": "../../../tooling/ci/brand-scan.mjs",
-    "verdict": "rule",
+    "verdict": "rewrite",
     "asserts": "Blueprint copy names no vendor from the brand scan's forbidden list.",
     "guard": {
       "kind": "test",
       "ref": "services/svc-blueprint/src/brand.test.ts#contains no forbidden name in any file in this package"
     },
-    "why": "The read is the brand scan's own vocabulary (data the test compares copy to), outside this part's folders; brand-scan.mjs exports no list and runs a whole-repo scan with process.exit on import, so it cannot be imported. Left for the rule's owner."
+    "why": "Imports FORBIDDEN from brand-scan.mjs (exported; the scan now runs only when the file is the script started) and checks every file in this package against it, with the negative control."
   },
   {
     "file": "services/svc-blueprint/src/card/compose.test.ts",
     "target": "../../../../tooling/ci/brand-scan.mjs",
-    "verdict": "rule",
+    "verdict": "rewrite",
     "asserts": "The composed card carries no vendor name from the brand scan's forbidden list.",
     "guard": {
       "kind": "test",
       "ref": "services/svc-blueprint/src/card/compose.test.ts#renders no forbidden name, for any profile the contract allows"
     },
-    "why": "Same as brand.test.ts: the read is the brand scan's vocabulary (data), outside this part, not importable (no export, whole-repo scan and process.exit on import). Left for the rule's owner."
+    "why": "Imports FORBIDDEN from brand-scan.mjs (exported; the scan now runs only when the file is the script started) and checks every card the contract allows against it."
   },
   {
     "file": "services/svc-blueprint/src/card-renderer-timeout-compose-pin.test.ts",
