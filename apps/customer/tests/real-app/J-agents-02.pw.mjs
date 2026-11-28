@@ -1,8 +1,8 @@
 // World: gates, restart
 import { test, expect } from './journey.mjs';
-import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, saveDraft, tableIn } from './agents.mjs';
+import { OWN_AGENT, UNBUILT, createOwnAgent, launchAgentsRun, openOwnAgent, saveDraft, tableIn } from './agents.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { fundedTrader, signIn } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { api, fromUnits, stackFile, toUnits, tool } from './stack.mjs';
 import { createPublicClient, erc20Abi, http } from 'viem';
@@ -11,10 +11,13 @@ import { testChain } from './dex.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 import { chainBalance } from './venue.mjs';
+import { fundAtPartner, holdAtPartner, partnerBookAccounts, partnerBookMoves, partnerMainBalance, withPartner } from './partner.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set my spending limits and see that a run I cannot pay
-// for never starts. One test per step, titled "J-agents-02 #<n>", run in order on one verified TEST account funded with
-// TEST USDT and an agent of the person's own. Per-call, per-session and per-period caps reserve before the engine is
+// for never starts. One test per step, titled "J-agents-02 #<n>", run in order on one verified TEST account and an
+// agent of the person's own. Custody off, as launch runs it: each person's TEST USDT is held at the TEST partner bank
+// (the launch money model), never on our ledger, so a run is checked against the partner's figure and a usage window
+// is recorded on our ledger as earned and collected from the person's balance at the partner. Per-call, per-session and per-period caps reserve before the engine is
 // called; a refused run bills 0 and leaves no hold; charges equal sealed windows. Push and email delivery of an alert
 // show their vendor notice (vendor.push, vendor.email); the in-app inbox row is written regardless.
 // #1-#5 and #7 run on the agent's Limits, Test and Usage pages (AG-spend-01, AG-usage-02); #6 on Limits' alert and hard
@@ -55,7 +58,7 @@ const J = 'J-agents-02';
 const chain = createPublicClient({ transport: http(GATE_URL), cacheTime: 0 });
 /** The seeded TEST USD token (services/svc-protocol/scripts/seed-test-chain.ts), 6 decimals: the wallet's payment token. */
 const TEST_USD = '0x000000000000000000000000000000000000d011';
-const agents = agentsRun(J);
+const agents = launchAgentsRun(J);
 
 test.describe.configure({ mode: 'default' });
 
@@ -65,6 +68,43 @@ const session = (page) => main(page).getByRole('region', { name: 'Session' });
 const pages = (page) => page.getByRole('group', { name: 'Agent pages' });
 /** The person's ledger balances, every asset, as the ledger answers them through Edge. */
 const ledgerBalances = async (who) => (await api(who)).balances();
+/** A person's user id, as identity answers their sign-in: their name in the TEST partner's own book. */
+const userIds = new Map();
+async function userIdOf(who) {
+  if (!userIds.has(who.email)) userIds.set(who.email, (await api(who)).userId);
+  return userIds.get(who.email);
+}
+/** INTAFACED's own account at the TEST partner, where a person's usage payment lands (svc-bank partner/usage_payment.rs). */
+const PARTNER_INTAFACED = 'partner:intafaced';
+/** The partner's move key for one usage window's payment (svc-bank partner/usage_payment.rs `key`). */
+const usagePaymentKey = (chargeKey) => `agents.usage-payment:${chargeKey}`;
+/** The person's USDT main balance at the TEST partner, as the partner's own book says, in units. */
+const partnerUsdt = async (who) => toUnits(await partnerMainBalance(await userIdOf(who), 'USDT'));
+/** The person's usage payments in the partner's own book: moves from their USDT to INTAFACED's account there. */
+const usagePayments = async (who) =>
+  (await partnerBookMoves(await userIdOf(who))).filter(
+    (m) => m.key.startsWith('agents.usage-payment:') && m.to.owner === PARTNER_INTAFACED,
+  );
+/** What the partner's own book holds for the person: every account with its amount, and every move, to compare after a step. */
+const partnerBook = async (who) => ({
+  accounts: await partnerBookAccounts(await userIdOf(who)),
+  moves: await partnerBookMoves(await userIdOf(who)),
+});
+/**
+ * A verified TEST person whose bank money is held at the TEST partner bank, with `usdt` TEST USDT paid in there once: the
+ * launch money model, nothing on our ledger. The partner's own book holds exactly that.
+ */
+async function partnerPerson(page, prefix, usdt) {
+  const who = await signUp(page, prefix);
+  await verify(page, who);
+  return atPartner(who, usdt);
+}
+async function atPartner(who, usdt) {
+  await holdAtPartner(who);
+  await fundAtPartner(who, `${J}-${who.email}`.slice(0, 64), 'USDT', usdt);
+  expect(await partnerUsdt(who), `${who.email} holds ${usdt} TEST USDT at the TEST partner bank`).toBe(toUnits(usdt));
+  return who;
+}
 /** Sets the agent's own cap per session on its Build page, where the person who built it stores it. */
 async function setAgentCap(page, cap) {
   await pages(page).getByRole('button', { name: 'Build', exact: true }).click();
@@ -142,9 +182,11 @@ async function ownRead(who, procedure, input) {
   return res.body.result.data;
 }
 
-test(`${J} starts: a verified TEST account funded with TEST USDT and an agent of the person's own`, async ({ page }) => {
+test(`${J} starts: a verified TEST account holding TEST USDT at the TEST partner bank and an agent of the person's own`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
-  await agents.start(page, 'ag02', '20');
+  await atPartner(await agents.start(page, 'ag02'), '20');
   await signIn(page, agents.account());
   await createOwnAgent(page);
 });
@@ -329,13 +371,13 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
   // The payment method is a TEST wallet that can sign (tests/real-app/test-wallet.mjs, a fresh key), linked by its own
   // signature and a passkey confirmation as J-identity-04 #7 does, then chosen on the agent's Limits page. It holds 0
   // TEST USD on the stack's TEST chain (tooling/scripts/local-test-chain.mjs, chain 84532), below one run's worst case
-  // (just over 0.01024). The person's platform balance, 20 TEST USDT, would cover it many times: a refusal here can only
-  // come from the wallet's own figure.
+  // (just over 0.01024). The person's bank balance, 20 TEST USDT held at the TEST partner bank, would cover it many
+  // times: a refusal here can only come from the wallet's own figure.
   expect(testChain(), 'J-agents-02 #4 needs the stack’s TEST chain (anvil)').toMatchObject({ chain: 'running', gate: 'open' });
   await virtualAuthenticator(page);
   const wallet = await installTestWallet(page, { chainId: TEST_CHAIN_ID });
   const address = wallet.address.toLowerCase();
-  const payer = await fundedTrader(page, 'ag02w', '20');
+  const payer = await partnerPerson(page, 'ag02w', '20');
   await signIn(page, payer);
   await addPasskey(page);
   const card = page.getByTestId('security__signin-methods');
@@ -357,6 +399,7 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
     .getByRole('textbox', { name: /^Ask the agent/ })
     .fill('TEST question');
   const before = await ledgerBalances(payer);
+  const bookBefore = await partnerBook(payer);
   const fromBlock = await chain.getBlockNumber();
   const refusal = session(page).getByRole('alert');
   await withEngineHeld(async (engineCalls) => {
@@ -391,6 +434,7 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
   await expect(runs.nth(1).getByTestId('run-cost')).toHaveText('0 USDT');
   await expect(runs.nth(1).getByTitle(address)).toContainText(`block ${block}`);
   expect(await ledgerBalances(payer)).toEqual(before);
+  expect(await partnerBook(payer), 'nothing moved at the partner').toEqual(bookBefore);
   // Picture while the wallet's funds refusal (wallet, chain figure, block and time) is on screen, before switching accounts.
   await stepPicture(page);
 
@@ -416,11 +460,13 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
     tool('local-test-chain.mjs', 'gate', 'open');
   }
   expect(await ledgerBalances(payer)).toEqual(before);
+  expect(await partnerBook(payer), 'nothing moved at the partner').toEqual(bookBefore);
 
-  // With no payment method chosen, the run is checked against the platform balance as before, and its two money
-  // failure branches keep their end-to-end check here (CI review on #7585). A second TEST person with 0.005 USDT, the
-  // same kind of agent and limits: one run's worst case is above the balance.
-  const poor = await fundedTrader(page, 'ag02p', '0.005');
+  // With no payment method chosen, the run is checked against the person's balance where it is held, the TEST partner
+  // bank's own figure, and its two money failure branches keep their end-to-end check here (CI review on #7585). A
+  // second TEST person with 0.005 USDT at the partner, the same kind of agent and limits: one run's worst case is above
+  // the balance.
+  const poor = await partnerPerson(page, 'ag02p', '0.005');
   await ownAgentWithLimits(page, poor);
   await expect(main(page).getByRole('form', { name: 'Payment method' }).getByTestId('payment-method')).toContainText(
     'No payment method chosen',
@@ -431,6 +477,7 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
     .getByRole('textbox', { name: /^Ask the agent/ })
     .fill('TEST question');
   const poorBefore = await ledgerBalances(poor);
+  const poorBook = await partnerBook(poor);
   const short = session(page).getByRole('alert');
   await withEngineHeld(async (engineCalls) => {
     await session(page).getByRole('button', { name: 'Run', exact: true }).click();
@@ -444,11 +491,12 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
   await expect(poorRuns.nth(1).locator('code')).toHaveText('agents.funds_insufficient');
   await expect(poorRuns.nth(1).getByTestId('run-cost')).toHaveText('0 USDT');
   expect(await ledgerBalances(poor)).toEqual(poorBefore);
+  expect(await partnerBook(poor), 'nothing moved at the partner').toEqual(poorBook);
 
-  // With the platform balance read down (the stack's ledger stopped), the run does not start and says why: the balance
-  // could not be read, which is not the same as short. The engine is never called and nothing is billed.
-  try {
-    tool('local-test-stack.mjs', 'stop', 'ledger');
+  // With the partner's figure unreadable (the TEST partner bank down for this person, its `down` switch), the run does
+  // not start and says why: the balance could not be read, which is not the same as short. The engine is never called
+  // and nothing is billed.
+  await withPartner(poor, { down: true }, async () => {
     const unread = session(page).getByRole('alert');
     await withEngineHeld(async (engineCalls) => {
       await session(page).getByRole('button', { name: 'Run', exact: true }).click();
@@ -461,10 +509,9 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
     await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
     await expect(poorRuns).toHaveCount(3);
     await expect(poorRuns.filter({ hasText: 'agents.funds_unread' }).getByTestId('run-cost')).toHaveText('0 USDT');
-  } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'ledger');
-  }
+  });
   expect(await ledgerBalances(poor)).toEqual(poorBefore);
+  expect(await partnerBook(poor), 'nothing moved at the partner').toEqual(poorBook);
   await passkeyContext.close();
 });
 
@@ -473,8 +520,10 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   browser,
 }) => {
   test.setTimeout(240_000);
-  // A third TEST person with 1 USDT and the same agent and limits. The stack publishes no overage grace (blank).
-  const owes = await fundedTrader(page, 'ag02u', '1');
+  // A third TEST person with 1 USDT at the TEST partner bank and the same agent and limits. The stack publishes no
+  // overage grace (blank).
+  const owes = await partnerPerson(page, 'ag02u', '1');
+  const ledgerStart = await ledgerBalances(owes);
   await ownAgentWithLimits(page, owes);
   await expect(limits(page).getByTestId('overage-grace')).toHaveText(
     'Allowed unpaid before runs stop: not set. While any usage is unpaid, no run starts.',
@@ -499,24 +548,30 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
   const cost = (await session(page).getByTestId('reply-cost').innerText()).replace(/ USDT$/, '');
   expect(toUnits(cost)).toBeGreaterThan(0n);
-  const funded = await ledgerBalances(owes);
+  const funded = await partnerUsdt(owes);
+  expect(funded).toBe(toUnits('1'));
+  expect(await usagePayments(owes)).toEqual([]);
 
-  // The person moves every USDT into a savings pot before the window is paid, so the close cannot charge it.
+  // The person moves every USDT into a savings pot before the window is paid, so the close cannot collect it: a space
+  // at the partner, which the partner's own book holds apart from their main balance.
   const bank = await bankOf(owes);
   const home = await bank.main();
   const pot = await bank.pot('Agents TEST pot');
   await bank.move(`${J}#5:out:${pot.id}`, home.id, pot.id, '1');
-  const drained = await ledgerBalances(owes);
-  expect(drained.USDT).toBeDefined();
-  expect(toUnits(drained.USDT.free)).toBe(0n);
+  expect(await partnerUsdt(owes)).toBe(0n);
+  const inPot = (await partnerBookAccounts(await userIdOf(owes))).find((a) => a.asset === 'USDT' && a.spaceId === pot.id);
+  expect(toUnits(inPot?.amount ?? '0'), 'the pot holds the 1 USDT at the partner').toBe(toUnits('1'));
+  const drained = await partnerBook(owes);
 
-  // A window earlier could not be paid: the close is refused and says so; the session stays open; nothing moved.
+  // A window earlier could not be paid: the close is refused and says so; the session stays open; nothing moved at the
+  // partner, and the person's ledger balances never move (we hold none of their money).
   await session(page).getByRole('button', { name: 'Close session' }).click();
   const unpaidClose = session(page).getByRole('alert');
   await expect(unpaidClose).toContainText('A usage window could not be paid, so the session stays open.');
   await expect(unpaidClose.locator('code')).toHaveText('agents.window_unpaid');
   await expect(session(page).getByText('Session open:').locator('code')).toHaveText(first);
-  expect(await ledgerBalances(owes)).toEqual(drained);
+  expect(await partnerBook(owes)).toEqual(drained);
+  expect(await ledgerBalances(owes)).toEqual(ledgerStart);
 
   // The window is sealed at the run's exact cost, unpaid, on its charge key.
   await pages(page).getByRole('button', { name: 'Usage', exact: true }).click();
@@ -526,9 +581,21 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(windows.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
   const key = await windows.getByTestId('charge-key').innerText();
   expect(key).toMatch(new RegExp(`^agent\\.usage:${first}:\\d{4}-\\d{2}-\\d{2}#\\d{4}$`));
-  // The ledger, not the page: nothing is booked under that key while the window is unpaid.
-  const ledgerKey = `fee:agents:${key}`;
-  expect(await ledgerTrace(browser, ledgerKey)).toEqual({ found: false, businessKey: ledgerKey });
+  // The ledger, not the page: the window is recorded once as owed by the person, under its earned key, for exactly its
+  // cost (packages/ledger-client recipes/charge.ts), and nothing is collected: the partner's own book holds no payment
+  // under the window's key.
+  const earnedKey = `charge:earned:agents:${key.replace(/^agent\.usage:/, '').replace(':', '.')}`;
+  const earned = await ledgerTrace(browser, earnedKey);
+  expect(earned.found, `the ledger holds ${earnedKey}`).toBe(true);
+  expect(earned.transaction).toMatchObject({ businessKey: earnedKey, module: 'agents', reason: 'charge.earned' });
+  expect(earned.transaction.postings).toHaveLength(2);
+  for (const posting of earned.transaction.postings) {
+    expect(posting).toMatchObject({ assetId: 'USDT' });
+    expect(toUnits(posting.amount)).toBe(toUnits(cost));
+  }
+  const owedAt = earned.transaction.postings.find((p) => p.side === 'source');
+  expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
+  expect(await usagePayments(owes)).toEqual([]);
   // And svc-agents holds the same: the window sealed unpaid at the run's cost, on that charge key.
   const unpaid = await windowOf(first);
   expect(unpaid).toMatchObject({ state: 'unpaid', chargeKey: key, assetId: 'USDT' });
@@ -554,26 +621,36 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(refusedRow).toHaveCount(1);
   await expect(refusedRow).toContainText('Refused');
   await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
-  expect(await ledgerBalances(owes)).toEqual(drained);
+  expect(await partnerBook(owes)).toEqual(drained);
   // Read back from the service after the refusal: one refused run at 0 under that code, and the window unchanged,
-  // still unpaid on its key with nothing booked under it.
+  // still unpaid on its key, still the one earned record, with nothing paid at the partner.
   const refusedRuns = (await ownRead(owes, 'runs', { id: agent.id, limit: 50 })).filter((row) => row.status === 'refused');
   expect(refusedRuns).toHaveLength(1);
   expect(refusedRuns[0]).toMatchObject({ refusalCode: 'agents.overage_grace_unset', cost: '0' });
   expect(await windowOf(first)).toEqual(unpaid);
-  expect(await ledgerTrace(browser, ledgerKey)).toEqual({ found: false, businessKey: ledgerKey });
+  expect((await ledgerTrace(browser, earnedKey)).transaction.txId).toBe(earned.transaction.txId);
+  expect(await usagePayments(owes)).toEqual([]);
 
   // Funds back: the next run first retries the unpaid window on its same charge key, which now pays it once, then runs.
   await bank.move(`${J}#5:back:${pot.id}`, pot.id, home.id, '1');
-  expect(await ledgerBalances(owes)).toEqual(funded);
-  // Funds alone pay nothing: until the next run, the window is still unpaid and the ledger holds nothing under its key.
+  expect(await partnerUsdt(owes)).toBe(funded);
+  // Funds alone pay nothing: until the next run, the window is still unpaid and the partner holds no payment for it.
   expect(await windowOf(first)).toEqual(unpaid);
-  expect(await ledgerTrace(browser, ledgerKey)).toEqual({ found: false, businessKey: ledgerKey });
+  expect(await usagePayments(owes)).toEqual([]);
   await session(page).getByRole('button', { name: 'Run', exact: true }).click();
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
-  const paid = await ledgerBalances(owes);
-  expect(toUnits(funded.USDT.total) - toUnits(paid.USDT.total)).toBe(toUnits(cost));
-  expect(toUnits(funded.USDT.free) - toUnits(paid.USDT.free)).toBe(toUnits(cost));
+  // The partner took exactly the window's cost from the person's balance there, once, keyed on the window's charge.
+  const paid = await partnerUsdt(owes);
+  expect(funded - paid).toBe(toUnits(cost));
+  const userId = await userIdOf(owes);
+  const payments = await usagePayments(owes);
+  expect(payments, JSON.stringify(payments).slice(0, 400)).toHaveLength(1);
+  expect(payments[0]).toMatchObject({
+    key: usagePaymentKey(key),
+    from: { owner: userId, assetId: 'USDT', spaceId: null },
+    to: { owner: PARTNER_INTAFACED, assetId: 'USDT', spaceId: null },
+  });
+  expect(toUnits(payments[0].amount)).toBe(toUnits(cost));
   await pages(page).getByRole('button', { name: 'Usage', exact: true }).click();
   await expect(windows).toHaveCount(1);
   await expect(windows).toContainText('Settled');
@@ -581,33 +658,35 @@ test(`${J} #5 leaves the overage grace value blank after a window could not be p
   await expect(windows.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
   await expect(main(page).getByRole('alert')).toHaveCount(0);
   expect(await windowOf(first)).toEqual({ ...unpaid, state: 'settled' });
-  // The ledger booked the retry under that same key: one transaction of two postings for the window's exact cost. Its
-  // source is the person's available USDT, which it took from the funded balance to the paid one; its destination
-  // gained exactly that cost.
-  const booked = await ledgerTrace(browser, ledgerKey);
-  expect(booked.found).toBe(true);
-  expect(booked.transaction).toMatchObject({ businessKey: ledgerKey, module: 'agents' });
-  expect(booked.transaction.postings).toHaveLength(2);
-  const source = booked.transaction.postings.find((p) => p.side === 'source');
-  const destination = booked.transaction.postings.find((p) => p.side === 'destination');
-  for (const posting of [source, destination]) {
+  // The ledger booked the retry once, keyed on the partner's own payment: what the person owes comes back to zero, and
+  // our money at the partner gains exactly the window's cost. The earned record is still the one transaction.
+  const collectedKey = `charge:collected:partner-reserve:test:USDT:${payments[0].id}`;
+  const collected = await ledgerTrace(browser, collectedKey);
+  expect(collected.found, `the ledger holds ${collectedKey}`).toBe(true);
+  expect(collected.transaction).toMatchObject({ businessKey: collectedKey, module: 'agents', reason: 'charge.collected' });
+  expect(collected.transaction.postings).toHaveLength(2);
+  for (const posting of collected.transaction.postings) {
     expect(posting).toMatchObject({ assetId: 'USDT' });
     expect(toUnits(posting.amount)).toBe(toUnits(cost));
   }
-  expect([toUnits(source.balanceBefore), toUnits(source.balanceAfter)]).toEqual([toUnits(funded.USDT.free), toUnits(paid.USDT.free)]);
-  expect(toUnits(destination.balanceAfter) - toUnits(destination.balanceBefore)).toBe(toUnits(cost));
-  expect(destination.accountId).not.toBe(source.accountId);
-  // Paid once: reading the page again charges nothing more, and the key still names that one transaction.
-  expect(await ledgerBalances(owes)).toEqual(paid);
-  expect((await ledgerTrace(browser, ledgerKey)).transaction.txId).toBe(booked.transaction.txId);
+  const owedBack = collected.transaction.postings.find((p) => p.side === 'destination');
+  expect(owedBack.accountId).toBe(owedAt.accountId);
+  expect(toUnits(owedBack.balanceAfter)).toBe(0n);
+  expect((await ledgerTrace(browser, earnedKey)).transaction.txId).toBe(earned.transaction.txId);
+  // Paid once: reading the page again charges nothing more, and the person's ledger balances never moved.
+  expect(await partnerUsdt(owes)).toBe(paid);
+  expect(await usagePayments(owes)).toHaveLength(1);
+  expect((await ledgerTrace(browser, collectedKey)).transaction.txId).toBe(collected.transaction.txId);
+  expect(await ledgerBalances(owes)).toEqual(ledgerStart);
 });
 
 test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at the alert; push or email shows its vendor notice; the hard limit refuses new runs`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
-  // A fourth TEST person with 1 USDT and the same agent, with 0.1 per session so two runs fit one session at once.
-  const capped = await fundedTrader(page, 'ag02h', '1');
+  // A fourth TEST person with 1 USDT at the TEST partner bank and the same agent, with 0.1 per session so two runs fit
+  // one session at once.
+  const capped = await partnerPerson(page, 'ag02h', '1');
   await ownAgentWithLimits(page, capped);
   await limits(page)
     .getByRole('textbox', { name: /^Per session/ })
@@ -668,6 +747,7 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
     'The hard limit leaves 0.01 USDT this month: a run whose worst case is more than that is refused.',
   );
   const before = await ledgerBalances(capped);
+  const bookBefore = await partnerBook(capped);
   await ask.fill('TEST question past the limit');
   await session(page).getByRole('button', { name: 'Run', exact: true }).click();
   const refusal = session(page).getByRole('alert');
@@ -676,6 +756,7 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
     'This run’s worst case does not fit under your hard limit for the month, so it did not start. Nothing was charged.',
   );
   expect(await ledgerBalances(capped)).toEqual(before);
+  expect(await partnerBook(capped), 'nothing moved at the partner').toEqual(bookBefore);
   expect(await usageLimits()).toMatchObject({ spent: afterAlert.spent, hardLimitReached: false, hardLimitRoom: '0.01' });
 
   // Raised to leave 0.02, room for one run's worst case, the next run is admitted and charged; what it cost keeps the
@@ -778,9 +859,11 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
   page,
 }) => {
   test.setTimeout(240_000);
-  // A fourth TEST person with 1 USDT and two agents of their own, each run once in a session that is then closed.
-  const user = await fundedTrader(page, 'ag02d', '1');
-  const funded = await ledgerBalances(user);
+  // A fifth TEST person with 1 USDT at the TEST partner bank and two agents of their own, each run once in a session
+  // that is then closed.
+  const user = await partnerPerson(page, 'ag02d', '1');
+  const funded = await partnerUsdt(user);
+  const ledgerStart = await ledgerBalances(user);
   const SECOND = 'TEST second helper';
   await ownAgentWithLimits(page, user);
   await runAndClose(page);
@@ -837,10 +920,15 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
   }
   // Together the rows are exactly what the two agents' sealed windows add up to.
   expect(await sum(tableIn(main(page), 'Usage by agent, day and task').getByTestId('usage-cost'))).toBe(total);
-  // What the usage view adds up to is what the ledger charged the person: the funded balance less the two windows.
-  const after = await ledgerBalances(user);
-  expect(toUnits(funded.USDT.total) - toUnits(after.USDT.total)).toBe(total);
-  expect(toUnits(funded.USDT.free) - toUnits(after.USDT.free)).toBe(total);
+  // What the usage view adds up to is what the person paid: the partner took exactly the two windows from their
+  // balance there, as two usage payments, and the person's ledger balances never moved.
+  const after = await partnerUsdt(user);
+  expect(funded - after).toBe(total);
+  const payments = await usagePayments(user);
+  expect(payments, JSON.stringify(payments).slice(0, 400)).toHaveLength(2);
+  expect(payments.reduce((sum, m) => sum + toUnits(m.amount), 0n)).toBe(total);
+  expect(await ledgerBalances(user)).toEqual(ledgerStart);
+  const bookAfter = await partnerBook(user);
   const byDay = await ownRead(user, 'usageByDay', undefined);
   const [second] = (await ownRead(user, 'list', { limit: 50 })).filter((row) => row.name === SECOND);
   const secondRuns = async (status) => (await ownRead(user, 'runs', { id: second.id, limit: 50 })).filter((row) => row.status === status);
@@ -880,7 +968,8 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
     expect(await secondRuns('failed')).toEqual([]);
     expect(refused[0]).toMatchObject({ refusalCode: 'agents.price_unset', cost: '0' });
     expect(await ownRead(user, 'usageByDay', undefined)).toEqual(byDay);
-    expect(await ledgerBalances(user)).toEqual(after);
+    expect(await partnerBook(user), 'nothing moved at the partner').toEqual(bookAfter);
+    expect(await ledgerBalances(user)).toEqual(ledgerStart);
   } finally {
     blankRates(false);
   }

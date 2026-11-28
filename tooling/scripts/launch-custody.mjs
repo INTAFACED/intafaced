@@ -82,7 +82,6 @@ export const LAUNCH_ORDER = 1;
  * navigator/ports.rs TradeHttp::quote).
  */
 export const NOT_YET_OFF = new Set([
-  'J-agents-02',
   'J-agents-08',
   'J-cex-spot-10',
   'J-cex-spot-15-algo',
