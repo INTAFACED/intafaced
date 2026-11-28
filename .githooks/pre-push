@@ -5,8 +5,8 @@
 # dead code, and each generated or recorded file whose inputs the push changed, re-checked: the procedure registries, the
 # Volt count, the recorded calls, the ui tokens, the ops-desk catalog and the render record of the parts the change most
 # likely redraws); the wire replay of each changed service; when the push changes a journey file, the tooling tests that
-# read every journey file and the merge seal's title rule; a journey branch's re-push after a red run of its own journey
-# files, which needs a local PASS of them (pre-push-journey-red.mjs); and the CI review's size count. Formatting is also checked by
+# read every journey file and the merge seal's title rule; and the CI review's size count. Journeys run on CI only (owner
+# decision A, 28 Nov 2026, project-state#4160): no push waits on a local journey run. Formatting is also checked by
 # .githooks/pre-commit on every commit (CI has none since project-state#3912).
 #
 # The changed-file checks are t3code's `check:changed` ("Before you push, run `vp run check:changed`. It runs CI's fast
@@ -155,20 +155,6 @@ if [ -f "$TOP/tooling/scripts/pre-push-changed.mjs" ]; then
   CHANGED_PID=$!
 fi
 
-# A journey branch (j/...) pushed again after its previous head's journeys run failed one of its own journey files goes
-# only with a local PASS of those files on the tree pushed (tooling/scripts/pre-push-journey-red.mjs, project-state#4140:
-# 21 of 61 journey pushes on 28 Nov were fixes a 2–8 minute local run would have caught, each a 18–35 minute CI round).
-# It passes through, with one line, on what it can't judge (the Mac, GitHub unreadable, no free local slot). Only a
-# re-push of a j/ branch starts it; it runs beside the checks below, its output held and printed after them.
-JRED_OUT=$(mktemp)
-JRED_REFUSED=$(mktemp)
-if [ -f "$TOP/tooling/scripts/pre-push-journey-red.mjs" ] &&
-  awk '$3 ~ /^refs\/heads\/j\// && $4 !~ /^0+$/ { found = 1 } END { exit !found }' "$PUSHED"; then
-  ( (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-journey-red.mjs) < "$PUSHED" > "$JRED_OUT" 2>&1 ||
-    echo "journey re-push without a local PASS" > "$JRED_REFUSED" ) &
-  JRED_PID=$!
-fi
-
 # The wire replay of each service this push changes that keeps one (tooling/scripts/pre-push-wire-replay.mjs, under a time
 # limit that prints TIMEOUT and lets the push go; skipped when the push changes a shared package, so the packages it reads
 # come from turbo's cache and nothing builds here). A new route its recording lacked was otherwise first seen as a red
@@ -236,12 +222,7 @@ if [ -n "${SIZE_PID:-}" ]; then
   cat "$SIZE_OUT"
   while read -r line; do refuse "$line"; done < "$SIZE_REFUSED"
 fi
-if [ -n "${JRED_PID:-}" ]; then
-  wait "$JRED_PID"
-  cat "$JRED_OUT"
-  while read -r line; do refuse "$line"; done < "$JRED_REFUSED"
-fi
-rm -f "$PUSHED" "$SIZE_OUT" "$SIZE_REFUSED" "$CHANGED_OUT" "$CHANGED_REFUSED" "$BUILD_GATE" "$JRED_OUT" "$JRED_REFUSED"
+rm -f "$PUSHED" "$SIZE_OUT" "$SIZE_REFUSED" "$CHANGED_OUT" "$CHANGED_REFUSED" "$BUILD_GATE"
 ci_note
 
 if [ -n "$REFUSED" ]; then
