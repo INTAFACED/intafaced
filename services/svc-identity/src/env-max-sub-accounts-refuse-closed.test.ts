@@ -9,12 +9,8 @@
  * 5. Paths: env.ts via loadEnv at import (same as boot)
  * 6. RED: unset parses as 25, or .default(25) returns
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 const BASE_ENV = {
@@ -42,12 +38,6 @@ afterEach(() => {
 });
 
 describe('IDENTITY_MAX_SUB_ACCOUNTS refuse-closed', () => {
-  it('env.ts does not git-default 25', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/IDENTITY_MAX_SUB_ACCOUNTS:[\s\S]{0,400}\.default\(25\)/);
-    expect(envTs).not.toMatch(/DEFAULT_MAX_SUB_ACCOUNTS/);
-  });
-
   it('unset is unpublished (not 25)', async () => {
     const parsed = await loadWith({});
     expect(parsed.IDENTITY_MAX_SUB_ACCOUNTS).toBeUndefined();

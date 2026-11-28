@@ -1,79 +1,18 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
-import { mergeRouters, procedureCallers, type CallerRule, type Context } from '@intafaced/contracts';
+import { procedureCallers, type CallerRule, type Context } from '@intafaced/contracts';
+import { bootIdentity } from './boot.testkit.js';
 
 /**
- * Who may call each svc-identity procedure, listed from the routers `index.ts` merges into the service: the list of
- * routers is read from `index.ts` itself, so a router added there is listed here without anyone remembering to.
+ * Who may call each svc-identity procedure, listed from the router the service serves: `appRouter` as `index.ts` builds
+ * it at start (boot.testkit.ts), so a router added there is listed here without anyone remembering to.
  */
-const HERE = dirname(fileURLToPath(import.meta.url));
-const INDEX = readFileSync(join(HERE, 'index.ts'), 'utf8');
 
-/** The router factories `index.ts` passes to `mergeRouters(...)`, in order. */
-function mergedFactories(src: string): string[] {
-  const start = src.indexOf('export const appRouter = mergeRouters(');
-  if (start < 0) throw new Error('index.ts no longer builds `appRouter = mergeRouters(`; teach this test the new shape');
-  const names: string[] = [];
-  let depth = 0;
-  let token = '';
-  for (let i = src.indexOf('(', start); i < src.length; i++) {
-    const ch = src[i]!;
-    if (ch === '(') {
-      if (depth === 1) {
-        const name = token.trim();
-        if (!/^create\w+$/.test(name)) throw new Error(`mergeRouters takes \`${name}(\`, not a router factory; teach this test`);
-        names.push(name);
-      }
-      depth++;
-      token = '';
-    } else if (ch === ')') {
-      depth--;
-      token = '';
-      if (depth === 0) break;
-    } else if (depth === 1) {
-      token = ch === ',' ? '' : token + ch;
-    }
-  }
-  return names;
-}
-
-/** Where `index.ts` imports each name from. */
-function importSources(src: string): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'(\.[^']+)'/g)) {
-    for (const part of m[1]!.split(',')) {
-      const name = part
-        .trim()
-        .split(/\s+as\s+/)
-        .pop();
-      if (name) out.set(name, m[2]!);
-    }
-  }
-  return out;
-}
-
-/** Stands in for every dependency: a router is built before any handler runs, and no handler runs here. */
+/** Stands in for the rank service of the one router built by hand below. */
 const stub: unknown = new Proxy(function stub() {}, {
   get: (_t, key) => (key === 'then' ? undefined : key === Symbol.toPrimitive ? () => '' : stub),
   apply: () => stub,
 });
-/** The few factories that read a plain value while they build. */
-const ARGS: Record<string, unknown[]> = { createRequestSigningPolicyRouter: [null] };
-
-async function identityRouter() {
-  const sources = importSources(INDEX);
-  const routers = [];
-  for (const name of mergedFactories(INDEX)) {
-    const from = sources.get(name);
-    if (!from) throw new Error(`index.ts merges ${name} but imports it from nowhere this test can read`);
-    const factory = (await import(join(HERE, from.replace(/\.js$/, '.ts'))))[name] as (...args: unknown[]) => unknown;
-    routers.push(factory(...(ARGS[name] ?? [stub, stub, stub, stub, stub, stub])));
-  }
-  return mergeRouters(...(routers as Parameters<typeof mergeRouters>));
-}
 
 /**
  * Procedures still built on `protectedProcedure`, which checks only that some principal is present and leaves who may
@@ -216,12 +155,12 @@ async function outcome(api: unknown, principal: Principal, path: string): Promis
 }
 
 describe('svc-identity callers', async () => {
-  const api = await identityRouter();
+  const { appRouter: api } = await bootIdentity();
   const rows = procedureCallers(api);
   const named = (rule: CallerRule) => rows.filter((r) => r.caller === rule).map((r) => r.path);
 
-  it('lists every router index.ts merges', () => {
-    expect(mergedFactories(INDEX).length).toBeGreaterThan(50);
+  it('lists the caller rule of every procedure the booted service serves', () => {
+    expect(rows.map((r) => r.path).sort()).toEqual(Object.keys(api._def.procedures).sort());
     expect(rows.length).toBeGreaterThan(300);
   });
 

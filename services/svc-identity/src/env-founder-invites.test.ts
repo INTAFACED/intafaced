@@ -5,12 +5,8 @@
  * undefined (enrolment closed). Valid values pass through. A malformed value
  * fails boot. env.ts invents no default. Loads the production env.ts, as boot does.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 const BASE_ENV = {
   DATABASE_URL: 'postgres://u:p@localhost:5432/db',
@@ -34,9 +30,12 @@ async function loadWith(overrides: Record<string, string | undefined> = {}) {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('founder invite env vars', () => {
-  it('env.ts carries no default for either variable', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/IDENTITY_FOUNDER_INVITE_(HASHES|EXPIRES_AT):[^\n]*(default|'[0-9a-f]{8})/);
+  it('env.ts publishes no invite of its own (unset or blank, neither variable gets a value)', async () => {
+    for (const value of [undefined, '']) {
+      const env = await loadWith({ IDENTITY_FOUNDER_INVITE_HASHES: value, IDENTITY_FOUNDER_INVITE_EXPIRES_AT: value });
+      expect(env.IDENTITY_FOUNDER_INVITE_HASHES, JSON.stringify(value)).toBeUndefined();
+      expect(env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT, JSON.stringify(value)).toBeUndefined();
+    }
   });
 
   it('unset is closed (undefined)', async () => {

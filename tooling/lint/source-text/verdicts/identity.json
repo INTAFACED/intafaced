@@ -1,0 +1,618 @@
+[
+  {
+    "file": "services/svc-identity/src/affiliates/accruals-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "affiliates.myAccruals never invents a page size: an omitted or out-of-range limit refuses before the store, and an explicit one reaches it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/affiliates/accruals-limit-unset-refuse.test.ts#affiliates.myAccruals refuses an omitted limit before the store and passes an explicit 100"
+    },
+    "why": "Builds the router with a recording accrual store and calls affiliates.myAccruals with no limit, 0 and 501 (BAD_REQUEST, store not called), then 100 (the store gets the caller and 100)."
+  },
+  {
+    "file": "services/svc-identity/src/affiliates/accruals-limit-unset-refuse.test.ts",
+    "target": "accrual-store.ts",
+    "verdict": "delete",
+    "asserts": "SqlAccrualStore.listByBeneficiary publishes the caller-given limit and invents no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/affiliates/accruals-limit-unset-refuse.test.ts#omitted / undefined / null limit refuses before SQL"
+    },
+    "why": "That test calls listByBeneficiary with no limit and asserts the typed refusal before any SQL runs, which is what a default parameter or a missing publishedAccrualsLimit call would break; the memory store test beside it covers an explicit 100."
+  },
+  {
+    "file": "services/svc-identity/src/affiliates/freeze-freezes-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "affiliates.freezes (admin:read) never dumps the freeze roster: an omitted limit refuses before the store, an explicit one reaches it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/affiliates/freeze-freezes-limit-unset-refuse.test.ts#affiliates.freezes refuses an omitted limit before the store and passes an explicit 100"
+    },
+    "why": "Calls affiliates.freezes through the router as an admin:read operator with no limit (BAD_REQUEST, store untouched) and with 100 (store list(100)); a non-admin session is FORBIDDEN."
+  },
+  {
+    "file": "services/svc-identity/src/affiliates/freeze-freezes-limit-unset-refuse.test.ts",
+    "target": "freeze-service.ts",
+    "verdict": "rewrite",
+    "asserts": "FreezeService.list puts the published limit into its SQL.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/affiliates/freeze-freezes-limit-unset-refuse.test.ts#an explicit limit reaches the query as its LIMIT"
+    },
+    "why": "Calls list(100) over a recording sql and asserts one query whose LIMIT is bound to 100."
+  },
+  {
+    "file": "services/svc-identity/src/affiliates/members-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "affiliates.members never dumps the referral tree: an omitted limit refuses before the store, an explicit one reaches it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/affiliates/members-limit-unset-refuse.test.ts#affiliates.members refuses an omitted limit before the store and passes an explicit 100"
+    },
+    "why": "Calls affiliates.members through the router with no limit (BAD_REQUEST, listMembers not called) and with 100 (listMembers gets the root and 100)."
+  },
+  {
+    "file": "services/svc-identity/src/affiliates/members-limit-unset-refuse.test.ts",
+    "target": "referral-service.ts",
+    "verdict": "delete",
+    "asserts": "ReferralService.listMembers publishes the caller-given limit and invents no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/affiliates/members-limit-unset-refuse.test.ts#omitted / undefined / null limit refuses before SQL"
+    },
+    "why": "That test calls listMembers with no limit and asserts the typed refusal before SQL, which a `limit = 100` default or a dropped publishedAffiliateMembersLimit call would break."
+  },
+  {
+    "file": "services/svc-identity/src/affiliates/producer-accrue.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service serves the S2S producer accrue door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/affiliates/producer-accrue.test.ts#the booted service serves this door"
+    },
+    "why": "Boots index.ts (boot.testkit.ts) and posts to AFFILIATE_PRODUCER_PATH: no credentials answers 401 identity.unauthenticated and a non-producer 403, not a 404."
+  },
+  {
+    "file": "services/svc-identity/src/affiliates/producer-payout.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service serves the S2S producer payout door beside accrue, without a second JSON parser, and refuses without a ledger.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/affiliates/producer-payout.test.ts#the booted service serves this door beside accrue"
+    },
+    "why": "Boots index.ts with no LEDGER_URL: payout without credentials is 401, a signed producer call answers the ledger_unwired refusal, and accrue still answers on the same app."
+  },
+  {
+    "file": "services/svc-identity/src/agents/navigator-session-mount.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service serves the navigator session S2S route under the internal service secret.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/agents/navigator-session-mount.test.ts#the booted service serves the S2S route under the internal secret"
+    },
+    "why": "Boots index.ts and asks NAVIGATOR_SESSION_PATH: no credentials 401, a body-bound signature with INTERNAL_SERVICE_SECRET is let through to the store."
+  },
+  {
+    "file": "services/svc-identity/src/auth-401-vs-403-public-doors.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted S2S order-like doors refuse missing or blank HMAC as 401 identity.unauthenticated, never a 403 scope miss.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth-401-vs-403-public-doors.test.ts#the booted S2S order-like doors refuse missing and blank HMAC as 401"
+    },
+    "why": "Boots index.ts and asks /internal/rank/:userId/perks and /internal/sub-accounts/:id with no and blank service headers: 401 identity.unauthenticated both times."
+  },
+  {
+    "file": "services/svc-identity/src/callers.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "Every procedure of the service as booted has a named caller rule, and only the listed ones are still protectedProcedure.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/callers.test.ts#lists the caller rule of every procedure the booted service serves"
+    },
+    "why": "Takes appRouter from the booted index.ts (boot.testkit.ts) instead of rebuilding it from the text of index.ts."
+  },
+  {
+    "file": "services/svc-identity/src/closure/account-closure.pg.test.ts",
+    "target": "closure-ops-router.ts",
+    "verdict": "rewrite",
+    "asserts": "The operator closure desk lists and reads only: no cancel, finalize or reopen door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/closure/account-closure.pg.test.ts#the operator closure desk serves no cancel, finalize or reopen door"
+    },
+    "why": "Builds the closure ops router and asserts its procedure names."
+  },
+  {
+    "file": "services/svc-identity/src/compose-waitlist-referral-flags-pin.test.ts",
+    "target": "../../../services/svc-identity/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts leaves both launch flags unset when the host passes none, and reads them when set.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/compose-waitlist-referral-flags-pin.test.ts#env.ts reads both flags as given and leaves them unset when the host passes none"
+    },
+    "why": "Loads env.ts with the flags unset, blank and set, and asserts undefined, undefined and the value."
+  },
+  {
+    "file": "services/svc-identity/src/death-notices.gate.test.ts",
+    "target": "death-notices-router.ts",
+    "verdict": "rewrite",
+    "asserts": "Death notice doors answer only admin:compliance operators.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/death-notices.gate.test.ts#serves the four doors to admin:compliance only"
+    },
+    "why": "Calls record, forAccount, reject and confirm as a customer, a support operator and a compliance operator: FORBIDDEN, FORBIDDEN, reaches the service."
+  },
+  {
+    "file": "services/svc-identity/src/death-notices.gate.test.ts",
+    "target": "auth/death-notices.ts",
+    "verdict": "rewrite",
+    "asserts": "Recording or rejecting never touches the account; confirming freezes only after a second person approval is spent; the claim check reads only the owner own keys and plan.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/death-notices.gate.test.ts#confirming freezes only after a second person’s approval is spent"
+    },
+    "why": "Runs recordDeathNotice, rejectDeathNotice, confirmDeathNotice and verifyRecoveryClaim over a recording sql and asserts the statements each runs, in order."
+  },
+  {
+    "file": "services/svc-identity/src/edge-context.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service trusts the edge public key and limits from its env.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/edge-context.test.ts#the booted service hands the edge trust settings to the identity context"
+    },
+    "why": "Boots index.ts with and without EDGE_PRINCIPAL_PUBLIC_KEY and sends an edge-key-signed principal over /trpc: with the key it is a principal (403 scope miss), without it nobody (401)."
+  },
+  {
+    "file": "services/svc-identity/src/env-action-approval-ttl-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts publishes no action approval lifetime of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/env-action-approval-ttl-refuse-closed.test.ts#env.ts publishes no lifetime of its own"
+    },
+    "why": "Loads env.ts with the variable unset, blank and spaces and asserts it stays undefined each time, and that a value is read as written."
+  },
+  {
+    "file": "services/svc-identity/src/env-founder-invites.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts publishes no founder invite hash or expiry of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/env-founder-invites.test.ts#env.ts publishes no invite of its own"
+    },
+    "why": "Loads env.ts with both variables unset and blank and asserts both stay undefined."
+  },
+  {
+    "file": "services/svc-identity/src/env-max-sub-accounts-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts invents no sub-account cap (no 25).",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/env-max-sub-accounts-refuse-closed.test.ts#unset is unpublished (not 25)"
+    },
+    "why": "That test loads env.ts with the variable unset and asserts undefined, which any default (25 or a constant) breaks; blank and explicit cases sit beside it."
+  },
+  {
+    "file": "services/svc-identity/src/env-registration-open-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts does not default REGISTRATION_OPEN to true.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/env-registration-open-refuse-closed.test.ts#unset is unpublished (not true)"
+    },
+    "why": "That test loads env.ts unset and asserts undefined; the blank, whitespace, false and garbage tests beside it hold what a boolish parse would break."
+  },
+  {
+    "file": "services/svc-identity/src/env-trading-restrict-flag.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL does not default on.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/env-trading-restrict-flag.test.ts#is off when unset or blank"
+    },
+    "why": "That test loads env.ts unset and blank and asserts undefined, which a default(true) breaks."
+  },
+  {
+    "file": "services/svc-identity/src/hmac-require-mutate-pin.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "As booted, navigator mutate POSTs and the tRPC service door require body-bound HMAC whatever INTERNAL_SERVICE_BODY_BIND says, while the GET snapshots follow it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/hmac-require-mutate-pin.test.ts#the booted navigator mutate POSTs refuse unbound v1 HMAC under accept-both"
+    },
+    "why": "Boots index.ts under accept-both and require and sends v1 and body-bound signatures to the navigator POSTs, rank.awardXp, the GET snapshots and the affiliate doors."
+  },
+  {
+    "file": "services/svc-identity/src/hmac-require-mutate-pin.test.ts",
+    "target": "controls/founder-context.ts",
+    "verdict": "rewrite",
+    "asserts": "The tRPC service context binds the request body, so a bound caller passes and an empty-body signature replayed over a body does not.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/hmac-require-mutate-pin.test.ts#the booted tRPC service door takes a body-bound caller and refuses a replayed empty-body signature"
+    },
+    "why": "Posts rank.awardXp to the booted app with a body-bound signature (reaches the handler) and with the empty-body signature over a body (401)."
+  },
+  {
+    "file": "services/svc-identity/src/jwt-access-ttl-compose-pin.test.ts",
+    "target": "../../../packages/config/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The shared auth env defaults JWT_ACCESS_TTL_SECONDS to 900 and reads a host value.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/jwt-access-ttl-compose-pin.test.ts#authEnvSchema defaults JWT_ACCESS_TTL_SECONDS to 900"
+    },
+    "why": "Parses authEnvSchema from @intafaced/config with the variable absent (900) and set (the value)."
+  },
+  {
+    "file": "services/svc-identity/src/jwt-refresh-ttl-compose-pin.test.ts",
+    "target": "../../../packages/config/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The shared auth env defaults JWT_REFRESH_TTL_SECONDS and reads a host value.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/jwt-refresh-ttl-compose-pin.test.ts#authEnvSchema defaults JWT_REFRESH_TTL_SECONDS"
+    },
+    "why": "Parses authEnvSchema from @intafaced/config with the variable absent (the default) and set (the value)."
+  },
+  {
+    "file": "services/svc-identity/src/kyc/boot-vault.reachable.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service opens the KYC vault from IDENTITY_KYC_DOC_KEY and hands it to the router; unset, the vault procedures refuse kyc_doc.unwired.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/kyc/boot-vault.reachable.test.ts#the booted service opens the vault from IDENTITY_KYC_DOC_KEY and refuses unwired without it"
+    },
+    "why": "Boots index.ts with and without a key and calls kyc.listDocuments as a compliance operator: rows with the key, PRECONDITION_FAILED kyc_doc.unwired without."
+  },
+  {
+    "file": "services/svc-identity/src/kyc/boot-vault.reachable.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "Bytes are read only through the compliance getDocument door; the vault doors are store, list, bind and get, and no other read door exists.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/kyc/boot-vault.reachable.test.ts#bytes read is compliance getDocument only — kyc.status stays meta"
+    },
+    "why": "Asserts the router mounts storeDocument, listDocuments, bindDocument and getDocument and no readDocument or downloadDocument, and that a non-compliance session is FORBIDDEN on getDocument."
+  },
+  {
+    "file": "services/svc-identity/src/kyc/index-boot-wire.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "Production boot opens the vault only from the env key, still boots without it, and refuses a prod start without the TOTP or signing key.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/kyc/index-boot-wire.test.ts#the booted service opens the vault only from the env key and still serves without it"
+    },
+    "why": "Boots index.ts with and without IDENTITY_KYC_DOC_KEY (the vault answers or refuses kyc_doc.unwired; the service serves either way) and with APP_ENV=prod and no TOTP key (the start throws)."
+  },
+  {
+    "file": "services/svc-identity/src/kyc/kyc-documents-list-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "kyc.listDocuments (admin:compliance) requires a limit 1..200 and passes it to the store.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/kyc/kyc-documents-list-limit-unset-refuse.test.ts#kyc.listDocuments refuses an omitted limit before the store and passes an explicit one"
+    },
+    "why": "Calls kyc.listDocuments through the router with no limit (BAD_REQUEST, store untouched) and with 50 (the store gets the user and 50); a user session is FORBIDDEN."
+  },
+  {
+    "file": "services/svc-identity/src/kyc/kyc-documents-list-limit-unset-refuse.test.ts",
+    "target": "document-store.ts",
+    "verdict": "rewrite",
+    "asserts": "KycDocumentStore.listMetaForUser puts the published limit into its SQL.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/kyc/kyc-documents-list-limit-unset-refuse.test.ts#an explicit limit reaches the query as its LIMIT"
+    },
+    "why": "Calls listMetaForUser(user, 50) over a recording sql and asserts the query is bound to the user and 50."
+  },
+  {
+    "file": "services/svc-identity/src/kyc/pii-isolation.gate.test.ts",
+    "target": "../../src/db/schema.ts",
+    "verdict": "rewrite",
+    "asserts": "kyc_records has no document or PII column.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/kyc/pii-isolation.gate.test.ts#forbids document/PII columns on kyc_records in schema"
+    },
+    "why": "Reads the kycRecords table columns from drizzle (getTableColumns) and checks their database names against the ban."
+  },
+  {
+    "file": "services/svc-identity/src/kyc/pii-isolation.gate.test.ts",
+    "target": "../../src/kyc/document-store.ts",
+    "verdict": "rewrite",
+    "asserts": "The vault store has no free get(id) or delete(id): reads and deletes are bound to the document owner.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/kyc/pii-isolation.gate.test.ts#store surface has no free get(id)/delete(id) — only principal-bound methods"
+    },
+    "why": "Checks both stores have getFor and deleteFor and no get or delete, and that getFor and deleteFor refuse another user document."
+  },
+  {
+    "file": "services/svc-identity/src/kyc/pii-isolation.gate.test.ts",
+    "target": "../../src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "kyc.status never answers provider_ref or document bytes.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/kyc/pii-isolation.gate.test.ts#kyc.status presentation never includes provider_ref or document bytes"
+    },
+    "why": "Calls kyc.status through the router with a record carrying a provider pointer and asserts the answer has no provider ref, bytes or ciphertext."
+  },
+  {
+    "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
+    "target": "../src/db/schema.ts",
+    "verdict": "rewrite",
+    "asserts": "sub_accounts carries no tier, jurisdiction, sanctions or balance column.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/money-routing-graph.gate.test.ts#sub_accounts schema has no tier/jurisdiction/balance columns"
+    },
+    "why": "Reads the subAccounts table columns from drizzle (getTableColumns) and checks their database names."
+  },
+  {
+    "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
+    "target": "../src/auth/auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "AuthService checks each leg of a transfer with the single-row ownership door and refuses an unset cap.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/money-routing-graph.gate.test.ts#AuthService exposes ownership + transfer doors and the live-partition cap"
+    },
+    "why": "Calls assertSubAccountTransferDoor over a recording sql and asserts it reads both legs, refuses a foreign one, and that createSubAccount with no cap refuses auth.sub_account_cap_unset."
+  },
+  {
+    "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
+    "target": "../src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "subAccounts.assertOwned and assertTransferDoor reach the AuthService doors.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/money-routing-graph.gate.test.ts#tRPC mounts assertOwned + assertTransferDoor under subAccounts"
+    },
+    "why": "Calls both procedures through the router with a stub AuthService and asserts the doors called with the caller and ids."
+  },
+  {
+    "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
+    "target": "../src/index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service serves the sub-account, API key and session ownership snapshots svc-trade place gate reads.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/money-routing-graph.gate.test.ts#S2S ownership snapshot stays mounted for svc-trade placeOrder gate"
+    },
+    "why": "Boots index.ts and asks each snapshot route as a signed service: 404 not found for an unknown id, 401 without credentials."
+  },
+  {
+    "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
+    "target": "../src/auth/api-key-ownership-route.ts",
+    "verdict": "rewrite",
+    "asserts": "The API key ownership snapshot is served at /internal/api-keys/:keyId.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/money-routing-graph.gate.test.ts#S2S API key ownership snapshot stays mounted for the place gate"
+    },
+    "why": "Boots index.ts and asks the API key ownership route: 401 without service credentials, and as a signed service 404 identity.api_key_not_found for an unknown key."
+  },
+  {
+    "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
+    "target": "../../../packages/ledger-client/src/recipes/sub-accounts.ts",
+    "verdict": "rewrite",
+    "asserts": "A sub-account transfer posts both legs on sub-account available accounts, never a user, house or hold account.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/money-routing-graph.gate.test.ts#ledger transfer recipe remains the only identity.sub_account.transfer journal shape"
+    },
+    "why": "Builds the transfer through the ledger-client recipe and asserts its kind and that every entry is one of the two sub-account available accounts."
+  },
+  {
+    "file": "services/svc-identity/src/oauth/oauth-env.test.ts",
+    "target": "../env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts publishes no OAuth lifetime of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/oauth/oauth-env.test.ts#unset and blank are unpublished"
+    },
+    "why": "That test loads env.ts with each lifetime unset and blank and asserts undefined, which any .default( breaks; the test beside it reads an explicit value."
+  },
+  {
+    "file": "services/svc-identity/src/org-router.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service mounts the org door with the owner DMA hierarchy law.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/org-router.test.ts#the booted service mounts the org door with the env DMA law"
+    },
+    "why": "Boots index.ts and asserts appRouter serves org procedures, and that a DMA product refuses unpublished when the law is blank."
+  },
+  {
+    "file": "services/svc-identity/src/orgs/dma-hierarchy.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "IDENTITY_DMA_HIERARCHY_LAW_JSON is blank (unpublished) when unset.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/orgs/dma-hierarchy.test.ts#env.ts reads IDENTITY_DMA_HIERARCHY_LAW_JSON as blank (unpublished) when unset"
+    },
+    "why": "Loads env.ts unset (blank) and set (the value)."
+  },
+  {
+    "file": "services/svc-identity/src/promise-falsify-public-doors.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "subAccounts list, assertOwned and assertTransferDoor answer no balance.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/promise-falsify-public-doors.test.ts#tRPC list/assertOwned/assertTransferDoor answers carry no balance field"
+    },
+    "why": "Calls the three procedures over the mounted router and asserts their answers carry no balance, available or hold key."
+  },
+  {
+    "file": "services/svc-identity/src/promise-falsify-public-doors.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted S2S ownership snapshot is fail-closed: 401, 404, and no balance in its body.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/promise-falsify-public-doors.test.ts#S2S ownership snapshot in index.ts stays fail-closed (401 / 404, no balance body)"
+    },
+    "why": "Boots index.ts and asks /internal/sub-accounts/:id with no credentials (401), for an unknown id (404 identity.sub_account_not_found) and a known one (the row, no balance)."
+  },
+  {
+    "file": "services/svc-identity/src/rank/limit-fee-tier.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service installs the fee tier dual control and mounts the mill door with the shared approvals.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/rank/limit-fee-tier.test.ts#boot path installs the hitch; mill door names a second actor"
+    },
+    "why": "Boots index.ts and calls changeFeeTier and changeLimit as a compliance operator: no approval is PRECONDITION_FAILED action_approval.missing, one the service never issued is approval not found, and no rank_thresholds statement runs."
+  },
+  {
+    "file": "services/svc-identity/src/rank/limit-fee-tier.test.ts",
+    "target": "../limit-fee-tier-router.ts",
+    "verdict": "rewrite",
+    "asserts": "The mill door needs a second actor approval for each change.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/rank/limit-fee-tier.test.ts#the mill door refuses a change without a spent approval"
+    },
+    "why": "Calls the router change doors without and with an approval and asserts the refusal and the approval consumed."
+  },
+  {
+    "file": "services/svc-identity/src/rank/rank-first-award-lock.pg.test.ts",
+    "target": "drizzle",
+    "verdict": "rewrite",
+    "asserts": "The Postgres test applies the identity migrations.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/rank/rank-first-award-lock.pg.test.ts#two concurrent first awards for a user with no rank_state row sum"
+    },
+    "why": "Reads the migrations (data) from services/svc-identity/drizzle by a path from the test file, as the closure pg test does; process.cwd() hid that it was the package drizzle folder."
+  },
+  {
+    "file": "services/svc-identity/src/ready-honesty.test.ts",
+    "target": "kyc/boot-vault.ts",
+    "verdict": "rewrite",
+    "asserts": "The unwired codes on /ready are the codes the procedures refuse with.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/ready-honesty.test.ts#unwired codes match the refuse strings already on the procedures"
+    },
+    "why": "Asserts KYC_VAULT_UNWIRED is kyc_doc.unwired and that the payout door with no ledger answers LEDGER_PAYOUT_UNWIRED."
+  },
+  {
+    "file": "services/svc-identity/src/ready-honesty.test.ts",
+    "target": "affiliates/producer-payout.ts",
+    "verdict": "rewrite",
+    "asserts": "The payout unwired code on /ready is the one the payout door refuses with.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/ready-honesty.test.ts#unwired codes match the refuse strings already on the procedures"
+    },
+    "why": "Calls the payout door with no ledger and asserts its code equals LEDGER_PAYOUT_UNWIRED."
+  },
+  {
+    "file": "services/svc-identity/src/ready-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted GET /ready names the vault and payout planes from env and the flags as set.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/ready-honesty.test.ts#the booted GET /ready serves the honesty helpers from env"
+    },
+    "why": "Boots index.ts with and without the key, LEDGER_URL and flags and asserts GET /ready."
+  },
+  {
+    "file": "services/svc-identity/src/recovery-keys.gate.test.ts",
+    "target": "recovery-keys-router.ts",
+    "verdict": "rewrite",
+    "asserts": "Recovery doors take only the owner scopes and refuse staff, API key and sub-account callers.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/recovery-keys.gate.test.ts#declares exactly the owner doors, with the owner scopes only"
+    },
+    "why": "Calls list, add, revoke and set as a person without the scope, a staff operator, an API key and a sub-account session: refused before any SQL."
+  },
+  {
+    "file": "services/svc-identity/src/recovery-keys.gate.test.ts",
+    "target": "auth/recovery-keys.ts",
+    "verdict": "rewrite",
+    "asserts": "The recovery service refuses a non-owner before it reads anything.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/recovery-keys.gate.test.ts#every door refuses a non-owner first"
+    },
+    "why": "Calls add, revoke, setPlan and refuse on the real service, then every router door, as staff, API key and sub-account principals over a recording sql: staff_forbidden or delegated_refused, and no query."
+  },
+  {
+    "file": "services/svc-identity/src/router.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "kyc.getDocument is compliance-only and the vault doors are store, list, bind and get.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/router.test.ts#getDocument is mounted behind admin:compliance"
+    },
+    "why": "Asserts the router serves the four vault doors and no read/download one, and that an admin:read operator is FORBIDDEN on getDocument."
+  },
+  {
+    "file": "services/svc-identity/src/webauthn-rp-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts defaults the RP id, name and origin and reads host values.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/webauthn-rp-compose-pin.test.ts#env.ts defaults RP id/name/origin to localhost / INTAFACED / http://localhost:3000"
+    },
+    "why": "Loads env.ts with the variables unset (the defaults) and set (the values)."
+  },
+  {
+    "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
+    "target": "../../../services/svc-trade/src/spot/trade-service/order-place.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-trade placeOrder consults identity ownership before storing a sub-account label.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/sub-account-ownership.test.ts#denies a foreign parent"
+    },
+    "why": "LEFT: the property is svc-trade behaviour; a svc-identity test may not import svc-trade (boundary-scan B-hops) and svc-trade is outside this part. Needs a svc-trade placeOrder test."
+  },
+  {
+    "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
+    "target": "../../../services/svc-trade/src/spot/sub-account-ownership.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-trade asks identity /internal/sub-accounts/ for ownership.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/sub-account-ownership.test.ts#signs the empty body and does not send one"
+    },
+    "why": "LEFT: svc-trade code, outside this part; that svc-trade test already asserts the URL and the ownership check by behaviour, but the identity gate is protected (money) so it is not deleted here."
+  }
+]

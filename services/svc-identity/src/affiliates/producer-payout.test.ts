@@ -1,14 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
+import { BOOT_TIMEOUT_MS, BOOT_INTERNAL_SECRET, bootIdentity } from '../boot.testkit.js';
 import { MemoryAccrualStore } from './accrual-store.js';
 import type { AccrualTierLaw } from './commission-rate-law.js';
 import type { CommissionRow } from './commission.js';
-import { registerAffiliateProducerAccrue } from './producer-accrue.js';
+import { AFFILIATE_PRODUCER_PATH, registerAffiliateProducerAccrue } from './producer-accrue.js';
 import { AFFILIATE_PRODUCER_PAYOUT_PATH, registerAffiliateProducerPayout } from './producer-payout.js';
 
 const SECRET = 'test-internal-service-secret-32ch!!';
@@ -18,8 +16,6 @@ const FEE = 'fee-evt-producer-payout';
 const ASSET = 'USDT';
 
 const PUBLISHED: AccrualTierLaw = { published: true, tiers: [{ hop: 0, rate: '0.130' }] };
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 function row(over: Partial<CommissionRow> = {}): CommissionRow {
   return {
@@ -113,12 +109,36 @@ function post(body: unknown, service = 'svc-trade') {
 }
 
 describe('S2S producer payout — accrued commission through ledger-client', () => {
-  it('index.ts registers this door (not a second copy)', () => {
-    const src = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(src).toMatch(/registerAffiliateProducerPayout/);
-    expect(src).toMatch(/producer-payout/);
-    expect(src).toMatch(/installRawBody:\s*false/);
-  });
+  it(
+    'the booted service serves this door beside accrue (not a second copy, one JSON parser)',
+    async () => {
+      // index.ts as it starts with a published law and depth but no LEDGER_URL: the start listens (a second JSON parser
+      // would have thrown before it), payout answers its own refusals, and accrue answers on the same app.
+      const { app: booted } = await bootIdentity({
+        LEDGER_URL: undefined,
+        IDENTITY_PARTNER_PROGRAMME_DEPTH: '5',
+        IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: JSON.stringify(PUBLISHED),
+      });
+      const unsigned = await booted.inject({ method: 'POST', url: AFFILIATE_PRODUCER_PAYOUT_PATH, payload: { feeEventId: FEE } });
+      expect(unsigned.statusCode).toBe(401);
+      expect(unsigned.json()).toMatchObject({ code: 'identity.unauthenticated' });
+
+      const body = JSON.stringify({ feeEventId: FEE });
+      const signed = await booted.inject({
+        method: 'POST',
+        url: AFFILIATE_PRODUCER_PAYOUT_PATH,
+        headers: { ...serviceAuthHeadersForBody('svc-trade', BOOT_INTERNAL_SECRET, body), 'content-type': 'application/json' },
+        payload: body,
+      });
+      expect(signed.statusCode).toBe(503);
+      expect(signed.json()).toMatchObject({ code: 'affiliate.payout.ledger_unwired' });
+
+      const accrue = await booted.inject({ method: 'POST', url: AFFILIATE_PRODUCER_PATH, payload: { feeEventId: FEE } });
+      expect(accrue.statusCode).toBe(401);
+      expect(accrue.json()).toMatchObject({ code: 'identity.unauthenticated' });
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
   it('co-mounts with accrue without a second JSON parser (identity boot)', async () => {
     const store = new MemoryAccrualStore();

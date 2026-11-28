@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
@@ -10,7 +11,7 @@ import { AuthService } from '../auth/auth-service.js';
 import { RankService } from './rank-service.js';
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test';
-const drizzleDir = join(process.cwd(), 'drizzle');
+const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle');
 const migrations = readdirSync(drizzleDir)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   .sort()

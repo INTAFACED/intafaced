@@ -1,11 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { serviceAuthHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { BOOT_TIMEOUT_MS, BOOT_INTERNAL_SECRET, bootIdentity } from '../boot.testkit.js';
 import { MemoryAccrualStore } from './accrual-store.js';
 import { AFFILIATE_PRODUCER_PATH, AFFILIATE_PRODUCER_SOURCE_BY_SERVICE, registerAffiliateProducerAccrue } from './producer-accrue.js';
+import { AFFILIATE_PROGRAMME_DEPTH_UNSET } from './programme-depth.js';
 
 const SECRET = 'test-internal-service-secret-32ch!!';
 const PAYER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -16,8 +15,6 @@ const publishedLaw = {
   published: true as const,
   tiers: [{ hop: 0, rate: '0.130' }],
 };
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 function payload(over: Record<string, unknown> = {}) {
   return {
@@ -53,11 +50,36 @@ describe('D26-P1-O2 S2S producer accrue', () => {
     expect(AFFILIATE_PRODUCER_SOURCE_BY_SERVICE).toEqual({ 'svc-trade': 'trade', 'svc-pay': 'pay' });
   });
 
-  it('index.ts registers this door (not a second copy)', () => {
-    const src = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(src).toMatch(/registerAffiliateProducerAccrue/);
-    expect(src).toMatch(/AFFILIATE_PRODUCER_PATH|producer-accrue/);
-  });
+  it(
+    'the booted service serves this door (not a second copy)',
+    async () => {
+      // index.ts as it starts, with the programme depth unset: the door answers its own refusals at its own path.
+      const { app: booted } = await bootIdentity({ IDENTITY_PARTNER_PROGRAMME_DEPTH: undefined });
+      const unsigned = await booted.inject({ method: 'POST', url: AFFILIATE_PRODUCER_PATH, payload: payload() });
+      expect(unsigned.statusCode).toBe(401);
+      expect(unsigned.json()).toMatchObject({ code: 'identity.unauthenticated' });
+
+      const body = JSON.stringify(payload());
+      const notProducer = await booted.inject({
+        method: 'POST',
+        url: AFFILIATE_PRODUCER_PATH,
+        headers: { ...serviceAuthHeadersForBody('svc-academy', BOOT_INTERNAL_SECRET, body), 'content-type': 'application/json' },
+        payload: body,
+      });
+      expect(notProducer.statusCode).toBe(403);
+      expect(notProducer.json()).toMatchObject({ code: 'affiliate.accrual.producer_forbidden' });
+
+      const producer = await booted.inject({
+        method: 'POST',
+        url: AFFILIATE_PRODUCER_PATH,
+        headers: { ...serviceAuthHeadersForBody('svc-trade', BOOT_INTERNAL_SECRET, body), 'content-type': 'application/json' },
+        payload: body,
+      });
+      expect(producer.statusCode).toBe(412);
+      expect(producer.json()).toMatchObject({ code: AFFILIATE_PROGRAMME_DEPTH_UNSET });
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
   it('401 without service credentials — store stays empty', async () => {
     const { f, store } = await app({ law: publishedLaw });

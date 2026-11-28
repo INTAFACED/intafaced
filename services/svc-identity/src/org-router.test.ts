@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
+import { BOOT_TIMEOUT_MS, bootIdentity, contextWith, type SqlCall } from './boot.testkit.js';
 import { createOrgRouter } from './org-router.js';
 import { addOrgMember, assertOrgActor, assertOrgPlace, createOrg } from './orgs/org-service.js';
 
@@ -264,9 +262,26 @@ describe('org service helpers stay wired to the router store', () => {
 });
 
 describe('org door is mounted', () => {
-  it('index.ts mergeRouters includes createOrgRouter', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8');
-    expect(src).toMatch(/createOrgRouter\(sql,\s*dmaHierarchyLaw\)/);
-    expect(src).toMatch(/parseDmaHierarchyLawJson/);
-  });
+  it(
+    'the booted service mounts the org door with the env DMA law',
+    async () => {
+      // A member of ORG_A, as the booted service's database answers it.
+      const answer = ({ text }: SqlCall) =>
+        /FROM organizations WHERE id/.test(text)
+          ? [{ id: ORG_A }]
+          : /FROM organization_members WHERE org_id/.test(text)
+            ? [{ role: 'admin' }]
+            : undefined;
+      const create = async (law: string | undefined) => {
+        const { appRouter } = await bootIdentity({ IDENTITY_DMA_HIERARCHY_LAW_JSON: law }, answer);
+        const api = appRouter.createCaller(await contextWith(['identity:read', 'identity:write'], { userId: A }));
+        const err = await api.createDmaHierarchyProduct({ orgId: ORG_A, kind: 'desk' }).catch((e: unknown) => e);
+        return (err as { cause?: { code?: string } }).cause?.code;
+      };
+      // Blank law (the env default): the door refuses as unpublished. Published: it gets past the law to the tree refusal.
+      expect(await create(undefined)).toBe('identity.dma.hierarchy_law_unset');
+      expect(await create(JSON.stringify({ published: true }))).toBe('identity.dma.tree_unbuilt');
+    },
+    BOOT_TIMEOUT_MS,
+  );
 });

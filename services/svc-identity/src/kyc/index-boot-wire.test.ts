@@ -1,44 +1,66 @@
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { PROD_TOTP_KEY_REQUIRED, SIGNING_ENC_KEY_REQUIRED } from '../auth/totp-crypto.js';
+import { BOOT_TIMEOUT_MS, bootIdentity, contextWith } from '../boot.testkit.js';
+import { KYC_VAULT_UNWIRED } from './boot-vault.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
+const USER = '11111111-1111-4111-8111-111111111111';
+const OPERATOR = '22222222-2222-4222-8222-222222222222';
+const KEY = () => randomBytes(32).toString('base64');
+/** The settings a hosted start refuses to run without, other than the two keys under test. */
+const HOSTED = { INTERNAL_SERVICE_BODY_BIND: 'require', WEBAUTHN_ENABLED: 'off' };
+
+/** kyc.listDocuments as a compliance operator on the booted service: the rows, or the refusal. */
+async function listAsCompliance(env: Record<string, string | undefined>) {
+  const boot = await bootIdentity(env);
+  const api = boot.appRouter.createCaller(await contextWith(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+  const health = await boot.app.inject({ method: 'GET', url: '/health' });
+  return { health: health.statusCode, listed: await api.kyc.listDocuments({ userId: USER, limit: 10 }).catch((e: unknown) => e) };
+}
 
 describe('production index boots KYC vault from IDENTITY_KYC_DOC_KEY only', () => {
-  it('imports bootKycVault and calls it with the env key — never invents one', () => {
-    expect(indexSrc).toMatch(/import\s*\{\s*bootKycVault\s*\}\s*from\s*['"]\.\/kyc\/boot-vault\.js['"]/);
-    expect(indexSrc).toMatch(/bootKycVault\(\s*sql\s*,\s*env\.IDENTITY_KYC_DOC_KEY\s*\)/);
-    expect(indexSrc).not.toMatch(/new KycDocumentStore\(/);
-    expect(indexSrc).not.toMatch(/IDENTITY_KYC_DOC_KEY\s*\|\|/);
-    expect(indexSrc).not.toMatch(/randomBytes\(32\)/);
-  });
-
-  it('spreads vault into createIdentityRouter — omitting this while the key is set leaves a silent missing store', () => {
-    expect(indexSrc).toMatch(/\.\.\.\s*\(vault\s*\?\?\s*\{\}\)/);
-    const routerCall = indexSrc.slice(indexSrc.indexOf('createIdentityRouter('));
-    const optsBlock = routerCall.slice(0, routerCall.indexOf('});') + 2);
-    expect(optsBlock).toMatch(/\.\.\.\s*\(vault\s*\?\?\s*\{\}\)/);
-    expect(optsBlock).not.toMatch(/kycDocs:\s*undefined/);
-  });
-
-  it('does not fail the whole process when the key is unset — auth still boots', () => {
-    // TOTP key refuses prod boot; KYC key must not. Unset = procedures refuse, service serves.
-    expect(indexSrc).not.toMatch(/if\s*\(\s*!parseKycDocKey/);
-    expect(indexSrc).not.toMatch(/throw new Error\(['"]IDENTITY_KYC_DOC_KEY/);
-  });
+  it(
+    'the booted service opens the vault only from the env key and still serves without it',
+    async () => {
+      // Key set: the vault doors reach the store (no rows here), not the unwired refusal.
+      const keyed = await listAsCompliance({ IDENTITY_KYC_DOC_KEY: KEY() });
+      expect(keyed.health).toBe(200);
+      expect(String((keyed.listed as Error).message ?? '')).not.toContain(KYC_VAULT_UNWIRED);
+      // Key unset or blank: the service still serves, and the vault doors refuse named — no invented key.
+      for (const IDENTITY_KYC_DOC_KEY of [undefined, '']) {
+        const unkeyed = await listAsCompliance({ IDENTITY_KYC_DOC_KEY });
+        expect(unkeyed.health).toBe(200);
+        expect(unkeyed.listed).toMatchObject({ code: 'PRECONDITION_FAILED' });
+        expect(String((unkeyed.listed as Error).message)).toContain(KYC_VAULT_UNWIRED);
+      }
+    },
+    BOOT_TIMEOUT_MS,
+  );
 });
 
 describe('prod boot refuses a missing IDENTITY_TOTP_SECRET_KEY', () => {
-  it('calls assertProdTotpKey(env) so the throw is reached without booting Fastify', () => {
-    expect(indexSrc).toMatch(/import\s*\{[^}]*assertProdTotpKey[^}]*\}\s*from\s*['"]\.\/auth\/totp-crypto\.js['"]/);
-    expect(indexSrc).toMatch(/APP_ENV === ['"]prod['"]/);
-    expect(indexSrc).toMatch(/assertProdTotpKey\(\s*env\s*\)/);
-    expect(indexSrc).toMatch(/assertSigningEncKey\(\s*env\s*\)/);
-    expect(indexSrc).toMatch(/parseTotpSecretKey\(\s*env\.API_KEY_SIGNING_ENC_KEY\s*\)/);
-  });
+  it(
+    'a prod start without the TOTP key, or without the signing key, stops before it listens',
+    async () => {
+      await expect(
+        bootIdentity({ ...HOSTED, APP_ENV: 'prod', IDENTITY_TOTP_SECRET_KEY: undefined, API_KEY_SIGNING_ENC_KEY: KEY() }),
+      ).rejects.toThrow(PROD_TOTP_KEY_REQUIRED);
+      await expect(
+        bootIdentity({ ...HOSTED, APP_ENV: 'prod', IDENTITY_TOTP_SECRET_KEY: KEY(), API_KEY_SIGNING_ENC_KEY: undefined }),
+      ).rejects.toThrow(SIGNING_ENC_KEY_REQUIRED);
+      await expect(bootIdentity({ ...HOSTED, APP_ENV: 'staging', API_KEY_SIGNING_ENC_KEY: undefined })).rejects.toThrow(
+        SIGNING_ENC_KEY_REQUIRED,
+      );
+      // The test stack needs neither.
+      await expect(bootIdentity({ IDENTITY_TOTP_SECRET_KEY: undefined, API_KEY_SIGNING_ENC_KEY: undefined })).resolves.toBeDefined();
+    },
+    BOOT_TIMEOUT_MS,
+  );
 });
 
 // Host IDENTITY_KYC_DOC_KEY must reach the identity container or the #1806 vault stays dark.

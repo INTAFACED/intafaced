@@ -2,11 +2,16 @@
  * GET /ready must not hide KYC vault / ledger payout unwired behind argon2.
  * Key/URL set is config. This door does not fetch.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { partial } from '@intafaced/service-kit/testing';
+import { MemoryAccrualStore } from './affiliates/accrual-store.js';
+import { AFFILIATE_PRODUCER_PAYOUT_PATH, registerAffiliateProducerPayout } from './affiliates/producer-payout.js';
+import type { AuthService } from './auth/auth-service.js';
+import { BOOT_TIMEOUT_MS, bootIdentity, contextWith } from './boot.testkit.js';
+import type { RankService } from './rank/rank-service.js';
+import { createIdentityRouter } from './router.js';
 import {
   KYC_VAULT_UNPROBED,
   KYC_VAULT_UNWIRED,
@@ -18,7 +23,8 @@ import {
   ledgerPayoutHonesty,
 } from './ready-honesty.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
+const USER = '11111111-1111-4111-8111-111111111111';
+const PAYOUT_SECRET = 'p'.repeat(32);
 
 /** KYC tests hold flags still so /ready never silently drops them. */
 const flagsNamed = {
@@ -122,21 +128,64 @@ describe('identity /ready honesty — key-set is not a live vault or ledger', ()
     expect(body.ledgerPayout).toEqual({ status: 'configured', code: LEDGER_PAYOUT_UNPROBED });
   });
 
-  it('unwired codes match the refuse strings already on the procedures', () => {
-    const boot = readFileSync(join(here, 'kyc/boot-vault.ts'), 'utf8');
-    expect(boot).toContain("export const KYC_VAULT_UNWIRED = 'kyc_doc.unwired'");
-    const payout = readFileSync(join(here, 'affiliates/producer-payout.ts'), 'utf8');
-    expect(payout).toContain("'affiliate.payout.ledger_unwired'");
+  it('unwired codes match the refuse strings already on the procedures', async () => {
+    expect(KYC_VAULT_UNWIRED).toBe('kyc_doc.unwired');
+    expect(LEDGER_PAYOUT_UNWIRED).toBe('affiliate.payout.ledger_unwired');
+    // A router with no vault refuses the vault doors with the code /ready names.
+    const router = createIdentityRouter(partial<AuthService>({}), partial<RankService>({}), {});
+    const op = router.createCaller(await contextWith(['admin:compliance'], { mfa: true }));
+    const listed = await op.kyc.listDocuments({ userId: USER, limit: 10 }).catch((e: unknown) => e);
+    expect(listed).toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect(String((listed as Error).message)).toContain(KYC_VAULT_UNWIRED);
+    // The payout door with no ledger answers the code /ready names.
+    const app = Fastify({ logger: false });
+    registerAffiliateProducerPayout(app, {
+      internalSecret: PAYOUT_SECRET,
+      freeze: { frozenIds: async () => new Set<string>() },
+      accounts: { accountState: async () => null } as never,
+      accruals: new MemoryAccrualStore(),
+      accrualTierLaw: { published: true, tiers: [{ hop: 0, rate: '0.130' }] },
+      programmeDepth: 5,
+      ledger: undefined,
+    });
+    await app.ready();
+    apps.push(app);
+    const body = JSON.stringify({ feeEventId: 'fee-evt-ready-honesty' });
+    const res = await app.inject({
+      method: 'POST',
+      url: AFFILIATE_PRODUCER_PAYOUT_PATH,
+      headers: { ...serviceAuthHeadersForBody('svc-trade', PAYOUT_SECRET, body), 'content-type': 'application/json' },
+      payload: body,
+    });
+    expect(res.json()).toMatchObject({ code: LEDGER_PAYOUT_UNWIRED });
   });
 
-  it('index.ts serves honesty helpers, not argon2-only ready', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(indexSrc).toContain('identityReadyHonesty');
-    expect(indexSrc).toContain('kycDocKey: env.IDENTITY_KYC_DOC_KEY');
-    expect(indexSrc).toContain('ledgerUrl: env.LEDGER_URL');
-    expect(indexSrc).not.toMatch(/app\.get\('\/ready',\s*async\s*\(\)\s*=>\s*\(\{\s*ready:\s*true,\s*argon2:/);
-    expect(indexSrc).not.toMatch(/fetch\(/);
-  });
+  it(
+    'the booted GET /ready serves the honesty helpers from env, not argon2-only ready',
+    async () => {
+      const ready = async (env: Record<string, string | undefined>) => {
+        const { app } = await bootIdentity(env);
+        const res = await app.inject({ method: 'GET', url: '/ready' });
+        expect(res.statusCode).toBe(200);
+        return res.json() as Record<string, unknown>;
+      };
+      const blank = await ready({ IDENTITY_KYC_DOC_KEY: undefined, LEDGER_URL: undefined });
+      expect(blank).toMatchObject({
+        ready: true,
+        kycVault: { status: 'absent', code: KYC_VAULT_UNWIRED },
+        ledgerPayout: { status: 'absent', code: LEDGER_PAYOUT_UNWIRED },
+      });
+      expect(typeof blank.argon2).toBe('boolean');
+      // Set is configured and unprobed: /ready does not call the ledger (nothing listens at this address) or open the vault.
+      const set = await ready({ IDENTITY_KYC_DOC_KEY: Buffer.alloc(32, 7).toString('base64'), LEDGER_URL: 'http://127.0.0.1:1' });
+      expect(set).toMatchObject({
+        ready: true,
+        kycVault: { status: 'configured', code: KYC_VAULT_UNPROBED },
+        ledgerPayout: { status: 'configured', code: LEDGER_PAYOUT_UNPROBED },
+      });
+    },
+    BOOT_TIMEOUT_MS,
+  );
 });
 
 describe('identity /ready honesty — registration / waitlist env pins', () => {
@@ -249,19 +298,35 @@ describe('identity /ready honesty — registration / waitlist env pins', () => {
     expect(body.launchDrop).toBe('I');
   });
 
-  it('index.ts GET /ready pins the actual env, not JWT/TOTP/max-subs', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    const start = indexSrc.indexOf("app.get('/ready'");
-    expect(start).toBeGreaterThanOrEqual(0);
-    const readySlice = indexSrc.slice(start, start + 900);
-    expect(readySlice).toContain('registrationOpen: env.REGISTRATION_OPEN');
-    expect(readySlice).toContain('waitlistEnabled: env.INTAFACED_FLAG_WAITLIST_ENABLED');
-    expect(readySlice).toContain('referralQueue: env.INTAFACED_FLAG_REFERRAL_QUEUE');
-    expect(readySlice).toContain('launchDrop: env.LAUNCH_DROP');
-    expect(readySlice).not.toMatch(/JWT_/);
-    expect(readySlice).not.toMatch(/TOTP/);
-    expect(readySlice).not.toMatch(/WEBAUTHN/);
-    expect(readySlice).not.toMatch(/IDENTITY_MAX_SUB_ACCOUNTS/);
-    expect(readySlice).not.toMatch(/isEnabled\(/);
-  });
+  it(
+    'the booted GET /ready pins the actual env, not JWT/TOTP/max-subs',
+    async () => {
+      const { app } = await bootIdentity({
+        REGISTRATION_OPEN: 'false',
+        INTAFACED_FLAG_WAITLIST_ENABLED: 'on',
+        INTAFACED_FLAG_REFERRAL_QUEUE: 'off',
+        LAUNCH_DROP: 'I',
+        JWT_ACCESS_TTL_SECONDS: '600',
+        IDENTITY_MAX_SUB_ACCOUNTS: '7',
+      });
+      const res = await app.inject({ method: 'GET', url: '/ready' });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as Record<string, unknown>;
+      expect(body).toMatchObject({ ready: true, registrationOpen: false, waitlistEnabled: true, referralQueue: false, launchDrop: 'I' });
+      // The pins are the env as set, not the drop clock: unset, they are null.
+      const unset = (
+        await (
+          await bootIdentity({
+            REGISTRATION_OPEN: undefined,
+            INTAFACED_FLAG_WAITLIST_ENABLED: undefined,
+            INTAFACED_FLAG_REFERRAL_QUEUE: undefined,
+          })
+        ).app.inject({ method: 'GET', url: '/ready' })
+      ).json() as Record<string, unknown>;
+      expect(unset).toMatchObject({ registrationOpen: null, waitlistEnabled: null, referralQueue: null });
+      // Token lifetimes, TOTP, WebAuthn and the sub-account cap are not readiness.
+      expect(JSON.stringify(body)).not.toMatch(/jwt|totp|webauthn|maxSub|max_sub/i);
+    },
+    BOOT_TIMEOUT_MS,
+  );
 });
