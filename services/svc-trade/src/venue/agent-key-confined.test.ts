@@ -53,6 +53,7 @@ const OTHER_ROUTES = [
   { method: 'GET', url: `/api/v1/venue/protections?owner=${OWNER}` },
   { method: 'POST', url: '/api/v1/venue/protections', payload: { owner: OWNER } },
   { method: 'POST', url: '/api/v1/venue/protections/breakeven', payload: { owner: OWNER } },
+  { method: 'POST', url: '/api/v1/venue/protections/move', payload: { owner: OWNER } },
   { method: 'POST', url: '/api/v1/venue/protection-agent/prepare', payload: { owner: OWNER } },
   // Conditional spot orders (J-cex-spot-08): the list, a new one, a cancel and the approval of the spot-order key.
   { method: 'GET', url: `/api/v1/venue/spot-orders?owner=${OWNER}` },

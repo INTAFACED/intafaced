@@ -4,8 +4,14 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
 import { formatAmount, mul, parseAmount, sub } from '@intafaced/ledger-client/money';
-import { encodeVenueWire, venueClientOrderId, type PreparedVenueAction } from '@intafaced/venue-contracts';
-import { breakevenAnswerSchema } from '@intafaced/contracts/trade-venue-door';
+import {
+  encodeVenueWire,
+  venueClientOrderId,
+  VenueRefusalError,
+  type PreparedVenueAction,
+  type UserVenue,
+} from '@intafaced/venue-contracts';
+import { breakevenAnswerSchema, triggerMoveAnswerSchema } from '@intafaced/contracts/trade-venue-door';
 import { seedTestVenue, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
@@ -90,12 +96,10 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     return door.submit(person, prepared.actionKey, await signed(prepared.prepared));
   }
 
-  beforeEach(async () => {
-    sim.setMark(ETH, a('3000'));
-    sim.setIndex(ETH, a('3000'));
-    await seedTestVenue(sim);
-    door = new UserVenueDoor({
-      connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 5000 }),
+  /** The person's venue door, on the venue `connect` reaches. */
+  function doorOn(connect: () => Promise<UserVenue>) {
+    return new UserVenueDoor({
+      connect,
       appEnv: 'test',
       store: new InMemoryPreparedActionStore(),
       stepUp: { check: async () => ({ ok: true }) } as never,
@@ -106,6 +110,13 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       ordersPageMax: 100,
       now: () => new Date(),
     } as never);
+  }
+
+  beforeEach(async () => {
+    sim.setMark(ETH, a('3000'));
+    sim.setIndex(ETH, a('3000'));
+    await seedTestVenue(sim);
+    door = doorOn(() => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 5000 }));
     identity = 'basic';
     freeze = new MemoryFreezeRead();
     store = new InMemoryEngineProtectionStore();
@@ -122,6 +133,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
 
   /** A TEST long of `size` ETH on the person's venue account: funded, 5x, our builder fee approved, bought at market. */
   async function long(size: string) {
+    const entryKey = `order:${owner}:${id('open')}`;
     const account = await door.account(owner);
     sim.deposit(account, 'USDC', a('100000'), `chain:protections:${id('d')}`);
     const lev = await door.prepare(person, {
@@ -150,11 +162,12 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
         price: a('3100'),
         timeInForce: 'IOC',
         reduceOnly: false,
-        clientOrderKey: `order:${owner}:${id('open')}`,
+        clientOrderKey: entryKey,
         builderFee: null,
       },
     });
     expect((await send(opened)).outcome).toMatchObject({ definite: true, accepted: true });
+    return entryKey;
   }
 
   /** A TEST short of `size` ETH on the person's venue account: as `long`, sold at market. */
@@ -621,6 +634,58 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     }
   });
 
+  it('J-derivatives-32: a dragged take profit and stop move in place on the venue, the same order at the new trigger, one of each', async () => {
+    await flat();
+    await long('1');
+    const account = await door.account(owner);
+    const tp = await p.create(person, base({ kind: 'take_profit', triggerPrice: '3100' }), REGION);
+    const sl = await p.create(person, base({ kind: 'stop_loss', triggerPrice: '2900' }), REGION);
+    if (tp.restsOn !== 'venue' || sl.restsOn !== 'venue') throw new Error('expected the venue');
+    for (const made of [tp, sl]) expect((await send(made)).outcome).toMatchObject({ accepted: true });
+    const tpId = tp.prepared.venueClientOrderId!;
+    try {
+      // A moved order is a changed order: a person below trading moves nothing, as the door refuses a changed order.
+      const below = { ...person, tier: 'none' } as Principal;
+      await expect(p.move(below, { owner, symbol: ETH, venueClientOrderId: tpId, triggerPrice: '3150' })).rejects.toMatchObject({
+        code: 'tier.insufficient',
+      });
+      const moved = await p.move(person, { owner, symbol: ETH, venueClientOrderId: tpId, triggerPrice: '3150' });
+      expect(moved).toMatchObject({ role: 'take_profit', from: '3100', triggerPrice: '3150', price: '2835' });
+      expect(triggerMoveAnswerSchema.safeParse(encodeVenueWire(moved)).success).toBe(true);
+      expect(moved.actionKey).toBe(`trigger-move:${owner}:${tpId.toLowerCase()}:3150`);
+      expect(moved.prepared.intent).toEqual({
+        kind: 'move_trigger',
+        symbol: ETH,
+        venueClientOrderId: tpId,
+        triggerPrice: a('3150'),
+        price: a('2835'),
+      });
+      // The same drag asked again is the same action, never a second one.
+      const again = await p.move(person, { owner, symbol: ETH, venueClientOrderId: tpId, triggerPrice: '3150' });
+      expect(again.actionKey).toBe(moved.actionKey);
+      expect(again.reused).toBe(true);
+      expect((await send(moved)).outcome).toMatchObject({ definite: true, accepted: true });
+      const resting = (await sim.openOrders(account)).value.filter((o) => o.symbol === ETH && o.trigger);
+      expect(resting.filter((o) => o.trigger!.role === 'take_profit').map((o) => [o.venueClientOrderId, o.trigger!.price])).toEqual([
+        [tpId, a('3150')],
+      ]);
+      expect(resting.filter((o) => o.trigger!.role === 'stop_loss')).toHaveLength(1);
+
+      // A stop dragged above the mark would fire at once: refused in words, nothing prepared.
+      const wrong = await refused(
+        p.move(person, { owner, symbol: ETH, venueClientOrderId: sl.prepared.venueClientOrderId!, triggerPrice: '3050' }),
+      );
+      expect(wrong.code).toBe('trade.protection_wrong_side');
+      expect(wrong.message).toMatch(/now 3000\): it must be below it\. Nothing was moved\./);
+      // An order that is not a waiting stop or take profit of this account.
+      expect((await refused(p.move(person, { owner, symbol: ETH, venueClientOrderId: '0xabc', triggerPrice: '2950' }))).code).toBe(
+        'trade.trigger_not_resting',
+      );
+    } finally {
+      await flat();
+    }
+  });
+
   it('#11070: refused in words with no position, or with a fee the venue does not report', async () => {
     await flat();
     expect((await refused(p.breakeven(person, { owner, symbol: ETH, clientOrderId: id('be') }))).code).toBe('trade.breakeven_no_position');
@@ -724,5 +789,107 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     // The first, refused key still answers its own refusal: it is never sent again either.
     expect(await sendHeld(first)).toMatchObject({ replayed: true, outcome: { accepted: false } });
     expect(sends).toHaveLength(7);
+  });
+
+  /**
+   * A venue that links no exit to an entry order, as Hyperliquid's adapter today (packages/venue-hyperliquid venue.ts
+   * `orderWire`: an intent with `parentClientOrderKey` is refused `not_offered`, its markets offer no `attachedExits`).
+   */
+  async function likeHyperliquid(): Promise<UserVenue> {
+    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 5000 });
+    return new Proxy(venue, {
+      get(target, key) {
+        if (key === 'markets')
+          return async (account: Parameters<UserVenue['markets']>[0]) => {
+            const read = await target.markets(account);
+            return { ...read, value: read.value.map((m) => ({ ...m, attachedExits: false })) };
+          };
+        if (key === 'prepare')
+          return async (...args: Parameters<UserVenue['prepare']>) => {
+            const intent = args[2];
+            if (intent.kind === 'place_order' && intent.parentClientOrderKey)
+              throw new VenueRefusalError({
+                venueId: target.venue.id,
+                code: 'not_offered',
+                detail: 'an order attached to an entry is not offered on this venue yet',
+              });
+            return target.prepare(...args);
+          };
+        const value = Reflect.get(target, key, target) as unknown;
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+  }
+
+  function onVenueLikeHyperliquid() {
+    door = doorOn(likeHyperliquid);
+    p = new VenueProtections({
+      door,
+      store,
+      keySeed: 'intafaced unit TEST protection seed',
+      closeSlippageBps: CLOSE_BPS,
+      liveTier,
+      freeze,
+      now: () => new Date(),
+    });
+  }
+
+  it("J-derivatives-03 #4 on a venue that links no exit to an entry (#11255): the ticket's take profit and stop loss, attached once the entry filled, rest as reduce-only triggers on the filled size", async () => {
+    onVenueLikeHyperliquid();
+    await flat();
+    const entry = await long('0.5');
+    for (const [kind, triggerPrice] of [
+      ['take_profit', '3200'],
+      ['stop_loss', '2850'],
+    ] as const) {
+      const made = await p.create(person, base({ kind, triggerPrice, quantity: '0.5', attachTo: entry }), REGION);
+      if (made.restsOn !== 'venue') throw new Error(`${kind} rests on the venue`);
+      expect(made.prepared.intent).toMatchObject({ kind: 'place_order', reduceOnly: true, side: 'sell', trigger: { role: kind } });
+      expect((made.prepared.intent as { parentClientOrderKey?: string | null }).parentClientOrderKey ?? null).toBeNull();
+      expect((await send(made)).outcome).toMatchObject({ accepted: true, order: { status: 'open' } });
+    }
+    const armed = (await p.list(person, owner)).filter((v) => v.restsOn === 'venue' && v.status === 'armed');
+    expect(armed.map((v) => [v.kind, v.triggerPrice, v.quantity]).sort()).toEqual([
+      ['stop_loss', '2850', '0.5'],
+      ['take_profit', '3200', '0.5'],
+    ]);
+  });
+
+  it('J-derivatives-03 #4 on a venue that links no exit to an entry: an exit attached to an entry that filled nothing, or larger than its fill, is refused, nothing prepared', async () => {
+    onVenueLikeHyperliquid();
+    await flat();
+    await long('0.5');
+    const filled = await long('0.2');
+    const over = await refused(
+      p.create(person, base({ kind: 'stop_loss', triggerPrice: '2850', quantity: '0.3', attachTo: filled }), REGION),
+    );
+    expect(over.code).toBe('trade.protection_above_entry_fill');
+    // A resting limit entry that has filled nothing: its exit would arm on nothing.
+    const resting = `order:${owner}:${id('rest')}`;
+    const placed = await door.prepare(person, {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: {
+        kind: 'place_order',
+        symbol: ETH,
+        side: 'buy',
+        type: 'limit',
+        amount: a('0.5'),
+        price: a('2500'),
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: resting,
+        builderFee: null,
+      },
+    });
+    expect((await send(placed)).outcome).toMatchObject({ accepted: true, order: { status: 'open' } });
+    const none = await refused(
+      p.create(person, base({ kind: 'take_profit', triggerPrice: '3200', quantity: '0.5', attachTo: resting }), REGION),
+    );
+    expect(none.code).toBe('trade.attached_entry_unfilled');
+    const unknown = await refused(
+      p.create(person, base({ kind: 'take_profit', triggerPrice: '3200', quantity: '0.5', attachTo: `order:${owner}:never-sent` }), REGION),
+    );
+    expect(unknown.code).toBe('trade.attached_entry_unfilled');
   });
 });

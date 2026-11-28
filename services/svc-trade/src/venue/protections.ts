@@ -13,9 +13,10 @@ import {
   type UserVenueMarket,
   type UserVenueOrder,
   type VenueSubmitOutcome,
+  openingFeesOf,
   venueClientOrderId,
 } from '@intafaced/venue-contracts';
-import { feeAdjustedBreakeven, openingFeesOf } from './breakeven.js';
+import { feeAdjustedBreakeven } from './breakeven.js';
 import { closeTolerancePrice, requireCloseSlippageBps } from './close-slippage.js';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
 import { venueBoundPrice } from './venue-price.js';
@@ -53,6 +54,8 @@ export type ProtectionErrorCode =
   | 'trade.conditional_field_unsupported'
   | 'trade.conditional_would_increase'
   | 'trade.protection_above_position'
+  | 'trade.protection_above_entry_fill'
+  | 'trade.attached_entry_unfilled'
   | 'trade.protection_wrong_side'
   | 'trade.trigger_source_unset'
   | 'trade.protection_agent_unapproved'
@@ -62,7 +65,9 @@ export type ProtectionErrorCode =
   | 'trade.breakeven_no_position'
   | 'trade.breakeven_fees_unknown'
   | 'trade.breakeven_history_short'
-  | 'trade.breakeven_foreign_stop';
+  | 'trade.breakeven_foreign_stop'
+  | 'trade.trigger_move_not_offered'
+  | 'trade.trigger_not_resting';
 
 export class ProtectionError extends Error {
   constructor(
@@ -183,6 +188,32 @@ export interface BreakevenAnswer {
    * stop between the two. `done`: once these steps are sent, exactly one stop rests at `triggerPrice`.
    */
   readonly next: 'call_again' | 'done';
+}
+
+/** One drag of a resting stop or target to a new trigger price (J-derivatives-32 #3, #4, #7). */
+export interface TriggerMoveRequest {
+  readonly owner?: unknown;
+  readonly symbol?: unknown;
+  /** The venue's own client id of the resting stop or take profit to move. */
+  readonly venueClientOrderId?: unknown;
+  readonly triggerPrice?: unknown;
+  /** Who signs: as `ProtectionRequest.signer`. */
+  readonly signer?: unknown;
+}
+
+/** The one action that moves the order in place, for the person to sign and send through `/api/v1/venue/submit`. */
+export interface TriggerMoveAnswer {
+  readonly symbol: string;
+  readonly venueClientOrderId: string;
+  readonly role: 'take_profit' | 'stop_loss';
+  /** The trigger the venue holds now, and the one asked for. */
+  readonly from: string;
+  readonly triggerPrice: string;
+  /** The order's new worst price (a market exit, at the owner's close tolerance) or limit price (moved with its trigger). */
+  readonly price: string;
+  readonly actionKey: string;
+  readonly prepared: PreparedAnswer['prepared'];
+  readonly reused: boolean;
 }
 
 /** How far back the opening fills are read: a position opened before it refuses `trade.breakeven_history_short`. */
@@ -331,8 +362,31 @@ export class VenueProtections {
     const market = (await venue.markets(account)).value.find((m) => m.symbol === symbol);
     if (!market || market.kind !== 'perpetual') bad(`${symbol} is not a perpetual on ${venue.venue.displayName}`);
 
+    // An exit attached to an entry on a venue that links none (`attachedExits` absent, as on Hyperliquid's adapter) is
+    // sent only once the entry has filled, as a plain reduce-only trigger on that fill and the position it opened: never
+    // on an entry that filled nothing.
+    let parentKey = attachTo;
+    if (attachTo && market.attachedExits !== true) {
+      const entry = (await venue.orderByClientId(account, venueClientOrderId(venue.venue.id, attachTo))).value;
+      if (!entry || entry.symbol !== symbol || entry.reduceOnly || compare(entry.filled, ZERO) <= 0) {
+        throw new ProtectionError(
+          'trade.attached_entry_unfilled',
+          `${venue.venue.displayName} links no exit to an entry that has filled nothing: set the ${kind.replace('_', ' ')} once it fills, from the position's exit orders. Nothing was saved.`,
+          409,
+        );
+      }
+      if (compare(quantity, entry.filled) > 0) {
+        throw new ProtectionError(
+          'trade.protection_above_entry_fill',
+          `${formatAmount(quantity)} is more than the entry filled (${formatAmount(entry.filled)})`,
+          400,
+        );
+      }
+      parentKey = null;
+    }
+
     // A protection closes: on the other side of the position it protects, and never more than it holds.
-    if (!attachTo) {
+    if (!parentKey) {
       const position = (await venue.positions(account)).value.find((p) => p.symbol === symbol && p.size !== ZERO);
       if (!position || (position.side === 'long') === (side === 'buy')) {
         throw new ProtectionError(
@@ -395,7 +449,7 @@ export class VenueProtections {
           source: source as 'mark' | 'last',
           role: kind === 'take_profit' ? 'take_profit' : 'stop_loss',
         },
-        parentClientOrderKey: attachTo,
+        parentClientOrderKey: parentKey,
         clientOrderKey: `protection:${account.owner}:${kind}:${clientOrderId}`,
         builderFee: null,
       };
@@ -601,6 +655,88 @@ export class VenueProtections {
       steps,
       replaces,
       next: !keep && replaces.length > 0 ? 'call_again' : 'done',
+    };
+  }
+
+  /**
+   * A resting stop or take profit moved to a new trigger in place, on a venue that moves trigger orders in place
+   * (`movesTriggersInPlace`): the same order and client id, so the position never holds two of one role or none, and a
+   * venue that refuses leaves it as it rested. Its worst price follows the new trigger at the owner's close tolerance (a
+   * market exit), or a stop limit's limit moves by as much as its trigger. Nothing is sent here: the person signs the one
+   * action and sends it through `/api/v1/venue/submit`, under `trigger-move:<owner>:<client id>:<trigger price>`, so the
+   * same move sent again is the same action. A trigger already crossed is refused before anything is prepared.
+   *
+   * Crash points: none strands funds (no value moves through INTAFACED). Before the signature nothing changes on the
+   * venue; a move whose answer was lost is read back by the order's own client id.
+   */
+  async move(principal: Principal, req: TriggerMoveRequest): Promise<TriggerMoveAnswer> {
+    // A moved stop or take profit is a changed order: the person's level is checked first, as the door checks it.
+    assertTradingLevel(principal, 'move_trigger');
+    if (typeof req.symbol !== 'string' || req.symbol.trim() === '') bad('symbol is required');
+    const symbol = req.symbol;
+    if (typeof req.venueClientOrderId !== 'string' || !/^\S{1,128}$/.test(req.venueClientOrderId))
+      bad("venueClientOrderId must be the venue's client id of the stop or take profit to move");
+    const cloid = req.venueClientOrderId.toLowerCase();
+    const triggerPrice = positive(req.triggerPrice, 'triggerPrice');
+    const signer = agentSignerOf(req.signer, bad);
+
+    const account = await this.deps.door.account(typeof req.owner === 'string' ? req.owner : '');
+    const venue = await this.deps.door.venue();
+    if (venue.venue.movesTriggersInPlace !== true) {
+      throw new ProtectionError(
+        'trade.trigger_move_not_offered',
+        `${venue.venue.displayName} does not move a resting stop or target in place, so nothing was sent: change it from the position's exit orders`,
+        409,
+      );
+    }
+    const market = (await venue.markets(account)).value.find((m) => m.symbol === symbol);
+    if (!market || market.kind !== 'perpetual') bad(`${symbol} is not a perpetual on ${venue.venue.displayName}`);
+    const order = (await venue.openOrders(account)).value.find(
+      (o) => o.symbol === symbol && o.venueClientOrderId?.toLowerCase() === cloid && o.trigger?.state === 'waiting',
+    );
+    const orderId = order?.venueClientOrderId;
+    if (!order?.trigger || !order.reduceOnly || !orderId) {
+      throw new ProtectionError(
+        'trade.trigger_not_resting',
+        `no stop or take profit ${cloid} waits on ${symbol} on ${venue.venue.displayName}: nothing was moved`,
+        409,
+      );
+    }
+    const role = order.trigger.role;
+    if (compare(triggerPrice, ZERO) <= 0 || triggerPrice % market.tickSize !== ZERO)
+      bad(`the trigger price must be on ${symbol}'s tick (${formatAmount(market.tickSize)})`);
+    const now = this.priceOf(market, order.trigger.source);
+    if (now !== null) {
+      const above = (role === 'take_profit') === (order.side === 'sell');
+      if (above ? compare(triggerPrice, now) <= 0 : compare(triggerPrice, now) >= 0) {
+        throw new ProtectionError(
+          'trade.protection_wrong_side',
+          `That price is on the wrong side of the ${sourceWords(order.trigger.source)} (now ${formatAmount(now)}): it must be ${above ? 'above' : 'below'} it. Nothing was moved.`,
+          400,
+        );
+      }
+    }
+    const price =
+      order.type === 'limit'
+        ? add(order.price, sub(triggerPrice, order.trigger.price))
+        : this.worstPrice(order.side, triggerPrice, market.tickSize);
+    if (compare(price, ZERO) <= 0) bad('the stop limit would move its limit price to zero or below');
+    const answer = await this.deps.door.prepare(principal, {
+      owner: account.owner,
+      signer: orderSigner(signer, account.owner),
+      intent: { kind: 'move_trigger', symbol, venueClientOrderId: orderId, triggerPrice, price },
+      actionKey: `trigger-move:${account.owner}:${cloid}:${formatAmount(triggerPrice)}`,
+    });
+    return {
+      symbol,
+      venueClientOrderId: orderId,
+      role,
+      from: formatAmount(order.trigger.price),
+      triggerPrice: formatAmount(triggerPrice),
+      price: formatAmount(price),
+      actionKey: answer.actionKey,
+      prepared: answer.prepared,
+      reused: answer.reused,
     };
   }
 

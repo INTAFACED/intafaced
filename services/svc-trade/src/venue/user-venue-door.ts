@@ -117,7 +117,7 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
  * grants stay open below it: they only reduce what is on the venue, so a held account never strands its own funds there.
  */
 export function assertTradingLevel(principal: Principal, kind: VenueIntent['kind']): void {
-  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order' || kind === 'replace_order')
+  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order' || kind === 'replace_order' || kind === 'move_trigger')
     requireTradeTier(principal, 'basic');
 }
 
@@ -836,6 +836,16 @@ function assertChangeIntent(intent: AmendUserOrderIntent | ReplaceUserOrderInten
   if (order.symbol !== intent.symbol) invalid('the replacement is on the market of the order it replaces');
 }
 
+/** A resting stop or take profit moved in place (J-derivatives-32): named by the venue's client id, both prices positive. */
+function assertMoveTriggerIntent(intent: VenueIntent): void {
+  const i: Record<string, unknown> = { ...intent };
+  if (typeof i.symbol !== 'string' || !/^\S{1,64}$/.test(i.symbol)) invalid('symbol must be a venue market symbol');
+  if (typeof i.venueClientOrderId !== 'string' || !CLIENT_ID_RE.test(i.venueClientOrderId))
+    invalid("venueClientOrderId must be the venue's client id of the stop or take profit to move");
+  if (!positive(i.triggerPrice)) invalid('triggerPrice must be a positive decimal string');
+  if (!positive(i.price)) invalid('price must be a positive decimal string');
+}
+
 /** Several orders cancelled in one signed action (J-cex-spot-05 #5, #6), each named by the venue's client id, once. */
 function assertCancelsIntent(intent: CancelUserOrdersIntent): void {
   const orders = (intent as { orders?: unknown }).orders;
@@ -945,6 +955,8 @@ export class UserVenueDoor {
       // How the venue changes and cancels resting orders (J-cex-spot-05): in place or by cancel-and-replace signed once,
       // and how many it cancels in one signed action (0: one cancel per signature).
       amendsInPlace: venue.venue.amendsInPlace === true,
+      // Whether a resting stop or target moves in place (J-derivatives-32): dragged on the chart only where it does.
+      movesTriggersInPlace: venue.venue.movesTriggersInPlace === true,
       cancelsPerAction: cancelsTakenTogether(venue.venue),
       // Who signs the venue's orders, cancels and changes: the owner's wallet, or a trading session's key it approved once.
       tradesSignedBy: tradesSignedByOf(venue.venue),
@@ -2077,6 +2089,7 @@ export class UserVenueDoor {
     if (intent.kind === 'place_orders') assertTogetherIntent(intent, req.signer);
     if (intent.kind === 'amend_order' || intent.kind === 'replace_order') assertChangeIntent(intent);
     if (intent.kind === 'cancel_orders') assertCancelsIntent(intent);
+    if (intent.kind === 'move_trigger') assertMoveTriggerIntent(intent);
     const key =
       req.retryRefused === true && intent.kind === 'place_order'
         ? await this.retryOrderKey(principal, this.businessKey(intent, req.actionKey))

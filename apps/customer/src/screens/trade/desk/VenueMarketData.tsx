@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
-import { BookLadder, StateBlock, TradeTape } from '@intafaced/ui/lit';
+import { BookLadder, Button, StateBlock, TradeTape } from '@intafaced/ui/lit';
 import { TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { fractionDigits } from '../../../data/decimal';
@@ -86,6 +86,7 @@ export function VenueMarketPanel({
   chartOrders,
   chartLines,
   onPickPrice,
+  collapsibleBookTape = false,
 }: {
   market: VenueMarket;
   test: boolean;
@@ -100,6 +101,8 @@ export function VenueMarketPanel({
   onPickPrice?: (price: string) => void;
   /** Lines the desk draws on the chart: a position's entry, stop, target and liquidation (desk A). */
   chartLines?: readonly ChartOrderLine[];
+  /** The book and tape column collapses beside the chart and reopens (the futures desk, J-derivatives-32 #1). */
+  collapsibleBookTape?: boolean;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
@@ -118,6 +121,7 @@ export function VenueMarketPanel({
   };
   const printTime = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { timeZone: zoneName(timeZone), hourCycle: 'h23' });
   const [tab, setTab] = useState<'book' | 'tape'>('book');
+  const [bookTapeOpen, setBookTapeOpen] = useState(true);
   const [interval, setChartInterval] = useState<ChartInterval>('15m');
   const [host, setHost] = useState<ChartOrderHost | null>(null);
   const book = usePolled((signal) => venue.book(market.symbol, BOOK_DEPTH, signal), `venue-book:${market.symbol}`, VENUE_POLL_MS);
@@ -194,7 +198,21 @@ export function VenueMarketPanel({
       </dl>
 
       {/* The chart with the book and tape beside it, as today's desk sets them. */}
-      <div className="xd-market-split">
+      {collapsibleBookTape ? (
+        <div className="lt-row">
+          <Button
+            tone="secondary"
+            size="sm"
+            aria-expanded={bookTapeOpen}
+            aria-controls="venue-book-tape-column"
+            data-testid="venue-book-tape-toggle"
+            onClick={() => setBookTapeOpen((open) => !open)}
+          >
+            {t(bookTapeOpen ? 'Hide book and trades' : 'Show book and trades')}
+          </Button>
+        </div>
+      ) : null}
+      <div className="xd-market-split" data-book-tape={bookTapeOpen ? 'open' : 'closed'}>
         <div className="lt-stack">
           {/* A flex column, as today's desk chart is (ChartPanel): the canvas takes the height the bar and Buy/Sell leave. */}
           <div className="lt-stack" data-testid="venue-chart">
@@ -228,7 +246,9 @@ export function VenueMarketPanel({
                   fills={[]}
                   timeZone={zoneName(timeZone)}
                   labels={labels}
-                  onHost={chartOrders ? setHost : undefined}
+                  // Always taken: the chart hands its host over once, when it is drawn, and a wallet that connects after
+                  // that (which is when `chartOrders` arrives) must still find it.
+                  onHost={setHost}
                 />
               )}
             </div>
@@ -238,7 +258,7 @@ export function VenueMarketPanel({
           {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
         </div>
 
-        <div className="xd-book-tape" data-testid="venue-book-tape">
+        <div className="xd-book-tape" data-testid="venue-book-tape" id="venue-book-tape-column" hidden={!bookTapeOpen}>
           <Tabs
             id="venue-book-tape"
             items={[

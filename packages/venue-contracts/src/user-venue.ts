@@ -233,6 +233,22 @@ export interface ReplaceUserOrderIntent {
 }
 
 /**
+ * A resting stop or take profit moved in place (J-derivatives-32 #3, #4, #7): the same trigger order, named by the venue's
+ * own client id, now waiting at `triggerPrice`, its worst price (a market exit) or limit price now `price`. The venue
+ * changes nothing else: its side, size, reduce-only, role, source and builder fee stay as they rest. A refused move
+ * leaves the order exactly as it rested, so a position is never left with two of one role or none. Offered only on a
+ * venue whose descriptor declares `movesTriggersInPlace`. Stored under the caller's business key
+ * (`trigger-move:<owner>:<client id>:<trigger price>`), so the same move sent again is the same action.
+ */
+export interface MoveTriggerIntent {
+  readonly kind: 'move_trigger';
+  readonly symbol: string;
+  readonly venueClientOrderId: string;
+  readonly triggerPrice: Amount;
+  readonly price: Amount;
+}
+
+/**
  * Several resting orders cancelled in one signed action (J-cex-spot-05 #5, #6), each named by the venue's client id. The
  * venue answers each (`legs`, in the order sent): one unknown or already final is reported and the rest are cancelled.
  * Offered only on a venue whose descriptor declares `cancelsPerAction`; at most that many ids.
@@ -512,6 +528,7 @@ export type VenueIntent =
   | UpdateLeverageIntent
   | AmendUserOrderIntent
   | ReplaceUserOrderIntent
+  | MoveTriggerIntent
   | CancelUserOrderIntent
   | CancelUserOrdersIntent
   | ScheduleCancelIntent
@@ -1701,6 +1718,12 @@ export interface UserVenueMarket {
    */
   readonly maxOpenOrders: number | null;
   /**
+   * Whether this venue links a trigger order to an entry order (`PlaceUserOrderIntent.parentClientOrderKey`), arming it
+   * on what the entry fills. Absent or `false`: an intent with a parent is refused `not_offered`, and an exit for a
+   * filled entry is sent as a plain reduce-only trigger on the position (svc-trade protections.ts `create`).
+   */
+  readonly attachedExits?: boolean;
+  /**
    * The most builder fee the venue lets any builder attach to an order on this market, in bps of notional (scaled, as
    * `maxFeeBps`), as the venue publishes it; `known: false` when it publishes none. An order carrying more is refused
    * `builder_fee_above_cap`, and our builder-fee versions are never written above it (J-cex-spot-17 #3).
@@ -2065,6 +2088,11 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * venue that declares none is changed by a cancel-and-replace signed once (`replace_order`).
    */
   readonly amendsInPlace?: boolean;
+  /**
+   * True when this venue moves a resting trigger order's price in place (`move_trigger`, J-derivatives-32), the order
+   * unchanged if it refuses. A venue that declares none has its stops and targets moved from the position's exit orders.
+   */
+  readonly movesTriggersInPlace?: boolean;
   /** The most orders this venue cancels in one signed action (`cancel_orders`). None declared: one cancel per signature. */
   readonly cancelsPerAction?: number;
   /**
