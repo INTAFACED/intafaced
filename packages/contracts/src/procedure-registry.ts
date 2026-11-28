@@ -2451,6 +2451,8 @@ import {
   TRADE_OTC_CONVERT_QUOTE,
 } from './trade-otc-procedures.js';
 
+import { PROFIT_LOCK_GET, PROFIT_LOCK_SET, PROFIT_LOCK_DECLINE } from './trade-profit-lock-procedures.js';
+
 import {
   RECURRING_CREATE,
   RECURRING_SUBMIT_PERMISSION,
@@ -5033,6 +5035,8 @@ const part_trade_otc_procedures: readonly ProcedureRecord[] = [
   TRADE_OTC_CONVERT_QUOTE,
 ];
 
+const part_trade_profit_lock_procedures: readonly ProcedureRecord[] = [PROFIT_LOCK_GET, PROFIT_LOCK_SET, PROFIT_LOCK_DECLINE];
+
 const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
   RECURRING_CREATE,
   RECURRING_SUBMIT_PERMISSION,
@@ -5397,6 +5401,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_grid_procedures,
   ...part_trade_journal_procedures,
   ...part_trade_otc_procedures,
+  ...part_trade_profit_lock_procedures,
   ...part_trade_recurring_procedures,
   ...part_trade_rfq_procedures,
   ...part_trade_risk_alerts_procedures,
