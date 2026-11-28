@@ -175,8 +175,7 @@ import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spo
 import { liquidationPriceFor } from './futures/liquidation-price.js';
 import { registerRiskCalculatorRest } from './futures/risk-calculator-rest.js';
 import { registerCollateralRest } from './futures/collateral-rest.js';
-import { ownerLadderPolicy } from './futures/futures-ladder-owner-gate.js';
-import { publishedLiquidationLimitsFrom } from './futures/liquidation-limits.js';
+import { futuresJobsHostDeps } from './futures/futures-jobs-host.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import type { CancelAllAfterHost } from './spot/cancel-all-after.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
@@ -280,6 +279,33 @@ const LayeredTradeService = layered(
  *
  * `WIRE_REPLAY_WRITE=1` rewrites the recording. Only for a change that is meant to change the wire, named in its PR.
  */
+
+/**
+ * What the replay hands the futures jobs, and what `futuresJobsHostDeps` answered: the replay must start the jobs with
+ * the live host's own answer, never a copy of its wiring.
+ */
+const FUTURES_WIRING = vi.hoisted(() => ({ hostAnswers: [] as unknown[], started: [] as unknown[] }));
+vi.mock('./futures/futures-jobs-host.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./futures/futures-jobs-host.js')>();
+  return {
+    ...real,
+    futuresJobsHostDeps: (...args: Parameters<typeof real.futuresJobsHostDeps>) => {
+      const answer = real.futuresJobsHostDeps(...args);
+      FUTURES_WIRING.hostAnswers.push(answer);
+      return answer;
+    },
+  };
+});
+vi.mock('./futures/futures-jobs.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./futures/futures-jobs.js')>();
+  return {
+    ...real,
+    startFuturesJobs: (deps: Parameters<typeof real.startFuturesJobs>[0]) => {
+      FUTURES_WIRING.started.push(deps);
+      return real.startFuturesJobs(deps);
+    },
+  };
+});
 
 /**
  * Before any import reads the process: every setting `env.ts` and its shared schemas name, and every TRADE_ variable,
@@ -862,32 +888,24 @@ async function serve(routes: Array<{ method: string; url: string; body: unknown 
   const fundingMaxAbsRate = resolveFundingMaxAbsRateForBoot({ fundingMarketIds, maxAbsRateRaw: env.TRADE_FUTURES_FUNDING_MAX_ABS_RATE });
   const matchedLiquidation: { current: MatchedLiquidationPort | null } = { current: null };
   // With TRADE_FUTURES_JOBS_ENABLED blank no futures job starts; its reads (marks, ladder, published rates) still answer.
-  const futuresJobs = startFuturesJobs({
-    sql,
-    ledger,
-    matching,
-    bus,
-    venueMarkSource: venueMarkConfigured?.source ?? null,
-    markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
-      byId: (marketId) => trade.marketById(marketId),
-      bySymbol: (symbol) => trade.marketBySymbol(symbol),
-    }),
-    stampDepthReads: env.TRADE_FUTURES_MATCHING_ENABLED,
-    ladderPolicy: ownerLadderPolicy(env.TRADE_FUTURES_LADDER_POLICY),
-    config: {
-      enabled: env.TRADE_FUTURES_JOBS_ENABLED,
-      liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+  const futuresJobs = startFuturesJobs(
+    futuresJobsHostDeps(env, {
+      sql,
+      ledger,
+      matching,
+      bus,
+      venueMarkSource: venueMarkConfigured?.source ?? null,
+      markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
+        byId: (marketId) => trade.marketById(marketId),
+        bySymbol: (symbol) => trade.marketBySymbol(symbol),
+      }),
       liquidationFeeFraction,
-      liquidationLimits: publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS),
-      fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
-      fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
       fundingMarketIds,
       fundingMaxAbsRate,
-      settlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
-    },
-    onError: () => undefined,
-    matchedLiquidation,
-  });
+      onError: () => undefined,
+      matchedLiquidation,
+    }),
+  );
   const profitSource = optionalProfitSourceFromConfig(env.TRADE_FUTURES_PROFIT_SOURCE);
   const maxLeverage = parseConfiguredMaxLeverage(env.TRADE_FUTURES_MAX_LEVERAGE);
   const adlDisclosureAcks = sqlAdlDisclosureStore(sql);
@@ -1824,6 +1842,18 @@ describe('the wire replay: svc-trade answers every trade call as recorded', () =
       .filter(([key, a]) => is[key]?.status !== a.status || is[key]?.body !== a.body)
       .map(([key, a]) => `${key}: ${a.status} ${a.body.slice(0, 160)} != ${is[key]?.status} ${is[key]?.body.slice(0, 160)}`);
     expect(diffs).toEqual([]);
+  }, 600_000);
+  it('starts the futures jobs with exactly what futuresJobsHostDeps answers, as index.ts does', async () => {
+    FUTURES_WIRING.hostAnswers.length = 0;
+    FUTURES_WIRING.started.length = 0;
+    const { app } = await serve([]);
+    try {
+      expect(FUTURES_WIRING.started).toHaveLength(1);
+      expect(FUTURES_WIRING.hostAnswers).toHaveLength(1);
+      expect(FUTURES_WIRING.started[0]).toBe(FUTURES_WIRING.hostAnswers[0]);
+    } finally {
+      await app.close();
+    }
   }, 600_000);
   it('names an answer schema on every call but the ones still to do, and that count only falls', async () => {
     const { app, router } = await serve([]);
