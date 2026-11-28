@@ -180,6 +180,8 @@ async function yOfPrice(price) {
 /** Press a line's handle and drag it to the pixel of `price`, still held; answers a function that lets go. */
 async function holdAt(kind, price) {
   const handle = line(kind);
+  // The lines are drawn once the chart reads prices back from its pixels (it has its bars).
+  await expect(handle).toBeVisible({ timeout: 20_000 });
   const box = await handle.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();

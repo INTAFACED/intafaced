@@ -259,16 +259,19 @@ export function ExitLines({
 
   const entryY = drag?.kind === 'entry' ? drag.y : yOf(position.entryPrice);
   const entryFigures = drag?.kind === 'entry' && dragged ? figures(dragged) : null;
+  // The lines are drawn only once the chart reads a price back from a pixel (it has its bars): before then a line could
+  // be pressed but never dropped at a price.
+  const edges = { top: priceAt(pane.top), bottom: priceAt(pane.top + pane.height) };
   const overlay =
-    stage && pane.height > 0
+    stage && pane.height > 0 && edges.top && edges.bottom
       ? createPortal(
           <ChartOverlay
             data-testid="exit-lines-overlay"
             data-pane-top={pane.top}
             data-pane-height={pane.height}
             // The prices at the price pane's top and bottom edges: the chart's own scale, for a reader of the overlay.
-            data-price-top={priceAt(pane.top) ?? ''}
-            data-price-bottom={priceAt(pane.top + pane.height) ?? ''}
+            data-price-top={edges.top}
+            data-price-bottom={edges.bottom}
           >
             {exitLine('stop', stop)}
             {exitLine('target', target)}
