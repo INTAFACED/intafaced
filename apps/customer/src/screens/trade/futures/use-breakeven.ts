@@ -58,6 +58,8 @@ export function useBreakeven(owner: string, onChanged: () => void) {
             });
           }
         }
+        // Every call answered `call_again`: say so, never end silent.
+        setNote({ tone: 'bad', text: t('Breakeven not finished', { calls: String(MOST_CALLS) }), code: null });
       } finally {
         working.current = false;
         setBusy(false);

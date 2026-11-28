@@ -28,4 +28,6 @@ export const exitLinesCopy = defineCopy('trade.futures.exit-lines', {
   'Breakeven done':
     'Your stop rests at breakeven, {price}: the entry {entry} with the venue’s fee and ours, in and out ({bps} bps on the way out).',
   'Breakeven refused': '{detail}',
+  'Breakeven not finished':
+    'The venue had not finished moving your stop after {calls} tries. Read your open orders: the stop it holds is the one that counts.',
 });
