@@ -1311,7 +1311,7 @@ test('activity detail: a private note is saved once and shows as saved', async (
     bank: {
       'activity.note.set': (input) => {
         attempts += 1;
-        return { activityId: input.id, text: input.text, updatedAt: '2026-10-20T02:00:00.000Z' };
+        return { activityId: input.id, text: input.text, reportDescription: null, updatedAt: '2026-10-20T02:00:00.000Z' };
       },
     },
   });
