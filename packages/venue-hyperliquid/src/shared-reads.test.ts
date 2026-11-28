@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { READ_FRESH_MS, type FetchLike, type Json } from './core.js';
+import { describe, expect, it, vi } from 'vitest';
+import { READ_FRESH_MS, READ_HOLD_MS, type FetchLike, type Json } from './core.js';
 import { startHyperliquidVenueServer } from './http-server.js';
 import { HyperliquidTestnetUserVenue } from './venue.js';
 
@@ -183,6 +183,31 @@ describe('shared venue reads', () => {
     const off = setup(false, [429]);
     await expect(off.venue.read({ type: 'userFees', user: '0xa' })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
     expect(off.calls).toHaveLength(1);
+  });
+
+  // Past the venue's 1,200 a minute, every read answers 429; were none held back, each desk's next poll would send it
+  // again and keep the box over the limit for as long as the desks stay open.
+  it('once the venue answers 429, no other read leaves the box until the hold ends; a kept answer still serves', async () => {
+    const s = setup(true, [200, 429, 200, 200]);
+    const kept = await s.venue.read({ type: 'clearinghouseState', user: '0xk' });
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const limited = s.venue.read({ type: 'historicalOrders', user: '0xa' });
+      await vi.advanceTimersByTimeAsync(0);
+      // Inside the hold: another account's read, and the market-wide one every desk asks for, are refused without a send.
+      await expect(s.venue.read({ type: 'historicalOrders', user: '0xb' })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
+      await expect(s.venue.read({ type: 'metaAndAssetCtxs' })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
+      expect(await s.venue.read({ type: 'clearinghouseState', user: '0xk' })).toEqual(kept);
+      expect(s.calls).toEqual(['clearinghouseState', 'historicalOrders']);
+      // The limited read is tried once more when the hold ends (the venue lets one request through every 10 s), then reads go.
+      s.tick(READ_HOLD_MS);
+      await vi.advanceTimersByTimeAsync(READ_HOLD_MS);
+      expect(await limited).toEqual({ n: 3 });
+      await s.venue.read({ type: 'metaAndAssetCtxs' });
+      expect(s.calls).toEqual(['clearinghouseState', 'historicalOrders', 'historicalOrders', 'metaAndAssetCtxs']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
