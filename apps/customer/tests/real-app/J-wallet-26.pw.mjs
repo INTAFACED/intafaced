@@ -320,7 +320,7 @@ test(`${J} #3 opens it: a venue withdrawal filled in with the share and the cold
   await signInNow(page, who);
 
   // Opens the message: it leads to the venue account room, where the offer waits.
-  await (await readyRows(page)).first().getByRole('link', { name: 'Open related room', exact: true }).click();
+  await (await readyRows(page)).first().click();
   await expect(page).toHaveURL(/\/wallet\/venue/);
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
   await connectedNow(page);
