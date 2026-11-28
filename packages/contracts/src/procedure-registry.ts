@@ -484,7 +484,7 @@ import { BANK_ACCOUNT_DETAILS_LIST } from './bank-account-details-procedures.js'
 
 import { BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE } from './bank-accounts-procedures.js';
 
-import { BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS } from './bank-activity-procedures.js';
+import { BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS, BANK_ACTIVITY_NOTE_SET } from './bank-activity-procedures.js';
 
 import { BANK_ADD_MONEY_START } from './bank-add-money-2-procedures.js';
 
@@ -868,6 +868,8 @@ import {
   BANK_PORTFOLIO_BALANCE_BREAKDOWN,
 } from './bank-portfolio-procedures.js';
 
+import { BANK_RAIL_SENDS_SEND } from './bank-rail-sends-2-procedures.js';
+
 import {
   BANK_RAIL_SENDS_READ_PAYEE_WARNING,
   BANK_RAIL_SENDS_REQUIREMENTS,
@@ -875,6 +877,9 @@ import {
   BANK_RAIL_SENDS_PAYEES,
   BANK_RAIL_SENDS_INVITE_PAYEE,
   BANK_RAIL_SENDS_REMOVE_PAYEE,
+  BANK_RAIL_SENDS_CHECK,
+  BANK_RAIL_SENDS_CHECK_PAYEE,
+  BANK_RAIL_SENDS_ADD_PAYEE,
 } from './bank-rail-sends-procedures.js';
 
 import { BANK_RAMPS_DESTINATIONS_RENAME } from './bank-ramps-destinations-procedures.js';
@@ -898,7 +903,7 @@ import {
   BANK_RAMPS_OFFRAMPS,
 } from './bank-ramps-procedures.js';
 
-import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES } from './bank-recovery-procedures.js';
+import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES, BANK_RECOVERY_CLAIMS_EXECUTE } from './bank-recovery-procedures.js';
 
 import { BANK_RULES_SET_REMINDER, BANK_RULES_CREATE_MONEY_RULE, BANK_RULES_GET } from './bank-rules-procedures.js';
 
@@ -3112,7 +3117,7 @@ const part_bank_account_details_procedures: readonly ProcedureRecord[] = [BANK_A
 
 const part_bank_accounts_procedures: readonly ProcedureRecord[] = [BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE];
 
-const part_bank_activity_procedures: readonly ProcedureRecord[] = [BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS];
+const part_bank_activity_procedures: readonly ProcedureRecord[] = [BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS, BANK_ACTIVITY_NOTE_SET];
 
 const part_bank_add_money_2_procedures: readonly ProcedureRecord[] = [BANK_ADD_MONEY_START];
 
@@ -3527,6 +3532,8 @@ const part_bank_portfolio_procedures: readonly ProcedureRecord[] = [
   BANK_PORTFOLIO_BALANCE_BREAKDOWN,
 ];
 
+const part_bank_rail_sends_2_procedures: readonly ProcedureRecord[] = [BANK_RAIL_SENDS_SEND];
+
 const part_bank_rail_sends_procedures: readonly ProcedureRecord[] = [
   BANK_RAIL_SENDS_READ_PAYEE_WARNING,
   BANK_RAIL_SENDS_REQUIREMENTS,
@@ -3534,6 +3541,9 @@ const part_bank_rail_sends_procedures: readonly ProcedureRecord[] = [
   BANK_RAIL_SENDS_PAYEES,
   BANK_RAIL_SENDS_INVITE_PAYEE,
   BANK_RAIL_SENDS_REMOVE_PAYEE,
+  BANK_RAIL_SENDS_CHECK,
+  BANK_RAIL_SENDS_CHECK_PAYEE,
+  BANK_RAIL_SENDS_ADD_PAYEE,
 ];
 
 const part_bank_ramps_destinations_procedures: readonly ProcedureRecord[] = [BANK_RAMPS_DESTINATIONS_RENAME];
@@ -3557,7 +3567,11 @@ const part_bank_ramps_procedures: readonly ProcedureRecord[] = [
   BANK_RAMPS_OFFRAMPS,
 ];
 
-const part_bank_recovery_procedures: readonly ProcedureRecord[] = [BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES];
+const part_bank_recovery_procedures: readonly ProcedureRecord[] = [
+  BANK_RECOVERY_CLAIMS_OPEN,
+  BANK_RECOVERY_ESTATES,
+  BANK_RECOVERY_CLAIMS_EXECUTE,
+];
 
 const part_bank_rules_procedures: readonly ProcedureRecord[] = [BANK_RULES_SET_REMINDER, BANK_RULES_CREATE_MONEY_RULE, BANK_RULES_GET];
 
@@ -5512,6 +5526,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_personal_request_procedures,
   ...part_bank_plans_procedures,
   ...part_bank_portfolio_procedures,
+  ...part_bank_rail_sends_2_procedures,
   ...part_bank_rail_sends_procedures,
   ...part_bank_ramps_destinations_procedures,
   ...part_bank_ramps_procedures,

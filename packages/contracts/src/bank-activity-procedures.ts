@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { assetIdSchema } from './asset-id.js';
+import { plainWords } from './bank-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `activity.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -184,5 +185,45 @@ export const BANK_ACTIVITY_TAX_EFFECTS = defineProcedure({
   samples: [
     { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_ACTIVITY_NOTE_SET = defineProcedure({
+  ...base,
+  name: 'bank.activity.note.set',
+  kind: 'mutation',
+  path: 'activity.note.set',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z
+    .object({
+      id: z.string().min(1).max(512),
+      text: plainWords.pipe(z.string().min(1).max(500)).optional(),
+      reportDescription: plainWords.pipe(z.string().min(1).max(500)).optional(),
+      commandId: z.string().min(8).max(64),
+    })
+    .strict()
+    .refine((value) => value.text !== undefined || value.reportDescription !== undefined, {
+      message: 'send a note, a report description or both (bank.activity_note_empty)',
+    }),
+  checks: {
+    answer_holds: { at: 'input', says: 'send a note, a report description or both (bank.activity_note_empty)' },
+    plain_words_holds: { at: ['input.text', 'input.reportDescription'], says: 'text has a control character' },
+  },
+  output: z.object({
+    activityId: z.string(),
+    text: z.string().nullable(),
+    reportDescription: z.string().nullable(),
+    updatedAt: z.string().datetime(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { id: 'line-00000001', reportDescription: 'TEST office rent', commandId: 'cmd-00000001' } },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'answer_holds', input: { id: 'line-00000001', commandId: 'cmd-00000001' } },
+    {
+      verdict: 'refuse',
+      by: 'plain_words_holds',
+      input: { id: 'line-00000001', reportDescription: 'TEST office rent', commandId: 'cmd-00000001', text: 'x\ny' },
+    },
   ],
 });

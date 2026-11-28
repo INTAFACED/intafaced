@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { assetIdSchema } from './asset-id.js';
+import { recoveryClaimSignatureSchema, RECOVERY_CLAIM_SIGNATURES_MAX } from './identity-recovery.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `recovery.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -70,4 +71,54 @@ export const BANK_RECOVERY_ESTATES = defineProcedure({
     ),
   }),
   samples: [{ verdict: 'accept' }],
+});
+
+export const sweep = z.object({
+  round: z.number().int(),
+  ownerType: z.enum(['user', 'subaccount']),
+  /** The named space the value came from, or null for the owner's main account. */
+  spaceId: z.string().nullable(),
+  assetId: assetIdSchema,
+  amount: z.string(),
+  status: z.enum(['pending', 'posted', 'refused']),
+  ledgerTxId: z.string().nullable(),
+  refusalCode: z.string().nullable(),
+});
+
+/**
+ * Sweep the owner's free balances into the caller's main account once identity accepts these signatures. Asking
+ * again resumes an unfinished round with the same keys, or sweeps what arrived since in the next round.
+ */
+export const BANK_RECOVERY_CLAIMS_EXECUTE = defineProcedure({
+  ...base,
+  name: 'bank.recovery.claims.execute',
+  kind: 'mutation',
+  path: 'recovery.claims.execute',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({
+    claimId: z.string().guid(),
+    signatures: z.array(recoveryClaimSignatureSchema).min(1).max(RECOVERY_CLAIM_SIGNATURES_MAX),
+  }),
+  output: z.object({ claim, round: z.number().int().nullable(), sweeps: z.array(sweep) }),
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        claimId: '22222222-2222-4222-8222-222222222222',
+        signatures: [
+          {
+            publicKey: {
+              kty: 'EC',
+              crv: 'P-256',
+              x: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              y: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+            },
+            signature: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+          },
+        ],
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
 });

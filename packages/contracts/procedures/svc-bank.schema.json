@@ -626,6 +626,107 @@
         }
       ]
     },
+    "bank.activity.note.set": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "activity.note.set",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "text": {
+            "type": "string"
+          },
+          "reportDescription": {
+            "type": "string"
+          },
+          "commandId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64
+          }
+        },
+        "required": ["id", "commandId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "text": {
+            "type": ["string", "null"]
+          },
+          "reportDescription": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["activityId", "text", "reportDescription", "updatedAt"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "answer_holds": {
+          "at": "input",
+          "says": "send a note, a report description or both (bank.activity_note_empty)"
+        },
+        "plain_words_holds": {
+          "at": ["input.text", "input.reportDescription"],
+          "says": "text has a control character"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "line-00000001",
+            "reportDescription": "TEST office rent",
+            "commandId": "cmd-00000001"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "answer_holds",
+          "input": {
+            "id": "line-00000001",
+            "commandId": "cmd-00000001"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "plain_words_holds",
+          "input": {
+            "id": "line-00000001",
+            "reportDescription": "TEST office rent",
+            "commandId": "cmd-00000001",
+            "text": "x\ny"
+          }
+        }
+      ]
+    },
     "bank.activity.taxEffects": {
       "service": "svc-bank",
       "module": "bank",
@@ -41991,6 +42092,414 @@
         }
       ]
     },
+    "bank.railSends.addPayee": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "railSends.addPayee",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:withdraw",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "country": {
+            "type": "string",
+            "maxLength": 8
+          },
+          "rail": {
+            "type": "string",
+            "enum": ["ach", "wire", "instant", "sepa", "proxy"]
+          },
+          "recipient": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 254
+            }
+          }
+        },
+        "required": ["nickname", "country", "rail", "recipient"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "payeeId": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "rail": {
+            "type": "string",
+            "enum": ["ach", "wire", "instant", "sepa", "proxy"]
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "verification": {
+            "type": "string",
+            "const": "cannot_check"
+          },
+          "verificationRail": {
+            "type": "string",
+            "const": "rail.bank"
+          },
+          "addedAt": {
+            "type": "string"
+          },
+          "cooling": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": ["unset", "active", "open"]
+              },
+              "endsAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["state", "endsAt"],
+            "additionalProperties": false
+          },
+          "scamWarning": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": ["unread", "read"]
+              },
+              "readAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["state", "readAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "payeeId",
+          "nickname",
+          "country",
+          "rail",
+          "recipient",
+          "verification",
+          "verificationRail",
+          "addedAt",
+          "cooling",
+          "scamWarning"
+        ],
+        "additionalProperties": false
+      },
+      "checks": {
+        "at_most_eight_keys": {
+          "at": "input.recipient",
+          "says": "at most eight keys"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "nickname": "Ada TEST",
+            "country": "US",
+            "rail": "ach",
+            "recipient": {
+              "holderName": "Ada TEST",
+              "routingNumber": "021000021",
+              "accountNumber": "000123456789",
+              "accountType": "checking"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "at_most_eight_keys",
+          "input": {
+            "nickname": "Ada TEST",
+            "country": "US",
+            "rail": "ach",
+            "recipient": {
+              "k1": "x",
+              "k2": "x",
+              "k3": "x",
+              "k4": "x",
+              "k5": "x",
+              "k6": "x",
+              "k7": "x",
+              "k8": "x",
+              "k9": "x"
+            }
+          }
+        }
+      ]
+    },
+    "bank.railSends.check": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "railSends.check",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "fromSpaceId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "rail": {
+                "type": "string",
+                "enum": ["ach", "wire", "instant", "sepa", "proxy"]
+              },
+              "recipient": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 254
+                }
+              }
+            },
+            "required": ["fromSpaceId", "amount", "rail", "recipient"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "fromSpaceId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "payeeId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              }
+            },
+            "required": ["fromSpaceId", "amount", "payeeId"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "available": {
+            "type": "string"
+          }
+        },
+        "required": ["assetId", "amount", "available"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "at_most_eight_keys": {
+          "at": "input|0.recipient",
+          "says": "at most eight keys"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "fromSpaceId": "22222222-2222-4222-8222-222222222222",
+            "amount": "1.50",
+            "rail": "ach",
+            "recipient": {
+              "holderName": "Ada TEST",
+              "routingNumber": "021000021",
+              "accountNumber": "000123456789",
+              "accountType": "checking"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "at_most_eight_keys",
+          "input": {
+            "fromSpaceId": "22222222-2222-4222-8222-222222222222",
+            "amount": "1.50",
+            "rail": "ach",
+            "recipient": {
+              "k1": "x",
+              "k2": "x",
+              "k3": "x",
+              "k4": "x",
+              "k5": "x",
+              "k6": "x",
+              "k7": "x",
+              "k8": "x",
+              "k9": "x"
+            }
+          }
+        }
+      ]
+    },
+    "bank.railSends.checkPayee": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "railSends.checkPayee",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "country": {
+            "type": "string",
+            "maxLength": 8
+          },
+          "rail": {
+            "type": "string",
+            "enum": ["ach", "wire", "instant", "sepa", "proxy"]
+          },
+          "recipient": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 254
+            }
+          }
+        },
+        "required": ["nickname", "country", "rail", "recipient"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "rail": {
+            "type": "string",
+            "enum": ["ach", "wire", "instant", "sepa", "proxy"]
+          },
+          "recipient": {
+            "type": "string"
+          }
+        },
+        "required": ["nickname", "country", "rail", "recipient"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "at_most_eight_keys": {
+          "at": "input.recipient",
+          "says": "at most eight keys"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "nickname": "Ada TEST",
+            "country": "US",
+            "rail": "ach",
+            "recipient": {
+              "holderName": "Ada TEST",
+              "routingNumber": "021000021",
+              "accountNumber": "000123456789",
+              "accountType": "checking"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "at_most_eight_keys",
+          "input": {
+            "nickname": "Ada TEST",
+            "country": "US",
+            "rail": "ach",
+            "recipient": {
+              "k1": "x",
+              "k2": "x",
+              "k3": "x",
+              "k4": "x",
+              "k5": "x",
+              "k6": "x",
+              "k7": "x",
+              "k8": "x",
+              "k9": "x"
+            }
+          }
+        }
+      ]
+    },
     "bank.railSends.invitePayee": {
       "service": "svc-bank",
       "module": "bank",
@@ -42484,6 +42993,171 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "bank.railSends.send": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "railSends.send",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:withdraw",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "fromSpaceId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "rail": {
+                "type": "string",
+                "enum": ["ach", "wire", "instant", "sepa", "proxy"]
+              },
+              "recipient": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 254
+                }
+              }
+            },
+            "required": ["requestId", "fromSpaceId", "amount", "rail", "recipient"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "fromSpaceId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "payeeId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              }
+            },
+            "required": ["requestId", "fromSpaceId", "amount", "payeeId"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "fromSpaceId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string"
+          },
+          "rail": {
+            "type": "string",
+            "enum": ["ach", "wire", "instant", "sepa", "proxy"]
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "const": "refused"
+          },
+          "refusalCode": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["requestId", "fromSpaceId", "assetId", "amount", "rail", "recipient", "status", "refusalCode", "createdAt"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "at_most_eight_keys": {
+          "at": "input|0.recipient",
+          "says": "at most eight keys"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "22222222-2222-4222-8222-222222222222",
+            "fromSpaceId": "22222222-2222-4222-8222-222222222222",
+            "amount": "1.50",
+            "rail": "ach",
+            "recipient": {
+              "holderName": "Ada TEST",
+              "routingNumber": "021000021",
+              "accountNumber": "000123456789",
+              "accountType": "checking"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "at_most_eight_keys",
+          "input": {
+            "requestId": "22222222-2222-4222-8222-222222222222",
+            "fromSpaceId": "22222222-2222-4222-8222-222222222222",
+            "amount": "1.50",
+            "rail": "ach",
+            "recipient": {
+              "k1": "x",
+              "k2": "x",
+              "k3": "x",
+              "k4": "x",
+              "k5": "x",
+              "k6": "x",
+              "k7": "x",
+              "k8": "x",
+              "k9": "x"
+            }
+          }
         }
       ]
     },
@@ -44108,6 +44782,176 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "bank.recovery.claims.execute": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "recovery.claims.execute",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "signatures": {
+            "minItems": 1,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "publicKey": {
+                  "type": "object",
+                  "properties": {
+                    "kty": {
+                      "type": "string",
+                      "const": "EC"
+                    },
+                    "crv": {
+                      "type": "string",
+                      "const": "P-256"
+                    },
+                    "x": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{43}$"
+                    },
+                    "y": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{43}$"
+                    }
+                  },
+                  "required": ["kty", "crv", "x", "y"],
+                  "additionalProperties": false
+                },
+                "signature": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{86}$"
+                }
+              },
+              "required": ["publicKey", "signature"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["claimId", "signatures"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "claim": {
+            "type": "object",
+            "properties": {
+              "claimId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["open", "executed"]
+              },
+              "round": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "executedAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["claimId", "status", "round", "createdAt", "executedAt"],
+            "additionalProperties": false
+          },
+          "round": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sweeps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "round": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "ownerType": {
+                  "type": "string",
+                  "enum": ["user", "subaccount"]
+                },
+                "spaceId": {
+                  "type": ["string", "null"]
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "posted", "refused"]
+                },
+                "ledgerTxId": {
+                  "type": ["string", "null"]
+                },
+                "refusalCode": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["round", "ownerType", "spaceId", "assetId", "amount", "status", "ledgerTxId", "refusalCode"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["claim", "round", "sweeps"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "claimId": "22222222-2222-4222-8222-222222222222",
+            "signatures": [
+              {
+                "publicKey": {
+                  "kty": "EC",
+                  "crv": "P-256",
+                  "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                  "y": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+                },
+                "signature": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+              }
+            ]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
