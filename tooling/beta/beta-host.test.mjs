@@ -507,12 +507,17 @@ test("the beta's balance watch reads the test network every 15 s, inside its 120
   for (const venue of ['on', 'hl-recorded']) assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS, undefined, venue);
   // The beta's background readers read a set number of accounts a minute in turn, so their weight does not grow with them.
   assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, '24');
-  assert.equal(beta.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, '6');
-  assert.equal(beta.TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE, '6');
+  // With no desk open, the poster's and the recon's fill reads were 240 of the 460 a minute the box spent of its 1,200,
+  // too much to leave room for a wave of testers: the poster reads 3 accounts' fills a minute, and the day's recon runs
+  // hourly at 2 accounts a minute.
+  assert.equal(beta.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, '3');
+  assert.equal(beta.TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE, '2');
+  assert.equal(beta.TRADE_BUILDER_FEE_RECON_INTERVAL_MS, '3600000');
   for (const venue of ['on', 'hl-recorded']) {
     assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, undefined, venue);
     assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, undefined, venue);
     assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE, undefined, venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_RECON_INTERVAL_MS, undefined, venue);
   }
   // #11041: on the beta, the own-funds sweep (one balance read of our builder account each pass), the builder-mode check
   // and the claim collect ran at the TEST venue's seconds: 20 balance reads, 30 mode reads and 60 claim reads a minute
