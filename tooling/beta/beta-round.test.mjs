@@ -263,7 +263,7 @@ test('the front: the app while up (with the watch script), the updating page whi
     assert.equal(r.status, 200);
     assert.match(r.body, /<script src="\/__beta\/watch\.js" defer><\/script><\/head>/);
     assert.equal(Number(r.headers['content-length']), Buffer.byteLength(r.body));
-    assert.deepEqual(JSON.parse((await get('/__beta/state', '*/*')).body), { hold: null });
+    assert.deepEqual(JSON.parse((await get('/__beta/state', '*/*')).body), { hold: null, changed: null });
     assert.equal((await get('/__beta/watch.js', '*/*')).status, 200);
 
     setState('updating');
@@ -271,7 +271,11 @@ test('the front: the app while up (with the watch script), the updating page whi
     assert.equal(r.status, 503);
     assert.match(r.body, /Updating the beta/);
     assert.match(r.headers['content-security-policy'], /default-src 'none'/);
-    assert.deepEqual(JSON.parse((await get('/__beta/state', '*/*')).body), { hold: 'updating' }, 'an open tab reloads onto the page');
+    assert.deepEqual(
+      JSON.parse((await get('/__beta/state', '*/*')).body),
+      { hold: 'updating', changed: null },
+      'an open tab reloads onto the page',
+    );
     assert.equal((await get('/api/v1/tickers', 'application/json')).status, 200, 'calls still reach the old stack while it serves');
 
     setState('up');

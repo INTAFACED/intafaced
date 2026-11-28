@@ -3031,14 +3031,14 @@ export async function approvePending(ctx, sessions = null, { userIds = null } = 
         token,
       );
       const ok = data(res)?.status === 'approved';
-      out.push({ handle: who, recordId: r.id, tier: r.tier, ok, why: ok ? 'approved' : refusalText(res) });
+      out.push({ handle: who, userId: r.userId, recordId: r.id, tier: r.tier, ok, why: ok ? 'approved' : refusalText(res) });
       ctx.log(
         ok
           ? `verify ${who}: ${r.tier} approved by ${pair.a.op.handle}, confirmed by ${pair.b.op.handle} (${MARKERS.label}); record ${r.id}`
           : `verify ${who}: REFUSED ${refusalText(res)}`,
       );
     } catch (err) {
-      out.push({ handle: who, recordId: r.id, tier: r.tier, ok: false, why: String(err.message ?? err) });
+      out.push({ handle: who, userId: r.userId, recordId: r.id, tier: r.tier, ok: false, why: String(err.message ?? err) });
       ctx.log(`verify ${who}: FAILED ${String(err.message ?? err).slice(0, 300)}`);
     }
   }

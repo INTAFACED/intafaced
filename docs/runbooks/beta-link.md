@@ -94,7 +94,8 @@ Blank prices and limits refuse, as on every test stack. Every rail is a TEST sta
    later is asked for a device code: it is in the same mailbox.
 4. You are on Home, in Volt, dark. To unlock the rooms that need a verified person, open **Verification**, request
    **Full**, enter any country code, and submit. Within a minute the stack's TEST approvers approve it and 1000 TEST
-   USDT reach the account, with nobody in the loop (below). Sign out and in once so the app sees it, then trade.
+   USDT reach the account, with nobody in the loop (below). The open app reloads by itself once it is approved and
+   once the funds land, so it shows Full and the balance with no sign-out (#11217); then trade.
 
 Everything you see is TEST: prices, balances and limits carry the TEST label, and nothing can move real money.
 

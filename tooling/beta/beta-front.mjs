@@ -31,7 +31,9 @@
  *
  * While the beta updates (beta-host.mjs writes `updating` to its status file from before the checkout moves until the new
  * stack is readied) or is down, a page load gets a short "updating" page instead of the app, and an open app tab, which
- * reads /__beta/state every 15 s through a script this front adds to the app's page, reloads onto it (#10299).
+ * reads /__beta/state every 15 s through a script this front adds to the app's page, reloads onto it (#10299). The same
+ * read names when the viewer's account was last approved or funded (`changed`), and the tab reloads once when that
+ * moves, so a tester sees their new level and TEST funds with no sign-out (#11217).
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -90,7 +92,7 @@ const SIGN_UP_PATH = '/api/identity/trpc/auth.signUpStart';
 const SIGN_UP_MAX_BYTES = 16 * 1024;
 
 /** Whether `email` is one of `token`'s TEST addresses: the token, or the token, a dot and more, at local-test.invalid. */
-export function viewerAddress(email, token) {
+function viewerAddress(email, token) {
   const e = String(email ?? '')
     .trim()
     .toLowerCase();
@@ -104,7 +106,7 @@ export function viewerAddress(email, token) {
  * The front's refusal of a sign-up body from `token`'s viewer, as the stack's tRPC refusals are shaped (the app shows
  * its message), or null when it may pass: a body that is not JSON, or names no email, is left to the stack to answer.
  */
-export function signUpRefusal(text, token) {
+function signUpRefusal(text, token) {
   let input;
   try {
     input = JSON.parse(text);
@@ -193,6 +195,8 @@ function refuse(res, status, body) {
 
 /** The status file beta-host.mjs writes after each step of a round. */
 const STATUS_FILE = path.join(os.homedir(), '.intafaced', 'beta', 'status.json');
+/** When each viewer's account was last approved or funded (beta-invited.mjs markChanged). */
+const CHANGED_FILE = path.join(os.homedir(), '.intafaced', 'beta', 'changed.json');
 const STATE_PATH = '/__beta/state';
 const WATCH_PATH = '/__beta/watch.js';
 
@@ -231,8 +235,12 @@ p{color:#a2a2ac;margin:0}.dot{display:inline-block;width:.5rem;height:.5rem;bord
 <body><main><div class="mark">INTAFACED</div><h1><span class="dot" aria-hidden="true"></span>${title}</h1><p>${body}</p><p class="test">Beta on TEST funds: nothing here is real money.</p></main></body></html>`;
 }
 
-/** The script added to the app's page: an open tab reloads onto the updating page when the beta starts updating. */
-const WATCH_SCRIPT = `(()=>{const t=setInterval(async()=>{try{const r=await fetch('${STATE_PATH}',{cache:'no-store'});if((await r.json()).hold){clearInterval(t);location.reload()}}catch{}},15000)})();\n`;
+/**
+ * The script added to the app's page: an open tab reloads onto the updating page when the beta starts updating, and
+ * reloads once when the viewer's account is approved or funded (`changed`, #11217), so the app reads the new level and
+ * balance with no sign-out. The first answer, read at once, is the page's own; only a later, different one reloads.
+ */
+export const WATCH_SCRIPT = `(()=>{let seen;const look=async()=>{try{const s=await(await fetch('${STATE_PATH}',{cache:'no-store'})).json();if(s.hold){clearInterval(t);location.reload();return}if(seen===undefined)seen=s.changed??null;else if((s.changed??null)!==seen){clearInterval(t);location.reload()}}catch{}};const t=setInterval(look,15000);look()})();\n`;
 
 /** The app's HTML with the watch script added in its head; anything else unchanged (null). */
 function withWatch(html) {
@@ -269,12 +277,17 @@ function statusReader(file, cacheMs) {
   };
 }
 
-export function frontApp({ upstream = APP.upstream, statusFile = STATUS_FILE, cacheMs = 1000 } = {}) {
+export function frontApp({ upstream = APP.upstream, statusFile = STATUS_FILE, changedFile = CHANGED_FILE, cacheMs = 1000 } = {}) {
   const status = statusReader(statusFile, cacheMs);
+  const changes = statusReader(changedFile, cacheMs);
   const server = http.createServer((req, res) => {
     if (!APP_HOSTS.has(req.headers.host ?? '')) return refuse(res, 403, 'forbidden host');
     const pathname = String(req.url ?? '').split('?')[0];
-    if (pathname === STATE_PATH) return send(res, 200, 'application/json; charset=utf-8', JSON.stringify({ hold: holdOf(status()) }));
+    if (pathname === STATE_PATH) {
+      const viewer = viewerFromAccess(req.headers);
+      const changed = (viewer && changes()?.tokens?.[viewer]) || null;
+      return send(res, 200, 'application/json; charset=utf-8', JSON.stringify({ hold: holdOf(status()), changed }));
+    }
     if (pathname === WATCH_PATH) return send(res, 200, 'text/javascript; charset=utf-8', WATCH_SCRIPT);
     const page = wantsPage(req);
     const hold = holdOf(status());
