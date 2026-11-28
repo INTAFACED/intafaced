@@ -175,8 +175,7 @@ import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spo
 import { liquidationPriceFor } from './futures/liquidation-price.js';
 import { registerRiskCalculatorRest } from './futures/risk-calculator-rest.js';
 import { registerCollateralRest } from './futures/collateral-rest.js';
-import { ownerLadderPolicy } from './futures/futures-ladder-owner-gate.js';
-import { publishedLiquidationLimitsFrom } from './futures/liquidation-limits.js';
+import { futuresJobsHostDeps } from './futures/futures-jobs-host.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import type { CancelAllAfterHost } from './spot/cancel-all-after.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
@@ -862,32 +861,24 @@ async function serve(routes: Array<{ method: string; url: string; body: unknown 
   const fundingMaxAbsRate = resolveFundingMaxAbsRateForBoot({ fundingMarketIds, maxAbsRateRaw: env.TRADE_FUTURES_FUNDING_MAX_ABS_RATE });
   const matchedLiquidation: { current: MatchedLiquidationPort | null } = { current: null };
   // With TRADE_FUTURES_JOBS_ENABLED blank no futures job starts; its reads (marks, ladder, published rates) still answer.
-  const futuresJobs = startFuturesJobs({
-    sql,
-    ledger,
-    matching,
-    bus,
-    venueMarkSource: venueMarkConfigured?.source ?? null,
-    markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
-      byId: (marketId) => trade.marketById(marketId),
-      bySymbol: (symbol) => trade.marketBySymbol(symbol),
-    }),
-    stampDepthReads: env.TRADE_FUTURES_MATCHING_ENABLED,
-    ladderPolicy: ownerLadderPolicy(env.TRADE_FUTURES_LADDER_POLICY),
-    config: {
-      enabled: env.TRADE_FUTURES_JOBS_ENABLED,
-      liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+  const futuresJobs = startFuturesJobs(
+    futuresJobsHostDeps(env, {
+      sql,
+      ledger,
+      matching,
+      bus,
+      venueMarkSource: venueMarkConfigured?.source ?? null,
+      markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
+        byId: (marketId) => trade.marketById(marketId),
+        bySymbol: (symbol) => trade.marketBySymbol(symbol),
+      }),
       liquidationFeeFraction,
-      liquidationLimits: publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS),
-      fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
-      fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
       fundingMarketIds,
       fundingMaxAbsRate,
-      settlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
-    },
-    onError: () => undefined,
-    matchedLiquidation,
-  });
+      onError: () => undefined,
+      matchedLiquidation,
+    }),
+  );
   const profitSource = optionalProfitSourceFromConfig(env.TRADE_FUTURES_PROFIT_SOURCE);
   const maxLeverage = parseConfiguredMaxLeverage(env.TRADE_FUTURES_MAX_LEVERAGE);
   const adlDisclosureAcks = sqlAdlDisclosureStore(sql);
