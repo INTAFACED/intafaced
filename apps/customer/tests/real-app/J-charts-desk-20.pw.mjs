@@ -216,9 +216,8 @@ async function shownMarks(page) {
 const chart = (page) => page.getByTestId('trade-replay').getByRole('img', { name: /Price chart of/ });
 
 async function openReplay(page, v) {
-  // The same page, its TEST wallet already installed: back to the Journal, connected again if the room asks.
-  await page.goto('/trade/journal');
-  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
+  const { account, walletKey } = state();
+  await openVenuePage(page, account, '/trade/journal', walletKey);
   const row = page.getByTestId('journal-trades').locator(`tr[data-trade="${v.open.fillId}"]`);
   await expect(row).toBeVisible({ timeout: 30_000 });
   const figures = await row.locator('td').allInnerTexts();
@@ -316,8 +315,11 @@ test(`${J} #4 leaves replay: the live chart again; the journal trade and its fig
   await expect(page.getByTestId('replay-position')).toHaveCount(0);
   await stepPicture();
   // The journal trade, read again, is the same row with the same figures, and those are the venue's own.
-  // The same page, its TEST wallet already installed: back to the Journal, connected again if the room asks.
-  await page.goto('/trade/journal');
+  // Back the way they came, on the same page and its TEST wallet: the replay, then the Journal.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/trade\/journal\?replay=/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/trade\/journal$/);
   await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
   const row = page.getByTestId('journal-trades').locator(`tr[data-trade="${v.open.fillId}"]`);
   await expect(row).toBeVisible({ timeout: 30_000 });
