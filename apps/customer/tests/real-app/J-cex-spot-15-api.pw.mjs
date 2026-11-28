@@ -338,7 +338,7 @@ test(`${J} #8 trades in the demo environment: TEST assets only, labelled; no led
     timeInForce: 'GTC',
     reduceOnly: false,
     builderFee: null,
-    clientOrderKey: `${J}:demo-maker:${RUN}:${test.info().retry}:${Date.now().toString(36)}`,
+    clientOrderKey: `order:${makerOwner}:cs15-demo-${RUN}-${test.info().retry}-${Date.now().toString(36)}`,
   });
   expect(resting.outcome ?? resting, JSON.stringify(resting).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   const ledgerBefore = await ledgerView(s.who);
