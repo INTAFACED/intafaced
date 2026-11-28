@@ -14,9 +14,6 @@ import { PositionService } from '../controls/test-admission.js';
  * 5. Paths: futures/position-service.ts listClosed
  * 6. RED: omitting limit returns a 100-row closed-positions page
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   LIST_CLOSED_LIMIT_MAX,
@@ -24,8 +21,6 @@ import {
   publishedListClosedLimit,
   TRADE_LIST_CLOSED_LIMIT_UNSET,
 } from './position-service.js';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 function serviceWithUnreachableSql(): { positions: PositionService; sqlCalled: () => boolean } {
   let sqlCalled = false;
@@ -38,11 +33,24 @@ function serviceWithUnreachableSql(): { positions: PositionService; sqlCalled: (
 }
 
 describe('listClosed limit unset refuse (no invented 100)', () => {
-  it('position-service.ts does not invent 100 via default or clamp', () => {
-    const src = readFileSync(join(HERE, 'position-service.ts'), 'utf8');
-    expect(src).not.toMatch(/input\.limit \?\? 100/);
-    expect(src).toMatch(/publishedListClosedLimit\(input\?\.limit\)/);
-    expect(src).not.toMatch(/listClosed[\s\S]{0,200}Math\.min\(Math\.max\(/);
+  it('position-service.ts does not invent 100 via default or clamp', async () => {
+    // Out of range at the service is refused before SQL, not clamped into 1..500.
+    for (const limit of [0, -1, 501, 1.5]) {
+      const { positions, sqlCalled } = serviceWithUnreachableSql();
+      await expect(positions.listClosed('alice', { limit }), String(limit)).rejects.toMatchObject({ code: TRADE_LIST_CLOSED_LIMIT_UNSET });
+      expect(sqlCalled()).toBe(false);
+    }
+    // A published window reaches SQL as given.
+    const values: unknown[][] = [];
+    const sql = Object.assign((_strings: TemplateStringsArray, ...params: unknown[]) => {
+      values.push(params);
+      return Promise.resolve([]);
+    }, {}) as never;
+    const positions = new PositionService(sql, {} as never, { marks: {} as never, profitSource: null });
+    expect(await positions.listClosed('alice', { limit: 7 })).toEqual([]);
+    expect(values).toHaveLength(1);
+    expect(values[0]).toContain(7);
+    expect(values[0]).not.toContain(100);
   });
 
   it('blank / non-integer / out of 1..500 throws trade.list_closed_limit_unset', () => {

@@ -4,11 +4,8 @@
  * Money moves only through ledger recipes. A blank haircut, cap, or mode
  * stays a refusal. TRADE_FUTURES_ENABLED is not turned on by these tests.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import {
@@ -40,7 +37,6 @@ import { installPreTradeCreditPlace } from './pretrade-credit.js';
 import { checkMaxOrder } from './pretrade-limits.js';
 import { gateLiquidationRecipe } from './sub-account-loss.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's19-futures-slice-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
 const FEE_PAYER = '33333333-3333-4333-8333-333333333333';
@@ -323,9 +319,6 @@ describe('TRD-0218 leverage idempotency key', () => {
     expect(first.statusCode).toBe(200);
     expect(second.json()).toEqual(first.json());
     expect(seen).toEqual(['lev-same', 'lev-same']);
-    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const setAt = src.indexOf('async setLeverage');
-    expect(src.slice(setAt, setAt + 4000)).toMatch(/claimMarginAdjustment/);
     await app.close();
   });
 
@@ -423,9 +416,7 @@ describe('TRD-0289 a sibling sub-account is not the loss pot', () => {
     if (!refused.ok) expect(refused.code).toBe('trade.sub_account_loss_isolated');
     expect(await bal(ledger, subAccountAvailable(SIBLING, ASSET))).toBe('7');
 
-    const tick = readFileSync(join(here, 'liquidation-tick.ts'), 'utf8');
-    expect(tick).toMatch(/postGuarded/);
-    expect(tick).not.toMatch(/deps\.ledger\.post/);
+    // The live tick posts only recipes this gate passed: liquidation-tick-post-guard.test.ts drives it.
   });
 });
 
@@ -562,8 +553,12 @@ describe('TRD-0429 TRD-0510 TRD-0517 blank haircut locks nothing', () => {
       if (prev === undefined) delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
       else process.env.TRADE_COLLATERAL_HAIRCUT_BPS = prev;
     }
-    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
-    expect(boot).toMatch(/installCollateralHaircut\(\)/);
+    // Loading the ledger client (what the host does at boot) installs the haircut on the real open, in a fresh module graph.
+    vi.resetModules();
+    await import('../ledger-client.js');
+    const { PositionService: BootPositions } = await import('./position-service.js');
+    expect(Object.getOwnPropertySymbols(BootPositions.prototype)).toContain(Symbol.for('intafaced.trade.collateralHaircutOpen'));
+    vi.resetModules();
   });
 });
 

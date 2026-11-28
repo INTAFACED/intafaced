@@ -10,21 +10,16 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { tradeEnvWith } from './testing/doors.js';
 import { startFuturesJobs } from './futures-jobs.js';
 
 describe('funding interval is not an invented 8h', () => {
   it('env.ts does not default TRADE_FUTURES_FUNDING_INTERVAL_MS to 8h', () => {
-    const src = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/TRADE_FUTURES_FUNDING_INTERVAL_MS[\s\S]{0,400}default\(28_800_000\)/);
-    expect(src).toMatch(/TRADE_FUTURES_FUNDING_INTERVAL_MS[\s\S]{0,200}\.default\(''\)/);
-  });
-
-  it('jobs source does not pin an 8h funding period', () => {
-    const src = readFileSync(new URL('./futures-jobs.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/28_?800_?000/);
-    expect(src).not.toMatch(/8 \* 60 \* 60/);
-    expect(src).toMatch(/fundingIntervalMs != null/);
+    // Unset and blank are no schedule; 8h is honoured only when the owner sets it; a value outside the window stops boot.
+    expect(tradeEnvWith({}, ['TRADE_FUTURES_FUNDING_INTERVAL_MS']).TRADE_FUTURES_FUNDING_INTERVAL_MS).toBeNull();
+    expect(tradeEnvWith({ TRADE_FUTURES_FUNDING_INTERVAL_MS: '  ' }).TRADE_FUTURES_FUNDING_INTERVAL_MS).toBeNull();
+    expect(tradeEnvWith({ TRADE_FUTURES_FUNDING_INTERVAL_MS: '28800000' }).TRADE_FUTURES_FUNDING_INTERVAL_MS).toBe(28_800_000);
+    expect(() => tradeEnvWith({ TRADE_FUTURES_FUNDING_INTERVAL_MS: '1000' })).toThrow(/no invented 8h schedule/);
   });
 
   it('enabled with markets but null interval schedules liquidation only', () => {

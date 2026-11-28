@@ -5,9 +5,6 @@
  * the limit is allowed; one unit (1e-18) over is refused. The env values used
  * here are test fixtures only, never product law.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
 import { CCXT_ERROR_MAPPING, toCcxtError } from '../ccxt-errors.js';
@@ -26,9 +23,7 @@ import {
   signedSize,
   type AdmissionLimits,
 } from './pretrade-limits.js';
-import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const UNIT = 1n; // one scaled unit = 1e-18
 const limits = (over: Partial<AdmissionLimits> = {}): AdmissionLimits => ({
   maxOrder: 1000,
@@ -156,27 +151,5 @@ describe('wire mapping and exempt doors', () => {
       const wire = toCcxtError(new TradeError(`limit ${code}`, code));
       expect(wire).toMatchObject({ status: 422, body: { code: 'InvalidOrder', intafacedCode: code } });
     }
-  });
-
-  it('closes, liquidation, ADL and reconcile never call the limits (reducing risk is never blocked)', () => {
-    for (const file of [
-      'close-planner.ts',
-      'liquidation-tick.ts',
-      'liquidation-planner.ts',
-      'adl-last-resort.ts',
-      'tick-stores.ts',
-      'dated-futures-settlement.ts',
-    ]) {
-      expect(readFileSync(join(here, file), 'utf8'), file).not.toMatch(/pretrade-limits|pretrade-credit/);
-    }
-    const ps = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    // checkOpenAdmission is called from open() only.
-    expect(ps.match(/checkOpenAdmission\(/g)).toHaveLength(1);
-    const closeStart = ps.indexOf('async close(');
-    expect(ps.indexOf('checkOpenAdmission(')).toBeLessThan(closeStart);
-    const trade = tradeServiceSource();
-    expect(trade).toMatch(
-      /if \(!seeded && \(input as \{ reduceOnly\?: boolean \}\)\.reduceOnly !== true\) \{\s+await (?:this|svc)\.assertOwnerOrderLimit/,
-    );
   });
 });

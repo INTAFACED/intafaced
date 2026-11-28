@@ -410,10 +410,12 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
   it('publishes positionUpdated on open and close (F4 private WS feed)', async () => {
     feed('50000');
     const seen: Array<{ status: string; side: string }> = [];
+    const payloads: Array<Record<string, unknown>> = [];
     await bus.subscribe(
       'positionUpdated',
       async (payload) => {
         seen.push({ status: payload.status, side: payload.side });
+        payloads.push({ ...payload });
       },
       { durable: 'test-position-updated' },
     );
@@ -430,6 +432,11 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
       { status: 'open', side: 'long' },
       { status: 'closed', side: 'long' },
     ]);
+    // Open and close never value unrealised PnL on the event and never name a next funding time.
+    for (const payload of payloads) {
+      expect(payload.unrealizedPnl).toBeNull();
+      expect(payload).not.toHaveProperty('nextFundingTimestamp');
+    }
     // Also retained on the bus for idempotency inspection
     expect(bus.emitted('positionUpdated')).toHaveLength(2);
   });
@@ -1729,6 +1736,28 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
     expect(next.collateral).toBe('10000');
     expect(formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('90000');
     expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', pos.id!))).amount)).toBe('10000');
+  });
+
+  it('re-leverage moves the isolated margin through futures.margin.add and futures.margin.release', async () => {
+    feed('50000');
+    const pos = await positions.open({
+      clientOpenId: 't-set-leverage-add-release',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    const moves = () => ledger.journal().filter((tx) => tx.reason === 'futures.margin.add' || tx.reason === 'futures.margin.release');
+    // Down to 5x: 5000 more margin is added from available.
+    await positions.setLeverage({ userId: ALICE, symbol: 'BTC/USDT-PERP', positionId: pos.id!, leverage: amt('5') });
+    expect(moves().map((tx) => tx.reason)).toEqual(['futures.margin.add']);
+    // Back up to 10x: the 5000 is released to available.
+    const back = await positions.setLeverage({ userId: ALICE, symbol: 'BTC/USDT-PERP', positionId: pos.id!, leverage: amt('10') });
+    expect(back.collateral).toBe('5000');
+    expect(moves().map((tx) => tx.reason)).toEqual(['futures.margin.add', 'futures.margin.release']);
+    expect(formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('95000');
+    expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', pos.id!))).amount)).toBe('5000');
   });
 
   it('a lost successful response replays the stored result without advancing sequence or moving margin twice', async () => {

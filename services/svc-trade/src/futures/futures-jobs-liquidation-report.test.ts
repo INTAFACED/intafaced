@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { reportLiquidationTick } from './futures-jobs.js';
 import type { LiquidationTickResult } from './liquidation-tick.js';
@@ -66,14 +64,6 @@ describe('reportLiquidationTick: margin alerts', () => {
       (_n, err) => logged.push((err as Error).message),
     );
     expect(logged).toEqual(['trade.liquidation_margin_drift positionId=pos-d rungId=r-1 amount=50']);
-  });
-});
-
-describe('startFuturesJobs wiring', () => {
-  it('hands the liquidation tick the SQL rung store (a rung that is not stored cannot be replayed)', () => {
-    const src = readFileSync(fileURLToPath(new URL('./futures-jobs.ts', import.meta.url)), 'utf8');
-    expect(src).toMatch(/const rungs = sqlLiquidationRungStore\(deps\.sql\)/);
-    expect(src).toMatch(/runLiquidationTick\(\{[\s\S]*?\brungs,[\s\S]*?\}\)/);
   });
 });
 

@@ -10,29 +10,32 @@
  * 7. Collision: none — #1930 pins presentTicker 24h; this pins the market listing
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { fakeMarket, presentCcxtMarket } from '../public-rest.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, '..', 'public-rest.ts'), 'utf8');
-const presenter = src.match(/export function presentCcxtMarket[\s\S]*?^}/m)?.[0] ?? '';
-
 describe('listed markets do not invent perp contract or funding fields', () => {
-  it('extracts presentCcxtMarket', () => {
-    expect(presenter).toMatch(/export function presentCcxtMarket/);
-  });
-
   it('reads contractSize and settle only from the stored listing; expiry is listed dated or null; leverage min is null', () => {
-    expect(presenter).toMatch(/contractSize:\s*isFutures && market\.contractSize != null \? formatAmount\(market\.contractSize\)/);
-    expect(presenter).not.toMatch(/contractSize:\s*'\d/);
-    expect(presenter).toMatch(/settle:\s*settleAsset/);
-    expect(presenter).toMatch(/listedExpiry \? listedExpiry\.getTime\(\) : \(null as number \| null\)/);
-    expect(presenter).not.toMatch(/expiry:\s*\d+/);
-    expect(presenter).toMatch(/min:\s*null as string \| null/);
+    const perp = presentCcxtMarket(fakeMarket({ symbol: 'BTC/USDT-PERP', kind: 'futures' }), 0, { futuresMaxLeverage: '5' });
+    expect(perp).toMatchObject({ settle: null, settleAsset: null, expiry: null, expiryDatetime: null, type: 'swap' });
+    expect(perp.limits.leverage.min).toBeNull();
+    const expiry = new Date('2026-12-26T08:00:00.000Z');
+    const dated = presentCcxtMarket(
+      {
+        ...fakeMarket({ symbol: 'BTC/USDT-261226', kind: 'futures' }),
+        futuresContractStyle: 'dated',
+        futuresExpiryAt: expiry,
+        futuresSettleAsset: 'USDT',
+      },
+      0,
+    );
+    expect(dated).toMatchObject({ type: 'future', expiry: expiry.getTime(), expiryDatetime: expiry.toISOString(), settle: 'USDT' });
+    // A dated style with no recorded expiry lists no expiry rather than a made-up one.
+    const undated = presentCcxtMarket(
+      { ...fakeMarket({ symbol: 'BTC/USDT-X', kind: 'futures' }), futuresContractStyle: 'dated', futuresExpiryAt: null },
+      0,
+    );
+    expect(undated.expiry).toBeNull();
   });
 
   it('leaves contractSize null until the listing recorded one, and publishes it exactly as stored', () => {
@@ -44,8 +47,13 @@ describe('listed markets do not invent perp contract or funding fields', () => {
   });
 
   it('does not attach a funding quote to the listing', () => {
-    expect(presenter).not.toMatch(/fundingRate/);
-    expect(presenter).not.toMatch(/nextFundingTimestamp/);
-    expect(presenter).not.toMatch(/indexPrice/);
+    const wire = presentCcxtMarket(fakeMarket({ symbol: 'BTC/USDT-PERP', kind: 'futures' }), 0, {
+      futuresOrderable: true,
+      futuresMaxLeverage: '5',
+    });
+    expect(wire).not.toHaveProperty('fundingRate');
+    expect(wire).not.toHaveProperty('nextFundingTimestamp');
+    expect(wire).not.toHaveProperty('indexPrice');
+    expect(JSON.stringify(wire)).not.toMatch(/fundingRate|nextFundingTimestamp|indexPrice/);
   });
 });

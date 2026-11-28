@@ -17,6 +17,7 @@ import { parseConfiguredMaxLeverage } from './initial-margin.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { memoryMarkBook } from './mark-source.js';
 import { StubEmailProof } from '../spot/testing.js';
+import { tradeEnvWith } from './testing/doors.js';
 
 interface FuturesTestSeed {
   SeedRefusal: new (message: string) => Error;
@@ -104,13 +105,18 @@ describe('TEST futures seed', () => {
     expect(decision.listing.markFeed).toBe('TEST-mark-feed');
     expect(decision.listing.liquidationPolicy).toBe('TEST-liquidation-policy');
     expect(parseConfiguredMaxLeverage('')).toBeNull();
-    const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
-    expect(envSrc).toMatch(/TRADE_FUTURES_MAX_LEVERAGE:\s*z\.string\(\)\.default\(''\)/);
-    expect(envSrc).toMatch(/TRADE_FUTURES_TEST_SEED:[\s\S]*?\.default\(false\)/);
-    expect(envSrc).toMatch(/TRADE_FUTURES_ENABLED:[\s\S]*?\.default\(false\)/);
-    const seedSrc = readFileSync(script, 'utf8');
-    expect(seedSrc).not.toMatch(/TRADE_FUTURES_ENABLED\s*=/);
-    expect(seedSrc).not.toMatch(/TRADE_FUTURES_MAX_LEVERAGE\s*=/);
+    // The service env ships the cap blank and the seed and futures off.
+    const env = tradeEnvWith({}, ['TRADE_FUTURES_MAX_LEVERAGE', 'TRADE_FUTURES_TEST_SEED', 'TRADE_FUTURES_ENABLED']);
+    expect(env.TRADE_FUTURES_MAX_LEVERAGE).toBe('');
+    expect(env.TRADE_FUTURES_TEST_SEED).toBe(false);
+    expect(env.TRADE_FUTURES_ENABLED).toBe(false);
+    // The seed never turns futures on or sets the cap: not in the env it is given, nor in the process env.
+    const given = Object.freeze({ TRADE_DATABASE_URL: 'postgres://127.0.0.1/local_stack_test', NODE_ENV: 'test' });
+    const before = { enabled: process.env.TRADE_FUTURES_ENABLED, cap: process.env.TRADE_FUTURES_MAX_LEVERAGE };
+    evaluateSeedRequest({ env: given, fixturePath, fixtureText });
+    expect(given).toEqual({ TRADE_DATABASE_URL: 'postgres://127.0.0.1/local_stack_test', NODE_ENV: 'test' });
+    expect({ enabled: process.env.TRADE_FUTURES_ENABLED, cap: process.env.TRADE_FUTURES_MAX_LEVERAGE }).toEqual(before);
+    expect(decision).not.toHaveProperty('env');
   });
 });
 

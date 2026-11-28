@@ -13,15 +13,26 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { tradeEnvWith } from './testing/doors.js';
+import {
+  FundingRateBoundError,
+  assertFundingRateWithinBound,
+  parseFundingMaxAbsRate,
+  resolveFundingMaxAbsRateForBoot,
+} from './funding-rate-bound.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
-const envSrc = readFileSync(join(root, 'services/svc-trade/src/env.ts'), 'utf8');
 const compose = readFileSync(join(root, 'docker-compose.apps.yml'), 'utf8');
 const envExample = readFileSync(join(root, '.env.example'), 'utf8');
 
 describe('shipped config does not invent a funding abs-rate ceiling', () => {
   it('env.ts defaults the ceiling to empty, not a decimal', () => {
-    expect(envSrc).toMatch(/TRADE_FUTURES_FUNDING_MAX_ABS_RATE:\s*z\.string\(\)\.default\(''\)/);
+    const raw = tradeEnvWith({}, ['TRADE_FUTURES_FUNDING_MAX_ABS_RATE']).TRADE_FUTURES_FUNDING_MAX_ABS_RATE;
+    expect(raw).toBe('');
+    // Unset is no bound: a rate is refused, and a funding market list without one stops boot.
+    expect(parseFundingMaxAbsRate(raw)).toBeNull();
+    expect(() => assertFundingRateWithinBound('0.0001', parseFundingMaxAbsRate(raw))).toThrow(FundingRateBoundError);
+    expect(() => resolveFundingMaxAbsRateForBoot({ fundingMarketIds: ['m1'], maxAbsRateRaw: raw })).toThrow(/no product default/);
   });
 
   it('compose passes through empty rather than pinning a product number', () => {

@@ -9,21 +9,58 @@
  * 7. Collision: none — #1924 pins transport; #1928 pins index.ts host
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { DOOR_USER_ID, doorHeaders, privateRestDoor } from './testing/doors.js';
+import { memoryMarginCallStore, presentMarginCallWire, type MarginCallWire } from './margin-call-transport.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+const POSITION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+async function getMarginCall(call: MarginCallWire | null) {
+  const seen: string[] = [];
+  const app = await privateRestDoor({
+    getOpenMarginCall: async (principal, positionId) => {
+      seen.push(`${principal.userId}:${positionId}`);
+      return call;
+    },
+  });
+  const res = await app.inject({ method: 'GET', url: `/api/v1/positions/${POSITION}/margin-call`, headers: doorHeaders() });
+  await app.close();
+  return { res, seen };
+}
 
 describe('private REST margin-call door does not invent grace', () => {
-  it('does not mention graceExpiresAt', () => {
-    expect(src).toMatch(/\/api\/v1\/positions\/:id\/margin-call/);
-    expect(src).not.toMatch(/graceExpiresAt/);
+  it('does not mention graceExpiresAt', async () => {
+    const row = await memoryMarginCallStore().recordDelivered({
+      positionId: POSITION,
+      userId: DOOR_USER_ID,
+      marketId: 'BTC-PERP',
+      healthBps: 11_000,
+      at: new Date('2026-09-03T00:00:00.000Z'),
+    });
+    const { res, seen } = await getMarginCall(presentMarginCallWire(row));
+    expect(res.statusCode).toBe(200);
+    expect(seen).toEqual([`${DOOR_USER_ID}:${POSITION}`]);
+    expect(res.json()).not.toHaveProperty('graceExpiresAt');
+    expect(res.body).not.toMatch(/grace/i);
+    // No call open: an honest 404, never an invented timer.
+    const none = await getMarginCall(null);
+    expect(none.res.statusCode).toBe(404);
+    expect(none.res.json()).toMatchObject({ error: 'trade.margin_call_not_found' });
   });
 
-  it('200 sends the host call body without wrapping extras', () => {
-    expect(src).toMatch(/return reply\.code\(200\)\.send\(call\)/);
+  it('200 sends the host call body without wrapping extras', async () => {
+    const call: MarginCallWire = {
+      positionId: POSITION,
+      userId: DOOR_USER_ID,
+      marketId: 'BTC-PERP',
+      sequence: 2,
+      healthBps: 10_500,
+      calledAt: '2026-09-03T00:00:00.000Z',
+      deliveredAt: '2026-09-03T00:00:05.000Z',
+      delivered: true,
+    };
+    const { res } = await getMarginCall(call);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(call);
   });
 });

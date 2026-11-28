@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { parseFundingMarketIds, startFuturesJobs } from './futures-jobs.js';
 import type { MarkSource } from './liquidation-tick.js';
 
@@ -226,16 +225,5 @@ describe('startFuturesJobs', () => {
     });
     expect(await handle.markPrice('m1')).toBeNull();
     handle.stop();
-  });
-
-  it('does not import DEFAULT_FUTURES_LADDER_POLICY — omitted D3 does not invent rungs', () => {
-    const src = readFileSync(new URL('./futures-jobs.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
-  });
-
-  it('does not pass a maintenanceBps number into the live tick', () => {
-    const src = readFileSync(new URL('./futures-jobs.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/maintenanceBps\s*:/);
-    expect(src).toMatch(/policy:\s*deps\.ladderPolicy/);
   });
 });

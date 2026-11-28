@@ -13,7 +13,7 @@ import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { memoryMarkBook } from './mark-source.js';
 import { type OpenPositionInput } from './position-service.js';
@@ -28,7 +28,9 @@ import {
   checkPositionModeMigration,
   installPositionMode,
 } from './position-mode.js';
-import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
+import { hitchDoubles, tradeRouterPaths } from './testing/doors.js';
+import { installPositionModeOpen, installPositionModePlace } from './position-mode.js';
+import { principalFor } from '../spot/testing.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -83,55 +85,52 @@ function setCreditEnv(): void {
 
 installPositionMode();
 
-describe('position-mode hitch (source) — no flatten, matching not recut', () => {
-  it('position-mode.ts has no flatten and refuses unset', () => {
-    const mill = readFileSync(join(here, 'position-mode.ts'), 'utf8');
-    expect(mill).toMatch(/checkPositionMode/);
-    expect(mill).toMatch(/checkPositionModeMigration/);
-    expect(mill).toMatch(/checkOrderSideForPositionMode/);
-    expect(mill).toMatch(/origOpen\.call/);
-    expect(mill).toMatch(/origPlace\.call/);
-    expect(mill).toMatch(/will not invent a flatten/);
-    expect(mill).not.toMatch(/planClose/);
-    expect(mill).not.toMatch(/closeAll/);
-    expect(mill).not.toMatch(/cancelAll/);
-    const openStart = mill.indexOf('export function installPositionModeOpen');
-    const placeStart = mill.indexOf('export function installPositionModePlace');
-    expect(openStart).toBeGreaterThan(-1);
-    expect(placeStart).toBeGreaterThan(openStart);
-    const openFn = mill.slice(openStart, placeStart);
-    expect(openFn.indexOf('parsePositionMode')).toBeGreaterThan(-1);
-    expect(openFn.indexOf('parsePositionMode')).toBeLessThan(openFn.indexOf('origOpen.call'));
+describe('position-mode hitch — no flatten, matching not recut', () => {
+  it('position-mode.ts has no flatten and refuses unset', async () => {
+    const { Positions, Trades, opened, placed, other } = hitchDoubles({ 'm-perp': { kind: 'futures' }, 'm-spot': { kind: 'spot' } });
+    installPositionModeOpen(Positions as never);
+    installPositionModePlace(Trades as never);
+    const positions: { open(i: unknown): Promise<unknown> } = new Positions();
+    const trades: { placeOrder(p: unknown, i: unknown): Promise<unknown> } = new Trades();
+    const principal = principalFor(ALICE);
+    const base = { userId: ALICE, clientOpenId: 'f6-hitch', symbol: 'BTC/USDT-PERP', side: 'long', size: amt('1') };
+    // An unknown mode is refused before the original open runs, and nothing is closed or cancelled instead.
+    await expect(positions.open({ ...base, positionMode: 'netted' })).rejects.toMatchObject({ code: POSITION_MODE_UNSUPPORTED });
+    // A futures order with no position mode is refused before any hold.
+    const futuresOrder = { marketId: 'm-perp', side: 'buy', type: 'limit', qty: amt('1'), price: amt('100') };
+    await expect(trades.placeOrder(principal, futuresOrder)).rejects.toMatchObject({ code: POSITION_MODE_UNSET });
+    expect(opened).toEqual([]);
+    expect(placed).toEqual([]);
+    expect(other).toEqual([]);
+    // A named mode passes through to the original; a spot order without one is untouched.
+    await positions.open({ ...base, positionMode: 'one_way' });
+    expect(opened).toEqual([{ ...base, positionMode: 'one_way' }]);
+    const spotOrder = { marketId: 'm-spot', side: 'buy', type: 'limit', qty: amt('1'), price: amt('100') };
+    await trades.placeOrder(principal, spotOrder);
+    expect(placed).toEqual([spotOrder]);
+    expect(other).toEqual([]);
   });
 
   it('router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const tradeSrc = tradeServiceSource();
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/position-mode/);
-    expect(routerSrc).not.toMatch(/position_mode_unset/);
-    expect(posSrc).not.toMatch(/position-mode/);
-    expect(posSrc).not.toMatch(/position_mode_unset/);
-    expect(tradeSrc).not.toMatch(/position-mode/);
-    expect(tradeSrc).not.toMatch(/position_mode_unset/);
-    expect(indexSrc).not.toMatch(/position-mode/);
-    expect(indexSrc).not.toMatch(/installPositionMode/);
+    // No tRPC procedure reads or switches the position mode; the services meet it only through the hitch.
+    expect(tradeRouterPaths().filter((p) => /positionMode|position_mode|hedgeMode|oneWay/i.test(p))).toEqual([]);
     const matchingSrc = join(matchingRoot, 'src');
     const matchingFiles = readdirSync(matchingSrc, { recursive: true, encoding: 'utf8' }) as string[];
     expect(matchingFiles.length).toBeGreaterThan(0);
     expect(matchingFiles.some((f) => f.includes('position-mode') || f.includes('position_mode'))).toBe(false);
   });
 
-  it('live boot hitch next to F5; F5 mill not recut', () => {
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
-    const f5 = readFileSync(join(here, 'pretrade-credit.ts'), 'utf8');
-    expect(indexSrc).toMatch(/ledger-client/);
-    expect(boot).toMatch(/installPreTradeCredit/);
-    expect(boot).toMatch(/installPositionMode/);
-    expect(boot).toMatch(/position-mode/);
-    expect(f5).not.toMatch(/position-mode/);
+  it('live boot hitch next to F5; F5 mill not recut', async () => {
+    // Loading the ledger client (what the host does at boot) installs both hitches on the real classes.
+    vi.resetModules();
+    await import('../ledger-client.js');
+    const { PositionService: BootPositions } = await import('./position-service.js');
+    const { TradeService: BootTrades } = await import('../spot/trade-service.js');
+    const openFlags = Object.getOwnPropertySymbols(BootPositions.prototype);
+    expect(openFlags).toContain(Symbol.for('intafaced.trade.positionModeOpen'));
+    expect(openFlags).toContain(Symbol.for('intafaced.trade.preTradeCreditOpen'));
+    expect(Object.getOwnPropertySymbols(BootTrades.prototype)).toContain(Symbol.for('intafaced.trade.positionModePlace'));
+    vi.resetModules();
   });
 });
 

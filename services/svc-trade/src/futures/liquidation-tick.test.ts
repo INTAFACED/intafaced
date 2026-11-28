@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { LedgerError, parseAmount as amt, type AccountRef, type Amount, type Balance, type PostRequest } from '@intafaced/ledger-client';
 import {
   memoryLiquidationAttemptStore,
@@ -837,10 +836,5 @@ describe('runLiquidationTick — C15 margin-call transport + grace non-start', (
     expect(posts).toHaveLength(0);
     expect(closed).toHaveLength(0);
     expect(depth).not.toHaveBeenCalled();
-  });
-
-  it('does not fall back to DEFAULT placeholder rungs when policy is omitted', () => {
-    const src = readFileSync(new URL('./liquidation-tick.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/\?\?\s*DEFAULT_FUTURES_LADDER_POLICY/);
   });
 });

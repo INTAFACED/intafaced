@@ -1,7 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseAmount, formatAmount } from '@intafaced/ledger-client/money';
 import type { MarketDataAdapter, VenueBookSnapshot } from '@intafaced/venue-contracts';
 import type { HttpPort } from '@intafaced/venue-adapter';
@@ -227,14 +224,6 @@ describe('createVenueMarketDataAdapter', () => {
     expect(a!.venue.kind).toBe('external-cex');
     expect(a!.venue.sequencedDepth).toBe(true);
     expect(createVenueMarketDataAdapter('  OKX-SPOT  ')!.venue.id).toBe('okx-spot');
-  });
-
-  it('boot warn and env comments list okx-spot now that the factory knows it', () => {
-    const root = dirname(fileURLToPath(import.meta.url));
-    const indexSrc = readFileSync(join(root, '../index.ts'), 'utf8');
-    const envSrc = readFileSync(join(root, '../env.ts'), 'utf8');
-    expect(indexSrc).toMatch(/Supported: binance-spot, bybit-spot, okx-spot/);
-    expect(envSrc).toMatch(/`binance-spot`, `bybit-spot`, `okx-spot`/);
   });
 
   it('the three ids resolve to DIFFERENT adapters — a median of one is not a check', () => {

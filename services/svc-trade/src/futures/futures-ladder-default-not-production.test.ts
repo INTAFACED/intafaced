@@ -9,33 +9,50 @@
  * 7. Collision: none — no open svc-trade PRs
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { tradeEnvWith } from './testing/doors.js';
+import { ownerLadderPolicy } from './futures-ladder-owner-gate.js';
+import * as harness from './ladder-policy.test-harness.js';
+import * as production from './maintenance-ladder.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const production = readFileSync(join(here, 'maintenance-ladder.ts'), 'utf8');
-const harness = readFileSync(join(here, 'ladder-policy.test-harness.ts'), 'utf8');
-const jobsHost = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+/** Every value a module exports, and every value nested inside them, flattened. */
+function exportedValues(mod: object): unknown[] {
+  const out: unknown[] = [];
+  const walk = (v: unknown, depth: number) => {
+    out.push(v);
+    if (depth > 4 || v === null || typeof v !== 'object') return;
+    for (const inner of Object.values(v)) walk(inner, depth + 1);
+  };
+  for (const v of Object.values(mod)) walk(v, 0);
+  return out;
+}
 
 describe('production ladder module does not ship invented D3 rungs', () => {
   it('does not export DEFAULT_FUTURES_LADDER_POLICY', () => {
-    expect(production).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
+    expect(production).not.toHaveProperty('DEFAULT_FUTURES_LADDER_POLICY');
   });
 
   it('does not embed the placeholder depth-tier table', () => {
-    expect(production).not.toMatch(/uptoDepthBps:\s*500,\s*maintenanceBps:\s*50/);
+    const placeholder = harness.DEFAULT_FUTURES_LADDER_POLICY;
+    for (const value of exportedValues(production)) {
+      expect(value).not.toEqual(placeholder);
+      expect(value).not.toEqual(placeholder.tiers);
+      expect(value).not.toEqual(placeholder.tiers[0]);
+    }
   });
 
   it('keeps the placeholder only in the test harness', () => {
-    expect(harness).toMatch(/export const DEFAULT_FUTURES_LADDER_POLICY/);
-    expect(harness).toMatch(/Test-only ladder numbers/);
+    expect(harness.DEFAULT_FUTURES_LADDER_POLICY.tiers[0]).toEqual({ uptoDepthBps: 500, maintenanceBps: 50 });
   });
 
-  it('live host passes no ladder but the owner\u2019s published setting', () => {
-    expect(jobsHost).not.toMatch(
-      /startFuturesJobs\([\s\S]{0,1500}ladderPolicy:(?!\s*ownerLadderPolicy\(env\.TRADE_FUTURES_LADDER_POLICY\))/,
+  it('live host passes no ladder but the owner’s published setting', () => {
+    // The host's ladder is ownerLadderPolicy of its env: unset is no ladder at all, never the placeholder.
+    const unset = tradeEnvWith({}, ['TRADE_FUTURES_LADDER_POLICY']).TRADE_FUTURES_LADDER_POLICY;
+    expect(unset).toBe('');
+    expect(ownerLadderPolicy(unset)).toBeUndefined();
+    const published = JSON.stringify(harness.DEFAULT_FUTURES_LADDER_POLICY);
+    expect(ownerLadderPolicy(tradeEnvWith({ TRADE_FUTURES_LADDER_POLICY: published }).TRADE_FUTURES_LADDER_POLICY)).toEqual(
+      harness.DEFAULT_FUTURES_LADDER_POLICY,
     );
   });
 });

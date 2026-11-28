@@ -27,6 +27,7 @@ import {
 } from '@intafaced/ledger-client';
 import { DATED_FUTURES_SETTLEMENT_PRICE_UNSET } from './dated-futures-settlement.js';
 import { startFuturesJobs } from './futures-jobs.js';
+import { tradeEnvWith, tradeRouterPaths } from './testing/doors.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -119,12 +120,9 @@ describe('H6 JobHost money hitch (source)', () => {
   });
 
   it('router.ts not recut; live host does not invent a fixing price', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/runDatedFuturesSettlementJob/);
-    expect(routerSrc).not.toMatch(/dated-futures-settlement/);
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(indexSrc).toMatch(/settlementFixing:\s*env\.TRADE_FUTURES_SETTLEMENT_FIXING/);
-    expect(indexSrc).not.toMatch(/ownerSettlementPriceFor/);
+    expect(tradeRouterPaths().filter((path) => /dated.?settle|datedFuturesSettlement|settlementJob/i.test(path))).toEqual([]);
+    // The fixing stamp the host hands the jobs is the service env's, blank unless the owner names it.
+    expect(tradeEnvWith({}, ['TRADE_FUTURES_SETTLEMENT_FIXING']).TRADE_FUTURES_SETTLEMENT_FIXING).toBe('');
   });
 });
 

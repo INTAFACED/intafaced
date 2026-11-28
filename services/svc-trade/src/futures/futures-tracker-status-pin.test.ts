@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   FUTURES_HONEST_GAPS,
@@ -13,10 +12,11 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
-function trackerStatus(featureId: string): string | null {
-  const src = readFileSync(join(ROOT, 'tooling/tracker/features.mjs'), 'utf8');
-  const match = src.match(new RegExp(`f\\('${featureId.replace('.', '\\.')}'[\\s\\S]*?status:\\s*'([^']+)'`));
-  return match?.[1] ?? null;
+/** The tracker's own feature list, loaded as the module the board itself runs. */
+async function trackerStatus(featureId: string): Promise<string | null> {
+  const url = pathToFileURL(join(ROOT, 'tooling/tracker/features.mjs')).href;
+  const { FEATURES } = (await import(url)) as { FEATURES: ReadonlyArray<{ id: string; status: string }> };
+  return FEATURES.find((feature) => feature.id === featureId)?.status ?? null;
 }
 
 describe('trade.futures tracker status pin', () => {
@@ -28,8 +28,8 @@ describe('trade.futures tracker status pin', () => {
     expect(futuresMountVsTrackerBoardCard().gaps).toBe(0);
   });
 
-  it('features.mjs marks trade.futures done when owner env wiring ships', () => {
+  it('features.mjs marks trade.futures done when owner env wiring ships', async () => {
     expect(FUTURES_TRACKER_ID).toBe('trade.futures');
-    expect(trackerStatus('trade.futures')).toBe('done');
+    expect(await trackerStatus('trade.futures')).toBe('done');
   });
 });

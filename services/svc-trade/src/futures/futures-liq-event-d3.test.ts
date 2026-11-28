@@ -9,22 +9,55 @@
  * 7. Collision: none — new file only
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { sqlPositionCloser } from './tick-stores.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'tick-stores.ts'), 'utf8');
+/** Announce one liquidated position through the closer, over a row the sql answers, and return what reached the bus. */
+async function liquidatedEvent() {
+  const published: Array<{ type: string; payload: Record<string, unknown>; opts: unknown }> = [];
+  const sql = (() =>
+    Promise.resolve([
+      {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        user_id: '11111111-1111-4111-8111-111111111111',
+        market_id: 'm-perp',
+        side: 'long',
+        size: '2',
+        entry_price: '50000',
+        leverage: '5',
+        margin_initial: '20000',
+        margin_current: '150',
+        margin_mode: 'isolated',
+        funding_paid: '0',
+        liq_price: '40000',
+        symbol: 'BTC/USDT-PERP',
+      },
+    ])) as never;
+  const bus = {
+    publish: async (type: string, payload: Record<string, unknown>, opts: unknown) => {
+      published.push({ type, payload, opts });
+    },
+  };
+  await sqlPositionCloser(sql, bus as never).announceLiquidated!('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+    liquidationId: 'liq-1',
+    reason: 'test',
+  });
+  expect(published).toHaveLength(1);
+  return published[0]!;
+}
 
 describe('liquidation positionUpdated does not invent D3', () => {
-  it('does not import DEFAULT_FUTURES_LADDER_POLICY or emit maintenanceBps / nextFunding', () => {
-    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
-    expect(src).not.toMatch(/maintenanceBps\s*:/);
-    expect(src).not.toMatch(/nextFundingTimestamp/);
+  it('does not import DEFAULT_FUTURES_LADDER_POLICY or emit maintenanceBps / nextFunding', async () => {
+    const event = await liquidatedEvent();
+    expect(event.type).toBe('positionUpdated');
+    expect(event.payload).not.toHaveProperty('maintenanceBps');
+    expect(event.payload).not.toHaveProperty('maintenanceMargin');
+    expect(event.payload).not.toHaveProperty('nextFundingTimestamp');
   });
 
-  it('liquidated mark stays null rather than an invented mid', () => {
-    expect(src).toMatch(/markPrice:\s*null/);
+  it('liquidated mark stays null rather than an invented mid', async () => {
+    const event = await liquidatedEvent();
+    expect(event.payload.status).toBe('liquidated');
+    expect(event.payload.markPrice).toBeNull();
   });
 });

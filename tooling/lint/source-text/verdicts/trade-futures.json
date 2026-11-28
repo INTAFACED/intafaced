@@ -1,0 +1,1311 @@
+[
+  {
+    "file": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The live jobs hand the liquidation tick no ADL policy or maxReduceBps, so an underfunded rung refuses trade.adl_unconfigured.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts#futures-jobs.ts / index.ts do not set maxReduceBps or rank candidates"
+    },
+    "why": "@ts-expect-error proves FuturesJobsDeps (what index.ts builds the jobs from) has no adl or maxReduceBps slot; futures-jobs-tick-wiring.test.ts#omits the ADL policy asserts the live tick's input carries no adl."
+  },
+  {
+    "file": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure runs or tunes ADL.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts#router.ts not recut"
+    },
+    "why": "Builds the trade router and asserts no mounted procedure path names ADL, deleveraging or socialised loss."
+  },
+  {
+    "file": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts",
+    "target": "adl-last-resort.ts",
+    "verdict": "rewrite",
+    "asserts": "ADL consumes candidates in the owner's order, never ranks them, and has no default maxReduceBps.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts#adl-last-resort.ts has no maxReduceBps default and does not sort/rank candidates"
+    },
+    "why": "Runs runAdlLastResort with a policy missing maxReduceBps (refused trade.adl_unconfigured) and with an owner policy on the candidates in both orders, asserting the first given is the one reduced and the input is not reordered."
+  },
+  {
+    "file": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts",
+    "target": "futures-jobs.ts",
+    "verdict": "rewrite",
+    "asserts": "The live jobs hand the liquidation tick no ADL policy or maxReduceBps, so an underfunded rung refuses trade.adl_unconfigured.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts#futures-jobs.ts / index.ts do not set maxReduceBps or rank candidates"
+    },
+    "why": "@ts-expect-error proves FuturesJobsDeps (what index.ts builds the jobs from) has no adl or maxReduceBps slot; futures-jobs-tick-wiring.test.ts#omits the ADL policy asserts the live tick's input carries no adl."
+  },
+  {
+    "file": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts",
+    "target": "liquidation-adl-gate.ts",
+    "verdict": "rewrite",
+    "asserts": "The liquidation ADL gate refuses without an owner policy or ranking, passes candidates on in the order given, and never socialises the loss by default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/adl-unconfigured.money.test.ts#liquidation-adl-gate.ts does not rank or invent maxReduceBps"
+    },
+    "why": "Drives parkUnderfundedWithAdl with no policy, no ranking, both (reduced in the order given, both orders) and no reducer (refuses with 'no socialized-loss default')."
+  },
+  {
+    "file": "services/svc-trade/src/futures/collateral-haircut.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure sets a haircut, and the class check refuses non-cash collateral without reading a haircut of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/collateral-haircut.money.test.ts#router.ts / margin-mode.ts / position-service.ts not recut"
+    },
+    "why": "Builds the trade router (no haircut procedure) and calls checkCollateralClassForMargin with a haircut env set: cash ok with no haircut field, every other class refused."
+  },
+  {
+    "file": "services/svc-trade/src/futures/collateral-haircut.money.test.ts",
+    "target": "collateral-haircut.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset haircut refuses (never 0 or 10), posted margin is never a loan, and the open hitch refuses before the original open.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/collateral-haircut.money.test.ts#collateral-haircut.ts has no default 0/10 and does not lend IM"
+    },
+    "why": "Calls checkPostedMarginCollateral unset, blank, 0, 10 and asLoan, and drives the real open hitch on a stand-in class: refused inputs never reach the original, a named haircut passes the same input on."
+  },
+  {
+    "file": "services/svc-trade/src/futures/collateral-haircut.money.test.ts",
+    "target": "margin-mode.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure sets a haircut, and the class check refuses non-cash collateral without reading a haircut of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/collateral-haircut.money.test.ts#router.ts / margin-mode.ts / position-service.ts not recut"
+    },
+    "why": "Builds the trade router (no haircut procedure) and calls checkCollateralClassForMargin with a haircut env set: cash ok with no haircut field, every other class refused."
+  },
+  {
+    "file": "services/svc-trade/src/futures/collateral-haircut.money.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure sets a haircut, and the class check refuses non-cash collateral without reading a haircut of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/collateral-haircut.money.test.ts#router.ts / margin-mode.ts / position-service.ts not recut"
+    },
+    "why": "Builds the trade router (no haircut procedure) and calls checkCollateralClassForMargin with a haircut env set: cash ok with no haircut field, every other class refused."
+  },
+  {
+    "file": "services/svc-trade/src/futures/conditional-orders/conditional-orders.test.ts",
+    "target": "../../../../../services/svc-trade/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED ships off; the job does not schedule off or with a blank interval.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/conditional-orders/conditional-orders.test.ts#ships default off and does not schedule when the flag or the interval is blank"
+    },
+    "why": "Parses the service env with the flag unset (false) and 'true' (true), then starts the conditional jobs off and with a null interval (nothing scheduled)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/conditional-orders/conditional-orders.test.ts",
+    "target": "../../../../../services/svc-trade/src/index.ts",
+    "verdict": "rewrite",
+    "asserts": "The host's conditional job is enabled only by the env flag.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/conditional-orders/conditional-orders.test.ts#ships default off and does not schedule when the flag or the interval is blank"
+    },
+    "why": "The env default and startConditionalOrderJobs' refusal to schedule are asserted; the compose default is still read. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The fixing stamp the host passes is the service env's, blank unless the owner names it; the PG suite in the same file holds the refusal.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts#router.ts not recut; live host does not invent a fixing price"
+    },
+    "why": "Parses the service env with TRADE_FUTURES_SETTLEMENT_FIXING unset and asserts it is blank. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure runs dated settlement.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts#router.ts not recut; live host does not invent a fixing price"
+    },
+    "why": "Builds the trade router and asserts no procedure path names dated settlement."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "TRADE_FUTURES_SETTLEMENT_FIXING defaults blank, never a number.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts#TRADE_FUTURES_SETTLEMENT_FIXING defaults blank in the service env, never a number"
+    },
+    "why": "Parses the service env with the key unset (blank) and set (the stamp as given)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The host passes the env's fixing stamp and no owner price source, so production refuses until an owner decimal exists.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts#TRADE_FUTURES_SETTLEMENT_FIXING defaults blank in the service env, never a number"
+    },
+    "why": "The env default is asserted here; the same file's 'stamp set but no owner decimal (production) refuses' runs the live jobs with no ownerSettlementPriceFor and asserts nothing is posted. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
+    "target": "dated-futures-settlement.ts",
+    "verdict": "delete",
+    "asserts": "The settlement mill never uses last trade or mark as exit price.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts#router.ts not recut; mill never last-trade exitPrice; listing refuse kept"
+    },
+    "why": "That test runs the mill with three last-trade/mark pairs and asserts the posts equal planClose's recipes at the owner fixing."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
+    "target": "futures-jobs.ts",
+    "verdict": "delete",
+    "asserts": "The jobs schedule futures.dated_settlement, run the scan with the configured fixing, and never use last trade or mark as the owner price.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts#interval tick posts owner decimal recipes and ignores last trade 1 / mark 2"
+    },
+    "why": "That test starts the live jobs with last trade 1 and mark 2 and asserts futures.dated_settlement is listed, the scan runs and posts settle at 110; 'blank TRADE_FUTURES_SETTLEMENT_FIXING refuses the JobHost tick' and 'stamp set but no owner decimal (production) refuses' hold the gate."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No procedure runs dated settlement; the mill posts exactly planClose's recipes at the owner fixing keyed dated-settle:<position> whatever last trade and mark say, refuses with no fixing, and the listing refuses a dated contract with no fixing named.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts#router.ts not recut; mill never last-trade exitPrice; listing refuse kept"
+    },
+    "why": "Builds the trade router (no settlement procedure), runs runDatedFuturesSettlementJob with three last-trade/mark pairs (posts equal planClose's recipes at 110) and with the fixing null, undefined and blank (refused, no post), and calls resolveDatedFuturesListing with a blank fixing (TradeError naming TRADE_FUTURES_SETTLEMENT_FIXING)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts",
+    "target": "dated-futures-settlement.ts",
+    "verdict": "rewrite",
+    "asserts": "No procedure runs dated settlement; the mill posts exactly planClose's recipes at the owner fixing keyed dated-settle:<position> whatever last trade and mark say, refuses with no fixing, and the listing refuses a dated contract with no fixing named.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts#router.ts not recut; mill never last-trade exitPrice; listing refuse kept"
+    },
+    "why": "Builds the trade router (no settlement procedure), runs runDatedFuturesSettlementJob with three last-trade/mark pairs (posts equal planClose's recipes at 110) and with the fixing null, undefined and blank (refused, no post), and calls resolveDatedFuturesListing with a blank fixing (TradeError naming TRADE_FUTURES_SETTLEMENT_FIXING)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts",
+    "target": "dated-futures.ts",
+    "verdict": "rewrite",
+    "asserts": "No procedure runs dated settlement; the mill posts exactly planClose's recipes at the owner fixing keyed dated-settle:<position> whatever last trade and mark say, refuses with no fixing, and the listing refuses a dated contract with no fixing named.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts#router.ts not recut; mill never last-trade exitPrice; listing refuse kept"
+    },
+    "why": "Builds the trade router (no settlement procedure), runs runDatedFuturesSettlementJob with three last-trade/mark pairs (posts equal planClose's recipes at 110) and with the fixing null, undefined and blank (refused, no post), and calls resolveDatedFuturesListing with a blank fixing (TradeError naming TRADE_FUTURES_SETTLEMENT_FIXING)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/dated-futures.test.ts",
+    "target": "dated-futures.ts",
+    "verdict": "rewrite",
+    "asserts": "The expiry job settles only at the owner fixing; last trade and mark never stand in.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/dated-futures.test.ts#expiry job never assigns lastTrade or mark as settlement"
+    },
+    "why": "Calls resolveDatedFuturesSettlement and runDatedFuturesExpiryTick with last trade and mark set and the fixing blank or unusable (refused settlement_price_unset), and with a fixing (ready at the fixing alone, source owner_fixing)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/funding-rate-source.test.ts",
+    "target": "./funding-rate-source.ts",
+    "verdict": "rewrite",
+    "asserts": "The rate book has no freshness window of its own: with no maxAgeMs named it quotes nothing.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/funding-rate-source.test.ts#source does not pin a typical funding interval"
+    },
+    "why": "Publishes a fresh rate to the memory book and asserts no quote without a policy, a quote at exactly 8 h under an 8 h policy, and none past a 1 s policy."
+  },
+  {
+    "file": "services/svc-trade/src/futures/funding-recon.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure runs or exposes funding recon.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/funding-recon.money.test.ts#router.ts / svc-ledger (crates/svc-ledger) not recut"
+    },
+    "why": "Builds the trade router and asserts no procedure path names funding recon or divergence; the svc-ledger file-name walk is kept."
+  },
+  {
+    "file": "services/svc-trade/src/futures/funding-recon.money.test.ts",
+    "target": "funding-recon.ts",
+    "verdict": "rewrite",
+    "asserts": "Every funding surface's recipe is exactly planFundingSettlement's legs at the owner rate, and an unset rate refuses on every surface.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/funding-recon.money.test.ts#funding-recon.ts uses planFundingSettlement and does not invent a rate"
+    },
+    "why": "Compares fundingRecipeForSurface for all five surfaces and reconFundingSurfaces to planFundingSettlement's legs, and asserts undefined, null, blank and non-string rates refuse trade.funding_rate_unset."
+  },
+  {
+    "file": "services/svc-trade/src/futures/funding-recon.money.test.ts",
+    "target": "funding-tick.ts",
+    "verdict": "rewrite",
+    "asserts": "The funding tick posts exactly planFundingSettlement's recipes for the published rate, and with no rate posts nothing.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/funding-recon.money.test.ts#funding-tick.ts still plans via planFundingSettlement; no invented rate"
+    },
+    "why": "Runs runFundingTick with a fixed published quote (posts equal the plan's recipes) and a null quote (skipped no_rate, no posts)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-capability-margin-call-no-grace.test.ts",
+    "target": "../ccxt-capability-matrix.ts",
+    "verdict": "rewrite",
+    "asserts": "The bot capability matrix never advertises a margin-call grace clock, lists setLeverage as supported and keeps setMarginMode a refusal.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-capability-margin-call-no-grace.test.ts#setLeverage is supported within 10×; setMarginMode stays refuse"
+    },
+    "why": "Imports CCXT_CAPABILITY_MATRIX and asserts the margin-call row, that no row names a grace clock, setLeverage's supported kind and setMarginMode's refuse kind and arm."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
+    "target": "../mm/mid-source.ts",
+    "verdict": "delete",
+    "asserts": "The MM seed-mid path refuses dust under the sealed floor rather than awaiting a ruling.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/mm/mid-source.test.ts#refuses a dust book"
+    },
+    "why": "That test drives the venue MM mid source with a dust book and asserts it mints no mid; 'honours an injected notional floor without a second constant' holds the shared floor."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
+    "target": "mark-from-depth.ts",
+    "verdict": "delete",
+    "asserts": "The sealed dust floor stays 100 quote units and 100 bps of notional, applied by default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/mark-from-depth.test.ts#applies the threshold by DEFAULT"
+    },
+    "why": "That test asserts DEFAULT_MIN_BEST_LEVEL_NOTIONAL is '100' and that omitting the policy still refuses dust; 'states the requirement in base units' asserts the 100 bps; the ADR wording in comments is no behaviour."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
+    "target": "mark-from-venue.ts",
+    "verdict": "delete",
+    "asserts": "The venue mark path applies the same sealed dust floor, with no second policy.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/mark-from-venue.test.ts#two dust orders on the NEW venue mint nothing either"
+    },
+    "why": "That test drives a venue mark source with two dust orders and asserts no mark is minted under the shared floor; a comment's wording is no behaviour."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-error-wire.test.ts",
+    "target": "../private-rest.ts",
+    "verdict": "delete",
+    "asserts": "A FuturesError for an unnamed profit pot reaches bots as NotSupported with retry:false, not a retryable 5xx.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/private-rest.test.ts#POST /positions/:id/close unnamed pot on winning close is NotSupported"
+    },
+    "why": "That test drives the private REST close door with a service throwing trade.profit_source_unconfigured and asserts the body carries ccxtCode NotSupported and retry:false."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-host-funding-index-null.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The live funding quote never invents an index price or a next funding time.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-host-funding-index-null.test.ts#hard-nulls indexPrice and nextFundingTimestamp"
+    },
+    "why": "Publishes a rate through the jobs and asserts the entry the host quotes from has no index or next time, and that GET /api/v1/funding-rate answers null for both and does not copy the mark. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-host-margin-call-wire.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The host's margin-call door presents the durable row and never a grace deadline.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-host-margin-call-wire.test.ts#getOpenMarginCall returns presentMarginCallWire(row) only"
+    },
+    "why": "Records a call in the store, re-ticks it, and asserts the presented wire's exact fields with no grace. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-capability-d3.test.ts",
+    "target": "futures-policy.ts",
+    "verdict": "rewrite",
+    "asserts": "The bots' capability note names the ladder as d3_unset and never carries a maintenance number.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-capability-d3.test.ts#ladderNumbers stays d3_unset and maintenanceBps is absent"
+    },
+    "why": "Calls presentFuturesJobsCapabilityNote with every flag on and asserts d3_unset and no maintenance or tier field; @ts-expect-error proves it takes no maintenanceBps."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-env-passthrough.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "GET /capabilities reports the futures flags the host passes, as yes/no and a count, with funding times unpublished.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-env-passthrough.test.ts#live host passes TRADE_FUTURES_JOBS_ENABLED and TRADE_FUTURES_ENABLED"
+    },
+    "why": "Builds the public REST app with no futures flags and with all of them and reads GET /capabilities: off by default, each flag through, no ids, rate or interval; next funding and index stay 'unpublished'. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-health-d3.test.ts",
+    "target": "futures-jobs-health.ts",
+    "verdict": "rewrite",
+    "asserts": "/health futuresJobs reports occupancy only: no maintenance number, ladder or interval milliseconds.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-health-d3.test.ts#presenter has no maintenanceBps, ladder, or 8h interval echo"
+    },
+    "why": "Calls presentFuturesJobsHealth with everything on and asserts no maintenance, tier or 8h figure in its output; @ts-expect-error proves it takes no interval in ms."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-health-passthrough.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "/health reports the futures jobs' flags as given and never the rate decimal, market ids or venue.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-health-passthrough.test.ts#does not put the |rate| decimal or market UUID list on /health"
+    },
+    "why": "Calls presentFuturesJobsHealth off and on and asserts each flag passes through; @ts-expect-error proves its input has no slot for the rate, the ids or the venue, and none reach the output. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The boot log's venueMark line is no longer pinned either."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-host-d3.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The live host has no placeholder ladder to import and no maintenanceBps slot to fill; its ladder is the owner's env value or none.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-host-d3.test.ts#startFuturesJobs takes no ladder but the owner’s published one, and no maintenanceBps"
+    },
+    "why": "Asserts the ladder modules export no DEFAULT policy, parses the env with the ladder unset (no policy), and a @ts-expect-error proves FuturesJobsDeps has no maintenanceBps. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-interval.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset funding interval schedules no funding tick: env has no 8h default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-interval.test.ts#env.ts does not default TRADE_FUTURES_FUNDING_INTERVAL_MS to 8h"
+    },
+    "why": "Loads the service env with the interval unset, blank, set to 8h and out of range, asserting null, null, the owner's value and a boot refusal."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-interval.test.ts",
+    "target": "./futures-jobs.ts",
+    "verdict": "delete",
+    "asserts": "With no funding interval the jobs schedule no funding tick and pin no 8h period.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-interval.test.ts#enabled with markets but null interval schedules liquidation only"
+    },
+    "why": "That test starts the jobs with markets and a null interval and asserts only the liquidation, payouts and dated-settlement jobs are scheduled."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-liquidation-report.test.ts",
+    "target": "./futures-jobs.ts",
+    "verdict": "delete",
+    "asserts": "The live liquidation tick gets the SQL rung store, so a failed rung is replayed from what was stored.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#hands the tick the SQL rung store"
+    },
+    "why": "That test runs the live liquidation job through startFuturesJobs and asserts the tick's rungs port reads trade.liquidation_rungs on the jobs' own sql."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs-no-policy-fallback.test.ts",
+    "target": "futures-jobs.ts",
+    "verdict": "delete",
+    "asserts": "The live liquidation tick gets exactly the ladder policy passed in: omitted stays omitted, never placeholder rungs.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#passes the ladder policy through with no fallback"
+    },
+    "why": "That test runs the live liquidation job with no ladder policy (the tick's ladder.policy is undefined, no maintenanceBps) and with one (the same object)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-jobs.test.ts",
+    "target": "./futures-jobs.ts",
+    "verdict": "delete",
+    "asserts": "Omitted D3 does not invent rungs: the live tick gets no placeholder ladder and no maintenanceBps of the jobs' own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#passes the ladder policy through with no fallback"
+    },
+    "why": "That test runs the live liquidation job and asserts the tick's ladder policy is undefined when omitted, carries no maintenanceBps, and is the passed object when published."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The host's ladder is the owner's published TRADE_FUTURES_LADDER_POLICY or nothing.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts#live host passes no ladder but the owner’s published setting"
+    },
+    "why": "Parses the service env with the ladder unset (blank, ownerLadderPolicy gives undefined) and set (gives the published policy). The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts",
+    "target": "ladder-policy.test-harness.ts",
+    "verdict": "rewrite",
+    "asserts": "The placeholder ladder lives only in the test harness.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts#keeps the placeholder only in the test harness"
+    },
+    "why": "Imports the harness and asserts its DEFAULT_FUTURES_LADDER_POLICY first tier."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts",
+    "target": "maintenance-ladder.ts",
+    "verdict": "rewrite",
+    "asserts": "The production ladder module exports no DEFAULT ladder and no value equal to the placeholder tiers.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts#does not embed the placeholder depth-tier table"
+    },
+    "why": "Imports the maintenance-ladder module and walks every exported value, asserting none is the harness placeholder policy, its tiers or its first tier."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The live host mounts re-leverage.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts#deleting setLeverage live path fails — service posts ledger add/release"
+    },
+    "why": "futuresLiveReleverageMounted and FUTURES_HONEST_GAPS are asserted; the leverage door is driven through registerPrivateRest. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts",
+    "target": "../private-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "POST leverage (both routes) is a live handler that hands the service the decimal string; a number is refused before the service; margin-mode is 501 NotSupported with no retry hint.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts#POST leverage is a real handler, not the 501 helper"
+    },
+    "why": "Injects signed POSTs into the private REST door: both leverage routes 200 with the service called with leverage '5', numeric leverage 400 trade.leverage_required with no call; margin-mode 501 NotSupported with no retryAfter or Retry-After."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "setLeverage moves the isolated margin through futures.margin.add and futures.margin.release.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts#deleting setLeverage live path fails — service posts ledger add/release"
+    },
+    "why": "The ledger moves are driven in position-service.test.ts#re-leverage moves the isolated margin through futures.margin.add and futures.margin.release (10x to 5x adds, back to 10x releases, balances asserted); this test keeps the tracker's mounted and no-gap answers."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts",
+    "target": "../../../../services/svc-trade/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The env leaves the owner leverage cap empty.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts#env.ts leaves the owner source empty"
+    },
+    "why": "Loads the service env with TRADE_FUTURES_MAX_LEVERAGE unset and asserts it is blank."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The live host keeps an unset leverage cap null.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts#live host preserves the nullable parse result"
+    },
+    "why": "Parses the env's unset value as the host does and asserts it stays null through resolveMaxLeverage. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts",
+    "target": "initial-margin.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank owner leverage cap stays null and refuses with trade.leverage_cap_unset; no default magnitude.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts#initial-margin.ts names the typed refusal and no default magnitude"
+    },
+    "why": "Calls parseConfiguredMaxLeverage and resolveMaxLeverage with blank, null and zero (null each time), a named cap (kept exactly) and a non-positive one (boot refusal); the open path's refusal is position-service.test.ts#refuses to OPEN when the listing leverage cap is unset."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-liq-event-d3.test.ts",
+    "target": "tick-stores.ts",
+    "verdict": "rewrite",
+    "asserts": "The liquidated positionUpdated event carries no maintenance number or next funding time, and a null mark.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-liq-event-d3.test.ts#liquidated mark stays null rather than an invented mid"
+    },
+    "why": "Announces a liquidated row through sqlPositionCloser and asserts the event on the bus has no maintenance or nextFunding field and markPrice null."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-liq-event-unrealized-null.test.ts",
+    "target": "tick-stores.ts",
+    "verdict": "rewrite",
+    "asserts": "The liquidated positionUpdated event never values unrealised PnL off a mark.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-liq-event-unrealized-null.test.ts#hard-nulls unrealizedPnl and markPrice on the liquidated publish"
+    },
+    "why": "Announces a liquidated row through sqlPositionCloser and asserts unrealizedPnl, realizedPnl and markPrice are null, the row's own figures pass through, and the idempotency key."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-liq-tick-no-default-policy.test.ts",
+    "target": "liquidation-tick.ts",
+    "verdict": "delete",
+    "asserts": "With no owner D3 policy the liquidation tick never seizes on placeholder rungs.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-tick.test.ts#ladder without owner D3 policy skips — never seizes on DEFAULT placeholders"
+    },
+    "why": "That test runs the tick with a ladder but no policy on an underwater position and asserts skipped_d3_unset, no posts, no close and no depth read."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-listing-leverage-cap.test.ts",
+    "target": "../public-rest.ts",
+    "verdict": "delete",
+    "asserts": "Listed futures publish a leverage max only when the host supplies one; none by default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/public-rest.test.ts#listed futures stay active and are not orderable until the host enables futures"
+    },
+    "why": "That test asserts limits.leverage.max is null with no flags and '4.25' when futuresMaxLeverage is supplied."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-listing-linear-null.test.ts",
+    "target": "../public-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "linear and inverse come from the stored futures family only; with none recorded they stay null.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-listing-linear-null.test.ts#derives linear and inverse from the stored family, never from the kind"
+    },
+    "why": "Calls presentCcxtMarket on futures listings with linear, inverse and no family, and on spot and options, asserting linear, inverse, settle and family."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-margin-call-no-grace.test.ts",
+    "target": "margin-call-transport.ts",
+    "verdict": "rewrite",
+    "asserts": "The margin-call wire and durable row carry no grace deadline, and the SQL store writes none.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-margin-call-no-grace.test.ts#SQL store does not persist a grace column"
+    },
+    "why": "Records a call in the memory store and through the SQL store on a recording sql: the wire has exactly its eight fields, the insert names no grace column, and a grace column in the reply does not reach the record."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-market-listing-no-invent.test.ts",
+    "target": "../public-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "Listed markets read contractSize, settle and expiry only from the stored listing, publish no leverage min, and attach no funding quote.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-market-listing-no-invent.test.ts#reads contractSize and settle only from the stored listing; expiry is listed dated or null; leverage min is null"
+    },
+    "why": "Calls presentCcxtMarket on perp, dated, undated-dated and spot listings, with and without a stored contractSize, and asserts the wire fields and that no funding field appears."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-no-invented-funding-ceiling.test.ts",
+    "target": "../../../../services/svc-trade/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The shipped env names no funding abs-rate ceiling: unset is no bound, and a rate is refused.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-no-invented-funding-ceiling.test.ts#env.ts defaults the ceiling to empty, not a decimal"
+    },
+    "why": "Loads the service env with the ceiling unset (blank), and asserts the parser gives no bound, a rate is refused, and a funding market list without one stops boot."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-notsupported-no-retry.test.ts",
+    "target": "../ccxt-errors.ts",
+    "verdict": "rewrite",
+    "asserts": "NotSupported is a 501 with no retryAfter, so a bot does not treat it as a throttle.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-notsupported-no-retry.test.ts#is 501 and has no retryAfter in the factory"
+    },
+    "why": "Calls notSupported and asserts the exact wire shape and that neither it nor its body carries retryAfter."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-policy.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The public futures.policy door answers the futures policy summary.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-policy.test.ts#router mounts describeFuturesPolicy on futures.policy"
+    },
+    "why": "Calls futures.policy on the trade router as an anonymous caller and asserts it equals describeFuturesPolicy({})."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-position-present-d3.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A listed position's maintenance is the owner ladder's planLadderRung figure, null with a reason when no policy is published, read against a mark listOpen reads itself.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-position-present-d3.test.ts#maintenanceAt calls planLadderRung and presentPosition does not hard-null maintenance"
+    },
+    "why": "Lists stored rows through a PositionService over a sql stub: no policy gives null 'maintenance_policy_unset'; a policy gives planLadderRung's maintenanceRequired (2550); dark gives null mark_missing, then the fed mark."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-position-unrealized-null.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A listed position's unrealised PnL and percentage come from the mark, never a hard null or an invented 0.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-position-unrealized-null.test.ts#uses the close planner helper and does not hard-null or invent 0"
+    },
+    "why": "Lists a long and a short through a PositionService over a sql stub: +1000 / 20% and -1000 / -20% at 51000, contract size from the listing or null with its reason, and null with mark_missing when dark."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-private-rest-no-grace.test.ts",
+    "target": "../private-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "GET /positions/:id/margin-call answers the host's call body as is, 404 when none, never a grace field.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-private-rest-no-grace.test.ts#200 sends the host call body without wrapping extras"
+    },
+    "why": "Builds the private REST app and GETs the margin-call door: 200 equals the host's body exactly with no grace, 404 trade.margin_call_not_found when none."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-publish-period-named.test.ts",
+    "target": "internal-funding-rate.ts",
+    "verdict": "delete",
+    "asserts": "A funding publish with no named period is refused; the clock never names an 8 h period.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/internal-funding-rate.test.ts#400 when the publisher names no period — the clock must not name it"
+    },
+    "why": "That test posts a rate with no periodId or periodStartIso and asserts 400 trade.funding_rate_publish_invalid naming the fields, with nothing published."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-reads.test.ts",
+    "target": "../../../../tooling/scripts/seed-futures-test-listing.mjs",
+    "verdict": "rewrite",
+    "asserts": "The seed never turns futures on or sets the cap.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-reads.test.ts#accepts the TEST fixture without touching the production leverage cap"
+    },
+    "why": "Runs evaluateSeedRequest on a frozen env and asserts that env and the process env's TRADE_FUTURES_ENABLED and TRADE_FUTURES_MAX_LEVERAGE are unchanged, and the decision carries no env."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-reads.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "The service env ships the futures cap blank and the seed and futures off.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-reads.test.ts#accepts the TEST fixture without touching the production leverage cap"
+    },
+    "why": "Parses the service env with TRADE_FUTURES_MAX_LEVERAGE, TRADE_FUTURES_TEST_SEED and TRADE_FUTURES_ENABLED unset and asserts '', false, false."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-tick-grace-always-null.test.ts",
+    "target": "liquidation-tick.ts",
+    "verdict": "delete",
+    "asserts": "A delivered margin call never seizes 'from grace': futures has no grace clock.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-tick.test.ts#delivered=true still does not seize today — grace clock not implemented (D3)"
+    },
+    "why": "That test runs the tick on a margin-call position with a notifier that reports delivered and asserts nothing is seized; maintenance-ladder.test.ts holds the seal's own cases."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-ticker-no-24h.test.ts",
+    "target": "../public-rest.ts",
+    "verdict": "delete",
+    "asserts": "The ticker never copies the last print into high or low.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-ticker-no-24h.test.ts#with no 24 h stats, high, low, vwap, open, volumes, change and percentage are null"
+    },
+    "why": "That test presents a ticker with a last print and no 24 h stats and asserts high and low are null while last is the print."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-tracker-status-pin.test.ts",
+    "target": "../../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker marks trade.futures done.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-tracker-status-pin.test.ts#features.mjs marks trade.futures done when owner env wiring ships"
+    },
+    "why": "Imports the tracker's FEATURES list as a module and reads trade.futures' status from it."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-wide-policy-not-production.test.ts",
+    "target": "partial-liquidation-real-book.test.ts",
+    "verdict": "delete",
+    "asserts": "Production does not use the wide test policy as its ladder.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#passes the ladder policy through with no fallback"
+    },
+    "why": "The test only read a comment in another test file; that the live tick takes the passed ladder or none is asserted by the wiring test, and futures-ladder-default-not-production.test.ts asserts no placeholder ships."
+  },
+  {
+    "file": "services/svc-trade/src/futures/futures-ws-open-close-unrealized-null.test.ts",
+    "target": "position-service.ts",
+    "verdict": "delete",
+    "asserts": "The open and close positionUpdated events never value unrealised PnL and name no next funding time.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-service.test.ts#publishes positionUpdated on open and close"
+    },
+    "why": "That test opens and closes a real position against Postgres and now asserts every positionUpdated payload has unrealizedPnl null and no nextFundingTimestamp."
+  },
+  {
+    "file": "services/svc-trade/src/futures/insurance-listing-health-passthrough.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "/health reports the insurance listing policy: an empty pot blocks a live list, the target size is the owner's.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/insurance-listing-health-passthrough.test.ts#live host mounts presentInsuranceListingPolicy on /health"
+    },
+    "why": "Calls presentInsuranceListingPolicy and the public policy door and asserts both answer the empty-pot block and owner_unset size. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/liquidation-planner.test.ts",
+    "target": "./liquidation-planner.ts",
+    "verdict": "rewrite",
+    "asserts": "An omitted maintenanceBps is no 50% table: a positive-equity position below 50% is not liquidated until a line is named.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-planner.test.ts#does not invent a 50% maintenance table"
+    },
+    "why": "Plans a long at 40% equity with maintenanceBps omitted (no liquidation) and with 5000 named (below_maintenance)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/liquidation-tick-ladder-required.test.ts",
+    "target": "liquidation-tick.ts",
+    "verdict": "delete",
+    "asserts": "Without a published ladder the tick skips an underwater position rather than flattening it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-tick-ladder-required.test.ts#omitted ladder skips an underwater position — no post, no close"
+    },
+    "why": "That test (same file) runs the tick with no ladder on an underwater long and asserts skipped_d3_unset, trade.ladder_unset, 'will not flatten', zero posts and no close."
+  },
+  {
+    "file": "services/svc-trade/src/futures/liquidation-tick.test.ts",
+    "target": "./liquidation-tick.ts",
+    "verdict": "delete",
+    "asserts": "With the policy omitted the tick does not fall back to placeholder rungs.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-tick.test.ts#ladder without owner D3 policy skips — never seizes on DEFAULT placeholders"
+    },
+    "why": "That test (same file) runs the tick with no policy and asserts trade.ladder_d3_unset, nothing posted or closed."
+  },
+  {
+    "file": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The live jobs carry no ADL policy and no maxReduceBps, and pass the ladder through with no test bps.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts#live jobs omit ADL policy and do not copy test ladder bps"
+    },
+    "why": "@ts-expect-error proves FuturesJobsDeps has no adl or maxReduceBps slot; futures-jobs-tick-wiring.test.ts asserts the live tick gets no adl and the passed ladder or none. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure runs the liquidation tick, the planner or ADL.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts#router.ts has no liquidation recut"
+    },
+    "why": "Builds the trade router and asserts no procedure path names the tick, the planner or ADL."
+  },
+  {
+    "file": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts",
+    "target": "adl-last-resort.ts",
+    "verdict": "rewrite",
+    "asserts": "ADL has no maxReduceBps default: a policy without one, or with 0, -1 or 10001, refuses trade.adl_unconfigured and reduces nothing.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts#adl-last-resort.ts does not default maxReduceBps"
+    },
+    "why": "Runs runAdlLastResort with each unconfigured policy and asserts the refusal and an idle reducer."
+  },
+  {
+    "file": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts",
+    "target": "futures-jobs.ts",
+    "verdict": "rewrite",
+    "asserts": "The live jobs carry no ADL policy and no maxReduceBps, and pass the ladder through with no test bps.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts#live jobs omit ADL policy and do not copy test ladder bps"
+    },
+    "why": "@ts-expect-error proves FuturesJobsDeps has no adl or maxReduceBps slot; futures-jobs-tick-wiring.test.ts asserts the live tick gets no adl and the passed ladder or none. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts",
+    "target": "liquidation-tick.ts",
+    "verdict": "rewrite",
+    "asserts": "When insurance cannot cover the shortfall the tick checks the bound, then answers through the ADL gate, and never flattens, posts or closes.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts#tick insurance-underfunded path calls the ADL gate (ladder only — no flatten fallback)"
+    },
+    "why": "Runs the live tick with insurance short (skipped_insurance_underfunded with the gate's trade.adl_unconfigured, no posts, no close) and covered (the gate is never reached); the replay park is driven by liquidation-rung-machine.test.ts#M2: when insurance genuinely cannot cover the grown leg."
+  },
+  {
+    "file": "services/svc-trade/src/futures/list-open-no-invent-mark.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "listOpen reads a usable mark for each row and never shows or writes a zero mark.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/list-open-no-invent-mark.test.ts#reads tryMarkForMarking and never writes a zero mark"
+    },
+    "why": "Lists a stored row through a PositionService over a sql stub with no quote (null, mark_missing), a stale quote (null, mark_unusable) and a usable one (its price), and asserts every query was a read."
+  },
+  {
+    "file": "services/svc-trade/src/futures/margin-call-transport.test.ts",
+    "target": "futures-jobs.ts",
+    "verdict": "delete",
+    "asserts": "The live liquidation tick delivers margin calls into the durable store the REST door reads.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#delivers margin calls through the durable store the REST door reads"
+    },
+    "why": "That test calls the live tick's notifyMarginCall and asserts it inserts into trade.position_margin_calls on the jobs' own sql."
+  },
+  {
+    "file": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The live jobs carry no margin-mode switch or haircut number.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts#owner numbers not invented — no new bps/haircut constants copied into jobs/index"
+    },
+    "why": "@ts-expect-error proves FuturesJobsDeps (what index.ts builds the jobs from) has no margin-mode switch or haircut slot. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts",
+    "target": "../private-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "POST /positions/margin-mode stays a 501 NotSupported; the REST positions list never nets isolated margin into a cross book.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts#POST /positions/margin-mode stays 501 — no live switch product"
+    },
+    "why": "Builds the private REST app and POSTs margin-mode (501 NotSupported trade.margin_mode_unsupported, the published arm 501); presentOpenPositions over two isolated rows keeps each row's margin and adds markSource null only."
+  },
+  {
+    "file": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure switches or aggregates a margin mode.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts#router.ts has no margin-mode recut"
+    },
+    "why": "Builds the trade router and asserts no mounted procedure path names a margin-mode switch, isolated or cross margin."
+  },
+  {
+    "file": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts",
+    "target": "futures-jobs.ts",
+    "verdict": "rewrite",
+    "asserts": "The live jobs carry no margin-mode switch or haircut number.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts#owner numbers not invented — no new bps/haircut constants copied into jobs/index"
+    },
+    "why": "@ts-expect-error proves FuturesJobsDeps (what index.ts builds the jobs from) has no margin-mode switch or haircut slot. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts",
+    "target": "margin-mode.ts",
+    "verdict": "rewrite",
+    "asserts": "A switch attempt is checked then audited, never posts or rewrites, and its refusals carry no invented bps or haircut.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts#mill attempt is check-then-audit — no ledger post, no margin_mode rewrite"
+    },
+    "why": "Runs attemptMarginModeSwitch admitted and refused (one audit row each with the check's answer, zero ledger entries) and every refusal of checkMarginModeSwitch (no bps or haircut figure)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "listOpen keeps each isolated position's own initial margin; nothing is netted as a cross book.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts#listOpen / presentOpenPositions do not net isolated IM as a cross book"
+    },
+    "why": "Lists two isolated rows through a PositionService over a sql stub and asserts 10000 and 25000 each, no 35000 or shared field."
+  },
+  {
+    "file": "services/svc-trade/src/futures/mark-from-venue.test.ts",
+    "target": "../env.ts",
+    "verdict": "delete",
+    "asserts": "The venue mark factory knows okx-spot.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/mark-from-venue.test.ts#okx-spot → real public MarketDataAdapter, reached by its id"
+    },
+    "why": "The test read the wording of a boot log line and an env comment; that okx-spot resolves to a real adapter is asserted by that test and 'the three ids resolve to DIFFERENT adapters'."
+  },
+  {
+    "file": "services/svc-trade/src/futures/mark-from-venue.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "The venue mark factory knows okx-spot.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/mark-from-venue.test.ts#okx-spot → real public MarketDataAdapter, reached by its id"
+    },
+    "why": "The test read the wording of a boot log line and an env comment; that okx-spot resolves to a real adapter is asserted by that test and 'the three ids resolve to DIFFERENT adapters'."
+  },
+  {
+    "file": "services/svc-trade/src/futures/matched-liquidation.money.test.ts",
+    "target": "futures-jobs.ts",
+    "verdict": "rewrite",
+    "asserts": "The live tick pulls a trader's growing orders from the bound matched-order book before any rung.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#pulls the trader’s growing orders from the matched-order book"
+    },
+    "why": "The text read is replaced by the wiring test, which runs the live liquidation job with a bound matched port and asserts the tick receives that port and its increasingOrders; this test's behaviour assertions are unchanged."
+  },
+  {
+    "file": "services/svc-trade/src/futures/options-rfq.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure is an options RFQ door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/options-rfq.money.test.ts#router.ts / matching not recut"
+    },
+    "why": "Builds the trade router and asserts no procedure path names an options RFQ (the OTC desk's spot rfq.* are left); the svc-matching file-name walk is kept."
+  },
+  {
+    "file": "services/svc-trade/src/futures/options-rfq.money.test.ts",
+    "target": "options-rfq.ts",
+    "verdict": "rewrite",
+    "asserts": "RFQ capacity comes from TRADE_OPTIONS_RFQ_CAPACITY and refuses blank before any post; the book's leverage cap is never inherited.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/options-rfq.money.test.ts#options-rfq.ts refuses unset capacity and does not copy book leverage"
+    },
+    "why": "With the env blank, quoteOptionsRfq refuses naming the env and never posts; with capacity set and no off-book cap, a book cap of 10, '10' or 1 still refuses; a named off-book cap (input or env) is used as given."
+  },
+  {
+    "file": "services/svc-trade/src/futures/portfolio-margin-refuse.money.test.ts",
+    "target": "../private-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "POST /positions/margin-mode answers 501 NotSupported: isolated at open is the only mode.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/portfolio-margin-refuse.money.test.ts#POST /positions/margin-mode stays 501 — isolated-at-open only"
+    },
+    "why": "Injects a signed POST into the private REST door and asserts 501 NotSupported trade.margin_mode_unsupported."
+  },
+  {
+    "file": "services/svc-trade/src/futures/portfolio-margin-refuse.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure switches a margin mode or offers portfolio margin.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/portfolio-margin-refuse.money.test.ts#router.ts has no margin-mode recut"
+    },
+    "why": "Builds the trade router and asserts no procedure path names a margin mode or portfolio margin."
+  },
+  {
+    "file": "services/svc-trade/src/futures/portfolio-margin-refuse.money.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "Open refuses every mode checkMarginModeForFuturesOpen refuses, with its code, before any margin lock or position row; the admitted mode locks.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/portfolio-margin-refuse.money.test.ts#open path calls checkMarginModeForFuturesOpen before futuresMarginLock"
+    },
+    "why": "Moved into the Postgres F1 suite: opens with cross, portfolio, cash and an unknown mode reject with the check's own code, leave zero futures.margin.lock posts, no row and available untouched; isolated then locks once."
+  },
+  {
+    "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure reads or switches the position mode, and the matching engine carries no position-mode code.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut"
+    },
+    "why": "Builds the trade router and asserts no procedure names a position mode; the svc-matching file-name walk is kept. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
+    "target": "../ledger-client.ts",
+    "verdict": "rewrite",
+    "asserts": "Loading the ledger client at boot installs the position-mode hitch beside the pre-trade caps.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#live boot hitch next to F5; F5 mill not recut"
+    },
+    "why": "Imports ledger-client in a fresh module graph and asserts the real classes carry both hitches' install marks. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure reads or switches the position mode, and the matching engine carries no position-mode code.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut"
+    },
+    "why": "Builds the trade router and asserts no procedure names a position mode; the svc-matching file-name walk is kept. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
+    "target": "position-mode.ts",
+    "verdict": "rewrite",
+    "asserts": "An unknown or missing position mode is refused before the original open or place runs, and nothing is closed or cancelled instead.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#position-mode.ts has no flatten and refuses unset"
+    },
+    "why": "Installs the real position-mode hitches on stand-in classes: an unknown mode on open and a futures order with none are refused with nothing reaching the originals or any close/cancel; a named mode and a spot order pass through."
+  },
+  {
+    "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure reads or switches the position mode, and the matching engine carries no position-mode code.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut"
+    },
+    "why": "Builds the trade router and asserts no procedure names a position mode; the svc-matching file-name walk is kept. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
+    "target": "pretrade-credit.ts",
+    "verdict": "rewrite",
+    "asserts": "Loading the ledger client at boot installs the position-mode hitch beside the pre-trade caps.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#live boot hitch next to F5; F5 mill not recut"
+    },
+    "why": "Imports ledger-client in a fresh module graph and asserts the real classes carry both hitches' install marks. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/position-service-list-closed-limit-unset-refuse.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "listClosed never invents a 100-row page or clamps an out-of-range limit into one.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-service-list-closed-limit-unset-refuse.test.ts#position-service.ts does not invent 100 via default or clamp"
+    },
+    "why": "Calls PositionService.listClosed with 0, -1, 501 and 1.5 (refused trade.list_closed_limit_unset before any SQL) and with 7 (the query carries 7, never 100)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure reads or sets the owner caps; the services meet them only through the hitch.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#router.ts / trade-service.ts / position-service.ts / index.ts not recut"
+    },
+    "why": "Builds the trade router and asserts no procedure names a cap; the PG suite in the same file holds the real place and open refusing before hold and lock. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
+    "target": "../ledger-client.ts",
+    "verdict": "rewrite",
+    "asserts": "Loading the service's ledger client at boot installs the caps on the real place and open; the live jobs carry no cap.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#live boot loads mill; jobs/index do not copy owner fixtures"
+    },
+    "why": "Imports ledger-client in a fresh module graph and asserts the real PositionService and TradeService carry the hitches' install marks; @ts-expect-error proves FuturesJobsDeps has no cap slot. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure reads or sets the owner caps; the services meet them only through the hitch.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#router.ts / trade-service.ts / position-service.ts / index.ts not recut"
+    },
+    "why": "Builds the trade router and asserts no procedure names a cap; the PG suite in the same file holds the real place and open refusing before hold and lock. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
+    "target": "futures-jobs.ts",
+    "verdict": "rewrite",
+    "asserts": "Loading the service's ledger client at boot installs the caps on the real place and open; the live jobs carry no cap.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#live boot loads mill; jobs/index do not copy owner fixtures"
+    },
+    "why": "Imports ledger-client in a fresh module graph and asserts the real PositionService and TradeService carry the hitches' install marks; @ts-expect-error proves FuturesJobsDeps has no cap slot. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
+    "target": "position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "No tRPC procedure reads or sets the owner caps; the services meet them only through the hitch.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#router.ts / trade-service.ts / position-service.ts / index.ts not recut"
+    },
+    "why": "Builds the trade router and asserts no procedure names a cap; the PG suite in the same file holds the real place and open refusing before hold and lock. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
+    "target": "pretrade-credit.ts",
+    "verdict": "rewrite",
+    "asserts": "Unset owner caps refuse new risk before any hold or lock, published caps (0 included) pass the input on untouched, and reducing risk is never refused; nothing is flattened.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#pretrade-credit.ts has no default numbers and does not flatten"
+    },
+    "why": "Installs the real place and open hitches on stand-in classes and drives them with each cap unset (refused by name, original never runs), reduce-only with caps unset (passes) and all caps 0 (original runs once on the same input, nothing closed)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
+    "target": "pretrade-limits.ts",
+    "verdict": "rewrite",
+    "asserts": "Unset owner caps refuse new risk before any hold or lock, published caps (0 included) pass the input on untouched, and reducing risk is never refused; nothing is flattened.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#pretrade-credit.ts has no default numbers and does not flatten"
+    },
+    "why": "Installs the real place and open hitches on stand-in classes and drives them with each cap unset (refused by name, original never runs), reduce-only with caps unset (passes) and all caps 0 (original runs once on the same input, nothing closed)."
+  },
+  {
+    "file": "services/svc-trade/src/futures/pretrade-limits.test.ts",
+    "target": "position-service.ts",
+    "verdict": "delete",
+    "asserts": "Reducing risk is never blocked by the owner pre-trade limits: closes, reduce-only orders, liquidation and settlement are exempt.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/pretrade-limits.money.test.ts#close is never refused: exempt even with every limit at 0 and a loss on the book"
+    },
+    "why": "That Postgres test closes a losing position with every limit at 0 and asserts it closes while a new open is refused; 'a reduce-only order above TRADE_MAX_ORDER is never refused' holds the spot reduce-only door; the liquidation, ADL and dated-settlement paths take no limits port and their own behaviour tests liquidate and settle with none."
+  },
+  {
+    "file": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "Production liquidation jobs get null published limits until the owner publishes them: blank env is no publication.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts#production liquidation jobs pass null published limits until the owner publishes them"
+    },
+    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "Production liquidation jobs get null published limits until the owner publishes them: blank env is no publication.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts#production liquidation jobs pass null published limits until the owner publishes them"
+    },
+    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts",
+    "target": "./futures-jobs.ts",
+    "verdict": "rewrite",
+    "asserts": "Production liquidation jobs get null published limits until the owner publishes them: blank env is no publication.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts#production liquidation jobs pass null published limits until the owner publishes them"
+    },
+    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  },
+  {
+    "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
+    "target": "../ledger-client.ts",
+    "verdict": "rewrite",
+    "asserts": "Loading the ledger client at boot installs the collateral haircut on the real open.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts#a blank haircut and a staked class each refuse before open"
+    },
+    "why": "Imports ledger-client in a fresh module graph and asserts the real PositionService carries the haircut hitch's install mark."
+  },
+  {
+    "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
+    "target": "liquidation-tick.ts",
+    "verdict": "rewrite",
+    "asserts": "The live liquidation tick posts only recipes the sub-account loss gate passed.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts#a posted liquidation leaves the sibling available and hold unchanged, and a sibling leg is refused"
+    },
+    "why": "The text read is replaced by liquidation-tick-post-guard.test.ts, which runs the live tick with the gate observed: every post was gated first, and a refused recipe is never posted."
+  },
+  {
+    "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
+    "target": "position-service.ts",
+    "verdict": "delete",
+    "asserts": "setLeverage claims its adjustment, so a replayed request does not move margin twice.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/position-service.test.ts#a lost successful response replays the stored result without advancing sequence or moving margin twice"
+    },
+    "why": "That test replays the same setLeverage input against Postgres and asserts the stored result comes back with no second sequence and no second margin move; the same file's concurrent test holds the race."
+  },
+  {
+    "file": "services/svc-trade/src/futures/venue-mark-stream-env-passthrough.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "/health's venue stream flag is what TRADE_VENUE_MARK_STREAM says: off unless set on.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/venue-mark-stream-env-passthrough.test.ts#live host passes TRADE_VENUE_MARK_STREAM into presentVenueLatencyHealth"
+    },
+    "why": "Loads the service env unset and set, and asserts presentVenueLatencyHealth reports off and on from those values. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+  }
+]

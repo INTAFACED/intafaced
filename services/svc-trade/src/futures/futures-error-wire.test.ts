@@ -7,14 +7,8 @@
  * 5. Paths: futures-error-wire.ts, private-rest.ts
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { presentFuturesErrorWire } from './futures-error-wire.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const privateRestSource = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
 
 describe('presentFuturesErrorWire', () => {
   it('unnamed pot on open is NotSupported and not retryable', () => {
@@ -46,9 +40,5 @@ describe('presentFuturesErrorWire', () => {
     });
     expect(body).toEqual({ error: 'trade.mark_unusable', message: 'dark' });
     expect(body).not.toHaveProperty('retry');
-  });
-
-  it('private-rest sends FuturesError through presentFuturesErrorWire', () => {
-    expect(privateRestSource).toContain('presentFuturesErrorWire');
   });
 });

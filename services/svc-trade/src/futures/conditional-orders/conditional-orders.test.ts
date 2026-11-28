@@ -11,6 +11,7 @@ import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { FuturesError } from '../position-service.js';
+import { tradeEnvWith } from '../testing/doors.js';
 import { conditionalTriggerScheduled, startConditionalOrderJobs } from './job.js';
 import { CONDITIONAL_ORDERS_PATH, ENTRY_PROTECTION_PATH, RESTING_ORDERS_PATH, registerConditionalOrdersRest } from './rest.js';
 import { FUTURES_RESTING_UNSUPPORTED, refuseFuturesRestingLimit } from './resting.js';
@@ -149,12 +150,8 @@ describe('trigger and trail', () => {
 
 describe('conditional job flag', () => {
   it('ships default off and does not schedule when the flag or the interval is blank', () => {
-    const env = readFileSync(join(root, 'services/svc-trade/src/env.ts'), 'utf8');
-    const decl = /TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED:\s*([\s\S]{0,220})/.exec(env);
-    expect(decl?.[1]).toContain('.default(false)');
-    expect(decl?.[1]).not.toContain('.default(true)');
-    const index = readFileSync(join(root, 'services/svc-trade/src/index.ts'), 'utf8');
-    expect(index).toMatch(/enabled:\s*env\.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED/);
+    expect(tradeEnvWith({}, ['TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED']).TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED).toBe(false);
+    expect(tradeEnvWith({ TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED: 'true' }).TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED).toBe(true);
     const compose = readFileSync(join(root, 'docker-compose.apps.yml'), 'utf8');
     expect(compose).toMatch(/TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED:\s*\$\{TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED:-false\}/);
     const off = startConditionalOrderJobs({ config: { enabled: false, intervalMs: 1_000 }, evaluate: async () => undefined });

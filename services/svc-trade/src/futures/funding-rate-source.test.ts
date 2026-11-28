@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { fixedFundingRateSource, isRateFresh, memoryFundingRateBook, periodIdFor } from './funding-rate-source.js';
 
@@ -116,11 +115,20 @@ describe('fixedFundingRateSource', () => {
 });
 
 describe('no invented 8h freshness default', () => {
-  it('source does not pin a typical funding interval', () => {
-    const src = readFileSync(new URL('./funding-rate-source.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/8 \* 60 \* 60/);
-    expect(src).not.toMatch(/28_?800_?000/);
-    expect(src).not.toMatch(/typical funding interval/);
+  it('source does not pin a typical funding interval', async () => {
+    // A fresh rate with no maxAgeMs named quotes nothing: there is no 8 h (or any) freshness window of its own.
+    const book = memoryFundingRateBook({ now: () => 1_000_000 });
+    book.set({ marketId: 'm1', rate: '0.0001', periodId: 'p1', asOfMs: 1_000_000 });
+    const at = new Date(1_000_000 + 60_000);
+    expect(await book.source().quote({ marketId: 'm1', at })).toBeNull();
+    // Just inside and just past an 8 h window: the named policy alone decides.
+    const eightHours = 8 * 60 * 60 * 1000;
+    expect(await book.source({ maxAgeMs: eightHours }).quote({ marketId: 'm1', at: new Date(1_000_000 + eightHours) })).toEqual({
+      rate: '0.0001',
+      periodId: 'p1',
+      marketId: 'm1',
+    });
+    expect(await book.source({ maxAgeMs: 1000 }).quote({ marketId: 'm1', at })).toBeNull();
   });
 });
 

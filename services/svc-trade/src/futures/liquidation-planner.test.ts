@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { planLiquidation, summarizeLiquidation, unrealizedPnl } from './liquidation-planner.js';
 
@@ -169,7 +168,14 @@ describe('liquidation-planner', () => {
   });
 
   it('does not invent a 50% maintenance table', () => {
-    const src = readFileSync(new URL('./liquidation-planner.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/maintenanceBps\s*\?\?\s*5000/);
+    // Equity 4000 on 10000 margin is below a 50% maintenance line, yet still positive.
+    const position = { ...base, entryPrice: amt('100000'), margin: amt('10000') };
+    const omitted = planLiquidation({ liquidationId: 'liq-no-table', position, markPrice: '94000' });
+    expect(omitted).toMatchObject({ liquidate: false, equity: amt('4000') });
+    // Only a named maintenance line (a fixture, not product law) liquidates it.
+    expect(planLiquidation({ liquidationId: 'liq-no-table', position, markPrice: '94000', maintenanceBps: 5000 })).toMatchObject({
+      liquidate: true,
+      reason: 'below_maintenance',
+    });
   });
 });

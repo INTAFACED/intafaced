@@ -9,18 +9,27 @@
  * 7. Collision: none — new file only
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'futures-policy.ts'), 'utf8');
+import { presentFuturesJobsCapabilityNote } from './futures-policy.js';
 
 describe('capabilities futures note does not invent D3 bps', () => {
   it('ladderNumbers stays d3_unset and maintenanceBps is absent', () => {
-    expect(src).toMatch(/ladderNumbers:\s*'d3_unset'/);
-    expect(src).not.toMatch(/maintenanceBps/);
-    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
+    // Every flag on: the note still names the ladder as unset and carries no maintenance number.
+    const note = presentFuturesJobsCapabilityNote({
+      jobsEnabled: true,
+      orderableEnabled: true,
+      profitSourceConfigured: true,
+      fundingMaxAbsRateConfigured: true,
+      fundingMarketCount: 2,
+      venueMarkConfigured: true,
+      fundingIntervalConfigured: true,
+    });
+    expect(note.ladderNumbers).toBe('d3_unset');
+    expect(note).not.toHaveProperty('maintenanceBps');
+    expect(JSON.stringify(note)).not.toMatch(/maintenanceBps|tiers|uptoDepthBps/);
+    // The presenter has no input for a ladder: none can be handed to it.
+    // @ts-expect-error presentFuturesJobsCapabilityNote takes no maintenanceBps
+    const smuggled = presentFuturesJobsCapabilityNote({ maintenanceBps: 50 });
+    expect(smuggled).not.toHaveProperty('maintenanceBps');
   });
 });

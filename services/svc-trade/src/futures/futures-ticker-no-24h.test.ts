@@ -10,15 +10,9 @@
  * 7. Collision: none — public-rest.test.ts covers the stats-present path at runtime
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseAmount } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
 import { presentTicker } from '../public-rest.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, '..', 'public-rest.ts'), 'utf8');
 
 const print = {
   id: 'p1',
@@ -39,10 +33,5 @@ describe('presentTicker does not invent 24h rollups', () => {
         expect(wire[field]).toBeNull();
       }
     }
-  });
-
-  it('does not copy last print into high/low', () => {
-    expect(src).not.toMatch(/high:\s*lastPrice/);
-    expect(src).not.toMatch(/low:\s*lastPrice/);
   });
 });

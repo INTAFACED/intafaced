@@ -9,16 +9,15 @@
  * 7. Collision: #1869 listOpen pin
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const indexSource = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+import { presentInsuranceListingPolicy } from './insurance-listing-gate.js';
+import { describeFuturesPolicy } from './futures-policy.js';
 
 describe('insurance listing policy on /health', () => {
   it('live host mounts presentInsuranceListingPolicy on /health', () => {
-    expect(indexSource).toMatch(/insuranceListing:\s*presentInsuranceListingPolicy\(\)/);
+    // The listing policy the host reports: an empty pot blocks a live list, and the target size stays the owner's.
+    expect(presentInsuranceListingPolicy()).toEqual({ emptyPotBlocksLiveList: true, targetSize: 'owner_unset' });
+    // The public policy door reports the same one.
+    expect(describeFuturesPolicy({}).insuranceListing).toEqual(presentInsuranceListingPolicy());
   });
 });

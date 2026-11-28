@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { durableMarginCallNotifier, memoryMarginCallStore, presentMarginCallWire } from './margin-call-transport.js';
@@ -14,7 +11,6 @@ import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 import type { LedgerClient, PostRequest } from '@intafaced/ledger-client';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const USER = '11111111-1111-4111-8111-111111111111';
 const AT = new Date('2026-08-12T12:00:00.000Z');
 const amt = (s: string) => parseAmount(s);
@@ -169,14 +165,5 @@ describe('D26-P1-T1b — tick delivers into durable store', () => {
     expect(row!.userId).toBe(USER);
     expect(row!.deliveredAt).toEqual(AT);
     expect(row!.healthBps).toBeGreaterThan(0);
-  });
-});
-
-describe('D26-P1-T1b — jobs wire (source pin)', () => {
-  it('futures-jobs assembles durable notifier into the liquidation tick', () => {
-    const src = readFileSync(join(HERE, 'futures-jobs.ts'), 'utf8');
-    expect(src).toContain('durableMarginCallNotifier');
-    expect(src).toContain('sqlMarginCallStore');
-    expect(src).toContain('notifyMarginCall');
   });
 });

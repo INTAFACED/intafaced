@@ -9,19 +9,17 @@
  * 7. Collision: none — ccxt-errors.test.ts asserts runtime; this pins the factory
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, '..', 'ccxt-errors.ts'), 'utf8');
+import { notSupported } from '../ccxt-errors.js';
 
 describe('notSupported does not look like a retryable throttle', () => {
   it('is 501 and has no retryAfter in the factory', () => {
-    const fn = src.match(/export function notSupported[\s\S]*?^}/m)?.[0] ?? '';
-    expect(fn).toMatch(/status:\s*501/);
-    expect(fn).toMatch(/code:\s*'NotSupported'/);
-    expect(fn).not.toMatch(/retryAfter/);
+    const wire = notSupported('setMarginMode is not available', 'trade.margin_mode_unsupported');
+    expect(wire).toEqual({
+      status: 501,
+      body: { code: 'NotSupported', message: 'setMarginMode is not available', intafacedCode: 'trade.margin_mode_unsupported' },
+    });
+    expect(wire.body).not.toHaveProperty('retryAfter');
+    expect(wire).not.toHaveProperty('retryAfter');
   });
 });

@@ -9,16 +9,18 @@
  * 7. Collision: #1866 public-rest listing — this PR only health + venue-latency-health
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const indexSource = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+import { tradeEnvWith } from './testing/doors.js';
+import { presentVenueLatencyHealth } from './venue-latency-health.js';
 
 describe('venue mark stream env passthrough into /health', () => {
   it('live host passes TRADE_VENUE_MARK_STREAM into presentVenueLatencyHealth', () => {
-    expect(indexSource).toMatch(/presentVenueLatencyHealth\([\s\S]*streamEnabled:\s*env\.TRADE_VENUE_MARK_STREAM/);
+    // Unset is off; set on is on; the health line reports exactly what the env says.
+    const unset = tradeEnvWith({}, ['TRADE_VENUE_MARK_STREAM']).TRADE_VENUE_MARK_STREAM;
+    const on = tradeEnvWith({ TRADE_VENUE_MARK_STREAM: 'true' }).TRADE_VENUE_MARK_STREAM;
+    expect(unset).toBe(false);
+    expect(on).toBe(true);
+    expect(presentVenueLatencyHealth(null, new Date(), { streamEnabled: unset }).streamEnabled).toBe(false);
+    expect(presentVenueLatencyHealth(null, new Date(), { streamEnabled: on }).streamEnabled).toBe(true);
   });
 });

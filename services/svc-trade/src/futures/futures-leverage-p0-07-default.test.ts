@@ -12,24 +12,35 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseAmount } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
+import { tradeEnvWith } from './testing/doors.js';
+import { LEVERAGE_CAP_UNSET, parseConfiguredMaxLeverage, resolveMaxLeverage } from './initial-margin.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..', '..', '..');
-const production = readFileSync(join(here, 'initial-margin.ts'), 'utf8');
-const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-const envSrc = readFileSync(join(root, 'services/svc-trade/src/env.ts'), 'utf8');
 const compose = readFileSync(join(root, 'docker-compose.apps.yml'), 'utf8');
 const envExample = readFileSync(join(root, '.env.example'), 'utf8');
 
 describe('production refuses an unset owner leverage cap', () => {
   it('initial-margin.ts names the typed refusal and no default magnitude', () => {
-    expect(production).not.toMatch(/DEFAULT_MAX_LEVERAGE/);
-    expect(production).toMatch(/LEVERAGE_CAP_UNSET = 'trade\.leverage_cap_unset'/);
+    expect(LEVERAGE_CAP_UNSET).toBe('trade.leverage_cap_unset');
+    // No cap in, no cap out: neither the parser nor the resolver supplies a magnitude of its own.
+    expect(parseConfiguredMaxLeverage('')).toBeNull();
+    expect(parseConfiguredMaxLeverage('   ')).toBeNull();
+    expect(resolveMaxLeverage()).toBeNull();
+    expect(resolveMaxLeverage(null)).toBeNull();
+    expect(resolveMaxLeverage(0n)).toBeNull();
+    // A named cap is kept exactly; a non-positive one refuses boot.
+    expect(parseConfiguredMaxLeverage('5')).toBe(parseAmount('5'));
+    expect(resolveMaxLeverage(parseAmount('5'))).toBe(parseAmount('5'));
+    expect(() => parseConfiguredMaxLeverage('0')).toThrow(/positive decimal or empty/);
+    // The open path then refuses with this code and locks nothing: position-service.test.ts
+    // ("refuses to OPEN when the listing leverage cap is unset, and locks nothing").
   });
 
   it('env.ts leaves the owner source empty', () => {
-    expect(envSrc).toMatch(/TRADE_FUTURES_MAX_LEVERAGE:\s*z\.string\(\)\.default\(''\)/);
+    expect(tradeEnvWith({}, ['TRADE_FUTURES_MAX_LEVERAGE']).TRADE_FUTURES_MAX_LEVERAGE).toBe('');
   });
 
   it('compose passes through empty rather than pinning a raise', () => {
@@ -43,7 +54,9 @@ describe('production refuses an unset owner leverage cap', () => {
   });
 
   it('live host preserves the nullable parse result', () => {
-    expect(indexSrc).toMatch(/const maxLeverage = parseConfiguredMaxLeverage\(env\.TRADE_FUTURES_MAX_LEVERAGE\)/);
-    expect(indexSrc).not.toMatch(/resolveMaxLeverage\(parseConfiguredMaxLeverage/);
+    // The host parses the env value it loaded; unset stays null all the way (no resolve step adds a number).
+    const parsed = parseConfiguredMaxLeverage(tradeEnvWith({}, ['TRADE_FUTURES_MAX_LEVERAGE']).TRADE_FUTURES_MAX_LEVERAGE);
+    expect(parsed).toBeNull();
+    expect(resolveMaxLeverage(parsed)).toBeNull();
   });
 });

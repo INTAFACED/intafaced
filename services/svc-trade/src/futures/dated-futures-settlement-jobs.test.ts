@@ -4,9 +4,6 @@
  * Blank TRADE_FUTURES_SETTLEMENT_FIXING refuses. Owner decimal posts
  * ledger-client recipes. lastTrade / mark are ignored. Env default stays empty.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   MemoryLedger,
@@ -20,8 +17,8 @@ import {
 } from '@intafaced/ledger-client';
 import { DATED_FUTURES_SETTLEMENT_PRICE_UNSET, datedSettlementIdFor } from './dated-futures-settlement.js';
 import { startFuturesJobs } from './futures-jobs.js';
+import { tradeEnvWith } from './testing/doors.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
 const POS = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -89,24 +86,9 @@ function mockSql() {
 }
 
 describe('H6 JobHost dated settlement source', () => {
-  it('schedules futures.dated_settlement via scan; never last-trade as owner price', () => {
-    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
-    expect(jobs).toMatch(/host\.every\('futures\.dated_settlement'/);
-    expect(jobs).toMatch(/runDatedFuturesSettlementScan/);
-    expect(jobs).toMatch(/settlementFixingConfigured:\s*deps\.config\.settlementFixing/);
-    expect(jobs).not.toMatch(/ownerSettlementPriceFor:\s*deps\.lastTradePrice/);
-    expect(jobs).not.toMatch(/ownerSettlementPrice:\s*(deps\.)?lastTrade/);
-    expect(jobs).not.toMatch(/ownerSettlementPriceFor:\s*[\s\S]{0,80}markPrice/);
-    const mill = readFileSync(join(here, 'dated-futures-settlement.ts'), 'utf8');
-    expect(mill).toMatch(/void input\.lastTradePrice/);
-    expect(mill).toMatch(/void input\.markPrice/);
-    expect(mill).not.toMatch(/exitPrice:\s*input\.lastTradePrice/);
-    const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
-    expect(envSrc).toMatch(/TRADE_FUTURES_SETTLEMENT_FIXING:\s*z\.string\(\)\.default\(''\)/);
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(indexSrc).toMatch(/settlementFixing:\s*env\.TRADE_FUTURES_SETTLEMENT_FIXING/);
-    expect(indexSrc).not.toMatch(/ownerSettlementPriceFor/);
-    expect(indexSrc).not.toMatch(/TRADE_FUTURES_SETTLEMENT_FIXING:\s*['"][0-9]/);
+  it('TRADE_FUTURES_SETTLEMENT_FIXING defaults blank in the service env, never a number', () => {
+    expect(tradeEnvWith({}, ['TRADE_FUTURES_SETTLEMENT_FIXING']).TRADE_FUTURES_SETTLEMENT_FIXING).toBe('');
+    expect(tradeEnvWith({ TRADE_FUTURES_SETTLEMENT_FIXING: 'owner-stamp' }, []).TRADE_FUTURES_SETTLEMENT_FIXING).toBe('owner-stamp');
   });
 });
 
