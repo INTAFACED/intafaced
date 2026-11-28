@@ -226,12 +226,15 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
   });
 
   it('blocking to advisory waits 24 hours: still refused a second before, warned (not refused) once the 24 hours are up', async () => {
-    const asked = now().getTime();
+    // The clock runs on in real time, so the ask's own moment lies between the two reads around it; the wait is exactly
+    // 24 hours from that moment, which the answer names.
+    const before = now().getTime();
     const view = await limits.set(principal, { owner, limit: '3', mode: 'advisory' });
-    expect(view).toMatchObject({
-      active: { mode: 'blocking', limit: '3' },
-      pending: { terms: { mode: 'advisory', limit: '3' }, effectiveAt: new Date(asked + LOOSENING_WAIT_MS).toISOString() },
-    });
+    const after = now().getTime();
+    expect(view).toMatchObject({ active: { mode: 'blocking', limit: '3' }, pending: { terms: { mode: 'advisory', limit: '3' } } });
+    const asked = Date.parse(view.pending!.effectiveAt) - LOOSENING_WAIT_MS;
+    expect(asked).toBeGreaterThanOrEqual(before);
+    expect(asked).toBeLessThanOrEqual(after);
     // The next UTC day, a minute before the 24 hours are up: today's loss starts at zero, so an opening order passes.
     // TEST: 1 ETH-PERP bought at 3001 and all 1.3 held sold reduce-only at 2999, a loss past the limit of 3 again.
     at(asked + LOOSENING_WAIT_MS - 60_000);
