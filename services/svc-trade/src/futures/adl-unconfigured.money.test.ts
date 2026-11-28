@@ -232,6 +232,99 @@ describe('ADL unconfigured hitch — no ranking, no default maxReduceBps', () =>
   });
 });
 
+describe('ADL consumes the owner-chosen order on every path (no ranking, no reduce default)', () => {
+  const DAVE = '44444444-4444-4444-8444-444444444444';
+  const CAND_UNACKED = 'eeeeeeee-0000-4eee-8eee-000000000001';
+  const CAND_SAME_SIDE = 'eeeeeeee-0000-4eee-8eee-000000000002';
+  const CAND_OTHER_MARKET = 'eeeeeeee-0000-4eee-8eee-000000000003';
+  /** Two eligible candidates of very different size and three that are never eligible, in every order. */
+  const pool: readonly AdlCandidate[] = [
+    { positionId: CAND_SMALL, userId: BOB, marketId: MARKET, side: 'short', size: amt('1') },
+    { positionId: CAND_LARGE, userId: CAROL, marketId: MARKET, side: 'short', size: amt('99') },
+    { positionId: CAND_UNACKED, userId: DAVE, marketId: MARKET, side: 'short', size: amt('500') },
+    { positionId: CAND_SAME_SIDE, userId: BOB, marketId: MARKET, side: 'long', size: amt('700') },
+    { positionId: CAND_OTHER_MARKET, userId: CAROL, marketId: 'ffffffff-ffff-4fff-8fff-ffffffffffff', side: 'short', size: amt('900') },
+  ];
+  const eligible = new Set([CAND_SMALL, CAND_LARGE]);
+  function permutations<T>(items: readonly T[]): T[][] {
+    if (items.length <= 1) return [[...items]];
+    return items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]));
+  }
+
+  it('runAdlLastResort reduces the first eligible candidate in the order given, by the owner cap only', async () => {
+    for (const order of permutations(pool)) {
+      for (const maxReduceBps of [2_500, 10_000]) {
+        const reducer = recordingReducer();
+        const given = order.map((c) => c.positionId);
+        const first = order.find((c) => eligible.has(c.positionId))!;
+        const outcome = await runAdlLastResort(
+          await unconfiguredInput({
+            policy: { maxReduceBps },
+            events: memoryAdlDisclosureEventStore(),
+            candidates: order,
+            reducer,
+            newEventId: eventIds(),
+          }),
+        );
+        expect(outcome, given.join()).toMatchObject({ action: 'reduced', candidatePositionId: first.positionId });
+        expect((outcome as { sizeReduced: bigint }).sizeReduced).toBe((first.size * BigInt(maxReduceBps)) / 10_000n);
+        expect(reducer.order).toEqual([first.positionId]);
+        expect(order.map((c) => c.positionId)).toEqual(given);
+      }
+    }
+    // Every policy that names no valid cap refuses, whatever the order: there is no default of the mill's own.
+    for (const policy of [null, partial<AdlOwnerPolicy>({}), { maxReduceBps: 0 }, { maxReduceBps: 1.5 }, { maxReduceBps: 10_001 }]) {
+      for (const order of permutations(pool.slice(0, 3))) {
+        const outcome = await runAdlLastResort(
+          await unconfiguredInput({ policy: policy as AdlOwnerPolicy | null, events: memoryAdlDisclosureEventStore(), candidates: order }),
+        );
+        expect(outcome).toMatchObject({ action: 'refused', code: ADL_UNCONFIGURED });
+      }
+    }
+  });
+
+  it('parkUnderfundedWithAdl hands the candidates on in the order given, and refuses without both owner settings', async () => {
+    const acks = memoryAdlDisclosureStore();
+    await acks.recordAck(BOB, ADL_DISCLOSURE_VERSION, AT);
+    await acks.recordAck(CAROL, ADL_DISCLOSURE_VERSION, AT);
+    const row = { positionId: BANKRUPT, userId: ALICE, marketId: MARKET, side: 'long' as const };
+    for (const order of permutations(pool)) {
+      const reducer = recordingReducer();
+      const first = order.find((c) => eligible.has(c.positionId))!;
+      await parkUnderfundedWithAdl({
+        adl: {
+          policy: { maxReduceBps: 10_000 },
+          ranking: TEST_ADL_RANKING,
+          candidates: order,
+          reducer,
+          disclosureAcks: acks,
+          events: memoryAdlDisclosureEventStore(),
+          newEventId: eventIds(),
+        },
+        row,
+        fromInsurance: amt('10'),
+        insuranceReason: 'insurance underfunded',
+        at: AT,
+      });
+      expect(reducer.order, order.map((c) => c.positionId).join()).toEqual([first.positionId]);
+      for (const adl of [
+        { policy: null, ranking: TEST_ADL_RANKING },
+        { policy: { maxReduceBps: 10_000 } },
+        { policy: partial<AdlOwnerPolicy>({}), ranking: TEST_ADL_RANKING },
+      ]) {
+        const parked = await parkUnderfundedWithAdl({
+          adl: { ...adl, candidates: order, reducer: throwingReducer(), disclosureAcks: acks, events: memoryAdlDisclosureEventStore() },
+          row,
+          fromInsurance: amt('10'),
+          insuranceReason: 'insurance underfunded',
+          at: AT,
+        });
+        expect(parked.reason).toBe(ADL_UNCONFIGURED);
+      }
+    }
+  });
+});
+
 describe('ADL unconfigured mill (hermetic)', () => {
   it('null policy + two opposing candidates → trade.adl_unconfigured; reducer idle; no disclosure rows', async () => {
     const events = memoryAdlDisclosureEventStore();
@@ -362,59 +455,5 @@ describe('svc-trade ADL unconfigured F4 money', () => {
     expect(parked.reason).toBe(ADL_UNCONFIGURED);
     const rows = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM trade.adl_action_disclosures`;
     expect(rows[0]!.n).toBe('0');
-  });
-});
-
-// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
-// Each pin below stays until an importable host assembly holds the same property by behaviour.
-describe('kept source pins', () => {
-  it('futures-jobs.ts / index.ts do not set maxReduceBps or rank candidates (kept source pin)', () => {
-    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
-    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(jobs).not.toMatch(/maxReduceBps/);
-    expect(jobs).not.toMatch(/WIDE_POLICY/);
-    expect(jobs).not.toMatch(/candidates\.sort\s*\(/);
-    expect(jobs).toMatch(/ADL omitted/);
-    expect(index).not.toMatch(/maxReduceBps/);
-    expect(index).not.toMatch(/WIDE_POLICY/);
-    expect(index).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}adl:/);
-  });
-
-  it('adl-last-resort.ts has no maxReduceBps default and does not sort/rank candidates (kept source pin)', () => {
-    const mill = readFileSync(join(here, 'adl-last-resort.ts'), 'utf8');
-    expect(mill).not.toMatch(/maxReduceBps\s*=/);
-    expect(mill).toMatch(/for \(const candidate of input\.candidates\)/);
-    expect(mill).toMatch(/This module does not rank/);
-    expect(mill).toMatch(/owner-chosen order/);
-    expect(mill).not.toMatch(/candidates\.sort\s*\(/);
-    expect(mill).not.toMatch(/input\.candidates\.slice\([^)]*\)\.sort/);
-    expect(mill).not.toMatch(/\[\s*\.\.\.\s*input\.candidates\s*\]\.sort/);
-    const runStart = mill.indexOf('export async function runAdlLastResort');
-    const runEnd = mill.indexOf('export function memoryAdlDisclosureEventStore');
-    expect(runStart).toBeGreaterThan(-1);
-    expect(runEnd).toBeGreaterThan(runStart);
-    const runFn = mill.slice(runStart, runEnd);
-    expect(runFn).not.toMatch(/\.sort\s*\(/);
-    expect(runFn).not.toMatch(/leverage\s*score/i);
-  });
-
-  it('liquidation-adl-gate.ts does not rank or invent maxReduceBps (kept source pin)', () => {
-    const gate = readFileSync(join(here, 'liquidation-adl-gate.ts'), 'utf8');
-    expect(gate).not.toMatch(/maxReduceBps\s*=/);
-    expect(gate).not.toMatch(/candidates\.sort\s*\(/);
-    expect(gate).not.toMatch(/\.sort\s*\(/);
-    expect(gate).toMatch(/does not rank/);
-    expect(gate).toMatch(/owner-chosen order/);
-    expect(gate).toMatch(/refuseReducer/);
-    expect(gate).toMatch(/parkUnderfundedWithAdl/);
-  });
-
-  it('router.ts not recut (kept source pin)', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/runAdlLastResort/);
-    expect(routerSrc).not.toMatch(/parkUnderfundedWithAdl/);
-    expect(routerSrc).not.toMatch(/adl-last-resort/);
-    expect(routerSrc).not.toMatch(/adl-unconfigured/);
-    expect(routerSrc).not.toMatch(/maxReduceBps/);
   });
 });

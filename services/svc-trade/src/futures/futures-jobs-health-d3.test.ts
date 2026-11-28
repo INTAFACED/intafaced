@@ -9,14 +9,8 @@
  * 7. Collision: #1918 host D3 pin (index.ts) — this file does not read index.ts
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { presentFuturesJobsHealth } from './futures-jobs-health.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('/health futuresJobs does not invent D3', () => {
   it('presenter has no maintenanceBps, ladder, or 8h interval echo', () => {
@@ -41,17 +35,39 @@ describe('/health futuresJobs does not invent D3', () => {
     });
     expect(JSON.stringify(smuggled)).not.toMatch(/28800000/);
   });
-});
 
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  const src = readFileSync(join(here, 'futures-jobs-health.ts'), 'utf8');
-
-  it('presenter has no maintenanceBps, ladder, or 8h interval echo (kept source pin)', () => {
-    expect(src).not.toMatch(/maintenanceBps/);
-    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
-    expect(src).not.toMatch(/28_?800_?000|28800000/);
-    expect(src).toMatch(/fundingIntervalConfigured/);
+  it('no export of futures-jobs-health carries a maintenance number, a ladder or an interval, on any input', async () => {
+    const loads: string[] = [];
+    vi.resetModules();
+    vi.doMock('./ladder-policy.test-harness.js', async (importOriginal) => {
+      loads.push('harness');
+      return importOriginal();
+    });
+    try {
+      const health = await import('./futures-jobs-health.js');
+      expect(Object.keys(health).sort()).toEqual(['LIQUIDATION_NOT_SCHEDULED', 'liquidationJobAlerts', 'presentFuturesJobsHealth']);
+      const answers: unknown[] = [health.LIQUIDATION_NOT_SCHEDULED, health.liquidationJobAlerts(true), health.liquidationJobAlerts(false)];
+      for (const enabled of [true, false]) {
+        for (const count of [0, 1, 3]) {
+          for (const flag of [true, false, undefined]) {
+            const answer = health.presentFuturesJobsHealth({
+              enabled,
+              fundingMarketCount: count,
+              fundingMaxAbsRateConfigured: flag === true,
+              fundingIntervalConfigured: flag,
+              venueMarkConfigured: flag,
+            });
+            expect(answer.fundingIntervalConfigured).toBe(flag === true);
+            answers.push(answer);
+          }
+        }
+      }
+      for (const answer of answers)
+        expect(JSON.stringify(answer)).not.toMatch(/maintenanceBps|uptoDepthBps|tiers"|28_?800_?000|intervalMs/);
+      expect(loads).toEqual([]);
+    } finally {
+      vi.doUnmock('./ladder-policy.test-harness.js');
+      vi.resetModules();
+    }
   });
 });

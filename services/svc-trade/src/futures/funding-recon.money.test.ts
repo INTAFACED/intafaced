@@ -134,7 +134,13 @@ describe('funding recon hitch (source) — one recipe, no invented rate', () => 
         });
       }
       expect(() => requireOwnerFundingRate(rate)).toThrow(/unset/);
+      // The recon of all five surfaces refuses the same way: there is no recipe to settle from.
+      expect(reconFundingSurfaces({ ...BASE, rate }), String(rate)).toMatchObject({ ok: false, code: FUNDING_RATE_UNSET });
     }
+    // The settle surface's recipes are the plan's own, leg for leg.
+    const recon = reconFundingSurfaces({ ...BASE, rate: OWNER_RATE });
+    if (!recon.ok) throw new Error('owner rate must reconcile');
+    expect(settleRecipesFromRecon(recon)).toEqual(plan.map((leg) => leg.recipe));
   });
 
   it('funding-tick.ts still plans via planFundingSettlement; no invented rate', async () => {
@@ -174,6 +180,12 @@ describe('funding recon hitch (source) — one recipe, no invented rate', () => 
     const none = await run(null);
     expect(none.result).toMatchObject({ status: 'skipped', reason: 'no_rate' });
     expect(none.posts).toEqual([]);
+    // A quote with a blank or unusable rate is not a zero rate: nothing is posted for it either.
+    for (const rate of ['', '  ', 'not-a-rate']) {
+      const blank = await run({ marketId: BASE.marketId, rate, periodId: BASE.periodId });
+      expect(blank.posts, JSON.stringify(rate)).toEqual([]);
+      expect(blank.result.status, JSON.stringify(rate)).not.toBe('settled');
+    }
   });
 
   it('router.ts / svc-ledger (crates/svc-ledger) not recut', () => {
@@ -271,37 +283,5 @@ describe('svc-trade funding recon F7 money', () => {
     }
     const pays = ledger.journal().filter((tx) => tx.reason === recipes.futuresFundingPay.name || tx.reason.includes('funding'));
     expect(pays.length).toBe(recon.legs.length);
-  });
-});
-
-// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
-// Each pin below stays until an importable host assembly holds the same property by behaviour.
-describe('kept source pins', () => {
-  it('funding-recon.ts uses planFundingSettlement and does not invent a rate (kept source pin)', () => {
-    const mill = readFileSync(join(here, 'funding-recon.ts'), 'utf8');
-    expect(mill).toMatch(/planFundingSettlement/);
-    expect(mill).toMatch(/requireOwnerFundingRate/);
-    expect(mill).toMatch(/predict/);
-    expect(mill).toMatch(/accrue/);
-    expect(mill).toMatch(/settle/);
-    expect(mill).toMatch(/correct/);
-    expect(mill).toMatch(/report/);
-    expect(mill).not.toMatch(/rate\s*=\s*['"]0['"]/);
-    expect(mill).not.toMatch(/\?\?\s*['"]0/);
-  });
-
-  it('funding-tick.ts still plans via planFundingSettlement; no invented rate (kept source pin)', () => {
-    const tick = readFileSync(join(here, 'funding-tick.ts'), 'utf8');
-    expect(tick).toMatch(/planFundingSettlement/);
-    expect(tick).toMatch(/never invent/);
-  });
-
-  it('router.ts / svc-ledger (crates/svc-ledger) not recut (kept source pin)', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/funding-recon/);
-    expect(routerSrc).not.toMatch(/funding_recon_diverged/);
-    const ledgerDir = join(repoRoot, 'crates', 'svc-ledger', 'src');
-    const ledgerFiles = readdirSync(ledgerDir, { recursive: true, encoding: 'utf8' }) as string[];
-    expect(ledgerFiles.some((f) => String(f).includes('funding-recon'))).toBe(false);
   });
 });

@@ -11,14 +11,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { fakeMarket, presentCcxtMarket } from '../public-rest.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('listed markets do not invent perp contract or funding fields', () => {
   it('reads contractSize and settle only from the stored listing; expiry is listed dated or null; leverage min is null', () => {
@@ -62,31 +56,38 @@ describe('listed markets do not invent perp contract or funding fields', () => {
     expect(wire).not.toHaveProperty('indexPrice');
     expect(JSON.stringify(wire)).not.toMatch(/fundingRate|nextFundingTimestamp|indexPrice/);
   });
-});
 
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  const src = readFileSync(join(here, '..', 'public-rest.ts'), 'utf8');
-
-  const presenter = src.match(/export function presentCcxtMarket[\s\S]*?^}/m)?.[0] ?? '';
-
-  it('extracts presentCcxtMarket (kept source pin)', () => {
-    expect(presenter).toMatch(/export function presentCcxtMarket/);
-  });
-
-  it('reads contractSize and settle only from the stored listing; expiry is listed dated or null; leverage min is null (kept source pin)', () => {
-    expect(presenter).toMatch(/contractSize:\s*isFutures && market\.contractSize != null \? formatAmount\(market\.contractSize\)/);
-    expect(presenter).not.toMatch(/contractSize:\s*'\d/);
-    expect(presenter).toMatch(/settle:\s*settleAsset/);
-    expect(presenter).toMatch(/listedExpiry \? listedExpiry\.getTime\(\) : \(null as number \| null\)/);
-    expect(presenter).not.toMatch(/expiry:\s*\d+/);
-    expect(presenter).toMatch(/min:\s*null as string \| null/);
-  });
-
-  it('does not attach a funding quote to the listing (kept source pin)', () => {
-    expect(presenter).not.toMatch(/fundingRate/);
-    expect(presenter).not.toMatch(/nextFundingTimestamp/);
-    expect(presenter).not.toMatch(/indexPrice/);
+  it('on every kind, style, stored size, expiry and flag, invents no contract size, expiry, leverage min or funding quote', () => {
+    const expiry = new Date('2026-12-26T08:00:00.000Z');
+    for (const kind of ['spot', 'futures', 'options'] as const) {
+      for (const futuresContractStyle of [undefined, null, 'perpetual', 'dated'] as const) {
+        for (const futuresExpiryAt of [undefined, null, expiry, new Date(Number.NaN)] as const) {
+          for (const contractSize of [undefined, null, parseAmount('0.01'), parseAmount('1')] as const) {
+            for (const flags of [{}, { futuresOrderable: true, futuresMaxLeverage: '5' }, { futuresMaxLeverage: null }]) {
+              const market = {
+                ...fakeMarket({ symbol: 'BTC/USDT-261226', kind }),
+                ...(futuresContractStyle !== undefined ? { futuresContractStyle } : {}),
+                ...(futuresExpiryAt !== undefined ? { futuresExpiryAt } : {}),
+                ...(contractSize !== undefined ? { contractSize } : {}),
+              };
+              const wire = presentCcxtMarket(market as never, 0, flags);
+              const label = `${kind} ${String(futuresContractStyle)} ${String(futuresExpiryAt)} ${String(contractSize)} ${JSON.stringify(flags)}`;
+              const listedExpiry =
+                kind === 'futures' &&
+                futuresContractStyle === 'dated' &&
+                futuresExpiryAt instanceof Date &&
+                !Number.isNaN(futuresExpiryAt.getTime())
+                  ? futuresExpiryAt
+                  : null;
+              expect(wire.contractSize, label).toBe(kind === 'futures' && contractSize != null ? formatAmount(contractSize) : null);
+              expect(wire.expiry, label).toBe(listedExpiry ? listedExpiry.getTime() : null);
+              expect(wire.expiryDatetime, label).toBe(listedExpiry ? listedExpiry.toISOString() : null);
+              expect(wire.limits.leverage.min, label).toBeNull();
+              expect(JSON.stringify(wire), label).not.toMatch(/fundingRate|nextFundingTimestamp|indexPrice/);
+            }
+          }
+        }
+      }
+    }
   });
 });

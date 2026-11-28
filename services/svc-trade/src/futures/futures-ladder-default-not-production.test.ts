@@ -15,12 +15,6 @@ import { ownerLadderPolicy } from './futures-ladder-owner-gate.js';
 import { futuresJobsHostDeps } from './futures-jobs-host.js';
 import * as harness from './ladder-policy.test-harness.js';
 import * as production from './maintenance-ladder.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 /** Every value a module exports, and every value nested inside them, flattened. */
 function exportedValues(mod: object): unknown[] {
@@ -77,36 +71,6 @@ describe('production ladder module does not ship invented D3 rungs', () => {
     const published = JSON.stringify(harness.DEFAULT_FUTURES_LADDER_POLICY);
     expect(ownerLadderPolicy(tradeEnvWith({ TRADE_FUTURES_LADDER_POLICY: published }).TRADE_FUTURES_LADDER_POLICY)).toEqual(
       harness.DEFAULT_FUTURES_LADDER_POLICY,
-    );
-  });
-});
-
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  const production = readFileSync(join(here, 'maintenance-ladder.ts'), 'utf8');
-
-  const harness = readFileSync(join(here, 'ladder-policy.test-harness.ts'), 'utf8');
-
-  // futuresJobsHostDeps's own ladder is held by behaviour in this file's first test.
-  const jobsHost = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-
-  it('does not export DEFAULT_FUTURES_LADDER_POLICY (kept source pin)', () => {
-    expect(production).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
-  });
-
-  it('does not embed the placeholder depth-tier table (kept source pin)', () => {
-    expect(production).not.toMatch(/uptoDepthBps:\s*500,\s*maintenanceBps:\s*50/);
-  });
-
-  it('keeps the placeholder only in the test harness (kept source pin)', () => {
-    expect(harness).toMatch(/export const DEFAULT_FUTURES_LADDER_POLICY/);
-    expect(harness).toMatch(/Test-only ladder numbers/);
-  });
-
-  it('live host passes no ladder but the owner\u2019s published setting (kept source pin)', () => {
-    expect(jobsHost).not.toMatch(
-      /startFuturesJobs\([\s\S]{0,1500}ladderPolicy:(?!\s*ownerLadderPolicy\(env\.TRADE_FUTURES_LADDER_POLICY\))/,
     );
   });
 });

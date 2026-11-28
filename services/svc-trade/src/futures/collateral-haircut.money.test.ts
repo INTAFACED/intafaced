@@ -18,7 +18,7 @@ import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
-import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { memoryMarkBook } from './mark-source.js';
 import { type OpenPositionInput } from './position-service.js';
@@ -28,8 +28,10 @@ import {
   MARGIN_IS_NOT_A_LOAN,
   UNSUPPORTED_COLLATERAL_CLASS,
   checkPostedMarginCollateral,
+  readOwnerHaircutBps,
   withCollateralHaircutOpen,
 } from './collateral-haircut.js';
+import { COLLATERAL_CLASSES, checkCollateralClassForMargin } from './margin-mode.js';
 
 // The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
 const LayeredPositionService = layeredPositionService(withCollateralHaircutOpen);
@@ -94,28 +96,89 @@ describe('collateral haircut hitch (source) — no invented bps, not a loan', ()
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('collateral-haircut.ts has no default 0/10 and does not lend IM', () => {
-    const mill = readFileSync(join(here, 'collateral-haircut.ts'), 'utf8');
-    expect(mill).toMatch(/checkPostedMarginCollateral/);
-    expect(mill).toMatch(/checkCollateralClassForMargin/);
-    expect(mill).toMatch(/super\.open\(/);
-    expect(mill).toMatch(/refuse rather than invent a haircut/);
-    expect(mill).toMatch(/posted margin is not a loan/);
-    expect(mill).not.toMatch(/haircutBps\s*=\s*0/);
-    expect(mill).not.toMatch(/haircutBps\s*=\s*10/);
-    expect(mill).not.toMatch(/\?\?\s*0/);
-    expect(mill).not.toMatch(/\?\?\s*10/);
+  it('collateral-haircut.ts has no default 0/10 and does not lend IM', async () => {
+    // Every path of the check, with no haircut named anywhere: each one refuses, none is a 0 or 10 of its own.
+    delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
+    expect(readOwnerHaircutBps()).toBeUndefined();
+    for (const collateralClass of [undefined, null, '', 'cash', ...COLLATERAL_CLASSES, 'unknown']) {
+      for (const haircutBps of [undefined, null, '', '  ']) {
+        const check = checkPostedMarginCollateral({ collateralClass, haircutBps });
+        expect(check.ok, `${String(collateralClass)} ${String(haircutBps)}`).toBe(false);
+        expect([HAIRCUT_UNSET, UNSUPPORTED_COLLATERAL_CLASS], String(collateralClass)).toContain((check as { code: string }).code);
+      }
+      // A loan refuses first, whatever else is named.
+      expect(checkPostedMarginCollateral({ collateralClass, haircutBps: '1000', asLoan: true })).toMatchObject({
+        ok: false,
+        code: MARGIN_IS_NOT_A_LOAN,
+      });
+    }
+    // A named haircut is used exactly, from the input or from the owner's env; the input wins.
+    expect(checkPostedMarginCollateral({ haircutBps: '1000' })).toEqual({ ok: true, haircutBps: 1000 });
+    process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '250';
+    expect(checkPostedMarginCollateral({})).toEqual({ ok: true, haircutBps: 250 });
+    expect(checkPostedMarginCollateral({ collateralClass: 'cash', haircutBps: '1000' })).toEqual({ ok: true, haircutBps: 1000 });
+    expect(checkPostedMarginCollateral({ collateralClass: 'staked' })).toMatchObject({ ok: false, code: UNSUPPORTED_COLLATERAL_CLASS });
+    delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
+    // The open layer refuses before the base open on a refused check, and hands every passing open to the base unchanged.
+    const seen: unknown[] = [];
+    class Base {
+      async open(input: unknown) {
+        seen.push(input);
+        return { opened: true };
+      }
+    }
+    const Layered = withCollateralHaircutOpen(Base as never) as unknown as new () => Base;
+    await expect(new Layered().open({ clientOpenId: 'x' })).rejects.toMatchObject({
+      name: 'FuturesError',
+      code: HAIRCUT_UNSET,
+      status: 400,
+    });
+    await expect(new Layered().open({ clientOpenId: 'y', asLoan: true, haircutBps: '1000' })).rejects.toMatchObject({
+      code: MARGIN_IS_NOT_A_LOAN,
+    });
+    expect(seen).toEqual([]);
+    const passing = { clientOpenId: 'z', haircutBps: '1000', collateralClass: 'cash' };
+    await expect(new Layered().open(passing)).resolves.toEqual({ opened: true });
+    expect(seen).toEqual([passing]);
   });
 
-  it('router.ts / margin-mode.ts / position-service.ts not recut', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    const marginSrc = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
-    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/collateral-haircut/);
-    expect(routerSrc).not.toMatch(/haircut_unset/);
-    expect(posSrc).not.toMatch(/collateral-haircut/);
-    expect(marginSrc).toMatch(/unsupported_collateral_class/);
-    expect(marginSrc).not.toMatch(/TRADE_COLLATERAL_HAIRCUT_BPS/);
+  it('router.ts / margin-mode.ts / position-service.ts not recut', async () => {
+    // The router and the position service never load this mill (futures-module-reach.test.ts). margin-mode.ts names
+    // the collateral refusal and never reads the haircut: every export is driven with the env read through a recorder.
+    expect(checkCollateralClassForMargin('yield_bearing')).toMatchObject({ ok: false, code: 'trade.unsupported_collateral_class' });
+    const reads = new Set<string>();
+    const realEnv = process.env;
+    process.env = new Proxy(realEnv, {
+      get: (target, key) => {
+        if (typeof key === 'string') reads.add(key);
+        return Reflect.get(target, key);
+      },
+    });
+    const driven: string[] = [];
+    try {
+      vi.resetModules();
+      const mode = await import('./margin-mode.js');
+      void process.env.TRADE_HAIRCUT_PROBE;
+      const fakeSql = Object.assign(() => Promise.resolve([]), { unsafe: () => Promise.resolve([]) });
+      for (const [name, value] of Object.entries(mode)) {
+        if (typeof value !== 'function') continue;
+        driven.push(name);
+        for (const arg of [undefined, 'cash', 'isolated', 'cross', 'portfolio', 'staked', {}, fakeSql]) {
+          try {
+            await (value as (...a: unknown[]) => unknown)(arg, mode.memoryMarginModeSwitchAudit());
+          } catch {
+            // A refusal is an answer; only the env reads matter here.
+          }
+        }
+      }
+    } finally {
+      process.env = realEnv;
+      vi.resetModules();
+    }
+    expect(driven.length).toBeGreaterThan(5);
+    // The recorder sees a read made through it (the probe above), so an empty list means none was made.
+    expect(reads.has('TRADE_HAIRCUT_PROBE')).toBe(true);
+    expect([...reads].filter((k) => /HAIRCUT/.test(k) && k !== 'TRADE_HAIRCUT_PROBE')).toEqual([]);
   });
 });
 

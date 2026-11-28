@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { fixedFundingRateSource, isRateFresh, memoryFundingRateBook, periodIdFor } from './funding-rate-source.js';
+import { fixedFundingRateSource, isRateFresh, memoryFundingRateBook, periodIdFor, preferFundingRateSource } from './funding-rate-source.js';
 
 /** Test-only magnitude bound — NOT product law (D2). */
 const FIXTURE_FUNDING_MAX_ABS = '1';
 import { memoryFundingMarginApplier, memoryFundingPeriodStore, runFundingTick } from './funding-tick.js';
 import { parseAmount as amt, type PostRequest } from '@intafaced/ledger-client';
 import type { FundingOpenPosition } from './funding-settlement.js';
-import { readFileSync } from 'node:fs';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -131,6 +130,37 @@ describe('no invented 8h freshness default', () => {
     });
     expect(await book.source({ maxAgeMs: 1000 }).quote({ marketId: 'm1', at })).toBeNull();
   });
+
+  it('no export has an 8h boundary of its own: only a named policy draws one', async () => {
+    const eightHours = 8 * 60 * 60 * 1000;
+    const ages = [0, 1, eightHours - 1, eightHours, eightHours + 1, 3 * eightHours];
+    const entry = { marketId: 'm1', rate: '0.0001', periodId: 'p1', asOfMs: 1_000_000 };
+    const quoteAt = (src: { quote(i: { marketId: string; at: Date }): Promise<unknown> }, age: number) =>
+      src.quote({ marketId: 'm1', at: new Date(entry.asOfMs + age) });
+    for (const age of ages) {
+      // Book with no policy, on the book or on the source: nothing quotes, at any age.
+      const bare = memoryFundingRateBook({ now: () => entry.asOfMs + age });
+      bare.set(entry);
+      expect(await quoteAt(bare.source(), age), `bare ${age}`).toBeNull();
+      // A named window decides alone, on the book or on the source, at its own edge and not at 8h.
+      for (const maxAgeMs of [1_000, eightHours * 2]) {
+        const named = memoryFundingRateBook({ now: () => entry.asOfMs + age, policy: { maxAgeMs } });
+        named.set(entry);
+        const fresh = age <= maxAgeMs;
+        expect(Boolean(await quoteAt(named.source(), age)), `book ${maxAgeMs} ${age}`).toBe(fresh);
+        expect(Boolean(await quoteAt(bare.source({ maxAgeMs }), age)), `source ${maxAgeMs} ${age}`).toBe(fresh);
+        expect(isRateFresh(entry, entry.asOfMs + age, maxAgeMs), `isRateFresh ${maxAgeMs} ${age}`).toBe(fresh);
+      }
+      // maxAgeMs 0 is the explicit "no age limit" choice; it never becomes 8h.
+      expect(isRateFresh(entry, entry.asOfMs + age, 0)).toBe(true);
+      // The fixed source and the preferring source pass a quote on unchanged, whatever its age.
+      const fixed = fixedFundingRateSource({ marketId: 'm1', rate: '0.0001', periodId: 'p1' });
+      expect(await quoteAt(fixed, age)).toEqual({ marketId: 'm1', rate: '0.0001', periodId: 'p1' });
+      expect(await quoteAt(preferFundingRateSource(bare.source(), fixed), age)).toEqual({ marketId: 'm1', rate: '0.0001', periodId: 'p1' });
+      expect(await quoteAt(preferFundingRateSource(bare.source(), fixedFundingRateSource(null)), age)).toBeNull();
+    }
+    expect(periodIdFor('m1', '2026-07-31T00:00:00.000Z')).toBe('m1:2026-07-31T00:00:00.000Z');
+  });
 });
 
 describe('isRateFresh', () => {
@@ -208,16 +238,5 @@ describe('integration: rate book → funding tick', () => {
     );
     expect(result.status).toBe('settled');
     expect(posts.length).toBeGreaterThan(0);
-  });
-});
-
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  it('source does not pin a typical funding interval (kept source pin)', () => {
-    const src = readFileSync(new URL('./funding-rate-source.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/8 \* 60 \* 60/);
-    expect(src).not.toMatch(/28_?800_?000/);
-    expect(src).not.toMatch(/typical funding interval/);
   });
 });

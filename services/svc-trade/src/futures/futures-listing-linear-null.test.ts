@@ -12,12 +12,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { fakeMarket, presentCcxtMarket } from '../public-rest.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('listed markets do not invent linear/inverse without settle', () => {
   it('derives linear and inverse from the stored family, never from the kind', () => {
@@ -54,24 +48,34 @@ describe('listed markets do not invent linear/inverse without settle', () => {
     const wire = presentCcxtMarket(stored);
     expect(wire).toMatchObject({ linear: true, inverse: false, settle: 'USDT', family: 'linear', settleAsset: 'USDT' });
   });
-});
 
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  const src = readFileSync(join(here, '..', 'public-rest.ts'), 'utf8');
-
-  const presenter = src.match(/export function presentCcxtMarket[\s\S]*?^}/m)?.[0] ?? '';
-
-  it('extracts presentCcxtMarket (kept source pin)', () => {
-    expect(presenter).toMatch(/export function presentCcxtMarket/);
-  });
-
-  it('derives linear and inverse from the stored family, never from the kind (kept source pin)', () => {
-    expect(presenter).toMatch(/linear:\s*family === null \? \(null as boolean \| null\) : family === 'linear'/);
-    expect(presenter).toMatch(/inverse:\s*family === null \? \(null as boolean \| null\) : family === 'inverse'/);
-    expect(presenter).toMatch(/settle:\s*settleAsset/);
-    expect(presenter).not.toMatch(/linear:\s*isSpot \? null : true/);
-    expect(presenter).not.toMatch(/inverse:\s*isSpot \? null : false/);
+  it('on every kind, family and settle asset, publishes only what the listing stored, never from the kind or symbol', () => {
+    for (const kind of ['spot', 'futures', 'options'] as const) {
+      for (const futuresFamily of [undefined, null, 'linear', 'inverse'] as const) {
+        for (const futuresSettleAsset of [undefined, null, 'USDT', 'BTC'] as const) {
+          for (const symbol of ['BTC/USDT', 'BTC/USDT-PERP', 'BTC/USD:BTC', 'BTC/USDT-261226']) {
+            const market = {
+              ...fakeMarket({ symbol, kind, quoteAsset: 'USDT' }),
+              ...(futuresFamily !== undefined ? { futuresFamily } : {}),
+              ...(futuresSettleAsset !== undefined ? { futuresSettleAsset } : {}),
+            };
+            const wire = presentCcxtMarket(market as never);
+            const family = kind === 'futures' ? (futuresFamily ?? null) : null;
+            const settle = kind === 'futures' ? (futuresSettleAsset ?? null) : null;
+            const label = `${kind} ${String(futuresFamily)} ${String(futuresSettleAsset)} ${symbol}`;
+            expect(
+              { linear: wire.linear, inverse: wire.inverse, family: wire.family, settle: wire.settle, settleAsset: wire.settleAsset },
+              label,
+            ).toEqual({
+              linear: family === null ? null : family === 'linear',
+              inverse: family === null ? null : family === 'inverse',
+              family,
+              settle,
+              settleAsset: settle,
+            });
+          }
+        }
+      }
+    }
   });
 });
