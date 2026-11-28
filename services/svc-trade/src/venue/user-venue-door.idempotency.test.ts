@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
@@ -233,15 +233,12 @@ describe('UserVenueDoor: an order over the API with an Idempotency-Key (J-develo
 
   it('a finished order is read from the venue once; an open one on every list (#11264: an open desk polls every 2 s)', async () => {
     const store = new InMemoryPreparedActionStore();
-    let reads = 0;
+    let sent = () => 0;
     const d = new UserVenueDoor({
       connect: async () => {
         const v = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 });
-        const read = v.orderByClientId.bind(v);
-        v.orderByClientId = async (...args) => {
-          reads += 1;
-          return read(...args);
-        };
+        const spy = vi.spyOn(v, 'orderByClientId');
+        sent = () => spy.mock.calls.length;
         return v;
       },
       appEnv: 'test',
@@ -269,16 +266,16 @@ describe('UserVenueDoor: an order over the API with an Idempotency-Key (J-develo
     const resting = await d.prepare(viewer, { owner, signer, intent: buy(), idempotencyKey: 'bot-2:open:1' });
     await d.submit(viewer, resting.actionKey, await sign(resting.prepared));
 
-    reads = 0;
+    const before = sent();
     const first = await d.orders(viewer, owner, undefined, undefined);
     expect(first.orders.map((o) => [o.actionKey, o.order?.status])).toEqual([
       [filled.actionKey, 'filled'],
       [resting.actionKey, 'open'],
     ]);
-    expect(reads).toBe(2);
+    expect(sent() - before).toBe(2);
     const second = await d.orders(viewer, owner, undefined, undefined);
     // Only the open order is asked again: a filled order's record never changes.
-    expect(reads).toBe(3);
+    expect(sent() - before).toBe(3);
     expect(second.orders.map((o) => [o.actionKey, o.order?.status])).toEqual(first.orders.map((o) => [o.actionKey, o.order?.status]));
     expect(second.orders[0]).toEqual(first.orders[0]);
   });
