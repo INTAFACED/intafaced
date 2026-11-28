@@ -1,12 +1,14 @@
-import { accountLimitResultSchema } from '@intafaced/contracts';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError } from '@/lib/founder-session';
-import { founderCall, parseWith, founderRecordCall } from '@/lib/desk/founder-call';
+import { founderRecordCall } from '@/lib/desk/founder-call';
 import { readLimitClearForm, readLimitSetForm } from '@/lib/accounts/limits-forms';
 import { limitsAnswer } from '@/lib/accounts/limits-server';
-import { IDENTITY_ACCOUNT_CONTROLS_LIMITS_CLEAR } from '@intafaced/contracts/identity-account-controls-procedures';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_CLEAR,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET,
+} from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * One founder's change to a customer's limit override (J-ops-console-04 #12): `{ action: 'set', ... }` sets one at or under
@@ -40,7 +42,7 @@ export async function POST(request: Request) {
       { status: 400, headers: { 'cache-control': 'no-store' } },
     );
   const result = set
-    ? await founderCall(session, 'identity', 'accountControls.limitsSet', 'POST', set, parseWith(accountLimitResultSchema))
+    ? await founderRecordCall(session, IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET, set)
     : await founderRecordCall(session, IDENTITY_ACCOUNT_CONTROLS_LIMITS_CLEAR, clear!);
   return limitsAnswer(result, (set ?? clear)!.userId);
 }

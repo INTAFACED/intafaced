@@ -52,3 +52,25 @@ export const IDENTITY_WEBAUTHN_REGISTER_OPTIONS = defineProcedure({
   output: registrationOptions,
   samples: [{ verdict: 'accept' }],
 });
+
+/** Limit required — omit never dumps credentials. */
+export const IDENTITY_WEBAUTHN_LIST = defineProcedure({
+  ...base,
+  name: 'identity.webauthn.list',
+  kind: 'query',
+  path: 'webauthn.list',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(200) }),
+  output: z.array(
+    z.object({
+      credentialId: z.string(),
+      createdAt: z.string(),
+      transports: z.array(z.string()).optional(),
+    }),
+  ),
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

@@ -56,7 +56,6 @@ import {
   ApiKeysListLimitUnsetError,
   KycPendingLimitUnsetError,
   KycRecordsListLimitUnsetError,
-  SUB_ACCOUNT_KINDS,
   SubAccountsListLimitUnsetError,
   WebauthnListLimitUnsetError,
   type AuthService,
@@ -122,7 +121,7 @@ import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedD
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { SocialError, SocialSignin } from './social/social-signin.js';
-import { signinMethodTrpc, walletAnswerFields, walletChallengeInput, walletChallengeOutput } from './signin-methods-router.js';
+import { signinMethodTrpc } from './signin-methods-router.js';
 import { userCopy } from './user-copy.js';
 import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -177,6 +176,9 @@ import {
   IDENTITY_AUTH_REGISTER,
   IDENTITY_AUTH_FOUNDER_ENROLMENT_STATUS,
   IDENTITY_AUTH_REFRESH,
+  IDENTITY_AUTH_LOGOUT,
+  IDENTITY_AUTH_WALLET_CHALLENGE,
+  IDENTITY_AUTH_WALLET_SIGN_IN,
 } from '@intafaced/contracts/identity-auth-procedures';
 import {
   IDENTITY_WAITLIST_WAVES_LIST,
@@ -209,7 +211,11 @@ import {
   IDENTITY_KYC_GET_DOCUMENT,
   IDENTITY_KYC_STATUS,
 } from '@intafaced/contracts/identity-kyc-procedures';
-import { IDENTITY_SUB_ACCOUNTS_CREATE, IDENTITY_SUB_ACCOUNTS_REVOKE } from '@intafaced/contracts/identity-sub-accounts-procedures';
+import {
+  IDENTITY_SUB_ACCOUNTS_CREATE,
+  IDENTITY_SUB_ACCOUNTS_REVOKE,
+  IDENTITY_SUB_ACCOUNTS_LIST,
+} from '@intafaced/contracts/identity-sub-accounts-procedures';
 import {
   IDENTITY_AFFILIATES_MY_PARTNER_APPLICATION,
   IDENTITY_AFFILIATES_PARTNER_ELIGIBILITY,
@@ -234,6 +240,7 @@ import {
   IDENTITY_WEBAUTHN_REMOVE,
   IDENTITY_WEBAUTHN_AUTH_OPTIONS,
   IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+  IDENTITY_WEBAUTHN_LIST,
 } from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
 import {
@@ -1837,10 +1844,9 @@ export function createIdentityRouter(
        * Wallet sign-in, step 1 (I-account-lifecycle-07): the EIP-4361 message a wallet signs, single use. The same answer
        * for every wallet, linked or not.
        */
-      walletChallenge: publicProcedure
-        .input(walletChallengeInput)
-        .output(walletChallengeOutput)
-        .mutation(async ({ input }) => {
+      walletChallenge: mountRecord(
+        IDENTITY_AUTH_WALLET_CHALLENGE,
+        async ({ input }) => {
           try {
             return await auth.walletSigninChallenge({
               address: input.address,
@@ -1850,24 +1856,17 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Wallet sign-in, step 2: the signature from a wallet an account linked signs that account in, and its second step
        * still follows. An unlinked wallet answers `auth.invalid_credentials`; the challenge is spent either way.
        */
-      walletSignIn: publicProcedure
-        .input(
-          z
-            .object({
-              ...walletAnswerFields,
-              totpCode: z.string().trim().min(1).max(64).optional(),
-              deviceKey: z.string().min(16).max(128).optional(),
-            })
-            .strict(),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      walletSignIn: mountRecord(
+        IDENTITY_AUTH_WALLET_SIGN_IN,
+        async ({ input, ctx }) => {
           try {
             return sessionWire(
               ctx,
@@ -1876,7 +1875,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * New-device sign-in (I-signin-sessions-07), from the waiting browser: the code mailed to the account approves this
@@ -1939,15 +1940,16 @@ export function createIdentityRouter(
         kycProfileRefusal,
       ),
 
-      logout: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
-        .output(z.object({ ok: z.literal(true) }))
-        .mutation(async ({ input, ctx }) => {
+      logout: mountRecord(
+        IDENTITY_AUTH_LOGOUT,
+        async ({ input, ctx }) => {
           const token = input?.refreshToken ?? ctx.refreshCookie?.presented ?? '';
           if (token) await auth.logout(token);
           ctx.refreshCookie?.clear();
           return { ok: true as const };
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       // The signed-in person only: an API key or a sub-account token must not sign its owner out everywhere.
       logoutAll: mountRecord(
@@ -2435,25 +2437,18 @@ export function createIdentityRouter(
         }),
 
       /** Limit required — omit never dumps credentials. */
-      list: protectedProcedure
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(
-          z.array(
-            z.object({
-              credentialId: z.string(),
-              createdAt: z.string(),
-              transports: z.array(z.string()).optional(),
-            }),
-          ),
-        )
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        IDENTITY_WEBAUTHN_LIST,
+        async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
             return await auth.listWebauthnCredentials(ctx.principal.userId, input.limit);
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Retire one enrolled authenticator. Self-only via principal.
@@ -3458,23 +3453,9 @@ export function createIdentityRouter(
       ),
 
       /** Limit required — omit never dumps partitions. */
-      list: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(
-          z.array(
-            z.object({
-              id: z.string().guid(),
-              label: z.string(),
-              purpose: z.string().nullable(),
-              revoked: z.boolean(),
-              frozen: z.boolean(),
-              kind: z.enum(SUB_ACCOUNT_KINDS),
-              nickname: z.string().nullable(),
-              createdAt: z.string(),
-            }),
-          ),
-        )
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        IDENTITY_SUB_ACCOUNTS_LIST,
+        async ({ ctx, input }) => {
           try {
             const rows = await auth.listSubAccounts(ctx.principal.userId, input.limit);
             return rows.map((r) => ({
@@ -3490,7 +3471,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * Soft-disable. Self-only via principal.userId → parent_user_id.

@@ -21,6 +21,8 @@ import {
 } from '@intafaced/contracts/watchlists-preferences';
 import { useSession } from '../session';
 import { rebaseAndWrite, type CommitOutcome, type RecordIo, type RecordUpdate } from './rebase';
+import { callAs } from '../../shared/api';
+import { IDENTITY_PREFERENCES_GET } from '@intafaced/contracts/identity-preferences-procedures';
 
 export type RecordStatus = 'loading' | 'ready' | 'signed-out' | 'error';
 export type { CommitOutcome, RecordUpdate } from './rebase';
@@ -38,7 +40,7 @@ export interface RecordStore<T> {
 /** The stored reply of a set: the record as the account now holds it, with the outcome. */
 export const watchlistsStoredSchema = watchlistsPreferenceSchema.extend({ outcome: z.literal('stored') });
 /** The stored reply of a saved-screens set (`trade.screens`). */
-export const savedScreensStoredSchema = savedScreensPreferenceSchema.extend({ outcome: z.literal('stored') });
+const savedScreensStoredSchema = savedScreensPreferenceSchema.extend({ outcome: z.literal('stored') });
 
 /** The code inside a refusal: the identity code the service sent (`identity.watchlist_cap_exceeded`), else 'not-saved'. */
 export function refusalCode(message: string | undefined): string {
@@ -85,7 +87,7 @@ export function useAccountRecord<T>(
       return;
     }
     setStatus('loading');
-    void api.query('identity', 'preferences.get', { namespace }, schemas.read).then((result) => {
+    void callAs(api, IDENTITY_PREFERENCES_GET, { namespace }, schemas.read).then((result) => {
       if (result.ok) adopt(result.data.version, result.data.value);
       else {
         ready.current = false;
@@ -102,7 +104,7 @@ export function useAccountRecord<T>(
     if (!ready.current) return { ok: false, code: 'not-loaded' };
     const io: RecordIo<T> = {
       read: async () => {
-        const result = await api.query('identity', 'preferences.get', { namespace }, schemas.read);
+        const result = await callAs(api, IDENTITY_PREFERENCES_GET, { namespace }, schemas.read);
         return result.ok ? { version: result.data.version, value: result.data.value } : null;
       },
       write: async (next, ifVersion) => {

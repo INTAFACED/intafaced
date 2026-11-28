@@ -1097,6 +1097,7 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET,
 } from './identity-account-controls-procedures.js';
 
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES, IDENTITY_ACCOUNT_DIRECTORY_SEARCH } from './identity-account-directory-procedures.js';
@@ -1111,6 +1112,8 @@ import {
   IDENTITY_ACCOUNT_SAFETY_CLEAR_EXTRA_CONTROLS,
   IDENTITY_ACCOUNT_SAFETY_SET_LOCATION_CONSENT,
 } from './identity-account-procedures.js';
+
+import { IDENTITY_ACCOUNT_STATUS_MINE } from './identity-account-status-procedures.js';
 
 import { IDENTITY_ACTION_APPROVAL_LIST } from './identity-action-approval-procedures.js';
 
@@ -1186,6 +1189,9 @@ import {
   IDENTITY_AUTH_REGISTER,
   IDENTITY_AUTH_FOUNDER_ENROLMENT_STATUS,
   IDENTITY_AUTH_REFRESH,
+  IDENTITY_AUTH_LOGOUT,
+  IDENTITY_AUTH_WALLET_CHALLENGE,
+  IDENTITY_AUTH_WALLET_SIGN_IN,
 } from './identity-auth-procedures.js';
 
 import { IDENTITY_BIND_API_KEY_IP_ALLOWLIST } from './identity-bind-api-key-ip-allowlist-procedures.js';
@@ -1274,6 +1280,10 @@ import { IDENTITY_LINK_PROVIDER_START } from './identity-link-provider-start-pro
 
 import { IDENTITY_LINK_SIGNIN_METHOD } from './identity-link-signin-method-procedures.js';
 
+import { IDENTITY_LIST_ORGS } from './identity-list-orgs-procedures.js';
+
+import { IDENTITY_LIST_PASSKEYS } from './identity-list-passkeys-procedures.js';
+
 import { IDENTITY_LIST_SESSIONS } from './identity-list-sessions-procedures.js';
 
 import { IDENTITY_MEMBERSHIP_OFFER } from './identity-membership-procedures.js';
@@ -1297,6 +1307,8 @@ import {
   IDENTITY_OAUTH_TOKEN,
 } from './identity-oauth-procedures.js';
 
+import { IDENTITY_PREFERENCES_GET } from './identity-preferences-procedures.js';
+
 import {
   IDENTITY_PROFILE_GET,
   IDENTITY_PROFILE_ANTI_PHISHING_GET,
@@ -1312,7 +1324,12 @@ import {
 
 import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
 
-import { IDENTITY_RECOVERY_KEYS_LIST, IDENTITY_RECOVERY_PLAN_SET, IDENTITY_RECOVERY_KEYS_REVOKE } from './identity-recovery-procedures.js';
+import {
+  IDENTITY_RECOVERY_KEYS_LIST,
+  IDENTITY_RECOVERY_PLAN_SET,
+  IDENTITY_RECOVERY_KEYS_REVOKE,
+  IDENTITY_RECOVERY_KEYS_ADD,
+} from './identity-recovery-procedures.js';
 
 import { IDENTITY_REVOKE_ALL_API_KEYS } from './identity-revoke-all-api-keys-procedures.js';
 
@@ -1340,6 +1357,10 @@ import { IDENTITY_SET_API_KEY_REQUEST_SIGNING } from './identity-set-api-key-req
 
 import { IDENTITY_SET_IDLE_SIGNOUT } from './identity-set-idle-signout-procedures.js';
 
+import { IDENTITY_SET_PASSKEY_PURPOSES } from './identity-set-passkey-purposes-procedures.js';
+
+import { IDENTITY_SET_PASSKEY_SECOND_STEP } from './identity-set-passkey-second-step-procedures.js';
+
 import { IDENTITY_SIGNIN_METHODS } from './identity-signin-methods-procedures.js';
 
 import { IDENTITY_STAFF_ACCEPT_INVITE, IDENTITY_STAFF_INVITATION, IDENTITY_STAFF_LIST } from './identity-staff-procedures.js';
@@ -1354,6 +1375,7 @@ import {
   IDENTITY_SUB_ACCOUNTS_GET_FEATURES,
   IDENTITY_SUB_ACCOUNTS_ASSETS,
   IDENTITY_SUB_ACCOUNTS_SET_FEATURES,
+  IDENTITY_SUB_ACCOUNTS_LIST,
 } from './identity-sub-accounts-procedures.js';
 
 import { IDENTITY_SUPPORT_RECOVERY_REDEEM } from './identity-support-recovery-procedures.js';
@@ -1388,6 +1410,7 @@ import {
   IDENTITY_WEBAUTHN_REMOVE,
   IDENTITY_WEBAUTHN_AUTH_OPTIONS,
   IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+  IDENTITY_WEBAUTHN_LIST,
 } from './identity-webauthn-procedures.js';
 
 import {
@@ -3760,6 +3783,7 @@ const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET,
 ];
 
 const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [
@@ -3777,6 +3801,8 @@ const part_identity_account_procedures: readonly ProcedureRecord[] = [
   IDENTITY_ACCOUNT_SAFETY_CLEAR_EXTRA_CONTROLS,
   IDENTITY_ACCOUNT_SAFETY_SET_LOCATION_CONSENT,
 ];
+
+const part_identity_account_status_procedures: readonly ProcedureRecord[] = [IDENTITY_ACCOUNT_STATUS_MINE];
 
 const part_identity_action_approval_procedures: readonly ProcedureRecord[] = [IDENTITY_ACTION_APPROVAL_LIST];
 
@@ -3863,6 +3889,9 @@ const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_REGISTER,
   IDENTITY_AUTH_FOUNDER_ENROLMENT_STATUS,
   IDENTITY_AUTH_REFRESH,
+  IDENTITY_AUTH_LOGOUT,
+  IDENTITY_AUTH_WALLET_CHALLENGE,
+  IDENTITY_AUTH_WALLET_SIGN_IN,
 ];
 
 const part_identity_bind_api_key_ip_allowlist_procedures: readonly ProcedureRecord[] = [IDENTITY_BIND_API_KEY_IP_ALLOWLIST];
@@ -3961,6 +3990,10 @@ const part_identity_link_provider_start_procedures: readonly ProcedureRecord[] =
 
 const part_identity_link_signin_method_procedures: readonly ProcedureRecord[] = [IDENTITY_LINK_SIGNIN_METHOD];
 
+const part_identity_list_orgs_procedures: readonly ProcedureRecord[] = [IDENTITY_LIST_ORGS];
+
+const part_identity_list_passkeys_procedures: readonly ProcedureRecord[] = [IDENTITY_LIST_PASSKEYS];
+
 const part_identity_list_sessions_procedures: readonly ProcedureRecord[] = [IDENTITY_LIST_SESSIONS];
 
 const part_identity_membership_procedures: readonly ProcedureRecord[] = [IDENTITY_MEMBERSHIP_OFFER];
@@ -3983,6 +4016,8 @@ const part_identity_oauth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_OAUTH_LIFETIMES,
   IDENTITY_OAUTH_TOKEN,
 ];
+
+const part_identity_preferences_procedures: readonly ProcedureRecord[] = [IDENTITY_PREFERENCES_GET];
 
 const part_identity_profile_procedures: readonly ProcedureRecord[] = [
   IDENTITY_PROFILE_GET,
@@ -4007,6 +4042,7 @@ const part_identity_recovery_procedures: readonly ProcedureRecord[] = [
   IDENTITY_RECOVERY_KEYS_LIST,
   IDENTITY_RECOVERY_PLAN_SET,
   IDENTITY_RECOVERY_KEYS_REVOKE,
+  IDENTITY_RECOVERY_KEYS_ADD,
 ];
 
 const part_identity_revoke_all_api_keys_procedures: readonly ProcedureRecord[] = [IDENTITY_REVOKE_ALL_API_KEYS];
@@ -4035,6 +4071,10 @@ const part_identity_set_api_key_request_signing_procedures: readonly ProcedureRe
 
 const part_identity_set_idle_signout_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_IDLE_SIGNOUT];
 
+const part_identity_set_passkey_purposes_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_PASSKEY_PURPOSES];
+
+const part_identity_set_passkey_second_step_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_PASSKEY_SECOND_STEP];
+
 const part_identity_signin_methods_procedures: readonly ProcedureRecord[] = [IDENTITY_SIGNIN_METHODS];
 
 const part_identity_staff_procedures: readonly ProcedureRecord[] = [
@@ -4053,6 +4093,7 @@ const part_identity_sub_accounts_procedures: readonly ProcedureRecord[] = [
   IDENTITY_SUB_ACCOUNTS_GET_FEATURES,
   IDENTITY_SUB_ACCOUNTS_ASSETS,
   IDENTITY_SUB_ACCOUNTS_SET_FEATURES,
+  IDENTITY_SUB_ACCOUNTS_LIST,
 ];
 
 const part_identity_support_recovery_procedures: readonly ProcedureRecord[] = [IDENTITY_SUPPORT_RECOVERY_REDEEM];
@@ -4091,6 +4132,7 @@ const part_identity_webauthn_procedures: readonly ProcedureRecord[] = [
   IDENTITY_WEBAUTHN_REMOVE,
   IDENTITY_WEBAUTHN_AUTH_OPTIONS,
   IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+  IDENTITY_WEBAUTHN_LIST,
 ];
 
 const part_indexer_procedures: readonly ProcedureRecord[] = [
@@ -5548,6 +5590,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_account_controls_procedures,
   ...part_identity_account_directory_procedures,
   ...part_identity_account_procedures,
+  ...part_identity_account_status_procedures,
   ...part_identity_action_approval_procedures,
   ...part_identity_action_approval_records,
   ...part_identity_affiliates_procedures,
@@ -5575,10 +5618,13 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_learner_card_procedures,
   ...part_identity_link_provider_start_procedures,
   ...part_identity_link_signin_method_procedures,
+  ...part_identity_list_orgs_procedures,
+  ...part_identity_list_passkeys_procedures,
   ...part_identity_list_sessions_procedures,
   ...part_identity_membership_procedures,
   ...part_identity_mfa_reset_procedures,
   ...part_identity_oauth_procedures,
+  ...part_identity_preferences_procedures,
   ...part_identity_profile_procedures,
   ...part_identity_receive_contacts_procedures,
   ...part_identity_recipients_procedures,
@@ -5594,6 +5640,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_session_settings_procedures,
   ...part_identity_set_api_key_request_signing_procedures,
   ...part_identity_set_idle_signout_procedures,
+  ...part_identity_set_passkey_purposes_procedures,
+  ...part_identity_set_passkey_second_step_procedures,
   ...part_identity_signin_methods_procedures,
   ...part_identity_staff_procedures,
   ...part_identity_staff_test_status_procedures,

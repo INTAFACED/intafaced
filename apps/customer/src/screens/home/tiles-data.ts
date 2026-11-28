@@ -9,6 +9,8 @@ import {
 } from '@intafaced/contracts/home-tiles-preferences';
 import { useSession } from '../../features/session/session';
 import type { ApiResult } from '../../shared/api';
+import { callAs } from '../../shared/api';
+import { IDENTITY_PREFERENCES_GET } from '@intafaced/contracts/identity-preferences-procedures';
 
 const storedSchema = homeTilesPreferenceSchema.extend({ outcome: z.literal('stored') });
 
@@ -72,7 +74,7 @@ export function useHomeLayout(): HomeLayout {
   const reread = useCallback(
     async (signal?: AbortSignal): Promise<boolean> => {
       if (!userId) return false;
-      const result = await api.query('identity', 'preferences.get', { namespace: HOME_TILES_NAMESPACE }, homeTilesPreferenceSchema, {
+      const result = await callAs(api, IDENTITY_PREFERENCES_GET, { namespace: HOME_TILES_NAMESPACE }, homeTilesPreferenceSchema, {
         signal,
       });
       if (!result.ok) return false;

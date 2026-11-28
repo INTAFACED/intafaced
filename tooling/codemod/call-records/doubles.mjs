@@ -57,9 +57,15 @@ const tracked = (pattern) =>
     .map((f) => join(REPO, f));
 const isTest = (f) => /\.test\.tsx?$/.test(f);
 
-/** The app files that call by record: `api.call(SOME_RECORD, ...)`. */
+/**
+ * Whether app source calls by record: `api.call(SOME_RECORD, ...)`, or `callAs(api, SOME_RECORD, ...)`, the form a run
+ * keeps a call in on its caller's own schema, which reaches the double's `call` the same way.
+ */
+export const callsByRecord = (src) => /\.call\(\s*[A-Z][A-Z0-9_]+\b|\bcallAs\(\s*[^,()]+(?:\([^()]*\))?\s*,\s*[A-Z][A-Z0-9_]+\b/.test(src);
+
+/** The app files that call by record. */
 function recordCallers(files) {
-  return new Set(files.filter((f) => !isTest(f) && /\.call\(\s*[A-Z][A-Z0-9_]+\b/.test(readFileSync(f, 'utf8'))));
+  return new Set(files.filter((f) => !isTest(f) && callsByRecord(readFileSync(f, 'utf8'))));
 }
 
 /** Whether `file`, following its relative imports (and the modules its `vi.mock` calls name), reaches one of `targets`. */

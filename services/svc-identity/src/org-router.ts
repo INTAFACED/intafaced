@@ -9,8 +9,10 @@ import {
   type DmaHierarchyLaw,
 } from './orgs/dma-hierarchy.js';
 import { getOrg, listOrgs, OrgAdminError, removeOrgMember, renameOrg } from './orgs/org-admin.js';
+import { orgRoleSchema, IDENTITY_LIST_ORGS } from '@intafaced/contracts/identity-list-orgs-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
-const orgRoleSchema = z.enum(['admin', 'trader', 'auditor', 'risk-manager']);
 const dmaProductSchema = z.enum(['dma-broker', 'desk', 'shift']);
 
 function toOrgTrpc(err: unknown): never {
@@ -184,17 +186,17 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
         }
       }),
     /** I-account-lifecycle-05: the caller's organisations. */
-    listOrgs: scopedProcedure('identity:read')
-      .output(
-        z.object({ orgs: z.array(z.object({ id: z.string().guid(), name: z.string(), role: orgRoleSchema, createdAt: z.string() })) }),
-      )
-      .query(async ({ ctx }) => {
+    listOrgs: mountRecord(
+      IDENTITY_LIST_ORGS,
+      async ({ ctx }) => {
         try {
           return await listOrgs(sql, ctx.principal.userId);
         } catch (err) {
           toOrgTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
     /** One organisation and its members, to a member only; anyone else gets not found. */
     getOrg: scopedProcedure('identity:read')
       .input(z.object({ orgId: z.string().guid() }))

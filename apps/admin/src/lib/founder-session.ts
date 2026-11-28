@@ -14,6 +14,7 @@ import { loadConsoleMode } from '@/lib/console-mode/read';
 import { staffReadAreasOf, type OperatorAccess } from '@/lib/operator-access';
 import { IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS } from '@intafaced/contracts/identity-account-controls-procedures';
 import { IDENTITY_STAFF_TEST_STATUS } from '@intafaced/contracts/identity-staff-test-status-procedures';
+import { IDENTITY_AUTH_LOGOUT } from '@intafaced/contracts/identity-auth-procedures';
 
 export const ADMIN_COOKIE = '__Host-intafaced-admin';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -460,7 +461,7 @@ export async function founderSignedIn(raw: unknown, config: AdminSessionConfig, 
   try {
     await assertCurrentFounder(session, config);
   } catch (error) {
-    await founderEdgeCall(config, 'identity', 'auth.logout', 'POST', { refreshToken: session.refreshToken }).catch(() => undefined);
+    await founderEdgeRecordCall(config, IDENTITY_AUTH_LOGOUT, { refreshToken: session.refreshToken }).catch(() => undefined);
     throw error;
   }
   const headers = new Headers({ 'cache-control': 'no-store' });

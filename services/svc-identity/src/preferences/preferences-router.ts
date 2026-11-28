@@ -20,41 +20,16 @@ import {
 import { addressWatchesPreferenceSchema, tokenWatchlistPreferenceSchema } from '@intafaced/contracts/protocol-watch-preferences';
 import { deskLayoutsPreferenceSchema } from '@intafaced/contracts/desk-layouts-preferences';
 import { chartTemplatesPreferenceSchema } from '@intafaced/contracts/chart-templates-preferences';
-import { ACCOUNT_DISPLAY_NAMESPACE } from './account-display.js';
 import { getPreferences, PreferencesError, setPreferences, type PreferenceSettings, type PreferenceView } from './preferences.js';
-import { PREFERENCES_VERSION_CONFLICT, TRADE_VIEWS_NAMESPACE } from './trade-views.js';
-
-const view = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    sort: z.string(),
-    filters: z.record(z.string(), z.string()),
-    columns: z.array(z.string()),
-  })
-  .strict();
-
-const accountDisplay = z.object({ locale: z.string().nullable(), displayCurrency: z.string().nullable() }).strict();
-
-const tradeViewsPreference = z
-  .object({ namespace: z.literal(TRADE_VIEWS_NAMESPACE), version: z.number().int(), value: z.array(view).nullable() })
-  .strict();
-const accountDisplayPreference = z
-  .object({ namespace: z.literal(ACCOUNT_DISPLAY_NAMESPACE), version: z.number().int(), value: accountDisplay.nullable() })
-  .strict();
-const preference = z.union([
+import { PREFERENCES_VERSION_CONFLICT } from './trade-views.js';
+import {
   tradeViewsPreference,
   accountDisplayPreference,
-  uiViewPreferenceSchema,
-  homeTilesPreferenceSchema,
-  tradeInstantPreferenceSchema,
-  watchlistsPreferenceSchema,
-  savedScreensPreferenceSchema,
-  tokenWatchlistPreferenceSchema,
-  addressWatchesPreferenceSchema,
-  deskLayoutsPreferenceSchema,
-  chartTemplatesPreferenceSchema,
-]);
+  IDENTITY_PREFERENCES_GET,
+} from '@intafaced/contracts/identity-preferences-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
+
 const stored = z.literal('stored');
 const storedPreference = z.union([
   tradeViewsPreference.extend({ outcome: stored }).strict(),
@@ -102,16 +77,17 @@ export function createPreferencesRouter(sql: Sql, settings?: PreferenceSettings)
           displayCurrencies: [...(settings?.displayCurrencies ?? [])],
           defaultDisplayCurrency: 'USD' as const,
         })),
-      get: scopedProcedure('identity:read')
-        .input(z.object({ namespace: z.string().min(1).max(64) }).strict())
-        .output(preference)
-        .query(async ({ ctx, input }) => {
+      get: mountRecord(
+        IDENTITY_PREFERENCES_GET,
+        async ({ ctx, input }) => {
           try {
             return await getPreferences(sql, ctx, input.namespace);
           } catch (error) {
             preferenceError(error);
           }
-        }),
+        },
+        codedRefusal,
+      ),
       set: scopedProcedure('identity:write')
         .input(
           z

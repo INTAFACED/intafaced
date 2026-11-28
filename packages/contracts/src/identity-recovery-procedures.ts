@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
-import { recoveryViewSchema } from './identity-recovery.js';
+import { recoveryViewSchema, RECOVERY_KEY_KINDS, RECOVERY_LABEL_MAX, recoveryPublicJwkSchema } from './identity-recovery.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-identity `recovery.*`, one record per call: svc-identity mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -59,6 +59,50 @@ export const IDENTITY_RECOVERY_KEYS_REVOKE = defineProcedure({
   output: recoveryViewSchema,
   samples: [
     { verdict: 'accept', input: { keyId: '11111111-1111-4111-8111-111111111111', clientRequestId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const label = z
+  .string()
+  .trim()
+  .min(1)
+  .max(RECOVERY_LABEL_MAX)
+  // eslint-disable-next-line no-control-regex
+  .regex(/^[^\u0000-\u001F\u007F]+$/);
+
+export const IDENTITY_RECOVERY_KEYS_ADD = defineProcedure({
+  ...base,
+  name: 'identity.recovery.keys.add',
+  kind: 'mutation',
+  path: 'recovery.keys.add',
+  access: { caller: 'scope', scope: 'identity:write' },
+  refusals: {},
+  input: z
+    .object({
+      kind: z.enum(RECOVERY_KEY_KINDS),
+      label,
+      publicKey: recoveryPublicJwkSchema,
+      clientRequestId,
+      stepUpApprovalId,
+    })
+    .strict(),
+  output: recoveryViewSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        kind: 'key',
+        label: '^',
+        publicKey: {
+          kty: 'EC',
+          crv: 'P-256',
+          x: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          y: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        },
+        clientRequestId: 'USDC',
+      },
+    },
     { verdict: 'refuse', input: 42 },
   ],
 });

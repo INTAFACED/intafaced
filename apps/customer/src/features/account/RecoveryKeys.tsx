@@ -11,13 +11,19 @@ import { recoveryKeysCopy as copy } from './recovery-keys-copy';
 import { cleanHandle, resolveHandle } from '../../data/identity';
 import { makeRecoveryKey, recoveryPlanTarget, recoveryStepUp, shortFingerprint, type MadeRecoveryKey } from './recovery-keys';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
-import { IDENTITY_RECOVERY_KEYS_LIST } from '@intafaced/contracts/identity-recovery-procedures';
+import {
+  IDENTITY_RECOVERY_KEYS_LIST,
+  IDENTITY_RECOVERY_KEYS_ADD,
+  IDENTITY_RECOVERY_PLAN_SET,
+  IDENTITY_RECOVERY_KEYS_REVOKE,
+} from '@intafaced/contracts/identity-recovery-procedures';
+import { callAs, type AppProcedure } from '../../shared/api';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** One change on its way: sent once without a confirmation, so a refusal costs none, then again with one. */
 type Change = {
   change: RecoveryKeyChange;
-  procedure: 'recovery.keys.add' | 'recovery.keys.revoke' | 'recovery.plan.set';
+  procedure: AppProcedure;
   target: string;
   clientRequestId: string;
   body: Record<string, unknown>;
@@ -69,8 +75,8 @@ export function RecoveryKeys() {
 
   const clear = () => (setFailure(null), setProblem(null), setNote(null));
   const send = (change: Change, stepUpApprovalId?: string) =>
-    api.mutate(
-      'identity',
+    callAs(
+      api,
       change.procedure,
       { ...change.body, clientRequestId: change.clientRequestId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) },
       recoveryViewSchema,
@@ -138,7 +144,7 @@ export function RecoveryKeys() {
     element.reset();
     await attempt({
       change: 'add',
-      procedure: 'recovery.keys.add',
+      procedure: IDENTITY_RECOVERY_KEYS_ADD,
       target: key.fingerprint,
       clientRequestId: `recovery:add:${key.fingerprint}`,
       body: { kind: 'key', label, publicKey: key.publicKey },
@@ -167,7 +173,7 @@ export function RecoveryKeys() {
     // An older server with no lookup, or a failed one, leaves the check to identity, after the confirmation.
     await attempt({
       change: 'plan',
-      procedure: 'recovery.plan.set',
+      procedure: IDENTITY_RECOVERY_PLAN_SET,
       target: recoveryPlanTarget(handle, threshold),
       clientRequestId: `recovery:${recoveryPlanTarget(handle, threshold)}`,
       body: { heirHandle: handle, threshold },
@@ -334,7 +340,7 @@ export function RecoveryKeys() {
                   onClick={() =>
                     void attempt({
                       change: 'revoke',
-                      procedure: 'recovery.keys.revoke',
+                      procedure: IDENTITY_RECOVERY_KEYS_REVOKE,
                       target: key.id,
                       clientRequestId: `recovery:revoke:${key.id}`,
                       body: { keyId: key.id },

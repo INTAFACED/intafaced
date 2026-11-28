@@ -134,3 +134,30 @@ export const IDENTITY_SUB_ACCOUNTS_SET_FEATURES = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/** Limit required — omit never dumps partitions. */
+export const IDENTITY_SUB_ACCOUNTS_LIST = defineProcedure({
+  ...base,
+  name: 'identity.subAccounts.list',
+  kind: 'query',
+  path: 'subAccounts.list',
+  access: { caller: 'scope', scope: 'identity:read' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(200) }),
+  output: z.array(
+    z.object({
+      id: z.string().guid(),
+      label: z.string(),
+      purpose: z.string().nullable(),
+      revoked: z.boolean(),
+      frozen: z.boolean(),
+      kind: z.enum(SUB_ACCOUNT_KINDS),
+      nickname: z.string().nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

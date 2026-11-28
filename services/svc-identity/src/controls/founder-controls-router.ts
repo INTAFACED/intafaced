@@ -2,8 +2,6 @@ import { z } from 'zod';
 import type { IdentityAccountControlInput, Context } from '@intafaced/contracts';
 import {
   accountOperatorEntitlementSchema,
-  accountLimitOverrideSetInputSchema,
-  accountLimitResultSchema,
   customerDetailReviewSchema,
   customerDetailReviewsInputSchema,
   customerDetailsEditInputSchema,
@@ -45,6 +43,7 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET,
 } from '@intafaced/contracts/identity-account-controls-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
@@ -232,10 +231,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         ({ ctx, input }) => controlCall(() => limitsDesk(limits).state(ctx, input)),
         codedRefusal,
       ),
-      limitsSet: protectedProcedure
-        .input(accountLimitOverrideSetInputSchema)
-        .output(accountLimitResultSchema)
-        .mutation(({ ctx, input }) => controlCall(() => limitsDesk(limits).set(ctx, input))),
+      limitsSet: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET,
+        ({ ctx, input }) => controlCall(() => limitsDesk(limits).set(ctx, input)),
+        codedRefusal,
+      ),
       limitsClear: mountRecord(
         IDENTITY_ACCOUNT_CONTROLS_LIMITS_CLEAR,
         ({ ctx, input }) => controlCall(() => limitsDesk(limits).clear(ctx, input)),

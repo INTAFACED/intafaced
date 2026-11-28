@@ -2,6 +2,8 @@ import { accountStatusSchema } from '@intafaced/contracts/identity-account-statu
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { accountStatusCopy as copy } from './account-status-copy';
+import { callAs } from '../../shared/api';
+import { IDENTITY_ACCOUNT_STATUS_MINE } from '@intafaced/contracts/identity-account-status-procedures';
 
 /**
  * J-identity-14 #2: a trading-hold refusal (`trade.account_restricted`) on any screen gives the restriction's stored
@@ -15,7 +17,7 @@ export function TradingHoldReason() {
   const { resource } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal })
+        ? callAs(api, IDENTITY_ACCOUNT_STATUS_MINE, undefined, accountStatusSchema, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `trading-hold-reason:${userId}`,
   );

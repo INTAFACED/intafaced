@@ -11,6 +11,8 @@ import { UI_VIEW_NAMESPACE, uiViewPreferenceSchema, uiViewRequestId, type UiView
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from './api';
 import type { Preferences } from './preferences';
+import { callAs } from './api';
+import { IDENTITY_PREFERENCES_GET } from '@intafaced/contracts/identity-preferences-procedures';
 
 const storedSchema = uiViewPreferenceSchema.extend({ outcome: z.literal('stored') });
 
@@ -63,9 +65,9 @@ export function createViewSync(options: {
   let agreed: Fields = accountFields(local());
 
   async function read(signal?: AbortSignal): Promise<boolean> {
-    const result = await options
-      .api()
-      .query('identity', 'preferences.get', { namespace: UI_VIEW_NAMESPACE }, uiViewPreferenceSchema, { signal });
+    const result = await callAs(options.api(), IDENTITY_PREFERENCES_GET, { namespace: UI_VIEW_NAMESPACE }, uiViewPreferenceSchema, {
+      signal,
+    });
     if (!result.ok) return false;
     version = result.data.version;
     record = result.data.value ?? {};

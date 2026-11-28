@@ -1,18 +1,18 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { accountLimitResultSchema, type AccountLimitResult } from '@intafaced/contracts';
+import { type AccountLimitResult } from '@intafaced/contracts';
 import {
   type DeskRequest,
   type ExecuteFn,
   type ExecuteReply,
   explainRefusal,
   failureRefusal,
-  founderCall,
   type FounderCallContext,
   type FounderCallResult,
-  parseWith,
+  founderRecordCall,
 } from '@/lib/desk';
 import { limitsReply } from './limits';
+import { IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Run an approved limit override above the owner ceiling (J-ops-console-04 #12) against identity, as the signed-in
@@ -37,25 +37,18 @@ export function limitsExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'identity.account.limit_override')
       return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-    const result = await founderCall(
-      ctx,
-      'identity',
-      'accountControls.limitsSet',
-      'POST',
-      {
-        requestId: randomUUID(),
-        userId: request.userId,
-        rail: request.rail,
-        assetId: request.assetId,
-        perTx: request.perTx,
-        rolling24h: request.rolling24h,
-        expiresAt: request.expiresAt,
-        reason: request.reason,
-        expectedVersion: request.version,
-        approvalId: ids.approvalId,
-      },
-      parseWith(accountLimitResultSchema),
-    );
+    const result = await founderRecordCall(ctx, IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET, {
+      requestId: randomUUID(),
+      userId: request.userId,
+      rail: request.rail,
+      assetId: request.assetId,
+      perTx: request.perTx,
+      rolling24h: request.rolling24h,
+      expiresAt: request.expiresAt,
+      reason: request.reason,
+      expectedVersion: request.version,
+      approvalId: ids.approvalId,
+    });
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);
     return limitRaiseReply(request, result.data);
   };

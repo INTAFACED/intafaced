@@ -7,6 +7,8 @@ import { stamp } from '../../screens/money/time';
 import { accountStatusCopy as copy } from './account-status-copy';
 import { verificationCapabilitiesCopy } from './verification-capabilities-copy';
 import { AccountAppeals } from './AccountAppeals';
+import { callAs } from '../../shared/api';
+import { IDENTITY_ACCOUNT_STATUS_MINE } from '@intafaced/contracts/identity-account-status-procedures';
 
 /**
  * I-signin-sessions-22: the account status card on /uc/account. It lists what the person can still do and what they
@@ -20,7 +22,7 @@ export function AccountStatus() {
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal })
+        ? callAs(api, IDENTITY_ACCOUNT_STATUS_MINE, undefined, accountStatusSchema, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `account-status:${userId}`,
   );

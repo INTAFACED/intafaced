@@ -9,6 +9,8 @@ import type { ZodType } from 'zod';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { CONFLICT, rebaseAndWrite, type RecordIo } from '../watchlists';
+import { callAs } from '../../shared/api';
+import { IDENTITY_PREFERENCES_GET } from '@intafaced/contracts/identity-preferences-procedures';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -42,7 +44,7 @@ export function useAccountRecord<T>(options: {
   const client = useRef(api);
   client.current = api;
   const read = useCallback(
-    async (signal?: AbortSignal) => client.current.query('identity', 'preferences.get', { namespace }, schema, { signal }),
+    async (signal?: AbortSignal) => callAs(client.current, IDENTITY_PREFERENCES_GET, { namespace }, schema, { signal }),
     [namespace, schema],
   );
   const adopt = useCallback(

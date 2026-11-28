@@ -6,8 +6,7 @@
 import { z } from 'zod';
 import { locale } from '@intafaced/i18n/locales';
 import { PREFERENCES_VALUE_INVALID } from './trade-views.js';
-
-export const ACCOUNT_DISPLAY_NAMESPACE = 'account.display' as const;
+import { ACCOUNT_DISPLAY_NAMESPACE } from '@intafaced/contracts/identity-preferences-procedures';
 
 export type AccountDisplayValue = { locale: string | null; displayCurrency: string | null };
 
@@ -43,3 +42,4 @@ export function parseDisplayCurrencyList(raw: string | undefined): readonly stri
     throw new Error('IDENTITY_DISPLAY_CURRENCIES must be comma-separated currency codes');
   return [...new Set(codes)];
 }
+export { ACCOUNT_DISPLAY_NAMESPACE };

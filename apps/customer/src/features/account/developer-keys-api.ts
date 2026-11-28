@@ -31,6 +31,9 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session';
 import type { ApiKeysCopyKey } from './api-keys-copy';
 import { subaccountsIn, type Subaccount } from './subaccount-guards';
+import { callAs } from '../../shared/api';
+import { IDENTITY_SUB_ACCOUNTS_LIST } from '@intafaced/contracts/identity-sub-accounts-procedures';
+import { IDENTITY_LIST_ORGS } from '@intafaced/contracts/identity-list-orgs-procedures';
 
 /** The most keys the room reads at once; the owner's cap is far below it. */
 const LIST_LIMIT = 200;
@@ -51,14 +54,14 @@ const SUBACCOUNT_LIMIT = 50;
  * revoked one is left out: identity refuses a key for it (`identity.key_account_denied`).
  */
 export async function readKeySubaccounts(api: ApiClient, signal: AbortSignal): Promise<ApiResult<Subaccount[]>> {
-  const rows = await api.query('identity', 'subAccounts.list', { limit: SUBACCOUNT_LIMIT }, subaccountsIn(SUBACCOUNT_LIMIT), { signal });
+  const rows = await callAs(api, IDENTITY_SUB_ACCOUNTS_LIST, { limit: SUBACCOUNT_LIMIT }, subaccountsIn(SUBACCOUNT_LIMIT), { signal });
   return rows.ok ? { ok: true, data: rows.data.filter((row) => !row.revoked) } : rows;
 }
 
 /** The organisations the person belongs to; the key page shows each one's developer area (DV-console-01). */
 const orgsOut = z.object({ orgs: z.array(z.object({ id: z.string(), name: z.string(), role: z.string() })) });
 export function readMyOrgs(api: ApiClient, signal: AbortSignal): Promise<ApiResult<z.infer<typeof orgsOut>>> {
-  return api.query('identity', 'listOrgs', undefined, orgsOut, { signal });
+  return callAs(api, IDENTITY_LIST_ORGS, undefined, orgsOut, { signal });
 }
 
 /** One organisation's developer area as the person sees it: their role, why they may not manage keys, and its keys. */

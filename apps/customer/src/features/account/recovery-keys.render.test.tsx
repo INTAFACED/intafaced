@@ -21,10 +21,9 @@ const api = {
     world.asked.push({ kind: 'query', procedure, input });
     return Promise.resolve(world.list);
   },
-  call: (record: { path: string }, input: unknown) => {
-    world.asked.push({ kind: 'query', procedure: record.path, input });
-    return Promise.resolve(world.list);
-  },
+  // A recovery record: answered as the query or mutation it is, by its path.
+  call: (record: { path: string; kind: 'query' | 'mutation' }, input: unknown) =>
+    record.kind === 'query' ? api.query('identity', record.path, input) : api.mutate('identity', record.path, input),
   mutate: (_service: string, procedure: string, input: unknown) => {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());
