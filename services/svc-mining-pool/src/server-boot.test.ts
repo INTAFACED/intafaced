@@ -6,6 +6,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import { miningHealthHonesty } from './health-honesty.js';
 import { MINING_EPOCH_PAYOUT_JOB } from './epoch-jobs.js';
 
@@ -86,10 +88,24 @@ async function boot(env: Record<string, string | undefined>) {
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return async (path: string) => {
-    const res = await fetch(`${base}${path}`);
+  return async (path: string, headers: Record<string, string> = {}) => {
+    const res = await fetch(`${base}${path}`, { headers });
     return { status: res.status, text: await res.text() };
   };
+}
+
+/** Edge headers for a miner the edge signed with `secret`. */
+function signedAs(secret: string): Record<string, string> {
+  const raw = encodePrincipal({
+    sub: '11111111-1111-4111-8111-111111111111',
+    userId: '11111111-1111-4111-8111-111111111111',
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['ledger:read'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 600_000),
+  } as Parameters<typeof encodePrincipal>[0]);
+  return { [EDGE_PRINCIPAL_HEADER]: raw, [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, secret, 'DE'), 'x-intafaced-region': 'DE' };
 }
 
 afterEach(async () => {
@@ -136,5 +152,19 @@ describe('svc-mining-pool server.ts, booted', () => {
     });
     expect(JSON.parse((await get('/health')).text)).toMatchObject({ jobs: [] });
     expect(booted.intervals).toEqual([]);
+  });
+
+  it('hands EDGE_PRINCIPAL_SECRET to the request handler: a miner signed with it gets past sign-in, another secret is refused', async () => {
+    // An attributed empty screening answer, so a miner the edge context accepts reaches the read.
+    const get = await boot({ [SANCTIONS_REGIONS_ENV]: SCREENING_REVIEWED_EMPTY, [SANCTIONS_SOURCE_ENV]: 'counsel-memo-ref' });
+    const url = `/trpc/workers.mine?input=${encodeURIComponent(JSON.stringify({}))}`;
+    const accepted = await get(url, signedAs('s'.repeat(32)));
+    const refused = await get(url, signedAs('o'.repeat(32)));
+    // Signed in: the read goes on to refuse its unpublished hashrate window by name.
+    expect(accepted.status).toBe(412);
+    expect(accepted.text).toContain('mining.hashrate_window_unset');
+    // Another secret's signature carries no miner: the read refuses as signed out.
+    expect(refused.status).toBe(401);
+    expect(refused.text).toContain('UNAUTHORIZED');
   });
 });

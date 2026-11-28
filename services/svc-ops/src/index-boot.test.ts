@@ -5,6 +5,7 @@
  */
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED } from './codes.js';
 import { OPS_IDENTITY_UNPROBED, opsReadyUrlHonesty } from './ready-honesty.js';
 
@@ -49,6 +50,29 @@ async function boot(overrides: Record<string, string | undefined>) {
   return app;
 }
 
+/** The contacts desk as an operator the edge signed with `secret`: the answer names who the door saw. */
+async function contactsAs(app: FastifyInstance, secret: string) {
+  const raw = encodePrincipal({
+    sub: '11111111-1111-4111-8111-111111111111',
+    userId: '11111111-1111-4111-8111-111111111111',
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['admin:read', 'admin:write'],
+    tier: 'none',
+    mfa: true,
+    expiresAt: new Date(Date.now() + 600_000),
+  } as Parameters<typeof encodePrincipal>[0]);
+  const res = await app.inject({
+    method: 'GET',
+    url: `/trpc/contacts?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`,
+    headers: {
+      [EDGE_PRINCIPAL_HEADER]: raw,
+      [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, secret, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
+  });
+  return { code: (res.json() as { error?: { data?: { code?: string } } }).error?.data?.code, text: res.body };
+}
+
 afterEach(async () => {
   for (const app of booted.apps) await app.close();
   booted.apps.length = 0;
@@ -90,5 +114,14 @@ describe('svc-ops index.ts, booted', () => {
     expect(trpc.statusCode).toBe(200);
     expect((trpc.json() as { result: { data: unknown } }).result.data).toEqual({ ok: true, service: 'svc-ops' });
     expect(`${health.body}${trpc.body}`).not.toMatch(/custodial/);
+  });
+
+  it('hands EDGE_PRINCIPAL_SECRET to the edge context: an operator signed with it gets past sign-in, another secret is refused', async () => {
+    const app = await boot({ IDENTITY_URL: undefined });
+    const accepted = await contactsAs(app, BASE_ENV.EDGE_PRINCIPAL_SECRET);
+    // Signed in: the door goes on to read the operator entitlement, which this boot has no identity service for.
+    expect(accepted.code).toBe('SERVICE_UNAVAILABLE');
+    expect(accepted.text).toContain('operator.authority_unavailable');
+    expect((await contactsAs(app, 'o'.repeat(32))).code).toBe('UNAUTHORIZED');
   });
 });

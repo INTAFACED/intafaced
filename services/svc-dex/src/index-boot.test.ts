@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { copyClaimsBestEx } from '@intafaced/venue-adapter';
 import { dexHealthHonesty, dexReadyHonesty } from './quote/door-honesty.js';
 
@@ -62,6 +63,30 @@ async function get(app: FastifyInstance, url: string) {
   return { status: res.statusCode, text: res.body, body: res.json() as Record<string, unknown> };
 }
 
+/** limitOrder with a blank symbol, as a person the edge signed with `secret`: the answer names who the door saw. */
+async function limitOrderAs(app: FastifyInstance, secret: string) {
+  const raw = encodePrincipal({
+    sub: '11111111-1111-4111-8111-111111111111',
+    userId: '11111111-1111-4111-8111-111111111111',
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['trade:read', 'trade:write'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 600_000),
+  } as Parameters<typeof encodePrincipal>[0]);
+  const res = await app.inject({
+    method: 'POST',
+    url: '/trpc/limitOrder',
+    payload: { symbol: '', side: 'buy' },
+    headers: {
+      [EDGE_PRINCIPAL_HEADER]: raw,
+      [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, secret, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
+  });
+  return { code: (res.json() as { error?: { data?: { code?: string } } }).error?.data?.code, text: res.body };
+}
+
 afterEach(async () => {
   for (const app of booted.apps) await app.close();
   booted.apps.length = 0;
@@ -106,5 +131,14 @@ describe('svc-dex index.ts, booted', () => {
       expect(answer.text).not.toMatch(/"custodial":false/);
       expect(copyClaimsBestEx(answer.text)).toBe(false);
     }
+  });
+
+  it('hands EDGE_PRINCIPAL_SECRET to the edge context: a person signed with it reaches the order check, another secret is refused', async () => {
+    const app = await boot({ DEX_INTERNAL_BOOK_ENABLED: 'false' });
+    const accepted = await limitOrderAs(app, BASE_ENV.EDGE_PRINCIPAL_SECRET);
+    // Past the principal check: the blank symbol is what it refuses.
+    expect(accepted.code).toBe('PRECONDITION_FAILED');
+    expect(accepted.text).toContain('dex.order.symbol_unset');
+    expect((await limitOrderAs(app, 'o'.repeat(32))).code).toBe('UNAUTHORIZED');
   });
 });

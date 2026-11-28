@@ -5,7 +5,13 @@
  */
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import {
+  EDGE_PRINCIPAL_HEADER,
+  EDGE_SIGNATURE_HEADER,
+  encodePrincipal,
+  serviceAuthHeadersForBody,
+  signPrincipalHeader,
+} from '@intafaced/contracts';
 import { TEST_AGE_PATH } from '@intafaced/service-kit';
 import { TEST_PAY_FAULT_PATH } from './test-pay-fault.js';
 
@@ -78,6 +84,29 @@ function signedPost(app: FastifyInstance, url: string, body: unknown) {
   });
 }
 
+/** The customer's own campaigns, as a person the edge signed with `secret`: the answer names who the door saw. */
+async function myCampaignsAs(app: FastifyInstance, secret: string) {
+  const raw = encodePrincipal({
+    sub: '11111111-1111-4111-8111-111111111111',
+    userId: '11111111-1111-4111-8111-111111111111',
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['campaigns:read'],
+    tier: 'basic',
+    mfa: true,
+    expiresAt: new Date(Date.now() + 600_000),
+  } as Parameters<typeof encodePrincipal>[0]);
+  const res = await app.inject({
+    method: 'GET',
+    url: '/trpc/participation.mine',
+    headers: {
+      [EDGE_PRINCIPAL_HEADER]: raw,
+      [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, secret, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
+  });
+  return { status: res.statusCode, code: (res.json() as { error?: { data?: { code?: string } } }).error?.data?.code, text: res.body };
+}
+
 afterEach(async () => {
   for (const app of booted.apps) await app.close();
   booted.apps.length = 0;
@@ -112,11 +141,25 @@ describe('svc-campaigns index.ts, booted', () => {
     // The subject asked is the reward one wired on the service's database; this database has no such reward.
     expect(age.json()).toMatchObject({ error: 'test_age.not_found' });
     expect(booted.queries.length).toBeGreaterThan(before);
+    // The distribution subject is wired on the same database too.
+    const beforeRun = booted.queries.length;
+    const run = await signedPost(app, TEST_AGE_PATH, { subject: 'distribution', id: 'distribution-run:none', ms: 61_000 });
+    expect(run.json()).toMatchObject({ error: 'test_age.not_found' });
+    expect(booted.queries.length).toBeGreaterThan(beforeRun);
   });
 
   it('TEST_AGE_DOOR=on outside a TEST stack refuses boot before the database is opened', async () => {
     await expect(boot({ TEST_AGE_DOOR: 'on', NODE_ENV: 'production' })).rejects.toThrow(/TEST_AGE_DOOR=on is a TEST stack's door/);
     expect(booted.databases).toBe(0);
     expect(booted.apps).toEqual([]);
+  });
+
+  it('hands EDGE_PRINCIPAL_SECRET to the edge context: a person signed with it gets past sign-in, another secret is refused', async () => {
+    const app = await boot({});
+    const accepted = await myCampaignsAs(app, BASE_ENV.EDGE_PRINCIPAL_SECRET);
+    // Signed in: the door goes on to the campaign read, which refuses the unset platform time zone by name.
+    expect(accepted.code).toBe('BAD_REQUEST');
+    expect(accepted.text).toContain('campaigns.timezone_unset');
+    expect((await myCampaignsAs(app, 'o'.repeat(32))).code).toBe('UNAUTHORIZED');
   });
 });

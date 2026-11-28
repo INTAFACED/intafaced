@@ -10,6 +10,8 @@ import {
   EDGE_SIGNATURE_HEADER,
   encodeForwardedPrincipal,
   generateEdgePrincipalKeyPair,
+  encodePrincipal,
+  signPrincipalHeader,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
 import { missingLake } from './backtest/lake.js';
@@ -59,25 +61,25 @@ async function boot(overrides: Record<string, string | undefined> = {}) {
 }
 
 /** studio.list with no page size: a person it accepts meets the named page refusal; one it does not is unauthorized. */
-async function studioListAs(app: FastifyInstance, maxLifetimeSeconds = 120) {
-  const raw = encodeForwardedPrincipal(
-    {
-      sub: ACCOUNT,
-      userId: ACCOUNT,
-      sid: '22222222-2222-4222-8222-222222222222',
-      scopes: ['trade:read', 'trade:write'],
-      tier: 'basic',
-      mfa: false,
-      expiresAt: new Date(Date.now() + 600_000),
-    } as Parameters<typeof encodeForwardedPrincipal>[0],
-    maxLifetimeSeconds,
-  );
+async function studioListAs(app: FastifyInstance, maxLifetimeSeconds = 120, hmacSecret?: string) {
+  const person = {
+    sub: ACCOUNT,
+    userId: ACCOUNT,
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['trade:read', 'trade:write'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 600_000),
+  } as Parameters<typeof encodeForwardedPrincipal>[0];
+  // With a shared secret, the edge signs the plain principal with HMAC; with its key pair, the forwarded one with Ed25519.
+  const raw = hmacSecret === undefined ? encodeForwardedPrincipal(person, maxLifetimeSeconds) : encodePrincipal(person);
   const res = await app.inject({
     method: 'GET',
     url: `/trpc/studio.list?input=${encodeURIComponent(JSON.stringify({}))}`,
     headers: {
       [EDGE_PRINCIPAL_HEADER]: raw,
-      [EDGE_SIGNATURE_HEADER]: signPrincipalHeaderEd25519(raw, edge.privateKey, 'DE'),
+      [EDGE_SIGNATURE_HEADER]:
+        hmacSecret === undefined ? signPrincipalHeaderEd25519(raw, edge.privateKey, 'DE') : signPrincipalHeader(raw, hmacSecret, 'DE'),
       'x-intafaced-region': 'DE',
     },
   });
@@ -104,6 +106,12 @@ describe('svc-quant index.ts, booted', () => {
   it('without the public key, the same edge-signed person is refused', async () => {
     const { app } = await boot({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined });
     expect(await studioListAs(app)).toBe('UNAUTHORIZED');
+  });
+
+  it('hands EDGE_PRINCIPAL_SECRET to the edge context: a person signed with it is accepted, one signed with another secret is not', async () => {
+    const { app } = await boot({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined });
+    expect(await studioListAs(app, 120, BASE_ENV.EDGE_PRINCIPAL_SECRET)).toBe('PRECONDITION_FAILED');
+    expect(await studioListAs(app, 120, 'o'.repeat(32))).toBe('UNAUTHORIZED');
   });
 
   it('serves /ready from quantReadyHonesty over the missing lake: the isolate is not sold as wired', async () => {

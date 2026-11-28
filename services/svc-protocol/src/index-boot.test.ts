@@ -10,6 +10,8 @@ import {
   EDGE_SIGNATURE_HEADER,
   encodeForwardedPrincipal,
   generateEdgePrincipalKeyPair,
+  encodePrincipal,
+  signPrincipalHeader,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
 import { PROTOCOL_CHAIN_UNPROBED, protocolHealthHonesty } from './health-honesty.js';
@@ -80,26 +82,26 @@ async function boot(overrides: Record<string, string | undefined> = {}) {
 }
 
 /** An empty address report from an edge-signed person: one it accepts reaches the input check; one it does not is unauthorized. */
-async function reportAs(app: FastifyInstance, maxLifetimeSeconds = 120) {
-  const raw = encodeForwardedPrincipal(
-    {
-      sub: ACCOUNT,
-      userId: ACCOUNT,
-      sid: '22222222-2222-4222-8222-222222222222',
-      scopes: ['protocol:read', 'protocol:write'],
-      tier: 'basic',
-      mfa: false,
-      expiresAt: new Date(Date.now() + 600_000),
-    } as Parameters<typeof encodeForwardedPrincipal>[0],
-    maxLifetimeSeconds,
-  );
+async function reportAs(app: FastifyInstance, maxLifetimeSeconds = 120, hmacSecret?: string) {
+  const person = {
+    sub: ACCOUNT,
+    userId: ACCOUNT,
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['protocol:read', 'protocol:write'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 600_000),
+  } as Parameters<typeof encodeForwardedPrincipal>[0];
+  // With a shared secret, the edge signs the plain principal with HMAC; with its key pair, the forwarded one with Ed25519.
+  const raw = hmacSecret === undefined ? encodeForwardedPrincipal(person, maxLifetimeSeconds) : encodePrincipal(person);
   const res = await app.inject({
     method: 'POST',
     url: '/trpc/addressReports.submit',
     payload: {},
     headers: {
       [EDGE_PRINCIPAL_HEADER]: raw,
-      [EDGE_SIGNATURE_HEADER]: signPrincipalHeaderEd25519(raw, edge.privateKey, 'DE'),
+      [EDGE_SIGNATURE_HEADER]:
+        hmacSecret === undefined ? signPrincipalHeaderEd25519(raw, edge.privateKey, 'DE') : signPrincipalHeader(raw, hmacSecret, 'DE'),
       'x-intafaced-region': 'DE',
     },
   });
@@ -126,6 +128,12 @@ describe('svc-protocol index.ts, booted', () => {
   it('without the public key, the same edge-signed person is refused', async () => {
     const { app } = await boot({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined });
     expect(await reportAs(app)).toBe('UNAUTHORIZED');
+  });
+
+  it('hands EDGE_PRINCIPAL_SECRET to the edge context: a person signed with it is accepted, one signed with another secret is not', async () => {
+    const { app } = await boot({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined });
+    expect(await reportAs(app, 120, BASE_ENV.EDGE_PRINCIPAL_SECRET)).toBe('BAD_REQUEST');
+    expect(await reportAs(app, 120, 'o'.repeat(32))).toBe('UNAUTHORIZED');
   });
 
   it('serves /health and the health procedure from protocolHealthHonesty: the chain id is never echoed as the chain', async () => {
