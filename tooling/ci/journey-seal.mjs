@@ -2436,7 +2436,7 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
 
 /**
  * Whether a re-run of the seal on `sha` may be posted now. A job re-run is a new attempt of its CI run, and a new
- * attempt joins ci.yml's concurrency group (`CI-refs/pull/<n>/merge`, cancel-in-progress off main), so it cancels
+ * attempt joins ci.yml's concurrency group (`CI-refs/pull/<n>/merge:<head>`, cancel-in-progress off main), so it cancels
  * whatever CI run of that pull request is still in flight. On 7 Nov 2026 a re-check that had waited out the run on
  * 26f9c60d re-ran its seal after the pull request's head had moved to 7ce4bf86f: the old run's attempt 2 started at
  * 14:35:27 UTC and the new head's jobs were cancelled from 14:35:28. Read just before the re-run, never earlier:

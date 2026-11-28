@@ -52,8 +52,8 @@ on:
 #   #1466 → cancelled main CI → brand-scan red tip → fleet freeze → #1471).
 #   The bill is zero on a public repo — finishing every main run is the point
 #   of push:main, not a cost trade. A 403 or 429 is still a stop.
-# - On PR refs, still cancel: force-push / tip-bump on one branch supersedes
-#   the prior run. That is the only legitimate thrift leftover.
+# - On PR refs, a run of the same head still cancels (a re-run, a reopen); a
+#   push to a new head no longer does (below, project-state#4147).
 #
 # Other workflows in this repo are pull_request-only (or deploy), so they keep
 # their own cancel settings. Only this file is the trunk signal.
@@ -63,8 +63,14 @@ on:
 # the running one, so in a merge burst the next merge cancelled every re-run and no "Main is red", bisect or revert
 # ever started (23 Nov 2026: seven red main runs from 11:32 UTC, each attempt 2 cancelled). So a re-run on main keeps
 # a group of its own; it re-runs only the failed jobs of one commit, once.
+#
+# A pull request's run keeps one group per head (project-state#4147; as Real-app journeys does, #11076, owner 27 Nov
+# 2026: "A later push doesn't cancel a run whose result the PR still needs."). A bug's check is pushed alone, red, and
+# its fix seconds later: in one group per ref the fix's push cancelled the check's run, so no run ever showed the check
+# failing on the old code (#11112, #11210, #11180, #11093, #11224), and the board's Escaped bugs could read no fix. A
+# push now cancels nothing of the head before it; a re-run of one head still cancels that head's run in flight.
 concurrency:
-  group: ${{ (github.ref != 'refs/heads/main' || github.run_attempt == '1') && format('{0}-{1}', github.workflow, github.ref) || format('{0}-rerun-{1}', github.workflow, github.run_id) }}
+  group: ${{ (github.ref != 'refs/heads/main' || github.run_attempt == '1') && format('{0}-{1}{2}', github.workflow, github.ref, github.event_name == 'pull_request' && format(':{0}', github.event.pull_request.head.sha) || '') || format('{0}-rerun-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Read-only by default; a job that needs more declares its own block.
