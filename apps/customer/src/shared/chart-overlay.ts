@@ -133,14 +133,24 @@ export function useChartPricesInView(host: OverlayHost | null, prices: readonly 
     if (!host) return;
     const held = [...latest.current];
     if (held.length === 0) return;
-    host.main.applyOptions({
-      autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
-        const base = original();
-        const low = Math.min(...held, base?.priceRange.minValue ?? Infinity);
-        const high = Math.max(...held, base?.priceRange.maxValue ?? -Infinity);
-        return { ...base, priceRange: { minValue: low, maxValue: high } };
-      },
-    });
+    host.main.applyOptions({ autoscaleInfoProvider: takingIn(held) });
     return () => host.main.applyOptions({ autoscaleInfoProvider: undefined });
   }, [host, key]);
+}
+
+interface Autoscale {
+  priceRange: { minValue: number; maxValue: number } | null;
+}
+
+/**
+ * The price scale's range with every one of `prices` in it as well as the bars'. The library answers a null range (not
+ * only a null answer) while the series has no bars yet; reading through it would throw inside the chart's paint.
+ */
+export function takingIn(prices: readonly number[]): (original: () => Autoscale | null) => Autoscale {
+  return (original) => {
+    const base = original();
+    const low = Math.min(...prices, base?.priceRange?.minValue ?? Infinity);
+    const high = Math.max(...prices, base?.priceRange?.maxValue ?? -Infinity);
+    return { ...base, priceRange: { minValue: low, maxValue: high } };
+  };
 }
