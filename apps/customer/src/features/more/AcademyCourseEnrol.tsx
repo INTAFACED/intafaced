@@ -1,8 +1,5 @@
 import { useRef, useState } from 'react';
-import type { z } from 'zod';
 import {
-  academyAuthoredCourseEnrolmentSchema,
-  academyCourseEnrolmentSchema,
   type AcademyAuthoredCourseEnrolment,
   type AcademyEnrolmentClosedReason,
   type AcademyEnrolmentTrack,
@@ -62,7 +59,6 @@ export function AcademyCourseEnrol({
   const api = useApi();
   const { userId } = useSession();
   const authored = source === 'authored';
-  const schema: z.ZodType<AcademyAuthoredCourseEnrolment> = authored ? academyAuthoredCourseEnrolmentSchema : academyCourseEnrolmentSchema;
   const terms = useResource(
     (signal) =>
       authored
