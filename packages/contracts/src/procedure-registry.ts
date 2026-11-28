@@ -109,6 +109,14 @@ import {
   ACADEMY_ADMIN_REINSTATE_ACCESS,
   ACADEMY_ADMIN_COURSE_GRADEBOOK,
   ACADEMY_ADMIN_GRANT_AUDIT,
+  ACADEMY_ADMIN_SAVE_ASSIGNMENT,
+  ACADEMY_ADMIN_SAVE_REVIEW_STEPS,
+  ACADEMY_ADMIN_GRADE_SUBMISSION,
+  ACADEMY_ADMIN_SET_ITEM_CAPTIONS,
+  ACADEMY_ADMIN_MEDIA_UPLOAD_INTENT,
+  ACADEMY_ADMIN_SAVE_CUSTOM_ROLE,
+  ACADEMY_ADMIN_ENROLMENTS,
+  ACADEMY_ADMIN_REVOKE_CERT,
 } from './academy-admin-records.js';
 
 import { ACADEMY_AMBASSADOR_BADGE } from './academy-ambassador-badge-procedures.js';
@@ -128,6 +136,8 @@ import { ACADEMY_ASSIGNMENT } from './academy-assignment-procedures.js';
 import { ACADEMY_AUTHORED_COURSE_ENROLMENT } from './academy-authored-course-enrolment-procedures.js';
 
 import { ACADEMY_AUTHORED_COURSE } from './academy-authored-course-procedures.js';
+
+import { ACADEMY_BUY_COURSE } from './academy-buy-course-procedures.js';
 
 import { ACADEMY_CERT_PATHS } from './academy-cert-paths-procedures.js';
 
@@ -205,6 +215,8 @@ import {
 
 import { ACADEMY_LEAVE_AUTHORED_COURSE } from './academy-leave-authored-course-procedures.js';
 
+import { ACADEMY_LEAVE_CERT_PATH } from './academy-leave-cert-path-procedures.js';
+
 import { ACADEMY_MARK_FEEDBACK_READ } from './academy-mark-feedback-read-procedures.js';
 
 import { ACADEMY_MY_ACCESS_GRANTS } from './academy-my-access-grants-procedures.js';
@@ -270,6 +282,10 @@ import { ACADEMY_STANDINGS } from './academy-standings-procedures.js';
 import { ACADEMY_STREAM_CREDENTIAL } from './academy-stream-credential-procedures.js';
 
 import { ACADEMY_SUBMIT_ASSIGNMENT } from './academy-submit-assignment-procedures.js';
+
+import { ACADEMY_SUBMIT_COURSE_PAYMENT } from './academy-submit-course-payment-procedures.js';
+
+import { ACADEMY_SUBMIT_PEER_REVIEW } from './academy-submit-peer-review-procedures.js';
 
 import { ACADEMY_UNDO_CURRICULUM_COMPLETE } from './academy-undo-curriculum-complete-procedures.js';
 
@@ -2595,6 +2611,14 @@ const part_academy_admin_records: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_REINSTATE_ACCESS,
   ACADEMY_ADMIN_COURSE_GRADEBOOK,
   ACADEMY_ADMIN_GRANT_AUDIT,
+  ACADEMY_ADMIN_SAVE_ASSIGNMENT,
+  ACADEMY_ADMIN_SAVE_REVIEW_STEPS,
+  ACADEMY_ADMIN_GRADE_SUBMISSION,
+  ACADEMY_ADMIN_SET_ITEM_CAPTIONS,
+  ACADEMY_ADMIN_MEDIA_UPLOAD_INTENT,
+  ACADEMY_ADMIN_SAVE_CUSTOM_ROLE,
+  ACADEMY_ADMIN_ENROLMENTS,
+  ACADEMY_ADMIN_REVOKE_CERT,
 ];
 
 const part_academy_ambassador_badge_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADOR_BADGE];
@@ -2614,6 +2638,8 @@ const part_academy_assignment_procedures: readonly ProcedureRecord[] = [ACADEMY_
 const part_academy_authored_course_enrolment_procedures: readonly ProcedureRecord[] = [ACADEMY_AUTHORED_COURSE_ENROLMENT];
 
 const part_academy_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_AUTHORED_COURSE];
+
+const part_academy_buy_course_procedures: readonly ProcedureRecord[] = [ACADEMY_BUY_COURSE];
 
 const part_academy_cert_paths_procedures: readonly ProcedureRecord[] = [ACADEMY_CERT_PATHS];
 
@@ -2691,6 +2717,8 @@ const part_academy_learner_procedures: readonly ProcedureRecord[] = [
 
 const part_academy_leave_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_LEAVE_AUTHORED_COURSE];
 
+const part_academy_leave_cert_path_procedures: readonly ProcedureRecord[] = [ACADEMY_LEAVE_CERT_PATH];
+
 const part_academy_mark_feedback_read_procedures: readonly ProcedureRecord[] = [ACADEMY_MARK_FEEDBACK_READ];
 
 const part_academy_my_access_grants_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_ACCESS_GRANTS];
@@ -2756,6 +2784,10 @@ const part_academy_standings_procedures: readonly ProcedureRecord[] = [ACADEMY_S
 const part_academy_stream_credential_procedures: readonly ProcedureRecord[] = [ACADEMY_STREAM_CREDENTIAL];
 
 const part_academy_submit_assignment_procedures: readonly ProcedureRecord[] = [ACADEMY_SUBMIT_ASSIGNMENT];
+
+const part_academy_submit_course_payment_procedures: readonly ProcedureRecord[] = [ACADEMY_SUBMIT_COURSE_PAYMENT];
+
+const part_academy_submit_peer_review_procedures: readonly ProcedureRecord[] = [ACADEMY_SUBMIT_PEER_REVIEW];
 
 const part_academy_undo_curriculum_complete_procedures: readonly ProcedureRecord[] = [ACADEMY_UNDO_CURRICULUM_COMPLETE];
 
@@ -5092,6 +5124,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_assignment_procedures,
   ...part_academy_authored_course_enrolment_procedures,
   ...part_academy_authored_course_procedures,
+  ...part_academy_buy_course_procedures,
   ...part_academy_cert_paths_procedures,
   ...part_academy_cert_verify_procedures,
   ...part_academy_cert_xp_plane_procedures,
@@ -5110,6 +5143,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_item_video_procedures,
   ...part_academy_learner_procedures,
   ...part_academy_leave_authored_course_procedures,
+  ...part_academy_leave_cert_path_procedures,
   ...part_academy_mark_feedback_read_procedures,
   ...part_academy_my_access_grants_procedures,
   ...part_academy_my_certs_procedures,
@@ -5143,6 +5177,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_standings_procedures,
   ...part_academy_stream_credential_procedures,
   ...part_academy_submit_assignment_procedures,
+  ...part_academy_submit_course_payment_procedures,
+  ...part_academy_submit_peer_review_procedures,
   ...part_academy_undo_curriculum_complete_procedures,
   ...part_academy_unfreeze_ambassador_procedures,
   ...part_academy_unpin_lesson_procedures,

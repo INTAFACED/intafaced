@@ -37,6 +37,7 @@ import { usePreferences } from '../../shared/preferences';
 import { ACADEMY_RESIDENCY_PAY_QUOTE } from '@intafaced/contracts/academy-residency-pay-quote-procedures';
 import { callAs } from '../../shared/api';
 import { ACADEMY_AMBASSADOR_BADGE } from '@intafaced/contracts/academy-ambassador-badge-procedures';
+import { ACADEMY_LEAVE_CERT_PATH } from '@intafaced/contracts/academy-leave-cert-path-procedures';
 
 const badge = z.object({
   userId: z.string().guid(),
@@ -171,7 +172,7 @@ function PathProgrammes({ lessons, action }: { lessons: readonly LessonSummary[]
       ),
       run: async (canDispatch) => {
         if (!canDispatch()) return changed();
-        const sent = await api.mutate('academy', 'leaveCertPath', { pathSlug: path, clientRequestId }, leaveReceipt(userId, path));
+        const sent = await callAs(api, ACADEMY_LEAVE_CERT_PATH, { pathSlug: path, clientRequestId }, leaveReceipt(userId, path));
         const settled = await settleByReading(
           sent,
           () => readEnrolments(api, userId),

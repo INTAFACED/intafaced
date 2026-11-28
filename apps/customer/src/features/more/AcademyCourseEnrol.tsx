@@ -24,6 +24,8 @@ import { ACADEMY_AUTHORED_COURSE_ENROLMENT } from '@intafaced/contracts/academy-
 import { ACADEMY_COURSE_ENROLMENT } from '@intafaced/contracts/academy-course-enrolment-procedures';
 import { ACADEMY_ENROL_AUTHORED_COURSE } from '@intafaced/contracts/academy-enrol-authored-course-procedures';
 import { ACADEMY_ENROL_COURSE } from '@intafaced/contracts/academy-enrol-course-procedures';
+import { callAs } from '../../shared/api';
+import { ACADEMY_LEAVE_CERT_PATH } from '@intafaced/contracts/academy-leave-cert-path-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -99,9 +101,9 @@ export function AcademyCourseEnrol({
     send('leave', () =>
       authored
         ? api.call(ACADEMY_LEAVE_AUTHORED_COURSE, { slug, enrolledAt })
-        : api.mutate(
-            'academy',
-            'leaveCertPath',
+        : callAs(
+            api,
+            ACADEMY_LEAVE_CERT_PATH,
             { pathSlug: slug, clientRequestId: `leave:${slug}:${enrolledAt}` },
             leaveReceipt(userId, slug),
           ),
