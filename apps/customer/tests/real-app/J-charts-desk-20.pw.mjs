@@ -4,6 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import { closedMinute, MINUTE, minuteStart } from './clock.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -215,8 +216,9 @@ async function shownMarks(page) {
 const chart = (page) => page.getByTestId('trade-replay').getByRole('img', { name: /Price chart of/ });
 
 async function openReplay(page, v) {
-  const { account, walletKey } = state();
-  await openVenuePage(page, account, '/trade/journal', walletKey);
+  // The same page, its TEST wallet already installed: back to the Journal, connected again if the room asks.
+  await page.goto('/trade/journal');
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
   const row = page.getByTestId('journal-trades').locator(`tr[data-trade="${v.open.fillId}"]`);
   await expect(row).toBeVisible({ timeout: 30_000 });
   const figures = await row.locator('td').allInnerTexts();
@@ -314,8 +316,9 @@ test(`${J} #4 leaves replay: the live chart again; the journal trade and its fig
   await expect(page.getByTestId('replay-position')).toHaveCount(0);
   await stepPicture();
   // The journal trade, read again, is the same row with the same figures, and those are the venue's own.
-  const { account, walletKey } = state();
-  await openVenuePage(page, account, '/trade/journal', walletKey);
+  // The same page, its TEST wallet already installed: back to the Journal, connected again if the room asks.
+  await page.goto('/trade/journal');
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
   const row = page.getByTestId('journal-trades').locator(`tr[data-trade="${v.open.fillId}"]`);
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => row.locator('td').allInnerTexts()).toEqual(before);
