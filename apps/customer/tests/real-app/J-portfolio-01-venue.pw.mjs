@@ -4,7 +4,7 @@ import { createWalletClient, encodeFunctionData, http, parseAbi, parseUnits } fr
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ownSpotMarket } from './own-market.mjs';
-import { api, journeyState, restartWithSetting } from './stack.mjs';
+import { api, journeyState, restartWithSetting, startService, stopService } from './stack.mjs';
 import { confirm, reviewSheet, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
@@ -31,12 +31,13 @@ import {
   venueRecord,
 } from './venue.mjs';
 
-// J-portfolio-01 #1 #2 #3 #4 #5 #6 #7, in the running app (docs/roadmap/journeys.json): after I trade, I see what I hold, what is locked and what it is worth, on the launch
+// J-portfolio-01 #1 #2 #3 #4 #5 #6 #7 #8, in the running app (docs/roadmap/journeys.json): after I trade, I see what I hold, what is locked and what it is worth, on the launch
 // model: INTAFACED holds none of this person's money. With svc-trade's user-venue door on for this file
 // (venueForThisFile), /money lists what each place holding it reports: the connected wallet (read from the stack's TEST
 // chain at one block), the venue account (the stack's TEST venue simulator) and the partner account (the stack's TEST
-// partner bank), each figure checked here against that source's own record, never against the page. #8 (bank prices
-// unavailable) stays in J-portfolio-01.pw.mjs.
+// partner bank), each figure checked here against that source's own record, never against the page. #8 stops svc-ops,
+// which publishes the prices: Assets refuses in words with its reference and values nothing. The custodial branch's
+// tests are J-portfolio-01-custodial.pw.mjs's.
 //
 // TEST setup (beforeAll, not a step), the journey's start: one verified TEST person with one TEST browser wallet, funded
 // on the TEST chain (`fund <address> venue`: TEST ETH for gas and 100 TEST USD) and sending TEST 10 USD from it to the
@@ -860,4 +861,46 @@ test(`${J} #7 reads best and worst movers: the assets that moved most today, fro
   await movers.scrollIntoViewIfNeeded();
   await expect(movers).toBeInViewport({ ratio: 1 });
   await stepPicture();
+});
+
+test(`${J} #8 opens /money while prices cannot be read: the refusal in plain words with a short reference, and no guessed total`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(420_000);
+  const { owner } = state();
+  // svc-ops publishes the prices Assets values with (`valuation.prices`); with it stopped they can't be read.
+  await stopService('ops');
+  try {
+    await openAssets(page);
+    const refused = page.getByTestId('assets-prices-refused');
+    await expect(refused).toBeVisible({ timeout: 60_000 });
+    await expect(refused.locator('[data-part="title"]')).toHaveText("Prices can't be loaded");
+    await expect(refused.locator('[data-part="body"]')).toHaveText("Prices can't be loaded right now. Try again in a minute.");
+    await expect(refused.locator('[data-part="reference"]')).toHaveText('Ref PRC-1');
+    await expect(refused).not.toContainText('prices_unavailable');
+    // No guessed total: no figure at all, and no holding is valued, though the venue's own prices are still there to
+    // multiply by. Each amount stays as its source reports it.
+    const figure = page.getByTestId('assets-total').getByTestId('standing-figure');
+    await expect(figure).toHaveAttribute('data-total-usd', '');
+    await expect(figure.getByTestId('standing-no-total')).toHaveText('No total');
+    expect((await venueSpotQuote(SYMBOL)).last, 'the venue still prints a BTC price').not.toBeNull();
+    const { row: btc } = await venueRowAgrees(page, owner, 'BTC');
+    await expect(btc.locator('[data-cell="value"]')).toHaveText('No price published');
+    await expect(btc.locator('[data-cell="price"]')).toHaveText('No price published');
+    const { row: usdc } = await venueRowAgrees(page, owner, 'USDC');
+    await expect(usdc.locator('[data-cell="value"]')).toHaveText('No price published');
+    await expect(page.getByTestId('assets-by-source').locator('[data-cell="value"]', { hasText: '$' })).toHaveCount(0);
+    await refused.scrollIntoViewIfNeeded();
+    await stepPicture();
+  } finally {
+    // Back as the file started it, with its TEST price list.
+    await startService('ops', { LOCAL_STACK_VALUATION_PRICES: 'test' });
+  }
+  // Prices readable again: the refusal goes and the total is back.
+  await openAssets(page);
+  await expect(page.getByTestId('assets-total').getByTestId('standing-figure')).not.toHaveAttribute('data-total-usd', '', {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId('assets-prices-refused')).toHaveCount(0);
 });
