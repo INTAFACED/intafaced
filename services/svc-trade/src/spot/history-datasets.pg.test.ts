@@ -201,6 +201,39 @@ describe('SqlHistoryDatasets (real PostgreSQL, RC-cex-spot-05)', () => {
     expect(createHash('sha256').update(final!.payloadGzip).digest('hex')).toBe(closed!.sha256);
   });
 
+  it('#11240: reads 100.00% with no gaps when every trade is in the file, though the engine numbers accepts, makers and seeded fills too', async () => {
+    // The engine gives every accept, fill and cancel of a market its own number (testing.ts FakeEngine): two accepts
+    // then a fill, so trades land on every third number. Each trade has a maker row on the same number, and one trade
+    // in four crosses a seeded order, which the file leaves out by policy.
+    const SEEDED = '66666666-6666-4666-8666-666666666666';
+    await db.sql`
+      INSERT INTO trade.orders (id, user_id, market_id, client_order_id, side, type, price, qty, status, tif, hold_asset, hold_amount, seeded)
+      VALUES (${SEEDED}, ${USER_B}, ${MARKET_ID}, 'TEST-seeded-1', 'sell', 'limit', 65000, 10, 'open', 'GTC', 'BTC', 0, true)
+    `;
+    let published = 0;
+    for (let trade = 1; trade <= 40; trade += 1) {
+      const seq = 1120 + trade * 3;
+      const seeded = trade % 4 === 0;
+      const maker = seeded ? SEEDED : ORDER_MAKER;
+      const ts = new Date(`2026-11-24T01:${String(trade % 60).padStart(2, '0')}:00.000Z`);
+      const hex = String(seq).padStart(12, '0');
+      await db.sql`
+        INSERT INTO trade.fills (id, order_id, counter_order_id, market_id, user_id, side, price, qty, quote_amount, fee_asset, fee_amount, fee_bps, liquidity, sequence, ts)
+        VALUES
+          (${`00000000-0000-4000-a000-${hex}`}, ${ORDER_TAKER}, ${maker}, ${MARKET_ID}, ${USER_A}, 'buy', 65000, 0.01, 650, 'BTC', 0, 0, 'taker', ${seq}, ${ts}),
+          (${`00000000-0000-4000-b000-${hex}`}, ${maker}, ${ORDER_TAKER}, ${MARKET_ID}, ${USER_B}, 'sell', 65000, 0.01, 650, 'USDT', 0, 0, 'maker', ${seq}, ${ts})
+      `;
+      if (!seeded) published += 1;
+    }
+
+    const store = new SqlHistoryDatasets(db.sql, { bookIntervalMs: 5000 });
+    const file = await store.buildTradesDataset({ id: MARKET_ID, symbol: 'BTC/USDT' }, DAY);
+    expect(file!.rowCount).toBe(published);
+    expect(file!.rowCount).toBe(30);
+    expect(file!.completenessPct).toBe('100.00');
+    expect(file!.gaps).toEqual([]);
+  });
+
   it('refuses book snapshot capture and build when bookIntervalMs is blank, and succeeds when set', async () => {
     const market = { id: MARKET_ID, symbol: 'BTC/USDT' };
     const blank = new SqlHistoryDatasets(db.sql, { bookIntervalMs: null });
