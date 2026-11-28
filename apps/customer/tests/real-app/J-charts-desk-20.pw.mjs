@@ -168,7 +168,8 @@ async function venueTrade(owner) {
   const fills = (await venueRecord(owner, '/fills', { since: new Date(Date.now() - 86_400_000).toISOString() })).value
     .filter((f) => f.symbol === SYMBOL)
     .sort((a, b) => Date.parse(a.filledAt) - Date.parse(b.filledAt));
-  expect(fills.map((f) => f.side)).toEqual(['buy', 'sell']);
+  // The Starts line's trade is the first one on the market; #3 adds a later one.
+  expect(fills.slice(0, 2).map((f) => f.side)).toEqual(['buy', 'sell']);
   const [open, close] = fills;
   const stops = (await venueRecord(owner, '/order-history')).value
     .filter((r) => r.order.symbol === SYMBOL && r.order.trigger?.role === 'stop_loss')
@@ -226,6 +227,11 @@ const rowOf = (page, v) => page.locator(`[data-testid="journal-row"][data-trade=
 async function openReplay(page, v) {
   const { account, walletKey } = state();
   await openVenuePage(page, account, '/trade/journal', walletKey);
+  return replayFromJournal(page, v);
+}
+
+/** On the Journal page already open: the trade's row, the trade, then "Replay this trade". */
+async function replayFromJournal(page, v) {
   const row = rowOf(page, v);
   await expect(row).toBeVisible({ timeout: 30_000 });
   const figures = await row.locator('td').allInnerTexts();
@@ -255,6 +261,8 @@ test(`${J} #1 presses "Replay this trade" on the closed trade in Journal: the ch
   expect(v.candles[v.start]).toBe(v.entryBar - BARS_BEFORE * MINUTE);
   await expect(page.getByTestId('replay-source')).toContainText('TEST');
   await expect(page.getByTestId('replay-source')).toContainText('1m');
+  // The chart is drawn at a height its bars can be read at, not a strip.
+  await expect.poll(async () => (await chart(page).boundingBox())?.height ?? 0).toBeGreaterThan(200);
   // No marker of the trade yet.
   await expect(page.getByTestId('replay-marks').locator('li')).toHaveCount(0);
   await expect(page.getByTestId('replay-stop')).toHaveText('No stop at this bar.');
@@ -295,28 +303,74 @@ test(`${J} #2 steps forward bar by bar: the entry marker on the entry bar, the s
   await stepPicture();
 });
 
+/**
+ * A later trade on XRPY-PERP the journal has not read yet: bought and sold at 100 within one minute, against the makers.
+ * Returns its opening fill.
+ */
+async function laterTrade(owner) {
+  const { account, walletKey } = state();
+  const key = privateKeyToAccount(walletKey);
+  const session = await api(account);
+  const act = (intent) => walletDoorAct(session, key, { intent, actionKey: null });
+  const order = (side) => ({
+    kind: 'place_order',
+    symbol: SYMBOL,
+    side,
+    type: 'limit',
+    amount: '1',
+    price: '100',
+    timeInForce: 'IOC',
+    reduceOnly: side === 'sell',
+    clientOrderKey: `order:${owner}:jcd20:${tag()}`,
+    builderFee: null,
+  });
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const before = new Set((await venueRecord(owner, '/fills', { since })).value.map((f) => f.fillId));
+  await makerRests('sell', '100');
+  await act(order('buy'));
+  await makerRests('buy', '100');
+  await act(order('sell'));
+  const made = (await venueRecord(owner, '/fills', { since })).value.filter((f) => f.symbol === SYMBOL && !before.has(f.fillId));
+  expect(made.map((f) => f.side).sort()).toEqual(['buy', 'sell']);
+  return made.find((f) => f.side === 'buy');
+}
+
 test(`${J} #3 replays the older trade whose candles the venue no longer returns: its bars from the journal's own record, with the time they were stored; where none were kept, "bars not kept for this trade", never a made-up chart`, async ({
   page,
   stepPicture,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const { owner } = state();
-  // The trade and its bars as the venue returned them, read before they go.
+  // The Starts line's trade and its bars as the venue returned them, read before they go; the journal read them in #1.
   const v = await venueTrade(owner);
   const kept = v.candles.filter((t) => t <= v.exitBar);
-  // The Starts line's older trade: the venue keeps the market's fills and candles only from now on (TEST switch), as a
-  // venue past the history it keeps.
+  // A later trade the journal never read, so it kept no bars of it.
+  const later = { open: await laterTrade(owner) };
+  // Then the venue keeps the market's candles only from now on (TEST switch), as a venue past the history it keeps; the
+  // fills stay, so both trades are still the venue's.
   const now = new Date().toISOString();
-  expect((await testVenue('/test/history-kept', { symbol: SYMBOL, fillsFrom: now, candlesFrom: now })).status).toBe(200);
+  expect((await testVenue('/test/history-kept', { symbol: SYMBOL, fillsFrom: null, candlesFrom: now })).status).toBe(200);
   try {
     const since = new Date(v.entryBar - BARS_BEFORE * MINUTE).toISOString();
     const gone = await testVenue('/candles', { symbol: SYMBOL, interval: '1m', query: { limit: 720, since } });
     expect(
-      gone.body.value.filter((c) => Date.parse(c.openAt) <= v.exitBar),
-      'the venue no longer returns its candles',
+      gone.body.value.filter((c) => Date.parse(c.openAt) < Date.parse(now)),
+      'the venue no longer returns the candles of either trade',
     ).toEqual([]);
-    const { storedAt } = await openReplay(page, v);
-    // Its bars come from the journal's own record, named with the time they were stored: the trade's own stored time.
+
+    // Where none were kept: "bars not kept for this trade", and no chart at all.
+    await openReplay(page, later);
+    await expect(page.getByTestId('replay-bars-none')).toHaveText(
+      'Bars not kept for this trade: the venue no longer returns them and the journal kept none, so there is no chart to replay.',
+    );
+    await expect(chart(page)).toHaveCount(0);
+    await expect(page.getByTestId('replay-source')).toHaveCount(0);
+
+    // The older trade: its bars from the journal's own record, named with the time they were stored.
+    await page.getByTestId('replay-back').click();
+    await expect(page).toHaveURL(/\/trade\/journal$/);
+    await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
+    const { storedAt } = await replayFromJournal(page, v);
     const source = page.getByTestId('replay-source');
     await expect(source).toHaveAttribute('data-source', 'record');
     await expect(source).toHaveAttribute('data-stored-at', storedAt ?? '');
@@ -370,9 +424,9 @@ test(`${J} #4 leaves replay: the live chart again; the journal trade and its fig
   const fees = toUnits(v.open.venueFee) + toUnits(v.open.builderFee) + toUnits(v.close.venueFee) + toUnits(v.close.builderFee);
   const net = toUnits(v.close.price) - toUnits(v.open.price) - fees;
   await expect(row.locator('[data-cell="net"]')).toHaveText(`${fromUnits(net)} ${v.close.feeAsset}`);
-  expect(
-    (await venueRecord(owner, '/fills', { since: new Date(Date.now() - 86_400_000).toISOString() })).value.filter(
-      (f) => f.symbol === SYMBOL,
-    ),
-  ).toHaveLength(2);
+  // Its fills are still the venue's, both of them: replaying changed nothing.
+  const fillIds = (await venueRecord(owner, '/fills', { since: new Date(Date.now() - 86_400_000).toISOString() })).value.map(
+    (f) => f.fillId,
+  );
+  expect(fillIds).toEqual(expect.arrayContaining([v.open.fillId, v.close.fillId]));
 });
