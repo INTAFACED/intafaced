@@ -508,9 +508,11 @@ test("the beta's balance watch reads the test network every 15 s, inside its 120
   // The beta's background readers read a set number of accounts a minute in turn, so their weight does not grow with them.
   assert.equal(beta.TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, '24');
   assert.equal(beta.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, '6');
+  assert.equal(beta.TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE, '6');
   for (const venue of ['on', 'hl-recorded']) {
     assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, undefined, venue);
     assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, undefined, venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE, undefined, venue);
   }
   // #11041: on the beta, the own-funds sweep (one balance read of our builder account each pass), the builder-mode check
   // and the claim collect ran at the TEST venue's seconds: 20 balance reads, 30 mode reads and 60 claim reads a minute

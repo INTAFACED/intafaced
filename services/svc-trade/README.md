@@ -285,7 +285,9 @@ venue's own unclaimed figure (`UserVenue.builderTotals`). The verdict is `matche
 and at least one fill was compared; no fill reads `nothing_to_compare`, and totals the venue can't give (a blank builder
 address, an adapter that reads none, the venue not knowing) read `totals_unknown`, never matched. Each result carries the
 fills compared and the time read through. Job `venue.builder_fee_recon` runs it over the last day every
-`TRADE_BUILDER_FEE_RECON_INTERVAL_MS` and logs the alert `trade.builder_fee_recon_break`. Read only: it never posts to make
+`TRADE_BUILDER_FEE_RECON_INTERVAL_MS` and logs the alert `trade.builder_fee_recon_break`; with
+`TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE` set, it reads that many accounts' fills a minute, evenly spaced, so a run
+over more accounts takes longer rather than weighing more at the venue. Read only: it never posts to make
 the two agree. Collect (`src/builder-fee/builder-fee-collect.ts`) posts one `builderFeeReceive` per claim the venue
 records for our builder address, keyed `builder-fee-payout:<venueId>:<claimId>`; a claim to any other address is never
 posted. It waits, posting nothing, until the venue adapter reads the builder's claim record (no `UserVenue` read does

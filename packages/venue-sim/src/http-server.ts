@@ -86,6 +86,10 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
  *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
  *        /test/fills {since}                              every account's fills since a time, with its account
+ *        /test/history-kept {symbol,fillsFrom?,candlesFrom?}   the venue keeps that market's fills (every account's) or its
+ *                                                         candles only from that time on, as a venue keeps a bounded
+ *                                                         history (Hyperliquid: the newest 10,000 fills, 5,000 candles);
+ *                                                         null keeps all again (J-portfolio-18 #3 #7)
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP,
  *                                                         XSTK-PERP and XSTD-PERP
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
@@ -911,6 +915,17 @@ async function route(
       if (typeof body.published === 'boolean') sim.setSessionPublished(symbol, body.published);
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { session: market?.session ?? { known: false }, label: 'TEST' };
+    }
+    case '/test/history-kept': {
+      const at = (k: 'fillsFrom' | 'candlesFrom') => {
+        const v = body[k];
+        if (v === undefined) return undefined;
+        if (v === null || v instanceof Date) return v;
+        const at = typeof v === 'string' ? new Date(v) : null;
+        if (!at || Number.isNaN(at.getTime())) throw new VenueWireError(`${k} is an ISO time or null`);
+        return at;
+      };
+      return { ...sim.keepHistoryFrom(str(body, 'symbol'), { fills: at('fillsFrom'), candles: at('candlesFrom') }), label: 'TEST' };
     }
     case '/test/fills': {
       const since = body.since;
