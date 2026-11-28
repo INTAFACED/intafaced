@@ -512,6 +512,17 @@ test("the beta's balance watch reads the test network every 15 s, inside its 120
     assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, undefined, venue);
     assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, undefined, venue);
   }
+  // #11041: on the beta, the own-funds sweep (one balance read of our builder account each pass), the builder-mode check
+  // and the claim collect ran at the TEST venue's seconds: 20 balance reads, 30 mode reads and 60 claim reads a minute
+  // with no desk open (trade.venue_reads_minute, 01:25 UTC 28 Nov 2026). There each runs once a minute.
+  for (const key of ['TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS', 'TRADE_BUILDER_MODE_CHECK_INTERVAL_MS', 'TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS'])
+    assert.equal(beta[key], '60000', key);
+  // The TEST venue keeps its seconds, so a journey sees a sweep, a mode alert and a claim inside its run.
+  for (const venue of ['on', 'hl-recorded']) {
+    assert.equal(tradeEnv(venue).TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS, '3000', venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_MODE_CHECK_INTERVAL_MS, '2000', venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS, '2000', venue);
+  }
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {

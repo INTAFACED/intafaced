@@ -392,6 +392,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: testValue('TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS'),
           TRADE_OWN_FUNDS_WALLET: testValue('TRADE_OWN_FUNDS_WALLET'),
           TRADE_BUILDER_KEY_SEED: testValue('TRADE_BUILDER_KEY_SEED'),
+          // On the test network those seconds were the box's weight with no desk open (#11041): the sweep's one balance read
+          // 20 times a minute, the mode check 30 and the claim read 60. There each runs once a minute; the TEST venue keeps
+          // its seconds, so a journey sees a sweep, a mode alert and a claim inside its run.
+          ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet'
+            ? {
+                TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '60000',
+                TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: '60000',
+                TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: '60000',
+              }
+            : {}),
         }
       : {}),
   }),
