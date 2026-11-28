@@ -167,7 +167,7 @@
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
     "target": "dated-futures-settlement.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The settlement mill never uses last trade or mark as exit price.",
     "guard": {
       "kind": "test",
@@ -178,7 +178,7 @@
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
     "target": "futures-jobs.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The jobs schedule futures.dated_settlement, run the scan with the configured fixing, and never use last trade or mark as the owner price.",
     "guard": {
       "kind": "test",
@@ -288,7 +288,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
     "target": "../mm/mid-source.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The MM seed-mid path refuses dust under the sealed floor rather than awaiting a ruling.",
     "guard": {
       "kind": "test",
@@ -299,7 +299,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
     "target": "mark-from-depth.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The sealed dust floor stays 100 quote units and 100 bps of notional, applied by default.",
     "guard": {
       "kind": "test",
@@ -310,7 +310,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
     "target": "mark-from-venue.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The venue mark path applies the same sealed dust floor, with no second policy.",
     "guard": {
       "kind": "test",
@@ -321,7 +321,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-error-wire.test.ts",
     "target": "../private-rest.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "A FuturesError for an unnamed profit pot reaches bots as NotSupported with retry:false, not a retryable 5xx.",
     "guard": {
       "kind": "test",
@@ -420,7 +420,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-jobs-interval.test.ts",
     "target": "./futures-jobs.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "With no funding interval the jobs schedule no funding tick and pin no 8h period.",
     "guard": {
       "kind": "test",
@@ -431,7 +431,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-jobs-liquidation-report.test.ts",
     "target": "./futures-jobs.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The live liquidation tick gets the SQL rung store, so a failed rung is replayed from what was stored.",
     "guard": {
       "kind": "test",
@@ -442,7 +442,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-jobs-no-policy-fallback.test.ts",
     "target": "futures-jobs.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The live liquidation tick gets exactly the ladder policy passed in: omitted stays omitted, never placeholder rungs.",
     "guard": {
       "kind": "test",
@@ -453,7 +453,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-jobs.test.ts",
     "target": "./futures-jobs.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "Omitted D3 does not invent rungs: the live tick gets no placeholder ladder and no maintenanceBps of the jobs' own.",
     "guard": {
       "kind": "test",
@@ -585,7 +585,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-liq-tick-no-default-policy.test.ts",
     "target": "liquidation-tick.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "With no owner D3 policy the liquidation tick never seizes on placeholder rungs.",
     "guard": {
       "kind": "test",
@@ -596,7 +596,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-listing-leverage-cap.test.ts",
     "target": "../public-rest.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "Listed futures publish a leverage max only when the host supplies one; none by default.",
     "guard": {
       "kind": "test",
@@ -706,7 +706,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-publish-period-named.test.ts",
     "target": "internal-funding-rate.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "A funding publish with no named period is refused; the clock never names an 8 h period.",
     "guard": {
       "kind": "test",
@@ -739,7 +739,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-tick-grace-always-null.test.ts",
     "target": "liquidation-tick.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "A delivered margin call never seizes 'from grace': futures has no grace clock.",
     "guard": {
       "kind": "test",
@@ -750,7 +750,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-ticker-no-24h.test.ts",
     "target": "../public-rest.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The ticker never copies the last print into high or low.",
     "guard": {
       "kind": "test",
@@ -772,7 +772,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-wide-policy-not-production.test.ts",
     "target": "partial-liquidation-real-book.test.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "Production does not use the wide test policy as its ladder.",
     "guard": {
       "kind": "test",
@@ -783,7 +783,7 @@
   {
     "file": "services/svc-trade/src/futures/futures-ws-open-close-unrealized-null.test.ts",
     "target": "position-service.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The open and close positionUpdated events never value unrealised PnL and name no next funding time.",
     "guard": {
       "kind": "test",
@@ -816,7 +816,7 @@
   {
     "file": "services/svc-trade/src/futures/liquidation-tick-ladder-required.test.ts",
     "target": "liquidation-tick.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "Without a published ladder the tick skips an underwater position rather than flattening it.",
     "guard": {
       "kind": "test",
@@ -827,7 +827,7 @@
   {
     "file": "services/svc-trade/src/futures/liquidation-tick.test.ts",
     "target": "./liquidation-tick.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "With the policy omitted the tick does not fall back to placeholder rungs.",
     "guard": {
       "kind": "test",
@@ -904,7 +904,7 @@
   {
     "file": "services/svc-trade/src/futures/margin-call-transport.test.ts",
     "target": "futures-jobs.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The live liquidation tick delivers margin calls into the durable store the REST door reads.",
     "guard": {
       "kind": "test",
@@ -981,7 +981,7 @@
   {
     "file": "services/svc-trade/src/futures/mark-from-venue.test.ts",
     "target": "../env.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The venue mark factory knows okx-spot.",
     "guard": {
       "kind": "test",
@@ -992,7 +992,7 @@
   {
     "file": "services/svc-trade/src/futures/mark-from-venue.test.ts",
     "target": "../index.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The venue mark factory knows okx-spot.",
     "guard": {
       "kind": "test",
@@ -1223,7 +1223,7 @@
   {
     "file": "services/svc-trade/src/futures/pretrade-limits.test.ts",
     "target": "position-service.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "Reducing risk is never blocked by the owner pre-trade limits: closes, reduce-only orders, liquidation and settlement are exempt.",
     "guard": {
       "kind": "test",
@@ -1289,7 +1289,7 @@
   {
     "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
     "target": "position-service.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "setLeverage claims its adjustment, so a replayed request does not move margin twice.",
     "guard": {
       "kind": "test",

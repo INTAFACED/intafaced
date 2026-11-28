@@ -18,6 +18,7 @@ import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
 import { registerInternalFundingRate } from './internal-funding-rate.js';
 import type { FundingRateEntry } from './funding-rate-source.js';
 import { readFileSync } from 'node:fs';
+import { futuresJobsHostDeps } from './futures-jobs-host.js';
 
 const NOW = new Date('2026-08-06T12:00:00.000Z');
 const SECRET = 'test-internal-secret-for-trade-funding-rate';
@@ -461,9 +462,18 @@ describe('kept source pins', () => {
     expect(src).toContain('publishedLiquidationLimits: deps.config.liquidationLimits ?? null');
     expect(src.match(/publishedLiquidationLimits:/g)).toHaveLength(1);
     // The service reads that publication from its env alone, which is blank by default: blank is null.
-    // index.ts hands startFuturesJobs futuresJobsHostDeps's answer alone (dated-futures-settlement-jobhost.money's kept pin).
-    const index = readFileSync(new URL('./futures-jobs-host.ts', import.meta.url), 'utf8');
-    expect(index).toContain('liquidationLimits: publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS)');
+    // index.ts hands startFuturesJobs futuresJobsHostDeps's answer alone (dated-futures-settlement-jobhost.money's kept
+    // pin); that answer carries the env's published limits, blank as none.
+    const hostParts = {
+      sql: {} as never,
+      ledger: {} as never,
+      matching: {} as never,
+      bus: null,
+      liquidationFeeFraction: null,
+      fundingMarketIds: [],
+      fundingMaxAbsRate: null,
+    };
+    expect(futuresJobsHostDeps(tradeEnvWith({}, ['TRADE_FUTURES_LIQUIDATION_LIMITS']), hostParts).config.liquidationLimits).toBeNull();
     const env = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
     expect(env).toContain("TRADE_FUTURES_LIQUIDATION_LIMITS: z.string().default('')");
     expect(publishedLiquidationLimitsFrom('')).toBeNull();
