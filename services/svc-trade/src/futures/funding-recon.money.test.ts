@@ -273,3 +273,35 @@ describe('svc-trade funding recon F7 money', () => {
     expect(pays.length).toBe(recon.legs.length);
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('funding-recon.ts uses planFundingSettlement and does not invent a rate (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'funding-recon.ts'), 'utf8');
+    expect(mill).toMatch(/planFundingSettlement/);
+    expect(mill).toMatch(/requireOwnerFundingRate/);
+    expect(mill).toMatch(/predict/);
+    expect(mill).toMatch(/accrue/);
+    expect(mill).toMatch(/settle/);
+    expect(mill).toMatch(/correct/);
+    expect(mill).toMatch(/report/);
+    expect(mill).not.toMatch(/rate\s*=\s*['"]0['"]/);
+    expect(mill).not.toMatch(/\?\?\s*['"]0/);
+  });
+
+  it('funding-tick.ts still plans via planFundingSettlement; no invented rate (kept source pin)', () => {
+    const tick = readFileSync(join(here, 'funding-tick.ts'), 'utf8');
+    expect(tick).toMatch(/planFundingSettlement/);
+    expect(tick).toMatch(/never invent/);
+  });
+
+  it('router.ts / svc-ledger (crates/svc-ledger) not recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/funding-recon/);
+    expect(routerSrc).not.toMatch(/funding_recon_diverged/);
+    const ledgerDir = join(repoRoot, 'crates', 'svc-ledger', 'src');
+    const ledgerFiles = readdirSync(ledgerDir, { recursive: true, encoding: 'utf8' }) as string[];
+    expect(ledgerFiles.some((f) => String(f).includes('funding-recon'))).toBe(false);
+  });
+});

@@ -370,4 +370,53 @@ describe('kept source pins', () => {
     const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
     expect(index).not.toMatch(/checkMarginModeSwitch|attemptMarginModeSwitch|MARGIN_HAIRCUT|haircutBps/);
   });
+
+  it('router.ts has no margin-mode recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/margin-mode/);
+    expect(routerSrc).not.toMatch(/checkMarginModeSwitch/);
+    expect(routerSrc).not.toMatch(/attemptMarginModeSwitch/);
+    expect(routerSrc).not.toMatch(/readIsolatedMarginAggregation/);
+  });
+
+  it('POST /positions/margin-mode stays 501 — no live switch product (kept source pin)', () => {
+    const privateRest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+    expect(privateRest).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode'/);
+    expect(privateRest).toMatch(/setMarginModeArm\.httpStatus !== 501/);
+    const arm = privateRest.slice(privateRest.indexOf('const setMarginModeArm'));
+    const post = privateRest.indexOf("app.post('/api/v1/positions/margin-mode'");
+    expect(privateRest.indexOf('const setMarginModeArm')).toBeGreaterThan(-1);
+    expect(post).toBeGreaterThan(-1);
+    expect(arm.indexOf('derivativesNotSupported')).toBeGreaterThan(-1);
+    expect(privateRest.slice(post, post + 180)).toMatch(/derivativesNotSupported\('setMarginMode'/);
+  });
+
+  it('mill attempt is check-then-audit — no ledger post, no margin_mode rewrite (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
+    expect(mill).toMatch(/export async function attemptMarginModeSwitch/);
+    expect(mill).toMatch(/export async function auditSwitchAttempt/);
+    expect(mill).toMatch(/export function readIsolatedMarginAggregation/);
+    const attemptStart = mill.indexOf('export async function attemptMarginModeSwitch');
+    const attempt = mill.slice(attemptStart, mill.indexOf('export interface IsolatedPositionMarginRow'));
+    expect(attempt).toMatch(/checkMarginModeSwitch\(input\)/);
+    expect(attempt).toMatch(/auditSwitchAttempt\(audit/);
+    expect(attempt.indexOf('checkMarginModeSwitch')).toBeLessThan(attempt.indexOf('auditSwitchAttempt'));
+    expect(mill).not.toMatch(/recipes\./);
+    expect(mill).not.toMatch(/futuresMarginLock/);
+    expect(mill).not.toMatch(/UPDATE\s+trade\.positions/i);
+    expect(mill).not.toMatch(/SET\s+margin_mode/i);
+  });
+
+  it('listOpen / presentOpenPositions do not net isolated IM as a cross book (kept source pin)', () => {
+    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async listClosed'));
+    expect(listOpen).toMatch(/rows\.map\(\(row\) => this\.presentListed\(row, figures\.get\(row\.id\)\)\)/);
+    expect(listOpen).not.toMatch(/reduce\s*\(/);
+    expect(listOpen).not.toMatch(/sharedInitialMargin/);
+    const rest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+    const present = rest.slice(rest.indexOf('export function presentOpenPositions'), rest.indexOf('export function suppliedPriceFields'));
+    expect(present).toMatch(/rows\.map\(\(row\) => \(\{ \.\.\.row, markSource: null \}\)/);
+    expect(present).not.toMatch(/reduce\s*\(/);
+    expect(present).not.toMatch(/sharedInitialMargin/);
+  });
 });

@@ -424,4 +424,34 @@ describe('kept source pins', () => {
     expect(jobs).not.toMatch(/OWNER_PUBLISHED_F5/);
     expect(jobs).not.toMatch(/pretrade-credit/);
   });
+
+  it('pretrade-credit.ts has no default numbers and does not flatten (kept source pin)', () => {
+    const wrappers = readFileSync(join(here, 'pretrade-credit.ts'), 'utf8');
+    // The published-integer check moved to pretrade-limits.ts (#4725); the wrappers stay here.
+    const mill = wrappers + readFileSync(join(here, 'pretrade-limits.ts'), 'utf8');
+    expect(mill).toMatch(/checkPreTradeCreditDimensions/);
+    expect(mill).toMatch(/origPlace\.call/);
+    expect(mill).toMatch(/origOpen\.call/);
+    expect(mill).toMatch(/TRADE_MAX_ORDER is unset/);
+    expect(mill).toMatch(/0 is published, not a default/);
+    expect(mill).not.toMatch(/flatten/i);
+    expect(mill).not.toMatch(/planClose/);
+    expect(mill).not.toMatch(/closeAll/);
+    expect(mill).not.toMatch(/maxOrder\s*=\s*\d/);
+    expect(mill).not.toMatch(/maxPosition\s*=\s*\d/);
+    expect(mill).not.toMatch(/maxLoss\s*=\s*\d/);
+    expect(mill).not.toMatch(/\?\?\s*0/);
+    expect(mill).not.toMatch(/n\s*<=\s*0/);
+    expect(mill).not.toMatch(/TRADE_MAX_ORDER.{0,80}default/i);
+    const placeStart = wrappers.indexOf('export function installPreTradeCreditPlace');
+    const openStart = wrappers.indexOf('export function installPreTradeCreditOpen');
+    expect(placeStart).toBeGreaterThan(-1);
+    expect(openStart).toBeGreaterThan(placeStart);
+    const placeFn = wrappers.slice(placeStart, openStart);
+    expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
+    expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(placeFn.indexOf('origPlace.call'));
+    const openFn = wrappers.slice(openStart);
+    expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
+    expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(openFn.indexOf('origOpen.call'));
+  });
 });

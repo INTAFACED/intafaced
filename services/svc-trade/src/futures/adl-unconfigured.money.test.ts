@@ -379,4 +379,42 @@ describe('kept source pins', () => {
     expect(index).not.toMatch(/WIDE_POLICY/);
     expect(index).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}adl:/);
   });
+
+  it('adl-last-resort.ts has no maxReduceBps default and does not sort/rank candidates (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'adl-last-resort.ts'), 'utf8');
+    expect(mill).not.toMatch(/maxReduceBps\s*=/);
+    expect(mill).toMatch(/for \(const candidate of input\.candidates\)/);
+    expect(mill).toMatch(/This module does not rank/);
+    expect(mill).toMatch(/owner-chosen order/);
+    expect(mill).not.toMatch(/candidates\.sort\s*\(/);
+    expect(mill).not.toMatch(/input\.candidates\.slice\([^)]*\)\.sort/);
+    expect(mill).not.toMatch(/\[\s*\.\.\.\s*input\.candidates\s*\]\.sort/);
+    const runStart = mill.indexOf('export async function runAdlLastResort');
+    const runEnd = mill.indexOf('export function memoryAdlDisclosureEventStore');
+    expect(runStart).toBeGreaterThan(-1);
+    expect(runEnd).toBeGreaterThan(runStart);
+    const runFn = mill.slice(runStart, runEnd);
+    expect(runFn).not.toMatch(/\.sort\s*\(/);
+    expect(runFn).not.toMatch(/leverage\s*score/i);
+  });
+
+  it('liquidation-adl-gate.ts does not rank or invent maxReduceBps (kept source pin)', () => {
+    const gate = readFileSync(join(here, 'liquidation-adl-gate.ts'), 'utf8');
+    expect(gate).not.toMatch(/maxReduceBps\s*=/);
+    expect(gate).not.toMatch(/candidates\.sort\s*\(/);
+    expect(gate).not.toMatch(/\.sort\s*\(/);
+    expect(gate).toMatch(/does not rank/);
+    expect(gate).toMatch(/owner-chosen order/);
+    expect(gate).toMatch(/refuseReducer/);
+    expect(gate).toMatch(/parkUnderfundedWithAdl/);
+  });
+
+  it('router.ts not recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/runAdlLastResort/);
+    expect(routerSrc).not.toMatch(/parkUnderfundedWithAdl/);
+    expect(routerSrc).not.toMatch(/adl-last-resort/);
+    expect(routerSrc).not.toMatch(/adl-unconfigured/);
+    expect(routerSrc).not.toMatch(/maxReduceBps/);
+  });
 });

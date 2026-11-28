@@ -411,4 +411,36 @@ describe('kept source pins', () => {
     expect(index).not.toMatch(/maxReduceBps/);
     expect(index).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}adl:/);
   });
+
+  it('adl-last-resort.ts does not default maxReduceBps (kept source pin)', () => {
+    const src = readFileSync(join(here, 'adl-last-resort.ts'), 'utf8');
+    expect(src).not.toMatch(/maxReduceBps\s*=/);
+  });
+
+  it('router.ts has no liquidation recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/runLiquidationTick/);
+    expect(routerSrc).not.toMatch(/liquidation-tick/);
+    expect(routerSrc).not.toMatch(/liquidation-planner/);
+    expect(routerSrc).not.toMatch(/adl-last-resort/);
+  });
+
+  it('tick insurance-underfunded path calls the ADL gate (ladder only — no flatten fallback) (kept source pin)', () => {
+    const tick = readFileSync(join(here, 'liquidation-tick.ts'), 'utf8');
+    expect(tick).toMatch(/parkUnderfundedWithAdl/);
+    const first = tick.indexOf('parkUnderfundedWithAdl');
+    const second = tick.indexOf('parkUnderfundedWithAdl', first + 1);
+    const third = tick.indexOf('parkUnderfundedWithAdl', second + 1);
+    const fourth = tick.indexOf('parkUnderfundedWithAdl', third + 1);
+    expect(first).toBeGreaterThan(-1);
+    expect(second).toBeGreaterThan(first);
+    // import + the decision-time park + the replay park (a stored rung whose insurance leg the ledger refuses).
+    expect(third).toBeGreaterThan(second);
+    expect(fourth).toBe(-1);
+    expect(tick).toMatch(/checkInsuranceBound/);
+    const bound = tick.indexOf('checkInsuranceBound({');
+    const park = tick.indexOf('parkUnderfundedWithAdl({');
+    expect(bound).toBeGreaterThan(-1);
+    expect(park).toBeGreaterThan(bound);
+  });
 });

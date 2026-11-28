@@ -372,4 +372,24 @@ describe('kept source pins', () => {
     expect(boot).toMatch(/position-mode/);
     expect(f5).not.toMatch(/position-mode/);
   });
+
+  it('position-mode.ts has no flatten and refuses unset (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'position-mode.ts'), 'utf8');
+    expect(mill).toMatch(/checkPositionMode/);
+    expect(mill).toMatch(/checkPositionModeMigration/);
+    expect(mill).toMatch(/checkOrderSideForPositionMode/);
+    expect(mill).toMatch(/origOpen\.call/);
+    expect(mill).toMatch(/origPlace\.call/);
+    expect(mill).toMatch(/will not invent a flatten/);
+    expect(mill).not.toMatch(/planClose/);
+    expect(mill).not.toMatch(/closeAll/);
+    expect(mill).not.toMatch(/cancelAll/);
+    const openStart = mill.indexOf('export function installPositionModeOpen');
+    const placeStart = mill.indexOf('export function installPositionModePlace');
+    expect(openStart).toBeGreaterThan(-1);
+    expect(placeStart).toBeGreaterThan(openStart);
+    const openFn = mill.slice(openStart, placeStart);
+    expect(openFn.indexOf('parsePositionMode')).toBeGreaterThan(-1);
+    expect(openFn.indexOf('parsePositionMode')).toBeLessThan(openFn.indexOf('origOpen.call'));
+  });
 });

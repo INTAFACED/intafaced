@@ -340,3 +340,31 @@ describe('svc-trade collateral haircut F8 money', () => {
     });
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('collateral-haircut.ts has no default 0/10 and does not lend IM (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'collateral-haircut.ts'), 'utf8');
+    expect(mill).toMatch(/checkPostedMarginCollateral/);
+    expect(mill).toMatch(/checkCollateralClassForMargin/);
+    expect(mill).toMatch(/origOpen\.call/);
+    expect(mill).toMatch(/refuse rather than invent a haircut/);
+    expect(mill).toMatch(/posted margin is not a loan/);
+    expect(mill).not.toMatch(/haircutBps\s*=\s*0/);
+    expect(mill).not.toMatch(/haircutBps\s*=\s*10/);
+    expect(mill).not.toMatch(/\?\?\s*0/);
+    expect(mill).not.toMatch(/\?\?\s*10/);
+  });
+
+  it('router.ts / margin-mode.ts / position-service.ts not recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const marginSrc = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
+    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/collateral-haircut/);
+    expect(routerSrc).not.toMatch(/haircut_unset/);
+    expect(posSrc).not.toMatch(/collateral-haircut/);
+    expect(marginSrc).toMatch(/unsupported_collateral_class/);
+    expect(marginSrc).not.toMatch(/TRADE_COLLATERAL_HAIRCUT_BPS/);
+  });
+});

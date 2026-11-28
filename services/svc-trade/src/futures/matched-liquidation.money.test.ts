@@ -1530,7 +1530,10 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       expect(await bal(futuresOrderMarginAccount(ALICE, USDT, bid.orderId))).toBe(0n);
       // A reduce-only order does not grow the position: the increasing-order pull leaves it to the reduce sweep.
       expect(engine.cancels).not.toContain(ask.orderId);
-      // That the live jobs hand the tick this same pull from the bound book: futures-jobs-tick-wiring.test.ts
+      expect(readFileSync(join(here, 'futures-jobs.ts'), 'utf8')).toContain(
+        'increasingOrders: deps.matchedLiquidation.current.increasingOrders',
+      );
+      // The live jobs also hand the tick this same pull from the bound book: futures-jobs-tick-wiring.test.ts
       // ("pulls the trader’s growing orders from the matched-order book").
     });
 

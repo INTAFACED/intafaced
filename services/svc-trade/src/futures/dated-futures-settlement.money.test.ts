@@ -283,3 +283,39 @@ describe('svc-trade dated futures settlement F3 money', () => {
     ).rejects.toThrow();
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('router.ts not recut; mill never last-trade exitPrice; listing refuse kept (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/runDatedFuturesSettlementJob/);
+    expect(routerSrc).not.toMatch(/dated-futures-settlement/);
+    const mill = readFileSync(join(here, 'dated-futures-settlement.ts'), 'utf8');
+    expect(mill).toMatch(/void input\.lastTradePrice/);
+    expect(mill).toMatch(/void input\.markPrice/);
+    expect(mill).toMatch(/runDatedFuturesExpiryTick/);
+    expect(mill).toMatch(/planClose/);
+    expect(mill).toMatch(/dated-settle:/);
+    expect(mill).toMatch(/source: 'owner_fixing'/);
+    expect(mill).not.toMatch(/exitPrice:\s*input\.lastTradePrice/);
+    expect(mill).not.toMatch(/settlementPrice.*=.*lastTrade/);
+    expect(mill).not.toMatch(/settlementPrice.*=.*markPrice/);
+    const dated = readFileSync(join(here, 'dated-futures.ts'), 'utf8');
+    expect(dated).toMatch(/TRADE_FUTURES_SETTLEMENT_FIXING/);
+    expect(dated).toMatch(/dated_futures_fixing_unconfigured/);
+    try {
+      resolveDatedFuturesListing({
+        kind: 'futures',
+        futuresContractStyle: 'dated',
+        expiryAt: EXPIRY,
+        settlementFixingConfigured: '',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(TradeError);
+      expect((err as TradeError).code).toBe(DATED_FUTURES_FIXING_UNCONFIGURED);
+      expect((err as Error).message).toContain('TRADE_FUTURES_SETTLEMENT_FIXING');
+    }
+  });
+});

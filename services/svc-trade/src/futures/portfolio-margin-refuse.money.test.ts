@@ -280,3 +280,33 @@ describe('svc-trade portfolio-margin-refuse (H8a PG-hard)', () => {
     });
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('open path calls checkMarginModeForFuturesOpen before futuresMarginLock (kept source pin)', () => {
+    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    const openStart = src.indexOf('async open(input: OpenPositionInput, principal?: Principal');
+    expect(openStart).toBeGreaterThan(-1);
+    const open = src.slice(openStart);
+    const hitch = open.indexOf('checkMarginModeForFuturesOpen(input.marginMode)');
+    const lock = open.indexOf('recipes.futuresMarginLock({');
+    expect(hitch).toBeGreaterThan(-1);
+    expect(lock).toBeGreaterThan(-1);
+    expect(hitch).toBeLessThan(lock);
+  });
+
+  it('router.ts has no margin-mode recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/margin-mode/);
+    expect(routerSrc).not.toMatch(/checkMarginModeForFuturesOpen/);
+    expect(routerSrc).not.toMatch(/portfolio_margin/);
+    expect(routerSrc).not.toMatch(/MARGIN_PRODUCTS_2X2/);
+  });
+
+  it('POST /positions/margin-mode stays 501 — isolated-at-open only (kept source pin)', () => {
+    const privateRest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+    expect(privateRest).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode'/);
+    expect(privateRest).toMatch(/setMarginModeArm\.httpStatus !== 501/);
+  });
+});

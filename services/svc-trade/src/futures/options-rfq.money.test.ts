@@ -213,3 +213,28 @@ describe('svc-trade options RFQ E4 money', () => {
     expect(ledger.journal()).toHaveLength(0);
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('options-rfq.ts refuses unset capacity and does not copy book leverage (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'options-rfq.ts'), 'utf8');
+    expect(mill).toMatch(/checkOptionsRfq/);
+    expect(mill).toMatch(/quoteOptionsRfq/);
+    expect(mill).toMatch(/TRADE_OPTIONS_RFQ_CAPACITY/);
+    // #3771: the header comment reads "does NOT inherit the book's cap" (the test pinned a wording the source never had).
+    expect(mill).toMatch(/NOT inherit the book's cap/);
+    expect(mill).not.toMatch(/bookLeverageCap\s*\?\?/);
+    expect(mill).not.toMatch(/offBookLeverageCap\s*=\s*book/);
+  });
+
+  it('router.ts / matching not recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/options-rfq/);
+    expect(routerSrc).not.toMatch(/rfq_capacity_unset/);
+    const matchingFiles = readdirSync(matchingRoot, { recursive: true, encoding: 'utf8' }) as string[];
+    expect(matchingFiles.length).toBeGreaterThan(0);
+    expect(matchingFiles.some((f) => String(f).includes('options-rfq') || String(f).includes('options_rfq'))).toBe(false);
+    // The recursive walk of svc-matching (including node_modules) takes ~3s alone and exceeds 5s under CI/full-suite load.
+  }, 30_000);
+});
