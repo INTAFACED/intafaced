@@ -59,15 +59,13 @@ import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, 
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
 import { requireCloseSlippageBps } from './close-slippage.js';
 import {
-  AMEND_KEY_PREFIX,
   VENUE_ORDER_LABEL_RE,
-  amendTrail,
   historyPage,
   parseHistoryQuery,
   VenueHistoryQueryError,
-  type VenueAmendment,
   type VenueHistoryPage,
-} from './venue-order-history.js';
+} from '@intafaced/venue-contracts';
+import { AMEND_KEY_PREFIX, amendTrail, type VenueAmendment } from './venue-order-history.js';
 import type { FeeSaverSource } from './fee-saver-client.js';
 import type { VenueWalletReads } from './http-user-venue.js';
 import type { DailyLossGuard, DailyLossWarning } from './daily-loss-limit.js';

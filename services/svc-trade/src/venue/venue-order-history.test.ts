@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseAmount, ZERO } from '@intafaced/ledger-client/money';
 import type { UserVenueOrder, UserVenueOrderRecord } from '@intafaced/venue-contracts';
 import type { StoredVenueAction } from './prepared-action-store.js';
-import { amendTrail, historyPage, orderOriginOf, parseHistoryQuery, VenueHistoryQueryError } from './venue-order-history.js';
+import { historyPage, orderOriginOf, parseHistoryQuery, VenueHistoryQueryError } from '@intafaced/venue-contracts';
+import { amendTrail } from './venue-order-history.js';
 
 const NOW = Date.parse('2026-11-16T08:00:00.000Z');
 const cloid = (n: number) => `0x${String(n).padStart(32, '0')}`;
