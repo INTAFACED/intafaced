@@ -134,7 +134,7 @@ export const BANK_GLOBAL_OPS_HOLD = defineProcedure({
   kind: 'mutation',
   path: 'global.ops.hold',
   access: { caller: 'scope', scope: 'admin:compliance', module: 'bank' },
-  refusals: {},
+  refusals: { 'bank.global_not_found': 'NOT_FOUND' },
   input: z
     .object({
       sendId: z.string().guid(),
@@ -156,7 +156,7 @@ export const BANK_GLOBAL_OPS_REQUEST_INFO = defineProcedure({
   kind: 'mutation',
   path: 'global.ops.requestInfo',
   access: { caller: 'scope', scope: 'admin:compliance', module: 'bank' },
-  refusals: {},
+  refusals: { 'bank.hold_not_found': 'NOT_FOUND' },
   input: z.object({ sendId: z.string().guid(), infoRequest: z.string().min(1).max(1000) }).strict(),
   output: operatorHoldView,
   samples: [
@@ -171,7 +171,7 @@ export const BANK_GLOBAL_OPS_RELEASE = defineProcedure({
   kind: 'mutation',
   path: 'global.ops.release',
   access: { caller: 'scope', scope: 'admin:compliance', module: 'bank' },
-  refusals: {},
+  refusals: { 'bank.hold_not_found': 'NOT_FOUND' },
   input: z.object({ sendId: z.string().guid() }).strict(),
   output: globalSendSchema,
   samples: [
@@ -186,7 +186,7 @@ export const BANK_GLOBAL_OPS_LINK_REFERENCE = defineProcedure({
   kind: 'mutation',
   path: 'global.ops.linkReference',
   access: { caller: 'scope', scope: 'admin:compliance', module: 'bank' },
-  refusals: {},
+  refusals: { 'bank.global_not_found': 'NOT_FOUND' },
   input: z.object({ sendId: z.string().guid(), reference: z.string().min(6).max(64) }).strict(),
   output: z.object({ linked: z.literal(true), send: globalSendSchema }),
   samples: [

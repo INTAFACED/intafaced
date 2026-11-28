@@ -31624,7 +31624,9 @@
         "scope": "admin:compliance",
         "module": "bank"
       },
-      "refusals": {},
+      "refusals": {
+        "bank.global_not_found": "NOT_FOUND"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -31975,7 +31977,9 @@
         "scope": "admin:compliance",
         "module": "bank"
       },
-      "refusals": {},
+      "refusals": {
+        "bank.global_not_found": "NOT_FOUND"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -32389,7 +32393,9 @@
         "scope": "admin:compliance",
         "module": "bank"
       },
-      "refusals": {},
+      "refusals": {
+        "bank.hold_not_found": "NOT_FOUND"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -32558,7 +32564,9 @@
         "scope": "admin:compliance",
         "module": "bank"
       },
-      "refusals": {},
+      "refusals": {
+        "bank.hold_not_found": "NOT_FOUND"
+      },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
