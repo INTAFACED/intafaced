@@ -32,6 +32,8 @@ export interface HttpUserVenueOptions {
   /** Per call, milliseconds. */
   readonly timeoutMs: number;
   readonly fetch?: typeof fetch;
+  /** Told each read's path as it is sent, from inside the caller's call (venue-read-callers.ts names who asked). */
+  readonly onRead?: (path: string) => void;
 }
 
 /** `GET /venue`: the descriptor and the EIP-712 chain id the venue's actions name. */
@@ -237,6 +239,7 @@ export class HttpUserVenue implements Pick<UserVenue, 'venue' | 'submit'> {
 
   /** A call that moves nothing: any failure is the venue being down. */
   private async read<T>(path: string, body: unknown): Promise<T> {
+    this.opts.onRead?.(path);
     const answer = await this.post<T>(path, body);
     if (!answer.ok) throw this.down(`${this.venue.displayName}: ${path}: ${answer.failure.detail}`);
     return answer.value;
