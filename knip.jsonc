@@ -43,6 +43,16 @@
       ],
       "project": ["**/*.{ts,tsx,mjs,js,cjs}"],
     },
+    "packages/venue-sim": {
+      // The TEST instruments are loaded by a scan of their folder (src/instruments.ts); knip reads no folder scans.
+      "entry": [
+        "**/*.{test,spec,node-test}.{ts,tsx,mjs,js,cjs}",
+        "**/*.config.{ts,mjs,js,cjs}",
+        "src/index.ts",
+        "src/instruments/[0-9][0-9][0-9][0-9]-*.ts",
+      ],
+      "project": ["**/*.{ts,tsx,mjs,js,cjs}"],
+    },
     "apps/customer": {
       // The real-app config names its reporter by path; knip reads no path strings.
       "entry": [
