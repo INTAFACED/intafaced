@@ -701,3 +701,51 @@ export const BANK_OPS_CARD_PAY_FROM_RECONCILIATION = defineProcedure({
   }),
   samples: [{ verdict: 'accept' }],
 });
+
+export const BANK_OPS_RUN_DUE_TRANSFERS = defineProcedure({
+  ...base,
+  name: 'bank.ops.runDueTransfers',
+  kind: 'mutation',
+  path: 'ops.runDueTransfers',
+  access: { caller: 'service', callers: ['svc-bank'], forbidden: 'ops job is callable only as svc-bank' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(10_000).optional() }),
+  output: z.object({
+    schedulesConsidered: z.number().int(),
+    settled: z.number().int(),
+    rejected: z.number().int(),
+    alreadyFired: z.number().int(),
+    /** Schedules looked at only because a claim was left behind. An operator wants zero. */
+    strandedSwept: z.number().int(),
+    /** Schedules that threw mid-drive; occurrence not consumed; next pass retries. */
+    failures: z.array(
+      z.object({
+        scheduleId: z.string(),
+        reason: z.string(),
+        code: z.string().optional(),
+      }),
+    ),
+  }),
+  samples: [
+    // Only svc-bank's own job is let through (the replay's callers are all refused), as its tests send it: one pass, bounded.
+    { verdict: 'accept', input: { limit: 10 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Re-drive loans stuck between the collateral lock and the draw. */
+export const BANK_OPS_RESUME_PENDING_LOANS = defineProcedure({
+  ...base,
+  name: 'bank.ops.resumePendingLoans',
+  kind: 'mutation',
+  path: 'ops.resumePendingLoans',
+  access: { caller: 'service', callers: ['svc-bank'], forbidden: 'ops job is callable only as svc-bank' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(1_000).optional() }),
+  output: z.array(z.object({ loanId: z.string(), outcome: z.string(), reason: z.string().optional() })),
+  samples: [
+    // Only svc-bank's own job is let through (the replay's callers are all refused), as its tests send it: one pass, bounded.
+    { verdict: 'accept', input: { limit: 10 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

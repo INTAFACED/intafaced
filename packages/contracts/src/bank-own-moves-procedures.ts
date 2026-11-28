@@ -61,3 +61,20 @@ export const BANK_OWN_MOVES_MESSAGE = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/** Spending to trading, leg two: the wallet's own signed deposit to the venue for this move, recorded once. */
+export const BANK_OWN_MOVES_RECORD_DEPOSIT = defineProcedure({
+  ...base,
+  name: 'bank.ownMoves.recordDeposit',
+  kind: 'mutation',
+  path: 'ownMoves.recordDeposit',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ moveId, depositTx: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }).strict(),
+  output: ownMoveView,
+  samples: [
+    // A whole input: the replay's own sample is refused by every caller, so this one is written by hand.
+    { verdict: 'accept', input: { moveId: '00000000-0000-4000-8000-000000000001', depositTx: `0x${'a'.repeat(64)}` } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
