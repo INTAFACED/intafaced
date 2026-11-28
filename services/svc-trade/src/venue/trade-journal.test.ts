@@ -560,6 +560,41 @@ describe('trade journal: the read and its own record', () => {
     await expect(readTradeJournal(deps(down), input)).rejects.toBeInstanceOf(VenueRefusalError);
     expect(TradeJournalError).toBeDefined();
   });
+
+  it("refuses a wallet the caller's own wallet never signed for through the door, reading and keeping nothing (#11222)", async () => {
+    const store = new InMemoryTradeJournalStore();
+    const read: string[] = [];
+    const watched = venue({
+      fills: async () => {
+        read.push('fills');
+        return { venueId: 'hl-test', asOf: at('10:10:00'), value: btcFills };
+      },
+    });
+    const asked: unknown[] = [];
+    const theirs = {
+      ...deps(watched, store),
+      // The caller's own wallet signed for another account only; the named owner is someone else's wallet.
+      ownWallets: async (userId: string, venueId: string) => {
+        asked.push({ userId, venueId });
+        return [{ owner: '0x2222222222222222222222222222222222222222', subAccount: null }];
+      },
+    };
+    await expect(readTradeJournal(theirs, input, 'user-1')).rejects.toMatchObject({ code: 'trade.journal_wallet_not_own' });
+    expect(asked).toEqual([{ userId: 'user-1', venueId: 'hl-test' }]);
+    expect(read).toEqual([]);
+    expect(store.rows.size).toBe(0);
+  });
+
+  it('reads and keeps the journal of a wallet whose owner signature the caller gave through the door', async () => {
+    const store = new InMemoryTradeJournalStore();
+    const own = {
+      ...deps(venue(), store),
+      ownWallets: async () => [{ owner: account.owner.toUpperCase().replace('0X', '0x'), subAccount: null }],
+    };
+    const j = await readTradeJournal(own, input, 'user-1');
+    expect(j.trades.length).toBeGreaterThan(0);
+    expect(store.rows.size).toBe(1);
+  });
 });
 
 /*
