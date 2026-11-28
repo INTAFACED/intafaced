@@ -733,3 +733,16 @@ export const currencyDetails = z.object({
   blocker: z.literal('rail.bank').nullable(),
   sets: z.array(detailSet),
 });
+
+export const actionApprovalFields = {
+  confirmOperatorId: z.string().max(128).nullish(),
+  approvalId: z.string().max(128).nullish(),
+  operationId: z.string().max(128).nullish(),
+};
+
+export const asset = z.string().regex(/^[A-Z0-9]{2,16}$/);
+
+export const wallet = z.string().regex(/^0x[0-9a-f]{40}$/, 'a lower-case EVM address');
+
+/** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
+export const stepUpApprovalField = z.string().min(1).max(128).optional();

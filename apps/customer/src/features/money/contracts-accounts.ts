@@ -156,10 +156,6 @@ const incomingLineSchema = z.object({
 export type IncomingLine = z.infer<typeof incomingLineSchema>;
 /** The caller's own stricter answer for incoming payments' `activity.list` read: only the kinds it asked for. */
 export const incomingPageSchema = z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() });
-export const currencyWrites = {
-  add: accountCurrencySchema,
-  remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
-};
 /** A ledger balance of a dead owner's account, as the heir's claim room shows it (RC-identity-08). */
 const recoveryAccountSchema = z.object({
   ownerType: z.enum(['user', 'subaccount']),

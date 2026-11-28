@@ -33,7 +33,8 @@ import { AccountModePanel } from './AccountMode';
 import { TradingStatement } from './TradingStatement';
 import { depositRoute, routeOf } from './move-route';
 import { BANK_CARDS_LIST, BANK_CARDS_PARTNER_HELD } from '@intafaced/contracts/bank-cards-procedures';
-import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from '@intafaced/contracts/bank-own-moves-procedures';
+import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE, BANK_OWN_MOVES_RECORD_DEPOSIT } from '@intafaced/contracts/bank-own-moves-procedures';
+import { BANK_OWN_MOVES_TO_WALLET } from '@intafaced/contracts/bank-own-moves-2-procedures';
 
 /**
  * The trading account (`/trade/account`, J-derivatives-25): two named groups, each with its own source and time. Trading
@@ -464,7 +465,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
             : t('moveWalletFailed', { detail: sent.status === 'failed' ? sent.message : '' }),
       });
     }
-    const recorded = await api.mutate('bank', 'ownMoves.recordDeposit', { moveId: move.id, depositTx: sent.hash }, ownMoveSchema);
+    const recorded = await api.call(BANK_OWN_MOVES_RECORD_DEPOSIT, { moveId: move.id, depositTx: sent.hash });
     if (!recorded.ok) {
       setStage({ at: 'idle' });
       return refuseWith(recorded);
@@ -505,19 +506,14 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
     }
     kept.current = { moveId, amount: sent, walletSignature: signed.signature, stepUpApprovalId };
     setStage({ at: 'sending', moveId, amount: sent });
-    const moved = await api.mutate(
-      'bank',
-      'ownMoves.toWallet',
-      {
-        moveId,
-        assetId: ASSET,
-        amount: sent,
-        wallet: owner,
-        walletSignature: signed.signature,
-        ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
-      },
-      ownMoveSchema,
-    );
+    const moved = await api.call(BANK_OWN_MOVES_TO_WALLET, {
+      moveId,
+      assetId: ASSET,
+      amount: sent,
+      wallet: owner,
+      walletSignature: signed.signature,
+      ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+    });
     if (!moved.ok) {
       setStage({ at: 'idle' });
       return refuseWith(moved);
@@ -532,19 +528,14 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
     const first = kept.current;
     if (!first) return;
     setRefusal(null);
-    const moved = await api.mutate(
-      'bank',
-      'ownMoves.toWallet',
-      {
-        moveId: first.moveId,
-        assetId: ASSET,
-        amount: first.amount,
-        wallet: owner,
-        walletSignature: first.walletSignature,
-        ...(first.stepUpApprovalId ? { stepUpApprovalId: first.stepUpApprovalId } : {}),
-      },
-      ownMoveSchema,
-    );
+    const moved = await api.call(BANK_OWN_MOVES_TO_WALLET, {
+      moveId: first.moveId,
+      assetId: ASSET,
+      amount: first.amount,
+      wallet: owner,
+      walletSignature: first.walletSignature,
+      ...(first.stepUpApprovalId ? { stepUpApprovalId: first.stepUpApprovalId } : {}),
+    });
     if (!moved.ok) return refuseWith(moved);
     if (!moved.data.depositTx) return deposit(moved.data);
     setStage({ at: 'done', move: moved.data, again: true });

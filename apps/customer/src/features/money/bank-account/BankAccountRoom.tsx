@@ -3,21 +3,24 @@ import { useCallback, useState, type FormEvent } from 'react';
 import type { z } from 'zod';
 import { Button, Checkbox, Field, Select, TextArea } from '@intafaced/ui/lit';
 import {
-  bankAccountClosureRowSchema as closureRowSchema,
   bankAccountClosureSchema as closureSchema,
-  bankAccountDataRowSchema as dataRowSchema,
   bankAccountDataSchema as dataSchema,
   bankAccountOnboardingSchema as onboardingSchema,
-  bankAccountRequestSchema as requestSchema,
   bankAccountRequestsSchema as requestsSchema,
   bankAccountReviewsSchema as reviewsSchema,
-  bankAccountReviewSchema as reviewSchema,
 } from '@intafaced/contracts/bank-money-room';
 import { useSession } from '../../session';
 import { defineCopy } from '../../../shared/i18n';
 import { useResource } from '../../../shared/resource';
 import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Panel } from '../bank-settings/parts';
+import {
+  BANK_BANK_ACCOUNT_ANSWER_REQUEST,
+  BANK_BANK_ACCOUNT_ANSWER_REVIEW,
+  BANK_BANK_ACCOUNT_REQUEST_CLOSURE,
+  BANK_BANK_ACCOUNT_REOPEN,
+  BANK_BANK_ACCOUNT_REQUEST_DATA,
+} from '@intafaced/contracts/bank-bank-account-procedures';
 
 /**
  * Words for the bank account room (BK-acct-05, BK-acct-06; J-bank-17): onboarding, the partner's information requests
@@ -201,12 +204,13 @@ function InfoRequests({ version, changed }: { version: number; changed: () => vo
       if (!file) return;
       setBusy(requestId);
       const contentBase64 = await base64Of(file);
-      const result = await api.mutate(
-        'bank',
-        'bankAccount.answerRequest',
-        { requestId, name: file.name, type: file.type || 'application/octet-stream', contentBase64, profile },
-        requestSchema,
-      );
+      const result = await api.call(BANK_BANK_ACCOUNT_ANSWER_REQUEST, {
+        requestId,
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        contentBase64,
+        profile,
+      });
       setBusy(null);
       setFailures((now) => {
         const next = { ...now };
@@ -275,12 +279,12 @@ function Reviews({ version, changed }: { version: number; changed: () => void })
     const form = event.currentTarget;
     const accurate = (form.elements.namedItem('accurate') as HTMLInputElement).checked;
     const note = (form.elements.namedItem('note') as HTMLTextAreaElement).value.trim();
-    const result = await api.mutate(
-      'bank',
-      'bankAccount.answerReview',
-      { reviewId, stillAccurate: accurate, note: note === '' ? null : note, profile },
-      reviewSchema,
-    );
+    const result = await api.call(BANK_BANK_ACCOUNT_ANSWER_REVIEW, {
+      reviewId,
+      stillAccurate: accurate,
+      note: note === '' ? null : note,
+      profile,
+    });
     setFailure(result.ok ? null : { code: result.code ?? '', message: result.message });
     changed();
   };
@@ -328,17 +332,16 @@ function Closure({ version, changed }: { version: number; changed: () => void })
     const accountRef = (form.elements.namedItem('destinationRef') as HTMLInputElement).value.trim();
     // The business key: this person's next closure, so a resend of the same ask is the same closure.
     const closureId = `closure-${now.closures.length + 1}`;
-    const result = await api.mutate(
-      'bank',
-      'bankAccount.requestClosure',
-      { closureId, destination: name === '' && accountRef === '' ? null : { name, accountRef }, profile },
-      closureRowSchema,
-    );
+    const result = await api.call(BANK_BANK_ACCOUNT_REQUEST_CLOSURE, {
+      closureId,
+      destination: name === '' && accountRef === '' ? null : { name, accountRef },
+      profile,
+    });
     setFailure(result.ok ? null : { code: result.code ?? '', message: result.message });
     changed();
   };
   const reopen = async () => {
-    const result = await api.mutate('bank', 'bankAccount.reopen', { profile }, closureRowSchema);
+    const result = await api.call(BANK_BANK_ACCOUNT_REOPEN, { profile });
     setFailure(result.ok ? null : { code: result.code ?? '', message: result.message });
     changed();
   };
@@ -408,7 +411,7 @@ function DataRights({ version, changed }: { version: number; changed: () => void
     event.preventDefault();
     // The business key: this person's next data request, so a resend of the same ask is recorded once.
     const requestId = `data-request-${requests.length + 1}`;
-    const result = await api.mutate('bank', 'bankAccount.requestData', { requestId, kind, profile }, dataRowSchema);
+    const result = await api.call(BANK_BANK_ACCOUNT_REQUEST_DATA, { requestId, kind, profile });
     setFailure(result.ok ? null : { code: result.code ?? '', message: result.message });
     changed();
   };
