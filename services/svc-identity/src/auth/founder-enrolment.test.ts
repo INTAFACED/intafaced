@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   base32,
   canonicalInvite,
@@ -92,8 +92,55 @@ describe('generateFounderInvites', () => {
   it('the script source imports no network, file, process or database module', () => {
     const source = readFileSync(join(serviceDir, 'scripts', 'founder-invites.ts'), 'utf8');
     expect(source).not.toMatch(/node:(fs|net|http|https|child_process|dgram|dns|tls)|fetch\(|postgres|writeFile|from '\.\.\/src\/env/);
-    const lib = readFileSync(join(here, 'founder-enrolment.ts'), 'utf8');
-    expect(lib).not.toMatch(/node:(fs|net|http|https|child_process|dgram|dns|tls)|fetch\(|postgres|process\.env/);
+  });
+
+  it('the invite library loads no network, file, process or database module and reads no settings', async () => {
+    // A fresh load of the library with each such module watched: none is loaded, and generating, matching and
+    // parsing invites reads no environment variable and makes no request.
+    const loaded: string[] = [];
+    const watched = [
+      'node:fs',
+      'node:net',
+      'node:http',
+      'node:https',
+      'node:child_process',
+      'node:dgram',
+      'node:dns',
+      'node:tls',
+      'postgres',
+    ];
+    for (const name of watched)
+      vi.doMock(name, () => {
+        loaded.push(name);
+        return {};
+      });
+    vi.resetModules();
+    const savedEnv = process.env;
+    const savedFetch = globalThis.fetch;
+    const envReads: string[] = [];
+    try {
+      const lib = await import('./founder-enrolment.js');
+      process.env = new Proxy({} as NodeJS.ProcessEnv, {
+        get: (_t, prop) => {
+          if (typeof prop === 'string') envReads.push(prop);
+          return undefined;
+        },
+      });
+      globalThis.fetch = (() => {
+        throw new Error('the invite library made a request');
+      }) as typeof fetch;
+      const out = lib.generateFounderInvites();
+      expect(lib.matchInvite(out.codes[0]!, out.hashes)).toBe(out.hashes[0]);
+      expect(lib.parseInviteHashes(out.hashes.join(','))).toEqual(out.hashes);
+      expect(lib.parseInviteExpiry(new Date(Date.now() + 3_600_000).toISOString())).toBeInstanceOf(Date);
+    } finally {
+      process.env = savedEnv;
+      globalThis.fetch = savedFetch;
+      for (const name of watched) vi.doUnmock(name);
+      vi.resetModules();
+    }
+    expect(loaded).toEqual([]);
+    expect(envReads).toEqual([]);
   });
 });
 
@@ -121,12 +168,37 @@ describe('matchInvite', () => {
     }
   });
 
-  it('compares with timingSafeEqual over every configured hash, without an early exit', () => {
-    const lib = readFileSync(join(here, 'founder-enrolment.ts'), 'utf8');
-    const body = lib.slice(lib.indexOf('export function matchInvite'), lib.indexOf('export function parseInviteHashes'));
-    expect(body).toContain('timingSafeEqual');
-    expect(body).not.toMatch(/\breturn hash\b|\bbreak\b/);
-    expect(body).not.toMatch(/===\s*hash|hash\s*===/);
+  it('compares with timingSafeEqual over every configured hash, without an early exit', async () => {
+    // A fresh load of the library over a watched timingSafeEqual (still the real one).
+    const compare = vi.fn<(a: NodeJS.ArrayBufferView, b: NodeJS.ArrayBufferView) => boolean>();
+    vi.doMock('node:crypto', async (importOriginal) => {
+      const real = await importOriginal<typeof import('node:crypto')>();
+      compare.mockImplementation(real.timingSafeEqual);
+      return { ...real, timingSafeEqual: compare };
+    });
+    vi.resetModules();
+    try {
+      const lib = await import('./founder-enrolment.js');
+      const invites = lib.generateFounderInvites();
+      const [first, second] = invites.hashes;
+      // A match on the first hash still compares against every hash, and nothing else decides the answer.
+      for (const [code, expected] of [
+        [invites.codes[0]!, first],
+        [invites.codes[1]!, second],
+        [generateFounderInvites().codes[0]!, null],
+      ] as const) {
+        compare.mockClear();
+        expect(lib.matchInvite(code, invites.hashes)).toBe(expected);
+        expect(compare).toHaveBeenCalledTimes(invites.hashes.length);
+        expect(compare.mock.calls.map(([, b]) => Buffer.from(b as Uint8Array).toString('hex'))).toEqual([...invites.hashes]);
+      }
+      // A comparison that says no is the answer: a hash is never matched by any other route.
+      compare.mockImplementation(() => false);
+      expect(lib.matchInvite(invites.codes[0]!, invites.hashes)).toBeNull();
+    } finally {
+      vi.doUnmock('node:crypto');
+      vi.resetModules();
+    }
   });
 
   it('base32 follows RFC 4648', () => {

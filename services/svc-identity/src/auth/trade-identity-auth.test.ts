@@ -1,7 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   admitNewOrderWhileFrozen,
   fillsForOrderWhileFrozen,
@@ -383,9 +380,44 @@ describe('TRD-0309 a lost officer phone cannot unfreeze a customer', () => {
 });
 
 describe('close does not post a ledger entry', () => {
-  it('the module source does not import the ledger client', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'trade-identity-auth.ts'), 'utf8');
-    expect(src).not.toMatch(/ledger-client/);
-    expect(src).not.toMatch(/ledger\.post/);
+  it('the module source does not import the ledger client', async () => {
+    // A fresh load of the module with the ledger client (every entry it publishes) watched: none of it is loaded,
+    // so nothing here can post an entry, and the module makes no request of its own on load.
+    const loaded: string[] = [];
+    const entries = [
+      '',
+      '/money',
+      '/recipes',
+      '/testing',
+      '/testing/ledger-door',
+      '/testing/saga',
+      '/history-page',
+      '/post-recipe',
+      '/operator-reverse',
+      '/gate',
+    ];
+    const watched = entries.map((sub) => `@intafaced/ledger-client${sub}`);
+    for (const name of watched)
+      vi.doMock(name, () => {
+        loaded.push(name);
+        return {};
+      });
+    const savedFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requests.push(String(input));
+      throw new Error('trade-identity-auth made a request');
+    }) as typeof fetch;
+    vi.resetModules();
+    try {
+      const fresh = await import('./trade-identity-auth.js');
+      expect(Object.keys(fresh).length).toBeGreaterThan(0);
+    } finally {
+      globalThis.fetch = savedFetch;
+      for (const name of watched) vi.doUnmock(name);
+      vi.resetModules();
+    }
+    expect(loaded).toEqual([]);
+    expect(requests).toEqual([]);
   });
 });

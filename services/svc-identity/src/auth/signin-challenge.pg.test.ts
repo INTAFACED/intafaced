@@ -3,13 +3,12 @@
  * count (or always with the count blank), a solved token good once, and blank settings refusing by name.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { signInChallengeMet, signInChallengeText, type Context, type SignInChallenge } from '@intafaced/contracts';
 import { MemoryEventBus } from '@intafaced/events';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { serviceMigrations } from '@intafaced/service-kit/testing';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 import { createIdentityRouter } from '../router.js';
@@ -18,11 +17,7 @@ import { requestIpAls } from './auth-service-ip.js';
 import { SignInChallengeService, parseSignInChallengePolicy, type SignInChallengePolicy } from './signin-challenge.js';
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test';
-const drizzleDir = join(process.cwd(), 'drizzle');
-const migrations = readdirSync(drizzleDir)
-  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
-  .sort()
-  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
+const migrations = serviceMigrations(import.meta.url);
 const tokenConfig = {
   secret: 'an-identity-test-signing-secret-long-enough',
   issuer: 'intafaced',

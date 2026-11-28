@@ -1,9 +1,18 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PlaceDoor } from './place-door.js';
+import * as sessionsMod from './unenroll-passkey-sessions.js';
+import * as keysMod from './revoke-all-api-keys.js';
 import { unenrollPasskeyAndRevokeKeys } from './unenroll-passkey-keys.js';
+
+// The two steps it is made of, watched: each still runs for real.
+vi.mock('./unenroll-passkey-sessions.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./unenroll-passkey-sessions.js')>();
+  return { ...real, unenrollPasskeyAndRevokeSessions: vi.fn(real.unenrollPasskeyAndRevokeSessions) };
+});
+vi.mock('./revoke-all-api-keys.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./revoke-all-api-keys.js')>();
+  return { ...real, revokeAllApiKeys: vi.fn(real.revokeAllApiKeys) };
+});
 
 /** The factor-changed outbox rows each removal queued. */
 const factorNotices: unknown[][] = [];
@@ -17,8 +26,10 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
   let sessionWrites = 0;
   let keyWrites = 0;
   const written: unknown[] = [];
+  const statements: string[] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push(text.replace(/\s+/g, ' ').trim());
     // The last-way-in check (I-account-lifecycle-07) reads the account's methods: these accounts also hold a password.
     if (text.includes('password_set')) {
       const userId = values[0];
@@ -113,6 +124,7 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
     sessions,
     keys,
     written,
+    statements,
   }) as Parameters<typeof unenrollPasskeyAndRevokeKeys>[0] & {
     sessionWrites: number;
     keyWrites: number;
@@ -120,6 +132,7 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
     sessions: SessionRow[];
     keys: KeyRow[];
     written: unknown[];
+    statements: string[];
   };
 }
 
@@ -127,14 +140,27 @@ const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const enrolled = { credentialId: 'cred-1' };
 const other = { credentialId: 'cred-2' };
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'unenroll-passkey-keys.ts'), 'utf8');
 
 describe('unenrollPasskeyAndRevokeKeys', () => {
-  it('reuses unenrollPasskeyAndRevokeSessions then revokeAllApiKeys; never invents a key id', () => {
-    expect(src).toMatch(/unenrollPasskeyAndRevokeSessions\(/);
-    expect(src).toMatch(/revokeAllApiKeys\(/);
-    expect(src).not.toMatch(/INSERT INTO api_keys/i);
+  it('reuses unenrollPasskeyAndRevokeSessions then revokeAllApiKeys; never invents a key id', async () => {
+    vi.clearAllMocks();
+    const seats = () => [
+      { id: 'live-1', user_id: A, revoked: false },
+      { id: 'dead', user_id: A, revoked: true },
+    ];
+    const sql = combinedStore([{ id: A, webauthn_creds: [enrolled, other] }], seats(), seats());
+    const out = await unenrollPasskeyAndRevokeKeys(sql, A, 'cred-1');
+    const viaSessions = vi.mocked(sessionsMod.unenrollPasskeyAndRevokeSessions);
+    const viaKeys = vi.mocked(keysMod.revokeAllApiKeys);
+    expect(viaSessions.mock.calls.map(([s, ...rest]) => [s === sql, ...rest])).toEqual([[true, A, 'cred-1']]);
+    expect(viaKeys.mock.calls.map(([s, ...rest]) => [s === sql, ...rest])).toEqual([[true, A, A]]);
+    expect(viaSessions.mock.invocationCallOrder[0]).toBeLessThan(viaKeys.mock.invocationCallOrder[0] ?? 0);
+    // The answer is the sessions step's, with the keys step's count beside it.
+    const sessionsStep = await viaSessions.mock.results[0]?.value;
+    const keysStep = await viaKeys.mock.results[0]?.value;
+    expect(keysStep).toBeDefined();
+    expect(out).toEqual({ ...sessionsStep, keysRevoked: keysStep?.revoked });
+    expect(sql.statements.filter((s) => /insert\s+into\s+api_keys\b/.test(s))).toEqual([]);
   });
 
   it('after unenroll of an enrolled cred, live keys are revoked and cannot place', async () => {
