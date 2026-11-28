@@ -1584,6 +1584,54 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
 }
 
+// 20a. A running service whose launch settings changed restarts onto them, as one on another build does. Before this, a
+// tooling-only commit kept the build fresh and the beta's svc-trade kept the TEST venue's 3 s own-funds sweep after
+// #11230 set a minute on the test network: 20 balance reads a minute went on (trade.venue_reads_minute, #11041).
+{
+  const { settingsMark, restartReason, startNodeService, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const before = { TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '3000', HTTP_PORT: '17504' };
+  const after = { ...before, TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '60000' };
+  assert.equal(
+    settingsMark(before),
+    settingsMark({ HTTP_PORT: '17504', TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '3000' }),
+    'key order is no change',
+  );
+  assert.notEqual(settingsMark(before), settingsMark(after), 'a changed value is a change');
+  assert.notEqual(
+    settingsMark(before),
+    settingsMark({ ...before, TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: '60000' }),
+    'a new key is a change',
+  );
+  const rec = { pid: 1, build: 'b1', settings: settingsMark(before) };
+  assert.equal(restartReason(rec, 'b1', settingsMark(before)), null, 'the same build and settings keep running');
+  assert.equal(restartReason(rec, 'b1', settingsMark(after)), 'new settings', 'a process on the old settings restarts');
+  assert.equal(restartReason(rec, 'b2', settingsMark(before)), 'the new build');
+  assert.equal(
+    restartReason({ pid: 1, build: 'b1' }, 'b1', settingsMark(before)),
+    'new settings',
+    'a record kept before settings restarts once',
+  );
+  assert.equal(restartReason({ pid: 1, build: 'b1' }, 'b1', undefined), null, 'a part that passes no settings restarts on its build only');
+  // A service's start hands its own settings to the stop, so a live process on other settings is stopped first.
+  const ledger = localTestServiceEnvs().find((d) => d.name === 'ledger');
+  const halt = new Error('stopped here');
+  const stops = [];
+  await assert.rejects(
+    startNodeService(
+      { name: 'ledger', env: () => ledger.env },
+      {
+        stop: (...args) => {
+          stops.push(args);
+          throw halt;
+        },
+      },
+    ),
+    (err) => err === halt,
+  );
+  assert.equal(stops[0][4], settingsMark(ledger.env), "the stop is given the start's settings");
+  console.log('local-test-stack: a running service restarts onto changed launch settings');
+}
+
 // 20b. A banner site (customer, invitation, apex) still serving another banner restarts: before #10863's fix a start
 // kept a process that answered 200 with the old BANNER_TEXT, and the status table called the beta's apex DOWN.
 {
