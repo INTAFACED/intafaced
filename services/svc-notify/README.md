@@ -102,17 +102,24 @@ What the owner has to obtain, in plain language:
 ### Telegram desk alerts (read-only)
 
 `src/telegram/`: the launch desk's alerts on Telegram, apart from the four channels above. A person links one chat with
-a one-time code from `telegram.linkCode` (account settings; only its SHA-256 digest is stored, it lasts
-`NOTIFY_VERIFY_TTL_MINUTES`, a newer code replaces it) by sending `/start <code>` to the bot. A sweep every 15 seconds
+a one-time code from `telegram.linkCode` (Notifications, Preferences; only its SHA-256 digest is stored, it lasts five
+minutes, a newer code replaces it) by sending `/start <code>` to the bot; the chat's handle is kept to show which chat is
+linked. A sweep every 15 seconds
 reads svc-trade's `venue.deskSnapshot` for each linked person and raises each alert once under its business key: every
 fill (`fill:<fillId>`), margin use at 80% and 90% once per crossing (`margin:<account>:<level>:<crossing>`), and the
 profit lock once a week when the week's realised profit reaches the target set with `telegram.setProfitTarget`
-(`profit-lock:<weekStart>`). The outbox sends until the bot API takes each one. The bot answers `/positions` and `/pnl`
-and refuses every other command: the desk holds no way to trade, cancel or move money.
+(`profit-lock:<weekStart>`). The outbox sends until the bot API takes each one. Each margin warning names the position nearest
+liquidation and the venue's as-of time. The bot answers `/positions` and `/pnl` (today's and the week's realised result,
+fees and the open result; a venue that can't be read is named), answers every trading command "Trading is off in chat.
+Open INTAFACED to trade.", and anything else with what it does: the desk holds no way to trade, cancel or move money.
 
 `NOTIFY_TELEGRAM_BOT_TOKEN` (a secret) turns it on; blank, `telegram.status` says `off` with
 `notify.telegram_token_unset`, and with `NOTIFY_OUT_OF_APP_ENABLED=false` it says `notify.out_of_app_off`. The webhook,
 `POST /telegram/webhook`, refuses any update without the `NOTIFY_TELEGRAM_WEBHOOK_SECRET` header (32+ characters).
+`NOTIFY_TELEGRAM_BOT_NAME` is the bot's `@handle` the page tells people to send their code to. On a test stack only
+(`APP_ENV` dev or test), with no token, `NOTIFY_TELEGRAM_TEST_OUTBOX` turns on the TEST bot, which writes every message,
+labelled TEST, to that file instead of Telegram; with `TEST_AGE_DOOR=on` the TEST age door ages a link code
+(`telegram-link-code`, by user id).
 
 ### The gateway contract
 

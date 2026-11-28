@@ -312,6 +312,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
           // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
           // J-derivatives-14's TEST perpetual XDEV-PERP (the one a developer reads and trades through our API).
+          // J-charts-desk-21's TEST perpetual XTGM-PERP (isolated margin; its mark moves margin use past 80% and 90%).
           // J-portfolio-19's TEST perpetual XJRN-PERP (the one its journal's "keeping my rules" trades are made on).
           // PURR-USDC: the one spot pair Hyperliquid's test network trades every day, so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
           // PURR-USDC, so the seed skips it there.
@@ -322,7 +323,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // database (svc-trade seedTestListings). A replay of the test network (`hl-recorded`) lists what the live run did.
           TRADE_USER_VENUE_TEST_LISTINGS: [
             ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE)?.startsWith('hl-') ? [] : ['BTC-USDC']),
-            'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,XJRN-PERP',
+            'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,XJRN-PERP,XTGM-PERP',
             'xyz:TSLA-PERP,xyz:NVDA-PERP,xyz:AAPL-PERP,xyz:XYZ100-PERP,xyz:GOLD-PERP,xyz:SILVER-PERP',
           ].join(','),
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;

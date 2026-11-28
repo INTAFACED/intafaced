@@ -1,3 +1,5 @@
+import { appendFile, mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { z } from 'zod';
 import { unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
 import { serviceCallSigner, type ServiceAuthMode } from '@intafaced/contracts/service-auth-http';
@@ -100,4 +102,25 @@ export function webhookSecretMatches(configured: string | undefined, presented: 
   let diff = 0;
   for (let i = 0; i < configured.length; i += 1) diff |= configured.charCodeAt(i) ^ presented.charCodeAt(i);
   return diff === 0;
+}
+
+/**
+ * The TEST bot of a test stack (J-charts-desk-21): with no bot token and `NOTIFY_TELEGRAM_TEST_OUTBOX` naming an absolute
+ * file, every message the desk sends is written there as one `LOCAL-TEST {json}` line (the chat, the text, the time),
+ * labelled TEST, instead of reaching Telegram; a journey reads the file as the chat. Refused at boot unless APP_ENV is
+ * exactly dev or test, so it never stands in for the owner's bot. Blank: no TEST bot.
+ */
+export function telegramTestBotTransport(raw: string | undefined, appEnv: string | undefined): TelegramTransport | null {
+  const file = raw?.trim() ?? '';
+  if (file === '') return null;
+  if (appEnv !== 'dev' && appEnv !== 'test')
+    throw new Error('NOTIFY_TELEGRAM_TEST_OUTBOX is allowed only when APP_ENV is exactly dev or test');
+  if (!path.isAbsolute(file)) throw new Error('NOTIFY_TELEGRAM_TEST_OUTBOX must be an absolute path');
+  return {
+    async send(chatId, text) {
+      const line = { bot: 'TEST', chatId, text, at: new Date().toISOString() };
+      await mkdir(path.dirname(file), { recursive: true });
+      await appendFile(file, `LOCAL-TEST ${JSON.stringify(line)}\n`, { encoding: 'utf8', mode: 0o600 });
+    },
+  };
 }

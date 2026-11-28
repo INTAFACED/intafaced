@@ -391,6 +391,7 @@ const SECRET_NAMES = [
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
   'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email or push stand-in (LOCAL_STACK_NOTIFY_EMAIL=on, LOCAL_STACK_NOTIFY_PUSH=on)
   'notifySupportService', // svc-support's own secret for svc-notify's guest verification door (NOTIFY_SUPPORT_SERVICE_SECRET on both)
+  'notifyTelegramWebhook', // the TEST bot's webhook header for svc-notify (NOTIFY_TELEGRAM_WEBHOOK_SECRET); a journey sends the TEST chat's messages with it
   'supportGuestAddress', // svc-support's key that seals a guest's email address (SUPPORT_GUEST_ADDRESS_KEY, 32 bytes as hex)
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
   'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)

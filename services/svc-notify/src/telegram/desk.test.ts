@@ -5,13 +5,13 @@
  * - each alert fires once at its threshold: a fill once per fill, the 80% and 90% margin-use warnings once per crossing,
  *   the profit lock once per week when the week's realised profit reaches the person's target;
  * - the bot refuses every command but `/positions` and `/pnl`, and never trades, cancels or moves money;
- * - linking needs a one-time code the app's account settings shows (an API, no screen yet);
+ * - linking needs a one-time code the app's account settings shows, valid five minutes, and keeps the chat's handle;
  * - with no bot token the channel is off with a typed reason.
  */
 import { describe, expect, it } from 'vitest';
 import type { TradeDeskSnapshot, TradeDeskSnapshotResult } from '@intafaced/contracts/trade-desk-snapshot';
 import { MemoryTelegramStore } from './store.js';
-import { TelegramDesk, TELEGRAM_OFF_TOKEN_UNSET, TelegramDeskOffError, TelegramLinkTtlUnsetError } from './desk.js';
+import { nearestLiquidation, TelegramDesk, TELEGRAM_OFF_TOKEN_UNSET, TelegramDeskOffError, TRADING_OFF_REPLY } from './desk.js';
 
 const T0 = new Date('2026-11-25T10:00:00Z');
 const WEEK = '2026-11-23T00:00:00.000Z';
@@ -41,17 +41,20 @@ function snapshot(over: Partial<TradeDeskSnapshot> = {}): TradeDeskSnapshot {
             markPrice: '91000',
             unrealisedPnl: '10',
             margin: '500',
+            liquidationPrice: '60000',
           },
         ],
       },
     ],
     fills: [],
     week: { asset: 'USDC', realisedPnl: '0', fees: '0', profit: '0' },
+    dayStart: '2026-11-25T00:00:00.000Z',
+    today: { asset: 'USDC', realisedPnl: '0', fees: '0', profit: '0' },
     ...over,
   };
 }
 
-function rig(opts: { token?: boolean; ttl?: number | undefined } = {}) {
+function rig(opts: { token?: boolean } = {}) {
   let now = T0;
   let desk: TradeDeskSnapshotResult = snapshot();
   const sent: { chatId: string; text: string }[] = [];
@@ -75,7 +78,8 @@ function rig(opts: { token?: boolean; ttl?: number | undefined } = {}) {
       },
     },
     now: () => now,
-    linkCodeTtlMinutes: 'ttl' in opts ? opts.ttl : 10,
+    bot: '@intafaced_test_bot',
+    testBot: true,
     newCode: () => codes.shift() ?? 'code-exhausted',
   });
   return {
@@ -90,7 +94,7 @@ function rig(opts: { token?: boolean; ttl?: number | undefined } = {}) {
       desk = next;
     },
     message: (text: string, chatId = CHAT, type = 'private') =>
-      service.handleUpdate({ update_id: 1, message: { chat: { id: Number(chatId), type }, text } }),
+      service.handleUpdate({ update_id: 1, message: { chat: { id: Number(chatId), type, username: 'jcd21_trader' }, text } }),
   };
 }
 
@@ -108,12 +112,22 @@ describe('linking needs a one-time code from the account settings', () => {
     const issued = await r.service.issueLinkCode(USER);
     expect(issued.code).toBe('code-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     expect(issued.command).toBe(`/start ${issued.code}`);
-    expect(issued.expiresAt).toBe(new Date(T0.getTime() + 10 * 60_000).toISOString());
-    expect(await r.service.status(USER)).toMatchObject({ state: 'unlinked' });
+    expect(issued.expiresAt).toBe(new Date(T0.getTime() + 5 * 60_000).toISOString());
+    expect(await r.service.status(USER)).toEqual({ state: 'unlinked', bot: '@intafaced_test_bot', test: true, profitTarget: null });
 
     await r.message(`/start ${issued.code}`);
     expect(r.sent.at(-1)).toEqual({ chatId: CHAT, text: expect.stringContaining('Linked') });
-    expect(await r.service.status(USER)).toMatchObject({ state: 'linked', linkedAt: T0.toISOString() });
+    expect(await r.service.status(USER)).toEqual({
+      state: 'linked',
+      bot: '@intafaced_test_bot',
+      test: true,
+      linkedAt: T0.toISOString(),
+      handle: '@jcd21_trader',
+      profitTarget: null,
+    });
+    // The same code again from the linked chat is refused too.
+    await r.message(`/start ${issued.code}`);
+    expect(r.sent.at(-1)?.text).toContain('Nothing was linked');
 
     // The same code a second time, from another chat, links nothing.
     await r.message(`/start ${issued.code}`, '700200');
@@ -144,7 +158,7 @@ describe('linking needs a one-time code from the account settings', () => {
     expect(r.sent.at(-1)?.text).toContain('one-time code');
     await r.message('/start code-wrong');
     expect(r.sent.at(-1)?.text).toContain('not valid');
-    r.at(new Date(T0.getTime() + 10 * 60_000 + 1));
+    r.at(new Date(T0.getTime() + 5 * 60_000));
     await r.message(`/start ${code}`);
     expect(r.sent.at(-1)?.text).toContain('not valid');
     expect(await r.service.status(USER)).toMatchObject({ state: 'unlinked' });
@@ -171,9 +185,11 @@ describe('linking needs a one-time code from the account settings', () => {
     expect((await r.service.sweep()).raised).toBe(0);
   });
 
-  it('a blank link-code lifetime refuses with its typed error, never a default', async () => {
-    const r = rig({ ttl: undefined });
-    await expect(r.service.issueLinkCode(USER)).rejects.toBeInstanceOf(TelegramLinkTtlUnsetError);
+  it('a chat with no username is shown by its first name', async () => {
+    const r = rig();
+    const { code } = await r.service.issueLinkCode(USER);
+    await r.service.handleUpdate({ message: { chat: { id: 1, type: 'private', first_name: 'Ana' }, text: `/start ${code}` } });
+    expect(await r.service.status(USER)).toMatchObject({ state: 'linked', handle: 'Ana' });
   });
 });
 
@@ -200,14 +216,21 @@ describe('the bot answers /positions and /pnl and refuses every other command', 
     expect(r.reads.at(-1)).toEqual({ userId: USER, since: WEEK_SINCE_LINK });
   });
 
-  it('/pnl gives the week realised profit, its fees and the open unrealised result', async () => {
+  it('/pnl gives today and this week: realised profit, fees and the open unrealised result, with the as-of time', async () => {
     const r = await linked();
-    r.desk(snapshot({ week: { asset: 'USDC', realisedPnl: '120.5', fees: '0.5', profit: '120' } }));
+    r.desk(
+      snapshot({
+        week: { asset: 'USDC', realisedPnl: '120.5', fees: '0.5', profit: '120' },
+        today: { asset: 'USDC', realisedPnl: '7', fees: '0.25', profit: '6.75' },
+      }),
+    );
     await r.message('/pnl@intafaced_desk_bot');
     const text = r.sent.at(-1)?.text ?? '';
     expect(text).toContain('realised 120.5');
     expect(text).toContain('fees 0.5');
     expect(text).toContain('profit 120 USDC');
+    expect(text).toContain('Today from 2026-11-25T00:00:00.000Z: realised 7, fees 0.25, profit 6.75 USDC');
+    expect(text).toContain(`as of ${T0.toISOString()}`);
     expect(text).toContain('unrealised 10');
   });
 
@@ -219,6 +242,17 @@ describe('the bot answers /positions and /pnl and refuses every other command', 
     expect(r.sent.at(-1)?.text).not.toContain('No open positions');
   });
 
+  it('a venue that refuses the read is named, with no figures', async () => {
+    const r = await linked();
+    r.desk({ state: 'unreadable', venue: 'TEST venue simulator', test: true });
+    for (const command of ['/positions', '/pnl']) {
+      await r.message(command);
+      expect(r.sent.at(-1)?.text).toBe(
+        'TEST · TEST venue simulator could not be read just now, so no figures are shown. Try again in a moment.',
+      );
+    }
+  });
+
   it.each([
     '/buy BTC 1',
     '/sell BTC 1',
@@ -228,10 +262,19 @@ describe('the bot answers /positions and /pnl and refuses every other command', 
     '/transfer 100',
     '/order BTC-PERP long 1',
     '/leverage 20',
-    '/help',
     '/stop',
+    '/buy@intafaced_test_bot BTC-PERP 1',
     'buy 1 btc',
-  ])('refuses %s as read-only, and reads nothing from the venue', async (command) => {
+  ])('answers %s that trading is off in chat, and reads nothing from the venue', async (command) => {
+    const r = await linked();
+    const before = r.reads.length;
+    await r.message(command);
+    expect(r.sent.at(-1)?.text).toBe('Trading is off in chat. Open INTAFACED to trade.');
+    expect(TRADING_OFF_REPLY).toBe('Trading is off in chat. Open INTAFACED to trade.');
+    expect(r.reads.length).toBe(before);
+  });
+
+  it.each(['/help', 'hello'])('answers %s with what the bot does, and reads nothing', async (command) => {
     const r = await linked();
     const before = r.reads.length;
     await r.message(command);
@@ -309,6 +352,8 @@ describe('each alert fires once at its threshold', () => {
     r.desk(marginAt('95'));
     expect((await r.service.sweep()).raised).toBe(0);
     expect(r.sent.map((s) => s.text)).toEqual([expect.stringContaining('Margin use 80%'), expect.stringContaining('Margin use 90%')]);
+    expect(r.sent[0]?.text).toContain('Nearest liquidation: BTC-PERP long 0.01, mark 91000, liquidation 60000.');
+    expect(r.sent[0]?.text).toContain(`From the venue, as of ${T0.toISOString()}.`);
     // Back below 80% re-arms both; the next crossing warns again.
     r.desk(marginAt('70'));
     expect((await r.service.sweep()).raised).toBe(0);
@@ -360,11 +405,38 @@ describe('each alert fires once at its threshold', () => {
       },
       reader: { read: async () => snapshot({ fills: [fill('f9')] }) },
       now: () => T0,
-      linkCodeTtlMinutes: 10,
     });
     expect(await flaky.sweep()).toMatchObject({ raised: 1, sent: 0 });
     fail = false;
     expect(await flaky.sweep()).toMatchObject({ raised: 0, sent: 1 });
     expect(sent).toEqual([expect.stringContaining('Fill: BTC-PERP buy')]);
+  });
+});
+
+describe('the position nearest liquidation', () => {
+  const p = (symbol: string, mark: string, liq: string | null) => ({
+    symbol,
+    side: 'long' as const,
+    size: '1',
+    entryPrice: mark,
+    markPrice: mark,
+    unrealisedPnl: '0',
+    margin: '1',
+    liquidationPrice: liq,
+  });
+  it('is the one whose mark is nearest its liquidation price as a share of the mark; one with none reported is left out', () => {
+    // BTC is 10% from liquidation, ETH 5%, SOL has no liquidation price from the venue.
+    expect(nearestLiquidation([p('BTC-PERP', '60000', '54000'), p('ETH-PERP', '3000', '2850'), p('SOL-PERP', '100', null)])?.symbol).toBe(
+      'ETH-PERP',
+    );
+    expect(nearestLiquidation([p('SOL-PERP', '100', null)])).toBeNull();
+  });
+
+  it('a warning with no liquidation price reported says so', async () => {
+    const r = await linked();
+    const s = marginAt('85');
+    r.desk({ ...s, accounts: s.accounts.map((a) => ({ ...a, positions: a.positions.map((x) => ({ ...x, liquidationPrice: null })) })) });
+    await r.service.sweep();
+    expect(r.sent.at(-1)?.text).toContain('The venue reports no liquidation price for any open position.');
   });
 });

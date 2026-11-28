@@ -3,6 +3,7 @@ import { centreCopy } from './centre-copy';
 import { ChannelCard } from './ChannelCard';
 import { CategoryGrid } from './CategoryGrid';
 import { OUT_OF_APP } from './prefs';
+import { TelegramCard } from './TelegramCard';
 import { LoadFailed, Loading } from './parts';
 import { useCentre } from './use-centre';
 
@@ -40,6 +41,7 @@ export default function NotificationSettings() {
             ))}
           </ul>
           <p className="lt-hint">{copy.t('urgentNote')}</p>
+          <TelegramCard />
           <CategoryGrid />
           <section aria-labelledby="nf-quiet">
             <h2 id="nf-quiet">{copy.t('quietTitle')}</h2>
