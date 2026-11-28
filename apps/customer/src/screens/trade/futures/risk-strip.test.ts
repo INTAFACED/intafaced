@@ -48,21 +48,63 @@ describe('riskOf', () => {
 });
 
 describe('sizeFromRisk', () => {
-  const base = { risk: '50', entry: '96000', stop: '95000', lot: '0.00001', side: 'buy' as const };
-  it('sizes a long so the stop loses at most the risk, rounded down to the lot', () => {
-    expect(sizeFromRisk(base)).toEqual({ ok: true, size: '0.05' });
-    expect(sizeFromRisk({ ...base, risk: '33' })).toEqual({ ok: true, size: '0.033' });
-    expect(sizeFromRisk({ ...base, stop: '95300' })).toEqual({ ok: true, size: '0.07142' });
+  const fees = { venueInBps: '4.5', venueOutBps: '4.5', builderBps: '1' };
+  const base = { risk: '50', entry: '3000', stop: '2950', mark: '3000', lot: '0.001', side: 'buy' as const, fees, minNotional: null };
+  it('sizes a long so the stop loses at most the risk after fees both ways, rounded down to the lot', () => {
+    // Per unit: 50 to the stop, 3000 × 5.5 bps = 1.65 in, 2950 × 5.5 bps = 1.6225 out: 53.2725. 50 / 53.2725 = 0.9385…
+    expect(sizeFromRisk(base)).toEqual({ ok: true, size: '0.938', lossAtStop: '49.969605' });
+    // Before fees it would be 1 ETH; the fees take it under.
+    expect(sizeFromRisk({ ...base, fees: { venueInBps: '0', venueOutBps: '0', builderBps: '0' } })).toEqual({
+      ok: true,
+      size: '1',
+      lossAtStop: '50',
+    });
   });
-  it('sizes a short from a stop above its entry', () => {
-    expect(sizeFromRisk({ ...base, side: 'sell', stop: '97000' })).toEqual({ ok: true, size: '0.05' });
+  it('sizes a short from a stop above the mark and its entry', () => {
+    // Per unit: 50 + 1.65 + 3050 × 5.5 bps = 1.6775: 53.3275.
+    expect(sizeFromRisk({ ...base, side: 'sell', stop: '3050' })).toEqual({ ok: true, size: '0.937', lossAtStop: '49.9678675' });
+  });
+  it('never sizes a loss past the risk', () => {
+    for (const stop of ['2999.9', '2990', '2900', '2500', '1000']) {
+      const r = sizeFromRisk({ ...base, stop });
+      if (!r.ok) throw new Error(`${stop}: ${r.reason}`);
+      expect(Number(r.lossAtStop)).toBeLessThanOrEqual(50);
+    }
+  });
+  it('refuses a stop on the wrong side, naming the mark or the entry it is measured against', () => {
+    expect(sizeFromRisk({ ...base, stop: '3010' })).toEqual({ ok: false, reason: 'stop_wrong_side', against: 'mark', price: '3000' });
+    expect(sizeFromRisk({ ...base, entry: '2900', stop: '2950' })).toEqual({
+      ok: false,
+      reason: 'stop_wrong_side',
+      against: 'entry',
+      price: '2900',
+    });
+    expect(sizeFromRisk({ ...base, side: 'sell', stop: '2990' })).toEqual({
+      ok: false,
+      reason: 'stop_wrong_side',
+      against: 'mark',
+      price: '3000',
+    });
+  });
+  it("refuses a size under the venue's smallest order, naming the size it would need", () => {
+    // 100 USDC at 3000 is 0.0333… ETH: 0.034 in whole lots. Per unit to 1500: 1500 + 1.65 + 0.825 = 1502.475.
+    expect(sizeFromRisk({ ...base, stop: '1500', minNotional: '100' })).toEqual({
+      ok: false,
+      reason: 'below_minimum',
+      size: '0.033',
+      minSize: '0.034',
+      minNotional: '100',
+      minLoss: '51.08415',
+    });
+    // With no published smallest value, one lot is the smallest order.
+    expect(sizeFromRisk({ ...base, risk: '0.01' })).toMatchObject({ ok: false, reason: 'below_minimum', size: '0', minSize: '0.001' });
   });
   it('refuses, naming why, rather than guessing', () => {
-    expect(sizeFromRisk({ ...base, stop: '97000' })).toEqual({ ok: false, reason: 'stop_wrong_side' });
     expect(sizeFromRisk({ ...base, stop: '' })).toEqual({ ok: false, reason: 'no_stop' });
     expect(sizeFromRisk({ ...base, entry: null })).toEqual({ ok: false, reason: 'no_entry' });
     expect(sizeFromRisk({ ...base, risk: 'abc' })).toEqual({ ok: false, reason: 'no_risk' });
-    expect(sizeFromRisk({ ...base, risk: '0.000001' })).toEqual({ ok: false, reason: 'below_lot' });
+    expect(sizeFromRisk({ ...base, fees: { ...fees, builderBps: null } })).toEqual({ ok: false, reason: 'fee_unpublished' });
+    expect(sizeFromRisk({ ...base, fees: { ...fees, venueOutBps: null } })).toEqual({ ok: false, reason: 'fee_unpublished' });
   });
 });
 
