@@ -36,6 +36,10 @@
  * to test what both fixes assumed before the next push (pstack attack-the-premise; on #8802 J-portfolio-01 #5 failed on
  * three heads in a row at three different lines), and a LAST GREEN line names the PR's newest head where the check passed.
  *
+ * A red journey step the seal passed over as main's (red on main's newest run too, outside this PR's area: the seal's
+ * notice, journey-seal.mjs mainsNotices) gets a MAIN'S line: not the builder's to fix (project-state#4141). When every
+ * red is such a step, the verdict is MAIN'S, not RED.
+ *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
 import { runJobsSync } from './run-jobs.mjs';
@@ -45,6 +49,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ghJson, makeGh } from '../scripts/gate-gh.mjs';
 import { BUDGET_TITLE } from './api-budget.mjs';
+import { MAINS_TITLE } from './journey-seal.mjs';
 
 export const SEAL = 'CI merge seal';
 export const REVIEW_STATUS = 'Independent review';
@@ -279,6 +284,41 @@ export function journeyLines({ failures, prev = null, green = null, read = 0 }) 
   return out;
 }
 
+/** The step ids (`J-x-01#3`) of a journeys report's failed steps, from their titles (`J-x-01 #3 …`); null for an untitled one. */
+const stepOf = (title) => {
+  const m = /^(J-[\w-]+) #(\d+)\b/.exec(String(title ?? ''));
+  return m ? `${m[1]}#${m[2]}` : null;
+};
+
+/**
+ * The seal's main's notices on its check (journey-seal.mjs mainsNotices), as step → { issue }: the reds the seal itself
+ * passed over as main's. Nothing else names a red main's here.
+ */
+export function mainsSteps(annotations = []) {
+  const out = new Map();
+  for (const a of annotations) {
+    if (a?.annotation_level !== 'notice' || !String(a.title ?? '').startsWith(MAINS_TITLE)) continue;
+    const step = String(a.title).slice(MAINS_TITLE.length).trim();
+    if (!/^J-[\w-]+#\d+$/.test(step)) continue;
+    out.set(step, { issue: /#(\d+) tracks it/.exec(String(a.message ?? ''))?.[1] ?? null });
+  }
+  return out;
+}
+
+/**
+ * One MAIN'S line per main's step: an armed, ready PR needs nothing (journeys-revive.mjs gives it a fresh head once main
+ * loses the red); a draft or unarmed one merges main after main's fix lands.
+ */
+export function mainsLines(mains, pull = null) {
+  const waits = pull && !pull.draft && pull.armed;
+  const todo = waits
+    ? 'the factory gives an armed PR a fresh head once main loses it (journeys-revive.mjs), nothing to do'
+    : 'merge main after its fix lands';
+  return [...mains].map(([step, { issue }]) =>
+    `MAIN'S   ${step}: red on main too${issue ? ` (#${issue})` : ''}, not yours: don't fix it here; ${todo}`.slice(0, WIDTH),
+  );
+}
+
 /** A run's merged journeys report (report.json in its `real-app-journeys` artifact), or null when it kept none. */
 export function readJourneyReport(gh, repo, runId) {
   const dir = mkdtempSync(join(tmpdir(), 'why-red-'));
@@ -342,7 +382,7 @@ export function collectJourneys(gh, repo, pr, sha, runId) {
  *   annotations: Record<number, object[]>, failedSteps: Record<number, string[]>,
  *   statuses: Array<{context:string,state:string}> }} input
  */
-export function summarize({ sha, checks: all, annotations, failedSteps, statuses, runs, journeys = {} }) {
+export function summarize({ sha, checks: all, annotations, failedSteps, statuses, runs, journeys = {}, pull = null }) {
   const checks = latestPerName(all);
   const out = [];
   const running = checks.filter((c) => c.status !== 'completed');
@@ -365,6 +405,9 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
 
   const seal = red.find((c) => c.name === SEAL);
   const others = red.filter((c) => c !== seal);
+  // The reds the seal passed over as main's, from its own notices (any conclusion: a seal that passed leaves them too).
+  const sealCheck = checks.find((c) => c.name === SEAL);
+  const mains = mainsSteps(sealCheck ? annotations[sealCheck.id] : []);
   const sealOnlyReview =
     seal &&
     (annotations[seal.id] ?? []).some((a) => a.title === REVIEW_MISSING) &&
@@ -392,7 +435,11 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
           : `         no error lines and no failed step (job ${c.id})`,
       );
     }
-    if (journeys[c.id]) out.push(...journeyLines(journeys[c.id]));
+    if (journeys[c.id]) {
+      out.push(...journeyLines(journeys[c.id]));
+      const own = new Map([...mains].filter(([step]) => journeys[c.id].failures?.some((f) => stepOf(f.title) === step)));
+      out.push(...mainsLines(own, pull));
+    }
   }
   for (const s of redStatuses) out.push(`RED      status ${s.context}`);
 
@@ -407,10 +454,20 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
     );
   // Every red stopped on the budget (none of its own beside it): a judge down, never a red to push for.
   const budgetOnly = red.length > 0 && redStatuses.length === 0 && red.every((c) => budgetRed(annotations[c.id]));
+  // Every red is a journeys check whose every failed step the seal passed over as main's, and the seal is not red.
+  const mainsOnly =
+    !seal &&
+    redStatuses.length === 0 &&
+    others.length > 0 &&
+    others.every((c) => journeys[c.id]?.failures?.length > 0 && journeys[c.id].failures.every((f) => mains.has(stepOf(f.title))));
   if (superseded) out.push("SUPERSEDED: a newer push cancelled this head's run; read the PR's current head instead.");
   else if (budgetOnly)
     out.push(
       "JUDGE DOWN: GitHub's hourly API budget was spent when these checks ran, so they stopped before judging. Nothing to fix in the code and nothing to push: re-run the failed jobs once after the reset (the lines name it when GitHub said; it comes within the hour): `gh run rerun <run> --failed`.",
+    );
+  else if (mainsOnly)
+    out.push(
+      "MAIN'S: every red step on this head is one the seal passed over as main's (the MAIN'S lines above): nothing of yours to fix; don't push for it.",
     );
   else if (redStatuses.length > 0 || others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
   else if (red.length === 0 && running.length === 0)
@@ -438,7 +495,9 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
 
 /** Everything summarize() needs, read with `gh api` (REST only). */
 export function collect(gh, repo, ref) {
-  const sha = /^[0-9a-f]{40}$/.test(ref) ? ref : ghJson(gh, ['api', `repos/${repo}/pulls/${ref}`]).head.sha;
+  const pr = /^[0-9a-f]{40}$/.test(ref) ? null : ghJson(gh, ['api', `repos/${repo}/pulls/${ref}`]);
+  const sha = pr ? pr.head.sha : ref;
+  const pull = pr ? { draft: Boolean(pr.draft), armed: Boolean(pr.auto_merge) } : null;
   const checks = [];
   for (let page = 1; ; page++) {
     const r = ghJson(gh, ['api', `repos/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}`]);
@@ -457,6 +516,9 @@ export function collect(gh, repo, ref) {
       failedSteps[c.id] = steps.filter((s) => s.conclusion === 'failure').map((s) => s.name);
     }
   }
+  // A seal that passed still leaves its main's notices (journey-seal.mjs mainsNotices).
+  for (const c of latestPerName(checks).filter((c) => c.name === SEAL && c.status === 'completed' && !(c.id in annotations)))
+    annotations[c.id] = ghJson(gh, ['api', `repos/${repo}/check-runs/${c.id}/annotations?per_page=50`]);
   // The runs behind the head's checks that are red or still running, to name a stale re-run.
   const runs = {};
   for (const c of latestPerName(checks).filter((c) => c.status !== 'completed' || !GREEN.has(c.conclusion))) {
@@ -469,7 +531,7 @@ export function collect(gh, repo, ref) {
   const journeys = {};
   for (const c of latestPerName(checks).filter((c) => c.name === JOURNEYS && c.status === 'completed' && c.conclusion === 'failure'))
     if (/^\d+$/.test(String(ref))) journeys[c.id] = collectJourneys(gh, repo, ref, sha, runIdOf(c));
-  return { sha, checks, annotations, failedSteps, statuses, runs, journeys };
+  return { sha, checks, annotations, failedSteps, statuses, runs, journeys, pull };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

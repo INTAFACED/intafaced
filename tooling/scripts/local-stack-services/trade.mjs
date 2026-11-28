@@ -1,6 +1,6 @@
 import { startCustodyLayer } from '../local-test-state.mjs';
 import path from 'node:path';
-import { userVenueCount, userVenueKind, userVenueSwitchOn } from '../local-test-venue.mjs';
+import { testVenuePerpetuals, userVenueCount, userVenueKind, userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -303,19 +303,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-derivatives-28: LOCAL_STACK_USER_VENUE=two adds the second TEST venue; the ticket then routes over both.
           ...(userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2 ? { TRADE_USER_VENUE_URLS: urlOf('test-venue-b') } : {}),
           // J-cex-spot-16: the TEST markets the other venue journeys trade, listed as a LOCAL TEST seed (svc-trade
-          // venue/venue-listing.ts): the two BTC markets, J-derivatives-03's TEST perpetual ETH-PERP (its trigger orders),
-          // J-derivatives-21's TEST gold perpetual XAU-PERP and J-derivatives-27's TEST stock perpetuals XSTK-PERP and
-          // XSTD-PERP, J-derivatives-02's TEST perpetual XRSK-PERP (its margin tiers, collateral and open-interest cap), and
-          // J-derivatives-07's TEST perpetual XLIQ-PERP (the one the TEST venue liquidates on), and J-derivatives-08's TEST
-          // perpetual XFND-PERP (the one whose funding the TEST venue builds and settles).
-          // ETH-USDC is left unlisted, for two operators to review.
-          // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
-          // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
-          // J-derivatives-14's TEST perpetual XDEV-PERP (the one a developer reads and trades through our API).
-          // J-charts-desk-21's TEST perpetual XTGM-PERP (isolated margin; its mark moves margin use past 80% and 90%).
-          // J-portfolio-19's TEST perpetual XJRN-PERP (the one its journal's "keeping my rules" trades are made on).
-          // J-derivatives-32's TEST perpetuals XEXA-PERP and XEXB-PERP (a long's and a short's stops and targets on the chart).
-          // J-portfolio-18's TEST perpetual XJRL-PERP (the one whose trades fill the journal).
+          // venue/venue-listing.ts): BTC-USDC and every TEST perpetual the venue lists, one file each in
+          // packages/venue-sim/src/instruments/ (each file names the journey that trades it). ETH-USDC is left unlisted,
+          // for two operators to review.
           // PURR-USDC: the one spot pair Hyperliquid's test network trades every day, so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
           // PURR-USDC, so the seed skips it there.
           // On Hyperliquid's test network, the live stock, index and gold perpetuals of its `xyz` HIP-3 DEX
@@ -325,7 +315,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // database (svc-trade seedTestListings). A replay of the test network (`hl-recorded`) lists what the live run did.
           TRADE_USER_VENUE_TEST_LISTINGS: [
             ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE)?.startsWith('hl-') ? [] : ['BTC-USDC']),
-            'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,XJRN-PERP,XTGM-PERP,XEXA-PERP,XEXB-PERP,XJRL-PERP',
+            'PURR-USDC',
+            ...testVenuePerpetuals(),
             'xyz:TSLA-PERP,xyz:NVDA-PERP,xyz:AAPL-PERP,xyz:XYZ100-PERP,xyz:GOLD-PERP,xyz:SILVER-PERP',
           ].join(','),
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;

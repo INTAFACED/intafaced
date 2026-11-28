@@ -1751,7 +1751,30 @@ async function splitOrAll(inherited, red, run) {
   }
 }
 /** The lines that name each red passed over as inherited, and the main run it was read against. */
-const inheritedLines = (split) => [...split.notes, ...split.passed.map((x) => `${x.step} is red on this head and inherited: ${x.why}`)];
+export const inheritedLines = (split) => [
+  ...split.notes,
+  ...split.passed.map((x) => `${x.step} is red on this head and inherited: ${x.why}`),
+];
+
+/**
+ * One notice annotation per red step this seal passed over as main's (inheritedLines), so `why-red.mjs` can tell a builder
+ * the red is not theirs from the seal's own verdict, never a second definition of main's (project-state#4141: main's
+ * recording break was in 18 of 22 red journeys runs on open PRs on 27-28 Nov, and builders debugged them). Its title is
+ * MAINS_TITLE and the step; at most MAINS_NOTICES (GitHub keeps 10 notices a step), so a step past them is read as the
+ * pull request's own. A money step is never among them: neither splitInherited nor mainsOwn passes one over.
+ */
+export const MAINS_TITLE = "main's: ";
+export const MAINS_NOTICES = 10;
+const INHERITED_LINE = /(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+#\d+) is red on this head and inherited: (.*)$/;
+const escapeData = (s) => String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+export function mainsNotices(lines) {
+  const seen = new Map();
+  for (const l of lines ?? []) {
+    const m = INHERITED_LINE.exec(String(l));
+    if (m && !seen.has(m[1])) seen.set(m[1], m[2]);
+  }
+  return [...seen].slice(0, MAINS_NOTICES).map(([step, why]) => `::notice title=${MAINS_TITLE}${step}::${escapeData(why)}`.slice(0, 1000));
+}
 
 /**
  * The paths each commit from `from` (exclusive) to `to` on main changed, unioned, renames by both names: what the
@@ -2893,6 +2916,7 @@ async function recheck({ repo, token, sha = process.env.SHA, carriedFrom = null 
 
 function report({ ok, lines, stepsOk = ok, fullOk = true, stepsKinds = [], fullKinds = [] }, how) {
   for (const l of lines) console.log(l);
+  for (const n of mainsNotices(lines)) console.log(n);
   if (ok) return console.log(`journey steps: ${how}`);
   if (!fullOk)
     console.error(
