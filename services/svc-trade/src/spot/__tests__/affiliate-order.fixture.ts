@@ -6,18 +6,23 @@
  */
 import type { TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount as amt, recipes, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
+
 import type { AffiliateFeeLeg } from '../affiliate-accrue.js';
 import { mmSeedOrderIdFor } from '../ids.js';
 import { MM_MATCHING_ACCOUNT_ID } from '../../mm/fill-account.js';
 import { principalFor, StubMatching } from '../testing.js';
 import { ALICE, BOB, fund, resetAndListMarket, tradeOver } from './saga-trade-fixture.js';
 
+/** The house market maker's seed post. A test file passes it in: this helper is not a `.test.ts`, so the ledger's
+ * production-caller scan would count a socket recipe named here as a production caller. */
+export type SeedMarketMaker = (ledger: MemoryLedger) => Promise<unknown>;
+
 export interface AffiliateRun {
   readonly classic: readonly string[];
   readonly marketMaker: readonly string[];
 }
 
-export async function affiliateOrderAfterFills(db: TestDatabase): Promise<AffiliateRun> {
+export async function affiliateOrderAfterFills(db: TestDatabase, seedMarketMaker: SeedMarketMaker): Promise<AffiliateRun> {
   const steps: string[] = [];
   class RecordingLedger extends MemoryLedger {
     override async post(request: PostRequest): Promise<LedgerTx> {
@@ -31,7 +36,7 @@ export async function affiliateOrderAfterFills(db: TestDatabase): Promise<Affili
   const market = await resetAndListMarket(db, ledger, matching);
   await fund(ledger, BOB, 'BTC', '5');
   await fund(ledger, ALICE, 'USDT', '1000');
-  await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: amt('10'), seedId: 'affiliate-order-mm' }));
+  await seedMarketMaker(ledger);
   const mmOrderId = mmSeedOrderIdFor('affiliate-order', market.id, 'sell', 1);
   await ledger.post(recipes.marketMakerOrderHold({ orderId: mmOrderId, assetId: 'BTC', amount: amt('1') }));
 

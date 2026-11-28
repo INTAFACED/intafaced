@@ -6,6 +6,7 @@
  * its env and not a literal. The doors are asked over HTTP; the parts the entry builds are read from the calls it made.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { productionPostureIssues } from '@intafaced/config';
 import { serviceAuthHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
 
 import { COPY_LEADER_FIXTURES_PATH } from './agents/copy-leader-fixtures-routes.js';
@@ -65,11 +66,22 @@ const OFF = {
   APP_ENV: 'test',
 };
 
+/**
+ * Every variable this process inherited (a CI runner's local chain URL, its dev database) that the dev-material guard
+ * refuses on its own in production posture, removed for the production boot.
+ */
+const INHERITED_DEV_MATERIAL = Object.fromEntries(
+  Object.entries(process.env)
+    .filter(([key, value]) => value !== undefined && productionPostureIssues({ APP_ENV: 'prod', [key]: value }).length > 0)
+    .map(([key]) => [key, undefined]),
+);
+
 /** A production posture the dev-material guard accepts, so the only refusal left is the TEST flag's own. */
 const PRODUCTION = {
+  ...INHERITED_DEV_MATERIAL,
   APP_ENV: 'prod',
   INTAFACED_SCREENING_FAIL_CLOSED: undefined,
-  DATABASE_URL: 'postgres://svc_trade:boot-refusal-not-a-real-password@127.0.0.1:5432/intafaced_trade',
+  DATABASE_URL: 'postgres://127.0.0.1:5432/intafaced_trade',
   EDGE_PRINCIPAL_SECRET: 'boot-refusal-edge-value-not-a-real-key-0123456789',
   INTERNAL_SERVICE_SECRET: 'boot-refusal-service-value-not-a-real-key-0123456789',
 };

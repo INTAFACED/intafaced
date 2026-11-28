@@ -15,7 +15,7 @@ import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
 
 /** The keys svc-trade's env requires, as labelled test-only placeholders (the same as vitest.config.ts). */
-export const REQUIRED_TRADE_ENV = {
+const REQUIRED_TRADE_ENV = {
   DATABASE_URL: 'postgres://svc_trade@127.0.0.1:5432/intafaced_trade_test',
   DATABASE_POOL_MAX: '2',
   EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-0123456789',

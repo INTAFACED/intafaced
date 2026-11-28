@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterAll, afterEach, beforeAll } from 'vitest';
-import { parseAmount } from '@intafaced/ledger-client';
+import { parseAmount, recipes } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PRODUCER_PAYOUT_PATH,
   createAffiliatePayoutClient,
@@ -98,7 +98,9 @@ describe('settleFill wires payout after accrue after ledger post', () => {
   }, 30_000);
 
   it('fires payout after accrue, after tradeFill and marketMakerMakerFill', async () => {
-    const run = await affiliateOrderAfterFills(database());
+    const run = await affiliateOrderAfterFills(database(), (ledger) =>
+      ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: parseAmount('10'), seedId: 'affiliate-order-mm' })),
+    );
     for (const [steps, fillPost] of [
       [run.classic, 'post:trade.fill'],
       [run.marketMaker, 'post:trade.fill.mm_maker'],
