@@ -397,3 +397,18 @@ describe('liquidation waterfall B8 money', () => {
     expect(reduced).toEqual([]);
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('live jobs omit ADL policy and do not copy test ladder bps (kept source pin)', () => {
+    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
+    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(jobs).not.toMatch(/WIDE_POLICY/);
+    expect(jobs).not.toMatch(/maxReduceBps\s*:/);
+    expect(jobs).not.toMatch(/startFuturesJobs[\s\S]{0,400}adl:/);
+    expect(index).not.toMatch(/WIDE_POLICY/);
+    expect(index).not.toMatch(/maxReduceBps/);
+    expect(index).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}adl:/);
+  });
+});

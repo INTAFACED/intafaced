@@ -30,6 +30,7 @@ import { installPreTradeCredit } from './pretrade-credit.js';
 import { installNativeQtyUpAmend } from '../spot/qty-up-amend.js';
 import type { Market } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -554,5 +555,17 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
       expect(closed.status).toBe('closed');
       await expect(open('1', 'long', 'fz-2')).rejects.toBeInstanceOf(FuturesError);
     });
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('algo children and replacements reach the same door (source pin) (kept source pin)', () => {
+    const src = tradeServiceSource();
+    expect(src).toMatch(/placeChild:[\s\S]{0,1800}(?:this|svc)\.placeOrderInner\(/);
+    expect(src).toMatch(/const replacement = await (?:this|svc)\.placeOrder\(/);
+    expect(src).toMatch(/assertOwnerOrderLimit\(market, input\.qty, fundingPrice/);
+    expect(src).toMatch(/reduceOnly\?: boolean \}\)\.reduceOnly !== true/);
   });
 });

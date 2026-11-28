@@ -364,3 +364,19 @@ describe('svc-trade ADL unconfigured F4 money', () => {
     expect(rows[0]!.n).toBe('0');
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('futures-jobs.ts / index.ts do not set maxReduceBps or rank candidates (kept source pin)', () => {
+    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
+    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(jobs).not.toMatch(/maxReduceBps/);
+    expect(jobs).not.toMatch(/WIDE_POLICY/);
+    expect(jobs).not.toMatch(/candidates\.sort\s*\(/);
+    expect(jobs).toMatch(/ADL omitted/);
+    expect(index).not.toMatch(/maxReduceBps/);
+    expect(index).not.toMatch(/WIDE_POLICY/);
+    expect(index).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}adl:/);
+  });
+});

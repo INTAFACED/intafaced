@@ -286,3 +286,24 @@ describe('svc-trade dated futures settlement H6 JobHost money', () => {
     handle.stop();
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('router.ts not recut; live host does not invent a fixing price (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/runDatedFuturesSettlementJob/);
+    expect(routerSrc).not.toMatch(/dated-futures-settlement/);
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    // index.ts hands startFuturesJobs futuresJobsHostDeps's answer and nothing beside it; that function passes the env's stamp.
+    const callStart = indexSrc.indexOf('const futuresJobs = startFuturesJobs(');
+    const call = indexSrc.slice(callStart, indexSrc.indexOf('\n);\n', callStart));
+    expect(callStart).toBeGreaterThan(-1);
+    expect(call).toMatch(/^const futuresJobs = startFuturesJobs\(\s*futuresJobsHostDeps\(env, \{/);
+    expect(call.trimEnd()).toMatch(/\}\),$/);
+    expect(call).not.toMatch(/\.\.\.|lastTradePrice|markPrice|datedSettlement/);
+    const hostSrc = readFileSync(join(here, 'futures-jobs-host.ts'), 'utf8');
+    expect(hostSrc).toMatch(/settlementFixing:\s*env\.TRADE_FUTURES_SETTLEMENT_FIXING/);
+    expect(indexSrc).not.toMatch(/ownerSettlementPriceFor/);
+  });
+});

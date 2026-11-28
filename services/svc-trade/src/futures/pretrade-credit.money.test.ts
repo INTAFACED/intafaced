@@ -36,6 +36,7 @@ import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, Stub
 import { hitchDoubles, tradeRouterPaths } from './testing/doors.js';
 import type { FuturesJobsDeps } from './futures-jobs.js';
 import { installPreTradeCreditOpen, installPreTradeCreditPlace } from './pretrade-credit.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -385,5 +386,42 @@ describe('svc-trade pretrade-credit (H8a PG-hard)', () => {
       const terr = new TradeError('max-position unset', MAX_POSITION_UNSET as 'trade.slippage_cap_unset');
       expect(terr.code).toBe('trade.max_position_unset');
     });
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('router.ts / trade-service.ts / position-service.ts / index.ts not recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const tradeSrc = tradeServiceSource();
+    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/pretrade-credit/);
+    expect(routerSrc).not.toMatch(/max_order_unset/);
+    expect(routerSrc).not.toMatch(/TRADE_MAX_ORDER/);
+    expect(tradeSrc).not.toMatch(/pretrade-credit/);
+    expect(tradeSrc).not.toMatch(/max_order_unset/);
+    expect(tradeSrc).not.toMatch(/TRADE_MAX_ORDER/);
+    expect(posSrc).not.toMatch(/pretrade-credit/);
+    expect(posSrc).not.toMatch(/max_order_unset/);
+    expect(posSrc).not.toMatch(/TRADE_MAX_ORDER/);
+    expect(indexSrc).not.toMatch(/pretrade-credit/);
+    expect(indexSrc).not.toMatch(/installPreTradeCredit/);
+  });
+
+  it('live boot loads mill; jobs/index do not copy owner fixtures (kept source pin)', () => {
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
+    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
+    expect(indexSrc).toMatch(/ledger-client/);
+    expect(indexSrc).not.toMatch(/OWNER_PUBLISHED_F5/);
+    expect(boot).toMatch(/installPreTradeCredit/);
+    expect(boot).toMatch(/pretrade-credit/);
+    expect(jobs).not.toMatch(/TRADE_MAX_ORDER/);
+    expect(jobs).not.toMatch(/TRADE_MAX_POSITION/);
+    expect(jobs).not.toMatch(/TRADE_MAX_LOSS/);
+    expect(jobs).not.toMatch(/OWNER_PUBLISHED_F5/);
+    expect(jobs).not.toMatch(/pretrade-credit/);
   });
 });

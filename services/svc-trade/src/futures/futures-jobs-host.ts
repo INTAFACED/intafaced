@@ -36,7 +36,7 @@ export function futuresJobsHostDeps(env: FuturesJobsHostEnv, parts: FuturesJobsH
   const { liquidationFeeFraction, fundingMarketIds, fundingMaxAbsRate, ...wired } = parts;
   return {
     ...wired,
-    // Only futures orders through the book need a book mark; off, a depth read with no time still gives none (#5033).
+    // Only futures orders through the book need a book mark; off, a depth read with no time still gives none.
     stampDepthReads: env.TRADE_FUTURES_MATCHING_ENABLED,
     // The owner's maintenance ladder (D3). Blank: no ladder, as before; a value that is not a coherent policy stops boot.
     ladderPolicy: ownerLadderPolicy(env.TRADE_FUTURES_LADDER_POLICY),

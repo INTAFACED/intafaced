@@ -31,6 +31,7 @@ import {
 import { hitchDoubles, tradeRouterPaths } from './testing/doors.js';
 import { installPositionModeOpen, installPositionModePlace } from './position-mode.js';
 import { principalFor } from '../spot/testing.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -336,5 +337,39 @@ describe('svc-trade position-mode (H8a PG-hard)', () => {
       expect(lockPosts()).toHaveLength(1);
       expect(await sql`SELECT id FROM trade.positions`).toHaveLength(1);
     });
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    const tradeSrc = tradeServiceSource();
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/position-mode/);
+    expect(routerSrc).not.toMatch(/position_mode_unset/);
+    expect(posSrc).not.toMatch(/position-mode/);
+    expect(posSrc).not.toMatch(/position_mode_unset/);
+    expect(tradeSrc).not.toMatch(/position-mode/);
+    expect(tradeSrc).not.toMatch(/position_mode_unset/);
+    expect(indexSrc).not.toMatch(/position-mode/);
+    expect(indexSrc).not.toMatch(/installPositionMode/);
+    const matchingSrc = join(matchingRoot, 'src');
+    const matchingFiles = readdirSync(matchingSrc, { recursive: true, encoding: 'utf8' }) as string[];
+    expect(matchingFiles.length).toBeGreaterThan(0);
+    expect(matchingFiles.some((f) => f.includes('position-mode') || f.includes('position_mode'))).toBe(false);
+  });
+
+  it('live boot hitch next to F5; F5 mill not recut (kept source pin)', () => {
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
+    const f5 = readFileSync(join(here, 'pretrade-credit.ts'), 'utf8');
+    expect(indexSrc).toMatch(/ledger-client/);
+    expect(boot).toMatch(/installPreTradeCredit/);
+    expect(boot).toMatch(/installPositionMode/);
+    expect(boot).toMatch(/position-mode/);
+    expect(f5).not.toMatch(/position-mode/);
   });
 });

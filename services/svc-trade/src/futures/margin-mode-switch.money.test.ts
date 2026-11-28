@@ -357,3 +357,17 @@ describe('svc-trade margin-mode switch F2 money', () => {
     expect(JSON.stringify(agg)).not.toMatch(/35000/);
   });
 });
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('owner numbers not invented — no new bps/haircut constants copied into jobs/index (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
+    expect(mill).not.toMatch(/haircut\s*[:=]/i);
+    expect(mill).not.toMatch(/\b\d+\s*bps\b/i);
+    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
+    expect(jobs).not.toMatch(/checkMarginModeSwitch|attemptMarginModeSwitch|readIsolatedMarginAggregation/);
+    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(index).not.toMatch(/checkMarginModeSwitch|attemptMarginModeSwitch|MARGIN_HAIRCUT|haircutBps/);
+  });
+});
