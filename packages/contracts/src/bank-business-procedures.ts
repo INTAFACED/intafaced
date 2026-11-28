@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineProcedure } from './procedure.js';
+import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 import { assetIdSchema } from './asset-id.js';
 import { stepUpApprovalField } from './bank-cards-procedures.js';
@@ -284,4 +284,37 @@ export const BANK_BUSINESS_CANCEL = defineProcedure({
     { verdict: 'accept', input: { approvalId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
+});
+
+/**
+ * The business bank's standing rules (`describeBusinessPolicy`), as the door answers them (crates/svc-bank/src/business/
+ * policy.rs `describe`): who may approve, what posts at once, and what is never invented. Written by hand: the router
+ * had no `.output()`.
+ */
+export const BANK_BUSINESS_POLICY = defineProcedure({
+  ...base,
+  name: 'bank.business.policy',
+  kind: 'query',
+  path: 'business.policy',
+  access: { caller: 'public' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({
+    roles: z.array(z.string()),
+    dualControlOverThreshold: z.boolean(),
+    holdBeforeCheckerApprove: z.boolean(),
+    makerCannotSelfApprove: z.boolean(),
+    thresholdPerAccountOwnerLaw: z.boolean(),
+    inventsDefaultThreshold: z.boolean(),
+    underThresholdPostsImmediately: z.boolean(),
+    payrollAtomicAllOrNothing: z.boolean(),
+    payrollSameAssetOnly: z.boolean(),
+    inventsPayrollRates: z.boolean(),
+    payrollRateUnsetCode: z.string(),
+    closeNeedsSecondAdmin: z.boolean(),
+    thresholdChangeNeedsSecondAdmin: z.boolean(),
+    memberHandlesFromIdentity: z.boolean(),
+    approvalHistoryUsesHandles: z.boolean(),
+  }),
+  samples: [{ verdict: 'accept' }],
 });

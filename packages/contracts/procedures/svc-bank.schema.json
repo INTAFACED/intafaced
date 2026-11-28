@@ -5852,6 +5852,95 @@
         }
       ]
     },
+    "bank.business.policy": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "business.policy",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dualControlOverThreshold": {
+            "type": "boolean"
+          },
+          "holdBeforeCheckerApprove": {
+            "type": "boolean"
+          },
+          "makerCannotSelfApprove": {
+            "type": "boolean"
+          },
+          "thresholdPerAccountOwnerLaw": {
+            "type": "boolean"
+          },
+          "inventsDefaultThreshold": {
+            "type": "boolean"
+          },
+          "underThresholdPostsImmediately": {
+            "type": "boolean"
+          },
+          "payrollAtomicAllOrNothing": {
+            "type": "boolean"
+          },
+          "payrollSameAssetOnly": {
+            "type": "boolean"
+          },
+          "inventsPayrollRates": {
+            "type": "boolean"
+          },
+          "payrollRateUnsetCode": {
+            "type": "string"
+          },
+          "closeNeedsSecondAdmin": {
+            "type": "boolean"
+          },
+          "thresholdChangeNeedsSecondAdmin": {
+            "type": "boolean"
+          },
+          "memberHandlesFromIdentity": {
+            "type": "boolean"
+          },
+          "approvalHistoryUsesHandles": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "roles",
+          "dualControlOverThreshold",
+          "holdBeforeCheckerApprove",
+          "makerCannotSelfApprove",
+          "thresholdPerAccountOwnerLaw",
+          "inventsDefaultThreshold",
+          "underThresholdPostsImmediately",
+          "payrollAtomicAllOrNothing",
+          "payrollSameAssetOnly",
+          "inventsPayrollRates",
+          "payrollRateUnsetCode",
+          "closeNeedsSecondAdmin",
+          "thresholdChangeNeedsSecondAdmin",
+          "memberHandlesFromIdentity",
+          "approvalHistoryUsesHandles"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "bank.business.proposeTransfer": {
       "service": "svc-bank",
       "module": "bank",

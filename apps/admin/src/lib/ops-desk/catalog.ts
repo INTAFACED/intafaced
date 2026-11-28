@@ -13,6 +13,7 @@ import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
 import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
 import { readOf } from '@/lib/desk-read';
+import { BANK_BUSINESS_POLICY } from '@intafaced/contracts/bank-business-procedures';
 import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 import { ACADEMY_HEALTH } from '@intafaced/contracts/academy-health-procedures';
 import { ACADEMY_CURRICULUM_INVENTORY } from '@intafaced/contracts/academy-curriculum-inventory-procedures';
@@ -590,8 +591,7 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.business-policy',
         title: 'Business approval rules',
         note: 'The standing rules, not a queue: who may approve, and what posts immediately.',
-        module: 'bank',
-        procedure: 'business.policy',
+        ...readOf(BANK_BUSINESS_POLICY),
         shape: 'record',
         columns: [
           bool('dualControlOverThreshold', 'Two people over the threshold'),

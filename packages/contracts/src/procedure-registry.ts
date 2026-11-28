@@ -614,6 +614,7 @@ import {
   BANK_BUSINESS_APPROVE,
   BANK_BUSINESS_REJECT,
   BANK_BUSINESS_CANCEL,
+  BANK_BUSINESS_POLICY,
 } from './bank-business-procedures.js';
 
 import {
@@ -3271,6 +3272,7 @@ const part_bank_business_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_APPROVE,
   BANK_BUSINESS_REJECT,
   BANK_BUSINESS_CANCEL,
+  BANK_BUSINESS_POLICY,
 ];
 
 const part_bank_business_team_procedures: readonly ProcedureRecord[] = [
