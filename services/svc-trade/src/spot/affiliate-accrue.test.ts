@@ -1,7 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterAll, afterEach, beforeAll } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PRODUCER_PATH,
@@ -11,7 +8,9 @@ import {
   NoopAffiliateAccrue,
   type AffiliateFeeLeg,
 } from './affiliate-accrue.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
+import type { TestDatabase } from '@intafaced/db';
+import { openTradeDatabase } from './__tests__/saga-trade-fixture.js';
+import { affiliateOrderAfterFills, firstIndex, lastIndex } from './__tests__/affiliate-order.fixture.js';
 
 const HOUSE = '11111111-1111-4111-8111-111111111111';
 const MAKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -114,16 +113,38 @@ describe('createAffiliateAccrueClient', () => {
 });
 
 describe('settleFill wires accrue after ledger post (D26-P1-O2)', () => {
-  it('classic tradeFill and MM fill both call notifyAffiliateAccrue after post', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = tradeServiceSource();
-    expect(src).toMatch(/notifyAffiliateAccrue/);
-    const posts = [...src.matchAll(/await (?:this|svc)\.ledger\.post\(/g)];
-    expect(posts.length).toBeGreaterThanOrEqual(2);
-    expect(src).toMatch(/recipes\.tradeFill/);
-    expect(src).toMatch(/recipes\.marketMakerMakerFill/);
-    expect(src).toMatch(/affiliateAccrue/);
-    const idx = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(idx).toMatch(/createAffiliateAccrueClient/);
-  });
+  let db: TestDatabase | undefined;
+  let stopDb: () => Promise<void> = async () => undefined;
+  const database = () => {
+    if (!db) throw new Error('database not ready');
+    return db;
+  };
+  beforeAll(async () => {
+    const opened = await openTradeDatabase();
+    db = opened.db;
+    stopDb = opened.stop;
+  }, 120_000);
+  afterAll(async () => {
+    await db?.drop();
+    await stopDb();
+  }, 30_000);
+
+  it('classic tradeFill and MM fill both call notifyAffiliateAccrue after post', async () => {
+    const run = await affiliateOrderAfterFills(database());
+    for (const [steps, fillPost] of [
+      [run.classic, 'post:trade.fill'],
+      [run.marketMaker, 'post:trade.fill.mm_maker'],
+    ] as const) {
+      // The fill is booked first; identity is told of the fee only once the ledger has it.
+      expect(steps[0], fillPost).toBe(fillPost);
+      expect(firstIndex(steps, 'accrue:'), fillPost).toBeGreaterThan(lastIndex(steps, 'post:'));
+      // Only the fee a customer paid accrues: the taker's, never the house maker's.
+      expect(
+        steps.filter((step) => step.startsWith('accrue:') && step.endsWith(':taker')),
+        fillPost,
+      ).toHaveLength(1);
+    }
+    // The house maker pays and accrues nothing on its own fill.
+    expect(run.marketMaker.filter((step) => step.startsWith('accrue:') && step.endsWith(':maker'))).toEqual([]);
+  }, 60_000);
 });

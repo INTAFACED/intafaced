@@ -5,9 +5,6 @@
  * Every refusal branch is here, and the invariant: no write cancels an order, touches an open venue order or reaches the
  * ledger (nothing on this path imports a ledger write).
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -650,21 +647,25 @@ describe('venue markets desk (J-cex-spot-16)', () => {
     await place(order({ price: a('1700'), amount: a('3') }));
     const before = await openOrders();
     const balancesBefore = (await sim.balances(account)).value;
-    await route('close_only', '1');
-    await route('stop', '2');
-    await limit('2', '4000');
-    await route('show', '3');
-    await delist('2026-12-01T00:00:00.000Z', '4');
+    // Every write runs with the process's outside calls recorded: none may reach the ledger (or any other service).
+    const realFetch = globalThis.fetch;
+    const called: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      called.push(String(url));
+      throw new Error('a venue market write must not call another service');
+    }) as typeof fetch;
+    try {
+      await route('close_only', '1');
+      await route('stop', '2');
+      await limit('2', '4000');
+      await route('show', '3');
+      await delist('2026-12-01T00:00:00.000Z', '4');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(called).toEqual([]);
     expect(await openOrders()).toEqual(before);
     expect((await sim.balances(account)).value).toEqual(balancesBefore);
-
-    const here = dirname(fileURLToPath(import.meta.url));
-    for (const file of ['admin/venue-markets.ts', 'venue/venue-listing.ts', 'venue/venue-listing-store.ts']) {
-      const src = readFileSync(join(here, '..', file), 'utf8');
-      const imports = [...src.matchAll(/from '(@intafaced\/ledger-client[^']*)'/g)].map((m) => m[1]);
-      expect(imports.every((i) => i === '@intafaced/ledger-client/money')).toBe(true);
-      expect(src).not.toMatch(/recipes|ledger\.post|cancelOrder/);
-    }
   });
 
   it('a LOCAL TEST seed that fails never breaks the door connect or a cancel; it is retried until it lands, once per process', async () => {

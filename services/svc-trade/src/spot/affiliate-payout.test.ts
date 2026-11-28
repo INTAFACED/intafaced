@@ -1,7 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterAll, afterEach, beforeAll } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PRODUCER_PAYOUT_PATH,
@@ -10,7 +7,9 @@ import {
   NoopAffiliatePayout,
 } from './affiliate-payout.js';
 import { affiliateLegsAfterFill } from './affiliate-accrue.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
+import type { TestDatabase } from '@intafaced/db';
+import { openTradeDatabase } from './__tests__/saga-trade-fixture.js';
+import { affiliateOrderAfterFills, firstIndex, lastIndex } from './__tests__/affiliate-order.fixture.js';
 
 const HOUSE = '11111111-1111-4111-8111-111111111111';
 const MAKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -82,16 +81,37 @@ describe('createAffiliatePayoutClient', () => {
 
 /** Pin: fill posts first, accrue second, payout third. */
 describe('settleFill wires payout after accrue after ledger post', () => {
-  it('fires payout after accrue, after tradeFill and marketMakerMakerFill', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = tradeServiceSource();
-    expect(src).toMatch(/notifyAffiliatePayout/);
-    expect(src).toMatch(/notifyAffiliateAccrue/);
-    expect(src).toMatch(/recipes\.tradeFill/);
-    expect(src).toMatch(/recipes\.marketMakerMakerFill/);
-    expect(src.indexOf('notifyAffiliateAccrue')).toBeLessThan(src.indexOf('notifyAffiliatePayout'));
-    expect((src.match(/notifyAffiliatePayout/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    const idx = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(idx).toMatch(/createAffiliatePayoutClient/);
-  });
+  let db: TestDatabase | undefined;
+  let stopDb: () => Promise<void> = async () => undefined;
+  const database = () => {
+    if (!db) throw new Error('database not ready');
+    return db;
+  };
+  beforeAll(async () => {
+    const opened = await openTradeDatabase();
+    db = opened.db;
+    stopDb = opened.stop;
+  }, 120_000);
+  afterAll(async () => {
+    await db?.drop();
+    await stopDb();
+  }, 30_000);
+
+  it('fires payout after accrue, after tradeFill and marketMakerMakerFill', async () => {
+    const run = await affiliateOrderAfterFills(database());
+    for (const [steps, fillPost] of [
+      [run.classic, 'post:trade.fill'],
+      [run.marketMaker, 'post:trade.fill.mm_maker'],
+    ] as const) {
+      // Fill posts first, accrue second, payout third.
+      expect(steps[0], fillPost).toBe(fillPost);
+      expect(firstIndex(steps, 'accrue:'), fillPost).toBeGreaterThan(lastIndex(steps, 'post:'));
+      expect(firstIndex(steps, 'payout:'), fillPost).toBeGreaterThan(lastIndex(steps, 'accrue:'));
+      // Each fee event accrued is the one paid out.
+      const accrued = steps.filter((step) => step.startsWith('accrue:')).map((step) => step.slice('accrue:'.length));
+      const paid = steps.filter((step) => step.startsWith('payout:')).map((step) => step.slice('payout:'.length));
+      expect(accrued.length, fillPost).toBeGreaterThan(0);
+      expect(paid, fillPost).toEqual(accrued);
+    }
+  }, 60_000);
 });

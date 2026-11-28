@@ -11,9 +11,6 @@
  * 5. Paths: public-rest.ts parsePublicRestLimit + markets/tickers/orderbook/trades/ohlcv GET doors
  * 6. RED: omitting limit returns a 50/100/500 window
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import {
@@ -28,7 +25,6 @@ import {
   type PublicRestDeps,
 } from './public-rest.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const market = fakeMarket({ id: 'm-btc', symbol: 'BTC/USDT' });
 
 function deps(overrides: Partial<PublicRestDeps> = {}): PublicRestDeps {
@@ -71,23 +67,6 @@ describe('public REST query limit parse', () => {
 });
 
 describe('GET public REST refuses unpublished limit', () => {
-  it('public-rest.ts does not invent 50/100/500', () => {
-    const src = readFileSync(join(HERE, 'public-rest.ts'), 'utf8');
-    expect(src).not.toMatch(/DEFAULT_DEPTH/);
-    expect(src).not.toMatch(/DEFAULT_TRADES/);
-    expect(src).not.toMatch(/DEFAULT_CANDLES/);
-    expect(src).not.toMatch(/raw \?\? fallback/);
-    expect(src).toMatch(/TRADE_ORDERBOOK_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_TRADES_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_OHLCV_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_MARKETS_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_TICKERS_LIMIT_UNSET/);
-    expect(src).toMatch(/deps\.depth\(market\.id, 1\)/);
-    expect(src).not.toMatch(/app\.get\('\/api\/v1\/markets',\s*(?:publicRead,\s*)?async \(_req/);
-    expect(src).not.toMatch(/deps\.markets\(MAX_MARKETS\)/);
-    expect(src).not.toMatch(/app\.get\('\/api\/v1\/tickers',\s*(?:publicRead,\s*)?async \(_req/);
-  });
-
   it('blank orderbook refuses and does not call depth', async () => {
     const seen: number[] = [];
     const app = await build(

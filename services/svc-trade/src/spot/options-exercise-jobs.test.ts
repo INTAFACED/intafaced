@@ -5,16 +5,14 @@
  * refuses. lastTrade / mark ignored. Env default stays empty. Listing SOCKET
  * stays closed. Three job names, one mill.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
 import { OPTIONS_FIXING_UNCONFIGURED, OPTIONS_SETTLEMENT_LAW_UNSET } from './options-policy.js';
 import { optionsAssignmentIdFor, optionsExerciseIdFor, optionsExpiryIdFor } from './options-exercise.js';
 import { startOptionsExerciseJobs, runOptionsExerciseScan } from './options-exercise-jobs.js';
+import { resolveOptionsListing } from './options-listing.js';
+import { tradeEnvOf } from '../__tests__/entry.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const POS = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const MARKET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -51,28 +49,47 @@ function mockSql() {
 }
 
 describe('R-E5 JobHost options exercise source', () => {
-  it('schedules exercise, assignment, expiry; never last-trade as owner price; listing SOCKET kept', () => {
-    const jobs = readFileSync(join(here, 'options-exercise-jobs.ts'), 'utf8');
-    expect(jobs).toMatch(/host\.every\('options\.exercise'/);
-    expect(jobs).toMatch(/host\.every\('options\.assignment'/);
-    expect(jobs).toMatch(/host\.every\('options\.expiry'/);
-    expect(jobs).toMatch(/runOptionsExerciseScan/);
-    expect(jobs).toMatch(/settlementFixingConfigured:\s*deps\.config\.settlementFixing/);
-    expect(jobs).not.toMatch(/ownerSettlementPriceFor:\s*deps\.lastTradePrice/);
-    expect(jobs).not.toMatch(/ownerSettlementPrice:\s*(deps\.)?lastTrade/);
-    const mill = readFileSync(join(here, 'options-exercise.ts'), 'utf8');
-    expect(mill).toMatch(/void input\.lastTradePrice/);
-    expect(mill).not.toMatch(/recipes\./);
-    const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
-    expect(envSrc).toMatch(/TRADE_OPTIONS_SETTLEMENT_FIXING:\s*z\.string\(\)\.default\(''\)/);
-    expect(envSrc).toMatch(/TRADE_OPTIONS_JOBS_ENABLED/);
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(indexSrc).toMatch(/startOptionsExerciseJobs/);
-    expect(indexSrc).toMatch(/settlementFixing:\s*env\.TRADE_OPTIONS_SETTLEMENT_FIXING/);
-    expect(indexSrc).not.toMatch(/ownerSettlementPriceFor/);
-    expect(indexSrc).not.toMatch(/TRADE_OPTIONS_SETTLEMENT_FIXING:\s*['"][0-9]/);
-    const listing = readFileSync(join(here, 'options-listing.ts'), 'utf8');
-    expect(listing).toMatch(/socket\.options-settlement-asset-law/);
+  it('schedules exercise, assignment, expiry; never last-trade as owner price; listing SOCKET kept', async () => {
+    // Unset, the env names no fixing and starts no job (the entry hands both on: index.boot.test.ts).
+    const unset = tradeEnvOf();
+    expect(unset.TRADE_OPTIONS_SETTLEMENT_FIXING).toBe('');
+    expect(unset.TRADE_OPTIONS_JOBS_ENABLED).toBe(false);
+    const config = { intervalMs: 15_000, settlementAssetLaw: P0_05_LAW, settlementFixing: 'owner-stamp' };
+    const off = startOptionsExerciseJobs({ sql: mockSql(), ledger: new MemoryLedger(), config: { ...config, enabled: false } });
+    expect(off.host.list()).toEqual([]);
+    off.stop();
+
+    // With the owner's fixing stamped but no owner price for the market, last trade and mark are never the price.
+    const ledger = new MemoryLedger();
+    const results = await runOptionsExerciseScan({
+      now: AFTER,
+      settlementAssetLawConfigured: P0_05_LAW,
+      settlementFixingConfigured: 'owner-stamp',
+      settlementAssetFor: () => 'USD',
+      lastTradePrice: '110',
+      markPrice: '110',
+      markets: {
+        listExpiredOptions: async () => [
+          { marketId: MARKET, kind: 'options', optionType: 'call', optionStyle: 'european', strike: amt('100'), expiryAt: EXPIRY },
+        ],
+      },
+      positions: { listOpenForMarket: async () => [longPosition()] },
+      ledger,
+    });
+    expect(results).toEqual([{ status: 'refused', reason: 'fixing_unconfigured', code: OPTIONS_FIXING_UNCONFIGURED, posts: [] }]);
+    expect(ledger.journal()).toHaveLength(0);
+
+    // The live listing stays closed until the owner's settlement asset law is stamped.
+    expect(() =>
+      resolveOptionsListing({
+        kind: 'options',
+        settlementAssetLawConfigured: '',
+        settlementFixingConfigured: 'owner-stamp',
+        optionType: 'call',
+        strike: amt('100'),
+        expiryAt: EXPIRY,
+      }),
+    ).toThrow(expect.objectContaining({ code: OPTIONS_SETTLEMENT_LAW_UNSET }));
   });
 });
 

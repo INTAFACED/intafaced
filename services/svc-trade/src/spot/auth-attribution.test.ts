@@ -1,9 +1,6 @@
 /**
  * CARD R-auth — session/API-key attribution mill (PTX-M01-R05).
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { recipes } from '@intafaced/ledger-client';
@@ -21,9 +18,6 @@ import {
   withLedgerAttribution,
 } from './auth-attribution.js';
 import { TradeError } from './types.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 function principal(overrides: Partial<Principal> = {}): Principal {
   return {
@@ -116,13 +110,21 @@ describe('R-auth attribution mill — stamp or refuse by name', () => {
     });
   });
 
-  it('source never invents a session and never imports WebAuthn', () => {
-    const mill = readFileSync(join(here, 'auth-attribution.ts'), 'utf8');
-    expect(mill).not.toMatch(/randomUUID|simplewebauthn/);
-    expect(mill).toContain(AUTH_ATTRIBUTION_MISSING);
-    const service = tradeServiceSource();
-    expect(service).toContain('attributionFromPrincipal');
-    expect(service).toContain('insertFillLeg');
-    expect(service).toContain('withFillLedgerAttribution');
+  it('source never invents a session and never imports WebAuthn', async () => {
+    // Asked again and again with no session and no key, it refuses every time: nothing is minted in their place.
+    for (let i = 0; i < 3; i++) {
+      expect(() => attributionFromPrincipal(principal({ sid: undefined, kid: undefined }))).toThrow(
+        expect.objectContaining({ code: AUTH_ATTRIBUTION_MISSING }),
+      );
+    }
+    // With one, it stamps exactly what the signed principal carried, the same each time.
+    const stamped = attributionFromPrincipal(principal({ sid: 'sess-fixed', kid: undefined }));
+    expect(stamped).toEqual(attributionFromPrincipal(principal({ sid: 'sess-fixed', kid: undefined })));
+    expect(stamped.sessionId).toBe('sess-fixed');
+    // It reads attribution; it signs nobody in: nothing it exports is a passkey or WebAuthn step.
+    const mill = await import('./auth-attribution.js');
+    expect(Object.keys(mill).filter((name) => /webauthn|passkey|register|authenticat|challenge/i.test(name))).toEqual([]);
+    // The service stamps it onto the order, the fill and the ledger: trade-service.test.ts,
+    // 'stamps session id from the signed principal onto order, fill, and ledger'.
   });
 });

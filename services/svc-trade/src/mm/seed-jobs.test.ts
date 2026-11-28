@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { tradeEnvOf } from '../__tests__/entry.js';
 import { formatAmount, marketMaker, MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import type { EngineCancelResult, EngineDepth, EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '../spot/matching-client.js';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -175,9 +176,10 @@ describe('startMmSeedJobs', () => {
   });
 
   it('production env does not manufacture an MM seed interval', () => {
-    const envSource = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
-    expect(envSource).toMatch(/TRADE_MM_SEED_INTERVAL_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(5_000\)\.max\(3_600_000\)\.optional\(\)/);
-    expect(envSource).not.toMatch(/TRADE_MM_SEED_INTERVAL_MS:[^\n]*\.default\(/);
+    expect(tradeEnvOf().TRADE_MM_SEED_INTERVAL_MS).toBeUndefined();
+    expect(tradeEnvOf({ TRADE_MM_SEED_INTERVAL_MS: '5000' }).TRADE_MM_SEED_INTERVAL_MS).toBe(5_000);
+    expect(() => tradeEnvOf({ TRADE_MM_SEED_INTERVAL_MS: '4999' })).toThrow();
+    expect(() => tradeEnvOf({ TRADE_MM_SEED_INTERVAL_MS: '3600001' })).toThrow();
   });
 
   it('unset half-spread or step bps schedule zero timers (never invent 10)', () => {
@@ -214,11 +216,15 @@ describe('startMmSeedJobs', () => {
   });
 
   it('production env does not manufacture MM seed 10 bps', () => {
-    const envSource = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
-    expect(envSource).toMatch(/TRADE_MM_SEED_HALF_SPREAD_BPS:\s*z\.string\(\)\.default\(''\)\.transform\(parseOwnerIntegerEnv\)/);
-    expect(envSource).toMatch(/TRADE_MM_SEED_STEP_BPS:\s*z\.string\(\)\.default\(''\)\.transform\(parseOwnerIntegerEnv\)/);
-    expect(envSource).not.toMatch(/TRADE_MM_SEED_HALF_SPREAD_BPS:[^\n]*\.default\(10\)/);
-    expect(envSource).not.toMatch(/TRADE_MM_SEED_STEP_BPS:[^\n]*\.default\(10\)/);
+    const unset = tradeEnvOf();
+    expect(unset.TRADE_MM_SEED_HALF_SPREAD_BPS).toBeNull();
+    expect(unset.TRADE_MM_SEED_STEP_BPS).toBeNull();
+    const blank = tradeEnvOf({ TRADE_MM_SEED_HALF_SPREAD_BPS: ' ', TRADE_MM_SEED_STEP_BPS: '10.5' });
+    expect(blank.TRADE_MM_SEED_HALF_SPREAD_BPS).toBeNull();
+    expect(blank.TRADE_MM_SEED_STEP_BPS).toBeNull();
+    const set = tradeEnvOf({ TRADE_MM_SEED_HALF_SPREAD_BPS: '12', TRADE_MM_SEED_STEP_BPS: '3' });
+    expect(set.TRADE_MM_SEED_HALF_SPREAD_BPS).toBe(12);
+    expect(set.TRADE_MM_SEED_STEP_BPS).toBe(3);
   });
 
   it('disabled or empty targets → no scheduled jobs', () => {
