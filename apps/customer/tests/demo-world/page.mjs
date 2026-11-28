@@ -11,6 +11,14 @@ import { demoChain } from './chain.mjs';
 import { DEMO_NOW, demoAnswer } from './index.mjs';
 import { demoWalletKey } from './seed.mjs';
 
+/**
+ * What a page still loading draws, which the look gate and `pnpm shots` wait out before they shoot: a lazy room's
+ * loading line, a region marked busy, and the app's "Opening room…" panel (apps/customer/src/app/RoomLoading.tsx),
+ * drawn under the app's bar while the session restores or a room's code loads, so a signed-out room such as /reg is
+ * not shot as that panel under a signed-in bar.
+ */
+export const LOADING = '.loading, [aria-busy="true"], .room-loading';
+
 /** The key rooms, each signed out or in: what `pnpm shots` draws and the look gate judges venue-on. */
 export const DEMO_ROOMS = [
   { path: '/', signedIn: false },

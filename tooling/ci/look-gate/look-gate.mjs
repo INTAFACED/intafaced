@@ -65,7 +65,9 @@ import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
 import { fixtureAnswer as answerAt } from './fixture-answer.mjs';
 import { adminRoutes, edgeAnswer, isAddressInUse, sealSession, startAdmin } from './admin.mjs';
-import { DEMO_ROOMS, connectDemoWallet, prepareDemoPage, startDemoNode } from '../../../apps/customer/tests/demo-world/page.mjs';
+import { DEMO_ROOMS, LOADING, connectDemoWallet, prepareDemoPage, startDemoNode } from '../../../apps/customer/tests/demo-world/page.mjs';
+
+export { LOADING };
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440, height: 900 } };
@@ -576,7 +578,7 @@ async function check(context, origin, target, vpName, opts) {
     await page.addStyleTag({ content: FREEZE_CSS });
     // A lazy room shows its loading line first; measure what it settles on.
     await page
-      .waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 })
+      .waitForFunction((loading) => !document.querySelector(loading), LOADING, { timeout: 8_000 })
       .catch(() => row.notes.push('still loading after 8 s'));
     await page.evaluate(() => document.fonts.ready);
     // The whole page in one viewport (fitToPage), not a full-page shot, which resizes the viewport and so moves fixed
@@ -899,7 +901,7 @@ async function variants(browser, origin, target, opts) {
       if (setup.pseudo) {
         // A lazy room shows its loading line first; lengthen what it settles on.
         await page
-          .waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 })
+          .waitForFunction((loading) => !document.querySelector(loading), LOADING, { timeout: 8_000 })
           .catch(() => row.notes.push('still loading after 8 s'));
         row.notes.push(`${await pseudoCopy(page)} strings at 130%`);
       }
@@ -1177,7 +1179,7 @@ async function picture(browser, origin, target, vpName) {
     await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
     await landed(page, target);
     await page.addStyleTag({ content: FREEZE_CSS });
-    await page.waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 }).catch(() => {});
+    await page.waitForFunction((loading) => !document.querySelector(loading), LOADING, { timeout: 8_000 }).catch(() => {});
     await page.evaluate(() => document.fonts.ready);
     // Settled, and the height read again after each resize until it holds (fitToPage): a room still filling in when its
     // height is read is shot cut short, and two shots of one build then differ (seen on /portfolio).

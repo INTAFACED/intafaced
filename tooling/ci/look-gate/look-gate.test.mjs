@@ -5,8 +5,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decodePng } from './png.mjs';
-import * as gate from './look-gate.mjs';
-import { CLIPPED_COPY, GENERATED_ID, HIDE_TEXT_CSS, contrastFindings, fitToPage, focusState, fontFindings, measure } from './look-gate.mjs';
+import {
+  CLIPPED_COPY,
+  GENERATED_ID,
+  HIDE_TEXT_CSS,
+  LOADING,
+  contrastFindings,
+  fitToPage,
+  focusState,
+  fontFindings,
+  measure,
+} from './look-gate.mjs';
 
 let browser = null;
 let why = '';
@@ -222,12 +231,10 @@ test('loading: the gate waits out the app\'s "Opening room…" panel, not only a
   // The panel the app draws while the session restores or a room's code loads (#11271: /reg shot as it, under a
   // signed-in bar), as apps/customer/src/app/RoomLoading.tsx draws it.
   const panel = '<div class="lt-room room-loading" role="status"><span class="room-loading__words">Opening room…</span></div>';
-  // The selector the gate waits on before it shoots; before #11271 it was this one, hard-coded in each wait.
-  const loading = gate.LOADING ?? '.loading, [aria-busy="true"]';
   const stillLoading = async (html) => {
     const { page, close } = await pageOf(html);
     try {
-      return await page.evaluate((s) => !!document.querySelector(s), loading);
+      return await page.evaluate((s) => !!document.querySelector(s), LOADING);
     } finally {
       await close();
     }
