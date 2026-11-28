@@ -416,7 +416,7 @@ function dropUnreadSymbols(file, src) {
 }
 
 /** `private` → `protected` on the named members of a base class source. */
-export function protect(src, overloads, names) {
+function protect(src, overloads, names) {
   let out = src;
   const at = [...names]
     .flatMap((n) => overloads.get(n) ?? [])
@@ -430,7 +430,7 @@ export function protect(src, overloads, names) {
 }
 
 /** A side-effect-only `import './x.js';` of a file that no longer installs anything. */
-export function dropBareImports(file, src, cleared) {
+function dropBareImports(file, src, cleared) {
   if (!/^import '\./mu.test(src)) return src;
   const program = parse(file, src);
   let out = src;
@@ -520,7 +520,7 @@ function loads(file) {
   return out;
 }
 /** Modules in the order they finish loading from `entry` (ES modules run depth-first, each once). */
-export function loadOrder(entry) {
+function loadOrder(entry) {
   const seen = new Set();
   const order = [];
   const visit = (f) => {
@@ -668,7 +668,7 @@ export function dropInstallCalls(file, src, gone) {
 }
 
 /** Import specifiers matching `which` (a set of names or a pattern) that nothing in the file names any more. */
-export function dropDeadImports(file, src, which) {
+function dropDeadImports(file, src, which) {
   let out = src;
   const p2 = parse(file, out);
   const edits = [];
