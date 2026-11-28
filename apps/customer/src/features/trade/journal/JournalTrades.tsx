@@ -21,7 +21,7 @@ const when = (iso: string) => new Date(iso).toISOString().replace('T', ' ').slic
 
 /**
  * The Trades tab (J-portfolio-18): every closed perp trade, one row from open to flat with each part of its net result as
- * the venue reports it; the one picked (`?trade=`) opens beside the list with its fills, how far the price went against
+ * the venue reports it; the one picked (`?trade=`) opens above the list with its fills, how far the price went against
  * and for it, and its planned and actual R. Read from the journal's own record, which keeps a trade whole after the venue
  * stops returning its fills and candles.
  */
@@ -31,10 +31,9 @@ export function JournalTrades({ journal, picked }: { journal: TradeJournal; pick
   return (
     <section className="lt-stack" aria-label={t('Journal caption')} data-testid="journal-trades">
       <Summary journal={journal} t={t} />
-      <div className={trade ? 'lt-grid lt-grid-list-detail' : 'lt-grid'}>
-        <Trades journal={journal} picked={trade?.tradeId ?? null} t={t} />
-        {trade ? <TradeDetail trade={trade} journal={journal} t={t} /> : null}
-      </div>
+      {/* The opened trade, full width above the list: the room's panel is too narrow to hold the list and it side by side. */}
+      {trade ? <TradeDetail trade={trade} journal={journal} t={t} /> : null}
+      <Trades journal={journal} picked={trade?.tradeId ?? null} t={t} />
     </section>
   );
 }
