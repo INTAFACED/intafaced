@@ -3,12 +3,14 @@
  * fixtures. tooling-tests.mjs runs it with every other tooling test.
  */
 import test from 'node:test';
+import assert from 'node:assert/strict';
 import {
   MAX_LEGS,
   SEARCH,
   decideCulprit,
   firstBad,
   leavesOut,
+  mergeReports,
   planPoints,
   probeVerdict,
   stepsFail,
@@ -107,4 +109,23 @@ test('a commit leaves tests out only when its own journeys run runs the leave-ou
   );
   // Planted: the paths list naming the planner's files is not the planner running.
   eq(leavesOut("paths:\n  - 'tooling/scripts/journey-leave-out*.mjs'\n"), false, 'a paths entry is not the planner');
+});
+
+test('a probe split by custody switch gives a verdict only when every group ran (mergeReports)', () => {
+  const steps = ['J-p2p-21#1', 'J-bank-01#7'];
+  const group = (title, status) => ({ suites: [{ specs: [{ title, tests: [{ status }] }] }], errors: [] });
+  const off = group('J-p2p-21 #1 the ad', 'unexpected');
+  const on = group('J-bank-01 #7 the card', 'expected');
+  // Both groups ran: the failing step in one fails the probe.
+  assert.equal(probeVerdict(mergeReports([off, on]), steps), 'bad');
+  assert.equal(probeVerdict(mergeReports([group('J-p2p-21 #1 the ad', 'expected'), on]), steps), 'good');
+  // One group wrote no report, or its files did not load: no verdict, never the other group's pass.
+  assert.equal(mergeReports([null, on]), null);
+  assert.equal(probeVerdict(mergeReports([null, on]), steps), 'error');
+  const broke = { suites: [], errors: [{ message: 'SyntaxError in J-p2p-21.pw.mjs' }] };
+  assert.equal(probeVerdict(mergeReports([broke, on]), steps), 'error');
+  assert.equal(probeVerdict(mergeReports([{ suites: [], errors: [] }, on]), steps), 'error', 'a group that listed no test');
+  // One group is its report unchanged, as before the split.
+  assert.equal(mergeReports([off]), off);
+  assert.equal(mergeReports([]), null);
 });
