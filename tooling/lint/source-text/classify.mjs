@@ -276,8 +276,9 @@ export function applyDeletes(text, rows) {
   return pruneImports(out);
 }
 
-/** Drop the named imports a file no longer uses (and an import left with none). */
-function pruneImports(text) {
+/** Drop the named imports a file no longer uses (and an import left with none). A use after a member dot (`a.X`) is
+ *  not a use; one after a spread (`...X`) is. */
+export function pruneImports(text) {
   return text.replace(/^import\s+(type\s+)?\{([^}]*)\}\s+from\s+(['"][^'"]+['"]);?[ \t]*\n/gm, (all, type, names, from) => {
     const body = text.replace(all, '');
     const keep = names
@@ -289,7 +290,7 @@ function pruneImports(text) {
           .split(/\s+as\s+/)
           .pop()
           .replace(/^type\s+/, '');
-        return new RegExp(`(?<![\\w$.])${local.replace(/\$/g, '\\$')}(?![\\w$])`).test(body);
+        return new RegExp(`(?<![\\w$])(?<!(?<!\\.\\.)\\.)${local.replace(/\$/g, '\\$')}(?![\\w$])`).test(body);
       });
     return keep.length ? `import ${type ?? ''}{ ${keep.join(', ')} } from ${from};\n` : '';
   });
