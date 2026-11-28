@@ -479,13 +479,14 @@ describe('trade journal: the read and its own record', () => {
   const deps = (v: JournalVenue, store = new InMemoryTradeJournalStore()) => ({
     venue: async () => v,
     account: async () => account,
+    ownWallets: async () => [account],
     store,
     now: () => clock,
   });
   const input = { owner: account.owner, since: '2026-11-20T09:00:00.000Z', limit: 50 };
 
   it('returns every closed perpetual trade, newest closed first, with the actual and disciplined totals', async () => {
-    const j = tradeJournalSchema.parse(await readTradeJournal(deps(venue()), input));
+    const j = tradeJournalSchema.parse(await readTradeJournal(deps(venue()), input, 'user-1'));
     expect(j.trades.map((t) => [t.symbol, t.netPnl, t.source, t.storedAt])).toEqual([
       ['ETH-PERP', '9.71', 'venue', '2026-11-20T10:10:00.000Z'],
       ['BTC-PERP', '17.27', 'venue', '2026-11-20T10:10:00.000Z'],
@@ -506,12 +507,13 @@ describe('trade journal: the read and its own record', () => {
   it('a trade stays whole from the record after the venue stops returning its fills and candles, with the time it was stored', async () => {
     const store = new InMemoryTradeJournalStore();
     clock = at('10:10:00');
-    const first = await readTradeJournal(deps(venue(), store), input);
+    const first = await readTradeJournal(deps(venue(), store), input, 'user-1');
     clock = at('10:20:00');
     const empty = { venueId: 'hl-test', asOf: at('10:20:00'), value: [] };
     const later = await readTradeJournal(
       deps(venue({ fills: async () => empty, candles: async () => empty, fundingPayments: async () => empty }), store),
       input,
+      'user-1',
     );
     expect(later.trades.map((t) => t.source)).toEqual(['record', 'record']);
     expect(later.trades.map(({ source: _s, ...t }) => t)).toEqual(first.trades.map(({ source: _s, ...t }) => t));
@@ -523,33 +525,37 @@ describe('trade journal: the read and its own record', () => {
     const store = new InMemoryTradeJournalStore();
     clock = at('10:10:00');
     const none = { venueId: 'hl-test', asOf: at('10:10:00'), value: [] };
-    const first = await readTradeJournal(deps(venue({ candles: async () => none }), store), input);
+    const first = await readTradeJournal(deps(venue({ candles: async () => none }), store), input, 'user-1');
     expect(first.trades.map((t) => t.excursion.complete)).toEqual([false, false]);
     clock = at('10:11:00');
-    const second = await readTradeJournal(deps(venue(), store), input);
+    const second = await readTradeJournal(deps(venue(), store), input, 'user-1');
     expect(second.trades.map((t) => [t.excursion.complete, t.storedAt])).toEqual([
       [true, '2026-11-20T10:11:00.000Z'],
       [true, '2026-11-20T10:11:00.000Z'],
     ]);
     clock = at('10:12:00');
-    const third = await readTradeJournal(deps(venue({ candles: async () => none }), store), input);
+    const third = await readTradeJournal(deps(venue({ candles: async () => none }), store), input, 'user-1');
     expect(third.trades).toEqual(second.trades);
     clock = at('10:10:00');
   });
 
   it('limit keeps the newest closed trades', async () => {
-    const j = await readTradeJournal(deps(venue()), { ...input, limit: 1 });
+    const j = await readTradeJournal(deps(venue()), { ...input, limit: 1 }, 'user-1');
     expect(j.trades.map((t) => t.symbol)).toEqual(['ETH-PERP']);
   });
 
   it('refuses a start outside the last 90 days or in the future', async () => {
     for (const since of ['2026-08-01T00:00:00.000Z', '2026-11-21T00:00:00.000Z'])
-      await expect(readTradeJournal(deps(venue()), { ...input, since })).rejects.toMatchObject({ code: 'trade.journal_request_invalid' });
+      await expect(readTradeJournal(deps(venue()), { ...input, since }, 'user-1')).rejects.toMatchObject({
+        code: 'trade.journal_request_invalid',
+      });
   });
 
   it('a venue with no candles or funding, or one that refuses, is unavailable, never an empty journal', async () => {
-    await expect(readTradeJournal(deps(venue({ candles: undefined })), input)).rejects.toMatchObject({ code: 'trade.journal_unavailable' });
-    await expect(readTradeJournal(deps(venue({ fundingPayments: undefined })), input)).rejects.toMatchObject({
+    await expect(readTradeJournal(deps(venue({ candles: undefined })), input, 'user-1')).rejects.toMatchObject({
+      code: 'trade.journal_unavailable',
+    });
+    await expect(readTradeJournal(deps(venue({ fundingPayments: undefined })), input, 'user-1')).rejects.toMatchObject({
       code: 'trade.journal_unavailable',
     });
     const down = venue({
@@ -557,8 +563,43 @@ describe('trade journal: the read and its own record', () => {
         throw new VenueRefusalError({ venueId: 'hl-test', code: 'venue_unavailable', detail: 'the venue did not answer' } as never);
       },
     });
-    await expect(readTradeJournal(deps(down), input)).rejects.toBeInstanceOf(VenueRefusalError);
+    await expect(readTradeJournal(deps(down), input, 'user-1')).rejects.toBeInstanceOf(VenueRefusalError);
     expect(TradeJournalError).toBeDefined();
+  });
+
+  it("refuses a wallet the caller's own wallet never signed for through the door, reading and keeping nothing (#11222)", async () => {
+    const store = new InMemoryTradeJournalStore();
+    const read: string[] = [];
+    const watched = venue({
+      fills: async () => {
+        read.push('fills');
+        return { venueId: 'hl-test', asOf: at('10:10:00'), value: btcFills };
+      },
+    });
+    const asked: unknown[] = [];
+    const theirs = {
+      ...deps(watched, store),
+      // The caller's own wallet signed for another account only; the named owner is someone else's wallet.
+      ownWallets: async (userId: string, venueId: string) => {
+        asked.push({ userId, venueId });
+        return [{ owner: '0x2222222222222222222222222222222222222222', subAccount: null }];
+      },
+    };
+    await expect(readTradeJournal(theirs, input, 'user-1')).rejects.toMatchObject({ code: 'trade.journal_wallet_not_own' });
+    expect(asked).toEqual([{ userId: 'user-1', venueId: 'hl-test' }]);
+    expect(read).toEqual([]);
+    expect(store.rows.size).toBe(0);
+  });
+
+  it('reads and keeps the journal of a wallet whose owner signature the caller gave through the door', async () => {
+    const store = new InMemoryTradeJournalStore();
+    const own = {
+      ...deps(venue(), store),
+      ownWallets: async () => [{ owner: account.owner.toUpperCase().replace('0X', '0x'), subAccount: null }],
+    };
+    const j = await readTradeJournal(own, input, 'user-1');
+    expect(j.trades.length).toBeGreaterThan(0);
+    expect(store.rows.size).toBe(1);
   });
 });
 
@@ -702,6 +743,7 @@ describe('trade journal: the "keeping my rules" line (J-portfolio-19)', () => {
         {
           venue: async () => v,
           account: async () => account,
+          ownWallets: async () => [account],
           store: new InMemoryTradeJournalStore(),
           now: () => asOf,
           warned: async (key) => {

@@ -15588,7 +15588,8 @@
       "refusals": {
         "trade.journal_unavailable": "SERVICE_UNAVAILABLE",
         "trade.journal_request_invalid": "BAD_REQUEST",
-        "trade.venue_sub_account_not_own": "FORBIDDEN"
+        "trade.venue_sub_account_not_own": "FORBIDDEN",
+        "trade.journal_wallet_not_own": "FORBIDDEN"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -16156,7 +16157,8 @@
         "trade.journal_unavailable": "SERVICE_UNAVAILABLE",
         "trade.journal_request_invalid": "BAD_REQUEST",
         "trade.journal_trade_unknown": "NOT_FOUND",
-        "trade.venue_sub_account_not_own": "FORBIDDEN"
+        "trade.venue_sub_account_not_own": "FORBIDDEN",
+        "trade.journal_wallet_not_own": "FORBIDDEN"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

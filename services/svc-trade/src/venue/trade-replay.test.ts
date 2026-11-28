@@ -92,8 +92,11 @@ const deps = (v: JournalVenue, store = new InMemoryTradeJournalStore()) => ({
   venue: async () => v,
   account: async () => account,
   store,
+  // The person's own signature proved this wallet theirs on the door.
+  ownWallets: async () => [{ owner: '0xabc' }],
   now: () => clock,
 });
+const USER = 'user-1';
 const input = { owner: '0xabc', since: '2026-11-20T09:00:00.000Z', tradeId: 'x1' };
 
 describe('replayIntervalFor', () => {
@@ -118,8 +121,8 @@ describe('replayCut', () => {
 
 describe('readTradeReplay', () => {
   it('answers the journal trade unchanged, its stops with the time each was placed, and the venue bars from 10 before the entry', async () => {
-    const replay = tradeReplaySchema.parse(await readTradeReplay(deps(venue()), input));
-    const journal = await readTradeJournal(deps(venue()), { ...input, limit: 100 });
+    const replay = tradeReplaySchema.parse(await readTradeReplay(deps(venue()), input, USER));
+    const journal = await readTradeJournal(deps(venue()), { ...input, limit: 100 }, USER);
     expect(replay.trade).toEqual(journal.trades.find((t) => t.tradeId === 'x1'));
     expect(replay.trade).toMatchObject({ entryPrice: '100', exitPrice: '102', netPnl: '1.92', plannedStop: '95' });
     expect(replay.stops).toEqual([
@@ -140,9 +143,9 @@ describe('readTradeReplay', () => {
   it('replays from the bars the journal kept, named with the time they were stored, once the venue no longer returns the trade', async () => {
     const store = new InMemoryTradeJournalStore();
     clock = at('10:10:00');
-    const first = tradeReplaySchema.parse(await readTradeReplay(deps(venue(), store), input));
+    const first = tradeReplaySchema.parse(await readTradeReplay(deps(venue(), store), input, USER));
     clock = at('10:30:00');
-    // The venue past the history it keeps: none of the trade's fills, no bar from before 10:15.
+    // The venue past the history it keeps: none of the trade's fills, no bar from before 10:05.
     const later = tradeReplaySchema.parse(
       await readTradeReplay(
         deps(
@@ -153,6 +156,7 @@ describe('readTradeReplay', () => {
           store,
         ),
         input,
+        USER,
       ),
     );
     clock = at('10:10:00');
@@ -184,20 +188,27 @@ describe('readTradeReplay', () => {
   });
 
   it('says "none" when the venue no longer returns the entry bar and the journal kept none, never a made-up chart', async () => {
-    const replay = await readTradeReplay(deps(venue(bars.slice(14))), input);
+    const replay = await readTradeReplay(deps(venue(bars.slice(14))), input, USER);
     expect(replay.bars).toEqual({ source: 'none' });
     expect(replay.trade.tradeId).toBe('x1');
   });
 
   it('refuses a trade that is not in the journal', async () => {
-    await expect(readTradeReplay(deps(venue()), { ...input, tradeId: 'nope' })).rejects.toBeInstanceOf(TradeReplayError);
-    await expect(readTradeReplay(deps(venue()), { ...input, tradeId: 'nope' })).rejects.toMatchObject({
+    await expect(readTradeReplay(deps(venue()), { ...input, tradeId: 'nope' }, USER)).rejects.toBeInstanceOf(TradeReplayError);
+    await expect(readTradeReplay(deps(venue()), { ...input, tradeId: 'nope' }, USER)).rejects.toMatchObject({
       code: 'trade.journal_trade_unknown',
     });
   });
 
+  it('refuses a wallet the person never signed for, as the journal does: nothing read, nothing kept', async () => {
+    const store = new InMemoryTradeJournalStore();
+    const other = { ...deps(venue(), store), ownWallets: async () => [{ owner: '0xdef' }] };
+    await expect(readTradeReplay(other, input, USER)).rejects.toMatchObject({ code: 'trade.journal_wallet_not_own' });
+    expect(store.rows.size + store.replays.size).toBe(0);
+  });
+
   it('refuses a start outside the journal window as the journal does', async () => {
-    await expect(readTradeReplay(deps(venue()), { ...input, since: '2026-08-01T00:00:00.000Z' })).rejects.toMatchObject({
+    await expect(readTradeReplay(deps(venue()), { ...input, since: '2026-08-01T00:00:00.000Z' }, USER)).rejects.toMatchObject({
       code: 'trade.journal_request_invalid',
     });
   });

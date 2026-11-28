@@ -68,7 +68,7 @@ export interface TradeReplayInput {
 }
 
 /** One closed trade of the journal, its stops over time and its market's bars. */
-export async function readTradeReplay(deps: TradeJournalDeps, input: TradeReplayInput, userId?: string): Promise<TradeReplay> {
+export async function readTradeReplay(deps: TradeJournalDeps, input: TradeReplayInput, userId: string): Promise<TradeReplay> {
   const { journal, book } = await workTradeJournal(deps, { ...input, limit: TRADE_JOURNAL_MAX_TRADES }, userId);
   const trade = journal.trades.find((t) => t.tradeId === input.tradeId);
   if (!trade) throw new TradeReplayError(`there is no closed trade ${input.tradeId} in this journal`);

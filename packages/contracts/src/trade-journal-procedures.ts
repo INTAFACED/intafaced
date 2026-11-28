@@ -184,6 +184,8 @@ export const TRADE_JOURNAL_CLOSED_TRADES = defineProcedure({
     'trade.journal_unavailable': 'SERVICE_UNAVAILABLE',
     'trade.journal_request_invalid': 'BAD_REQUEST',
     'trade.venue_sub_account_not_own': 'FORBIDDEN',
+    // A wallet the caller's own signature never proved theirs: nothing is read or kept.
+    'trade.journal_wallet_not_own': 'FORBIDDEN',
   }),
   input: z.object({
     owner: z.string().max(64),
@@ -266,6 +268,8 @@ export const TRADE_JOURNAL_REPLAY = defineProcedure({
     'trade.journal_request_invalid': 'BAD_REQUEST',
     'trade.journal_trade_unknown': 'NOT_FOUND',
     'trade.venue_sub_account_not_own': 'FORBIDDEN',
+    // A wallet the caller's own signature never proved theirs: nothing is read or kept, as for the journal.
+    'trade.journal_wallet_not_own': 'FORBIDDEN',
   }),
   input: z.object({
     owner: z.string().max(64),

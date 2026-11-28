@@ -41,7 +41,7 @@ import {
 } from '@intafaced/venue-contracts';
 import type { DailyLossWarnedOrder } from './daily-loss-limit-store.js';
 
-export type TradeJournalCode = 'trade.journal_unavailable' | 'trade.journal_request_invalid';
+export type TradeJournalCode = 'trade.journal_unavailable' | 'trade.journal_request_invalid' | 'trade.journal_wallet_not_own';
 
 export class TradeJournalError extends Error {
   constructor(
@@ -447,6 +447,11 @@ export interface TradeJournalDeps {
   readonly venue: () => Promise<JournalVenue>;
   /** The account a read names, a sub-account only when listed under the owner (UserVenueDoor.readableAccount). */
   readonly account: (owner: string, subAccount: string | null) => Promise<UserVenueAccount>;
+  /**
+   * The venue accounts whose owner wallet signed an action this person prepared through the door
+   * (`PreparedActionStore.ownerSignedAccounts`): the only wallets the journal reads and keeps.
+   */
+  readonly ownWallets: (userId: string, venueId: string) => Promise<readonly { readonly owner: string }[]>;
   /** The journal's own record of the closed trades (trade-journal-store.ts). */
   readonly store: TradeJournalStore;
   readonly now: () => Date;
@@ -474,7 +479,7 @@ const DAY_MS = 86_400_000;
  * Crash points: between the venue read and the store, nothing is kept and the next read works it again; a trade is keyed
  * by its venue, account and first fill, so a second read never stores it twice.
  */
-export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput, userId?: string): Promise<TradeJournal> {
+export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput, userId: string): Promise<TradeJournal> {
   return (await workTradeJournal(deps, input, userId)).journal;
 }
 
@@ -502,7 +507,7 @@ function replayBarsOf(trip: Pick<RoundTrip, 'openedAt' | 'closedAt'>, candles: r
 export async function workTradeJournal(
   deps: TradeJournalDeps,
   input: TradeJournalInput,
-  userId?: string,
+  userId: string,
 ): Promise<{ journal: TradeJournal; book: JournalBook }> {
   const now = deps.now();
   const since = new Date(input.since);
@@ -516,6 +521,14 @@ export async function workTradeJournal(
   const fundingOf = venue.fundingPayments?.bind(venue);
   if (!historyOf || !candlesOf || !fundingOf)
     throw new TradeJournalError('this venue publishes no order history, funding or candles to journal from', 'trade.journal_unavailable');
+  // Only a wallet this person's own signature proved theirs is read or kept: another wallet's public history is never
+  // stored under their read. Checked before the account is resolved, so nothing of it is read.
+  const named = (input.owner ?? '').trim().toLowerCase();
+  if (!(await deps.ownWallets(userId, venue.venue.id)).some((w) => w.owner.toLowerCase() === named))
+    throw new TradeJournalError(
+      'The journal reads only a venue account your own wallet has signed for here; sign one action with that wallet on the desk first',
+      'trade.journal_wallet_not_own',
+    );
   const account = await deps.account(input.owner, input.subAccount ?? null);
 
   const [markets, fills, positions, orders, funding, warnings] = await Promise.all([
@@ -524,7 +537,7 @@ export async function workTradeJournal(
     venue.positions(account),
     historyOf(account),
     fundingOf(account, since),
-    deps.warned && userId ? deps.warned({ userId, venueId: venue.venue.id, owner: account.owner }) : Promise.resolve([]),
+    deps.warned ? deps.warned({ userId, venueId: venue.venue.id, owner: account.owner }) : Promise.resolve([]),
   ]);
   const warnedBy = new Map(warnings.map((w) => [w.venueClientOrderId.toLowerCase(), w]));
   const perps = new Set(markets.value.filter((m) => m.kind === 'perpetual').map((m) => m.symbol));
