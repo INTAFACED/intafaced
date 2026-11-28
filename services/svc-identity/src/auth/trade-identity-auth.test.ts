@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   admitNewOrderWhileFrozen,
+  assertStaffSessionLive,
+  createSqlTradeIdentityStore,
   fillsForOrderWhileFrozen,
+  logoutAllSessions,
   lostPhoneCannotUnfreeze,
   replaceRevokedSessionWithFrozenRead,
   requestAccountDeletion,
@@ -478,5 +481,134 @@ describe('close does not post a ledger entry', () => {
     expect(read.filter((entry) => /post|ledger|debit|entr/i.test(entry))).toEqual([]);
     expect(read).toContain('store.closeUser');
     expect(requests).toEqual([]);
+  });
+
+  it('close and every other export reach only the identity store and the book figures: nothing is posted', async () => {
+    // Every collaborator the module is handed is watched: each property read on the store, the book, the fill reader and
+    // the order list is recorded, and so is every call. A ledger reached any other way (a type-only import, a local
+    // interface, an extra method on a store or book) shows up as a read of a name the identity store does not have.
+    const reads: string[] = [];
+    const calls: string[] = [];
+    const watch = <T extends object>(target: T, label: string): T =>
+      new Proxy(target, {
+        get(obj, key, receiver) {
+          if (typeof key === 'symbol') return Reflect.get(obj, key, receiver);
+          reads.push(`${label}.${key}`);
+          const value: unknown = Reflect.get(obj, key, receiver);
+          if (typeof value !== 'function') return value;
+          return (...args: unknown[]) => {
+            calls.push(`${label}.${key}`);
+            return (value as (...a: unknown[]) => unknown).apply(obj, args);
+          };
+        },
+        apply(fn, self, args) {
+          calls.push(label);
+          return Reflect.apply(fn as (...a: unknown[]) => unknown, self, args);
+        },
+      });
+    const STORE_METHODS = [
+      'getApiKey',
+      'getSubAccount',
+      'setSubAccountFrozen',
+      'getUser',
+      'closeUser',
+      'getSession',
+      'revokeLiveSessions',
+      'insertReadOnlySession',
+      'listApiKeys',
+      'revokeLiveApiKeys',
+    ] as const satisfies readonly (keyof TradeIdentityStore)[];
+    const box = memory();
+    // The list is the store's whole surface: the in-memory store implements the interface and nothing else.
+    expect(Object.keys(box.store).sort()).toEqual([...STORE_METHODS].sort());
+    const store = watch(box.store, 'store');
+    const book = (over: Partial<CloseBook> = {}) => watch(flat(over), 'book');
+    box.users.set(CUSTOMER, { id: CUSTOMER, status: 'active' });
+    box.users.set(MAKER, { id: MAKER, status: 'active' });
+    box.users.set(OFFICER, { id: OFFICER, status: 'active' });
+    box.keys.set(KEY, { id: KEY, userId: PARENT, revoked: false });
+    box.keys.set(MAKER_KEY, { id: MAKER_KEY, userId: MAKER, revoked: false });
+    box.subs.set(SUB, { id: SUB, parentUserId: PARENT, revoked: false, frozen: 0 });
+    box.sessions.set(OFFICER_SESSION, { id: OFFICER_SESSION, userId: OFFICER, revoked: false });
+    const settle = (p: Promise<unknown>) =>
+      p.then(
+        (v) => v,
+        (e: unknown) => e,
+      );
+
+    // Close on every path: no book, each blocker, balance left, flat (it closes), and a second close.
+    await settle(requestAccountDeletion(store, { userId: MAKER, book: null }));
+    for (const over of [
+      { openOrders: 1, orderHold: TEST_HOLD },
+      { openPositions: 1 },
+      { payEscrow: 1 },
+      { pendingDeposits: 1 },
+      { pendingWithdrawals: 1 },
+      { payRequests: 1 },
+      { chargebacks: 1 },
+      { restingQuotes: 1 },
+      { available: TEST_AVAILABLE },
+    ])
+      await settle(requestAccountDeletion(store, { userId: MAKER, book: book(over) }));
+    const closed = await requestAccountDeletion(store, { userId: MAKER, book: book({ orderHold: TEST_HOLD }) });
+    expect(closed).toMatchObject({ completed: true, status: 'closed', debited: false, orderHold: TEST_HOLD });
+    expect(await requestAccountDeletion(store, { userId: MAKER, book: book({ orderHold: TEST_HOLD }) })).toMatchObject({
+      repeated: true,
+      debited: false,
+    });
+    await settle(requestAccountDeletion(store, { userId: OTHER, book: book() }));
+    // Every other export, on its paths.
+    await settle(setSubAccountFrozen(store, { parentUserId: PARENT, parentApiKeyId: KEY, subAccountId: SUB, frozen: 1 }));
+    await settle(setSubAccountFrozen(store, { parentUserId: PARENT, parentApiKeyId: null, subAccountId: SUB, frozen: 0 }));
+    box.users.set(CUSTOMER, { id: CUSTOMER, status: 'frozen' });
+    box.sessions.set(REVOKED_SESSION, { id: REVOKED_SESSION, userId: CUSTOMER, revoked: true });
+    await settle(replaceRevokedSessionWithFrozenRead(store, { userId: CUSTOMER, revokedSessionId: REVOKED_SESSION }));
+    const readFill = watch(async (userId: string, orderId: string) => ({ id: FILL, orderId, userId, qty: TEST_QTY }), 'readFill');
+    await settle(fillsForOrderWhileFrozen({ userId: CUSTOMER, orderId: ORDER, scopes: ['trade:read'], accountStatus: 'frozen', readFill }));
+    await settle(
+      fillsForOrderWhileFrozen({ userId: CUSTOMER, orderId: ORDER, scopes: ['trade:read'], accountStatus: 'frozen', readFill: null }),
+    );
+    admitNewOrderWhileFrozen('frozen');
+    await logoutAllSessions(store, CUSTOMER);
+    await settle(assertStaffSessionLive(store, OFFICER_SESSION, OFFICER));
+    const orders = watch([{ id: ORDER, userId: CUSTOMER, status: 'open' as const }], 'orders');
+    await settle(
+      lostPhoneCannotUnfreeze(store, { officerUserId: OFFICER, officerSessionId: OFFICER_SESSION, customerUserId: CUSTOMER, orders }),
+    );
+
+    const allowed = new Set([...STORE_METHODS.map((m) => `store.${m}`), ...Object.keys(flat()).map((k) => `book.${k}`), 'readFill']);
+    expect(reads.filter((r) => r.startsWith('store.') || r.startsWith('book.')).filter((r) => !allowed.has(r))).toEqual([]);
+    // The order list is only read (logout never cancels a resting order; JSON.stringify compares it): non-mutating reads are allowed.
+    const orderRead =
+      /^orders\.(length|\d+|map|filter|some|every|find|forEach|includes|slice|values|keys|entries|reduce|constructor|toJSON)$/;
+    expect(calls.filter((c) => !allowed.has(c) && !orderRead.test(c))).toEqual([]);
+    expect([...reads, ...calls].filter((r) => /post|ledger|debit|credit|journal|entr(y|ies)|transfer|recipe|balance/i.test(r))).toEqual([]);
+    expect(calls).toContain('store.closeUser');
+    expect(calls.filter((c) => c.startsWith('book.'))).toEqual([]);
+    expect(reads.filter((r) => r.startsWith('orders.') && !orderRead.test(r))).toEqual([]);
+
+    // The SQL store the service runs on: every statement it can send touches only identity's own tables.
+    const statements: string[] = [];
+    const sqlReads: string[] = [];
+    const tag = async (strings: TemplateStringsArray) => {
+      const text = strings.join('?').replace(/\s+/g, ' ').trim();
+      statements.push(text);
+      if (/^select id, status from users/i.test(text)) return Object.assign([{ id: CUSTOMER, status: 'active' }], { count: 1 });
+      return Object.assign([{ id: CUSTOMER, user_id: CUSTOMER, parent_user_id: PARENT, revoked: false, frozen: 0 }], { count: 1 });
+    };
+    const sql = new Proxy(tag, {
+      get(obj, key, receiver) {
+        if (typeof key !== 'symbol') sqlReads.push(key);
+        return Reflect.get(obj, key, receiver);
+      },
+    }) as unknown as Parameters<typeof createSqlTradeIdentityStore>[0];
+    const sqlStore = createSqlTradeIdentityStore(sql);
+    expect(Object.keys(sqlStore).sort()).toEqual([...STORE_METHODS].sort());
+    await settle(requestAccountDeletion(sqlStore, { userId: CUSTOMER, book: flat() }));
+    for (const m of STORE_METHODS) await settle((sqlStore[m] as (...a: unknown[]) => Promise<unknown>)(CUSTOMER, 0));
+    expect(sqlReads).toEqual([]);
+    const tables = statements.flatMap((s) => [...s.matchAll(/\b(?:from|into|update)\s+([a-z_]+)/gi)].map((m) => m[1]!.toLowerCase()));
+    expect(tables.length).toBeGreaterThan(0);
+    expect([...new Set(tables)].filter((t) => !['api_keys', 'sub_accounts', 'users', 'sessions'].includes(t))).toEqual([]);
   });
 });

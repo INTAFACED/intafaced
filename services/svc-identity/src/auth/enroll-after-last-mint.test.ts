@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { fakeSql as kitFakeSql } from '@intafaced/service-kit/testing';
 import * as webauthnLib from '@simplewebauthn/server';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 import { mintApiKeyAfterPasskey, requireVerifiedPasskey } from './mint-api-key-passkey.js';
@@ -11,8 +12,7 @@ vi.mock('@simplewebauthn/server', async (importOriginal) => {
 });
 
 function fakeSql(rows: unknown[] = []) {
-  const fn = async () => rows;
-  return fn as unknown as Parameters<typeof mintApiKeyAfterPasskey>[1];
+  return kitFakeSql<Parameters<typeof mintApiKeyAfterPasskey>[1]>(rows);
 }
 
 /** A `sql` tag that answers every query with `rows` and records each statement's text. */
