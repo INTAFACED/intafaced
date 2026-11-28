@@ -1,5 +1,5 @@
 import { expect } from './journey.mjs';
-import { fundedTrader, signIn } from './desk.mjs';
+import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { api, journeyState } from './stack.mjs';
 import { draftSaved } from './agent-builder.mjs';
 
@@ -13,14 +13,12 @@ import { draftSaved } from './agent-builder.mjs';
 /** The wait for a part a step needs that may not be built yet: short, so an unbuilt step fails fast and says where. */
 export const UNBUILT = { timeout: 5_000 };
 
-/** One journey run's state: the TEST account its first step made. */
-export function agentsRun(journey) {
+/** One journey run's state: the TEST account its first step made, kept with `keep`. */
+function runState(journey) {
   const run = journeyState(`${journey}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
   return {
     run,
-    /** The journey's start: a verified TEST account funded with `usdt` TEST USDT, kept for every later step. */
-    async start(page, prefix, usdt = '100') {
-      const who = await fundedTrader(page, prefix, usdt);
+    keep(who) {
       run.reset({ account: who });
       return who;
     },
@@ -29,6 +27,36 @@ export function agentsRun(journey) {
       const { account } = run.read();
       if (!account) throw new Error(`${journey} made no account, so this step has no one to act as`);
       return account;
+    },
+  };
+}
+
+/** One journey run whose start is a verified TEST account funded with TEST USDT through our ledger (custody on only). */
+export function agentsRun(journey) {
+  const state = runState(journey);
+  return {
+    ...state,
+    /** The journey's start: a verified TEST account funded with `usdt` TEST USDT, kept for every later step. */
+    async start(page, prefix, usdt = '100') {
+      return state.keep(await fundedTrader(page, prefix, usdt));
+    },
+  };
+}
+
+/**
+ * One journey run whose start is a verified TEST account holding nothing on our ledger, as launch runs it with the
+ * custody layer off: the journey puts the person's money where launch holds it (the TEST partner bank, their own venue
+ * account or wallet).
+ */
+export function launchAgentsRun(journey) {
+  const state = runState(journey);
+  return {
+    ...state,
+    /** The journey's start: a verified TEST account, kept for every later step. */
+    async start(page, prefix) {
+      const who = await signUp(page, prefix);
+      await verify(page, who);
+      return state.keep(who);
     },
   };
 }

@@ -1,6 +1,6 @@
 // World: restart
 import { test, expect } from './journey.mjs';
-import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
+import { UNBUILT, agentCard, agentSection, launchAgentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { api, fromUnits, restartService, stackFile, toUnits } from './stack.mjs';
@@ -27,7 +27,7 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 // account is eligible for every customer agent). #1's disabled agent is the Portfolio planner, which no customer can run
 // yet; J-agents-14 #7 checks a quarantined agent's card.
 const J = 'J-agents-01';
-const agents = agentsRun(J);
+const agents = launchAgentsRun(J);
 /** The TEST partner bank's name for itself (svc-bank `partner/test-partner.ts` TEST_PARTNER_LABEL). */
 const PARTNER_BANK = 'TEST partner bank';
 /** #5's question: it names a market, so the platform reads that market before the engine runs (J-agents-10 #4). */
