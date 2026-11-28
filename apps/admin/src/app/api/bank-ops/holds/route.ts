@@ -1,10 +1,16 @@
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { founderCall, founderRecordRead, type FounderCallContext } from '@/lib/desk/founder-call';
+import { founderRecordRead, type FounderCallContext } from '@/lib/desk/founder-call';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { isSendId, readHoldAction, refusalWords, type HoldAction } from '@/lib/bank-holds/model';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { BANK_GLOBAL_OPS_PROOF } from '@intafaced/contracts/bank-global-records';
+import {
+  BANK_GLOBAL_OPS_PROOF,
+  BANK_GLOBAL_OPS_HOLD,
+  BANK_GLOBAL_OPS_REQUEST_INFO,
+  BANK_GLOBAL_OPS_RELEASE,
+  BANK_GLOBAL_OPS_LINK_REFERENCE,
+} from '@intafaced/contracts/bank-global-records';
 
 /**
  * Global-send holds as the signed-in founder (svc-bank `global.ops.*`). POST places a hold, asks the customer for information,
@@ -23,11 +29,9 @@ const accepted = (raw: unknown): { ok: true } | null => (raw && typeof raw === '
 function sendAction(session: FounderCallContext, input: HoldAction) {
   switch (input.action) {
     case 'hold':
-      return founderCall(
+      return founderRecordRead(
         session,
-        'bank',
-        'global.ops.hold',
-        'POST',
+        BANK_GLOBAL_OPS_HOLD,
         {
           sendId: input.sendId,
           holdKey: input.holdKey,
@@ -37,25 +41,11 @@ function sendAction(session: FounderCallContext, input: HoldAction) {
         accepted,
       );
     case 'requestInfo':
-      return founderCall(
-        session,
-        'bank',
-        'global.ops.requestInfo',
-        'POST',
-        { sendId: input.sendId, infoRequest: input.infoRequest },
-        accepted,
-      );
+      return founderRecordRead(session, BANK_GLOBAL_OPS_REQUEST_INFO, { sendId: input.sendId, infoRequest: input.infoRequest }, accepted);
     case 'release':
-      return founderCall(session, 'bank', 'global.ops.release', 'POST', { sendId: input.sendId }, accepted);
+      return founderRecordRead(session, BANK_GLOBAL_OPS_RELEASE, { sendId: input.sendId }, accepted);
     case 'linkReference':
-      return founderCall(
-        session,
-        'bank',
-        'global.ops.linkReference',
-        'POST',
-        { sendId: input.sendId, reference: input.reference },
-        accepted,
-      );
+      return founderRecordRead(session, BANK_GLOBAL_OPS_LINK_REFERENCE, { sendId: input.sendId, reference: input.reference }, accepted);
   }
 }
 

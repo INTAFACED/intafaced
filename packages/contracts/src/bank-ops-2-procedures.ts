@@ -223,3 +223,158 @@ export const BANK_OPS_TRANSFER_DETAIL = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+export const id = z.object({ disputeId: z.string().guid() });
+
+/**
+ * CARD DISPUTES, AS SUPPORT WORKS THEM (J-bank-27; BK-cdisp-02, BK-cdisp-03).
+ *
+ * A case is one cardholder's dispute of one settled card capture. Support files it, adds evidence, submits a representment,
+ * escalates to arbitration (an explicit state, never implied), asks the card partner for a provisional credit, and decides
+ * the case. Every step is a row in the case's timeline with who did it and when; evidence added after the representment was
+ * submitted is kept with its own time and marked so.
+ *
+ * The money is the partner's (OWNER 226). A provisional credit is the partner's credit to its own cardholder: the partner
+ * answers with its reference and the amount it credited, and the cardholder's available, as the partner reports it, rises
+ * by that amount. Who bears a fraud loss is the partner's terms at the moment of the decision, or "not known"; it is never
+ * assumed to be the partner. Nothing here posts to the ledger, and no figure here is summed into a balance.
+ *
+ * The dispute cap is the owner's (`BANK_CARD_DISPUTE_CAP_JSON`): the most one dispute may be credited or decided for the
+ * cardholder, per asset. Blank refuses `bank.card_dispute_cap_unset`; above it refuses `bank.card_dispute_cap_exceeded`.
+ * A decision for the merchant needs no cap: nothing is given to the cardholder.
+ */
+export const DISPUTE_STATES = ['opened', 'representment', 'arbitration', 'closed'] as const;
+
+export const state = z.enum(DISPUTE_STATES);
+
+export const DISPUTE_OUTCOMES = ['cardholder', 'merchant'] as const;
+
+/** How a case closed: decided by support for one side, or withdrawn by the cardholder who filed it (J-bank-15 #4). */
+export const DISPUTE_CLOSURES = [...DISPUTE_OUTCOMES, 'withdrawn'] as const;
+
+export const LOSS_BEARERS = ['partner', 'programme', 'cardholder'] as const;
+
+export const summary = z.object({
+  id: z.string().guid(),
+  caseKey: z.string(),
+  cardId: z.string().guid(),
+  userId: z.string(),
+  authorizationRef: z.string(),
+  assetId: assetIdSchema,
+  amount: amountString,
+  reason: z.string(),
+  state,
+  test: z.boolean(),
+  provisionalCredit: z.object({
+    state: z.enum(['none', 'asked', 'credited']),
+    amount: amountString.nullable(),
+    partnerRef: z.string().nullable(),
+    at: z.string().nullable(),
+  }),
+  decision: z
+    .object({
+      outcome: z.enum(DISPUTE_CLOSURES),
+      reason: z.string().nullable(),
+      lossStatus: z.enum(['reported', 'not_known']),
+      lossBearer: z.enum(LOSS_BEARERS).nullable(),
+      lossTerms: z.string().nullable(),
+      creditSettlement: z.enum(['final', 'reversed']).nullable(),
+      creditSettlementPartnerRef: z.string().nullable(),
+      closedAt: z.string(),
+    })
+    .nullable(),
+  createdAt: z.string(),
+});
+
+export const DISPUTE_EVENT_KINDS = ['opened', 'evidence', 'representment', 'arbitration', 'provisional_credit', 'closed'] as const;
+
+export const disputeCase = summary.extend({
+  cap: amountString.nullable(),
+  events: z.array(
+    z.object({
+      sequence: z.number().int().positive(),
+      kind: z.enum(DISPUTE_EVENT_KINDS),
+      fromState: state.nullable(),
+      toState: state,
+      actor: z.string(),
+      detail: z.string().nullable(),
+      afterSubmission: z.boolean(),
+      at: z.string(),
+    }),
+  ),
+});
+
+export const BANK_OPS_CARD_DISPUTE_EVIDENCE = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardDisputeEvidence',
+  kind: 'mutation',
+  path: 'ops.cardDisputeEvidence',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: id.extend({ stepKey: z.string(), description: z.string() }).strict(),
+  output: disputeCase,
+  samples: [
+    { verdict: 'accept', input: { disputeId: '22222222-2222-4222-8222-222222222222', stepKey: 'placeholder', description: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_DISPUTE_REPRESENTMENT = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardDisputeRepresentment',
+  kind: 'mutation',
+  path: 'ops.cardDisputeRepresentment',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: id.extend({ stepKey: z.string(), description: z.string() }).strict(),
+  output: disputeCase,
+  samples: [
+    { verdict: 'accept', input: { disputeId: '22222222-2222-4222-8222-222222222222', stepKey: 'placeholder', description: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_DISPUTE_ARBITRATION = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardDisputeArbitration',
+  kind: 'mutation',
+  path: 'ops.cardDisputeArbitration',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: id.extend({ stepKey: z.string() }).strict(),
+  output: disputeCase,
+  samples: [
+    { verdict: 'accept', input: { disputeId: '22222222-2222-4222-8222-222222222222', stepKey: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_DISPUTE_CREDIT = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardDisputeCredit',
+  kind: 'mutation',
+  path: 'ops.cardDisputeCredit',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: id.strict(),
+  output: disputeCase,
+  samples: [
+    { verdict: 'accept', input: { disputeId: '22222222-2222-4222-8222-222222222222' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_DISPUTE_DECIDE = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardDisputeDecide',
+  kind: 'mutation',
+  path: 'ops.cardDisputeDecide',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: id.extend({ outcome: z.enum(DISPUTE_OUTCOMES), reason: z.string().optional() }).strict(),
+  output: disputeCase,
+  samples: [
+    { verdict: 'accept', input: { disputeId: '22222222-2222-4222-8222-222222222222', outcome: 'cardholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

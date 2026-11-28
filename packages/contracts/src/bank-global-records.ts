@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { globalSendSchema } from './bank-global-procedures.js';
-import { amountString, limitField, operatorHoldView } from './bank-call-schemas.js';
+import { amountString, limitField, operatorHoldView, idString } from './bank-call-schemas.js';
 import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -124,6 +124,73 @@ export const BANK_GLOBAL_OPS_RECALLS = defineProcedure({
   output: z.array(globalSendSchema.extend({ userId: z.string() })),
   samples: [
     { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_GLOBAL_OPS_HOLD = defineProcedure({
+  ...base,
+  name: 'bank.global.ops.hold',
+  kind: 'mutation',
+  path: 'global.ops.hold',
+  access: { caller: 'scope', scope: 'admin:compliance', module: 'bank' },
+  refusals: {},
+  input: z
+    .object({
+      sendId: z.string().guid(),
+      holdKey: idString,
+      reason: z.string().min(1).max(500),
+      infoRequest: z.string().min(1).max(1000).optional(),
+    })
+    .strict(),
+  output: operatorHoldView,
+  samples: [
+    { verdict: 'accept', input: { sendId: '22222222-2222-4222-8222-222222222222', holdKey: 'placeholder', reason: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_GLOBAL_OPS_REQUEST_INFO = defineProcedure({
+  ...base,
+  name: 'bank.global.ops.requestInfo',
+  kind: 'mutation',
+  path: 'global.ops.requestInfo',
+  access: { caller: 'scope', scope: 'admin:compliance', module: 'bank' },
+  refusals: {},
+  input: z.object({ sendId: z.string().guid(), infoRequest: z.string().min(1).max(1000) }).strict(),
+  output: operatorHoldView,
+  samples: [
+    { verdict: 'accept', input: { sendId: '22222222-2222-4222-8222-222222222222', infoRequest: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_GLOBAL_OPS_RELEASE = defineProcedure({
+  ...base,
+  name: 'bank.global.ops.release',
+  kind: 'mutation',
+  path: 'global.ops.release',
+  access: { caller: 'scope', scope: 'admin:compliance', module: 'bank' },
+  refusals: {},
+  input: z.object({ sendId: z.string().guid() }).strict(),
+  output: globalSendSchema,
+  samples: [
+    { verdict: 'accept', input: { sendId: '22222222-2222-4222-8222-222222222222' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_GLOBAL_OPS_LINK_REFERENCE = defineProcedure({
+  ...base,
+  name: 'bank.global.ops.linkReference',
+  kind: 'mutation',
+  path: 'global.ops.linkReference',
+  access: { caller: 'scope', scope: 'admin:compliance', module: 'bank' },
+  refusals: {},
+  input: z.object({ sendId: z.string().guid(), reference: z.string().min(6).max(64) }).strict(),
+  output: z.object({ linked: z.literal(true), send: globalSendSchema }),
+  samples: [
+    { verdict: 'accept', input: { sendId: '22222222-2222-4222-8222-222222222222', reference: 'placeholder' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

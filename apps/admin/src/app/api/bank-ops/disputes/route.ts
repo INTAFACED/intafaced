@@ -1,9 +1,16 @@
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
+import { type FounderCallContext, founderRecordRead } from '@/lib/desk/founder-call';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { readDisputeAction, refusalCode, refusalWords, type DisputeAction } from '@/lib/card-disputes/model';
 import { moduleDisabledResponse } from '@/lib/modules';
+import {
+  BANK_OPS_CARD_DISPUTE_EVIDENCE,
+  BANK_OPS_CARD_DISPUTE_REPRESENTMENT,
+  BANK_OPS_CARD_DISPUTE_ARBITRATION,
+  BANK_OPS_CARD_DISPUTE_CREDIT,
+  BANK_OPS_CARD_DISPUTE_DECIDE,
+} from '@intafaced/contracts/bank-ops-2-procedures';
 
 /**
  * Card dispute steps as the signed-in founder (svc-bank `ops.cardDispute*`, J-bank-27): add evidence, submit a
@@ -22,43 +29,30 @@ const accepted = (raw: unknown): { ok: true } | null => (raw && typeof raw === '
 function sendStep(session: FounderCallContext, input: DisputeAction) {
   switch (input.action) {
     case 'evidence':
-      return founderCall(
+      return founderRecordRead(
         session,
-        'bank',
-        'ops.cardDisputeEvidence',
-        'POST',
+        BANK_OPS_CARD_DISPUTE_EVIDENCE,
         { disputeId: input.disputeId, stepKey: input.stepKey, description: input.description },
         accepted,
       );
     case 'representment':
-      return founderCall(
+      return founderRecordRead(
         session,
-        'bank',
-        'ops.cardDisputeRepresentment',
-        'POST',
+        BANK_OPS_CARD_DISPUTE_REPRESENTMENT,
         { disputeId: input.disputeId, stepKey: input.stepKey, description: input.description },
         accepted,
       );
     case 'arbitration':
-      return founderCall(
+      return founderRecordRead(
         session,
-        'bank',
-        'ops.cardDisputeArbitration',
-        'POST',
+        BANK_OPS_CARD_DISPUTE_ARBITRATION,
         { disputeId: input.disputeId, stepKey: input.stepKey },
         accepted,
       );
     case 'credit':
-      return founderCall(session, 'bank', 'ops.cardDisputeCredit', 'POST', { disputeId: input.disputeId }, accepted);
+      return founderRecordRead(session, BANK_OPS_CARD_DISPUTE_CREDIT, { disputeId: input.disputeId }, accepted);
     case 'decide':
-      return founderCall(
-        session,
-        'bank',
-        'ops.cardDisputeDecide',
-        'POST',
-        { disputeId: input.disputeId, outcome: input.outcome },
-        accepted,
-      );
+      return founderRecordRead(session, BANK_OPS_CARD_DISPUTE_DECIDE, { disputeId: input.disputeId, outcome: input.outcome }, accepted);
   }
 }
 
