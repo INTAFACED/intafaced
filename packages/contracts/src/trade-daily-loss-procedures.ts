@@ -26,14 +26,28 @@ export const dailyLossTermsSchema = z.object({ mode: z.enum(DAILY_LOSS_MODES), l
 export const dailyLossViewSchema = z.object({
   venue: z.object({ id: z.string(), name: z.string(), test: z.boolean() }),
   owner: z.string(),
-  /** The asset the loss and the limit are counted in: the venue's perpetuals collateral. */
-  asset: z.string(),
+  /**
+   * The asset the loss and the limit are counted in: the venue's perpetuals collateral. `null` only on a `terms` read of
+   * an account that never set a limit: the venue is not asked then.
+   */
+  asset: z.string().nullable(),
   /** The terms in force now; `null` while the limit is off. */
   active: dailyLossTermsSchema.nullable(),
   /** A loosening asked and still waiting out its 24 hours: `terms` null is turning the limit off. */
   pending: z.object({ terms: dailyLossTermsSchema.nullable(), effectiveAt: z.string() }).nullable(),
   /** Today's loss (since `since`, 00:00 UTC) on the venue's own fills; `null` when the venue could not be read just now. */
-  today: z.object({ loss: decimal.nullable(), since: z.string(), reached: z.boolean() }),
+  /** `null` only on a `terms` read of an account that never set a limit (with `asset`): the venue is not asked then. */
+  today: z
+    .object({
+      loss: decimal.nullable(),
+      since: z.string(),
+      /** The venue's own time for the fills `loss` was counted from; `null` with `loss`. */
+      asOf: z.string().nullable(),
+      /** The next 00:00 UTC: when today's loss starts again from zero. */
+      resetsAt: z.string(),
+      reached: z.boolean(),
+    })
+    .nullable(),
 });
 
 const refuse = (map: Record<string, 'BAD_REQUEST' | 'SERVICE_UNAVAILABLE'>): Refusals => Object.freeze(map);
@@ -53,10 +67,15 @@ export const DAILY_LOSS_GET = defineProcedure({
   path: 'dailyLoss.get',
   access: READ,
   refusals: refuse({ ...COMMON }),
-  input: z.object({ owner }),
+  /**
+   * `terms`: the desk's read. An account that never set a limit is answered from our own record alone, with no venue
+   * read (`asset` and `today` null), so a desk that polls it asks the venue nothing more until a limit is set.
+   */
+  input: z.object({ owner, terms: z.boolean().optional() }),
   output: dailyLossViewSchema,
   samples: [
     { verdict: 'accept', input: { owner: OWNER } },
+    { verdict: 'accept', input: { owner: OWNER, terms: true } },
     { verdict: 'refuse', input: { owner: 7 } },
     { verdict: 'refuse', input: {} },
   ],
