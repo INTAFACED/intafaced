@@ -30,7 +30,7 @@
  * them), the files, when it started and its exit code (null until it ends). .githooks/pre-push reads it: a journey
  * branch pushed again after its previous head's journeys run failed one of its own files goes only with a PASS (or exit
  * 3, no free slot) of those files on the tree pushed (tooling/scripts/pre-push-journey-red.mjs). The Mac's first-push
- * hook that read it before is gone (claude-hub #853).
+ * hook that read it before is gone.
  *
  * A local pass never counts as proof: the proof is the Real-app journeys run on the pull request's exact head.
  * Why one command (project-state #2561, rows 13 and 20): the words for doing this by hand were rewritten seven times in
