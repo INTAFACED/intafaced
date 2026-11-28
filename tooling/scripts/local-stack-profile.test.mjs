@@ -12,12 +12,13 @@ test('with no profile every process starts', () => {
 
 test('launch-desk leaves off what the launch desk does not use and keeps what it does', () => {
   for (const name of PROFILES['launch-desk']) assert.equal(profileOff(name, desk), false, name);
+  // Help works on the beta: a tester's request reaches the reports pass (#11218).
+  assert.equal(profileOff('support', desk), false);
   for (const name of [
     'matching',
     'token',
     'p2p',
     'academy',
-    'support',
     'market',
     'agents',
     'blueprint',

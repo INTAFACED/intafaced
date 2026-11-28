@@ -140,6 +140,7 @@ import { SqlRiskAlertStore } from './venue/risk-alerts-store.js';
 import { busProfitLockNotices, VenueProfitLocks } from './venue/profit-lock.js';
 import { ageProfitLock, SqlProfitLockStore } from './venue/profit-lock-store.js';
 import { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
+import { ageDailyLossLimit } from './venue/daily-loss-limit-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -1873,7 +1874,12 @@ registerTestAgeDoor(app, {
   open: testAgeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
-  subjects: { 'otc-quote': ageOtcQuote(sql), 'recurring-buy': ageRecurringBuy(sql), 'profit-lock': ageProfitLock(sql) },
+  subjects: {
+    'otc-quote': ageOtcQuote(sql),
+    'recurring-buy': ageRecurringBuy(sql),
+    'daily-loss-limit': ageDailyLossLimit(sql),
+    'profit-lock': ageProfitLock(sql),
+  },
   installRawBody: false,
 });
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);

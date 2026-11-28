@@ -36,7 +36,11 @@ export function dailyLossRouter(limits: VenueDailyLossLimits | null | undefined)
     return fn(limits);
   };
   return router({
-    get: mountRecord(DAILY_LOSS_GET, ({ ctx, input }) => call((l) => l.get(ctx.principal, input.owner)), refusalOf),
+    get: mountRecord(
+      DAILY_LOSS_GET,
+      ({ ctx, input }) => call((l) => l.get(ctx.principal, input.owner, { terms: input.terms === true })),
+      refusalOf,
+    ),
     set: mountRecord(DAILY_LOSS_SET, ({ ctx, input }) => call((l) => l.set(ctx.principal, input)), refusalOf),
     off: mountRecord(DAILY_LOSS_OFF, ({ ctx, input }) => call((l) => l.off(ctx.principal, input.owner)), refusalOf),
   });

@@ -145,6 +145,7 @@
     "/trade/orders",
     "/trade/positions",
     "/trade/risk",
+    "/trade/risk/rules",
     "/trade/screener",
     "/trade/spot/BTC-USDT",
     "/trade/staking",

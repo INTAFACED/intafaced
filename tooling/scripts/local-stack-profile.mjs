@@ -13,6 +13,8 @@
  *   its rail controls)
  * - the wallet and the futures desk: protocol (the person's wallet, its TEST provider test-wallet-provider), indexer
  *   (the wallet's history), trade (the venue door), ws (live prices), the TEST venue adapter on Hyperliquid's test network
+ * - Help (the More room's Help tile, /support): support, so a stuck tester can ask for help; their request is filed as an
+ *   issue by the beta's reports pass (tooling/beta/beta-reports.mjs, #11218). Support calls identity, bank, trade and pay.
  */
 export const PROFILES = Object.freeze({
   'launch-desk': Object.freeze([
@@ -29,6 +31,7 @@ export const PROFILES = Object.freeze({
     'edge',
     'rail-statements',
     'test-wallet-provider',
+    'support',
     'customer',
   ]),
 });

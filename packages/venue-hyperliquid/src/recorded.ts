@@ -17,10 +17,7 @@ import type { FetchLike } from './core.js';
  *   · the signature is dropped; nonces, action times and read windows (`nonce`, `time`, `startTime`, `endTime`,
  *     `expiresAfter`) are `<volatile>`;
  *   · a client order id (16 bytes of hex) is the recorded one it was paired with at an earlier write, else `<cloid>`; a
- *     replayed write pairs the recorded ids with the current ones, and every later answer carries the current ids;
- *   · an `approveAgent` write's agent (a key made new for each trading session) is `<agent>`, and the expiry its name
- *     ends with (` valid_until <ms>`) is `<volatile>`; the replayed write pairs the recorded agent and expiry with the
- *     current ones, so every later answer (`extraAgents`) names the current agent and its expiry.
+ *     replayed write pairs the recorded ids with the current ones, and every later answer carries the current ids.
  * Writes order time: each read belongs to its epoch, the number of writes recorded before it. A read answers the last
  * recorded answer to its key at the latest epoch not after the current one, so reads may come in any order and number
  * (the service's and a journey's own), and a poll sees the state its epoch settled on. Writes answer in recorded order.
@@ -99,26 +96,6 @@ const UNPAIRED_CLOID = '<cloid>';
 const VOLATILE_KEYS = new Set(['nonce', 'time', 'startTime', 'endTime', 'expiresAfter']);
 const CLOID_RE = /^0x[0-9a-f]{32}$/i;
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
-const AGENT = '<agent>';
-/** The expiry the venue reads off the end of an agent's name (venue.ts EXPIRY_IN_NAME). */
-const EXPIRY_IN_NAME = / valid_until (\d+)$/;
-
-/** An `approveAgent` write's agent address and the expiry its name carries, or null for any other request. */
-function agentOf(request: unknown): { address: string; validUntil: number | null } | null {
-  const action = isRecord(request) ? request.action : undefined;
-  if (!isRecord(action) || action.type !== 'approveAgent' || typeof action.agentAddress !== 'string') return null;
-  const m = typeof action.agentName === 'string' ? EXPIRY_IN_NAME.exec(action.agentName) : null;
-  return { address: action.agentAddress.toLowerCase(), validUntil: m ? Number(m[1]) : null };
-}
-
-/** `request` with an `approveAgent` write's agent as `<agent>` and its name's expiry `<volatile>` (the module comment). */
-function withoutSessionAgent(request: unknown): unknown {
-  if (!agentOf(request) || !isRecord(request) || !isRecord(request.action)) return request;
-  const { action } = request;
-  const name =
-    typeof action.agentName === 'string' ? action.agentName.replace(EXPIRY_IN_NAME, ` valid_until ${VOLATILE}`) : action.agentName;
-  return { ...request, action: { ...action, agentAddress: AGENT, agentName: name } };
-}
 
 /**
  * One request a replay had no answer for: its path, the epoch it came in and its key. `otherAccount` is true only when
@@ -170,7 +147,7 @@ export function requestKey(path: HlRecordedPath, request: unknown, pairedAs: (cl
       );
     return value;
   };
-  return `${path} ${canonicalJson(walk(withoutSessionAgent(request), null, true))}`;
+  return `${path} ${canonicalJson(walk(request, null, true))}`;
 }
 
 /** Each client order id in `recorded` paired with the one at the same place in `current`. */
@@ -225,9 +202,6 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
   }
   const toCurrent = new Map<string, string>();
   const toRecorded = new Map<string, string>();
-  /** Each recorded session agent's address, and its expiry, as the current run's. */
-  const agents = new Map<string, string>();
-  const expiries = new Map<number, number>();
   const misses: ReplayMiss[] = [];
   /** Addresses asked about before the run's trader or any write came in: the stack's, not this run's. */
   const earlier = new Set<string>();
@@ -251,12 +225,6 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
           toCurrent.set(recorded, current);
           toRecorded.set(current, recorded);
         }
-        const was = agentOf(next.call.request);
-        const now = agentOf(request);
-        if (was && now) {
-          agents.set(was.address, now.address);
-          if (was.validUntil !== null && now.validUntil !== null) expiries.set(was.validUntil, now.validUntil);
-        }
         epoch += 1;
         found = next.call;
       }
@@ -268,30 +236,11 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
       misses.push({ path, epoch, key, otherAccount });
       throw new NotRecordedError(path, request);
     }
-    const swapped = currentExpiries(
-      swapStrings(found.answer, (s) =>
-        CLOID_RE.test(s) ? (toCurrent.get(s.toLowerCase()) ?? s) : ADDRESS_RE.test(s) ? (agents.get(s.toLowerCase()) ?? s) : s,
-      ),
-      expiries,
-    );
+    const swapped = swapStrings(found.answer, (s) => (CLOID_RE.test(s) ? (toCurrent.get(s.toLowerCase()) ?? s) : s));
     return answer({ ...found, answer: show(swapped) });
   };
   const replaying: ReplayFetch = Object.assign(replay, { misses });
   return replaying;
-}
-
-/** Every `validUntil` in `value` that is a paired recorded agent's expiry, as the current run's. */
-function currentExpiries(value: unknown, expiries: ReadonlyMap<number, number>): unknown {
-  if (expiries.size === 0) return value;
-  if (Array.isArray(value)) return value.map((v) => currentExpiries(v, expiries));
-  if (isRecord(value))
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [
-        k,
-        k === 'validUntil' && typeof v === 'number' ? (expiries.get(v) ?? v) : currentExpiries(v, expiries),
-      ]),
-    );
-  return value;
 }
 
 /** A fetch that passes each call to `inner` (the live test network) and appends what it answered to `into`. */

@@ -1236,6 +1236,8 @@ import {
 
 import { IDENTITY_TOTP_ENROL } from './identity-totp-procedures.js';
 
+import { IDENTITY_TRADING_RESTRICTION } from './identity-trading-restriction-procedures.js';
+
 import {
   IDENTITY_TRUSTED_DEVICES_LIST,
   IDENTITY_TRUSTED_DEVICES_REMOVE,
@@ -3780,6 +3782,8 @@ const part_identity_totp_manage_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_totp_procedures: readonly ProcedureRecord[] = [IDENTITY_TOTP_ENROL];
 
+const part_identity_trading_restriction_procedures: readonly ProcedureRecord[] = [IDENTITY_TRADING_RESTRICTION];
+
 const part_identity_trusted_devices_procedures: readonly ProcedureRecord[] = [
   IDENTITY_TRUSTED_DEVICES_LIST,
   IDENTITY_TRUSTED_DEVICES_REMOVE,
@@ -5272,6 +5276,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_support_recovery_procedures,
   ...part_identity_totp_manage_procedures,
   ...part_identity_totp_procedures,
+  ...part_identity_trading_restriction_procedures,
   ...part_identity_trusted_devices_procedures,
   ...part_identity_unbind_api_key_ip_allowlist_procedures,
   ...part_identity_unlink_signin_method_procedures,

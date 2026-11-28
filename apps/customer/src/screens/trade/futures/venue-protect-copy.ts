@@ -61,6 +61,11 @@ export const venueProtectCopy = defineCopy('trade.futures.venue.protect', {
   'Item attached': 'Attached to its entry order.',
   Cancel: 'Cancel',
   'Cancel outcome': 'Cancel: {outcome}',
+  'Move to': 'New trigger price',
+  Move: 'Move',
+  'Move busy': 'Another exit order is being sent; try again when it answers.',
+  'Move engine': 'This exit order runs on our engine: cancel it and arm a new one.',
+  'Move unprotected': 'The old stop was cancelled, and the new one was not placed: {detail}. The position has no stop until you arm one.',
   side_long: 'long',
   side_short: 'short',
   // The ticket's protections attached to its entry order.

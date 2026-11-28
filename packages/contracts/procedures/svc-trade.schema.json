@@ -15051,6 +15051,9 @@
           "owner": {
             "type": "string",
             "maxLength": 64
+          },
+          "terms": {
+            "type": "boolean"
           }
         },
         "required": ["owner"]
@@ -15079,7 +15082,7 @@
             "type": "string"
           },
           "asset": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "active": {
             "anyOf": [
@@ -15143,28 +15146,41 @@
             ]
           },
           "today": {
-            "type": "object",
-            "properties": {
-              "loss": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "loss": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  {
-                    "type": "null"
+                  "since": {
+                    "type": "string"
+                  },
+                  "asOf": {
+                    "type": ["string", "null"]
+                  },
+                  "resetsAt": {
+                    "type": "string"
+                  },
+                  "reached": {
+                    "type": "boolean"
                   }
-                ]
+                },
+                "required": ["loss", "since", "asOf", "resetsAt", "reached"],
+                "additionalProperties": false
               },
-              "since": {
-                "type": "string"
-              },
-              "reached": {
-                "type": "boolean"
+              {
+                "type": "null"
               }
-            },
-            "required": ["loss", "since", "reached"],
-            "additionalProperties": false
+            ]
           }
         },
         "required": ["venue", "owner", "asset", "active", "pending", "today"],
@@ -15175,6 +15191,13 @@
           "verdict": "accept",
           "input": {
             "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "terms": true
           }
         },
         {
@@ -15239,7 +15262,7 @@
             "type": "string"
           },
           "asset": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "active": {
             "anyOf": [
@@ -15303,28 +15326,41 @@
             ]
           },
           "today": {
-            "type": "object",
-            "properties": {
-              "loss": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "loss": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  {
-                    "type": "null"
+                  "since": {
+                    "type": "string"
+                  },
+                  "asOf": {
+                    "type": ["string", "null"]
+                  },
+                  "resetsAt": {
+                    "type": "string"
+                  },
+                  "reached": {
+                    "type": "boolean"
                   }
-                ]
+                },
+                "required": ["loss", "since", "asOf", "resetsAt", "reached"],
+                "additionalProperties": false
               },
-              "since": {
-                "type": "string"
-              },
-              "reached": {
-                "type": "boolean"
+              {
+                "type": "null"
               }
-            },
-            "required": ["loss", "since", "reached"],
-            "additionalProperties": false
+            ]
           }
         },
         "required": ["venue", "owner", "asset", "active", "pending", "today"],
@@ -15402,7 +15438,7 @@
             "type": "string"
           },
           "asset": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "active": {
             "anyOf": [
@@ -15466,28 +15502,41 @@
             ]
           },
           "today": {
-            "type": "object",
-            "properties": {
-              "loss": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "loss": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  {
-                    "type": "null"
+                  "since": {
+                    "type": "string"
+                  },
+                  "asOf": {
+                    "type": ["string", "null"]
+                  },
+                  "resetsAt": {
+                    "type": "string"
+                  },
+                  "reached": {
+                    "type": "boolean"
                   }
-                ]
+                },
+                "required": ["loss", "since", "asOf", "resetsAt", "reached"],
+                "additionalProperties": false
               },
-              "since": {
-                "type": "string"
-              },
-              "reached": {
-                "type": "boolean"
+              {
+                "type": "null"
               }
-            },
-            "required": ["loss", "since", "reached"],
-            "additionalProperties": false
+            ]
           }
         },
         "required": ["venue", "owner", "asset", "active", "pending", "today"],
