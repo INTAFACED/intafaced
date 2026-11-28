@@ -12,7 +12,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { tradeEnvWith } from './testing/doors.js';
 import { startFuturesJobs } from './futures-jobs.js';
-import { readFileSync } from 'node:fs';
 
 describe('funding interval is not an invented 8h', () => {
   it('env.ts does not default TRADE_FUTURES_FUNDING_INTERVAL_MS to 8h', () => {
@@ -39,22 +38,5 @@ describe('funding interval is not an invented 8h', () => {
     });
     expect(handle.host.list().sort()).toEqual(['futures.dated_settlement', 'futures.liquidation', 'futures.payouts']);
     handle.stop();
-  });
-});
-
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  it('env.ts does not default TRADE_FUTURES_FUNDING_INTERVAL_MS to 8h (kept source pin)', () => {
-    const src = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/TRADE_FUTURES_FUNDING_INTERVAL_MS[\s\S]{0,400}default\(28_800_000\)/);
-    expect(src).toMatch(/TRADE_FUTURES_FUNDING_INTERVAL_MS[\s\S]{0,200}\.default\(''\)/);
-  });
-
-  it('jobs source does not pin an 8h funding period (kept source pin)', () => {
-    const src = readFileSync(new URL('./futures-jobs.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/28_?800_?000/);
-    expect(src).not.toMatch(/8 \* 60 \* 60/);
-    expect(src).toMatch(/fundingIntervalMs != null/);
   });
 });

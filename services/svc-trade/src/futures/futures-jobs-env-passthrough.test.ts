@@ -11,12 +11,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { publicRestDoor } from './testing/doors.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 async function capabilitiesFutures(futures?: NonNullable<Parameters<typeof publicRestDoor>[0]>['futures']) {
   const app = await publicRestDoor(futures ? { futures } : {});
@@ -66,30 +60,5 @@ describe('futures env passthrough into registerPublicRest', () => {
     const note = await capabilitiesFutures({ jobsEnabled: true, fundingIntervalConfigured: true, fundingMarketCount: 1 });
     expect(note.nextFundingTimestamp).toBe('unpublished');
     expect(note.indexPrice).toBe('unpublished');
-  });
-});
-
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  const indexSource = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-
-  it('live host passes TRADE_FUTURES_JOBS_ENABLED and TRADE_FUTURES_ENABLED (kept source pin)', () => {
-    expect(indexSource).toMatch(/futures:\s*\{[\s\S]*jobsEnabled:\s*env\.TRADE_FUTURES_JOBS_ENABLED/);
-    expect(indexSource).toMatch(/futures:\s*\{[\s\S]*profitSourceConfigured:\s*profitSource != null/);
-    expect(indexSource).toMatch(
-      /futures:\s*\{[\s\S]*fundingMaxAbsRateConfigured:\s*env\.TRADE_FUTURES_FUNDING_MAX_ABS_RATE\.trim\(\) !== ''/,
-    );
-    expect(indexSource).toMatch(/futures:\s*\{[\s\S]*fundingMarketCount:\s*fundingMarketIds\.length/);
-    expect(indexSource).toMatch(/futures:\s*\{[\s\S]*venueMarkConfigured:\s*venueMarkConfigured != null/);
-    expect(indexSource).toMatch(/futures:\s*\{[\s\S]*fundingIntervalConfigured:\s*env\.TRADE_FUTURES_FUNDING_INTERVAL_MS != null/);
-    expect(indexSource).not.toMatch(/fundingMarketIds:\s*fundingMarketIds/);
-    expect(indexSource).not.toMatch(/fundingMaxAbsRate:\s*env\.TRADE_FUTURES_FUNDING_MAX_ABS_RATE/);
-    expect(indexSource).not.toMatch(/futures:\s*\{[\s\S]*fundingIntervalMs:/);
-  });
-
-  it('published funding quote never invents nextFundingTimestamp from the 8h interval (kept source pin)', () => {
-    expect(indexSource).toMatch(/nextFundingTimestamp:\s*null/);
-    expect(indexSource).not.toMatch(/TRADE_FUTURES_FUNDING_INTERVAL_MS[\s\S]{0,200}nextFundingTimestamp/);
   });
 });

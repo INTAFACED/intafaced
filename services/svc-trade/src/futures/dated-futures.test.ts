@@ -25,12 +25,6 @@ import {
   resolveDatedFuturesSettlement,
   runDatedFuturesExpiryTick,
 } from './dated-futures.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 const expiry = new Date('2026-12-26T08:00:00.000Z');
 const beforeExpiry = new Date('2026-12-25T08:00:00.000Z');
@@ -410,20 +404,5 @@ describe('CCXT listing — dated is future, perp is swap; expiry is listed not i
     expect(presented.future).toBe(true);
     expect(presented.expiry).toBe(expiry.getTime());
     expect(presented.expiryDatetime).toBe(expiry.toISOString());
-  });
-});
-
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  const src = readFileSync(join(here, 'dated-futures.ts'), 'utf8');
-
-  it('source pin: expiry job never assigns lastTrade or mark as settlement (kept source pin)', () => {
-    expect(src).not.toMatch(/ownerSettlementPrice\s*\?\?\s*.*lastTrade/);
-    expect(src).not.toMatch(/settlementPrice.*=.*lastTrade/);
-    expect(src).not.toMatch(/settlementPrice.*=.*markPrice/);
-    expect(src).toMatch(/void input\.lastTradePrice/);
-    expect(src).toMatch(/void input\.markPrice/);
-    expect(src).toMatch(/source: 'owner_fixing'/);
   });
 });

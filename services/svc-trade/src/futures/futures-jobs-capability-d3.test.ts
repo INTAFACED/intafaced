@@ -9,14 +9,8 @@
  * 7. Collision: none — new file only
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { presentFuturesJobsCapabilityNote } from './futures-policy.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('capabilities futures note does not invent D3 bps', () => {
   it('ladderNumbers stays d3_unset and maintenanceBps is absent', () => {
@@ -38,16 +32,45 @@ describe('capabilities futures note does not invent D3 bps', () => {
     const smuggled = presentFuturesJobsCapabilityNote({ maintenanceBps: 50 });
     expect(smuggled).not.toHaveProperty('maintenanceBps');
   });
-});
 
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  const src = readFileSync(join(here, 'futures-policy.ts'), 'utf8');
-
-  it('ladderNumbers stays d3_unset and maintenanceBps is absent (kept source pin)', () => {
-    expect(src).toMatch(/ladderNumbers:\s*'d3_unset'/);
-    expect(src).not.toMatch(/maintenanceBps/);
-    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
+  it('no export of futures-policy carries a maintenance number or the placeholder ladder, on any input', async () => {
+    const loads: string[] = [];
+    vi.resetModules();
+    vi.doMock('./ladder-policy.test-harness.js', async (importOriginal) => {
+      loads.push('harness');
+      return importOriginal();
+    });
+    try {
+      const policy = await import('./futures-policy.js');
+      expect(Object.keys(policy).sort()).toEqual([
+        'ADL_DISCLOSURE_COPY',
+        'ADL_DISCLOSURE_VERSION',
+        'describeFuturesPolicy',
+        'presentFuturesJobsCapabilityNote',
+        'presentInsuranceListingPolicy',
+      ]);
+      const flags = [true, false];
+      const answers: unknown[] = [policy.ADL_DISCLOSURE_COPY, policy.ADL_DISCLOSURE_VERSION, policy.presentInsuranceListingPolicy()];
+      for (const on of flags) {
+        const input = {
+          jobsEnabled: on,
+          orderableEnabled: on,
+          profitSourceConfigured: on,
+          fundingMaxAbsRateConfigured: on,
+          fundingMarketCount: on ? 3 : 0,
+          venueMarkConfigured: on,
+          fundingIntervalConfigured: on,
+        };
+        answers.push(policy.presentFuturesJobsCapabilityNote(input), policy.describeFuturesPolicy(input));
+        expect(policy.presentFuturesJobsCapabilityNote(input).ladderNumbers).toBe('d3_unset');
+      }
+      answers.push(policy.presentFuturesJobsCapabilityNote({}), policy.describeFuturesPolicy());
+      for (const answer of answers)
+        expect(JSON.stringify(answer)).not.toMatch(/maintenanceBps|uptoDepthBps|tiers"|DEFAULT_FUTURES_LADDER_POLICY/);
+      expect(loads).toEqual([]);
+    } finally {
+      vi.doUnmock('./ladder-policy.test-harness.js');
+      vi.resetModules();
+    }
   });
 });

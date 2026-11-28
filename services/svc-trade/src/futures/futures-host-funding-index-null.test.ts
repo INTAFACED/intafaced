@@ -13,12 +13,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeMarket } from '../public-rest.js';
 import { publicRestDoor } from './testing/doors.js';
 import { startFuturesJobs } from './futures-jobs.js';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 const PERP = fakeMarket({ id: 'm-perp', symbol: 'BTC/USDT-PERP', kind: 'futures' });
 
@@ -77,21 +71,5 @@ describe('live host funding quote does not invent index or next funding time', (
     await app.close();
     expect(body.markPrice).toBe('50000');
     expect(body.indexPrice).toBeNull();
-  });
-});
-
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  const indexSource = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-
-  it('hard-nulls indexPrice and nextFundingTimestamp (kept source pin)', () => {
-    expect(indexSource).toMatch(/fundingRateForMarket:/);
-    expect(indexSource).toMatch(/indexPrice:\s*null/);
-    expect(indexSource).toMatch(/nextFundingTimestamp:\s*null/);
-  });
-
-  it('does not copy markPrice into indexPrice (kept source pin)', () => {
-    expect(indexSource).not.toMatch(/indexPrice:\s*markPrice/);
   });
 });

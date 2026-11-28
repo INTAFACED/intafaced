@@ -31,7 +31,12 @@ import {
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { TradeError } from '../spot/types.js';
 import { DATED_FUTURES_FIXING_UNCONFIGURED, resolveDatedFuturesListing } from './dated-futures.js';
-import { DATED_FUTURES_SETTLEMENT_PRICE_UNSET, datedSettlementIdFor, runDatedFuturesSettlementJob } from './dated-futures-settlement.js';
+import {
+  DATED_FUTURES_SETTLEMENT_PRICE_UNSET,
+  datedSettlementIdFor,
+  runDatedFuturesSettlementJob,
+  runDatedFuturesSettlementScan,
+} from './dated-futures-settlement.js';
 import { planClose } from './close-planner.js';
 import { tradeRouterPaths } from './testing/doors.js';
 
@@ -284,38 +289,101 @@ describe('svc-trade dated futures settlement F3 money', () => {
   });
 });
 
-// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
-// Each pin below stays until an importable host assembly holds the same property by behaviour.
-describe('kept source pins', () => {
-  it('router.ts not recut; mill never last-trade exitPrice; listing refuse kept (kept source pin)', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/runDatedFuturesSettlementJob/);
-    expect(routerSrc).not.toMatch(/dated-futures-settlement/);
-    const mill = readFileSync(join(here, 'dated-futures-settlement.ts'), 'utf8');
-    expect(mill).toMatch(/void input\.lastTradePrice/);
-    expect(mill).toMatch(/void input\.markPrice/);
-    expect(mill).toMatch(/runDatedFuturesExpiryTick/);
-    expect(mill).toMatch(/planClose/);
-    expect(mill).toMatch(/dated-settle:/);
-    expect(mill).toMatch(/source: 'owner_fixing'/);
-    expect(mill).not.toMatch(/exitPrice:\s*input\.lastTradePrice/);
-    expect(mill).not.toMatch(/settlementPrice.*=.*lastTrade/);
-    expect(mill).not.toMatch(/settlementPrice.*=.*markPrice/);
-    const dated = readFileSync(join(here, 'dated-futures.ts'), 'utf8');
-    expect(dated).toMatch(/TRADE_FUTURES_SETTLEMENT_FIXING/);
-    expect(dated).toMatch(/dated_futures_fixing_unconfigured/);
-    try {
-      resolveDatedFuturesListing({
-        kind: 'futures',
-        futuresContractStyle: 'dated',
-        expiryAt: EXPIRY,
-        settlementFixingConfigured: '',
+describe('every export of the dated settlement mill settles only at the owner price', () => {
+  const shortPosition = () => ({ ...longPosition(), positionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', side: 'short' as const });
+  const recordingLedger = (posted: PostRequest[]) => ({
+    async post(req: PostRequest) {
+      posted.push(req);
+      return { id: req.idempotencyKey, idempotencyKey: req.idempotencyKey } as never;
+    },
+  });
+  const expiredMarket = { listExpiredDated: async () => [{ marketId: MARKET, style: 'dated' as const, expiryAt: EXPIRY }] };
+
+  it('runDatedFuturesSettlementScan posts planClose at the owner decimal for each position, whatever last trade and mark say', async () => {
+    const positions = [longPosition(), shortPosition()];
+    const expected = positions.flatMap((position) => {
+      const plan = planClose({ closeId: datedSettlementIdFor(position.positionId), position, exitPrice: '90' });
+      return plan.close ? plan.recipes : [];
+    });
+    expect(expected.length).toBeGreaterThan(0);
+    for (const [lastTradePrice, markPrice] of [
+      ['1', '2'],
+      ['5000', '6000'],
+      [null, null],
+      [undefined, undefined],
+    ] as const) {
+      const posted: PostRequest[] = [];
+      const results = await runDatedFuturesSettlementScan({
+        now: AFTER,
+        settlementFixingConfigured: 'owner-stamp',
+        ownerSettlementPriceFor: (marketId) => (marketId === MARKET ? ' 90 ' : null),
+        lastTradePrice,
+        markPrice,
+        markets: expiredMarket,
+        positions: { listOpenForMarket: async (marketId) => (marketId === MARKET ? positions : []) },
+        ledger: recordingLedger(posted),
       });
-      throw new Error('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(TradeError);
-      expect((err as TradeError).code).toBe(DATED_FUTURES_FIXING_UNCONFIGURED);
-      expect((err as Error).message).toContain('TRADE_FUTURES_SETTLEMENT_FIXING');
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({ status: 'settled', settlementPrice: '90', source: 'owner_fixing' });
+      expect(posted).toEqual(expected);
+    }
+  });
+
+  it('refuses and posts nothing when the stamp or the owner decimal is missing, even with last trade and mark present', async () => {
+    const cases: Array<[string | null, ((marketId: string) => string | null) | undefined]> = [
+      ['', () => '90'],
+      ['  ', () => '90'],
+      [null, () => '90'],
+      ['owner-stamp', undefined],
+      ['owner-stamp', () => null],
+      ['owner-stamp', () => '  '],
+    ];
+    for (const [settlementFixingConfigured, ownerSettlementPriceFor] of cases) {
+      const results = await runDatedFuturesSettlementScan({
+        now: AFTER,
+        settlementFixingConfigured,
+        ...(ownerSettlementPriceFor ? { ownerSettlementPriceFor } : {}),
+        lastTradePrice: '1',
+        markPrice: '2',
+        markets: expiredMarket,
+        positions: { listOpenForMarket: async () => [longPosition(), shortPosition()] },
+        ledger: {
+          post: async () => {
+            throw new Error('must not post');
+          },
+        },
+      });
+      expect(results).toEqual([
+        { status: 'refused', reason: 'settlement_price_unset', code: DATED_FUTURES_SETTLEMENT_PRICE_UNSET, posts: [] },
+      ]);
+    }
+  });
+
+  it('runDatedFuturesSettlementJob answers the same for a long and a short whatever last trade and mark say', async () => {
+    for (const position of [longPosition(), shortPosition()]) {
+      const answers: Array<{ result: unknown; posted: PostRequest[] }> = [];
+      for (const [lastTradePrice, markPrice] of [
+        ['1', '2'],
+        ['5000', '6000'],
+        [null, null],
+      ] as const) {
+        const posted: PostRequest[] = [];
+        const result = await runDatedFuturesSettlementJob({
+          style: 'dated',
+          expiryAt: EXPIRY,
+          now: AFTER,
+          ownerSettlementPrice: '90',
+          lastTradePrice,
+          markPrice,
+          positions: [position],
+          ledger: recordingLedger(posted),
+        });
+        answers.push({ result, posted });
+      }
+      expect(answers[1]).toEqual(answers[0]);
+      expect(answers[2]).toEqual(answers[0]);
+      const plan = planClose({ closeId: datedSettlementIdFor(position.positionId), position, exitPrice: '90' });
+      expect(answers[0]!.posted).toEqual(plan.close ? plan.recipes : []);
     }
   });
 });
