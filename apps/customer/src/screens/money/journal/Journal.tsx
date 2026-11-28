@@ -10,7 +10,6 @@ import { EmptyNote, ErrorNote } from '../pnl/parts';
 import { useTradeJournal } from './journal-source';
 
 type T = ReturnType<typeof moneyCopy.useCopy>['t'];
-type Fill = JournalTrade['fills'][number];
 type Excursion = NonNullable<JournalTrade['excursion']['mae']>;
 
 const READY: RoomState = { kind: 'ready' };
@@ -117,14 +116,13 @@ function Trades({ journal, picked, t }: { journal: TradeJournal; picked: string 
   const columns: Column<JournalTrade>[] = [
     { key: 'market', label: t('Journal market'), cell: (r) => r.symbol },
     { key: 'side', label: t('Journal side'), cell: (r) => (r.side === 'long' ? t('Journal long') : t('Journal short')) },
-    { key: 'opened', label: t('Journal opened'), cell: (r) => stamp(r.openedAt, timeZone, Date.now(), true) },
     { key: 'closed', label: t('Journal closed'), cell: (r) => stamp(r.closedAt, timeZone, Date.now(), true) },
     { key: 'entry', label: t('Journal entry'), align: 'end', cell: (r) => r.entryPrice, cellMarks: () => ({ 'data-cell': 'entry' }) },
     { key: 'exit', label: t('Journal exit'), align: 'end', cell: (r) => r.exitPrice, cellMarks: () => ({ 'data-cell': 'exit' }) },
     { key: 'size', label: t('Journal size'), align: 'end', cell: (r) => r.size, cellMarks: () => ({ 'data-cell': 'size' }) },
     {
       key: 'realised',
-      label: t('Journal realised'),
+      label: t('Journal realised column'),
       align: 'end',
       cell: (r) => (r.realisedPnl === null ? t('Journal not reported') : inAsset(r.realisedPnl, r.feeAsset)),
       cellMarks: () => ({ 'data-cell': 'realised' }),
@@ -180,11 +178,11 @@ function Trades({ journal, picked, t }: { journal: TradeJournal; picked: string 
   );
 }
 
-function Line({ part, label, children }: { part: string; label: string; children: React.ReactNode }) {
+function Line({ part, cell, label, children }: { part: string; cell?: string; label: string; children: React.ReactNode }) {
   return (
     <div className="lt-row" data-part={part}>
       <dt>{label}</dt>
-      <dd>
+      <dd data-cell={cell}>
         <bdi dir="ltr">{children}</bdi>
       </dd>
     </div>
@@ -213,32 +211,6 @@ function TradeDetail({ trade, journal, t }: { trade: JournalTrade; journal: Trad
   const { timeZone } = usePreferences();
   const a = trade.feeAsset;
   const when = (iso: string) => stamp(iso, timeZone, Date.now(), true);
-  const fillColumns: Column<Fill>[] = [
-    { key: 'time', label: t('Journal fill time'), cell: (f) => when(f.filledAt) },
-    { key: 'side', label: t('Journal side'), cell: (f) => (f.side === 'buy' ? t('Journal buy') : t('Journal sell')) },
-    { key: 'price', label: t('Journal fill price'), align: 'end', cell: (f) => f.price, cellMarks: () => ({ 'data-cell': 'price' }) },
-    { key: 'size', label: t('Journal size'), align: 'end', cell: (f) => f.amount, cellMarks: () => ({ 'data-cell': 'size' }) },
-    {
-      key: 'fee',
-      label: t('Journal fill fee'),
-      align: 'end',
-      cell: (f) => inAsset(f.venueFee, f.feeAsset),
-      cellMarks: () => ({ 'data-cell': 'venue-fee' }),
-    },
-    {
-      key: 'builder',
-      label: t('Journal fill builder fee'),
-      align: 'end',
-      cell: (f) => inAsset(f.builderFee, f.feeAsset),
-      cellMarks: () => ({ 'data-cell': 'builder-fee' }),
-    },
-    {
-      key: 'part',
-      label: t('Journal fill part'),
-      cell: (f) => `${f.opening ? t('Journal fill opens') : t('Journal fill closes')}${f.split ? ` · ${t('Journal fill split')}` : ''}`,
-      cellMarks: (f) => ({ 'data-cell': 'part', 'data-opening': String(f.opening), 'data-split': String(f.split) }),
-    },
-  ];
   return (
     <section
       data-testid="journal-trade"
@@ -291,14 +263,39 @@ function TradeDetail({ trade, journal, t }: { trade: JournalTrade; journal: Trad
         </Line>
       </dl>
 
-      <Table
-        caption={t('Journal fills caption')}
-        columns={fillColumns}
-        rows={trade.fills}
-        rowKey={(f) => `${f.fillId}:${f.opening ? 'open' : 'close'}`}
-        scroll
-        rowMarks={(f) => ({ 'data-testid': 'journal-fill', 'data-fill': f.fillId, 'data-at': f.filledAt })}
-      />
+      <ol aria-label={t('Journal fills caption')} className="lt-stack-tight">
+        {trade.fills.map((f) => (
+          <li
+            key={`${f.fillId}:${f.opening ? 'open' : 'close'}`}
+            data-testid="journal-fill"
+            data-fill={f.fillId}
+            data-at={f.filledAt}
+            className="lt-stack-tight"
+          >
+            <p className="lt-muted">
+              {when(f.filledAt)} · {f.side === 'buy' ? t('Journal buy') : t('Journal sell')} ·{' '}
+              <span data-cell="part" data-opening={String(f.opening)} data-split={String(f.split)}>
+                {f.opening ? t('Journal fill opens') : t('Journal fill closes')}
+                {f.split ? ` · ${t('Journal fill split')}` : ''}
+              </span>
+            </p>
+            <dl className="lt-stack-tight">
+              <Line part="price" cell="price" label={t('Journal fill price')}>
+                {f.price}
+              </Line>
+              <Line part="size" cell="size" label={t('Journal size')}>
+                {f.amount}
+              </Line>
+              <Line part="venue-fee" cell="venue-fee" label={t('Journal fill fee')}>
+                {inAsset(f.venueFee, f.feeAsset)}
+              </Line>
+              <Line part="builder-fee" cell="builder-fee" label={t('Journal fill builder fee')}>
+                {inAsset(f.builderFee, f.feeAsset)}
+              </Line>
+            </dl>
+          </li>
+        ))}
+      </ol>
 
       <dl data-testid="journal-excursion" data-complete={String(trade.excursion.complete)} className="lt-stack-tight">
         <p className="lt-hint">{t('Journal excursion rule')}</p>
