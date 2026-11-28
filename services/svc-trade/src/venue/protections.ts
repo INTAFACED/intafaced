@@ -53,6 +53,8 @@ export type ProtectionErrorCode =
   | 'trade.conditional_field_unsupported'
   | 'trade.conditional_would_increase'
   | 'trade.protection_above_position'
+  | 'trade.protection_above_entry_fill'
+  | 'trade.attached_entry_unfilled'
   | 'trade.protection_wrong_side'
   | 'trade.trigger_source_unset'
   | 'trade.protection_agent_unapproved'
@@ -331,8 +333,31 @@ export class VenueProtections {
     const market = (await venue.markets(account)).value.find((m) => m.symbol === symbol);
     if (!market || market.kind !== 'perpetual') bad(`${symbol} is not a perpetual on ${venue.venue.displayName}`);
 
+    // An exit attached to an entry on a venue that links none (`attachedExits` absent, as on Hyperliquid's adapter) is
+    // sent only once the entry has filled, as a plain reduce-only trigger on that fill and the position it opened: never
+    // on an entry that filled nothing.
+    let parentKey = attachTo;
+    if (attachTo && market.attachedExits !== true) {
+      const entry = (await venue.orderByClientId(account, venueClientOrderId(venue.venue.id, attachTo))).value;
+      if (!entry || entry.symbol !== symbol || entry.reduceOnly || compare(entry.filled, ZERO) <= 0) {
+        throw new ProtectionError(
+          'trade.attached_entry_unfilled',
+          `${venue.venue.displayName} links no exit to an entry that has filled nothing: set the ${kind.replace('_', ' ')} once it fills, from the position's exit orders. Nothing was saved.`,
+          409,
+        );
+      }
+      if (compare(quantity, entry.filled) > 0) {
+        throw new ProtectionError(
+          'trade.protection_above_entry_fill',
+          `${formatAmount(quantity)} is more than the entry filled (${formatAmount(entry.filled)})`,
+          400,
+        );
+      }
+      parentKey = null;
+    }
+
     // A protection closes: on the other side of the position it protects, and never more than it holds.
-    if (!attachTo) {
+    if (!parentKey) {
       const position = (await venue.positions(account)).value.find((p) => p.symbol === symbol && p.size !== ZERO);
       if (!position || (position.side === 'long') === (side === 'buy')) {
         throw new ProtectionError(
@@ -395,7 +420,7 @@ export class VenueProtections {
           source: source as 'mark' | 'last',
           role: kind === 'take_profit' ? 'take_profit' : 'stop_loss',
         },
-        parentClientOrderKey: attachTo,
+        parentClientOrderKey: parentKey,
         clientOrderKey: `protection:${account.owner}:${kind}:${clientOrderId}`,
         builderFee: null,
       };
