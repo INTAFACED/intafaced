@@ -391,9 +391,10 @@ test(`${J} #4 signs with their main wallet: one venue withdrawal, sent once; pen
   const signs = () => wallet.requests.slice(signedBefore).filter((r) => r.method === 'eth_signTypedData_v4');
   await expect.poll(() => signs().length).toBe(1);
 
-  // Pending, then done, as the venue reports it.
+  // Pending, then done, as the venue reports it: the TEST venue pays a signed withdrawal only after its settle delay, so
+  // the room shows it pending first.
   const withdrawal = page.getByTestId('venue-withdrawal');
-  await expect(withdrawal.getByTestId('venue-withdrawal-status')).toHaveText(/Pending|Done/, { timeout: 30_000 });
+  await expect(withdrawal.getByTestId('venue-withdrawal-status')).toHaveText('Pending', { timeout: 30_000 });
   await expect(withdrawal.getByTestId('venue-withdrawal-status')).toHaveText('Done', { timeout: 90_000 });
 
   // The venue's own record: one withdrawal, of the share, to the cold wallet; sent once.
