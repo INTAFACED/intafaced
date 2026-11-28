@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { planLiquidation, summarizeLiquidation, unrealizedPnl } from './liquidation-planner.js';
+import { readFileSync } from 'node:fs';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 
@@ -177,5 +178,14 @@ describe('liquidation-planner', () => {
       liquidate: true,
       reason: 'below_maintenance',
     });
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('does not invent a 50% maintenance table (kept source pin)', () => {
+    const src = readFileSync(new URL('./liquidation-planner.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/maintenanceBps\s*\?\?\s*5000/);
   });
 });

@@ -17,6 +17,7 @@ import { exportMarkHistory } from './mark-history.js';
 import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
 import { registerInternalFundingRate } from './internal-funding-rate.js';
 import type { FundingRateEntry } from './funding-rate-source.js';
+import { readFileSync } from 'node:fs';
 
 const NOW = new Date('2026-08-06T12:00:00.000Z');
 const SECRET = 'test-internal-secret-for-trade-funding-rate';
@@ -448,5 +449,23 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
     expect(published).toHaveLength(1);
     expect(history).toHaveLength(1);
     await app.close();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('production liquidation jobs pass null published limits until the owner publishes them (kept source pin)', () => {
+    // The jobs pass only the configured publication, and nothing else: no compiled figure stands in for it.
+    const src = readFileSync(new URL('./futures-jobs.ts', import.meta.url), 'utf8');
+    expect(src).toContain('publishedLiquidationLimits: deps.config.liquidationLimits ?? null');
+    expect(src.match(/publishedLiquidationLimits:/g)).toHaveLength(1);
+    // The service reads that publication from its env alone, which is blank by default: blank is null.
+    // index.ts hands startFuturesJobs futuresJobsHostDeps's answer alone (dated-futures-settlement-jobhost.money's kept pin).
+    const index = readFileSync(new URL('./futures-jobs-host.ts', import.meta.url), 'utf8');
+    expect(index).toContain('liquidationLimits: publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS)');
+    const env = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
+    expect(env).toContain("TRADE_FUTURES_LIQUIDATION_LIMITS: z.string().default('')");
+    expect(publishedLiquidationLimitsFrom('')).toBeNull();
   });
 });

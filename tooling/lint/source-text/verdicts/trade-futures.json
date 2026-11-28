@@ -437,7 +437,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#hands the tick the SQL rung store"
     },
-    "why": "That test runs the live liquidation job through startFuturesJobs and asserts the tick's rungs port reads trade.liquidation_rungs on the jobs' own sql."
+    "why": "That test runs the live liquidation job through startFuturesJobs and asserts the tick's rungs port reads trade.liquidation_rungs on the jobs' own sql. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-no-policy-fallback.test.ts",
@@ -723,7 +723,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-reads.test.ts#accepts the TEST fixture without touching the production leverage cap"
     },
-    "why": "Runs evaluateSeedRequest on a frozen env and asserts that env and the process env's TRADE_FUTURES_ENABLED and TRADE_FUTURES_MAX_LEVERAGE are unchanged, and the decision carries no env."
+    "why": "Runs evaluateSeedRequest on a frozen env and asserts that env and the process env's TRADE_FUTURES_ENABLED and TRADE_FUTURES_MAX_LEVERAGE are unchanged, and the decision carries no env. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-reads.test.ts",
@@ -734,7 +734,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-reads.test.ts#accepts the TEST fixture without touching the production leverage cap"
     },
-    "why": "Parses the service env with TRADE_FUTURES_MAX_LEVERAGE, TRADE_FUTURES_TEST_SEED and TRADE_FUTURES_ENABLED unset and asserts '', false, false."
+    "why": "Parses the service env with TRADE_FUTURES_MAX_LEVERAGE, TRADE_FUTURES_TEST_SEED and TRADE_FUTURES_ENABLED unset and asserts '', false, false. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-tick-grace-always-null.test.ts",
@@ -811,7 +811,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/liquidation-planner.test.ts#does not invent a 50% maintenance table"
     },
-    "why": "Plans a long at 40% equity with maintenanceBps omitted (no liquidation) and with 5000 named (below_maintenance)."
+    "why": "Plans a long at 40% equity with maintenanceBps omitted (no liquidation) and with 5000 named (below_maintenance). The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/liquidation-tick-ladder-required.test.ts",
@@ -822,7 +822,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/liquidation-tick-ladder-required.test.ts#omitted ladder skips an underwater position — no post, no close"
     },
-    "why": "That test (same file) runs the tick with no ladder on an underwater long and asserts skipped_d3_unset, trade.ladder_unset, 'will not flatten', zero posts and no close."
+    "why": "That test (same file) runs the tick with no ladder on an underwater long and asserts skipped_d3_unset, trade.ladder_unset, 'will not flatten', zero posts and no close. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/liquidation-tick.test.ts",
@@ -833,7 +833,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/liquidation-tick.test.ts#ladder without owner D3 policy skips — never seizes on DEFAULT placeholders"
     },
-    "why": "That test (same file) runs the tick with no policy and asserts trade.ladder_d3_unset, nothing posted or closed."
+    "why": "That test (same file) runs the tick with no policy and asserts trade.ladder_d3_unset, nothing posted or closed. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/liquidation-waterfall.money.test.ts",
@@ -910,7 +910,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#delivers margin calls through the durable store the REST door reads"
     },
-    "why": "That test calls the live tick's notifyMarginCall and asserts it inserts into trade.position_margin_calls on the jobs' own sql."
+    "why": "That test calls the live tick's notifyMarginCall and asserts it inserts into trade.position_margin_calls on the jobs' own sql. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/margin-mode-switch.money.test.ts",
@@ -1240,7 +1240,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts#production liquidation jobs pass null published limits until the owner publishes them"
     },
-    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts",
@@ -1251,7 +1251,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts#production liquidation jobs pass null published limits until the owner publishes them"
     },
-    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts",
@@ -1262,7 +1262,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/slice-markets-trade-futures.test.ts#production liquidation jobs pass null published limits until the owner publishes them"
     },
-    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Loads the service env with TRADE_FUTURES_LIQUIDATION_LIMITS unset (blank) and asserts publishedLiquidationLimitsFrom of it is null; the jobs half is futures-jobs-tick-wiring.test.ts#passes null published limits. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
@@ -1273,7 +1273,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts#a blank haircut and a staked class each refuse before open"
     },
-    "why": "Imports ledger-client in a fresh module graph and asserts the real PositionService carries the haircut hitch's install mark."
+    "why": "Imports ledger-client in a fresh module graph and asserts the real PositionService carries the haircut hitch's install mark. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
@@ -1284,7 +1284,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts#a posted liquidation leaves the sibling available and hold unchanged, and a sibling leg is refused"
     },
-    "why": "The text read is replaced by liquidation-tick-post-guard.test.ts, which runs the live tick with the gate observed: every post was gated first, and a refused recipe is never posted."
+    "why": "The text read is replaced by liquidation-tick-post-guard.test.ts, which runs the live tick with the gate observed: every post was gated first, and a refused recipe is never posted. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
@@ -1295,7 +1295,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-service.test.ts#a lost successful response replays the stored result without advancing sequence or moving margin twice"
     },
-    "why": "That test replays the same setLeverage input against Postgres and asserts the stored result comes back with no second sequence and no second margin move; the same file's concurrent test holds the race."
+    "why": "That test replays the same setLeverage input against Postgres and asserts the stored result comes back with no second sequence and no second margin move; the same file's concurrent test holds the race. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/venue-mark-stream-env-passthrough.test.ts",

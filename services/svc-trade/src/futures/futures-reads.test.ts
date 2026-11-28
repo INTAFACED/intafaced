@@ -187,3 +187,28 @@ describe('open with a blank leverage cap', () => {
     expect((await ledger.balance(userAvailable('11111111-1111-4111-8111-111111111111', 'USDT'))).amount).toBe(0n);
   });
 });
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('accepts the TEST fixture without touching the production leverage cap (kept source pin)', async () => {
+    const { evaluateSeedRequest } = await loadFuturesTestSeed();
+    const decision = evaluateSeedRequest({
+      env: { TRADE_DATABASE_URL: 'postgres://127.0.0.1/local_stack_test', NODE_ENV: 'test' },
+      fixturePath,
+      fixtureText,
+    });
+    expect(decision.listing.displayName).toContain('TEST');
+    expect(decision.listing.leverageCap).toBe('5');
+    expect(decision.listing.markFeed).toBe('TEST-mark-feed');
+    expect(decision.listing.liquidationPolicy).toBe('TEST-liquidation-policy');
+    expect(parseConfiguredMaxLeverage('')).toBeNull();
+    const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
+    expect(envSrc).toMatch(/TRADE_FUTURES_MAX_LEVERAGE:\s*z\.string\(\)\.default\(''\)/);
+    expect(envSrc).toMatch(/TRADE_FUTURES_TEST_SEED:[\s\S]*?\.default\(false\)/);
+    expect(envSrc).toMatch(/TRADE_FUTURES_ENABLED:[\s\S]*?\.default\(false\)/);
+    const seedSrc = readFileSync(script, 'utf8');
+    expect(seedSrc).not.toMatch(/TRADE_FUTURES_ENABLED\s*=/);
+    expect(seedSrc).not.toMatch(/TRADE_FUTURES_MAX_LEVERAGE\s*=/);
+  });
+});
