@@ -757,7 +757,7 @@ export const MAX_SPLIT_LINES = 10;
 /**
  * A BUSINESS PAYS ITS TEAM AND CONTRACTORS IN BULK (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05).
  *
- * The business's money is the partner bank's (OWNER 226; docs/adr/2026-11-10-launch-money-model.md), in its own account
+ * The business's money is the partner bank's (docs/adr/2026-11-10-launch-money-model.md), in its own account
  * at the partner, `business:<account id>`. INTAFACED's ledger posts nothing for any of this.
  *
  *   bulk run     A CSV (`name,iban,amount,currency,reference`) is imported under the run's own id. Every line is checked;
@@ -806,7 +806,7 @@ export const fileBase64 = z
 /**
  * A BUSINESS GIVES ITS TEAM CARDS AND HANDLES THEIR EXPENSES (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02).
  *
- * The business's money is the partner bank's (OWNER 226; docs/adr/2026-11-10-launch-money-model.md), in its own account
+ * The business's money is the partner bank's (docs/adr/2026-11-10-launch-money-model.md), in its own account
  * at the partner, `business:<account id>`. INTAFACED's ledger posts nothing for any of this.
  *
  *   cards           A member with `manage_team` issues a card to a member of the business with a per-purchase limit. The
