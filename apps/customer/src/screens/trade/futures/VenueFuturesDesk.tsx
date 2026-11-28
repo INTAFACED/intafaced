@@ -1,6 +1,6 @@
 import { venueBound } from '@intafaced/contracts/venue-price';
 import { ActionLimitWarning } from '../../../features/trade';
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { DeskTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import { VenueMarketPanel } from '../desk/VenueMarketData';
 import '../desk/exchange-desk.css';
@@ -241,7 +241,17 @@ function Contracts({
   const needsSession = session.on && session.signing.live === null;
   const flattenKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
-  const ticketRef = useRef<HTMLDivElement>(null);
+  const ticketRef = useRef<HTMLDivElement | null>(null);
+  // A phone's Long and Short bar only brings the ticket into view: while any of the ticket is on screen it is not drawn,
+  // so it never covers the ticket's own controls.
+  const [ticketShown, setTicketShown] = useState(false);
+  const watchTicket = useCallback((el: HTMLDivElement | null) => {
+    ticketRef.current = el;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const watch = new IntersectionObserver((entries) => setTicketShown(entries.some((e) => e.isIntersecting)));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
   // J-derivatives-32: every stop and target in dollars after the venue's fee and ours, from the venue's own figures.
   const positionsNow = account.positions.data?.value ?? [];
   const ordersNow = account.openOrders.data?.value ?? [];
@@ -363,7 +373,7 @@ function Contracts({
           />
         }
         ticket={
-          <div className="lt-stack" ref={ticketRef}>
+          <div className="lt-stack" ref={watchTicket}>
             {/* No wallet yet: the order form with its one step, connecting it; then the wallet. Connected: the ticket
                 comes first, the wallet under it; with no live trading session on a venue a session signs, starting one
                 comes first and the ticket waits for it. */}
@@ -424,14 +434,17 @@ function Contracts({
           </div>
         }
       />
-      <div className="xd-phone-bar" role="group" aria-label={t('Ticket')} data-testid="venue-phone-bar">
-        <Button tone="up" onClick={() => toTicket('buy')}>
-          {t('Long')}
-        </Button>
-        <Button tone="down" onClick={() => toTicket('sell')}>
-          {t('Short')}
-        </Button>
-      </div>
+      {/* Sticky over the page's foot: marked as covering the bottom, so a control scrolled or focused into view clears it. */}
+      {ticketShown ? null : (
+        <div className="xd-phone-bar" role="group" aria-label={t('Ticket')} data-testid="venue-phone-bar" data-obscures="bottom">
+          <Button tone="up" onClick={() => toTicket('buy')}>
+            {t('Long')}
+          </Button>
+          <Button tone="down" onClick={() => toTicket('sell')}>
+            {t('Short')}
+          </Button>
+        </div>
+      )}
     </DeskSigningContext.Provider>
   );
 }
