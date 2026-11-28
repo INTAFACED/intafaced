@@ -462,6 +462,23 @@ export function listAccountsAndTiers(secrets) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Read-only: the support requests (svc-support's tickets) the named accounts opened, oldest first, each subject and body
+ * on one line (the first 500 characters). The beta's reporter files an issue per request (tooling/beta/beta-reports.mjs).
+ */
+export function listSupportRequests(secrets, userIds) {
+  const ids = userIds.filter((id) => UUID_RE.test(id));
+  if (ids.length === 0) return [];
+  const oneLine = (col, n) => `regexp_replace(left(${col}, ${n}), '\\s+', ' ', 'g')`;
+  return psqlRead(
+    secrets,
+    'svc_support',
+    `SELECT id::text, user_id, category, status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+            ${oneLine('subject', 200)}, ${oneLine('body', 500)}
+       FROM support.tickets WHERE user_id IN (${ids.map((id) => `'${id}'`).join(', ')}) ORDER BY created_at, id`,
+  ).map(([id, userId, category, status, at, subject, body]) => ({ id, userId, category, status, at, subject, body }));
+}
+
 /** Read-only: each named account's newest live session (not revoked, not expired), as a Map userId -> sessionId. */
 export function liveSessions(secrets, userIds) {
   const ids = userIds.filter((id) => UUID_RE.test(id));

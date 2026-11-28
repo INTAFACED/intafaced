@@ -29,7 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { invitedOwner, invitedPaths, readInvited } from './beta-invited.mjs';
+import { agentsInvite, invitedOwner, invitedPaths, readInvited } from './beta-invited.mjs';
 import { readTestnet } from './beta-testnet.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
@@ -151,6 +151,7 @@ function testerRow({ user, granted, testnet, calls = [], now }) {
     .reverse()
     .find((c) => c.at > (progressAt ?? 0) && (c.status >= 500 || (c.method !== 'GET' && c.status >= 400)));
   const idle = at.firstOrder === null && progressAt !== null && now - progressAt >= STUCK_AFTER_MS;
+  const stuckSince = troubleAfter ? `trouble after ${iso(progressAt)}` : idle ? `idle after ${iso(progressAt)}` : null;
   const stuck = troubleAfter
     ? `${troubleAfter.method} ${troubleAfter.path} answered ${troubleAfter.status}${troubleAfter.code ? ` ${troubleAfter.code}` : ''} after their last stage`
     : idle
@@ -165,6 +166,8 @@ function testerRow({ user, granted, testnet, calls = [], now }) {
     lastSeen: lastCall ? { at: iso(lastCall.at), call: `${lastCall.method} ${lastCall.path}`, status: lastCall.status } : null,
     lastAction: lastAction ? { at: iso(lastAction.at), call: `${lastAction.method} ${lastAction.path}`, status: lastAction.status } : null,
     stuck,
+    stuckSince,
+    lastStage: [...STAGES].reverse().find((s) => at[s] !== null) ?? null,
   };
 }
 
@@ -172,13 +175,18 @@ function testerRow({ user, granted, testnet, calls = [], now }) {
 export function testerView({ users, tokens, granted, testnet, calls, now }) {
   return users
     .filter((u) => invitedOwner(u.email, tokens))
-    .map((user) => testerRow({ user, granted: granted[user.id], testnet, calls: calls.get(user.id) ?? [], now }))
+    .map((user) => ({
+      ...testerRow({ user, granted: granted[user.id], testnet, calls: calls.get(user.id) ?? [], now }),
+      // The agents' own walks sign up under their invite (beta-invited.mjs agentsInvite): never a tester's report.
+      agents: agentsInvite(invitedOwner(user.email, tokens)),
+    }))
     .sort((a, b) => String(b.stages.signedUp).localeCompare(String(a.stages.signedUp)));
 }
 
 /** The section as text: one block per tester. */
 export function viewText(rows, { callLines, logFile }) {
   const out = [`Beta testers: ${rows.length} invited account(s), ${rows.filter((r) => r.stuck).length} STUCK`];
+  const help = (r) => r.help ?? [];
   if (callLines === 0)
     out.push(
       `  (no ${ACCOUNT_CALL_MSG} lines in ${logFile}: the edge does not log them yet, so desk, orders, refusals and errors are blank)`,
@@ -195,6 +203,7 @@ export function viewText(rows, { callLines, logFile }) {
     for (const e of r.errors) out.push(`  error ${e.call} ${e.status}${e.code ? ` ${e.code}` : ''} x${e.count}, last ${e.at}`);
     out.push(`  last action  ${r.lastAction ? `${r.lastAction.at} ${r.lastAction.call} ${r.lastAction.status}` : '-'}`);
     out.push(`  last seen    ${r.lastSeen ? `${r.lastSeen.at} ${r.lastSeen.call} ${r.lastSeen.status}` : '-'}`);
+    for (const h of help(r)) out.push(`  help request ${h.id} ${h.at} ${h.category} (${h.status}): "${h.subject}" ${h.body}`);
   }
   return out.join('\n');
 }
@@ -212,12 +221,15 @@ function arg(argv, name, fallback) {
   return i >= 0 && argv[i + 1] ? path.resolve(argv[i + 1]) : fallback;
 }
 
-async function main(argv) {
-  const root = arg(argv, '--root', path.join(os.homedir(), '.intafaced', 'beta'));
+/**
+ * The view from the stack's records, each tester with their help requests (svc-support's tickets they opened from
+ * /support, newest last). `root` is the beta's folder, `logs` the stack's log folder (its own by default).
+ */
+export async function readView({ root = path.join(os.homedir(), '.intafaced', 'beta'), logs } = {}) {
   const gates = await import(pathToFileURL(path.join(path.dirname(SELF), '..', 'scripts', 'local-test-gates.mjs')).href);
   const secrets = readJson(gates.gatePaths().secrets, null);
   if (!secrets) throw new Error(`the stack has no secrets.json (${gates.gatePaths().secrets}): is it running?`);
-  const logFile = path.join(arg(argv, '--logs', path.join(gates.gatePaths().stateDir, 'logs')), 'edge.log');
+  const logFile = path.join(logs ?? path.join(gates.gatePaths().stateDir, 'logs'), 'edge.log');
   const files = invitedPaths(root);
   const tokens = readInvited(files.invited);
   const { users } = gates.listAccountsAndTiers(secrets);
@@ -230,6 +242,23 @@ async function main(argv) {
     testnet: Object.values(readTestnet(files.testnet).accounts),
     calls,
     now: Date.now(),
+  });
+  // A stack started before svc-support was on the beta (#11218) has no support schema yet: its help requests read empty.
+  let help = [];
+  let helpUnread = null;
+  try {
+    help = gates.listSupportRequests(secrets, [...invitedIds]);
+  } catch (err) {
+    helpUnread = err.message;
+  }
+  for (const r of rows) r.help = help.filter((h) => h.userId === r.accountId).map(({ userId: _userId, ...h }) => h);
+  return { rows, lines, logFile, helpUnread };
+}
+
+async function main(argv) {
+  const { rows, lines, logFile } = await readView({
+    root: arg(argv, '--root', undefined),
+    logs: arg(argv, '--logs', undefined),
   });
   console.log(
     argv.includes('--json')
