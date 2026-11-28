@@ -375,9 +375,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // account's fills at 20 weight or more, against the box's one 1200 a minute: every 30 s there.
           TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
           TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? '30000' : '2000',
-          // There it reads 6 accounts' fills a minute in turn, 20 weight or more each, whatever the account count.
+          // There it reads 6 accounts' fills a minute in turn, 20 weight or more each, whatever the account count, and so does
+          // the 5-minute recon (it read every account's fills in its one minute: 13 accounts were 380 weight).
           ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet'
-            ? { TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE: '6' }
+            ? { TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE: '6', TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE: '6' }
             : {}),
           // Collect (J-derivatives-17, J-campaigns-03): every 2 seconds the TEST venue's own claim record is read and each
           // claim posts once; a claim exists only once a journey asks the TEST venue for one (`/test/builder-claim`).

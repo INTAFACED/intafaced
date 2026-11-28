@@ -103,6 +103,12 @@ const schema = serviceEnvSchema
        */
       TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
       /**
+       * How many accounts' fills the scheduled builder-fee recon reads a minute (src/venue/account-pace.ts). Blank: every
+       * account at once. A whole number: one read every 60 s / that many, so a run over more accounts takes longer; a run
+       * still going when the next is due runs on and the next is skipped.
+       */
+      TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE: z.string().default(''),
+      /**
        * J-ops-console-28: how often svc-trade reads our builder address's account mode at each venue, with the door on and
        * our builder address set; the founder console's view checks again on every read.
        */

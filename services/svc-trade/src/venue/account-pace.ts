@@ -78,6 +78,33 @@ export class AccountPace {
   }
 }
 
+/**
+ * THE ACCOUNT READ PACE: for a reader that reads every account in one run (the scheduled builder-fee recon), the reads are
+ * spread out, one every `60_000 / perMinute` ms, so no minute holds more than `perMinute` of them however many accounts
+ * there are. Each `wait` returns when the next read may start; the first returns at once. A run over more accounts takes
+ * longer instead of weighing more.
+ */
+export class AccountReadPace {
+  private nextMs: number | null = null;
+
+  constructor(
+    private readonly perMinute: number,
+    private readonly now: () => Date,
+    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  ) {
+    if (!(Number.isSafeInteger(perMinute) && perMinute > 0)) {
+      throw new Error(`an account read pace is a whole number of accounts a minute above zero, not ${perMinute}`);
+    }
+  }
+
+  async wait(): Promise<void> {
+    const nowMs = this.now().getTime();
+    const at = this.nextMs === null ? nowMs : Math.max(nowMs, this.nextMs);
+    this.nextMs = at + 60_000 / this.perMinute;
+    if (at > nowMs) await this.sleep(at - nowMs);
+  }
+}
+
 /** An account pace from its raw setting: blank reads every account each tick; otherwise a whole number above zero. */
 export function accountPaceSetting(raw: string, name: string): number | null {
   const v = raw.trim();

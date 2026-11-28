@@ -207,6 +207,11 @@ export interface BuilderFeeReconDeps {
   /** Our builder address on the venue (the owner value), or null when it is blank: the venue's totals are then unknown. */
   readonly builder: string | null;
   readonly now: () => Date;
+  /**
+   * Waited on before each account's fills are read (`AccountReadPace`), so a scheduled run spreads its reads instead of
+   * reading every account in one burst. Absent: every account is read at once, as the console's read does.
+   */
+  readonly readPace?: { wait(): Promise<void> };
 }
 
 export class BuilderFeeReconError extends Error {
@@ -294,6 +299,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
     venue = await deps.venue();
     markets = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m]));
     for (const { userId, account } of await deps.store.accounts(venue.venue.id)) {
+      await deps.readPace?.wait();
       const fills = await venue.fills(account, from);
       if (fills.asOf < asOf) asOf = fills.asOf;
       for (const fill of fills.value) {
