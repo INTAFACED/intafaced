@@ -168,9 +168,9 @@ describe('boot wiring', () => {
   it('index.ts builds the identity client and hands it to TradeService', () => {
     const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
     expect(index).toMatch(/const emailProof = createEmailProofClient\(env\.IDENTITY_URL, env\.INTERNAL_SERVICE_SECRET, outS2s\);/);
-    const ctor = index.slice(index.indexOf('const trade = new TradeService('));
+    const ctor = index.slice(index.indexOf('const trade = new LayeredTradeService('));
     expect(ctor.slice(0, ctor.indexOf('});'))).toMatch(/\n  emailProof,\n/);
-    for (const service of ['const positions = new PositionService(', 'const otc = new OtcDeskService(']) {
+    for (const service of ['const positions = new LayeredPositionService(', 'const otc = new OtcDeskService(']) {
       const opts = index.slice(index.indexOf(service));
       expect(opts.slice(0, opts.indexOf('});'))).toMatch(/\n  emailProof,\n/);
     }

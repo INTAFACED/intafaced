@@ -13,8 +13,8 @@ import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { parseAmount as amt, recipes, type LedgerClient, type MemoryLedger } from '@intafaced/ledger-client';
-import { TradeService } from '../../controls/test-admission.js';
-import type { TradeServiceOptions } from '../trade-service.js';
+import { layeredTradeService, type TradeService } from '../../controls/test-admission.js';
+import type { TradeService as ProductionTradeService, TradeServiceOptions } from '../trade-service.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks } from '../testing.js';
 import type { Market } from '../types.js';
 import type { OwnerFeeSchedule } from '../fee-schedule.js';
@@ -48,6 +48,24 @@ export async function openTradeDatabase(): Promise<{ db: TestDatabase; stop: () 
   return { db, stop: admin.stop };
 }
 
+/**
+ * `tradeOver` with `layers` applied beneath the test defaults (layered.ts): a test whose imports once installed layers
+ * on TradeService on import builds the same service with them.
+ */
+export function tradeOverLayered(
+  ...layers: ReadonlyArray<(c: typeof ProductionTradeService) => typeof ProductionTradeService>
+): typeof tradeOver {
+  const Layered = layeredTradeService(...layers);
+  return (db, ledger, matching, feeSchedule = PUBLISHED_TEST_FEE_SCHEDULE, options = {}) =>
+    new Layered(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      marketLifecycle: READY_MARKET_LIFECYCLE,
+      spotEnabled: true,
+      marketSlippageCapBps: 150,
+      feeSchedule,
+      ...options,
+    });
+}
+
 /** The production service over `ledger`. The matching stub is passed in so it outlives a simulated crash. */
 export function tradeOver(
   db: TestDatabase,
@@ -56,13 +74,7 @@ export function tradeOver(
   feeSchedule: OwnerFeeSchedule = PUBLISHED_TEST_FEE_SCHEDULE,
   options: Partial<TradeServiceOptions> = {},
 ): TradeService {
-  return new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
-    marketLifecycle: READY_MARKET_LIFECYCLE,
-    spotEnabled: true,
-    marketSlippageCapBps: 150,
-    feeSchedule,
-    ...options,
-  });
+  return tradeOverLayered()(db, ledger, matching, feeSchedule, options);
 }
 
 /** Empty the trade tables, list BTC/USDT under the pinned market id, and return it. */

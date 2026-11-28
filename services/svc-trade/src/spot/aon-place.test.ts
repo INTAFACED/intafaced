@@ -1,4 +1,4 @@
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,15 +8,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
 import { type PlaceOrderInput } from './trade-service.js';
-import { aonIcebergRefuse, bindAon, installAonPlace, readAon } from './aon-place.js';
-import { installIcebergPlace } from './iceberg-place.js';
+import { aonIcebergRefuse, bindAon, readAon, withAonPlace } from './aon-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { EngineSubmitRequest } from './matching-client.js';
 import type { Market } from './types.js';
 import type { Principal } from '@intafaced/auth';
+import { layeredStandIn } from '../layered.testkit.js';
+import { withIcebergPlace } from './iceberg-place.js';
 
-installAonPlace(TradeService);
-installIcebergPlace(TradeService);
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withAonPlace, withIcebergPlace);
 
 describe('AON place (no invented fill)', () => {
   it('missing or false aon is not set', () => {
@@ -43,11 +44,11 @@ describe('AON place (no invented fill)', () => {
         return { orderId: 'order', accountId: 'alice', type: 'limit', side: 'buy', qty: formatAmount(input.qty), tif: 'GTC' };
       }
     }
-    installAonPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
-    const origPlace = Door.prototype.placeOrder;
+    const LayeredDoor = layeredStandIn(Door, withAonPlace);
+    const door = new LayeredDoor();
+    const origPlace = LayeredDoor.prototype.placeOrder;
     let placed: PlaceOrderInput | null = null;
-    Door.prototype.placeOrder = async function (this: Door, principal: Principal, input: PlaceOrderInput) {
+    LayeredDoor.prototype.placeOrder = async function (this: Door, principal: Principal, input: PlaceOrderInput) {
       placed = input;
       return origPlace.call(this, principal, input);
     };
@@ -193,7 +194,7 @@ describe('svc-trade aon-place (H8a PG-hard)', () => {
       await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
       matching = new StubMatching();
-      trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      trade = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,

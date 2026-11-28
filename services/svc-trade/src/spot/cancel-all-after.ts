@@ -21,8 +21,6 @@ import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } fr
 import { TradeError, type OrderRecord } from './types.js';
 import { TradeService } from './trade-service.js';
 
-const FLAG = Symbol.for('intafaced.trade.cancelAllAfter');
-
 type Host = {
   sql: Sql;
   now: () => Date;
@@ -162,30 +160,18 @@ async function sweep(host: Host): Promise<CancelAllAfterSweep> {
   return { examined: rows.length, fired, unavailable, failed };
 }
 
-export function installCancelAllAfter(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    armCancelAllAfter?: unknown;
-    sweepCancelAllAfter?: unknown;
-    readCancelAllAfter?: unknown;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-  proto.armCancelAllAfter = function (
-    this: TradeService,
-    principal: Principal,
-    timeoutSec: number,
-    published: readonly number[] | null,
-    graceMs = 0,
-  ) {
-    return arm(this as unknown as Host, principal, timeoutSec, published, graceMs);
-  };
-  proto.sweepCancelAllAfter = function (this: TradeService) {
-    return sweep(this as unknown as Host);
-  };
-  proto.readCancelAllAfter = function (this: TradeService, principal: Principal) {
-    return read(this as unknown as Host, principal);
+export function withCancelAllAfter(Base: typeof TradeService): typeof TradeService {
+  return class CancelAllAfter extends Base {
+    armCancelAllAfter(principal: Principal, timeoutSec: number, published: readonly number[] | null, graceMs = 0) {
+      return arm(this as unknown as Host, principal, timeoutSec, published, graceMs);
+    }
+
+    sweepCancelAllAfter() {
+      return sweep(this as unknown as Host);
+    }
+
+    readCancelAllAfter(principal: Principal) {
+      return read(this as unknown as Host, principal);
+    }
   };
 }
-
-installCancelAllAfter(TradeService);

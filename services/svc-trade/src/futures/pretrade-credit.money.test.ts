@@ -1,4 +1,4 @@
-import { PositionService, TradeService } from '../controls/test-admission.js';
+import { PositionService, TradeService, layeredTradeService, layeredPositionService } from '../controls/test-admission.js';
 /**
  * CARD F5 money proof — pre-trade credit dimensions refuse unset (PTX-M09-R10).
  *
@@ -29,11 +29,17 @@ import {
   checkPreTradeCreditDimensions,
   installPreTradeCredit,
   readOwnerPreTradeCredit,
+  withPreTradeCreditPlace,
+  withPreTradeCreditOpen,
 } from './pretrade-credit.js';
 
 import { TradeError } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withPreTradeCreditPlace);
+const LayeredPositionService = layeredPositionService(withPreTradeCreditOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -101,8 +107,8 @@ describe('pre-trade credit hitch (source) — no invented caps, no flatten', () 
     // The published-integer check moved to pretrade-limits.ts (#4725); the wrappers stay here.
     const mill = wrappers + readFileSync(join(here, 'pretrade-limits.ts'), 'utf8');
     expect(mill).toMatch(/checkPreTradeCreditDimensions/);
-    expect(mill).toMatch(/origPlace\.call/);
-    expect(mill).toMatch(/origOpen\.call/);
+    expect(mill).toMatch(/super\.placeOrder\(/);
+    expect(mill).toMatch(/super\.open\(/);
     expect(mill).toMatch(/TRADE_MAX_ORDER is unset/);
     expect(mill).toMatch(/0 is published, not a default/);
     expect(mill).not.toMatch(/flatten/i);
@@ -114,19 +120,19 @@ describe('pre-trade credit hitch (source) — no invented caps, no flatten', () 
     expect(mill).not.toMatch(/\?\?\s*0/);
     expect(mill).not.toMatch(/n\s*<=\s*0/);
     expect(mill).not.toMatch(/TRADE_MAX_ORDER.{0,80}default/i);
-    const placeStart = wrappers.indexOf('export function installPreTradeCreditPlace');
-    const openStart = wrappers.indexOf('export function installPreTradeCreditOpen');
+    const placeStart = wrappers.indexOf('export function withPreTradeCreditPlace');
+    const openStart = wrappers.indexOf('export function withPreTradeCreditOpen');
     expect(placeStart).toBeGreaterThan(-1);
     expect(openStart).toBeGreaterThan(placeStart);
     const placeFn = wrappers.slice(placeStart, openStart);
     expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
-    expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(placeFn.indexOf('origPlace.call'));
+    expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(placeFn.indexOf('super.placeOrder('));
     const openFn = wrappers.slice(openStart);
     expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
-    expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(openFn.indexOf('origOpen.call'));
+    expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(openFn.indexOf('super.open('));
   });
 
-  it('router.ts / trade-service.ts / position-service.ts / index.ts not recut', () => {
+  it('router.ts / trade-service.ts / position-service.ts not recut; index.ts applies the layers and holds no limit', () => {
     const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
     const tradeSrc = tradeServiceSource();
     const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
@@ -140,8 +146,12 @@ describe('pre-trade credit hitch (source) — no invented caps, no flatten', () 
     expect(posSrc).not.toMatch(/pretrade-credit/);
     expect(posSrc).not.toMatch(/max_order_unset/);
     expect(posSrc).not.toMatch(/TRADE_MAX_ORDER/);
-    expect(indexSrc).not.toMatch(/pretrade-credit/);
-    expect(indexSrc).not.toMatch(/installPreTradeCredit/);
+    // index.ts is where the service is put together (garden/no-runtime-swap): it applies the two layers, and the
+    // limits themselves stay in the mill.
+    expect(indexSrc).toMatch(/withPreTradeCreditPlace/);
+    expect(indexSrc).toMatch(/withPreTradeCreditOpen/);
+    expect(indexSrc).not.toMatch(/max_order_unset/);
+    expect(indexSrc).not.toMatch(/TRADE_MAX_ORDER/);
   });
 
   it('live boot loads mill; jobs/index do not copy owner fixtures', () => {
@@ -261,13 +271,13 @@ describe('svc-trade pretrade-credit (H8a PG-hard)', () => {
       matching = new StubMatching();
       perks = new StubPerks();
       marks = memoryMarkBook();
-      trade = new TradeService(sql, ledger, matching, perks, bus, {
+      trade = new LayeredTradeService(sql, ledger, matching, perks, bus, {
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,
         marketSlippageCapBps: 150,
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       });
-      positions = new PositionService(sql, ledger, {
+      positions = new LayeredPositionService(sql, ledger, {
         marks: marks.source(),
         profitSource: profitSourceFromConfig(PROFIT_SOURCE),
         maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

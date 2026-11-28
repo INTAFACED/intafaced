@@ -5,7 +5,7 @@
  * Do not invent approval thresholds. Hitch wraps AuthService without recutting router.ts.
  */
 import { TRPCError } from '@intafaced/contracts/trpc';
-import { AuthService } from './auth-service.js';
+import type { AuthService } from './auth-service.js';
 
 export const DUAL_CONTROL_MISSING = 'dual_control_missing' as const;
 export const ATTRIBUTION_MISSING = 'attribution_missing' as const;
@@ -14,7 +14,6 @@ export const DUAL_CONTROL_MISSING_MESSAGE =
   'policy change, key change, and high-risk transfer require dual-control; identity does not invent a second approver';
 export const ATTRIBUTION_MISSING_MESSAGE = 'session or API-key id is required on order/fill/ledger; identity does not invent attribution';
 
-const FLAG = Symbol.for('intafaced.identity.four-eyes');
 const ATTR_FLAG = Symbol.for('intafaced.identity.api-key-attribution');
 
 export type DualControlCmd = {
@@ -199,38 +198,4 @@ export function installApiKeyAttribution(auth: AuthService): void {
     refuseMissingAttribution({ apiKeyId: result.id });
     return result;
   };
-}
-
-export function installFourEyes(ctor: typeof AuthService = AuthService): void {
-  const proto = ctor.prototype as {
-    changePolicy?: (cmd: DualControlCmd) => FourEyesOk | FourEyesRefuse;
-    changeKey?: (cmd: DualControlCmd) => FourEyesOk | FourEyesRefuse;
-    highRiskTransfer?: (cmd: DualControlCmd) => FourEyesOk | FourEyesRefuse;
-    stampAttribution?: (input: {
-      readonly sessionId?: string | null;
-      readonly apiKeyId?: string | null;
-    }) => AttributionOk | AttributionRefuse;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-
-  proto.changePolicy = function (this: AuthService, cmd: DualControlCmd) {
-    return fourEyes('policy', cmd);
-  };
-  proto.changeKey = function (this: AuthService, cmd: DualControlCmd) {
-    return fourEyes('key', cmd);
-  };
-  proto.highRiskTransfer = function (this: AuthService, cmd: DualControlCmd) {
-    return fourEyes('high_risk_transfer', cmd);
-  };
-  proto.stampAttribution = function (this: AuthService, input: { readonly sessionId?: string | null; readonly apiKeyId?: string | null }) {
-    return stampAttribution(input);
-  };
-}
-
-try {
-  installFourEyes();
-} catch {
-  queueMicrotask(() => installFourEyes());
 }

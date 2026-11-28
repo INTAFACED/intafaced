@@ -1,4 +1,4 @@
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +34,11 @@ import { looksLikeAnonymousCustomerFill, recoverMatchingAccountId } from '../mm/
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, restsInFull } from './testing.js';
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from './fee-schedule.js';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
+import { withBracketPlace } from './bracket-place.js';
+import { withOcoPlace } from './oco-place.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withBracketPlace, withOcoPlace);
 
 // #4494: scopes are explicit now - trade:write no longer implies trade:read.
 const TRADE_READ = ['trade:read'] as const;
@@ -213,7 +218,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
     matching = new StubMatching();
     perks = new StubPerks();
     dropCopySeen = [];
-    trade = new TradeService(sql, ledger, matching, perks, bus, {
+    trade = new LayeredTradeService(sql, ledger, matching, perks, bus, {
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       marketSlippageCapBps: 150,
@@ -791,7 +796,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
     it('refuses without lifecycle authority and leaves the live hold untouched', async () => {
       await fund(ALICE, 'USDT', '1000');
       const original = await rest(ALICE, btcusdt, 'buy', '2', '100', 'no-authority');
-      const unavailable = new TradeService(sql, ledger, matching, perks, bus, { feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE });
+      const unavailable = new LayeredTradeService(sql, ledger, matching, perks, bus, { feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE });
 
       const outcome = await unavailable.replaceOrder(principalFor(ALICE), original.id, { ...replacementInput, marketId: btcusdt.id });
       expect(outcome).toMatchObject({ accepted: false, code: 'LIFECYCLE_REFUSED', reasonCode: 'trade.lifecycle_authority_unavailable' });
@@ -877,7 +882,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
           return decideMarketAction(snapshot, action);
         },
       };
-      const haltedTrade = new TradeService(sql, ledger, matching, perks, bus, {
+      const haltedTrade = new LayeredTradeService(sql, ledger, matching, perks, bus, {
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
         marketLifecycle: halted,
         spotEnabled: true,
@@ -1416,7 +1421,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
     }
 
     function serviceFor(client: LedgerClient, alerts: HoldUnknownAlert[], overrides: { spotEnabled?: boolean } = {}) {
-      return new TradeService(sql, client, matching, perks, bus, {
+      return new LayeredTradeService(sql, client, matching, perks, bus, {
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: overrides.spotEnabled ?? true,
         marketSlippageCapBps: 150,
@@ -1983,7 +1988,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
         }),
       );
       const alerts: HoldUnknownAlert[] = [];
-      const svc = new TradeService(sql, inner, matching, perks, bus, {
+      const svc = new LayeredTradeService(sql, inner, matching, perks, bus, {
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,
         marketSlippageCapBps: 150,

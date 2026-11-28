@@ -1,4 +1,3 @@
-import { TradeService } from '../controls/test-admission.js';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,18 +13,17 @@ import {
   comboDoubleHoldRefuse,
   comboIntentRefuse,
   comboLegsRefuse,
-  installComboPlace,
   matchingComboRefuse,
   matchingSubmitComboRefuse,
   readCombo,
   readLegs,
+  withComboPlace,
 } from './combo-place.js';
 import type { EngineSubmitRequest, EngineSubmitResult } from './matching-client.js';
 import type { Principal } from '@intafaced/auth';
 import { toCcxtError } from '../ccxt-errors.js';
 import { TradeError } from './types.js';
-
-installComboPlace(TradeService);
+import { layeredStandIn } from '../layered.testkit.js';
 
 const EXPIRY = '2026-12-31T00:00:00.000Z';
 
@@ -101,8 +99,8 @@ describe('combo place — one instrument hold/fill, never per-leg money', () => 
         return { id: 'take', status: 'rejected', rejectCode: 'combo_disagrees' };
       }
     }
-    installComboPlace(Door as unknown as typeof TradeService);
-    await expect(new Door().placeOrder({} as Principal, {})).rejects.toMatchObject({ code: 'trade.combo_disagrees' });
+    const LayeredDoor = layeredStandIn(Door, withComboPlace);
+    await expect(new LayeredDoor().placeOrder({} as Principal, {})).rejects.toMatchObject({ code: 'trade.combo_disagrees' });
   });
 
   it('combo submit with fills plus combo_disagrees is refused — not swallowed as a fill', async () => {
@@ -118,8 +116,8 @@ describe('combo place — one instrument hold/fill, never per-leg money', () => 
         expect(result.rejected?.code).toBe('combo_disagrees');
       }
     }
-    installComboPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
+    const LayeredDoor = layeredStandIn(Door, withComboPlace);
+    const door = new LayeredDoor();
     const fill = {
       sequence: 1,
       makerOrderId: 'rest',
@@ -166,11 +164,11 @@ describe('combo place — one instrument hold/fill, never per-leg money', () => 
         return { orderId: 'order', accountId: 'alice', type: 'limit', side: 'buy', qty: formatAmount(input.qty), tif: 'GTC' };
       }
     }
-    installComboPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
-    const origPlace = Door.prototype.placeOrder;
+    const LayeredDoor = layeredStandIn(Door, withComboPlace);
+    const door = new LayeredDoor();
+    const origPlace = LayeredDoor.prototype.placeOrder;
     let placed: PlaceOrderInput | null = null;
-    Door.prototype.placeOrder = async function (this: Door, principal: Principal, input: PlaceOrderInput) {
+    LayeredDoor.prototype.placeOrder = async function (this: Door, principal: Principal, input: PlaceOrderInput) {
       placed = input;
       return origPlace.call(this, principal, input);
     };

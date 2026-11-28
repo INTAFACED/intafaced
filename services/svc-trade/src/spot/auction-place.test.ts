@@ -1,4 +1,4 @@
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,16 +13,18 @@ import {
   auctionRefuse,
   benchmarkRefuse,
   bindAuction,
-  installAuctionPlace,
   readAuction,
   readBenchmark,
+  withAuctionPlace,
 } from './auction-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { EngineSubmitRequest } from './matching-client.js';
 import type { Market } from './types.js';
 import type { Principal } from '@intafaced/auth';
+import { layeredStandIn } from '../layered.testkit.js';
 
-installAuctionPlace(TradeService);
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withAuctionPlace);
 
 describe('auction / benchmark place (no invented auction price)', () => {
   it('missing or false flags are not set', () => {
@@ -56,8 +58,8 @@ describe('auction / benchmark place (no invented auction price)', () => {
         return { orderId: 'order', accountId: 'alice', type: 'limit', side: 'buy', qty: formatAmount(input.qty), tif: 'GTC' };
       }
     }
-    installAuctionPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
+    const LayeredDoor = layeredStandIn(Door, withAuctionPlace);
+    const door = new LayeredDoor();
 
     await expect(
       door.placeOrder(
@@ -226,7 +228,7 @@ describe('svc-trade auction-place (H8a PG-hard)', () => {
       await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
       matching = new StubMatching();
-      trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      trade = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,

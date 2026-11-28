@@ -2,7 +2,7 @@ import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest, EngineSubmitResult } from './matching-client.js';
+import type { EngineSubmitResult } from './matching-client.js';
 import type { Market } from './types.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
@@ -17,8 +17,6 @@ type PlaceWithCollar = PlaceOrderInput & {
   min?: Amount | null;
   max?: Amount | null;
 };
-
-const FLAG = Symbol.for('intafaced.trade.collarPlace');
 
 export const COLLAR_MISSING = 'missing_collar' as const;
 export const COLLAR_OUTSIDE = 'outside_collar' as const;
@@ -139,54 +137,44 @@ export function bindCollar(input: PlaceOrderInput): PlaceWithCollar {
   };
 }
 
-export function installCollarPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string | null }>;
-    applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withCollarPlace(Base: typeof TradeService): typeof TradeService {
+  return class CollarPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindCollar(input);
+      const local = collarIntentRefuse(bound);
+      if (local) throw local;
+      const order = await super.placeOrder(principal, bound);
+      const refuse = matchingCollarRefuse(order.rejectCode ? { code: order.rejectCode } : null);
+      if (refuse) throw refuse;
+      return order;
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindCollar(input);
-    const local = collarIntentRefuse(bound);
-    if (local) throw local;
-    const order = await origPlace.call(this, principal, bound);
-    const refuse = matchingCollarRefuse(order.rejectCode ? { code: order.rejectCode } : null);
-    if (refuse) throw refuse;
-    return order;
-  };
-
-  if (typeof proto.applySubmitResult === 'function') {
-    const origApply = proto.applySubmitResult;
-    proto.applySubmitResult = async function (this: TradeService, market: Market, orderId: string, result: EngineSubmitResult) {
+    override async applySubmitResult(
+      market: Market,
+      orderId: string,
+      result: EngineSubmitResult,
+    ): ReturnType<TradeService['applySubmitResult']> {
       const refuse = matchingSubmitCollarRefuse(result);
       if (refuse) {
         const code = result.rejected?.code === COLLAR_MISSING ? COLLAR_MISSING : COLLAR_OUTSIDE;
-        await origApply.call(this, market, orderId, collarRejectResult(code, refuse.message));
+        await super.applySubmitResult(market, orderId, collarRejectResult(code, refuse.message));
         throw refuse;
       }
-      return origApply.call(this, market, orderId, result);
-    };
-  }
+      return super.applySubmitResult(market, orderId, result);
+    }
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithCollar | undefined;
-    if (!input || !readCollar(input)) return req;
-    const min = readMin(input);
-    const max = readMax(input);
-    return {
-      ...req,
-      collar: true,
-      ...(min !== null ? { min: formatAmount(min) } : {}),
-      ...(max !== null ? { max: formatAmount(max) } : {}),
-    };
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithCollar | undefined;
+      if (!input || !readCollar(input)) return req;
+      const min = readMin(input);
+      const max = readMax(input);
+      return {
+        ...req,
+        collar: true,
+        ...(min !== null ? { min: formatAmount(min) } : {}),
+        ...(max !== null ? { max: formatAmount(max) } : {}),
+      };
+    }
   };
 }
-
-installCollarPlace(TradeService);

@@ -34,8 +34,6 @@ export type PlaceWithBracket = PlaceOrderInput & {
 /** Which linked exit an entry carries: the take-profit and stop-loss pair, or one attached close. */
 export type ExitKind = 'bracket' | 'oto';
 
-const FLAG = Symbol.for('intafaced.trade.bracketPlace');
-
 function clientKey(rec: Readonly<Record<string, unknown>>): string | null {
   return typeof rec.clientOrderId === 'string' && rec.clientOrderId.length > 0 ? rec.clientOrderId : null;
 }
@@ -524,153 +522,144 @@ async function placeExitsAfterFills(service: TradeService, orderIds: readonly st
   }
 }
 
-/** What the bracket code adds to TradeService's prototype, next to the methods it wraps. */
-type BracketAdds = {
-  sweepBracketExits?: (graceMs: number, limit?: number) => Promise<BracketSweepResult>;
-  [FLAG]?: true;
-};
+export function withBracketPlace(Base: typeof TradeService): typeof TradeService {
+  return class BracketPlace extends Base {
+    sweepBracketExits(graceMs: number, limit?: number) {
+      return sweepBracketExits(this, graceMs, limit);
+    }
 
-export function installBracketPlace(ctor: typeof TradeService): void {
-  const proto: TradeService & BracketAdds = ctor.prototype;
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+    override async settleOutcome(
+      market: Parameters<TradeService['settleOutcome']>[0],
+      fills: Parameters<TradeService['settleOutcome']>[1],
+      cancellations: Parameters<TradeService['settleOutcome']>[2],
+    ): ReturnType<TradeService['settleOutcome']> {
+      await super.settleOutcome(market, fills, cancellations);
+      if (fills.length > 0)
+        await placeExitsAfterFills(
+          this,
+          fills.flatMap((fill) => [fill.makerOrderId, fill.takerOrderId]),
+        );
+    }
 
-  proto.sweepBracketExits = function (this: TradeService, graceMs: number, limit?: number) {
-    return sweepBracketExits(this, graceMs, limit);
-  };
+    override async settleFillEvent(input: Parameters<TradeService['settleFillEvent']>[0]): ReturnType<TradeService['settleFillEvent']> {
+      await super.settleFillEvent(input);
+      await placeExitsAfterFills(this, [input.makerOrderId, input.takerOrderId]);
+    }
 
-  // A resting entry that a fill ends gets its exit at once, whichever path settled the fill: the taker's own request
-  // (settleOutcome) or the matching event (settleFillEvent). The sweep stays the backstop.
-  const origSettleOutcome = proto['settleOutcome'];
-  proto['settleOutcome'] = async function (this: TradeService, market, fills, cancellations) {
-    await origSettleOutcome.call(this, market, fills, cancellations);
-    if (fills.length > 0)
-      await placeExitsAfterFills(
-        this,
-        fills.flatMap((fill) => [fill.makerOrderId, fill.takerOrderId]),
-      );
-  };
-  const origSettleFillEvent = proto.settleFillEvent;
-  proto.settleFillEvent = async function (this: TradeService, input) {
-    await origSettleFillEvent.call(this, input);
-    await placeExitsAfterFills(this, [input.makerOrderId, input.takerOrderId]);
-  };
-
-  // A replacement is a new order under a new id: the intent stays with the cancelled entry and its exit would never
-  // be placed. An entry whose exit is still to come is therefore cancelled and placed again, never replaced.
-  const origReplace = proto.replaceOrder;
-  proto.replaceOrder = async function (this: TradeService, principal: Principal, originalOrderId: string, input: PlaceOrderInput) {
-    if (UUID.test(originalOrderId)) {
-      const host = hostOf(this);
-      const [pending] = await host.sql<Array<{ kind: string }>>`
+    override async replaceOrder(
+      principal: Principal,
+      originalOrderId: string,
+      input: PlaceOrderInput,
+    ): ReturnType<TradeService['replaceOrder']> {
+      if (UUID.test(originalOrderId)) {
+        const host = hostOf(this);
+        const [pending] = await host.sql<Array<{ kind: string }>>`
         SELECT kind FROM trade.order_bracket_intent WHERE order_id = ${originalOrderId} AND user_id = ${principal.userId} AND exit_order_id IS NULL
       `;
-      if (pending) {
+        if (pending) {
+          throw new TradeError(
+            `${pending.kind === 'oto' ? 'an OTO' : 'a bracket'} entry carries an exit that is placed when it fills; cancel it and place it again`,
+            'trade.order_type_unsupported',
+          );
+        }
+      }
+      return super.replaceOrder(principal, originalOrderId, input);
+    }
+
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindBracket(input);
+      const oto = wantsOto(bound);
+      if (!wantsBracket(bound) && !oto) return super.placeOrder(principal, bound);
+      const kind: ExitKind = oto ? 'oto' : 'bracket';
+      const name = oto ? 'an OTO' : 'a bracket';
+      const missingEntry = entryRefuse(bound, name);
+      if (missingEntry) throw missingEntry;
+      // An OTO's close is judged against the price its entry pays, so the entry is a limit; a market buy has none.
+      if (oto && bound.type !== 'limit') {
+        throw new TradeError('an OTO entry is a limit buy: its close is judged against the entry price', 'trade.order_type_unsupported');
+      }
+      const takeProfit = triggerOf(oto ? bound.close : bound.takeProfit);
+      if (oto && takeProfit === null) {
+        throw new TradeError('an OTO close price is missing; trade does not invent one', 'trade.missing_price');
+      }
+      const missingTp = takeProfitRefuse(takeProfit);
+      if (missingTp) throw missingTp;
+      const stopLoss = oto ? null : triggerOf(bound.stopLoss);
+      const missingSl = oto ? null : stopLossRefuse(stopLoss);
+      if (missingSl) throw missingSl;
+      if (bound.side !== 'buy') {
+        throw new TradeError(`${name} entry must be a buy for now`, 'trade.order_type_unsupported');
+      }
+      const deferred = deferredEntryField(bound);
+      if (deferred !== null) {
         throw new TradeError(
-          `${pending.kind === 'oto' ? 'an OTO' : 'a bracket'} entry carries an exit that is placed when it fills; cancel it and place it again`,
+          `${name} entry must resolve inside the request or rest as a plain limit: ${deferred} defers or conditions execution`,
           'trade.order_type_unsupported',
         );
       }
-    }
-    return origReplace.call(this, principal, originalOrderId, input);
-  };
+      // An entry that can rest fills later, on someone else's request, when no caller identity exists to place the exit.
+      // It is accepted only with a stored place grant (the caller's own claims, expiring with the caller's credential),
+      // and the sweep cancels the entry before that grant lapses so no entry can fill into a position whose exit
+      // could not be placed.
+      // Only `bound.tif` can matter: the entry is placed with the carried request body dropped, so no alias in it
+      // reaches the engine.
+      const resting = bound.type === 'limit' && bound.tif !== 'IOC' && bound.tif !== 'FOK';
+      if (resting) {
+        if (!principal.scopes.includes('trade:write')) {
+          throw new TradeError(
+            `a resting ${oto ? 'OTO' : 'bracket'} entry needs trade:write to store a place grant`,
+            'trade.order_type_unsupported',
+          );
+        }
+        if (!(principal.expiresAt instanceof Date) || principal.expiresAt.getTime() <= hostOf(this).now().getTime()) {
+          throw new TradeError(
+            `a resting ${oto ? 'OTO' : 'bracket'} entry needs a credential with a known, future expiry to store a place grant`,
+            'trade.order_type_unsupported',
+          );
+        }
+      }
+      if (stopLoss !== null && (takeProfit as Amount) <= stopLoss) {
+        throw new TradeError('a bracket take-profit must be above its stop-loss', 'trade.invalid_price');
+      }
+      // An OTO close sells what the entry bought: at or under a priced entry it would sell straight back at no gain.
+      const entryPrice = readEntry(bound);
+      if (oto && entryPrice !== null && (takeProfit as Amount) <= entryPrice) {
+        throw new TradeError('an OTO close must be above its entry price', 'trade.invalid_price');
+      }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindBracket(input);
-    const oto = wantsOto(bound);
-    if (!wantsBracket(bound) && !oto) return origPlace.call(this, principal, bound);
-    const kind: ExitKind = oto ? 'oto' : 'bracket';
-    const name = oto ? 'an OTO' : 'a bracket';
-    const missingEntry = entryRefuse(bound, name);
-    if (missingEntry) throw missingEntry;
-    // An OTO's close is judged against the price its entry pays, so the entry is a limit; a market buy has none.
-    if (oto && bound.type !== 'limit') {
-      throw new TradeError('an OTO entry is a limit buy: its close is judged against the entry price', 'trade.order_type_unsupported');
-    }
-    const takeProfit = triggerOf(oto ? bound.close : bound.takeProfit);
-    if (oto && takeProfit === null) {
-      throw new TradeError('an OTO close price is missing; trade does not invent one', 'trade.missing_price');
-    }
-    const missingTp = takeProfitRefuse(takeProfit);
-    if (missingTp) throw missingTp;
-    const stopLoss = oto ? null : triggerOf(bound.stopLoss);
-    const missingSl = oto ? null : stopLossRefuse(stopLoss);
-    if (missingSl) throw missingSl;
-    if (bound.side !== 'buy') {
-      throw new TradeError(`${name} entry must be a buy for now`, 'trade.order_type_unsupported');
-    }
-    const deferred = deferredEntryField(bound);
-    if (deferred !== null) {
-      throw new TradeError(
-        `${name} entry must resolve inside the request or rest as a plain limit: ${deferred} defers or conditions execution`,
-        'trade.order_type_unsupported',
+      const host = hostOf(this);
+      const market = await host.requireMarket({ symbol: bound.symbol, marketId: bound.marketId });
+      // The exit is placed later with no caller present: a price off the market's grid would be refused then, leaving the
+      // bought base with no exit. It is refused now, before anything is held.
+      const offGrid = (price: Amount | null) => price !== null && market.tickSize > ZERO && price % market.tickSize !== ZERO;
+      if (offGrid(takeProfit) || offGrid(stopLoss)) {
+        throw new TradeError(`${name} ${oto ? 'close' : 'exit'} price must be a whole number of price steps`, 'trade.invalid_price');
+      }
+      const clientOrderId = bound.clientOrderId as string;
+      const entryId = orderIdFor(principal.userId, market.id, clientOrderId);
+      await writeIntent(
+        host,
+        entryId,
+        principal.userId,
+        kind,
+        takeProfit as Amount,
+        stopLoss,
+        resting ? { claims: captureAlgoPlaceGrant(principal), expiresAt: principal.expiresAt } : null,
       );
-    }
-    // An entry that can rest fills later, on someone else's request, when no caller identity exists to place the exit.
-    // It is accepted only with a stored place grant (the caller's own claims, expiring with the caller's credential),
-    // and the sweep cancels the entry before that grant lapses so no entry can fill into a position whose exit
-    // could not be placed.
-    // Only `bound.tif` can matter: the entry is placed with the carried request body dropped, so no alias in it
-    // reaches the engine.
-    const resting = bound.type === 'limit' && bound.tif !== 'IOC' && bound.tif !== 'FOK';
-    if (resting) {
-      if (!principal.scopes.includes('trade:write')) {
-        throw new TradeError(
-          `a resting ${oto ? 'OTO' : 'bracket'} entry needs trade:write to store a place grant`,
-          'trade.order_type_unsupported',
-        );
-      }
-      if (!(principal.expiresAt instanceof Date) || principal.expiresAt.getTime() <= hostOf(this).now().getTime()) {
-        throw new TradeError(
-          `a resting ${oto ? 'OTO' : 'bracket'} entry needs a credential with a known, future expiry to store a place grant`,
-          'trade.order_type_unsupported',
-        );
-      }
-    }
-    if (stopLoss !== null && (takeProfit as Amount) <= stopLoss) {
-      throw new TradeError('a bracket take-profit must be above its stop-loss', 'trade.invalid_price');
-    }
-    // An OTO close sells what the entry bought: at or under a priced entry it would sell straight back at no gain.
-    const entryPrice = readEntry(bound);
-    if (oto && entryPrice !== null && (takeProfit as Amount) <= entryPrice) {
-      throw new TradeError('an OTO close must be above its entry price', 'trade.invalid_price');
-    }
 
-    const host = hostOf(this);
-    const market = await host.requireMarket({ symbol: bound.symbol, marketId: bound.marketId });
-    // The exit is placed later with no caller present: a price off the market's grid would be refused then, leaving the
-    // bought base with no exit. It is refused now, before anything is held.
-    const offGrid = (price: Amount | null) => price !== null && market.tickSize > ZERO && price % market.tickSize !== ZERO;
-    if (offGrid(takeProfit) || offGrid(stopLoss)) {
-      throw new TradeError(`${name} ${oto ? 'close' : 'exit'} price must be a whole number of price steps`, 'trade.invalid_price');
+      // The entry is an ordinary order: the exit fields never reach it or the engine.
+      const { bracket: _b, takeProfit: _tp, stopLoss: _sl, oto: _oto, close: _close, ...entryInput } = bound;
+      // The request body is dropped from the entry: the inner installers must not re-read an option (an alias such as
+      // tif: 'PO') from it, so the entry is exactly the typed input this guard has checked.
+      const entry = await super.placeOrder(principal, withoutCarriedBody(entryInput as PlaceOrderInput));
+
+      // An entry still resting is not sized yet: its exit is placed by the sweep once the entry is terminal.
+      if (entry.status === 'open' || entry.status === 'pending') return entry;
+      // An unresolved entry (no verdict yet) may still fill: sizing an exit now would leave later fills unprotected.
+      // The caller retries the same request once it resolves.
+      if (entry.status === 'recovery_required' || entry.status === 'hold_unknown') return entry;
+      await placeBracketExit(this, principal, entryId, market, takeProfit as Amount, stopLoss);
+      return entry;
     }
-    const clientOrderId = bound.clientOrderId as string;
-    const entryId = orderIdFor(principal.userId, market.id, clientOrderId);
-    await writeIntent(
-      host,
-      entryId,
-      principal.userId,
-      kind,
-      takeProfit as Amount,
-      stopLoss,
-      resting ? { claims: captureAlgoPlaceGrant(principal), expiresAt: principal.expiresAt } : null,
-    );
-
-    // The entry is an ordinary order: the exit fields never reach it or the engine.
-    const { bracket: _b, takeProfit: _tp, stopLoss: _sl, oto: _oto, close: _close, ...entryInput } = bound;
-    // The request body is dropped from the entry: the inner installers must not re-read an option (an alias such as
-    // tif: 'PO') from it, so the entry is exactly the typed input this guard has checked.
-    const entry = await origPlace.call(this, principal, withoutCarriedBody(entryInput as PlaceOrderInput));
-
-    // An entry still resting is not sized yet: its exit is placed by the sweep once the entry is terminal.
-    if (entry.status === 'open' || entry.status === 'pending') return entry;
-    // An unresolved entry (no verdict yet) may still fill: sizing an exit now would leave later fills unprotected.
-    // The caller retries the same request once it resolves.
-    if (entry.status === 'recovery_required' || entry.status === 'hold_unknown') return entry;
-    await placeBracketExit(this, principal, entryId, market, takeProfit as Amount, stopLoss);
-    return entry;
   };
 }
-
-installBracketPlace(TradeService);

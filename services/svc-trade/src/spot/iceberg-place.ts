@@ -2,7 +2,6 @@ import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest } from './matching-client.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
 /**
@@ -12,8 +11,6 @@ import { carriedPlacementBody } from './placement-extras.js';
  */
 
 type PlaceWithIceberg = PlaceOrderInput & { iceberg?: boolean; displayQty?: Amount | null };
-
-const FLAG = Symbol.for('intafaced.trade.icebergPlace');
 
 export const ICEBERG_DISPLAY_MISSING = 'iceberg_display_missing' as const;
 export const ICEBERG_DISPLAY_NOT_SMALLER = 'iceberg_display_not_smaller' as const;
@@ -52,41 +49,31 @@ export function bindIceberg(input: PlaceOrderInput): PlaceWithIceberg {
   return { ...extra, iceberg: true, displayQty: hit.displayQty == null ? null : parseAmount(hit.displayQty) };
 }
 
-export function installIcebergPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindIceberg(input);
-    if (bound.iceberg === true || bound.displayQty !== undefined) {
-      const refuse = icebergDisplayRefuse(bound.qty, bound.displayQty ?? null);
-      if (refuse) throw refuse;
-      if (bound.type === 'limit' && bound.price == null) {
-        throw new TradeError('iceberg requires a limit price; trade does not invent a display', 'trade.invalid_tif');
+export function withIcebergPlace(Base: typeof TradeService): typeof TradeService {
+  return class IcebergPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindIceberg(input);
+      if (bound.iceberg === true || bound.displayQty !== undefined) {
+        const refuse = icebergDisplayRefuse(bound.qty, bound.displayQty ?? null);
+        if (refuse) throw refuse;
+        if (bound.type === 'limit' && bound.price == null) {
+          throw new TradeError('iceberg requires a limit price; trade does not invent a display', 'trade.invalid_tif');
+        }
       }
+      return super.placeOrder(principal, bound);
     }
-    return origPlace.call(this, principal, bound);
-  };
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithIceberg | undefined;
-    if (input?.iceberg === true || input?.displayQty !== undefined) {
-      return {
-        ...req,
-        iceberg: true,
-        displayQty: input.displayQty == null ? null : formatAmount(input.displayQty),
-      };
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithIceberg | undefined;
+      if (input?.iceberg === true || input?.displayQty !== undefined) {
+        return {
+          ...req,
+          iceberg: true,
+          displayQty: input.displayQty == null ? null : formatAmount(input.displayQty),
+        };
+      }
+      return req;
     }
-    return req;
   };
 }
-
-installIcebergPlace(TradeService);

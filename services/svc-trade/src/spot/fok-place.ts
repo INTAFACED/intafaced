@@ -1,7 +1,6 @@
 import type { Principal } from '@intafaced/auth';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest } from './matching-client.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
 /**
@@ -10,8 +9,6 @@ import { carriedPlacementBody } from './placement-extras.js';
  */
 
 type PlaceWithFok = PlaceOrderInput & { tif?: string };
-
-const FLAG = Symbol.for('intafaced.trade.fokPlace');
 
 export const FOK_UNFILLABLE = 'fok_unfillable' as const;
 
@@ -31,38 +28,27 @@ export function bindFok(input: PlaceOrderInput): PlaceWithFok {
   return { ...extra, tif: 'FOK' };
 }
 
-export function installFokPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    cancelOrder: (principal: Principal, orderId: string) => Promise<unknown>;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withFokPlace(Base: typeof TradeService): typeof TradeService {
+  return class FokPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindFok(input);
+      if (bound.tif === 'FOK' && bound.type === 'limit' && bound.price == null) {
+        throw new TradeError('FOK limit requires a price; trade does not invent a fill', 'trade.invalid_tif');
+      }
+      const order = await super.placeOrder(principal, bound);
+      if (bound.tif === 'FOK' && order.status === 'open') {
+        return this.cancelOrder(principal, order.id);
+      }
+      return order;
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindFok(input);
-    if (bound.tif === 'FOK' && bound.type === 'limit' && bound.price == null) {
-      throw new TradeError('FOK limit requires a price; trade does not invent a fill', 'trade.invalid_tif');
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithFok | undefined;
+      if (req.tif === 'FOK' || input?.tif === 'FOK') {
+        return { ...req, tif: 'FOK' };
+      }
+      return req;
     }
-    const order = await origPlace.call(this, principal, bound);
-    if (bound.tif === 'FOK' && order.status === 'open') {
-      return proto.cancelOrder.call(this, principal, order.id) as Promise<{ id: string; status: string }>;
-    }
-    return order;
-  };
-
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithFok | undefined;
-    if (req.tif === 'FOK' || input?.tif === 'FOK') {
-      return { ...req, tif: 'FOK' };
-    }
-    return req;
   };
 }
-
-installFokPlace(TradeService);

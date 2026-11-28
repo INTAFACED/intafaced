@@ -1,5 +1,4 @@
-import './position-mode.js';
-import { PositionService } from '../controls/test-admission.js';
+import { PositionService, layeredPositionService } from '../controls/test-admission.js';
 /**
  * Futures desk doors: partial close, flatten, reduce-only, margin summary,
  * position mode, and clientOpenId lookup. H8a PG-hard.
@@ -27,6 +26,10 @@ import { memoryMarkBook } from './mark-source.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { readTradePlanes } from './plane-capabilities.js';
+import { withPositionModeOpen } from './position-mode.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredPositionService = layeredPositionService(withPositionModeOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -147,7 +150,7 @@ describe('futures desk money', () => {
     `;
     ledger = new MemoryLedger();
     marks = memoryMarkBook();
-    positions = new PositionService(sql, ledger, {
+    positions = new LayeredPositionService(sql, ledger, {
       marks: marks.source(),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

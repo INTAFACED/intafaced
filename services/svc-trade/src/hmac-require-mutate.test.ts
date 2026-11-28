@@ -34,7 +34,7 @@ describe('svc-trade mutate S2S HMAC require', () => {
 
     const fundingReg = sliceRegister(index, 'registerInternalFundingRate(app, {', ['registerMarketLifecycleRoutes']);
     expect(fundingReg).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
-    const outcomesReg = sliceRegister(index, 'registerOutcomesRest(app, {', ['installGtdGttPlace']);
+    const outcomesReg = sliceRegister(index, 'registerOutcomesRest(app, {', ['attachBoundClosePosition']);
     expect(outcomesReg).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
 
     expect(fixtures).toMatch(/deps\.bodyBind \?\? DEFAULT_SERVICE_BODY_BIND_MODE/);

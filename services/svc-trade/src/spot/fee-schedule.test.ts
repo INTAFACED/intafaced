@@ -146,7 +146,7 @@ describe('TRADE_FEE_SCHEDULE wiring', () => {
   it('index hitch parses env and passes feeSchedule into place and the preview door', () => {
     const index = readFileSync(join(ROOT, 'services/svc-trade/src/index.ts'), 'utf8');
     expect(index).toMatch(/parseFeeScheduleJson\(env\.TRADE_FEE_SCHEDULE\)/);
-    expect(index).toMatch(/new TradeService\([\s\S]*feeSchedule/);
+    expect(index).toMatch(/new LayeredTradeService\([\s\S]*feeSchedule/);
     expect(index).toMatch(/registerSpotOrderPreviewRest\(app, \{[\s\S]*feeSchedule/);
   });
 

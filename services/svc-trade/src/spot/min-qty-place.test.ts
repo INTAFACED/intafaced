@@ -1,4 +1,4 @@
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,13 +8,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
 import { type PlaceOrderInput } from './trade-service.js';
-import { bindMinQty, installMinQtyPlace, minQtyRefuse, readMinQty } from './min-qty-place.js';
+import { bindMinQty, minQtyRefuse, readMinQty, withMinQtyPlace } from './min-qty-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { EngineSubmitRequest } from './matching-client.js';
 import type { Market } from './types.js';
 import type { Principal } from '@intafaced/auth';
+import { layeredStandIn } from '../layered.testkit.js';
 
-installMinQtyPlace(TradeService);
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withMinQtyPlace);
 
 describe('min qty place (no invented clip)', () => {
   it('missing or zero minQty is not set', () => {
@@ -42,11 +44,11 @@ describe('min qty place (no invented clip)', () => {
         return { orderId: 'order', accountId: 'alice', type: 'limit', side: 'buy', qty: formatAmount(input.qty), tif: 'GTC' };
       }
     }
-    installMinQtyPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
-    const origPlace = Door.prototype.placeOrder;
+    const LayeredDoor = layeredStandIn(Door, withMinQtyPlace);
+    const door = new LayeredDoor();
+    const origPlace = LayeredDoor.prototype.placeOrder;
     let placed: PlaceOrderInput | null = null;
-    Door.prototype.placeOrder = async function (this: Door, principal: Principal, input: PlaceOrderInput) {
+    LayeredDoor.prototype.placeOrder = async function (this: Door, principal: Principal, input: PlaceOrderInput) {
       placed = input;
       return origPlace.call(this, principal, input);
     };
@@ -192,7 +194,7 @@ describe('svc-trade min-qty-place (H8a PG-hard)', () => {
       await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
       matching = new StubMatching();
-      trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      trade = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,

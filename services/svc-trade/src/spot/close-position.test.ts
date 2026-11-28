@@ -1,4 +1,4 @@
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,13 +17,15 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 
-import { CloseNotFundedError, closeSpotPosition, installClosePosition } from './close-position.js';
+import { CloseNotFundedError, closeSpotPosition, withClosePosition } from './close-position.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { EngineSubmitRequest } from './matching-client.js';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
 import type { Market } from './types.js';
+import { withReduceOnlyPlace } from './reduce-only-place.js';
 
-installClosePosition(TradeService);
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withReduceOnlyPlace, withClosePosition);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -127,7 +129,7 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
           FROM trade.orders WHERE client_order_id = ${clientOrderId}`;
 
     function service(over: { ledger?: LedgerClient; lifecycle?: MarketLifecyclePort; capBps?: number | null } = {}) {
-      return new TradeService(sql, over.ledger ?? ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      return new LayeredTradeService(sql, over.ledger ?? ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
         marketLifecycle: over.lifecycle ?? READY_MARKET_LIFECYCLE,
         spotEnabled: true,

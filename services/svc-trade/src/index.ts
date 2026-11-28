@@ -81,32 +81,24 @@ import { listFuturesExecutions } from './futures/futures-executions.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
 import { presentAccountFees, presentCcxtBalances, registerPrivateRest } from './private-rest.js';
 import { registerSupportBalanceRead } from './support/balance-read.js';
-import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
-import { bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
-import { attachBoundClosePosition } from './spot/close-position.js';
-import { bindPostOnly, installPostOnlyPlace } from './spot/post-only-place.js';
-import { bindIoc, installIocPlace } from './spot/ioc-place.js';
-import { bindFok, installFokPlace } from './spot/fok-place.js';
-import { bindIceberg, installIcebergPlace } from './spot/iceberg-place.js';
+import { bindExpireAt, withGtdGttPlace } from './spot/gtd-gtt-place.js';
+import { bindReduceOnly, withReduceOnlyPlace } from './spot/reduce-only-place.js';
+import { attachBoundClosePosition, withClosePosition } from './spot/close-position.js';
+import { bindPostOnly, withPostOnlyPlace } from './spot/post-only-place.js';
+import { bindIoc, withIocPlace } from './spot/ioc-place.js';
+import { bindFok, withFokPlace } from './spot/fok-place.js';
+import { bindIceberg, withIcebergPlace } from './spot/iceberg-place.js';
 import { sqlIcebergDisplay } from './spot/iceberg-door.js';
 import { sqlStopTrigger } from './spot/stop-trigger-door.js';
-import { bindStopLimit, installStopLimitPlace } from './spot/stop-limit-place.js';
-import { bindTrailingStop, installTrailingStopPlace } from './spot/trailing-stop-place.js';
-import { bindOption, installOptionPlace } from './spot/option-place.js';
-import { bindMinQty, installMinQtyPlace } from './spot/min-qty-place.js';
-import { bindAon, installAonPlace } from './spot/aon-place.js';
-import { bindPeg, installPegPlace } from './spot/peg-place.js';
-import { bindAuction, installAuctionPlace } from './spot/auction-place.js';
-import { installSelfTradePlace } from './spot/self-trade-place.js';
-import { installMarketHaltPlace } from './spot/market-halt-place.js';
-import { installVenueHaltPlace } from './spot/venue-halt-place.js';
-import { installMarketReduceOnlyPlace } from './spot/market-reduce-only-place.js';
-import { installMarketPostOnlyPlace } from './spot/market-post-only-place.js';
-import { installMarketPrelaunchPlace } from './spot/market-prelaunch-place.js';
-import { installMarketExpiredPlace } from './spot/market-expired-place.js';
-import { installMarketDelistedPlace } from './spot/market-delisted-place.js';
-import { bindCollar, installCollarPlace } from './spot/collar-place.js';
-import { bindCombo, installComboPlace } from './spot/combo-place.js';
+import { bindStopLimit, withStopLimitPlace } from './spot/stop-limit-place.js';
+import { bindTrailingStop, withTrailingStopPlace } from './spot/trailing-stop-place.js';
+import { bindOption, withOptionPlace, withOptionAmend } from './spot/option-place.js';
+import { bindMinQty, withMinQtyPlace } from './spot/min-qty-place.js';
+import { bindAon, withAonPlace } from './spot/aon-place.js';
+import { bindPeg, withPegPlace } from './spot/peg-place.js';
+import { bindAuction, withAuctionPlace } from './spot/auction-place.js';
+import { bindCollar, withCollarPlace } from './spot/collar-place.js';
+import { bindCombo, withComboPlace } from './spot/combo-place.js';
 import { memoryOutcomeCatalogue, registerOutcomesRest } from './outcomes-rest.js';
 import { registerPositionPreviewRest } from './futures/position-preview-rest.js';
 import { resolveAdmissionLimits } from './futures/pretrade-limits.js';
@@ -221,7 +213,6 @@ import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import type { CancelAllAfterHost } from './spot/cancel-all-after.js';
-import './spot/cancel-all-after.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { recordSchedulerHeartbeat, schedulerInstanceId } from './algo/scheduler-heartbeat.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
@@ -269,6 +260,61 @@ import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
 import { testAgeDoorOpen } from '@intafaced/service-kit';
 import { ageOtcQuote, registerTestAgeDoor } from './test-age-door.js';
 import { logTrpcServerFault } from './trpc-error-log.js';
+import { withPreTradeCreditPlace, withPreTradeCreditOpen } from './futures/pretrade-credit.js';
+import { withPositionModePlace, withPositionModeOpen } from './futures/position-mode.js';
+import { withNativeQtyUpAmend } from './spot/qty-up-amend.js';
+import { withOcoCancel } from './spot/oco-cancel.js';
+import { withBracketPlace } from './spot/bracket-place.js';
+import { withOcoPlace } from './spot/oco-place.js';
+import { withMarketHaltPlace } from './spot/market-halt-place.js';
+import { withVenueHaltPlace } from './spot/venue-halt-place.js';
+import { withMarketReduceOnlyPlace } from './spot/market-reduce-only-place.js';
+import { withMarketPostOnlyPlace } from './spot/market-post-only-place.js';
+import { withMarketPrelaunchPlace } from './spot/market-prelaunch-place.js';
+import { withMarketExpiredPlace } from './spot/market-expired-place.js';
+import { withMarketDelistedPlace } from './spot/market-delisted-place.js';
+import { withSelfTradePlace } from './spot/self-trade-place.js';
+import { withCancelAllAfter } from './spot/cancel-all-after.js';
+import { layered } from './layered.js';
+import { withCollateralHaircutOpen } from './futures/collateral-haircut.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layered(
+  TradeService,
+  withPreTradeCreditPlace,
+  withPositionModePlace,
+  withNativeQtyUpAmend,
+  withGtdGttPlace,
+  withReduceOnlyPlace,
+  withPostOnlyPlace,
+  withIocPlace,
+  withFokPlace,
+  withIcebergPlace,
+  withStopLimitPlace,
+  withOcoCancel,
+  withBracketPlace,
+  withTrailingStopPlace,
+  withOptionPlace,
+  withOptionAmend,
+  withMinQtyPlace,
+  withAonPlace,
+  withPegPlace,
+  withAuctionPlace,
+  withOcoPlace,
+  withMarketHaltPlace,
+  withVenueHaltPlace,
+  withMarketReduceOnlyPlace,
+  withMarketPostOnlyPlace,
+  withMarketPrelaunchPlace,
+  withMarketExpiredPlace,
+  withMarketDelistedPlace,
+  withClosePosition,
+  withSelfTradePlace,
+  withCollarPlace,
+  withComboPlace,
+  withCancelAllAfter,
+);
+const LayeredPositionService = layered(PositionService, withPreTradeCreditOpen, withPositionModeOpen, withCollateralHaircutOpen);
 
 registerProcessHooks(
   startTelemetry({
@@ -376,7 +422,7 @@ const botVerification = loadBotVerificationPolicy({
   TRADE_BOTS_VERIFICATION: env.TRADE_BOTS_VERIFICATION,
   TRADE_BOTS_VERIFICATION_LEVEL: env.TRADE_BOTS_VERIFICATION_LEVEL,
 });
-const trade = new TradeService(sql, ledger, matching, perks, bus, {
+const trade = new LayeredTradeService(sql, ledger, matching, perks, bus, {
   trailingMarkSource: trailingPlacementMarkSource,
   accountAdmission: tradingControls,
   marketLifecycle,
@@ -1177,7 +1223,7 @@ const futuresSlippageCapBps = async (marketId: string): Promise<number | null> =
 /** The perpetual rates an account pays now: the owner's schedule in force (TRADE_FEE_SCHEDULE `perpetual`) less its rank discount. */
 const futuresFeeRates = async (userId: string) =>
   perpetualFeeRates(await feeScheduleAt(sql, feeSchedule, new Date()), (await perks.perksOf(userId)).feeDiscountBps);
-const positions = new PositionService(sql, ledger, {
+const positions = new LayeredPositionService(sql, ledger, {
   accountAdmission: tradingControls,
   emailProof,
   marks: futuresJobs.marks,
@@ -1905,30 +1951,7 @@ registerOutcomesRest(app, {
   installRawBody: false,
   catalogue: memoryOutcomeCatalogue([]),
 });
-installGtdGttPlace(TradeService);
-installReduceOnlyPlace(TradeService);
 attachBoundClosePosition(app);
-installPostOnlyPlace(TradeService);
-installIocPlace(TradeService);
-installFokPlace(TradeService);
-installIcebergPlace(TradeService);
-installStopLimitPlace(TradeService);
-installTrailingStopPlace(TradeService);
-installOptionPlace(TradeService);
-installMinQtyPlace(TradeService);
-installAonPlace(TradeService);
-installPegPlace(TradeService);
-installAuctionPlace(TradeService);
-installSelfTradePlace(TradeService);
-installMarketHaltPlace(TradeService);
-installVenueHaltPlace(TradeService);
-installMarketReduceOnlyPlace(TradeService);
-installMarketPostOnlyPlace(TradeService);
-installMarketPrelaunchPlace(TradeService);
-installMarketExpiredPlace(TradeService);
-installMarketDelistedPlace(TradeService);
-installCollarPlace(TradeService);
-installComboPlace(TradeService);
 registerPrivateRest(app, {
   ownBookEnabled: env.TRADE_SPOT_ENABLED,
   userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
