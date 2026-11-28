@@ -67,8 +67,15 @@ describe('trade journal on the TEST venue', { timeout: 60_000 }, () => {
 
     const journal = tradeJournalSchema.parse(
       await readTradeJournal(
-        { venue: async () => sim, account: async () => account, store: new InMemoryTradeJournalStore(), now: () => new Date(now) },
+        {
+          venue: async () => sim,
+          account: async () => account,
+          ownWallets: async () => [account],
+          store: new InMemoryTradeJournalStore(),
+          now: () => new Date(now),
+        },
         { owner, since: since.toISOString(), limit: 10 },
+        'user-1',
       ),
     );
     expect(journal.venue.test).toBe(true);

@@ -12,6 +12,7 @@ import { UserVenueDoorError } from './user-venue-door.js';
 const STATUS: Record<TradeJournalError['code'], TRPCError['code']> = {
   'trade.journal_unavailable': 'SERVICE_UNAVAILABLE',
   'trade.journal_request_invalid': 'BAD_REQUEST',
+  'trade.journal_wallet_not_own': 'FORBIDDEN',
 };
 
 const refusalOf: RefusalOf = (err) => {
