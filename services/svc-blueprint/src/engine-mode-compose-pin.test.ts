@@ -20,7 +20,6 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 const MODE = 'BLUEPRINT_ENGINE_MODE';
 const LINE = /^\s+BLUEPRINT_ENGINE_MODE:\s*\$\{BLUEPRINT_ENGINE_MODE:-\}\s*$/gm;
@@ -65,13 +64,7 @@ afterEach(() => {
 
 describe('compose BLUEPRINT_ENGINE_MODE empty pass-through (no invented mock)', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
   const block = blueprintComposeBlock();
-
-  it('env.ts still defaults BLUEPRINT_ENGINE_MODE to http (not mock)', () => {
-    expect(envTs).toMatch(/z\.enum\(\['http', 'mock'\]\)\.default\('http'\)/);
-    expect(envTs).not.toMatch(/BLUEPRINT_ENGINE_MODE:[\s\S]{0,200}\.default\('mock'\)/);
-  });
 
   it('compose svc-blueprint block passes MODE once with empty fallback', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-blueprint/);

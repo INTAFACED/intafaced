@@ -1,11 +1,8 @@
 /**
  * The edge principal is verified with the shared secret AND, when configured, the edge's public key.
- * The trust settings come from the service's edge env settings through `edgeTrustFromEnv`; index.ts is
- * pinned by source because it boots the whole service.
+ * The trust settings come from the service's edge env settings through `edgeTrustFromEnv`; that index.ts hands
+ * them to its edge context is proven by booting it (index-boot.test.ts).
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { edgeEnvSchema, edgeTrustFromEnv, loadEnv } from '@intafaced/config';
 import {
@@ -73,10 +70,5 @@ describe('edge principal receiver', () => {
   it('still accepts the shared-secret form', () => {
     const raw = encodePrincipal(principal());
     expect(contextWith(withKey)(request(raw, signPrincipalHeader(raw, SECRET, 'DE'))).principal?.userId).toBe(USER);
-  });
-
-  it('index.ts hands the edge trust settings to the edge context', () => {
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8');
-    expect(source).toMatch(/createEdgeContext\(\{\s*secret: env\.EDGE_PRINCIPAL_SECRET,\s*\.\.\.edgeTrustFromEnv\(env\),/);
   });
 });

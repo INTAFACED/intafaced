@@ -384,5 +384,8 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   }),
 );
 
+/** The schema the env is parsed with, for tests that read which keys this service declares. */
+export { schema };
+
 export const env = loadEnv(schema);
 export type Env = typeof env;

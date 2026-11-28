@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { LIST_ALL_LIMIT_UNSET, SupportError, SupportService, assertListAllTicketsLimit } from './support-service.js';
 import { userCopy } from './user-copy.js';
+import { callerAs } from './testing/router-caller.js';
 
 /**
  * listAll page size is refuse-closed when unset.
@@ -12,8 +10,8 @@ import { userCopy } from './user-copy.js';
  * ticket. Blank must refuse. Owner/client may pass 100 explicitly.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const USER = '11111111-1111-4111-8111-111111111111';
+const OPERATOR = '33333333-3333-4333-8333-333333333333';
 
 describe('listAll limit unset refuse', () => {
   it('assertListAllTicketsLimit refuses blank / NaN / 0 — never invents 100', () => {
@@ -57,24 +55,16 @@ describe('listAll limit unset refuse', () => {
     expect(one).toHaveLength(1);
   });
 
-  it('router does not invent 100 when listAll omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/router.ts'), 'utf8');
-    const start = src.indexOf('listAll:');
-    const end = src.indexOf('get:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('listAllTickets({ limit: input?.limit })');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
-  });
-
-  it('listAllTickets no longer dumps store.listAll() without a page', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/support-service.ts'), 'utf8');
-    const start = src.indexOf('async listAllTickets(');
-    const end = src.indexOf('async getTicket(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertListAllTicketsLimit');
-    expect(fn).toContain('this.store.listAll({ limit })');
-    expect(fn).not.toMatch(/this\.store\.listAll\(\)/);
-    expect(fn).not.toMatch(/\?\? 100/);
+  it('the listAll door refuses an omitted limit by name and pages an explicit one; it never dumps the table', async () => {
+    const svc = new SupportService();
+    for (let i = 0; i < 3; i += 1) {
+      await svc.createTicket({ userId: USER, category: 'other', subject: `S${i}`, body: 'B' });
+    }
+    const desk = await callerAs(svc, OPERATOR, ['support:ops', 'support:read', 'support:write']);
+    for (const input of [undefined, {}]) {
+      await expect(desk.listAll(input)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: userCopy(LIST_ALL_LIMIT_UNSET) });
+    }
+    expect(await desk.listAll({ limit: 100 })).toHaveLength(3);
+    expect(await desk.listAll({ limit: 1 })).toHaveLength(1);
   });
 });

@@ -19,7 +19,7 @@
  *    chainId. Does not mill nginx.
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -58,14 +58,6 @@ afterEach(() => {
 });
 
 describe('svc-protocol PROTOCOL_RPC_URL refuse-closed', () => {
-  it('env.ts has no localhost:8545 or evm:8545 git-default', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/PROTOCOL_RPC_URL:\s*z\.string\(\)\.url\(\)\.default\('http:\/\/localhost:8545'\)/);
-    expect(envTs).not.toMatch(/PROTOCOL_RPC_URL:[\s\S]*?\.default\(['"]http:\/\/evm:8545['"]\)/);
-    expect(envTs).not.toMatch(/PROTOCOL_RPC_URL:[\s\S]*?\.default\(['"]http:\/\/localhost:8545['"]\)/);
-    expect(envTs).toMatch(/PROTOCOL_RPC_URL is unset — will not invent http:\/\/evm:8545 as live/);
-  });
-
   it('compose does not interpolate :-http://evm:8545', () => {
     const compose = readFileSync(COMPOSE, 'utf8');
     const block = composeServiceBlock(compose, 'svc-protocol');

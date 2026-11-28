@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { FORBIDDEN } from '../../../../tooling/ci/brand-scan.mjs';
 import {
   CARD_DIMENSIONS,
   blueprintProfileSchema,
@@ -113,15 +111,10 @@ describe('§7.2 — the copy-scan, on the rendered output', () => {
    * the card through a contract enum value or a label table without ever being
    * typed as a literal in a file the other scan would flag.
    *
-   * The vocabulary is read from the scanner, for the same reason brand.test.ts
-   * reads it — so this file contains no forbidden name to find.
+   * The vocabulary is imported from the scanner, for the same reason brand.test.ts
+   * imports it — so this file contains no forbidden name to find.
    */
-  const patterns = (() => {
-    const scanner = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'tooling', 'ci', 'brand-scan.mjs');
-    const source = readFileSync(scanner, 'utf8');
-    const block = source.slice(source.indexOf('const FORBIDDEN = ['), source.indexOf('];', source.indexOf('const FORBIDDEN = [')));
-    return [...block.matchAll(/pattern:\s*\/((?:[^/\\\n]|\\.)+)\/([gimsuy]*)/g)].map((m) => new RegExp(m[1]!, m[2]!.replace('g', '')));
-  })();
+  const patterns = FORBIDDEN.map(({ pattern }) => new RegExp(pattern.source, pattern.flags.replace('g', '')));
 
   it('extracted a real vocabulary to scan for', () => {
     expect(patterns.length).toBeGreaterThan(5);

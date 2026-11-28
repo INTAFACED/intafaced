@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import {
@@ -95,12 +94,48 @@ async function refused(input: LimitOrderInput, ctx = signed()) {
 }
 
 describe('svc-dex limitOrder — forwarded principal, no session store', () => {
-  it('does not call another service or keep a store', () => {
-    const src = readFileSync(new URL('./limit-order.ts', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '');
-    expect(src).not.toMatch(/svc-identity|INTERNAL_SERVICE_SECRET|DATABASE_URL|fetch\(|ledger\.post/);
-    expect(src).not.toMatch(/from\s+['"]@intafaced\/ledger-client\/recipes['"]/);
+  it('does not call another service or keep a store', async () => {
+    // No ledger write: svc-dex is a Protocol Plane service, so `pnpm scan:custody` refuses a write recipe import or a
+    // ledger.post anywhere in it (tooling/ci/custody-scan.mjs, WRITE_SURFACE).
+    // The module loads fresh and every export runs, every path through the door included: no network call, and no
+    // read of a service secret, a database or an identity address from the process env.
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string | URL) => {
+      calls.push(String(url));
+      throw new Error('TEST: svc-dex limitOrder must not call out');
+    });
+    const reads: string[] = [];
+    const realEnv = process.env;
+    process.env = new Proxy(realEnv, {
+      get: (target, key, receiver) => (reads.push(String(key)), Reflect.get(target, key, receiver)),
+      has: (target, key) => (reads.push(String(key)), Reflect.has(target, key)),
+      getOwnPropertyDescriptor: (target, key) => (reads.push(String(key)), Reflect.getOwnPropertyDescriptor(target, key)),
+    });
+    try {
+      vi.resetModules();
+      const order = await import('./limit-order.js');
+      const { createDexRouter: freshRouter } = await import('../router.js');
+      const fresh = () => freshRouter({ venues: () => [], now: () => NOW });
+      const exports: Record<string, () => Promise<unknown>> = {
+        limitOrderCodes: async () => Object.values(order.limitOrderCodes),
+        limitOrderProcedure: async () => {
+          const caller = fresh().createCaller(signed());
+          for (const input of [live, { ...live, price: '' }, { ...live, symbol: ' ' }, { ...live, size: '0' }]) {
+            await expect(caller.limitOrder(input)).rejects.toMatchObject({ cause: { code: expect.stringMatching(/^dex\./) } });
+          }
+          await expect(fresh().createCaller(anonymous()).limitOrder(live)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+        },
+      };
+      expect(Object.keys(order).sort()).toEqual(Object.keys(exports).sort());
+      for (const run of Object.values(exports)) await run();
+      expect(calls).toEqual([]);
+      // The env it does read (the screening answer) is seen, so a forbidden read would be too.
+      expect(reads).toContain(SANCTIONS_REGIONS_ENV);
+      expect(reads.filter((key) => /SECRET|DATABASE|IDENTITY/.test(key))).toEqual([]);
+    } finally {
+      process.env = realEnv;
+      vi.unstubAllGlobals();
+    }
   });
 
   it('refuses a missing principal before reading a price', async () => {

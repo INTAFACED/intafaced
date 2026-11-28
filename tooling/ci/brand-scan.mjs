@@ -57,7 +57,7 @@ export function isInternalPastePath(relPath) {
  * Names that must never appear in shipped copy. Extend as partners are added
  * (§0.4 adapters: rail and issuer names are internal identifiers, not brands).
  */
-const FORBIDDEN = [
+export const FORBIDDEN = [
   { pattern: /\bGMaster\b/i, reason: 'engine vendor name — say "Neural Engine"' },
   { pattern: /\bG-?Master\s*Neural\b/i, reason: 'engine vendor name' },
   {
@@ -502,85 +502,93 @@ function* walk(dir) {
   }
 }
 
-const violations = [];
-let scanned = 0;
-let vendorProductScanned = 0;
-
-const seen = new Set();
-function scanFile(file) {
-  const abs = resolve(file);
-  if (seen.has(abs)) return;
-  seen.add(abs);
-  const rel = relative(ROOT, abs);
-  if (isAllowlisted(rel)) return;
-
-  scanned++;
-  const content = readFileSync(abs, 'utf8');
-  const lines = content.split('\n');
-
-  for (const { pattern, reason } of FORBIDDEN) {
-    if (!pattern.test(content)) continue;
-    lines.forEach((line, i) => {
-      // Fresh regex per line: the shared one may carry lastIndex state.
-      if (new RegExp(pattern.source, pattern.flags.replace('g', '')).test(line)) {
-        violations.push({ file: rel, line: i + 1, text: line.trim().slice(0, 120), reason });
-      }
-    });
-  }
-}
-
-for (const file of walk(ROOT)) scanFile(file);
-
-const vendorProductFiles = collectVendorProductFiles();
-for (const file of vendorProductFiles) {
-  const before = scanned;
-  scanFile(file);
-  if (scanned > before) vendorProductScanned++;
-}
-
-if (violations.length > 0) {
-  console.error(`\n✖ BRAND SCAN FAILED — ${violations.length} occurrence(s) of a forbidden name (Doctrine §0.7)\n`);
-  for (const v of violations) {
-    console.error(`  ${v.file}:${v.line}`);
-    console.error(`    ${v.text}`);
-    console.error(`    → ${v.reason}\n`);
-  }
-  console.error('  User-facing copy says only: Identity Blueprint · Sovereign Intelligence · Neural Engine.\n');
-  process.exit(1);
-}
-
 /**
- * A walk that read nothing is a failure, not a pass.
- *
- * This scan has printed `clean — N files` since it was written, and nobody has
- * ever had to ask what happens when N is 0 — because `walk` would throw on a
- * missing ROOT and CI would go red for a different reason. That is luck, not a
- * guard: an over-broad SKIP_DIRS entry, or an ALLOWLIST prefix that swallows
- * more than its author meant, produces `clean — 0 files, 0 forbidden names` and
- * a green tick, which is the single most confident-sounding wrong answer this
- * file can give. Four scans in this repo have already been caught reporting
- * clean about a tree they never opened.
+ * The scan itself, run only when this file is the script node was started with: a test that imports FORBIDDEN
+ * scans nothing and exits nothing.
  */
-if (scanned === 0) {
-  console.error('\n✖ BRAND SCAN FAILED — 0 files were read. NOTHING WAS SCANNED.');
-  console.error('  This is not a clean repo; it is a scan that opened nothing. Check SKIP_DIRS,');
-  console.error('  ALLOWLIST and EXTENSIONS — one of them is now matching everything.\n');
-  process.exit(1);
+function main() {
+  const violations = [];
+  let scanned = 0;
+  let vendorProductScanned = 0;
+
+  const seen = new Set();
+  function scanFile(file) {
+    const abs = resolve(file);
+    if (seen.has(abs)) return;
+    seen.add(abs);
+    const rel = relative(ROOT, abs);
+    if (isAllowlisted(rel)) return;
+
+    scanned++;
+    const content = readFileSync(abs, 'utf8');
+    const lines = content.split('\n');
+
+    for (const { pattern, reason } of FORBIDDEN) {
+      if (!pattern.test(content)) continue;
+      lines.forEach((line, i) => {
+        // Fresh regex per line: the shared one may carry lastIndex state.
+        if (new RegExp(pattern.source, pattern.flags.replace('g', '')).test(line)) {
+          violations.push({ file: rel, line: i + 1, text: line.trim().slice(0, 120), reason });
+        }
+      });
+    }
+  }
+
+  for (const file of walk(ROOT)) scanFile(file);
+
+  const vendorProductFiles = collectVendorProductFiles();
+  for (const file of vendorProductFiles) {
+    const before = scanned;
+    scanFile(file);
+    if (scanned > before) vendorProductScanned++;
+  }
+
+  if (violations.length > 0) {
+    console.error(`\n✖ BRAND SCAN FAILED — ${violations.length} occurrence(s) of a forbidden name (Doctrine §0.7)\n`);
+    for (const v of violations) {
+      console.error(`  ${v.file}:${v.line}`);
+      console.error(`    ${v.text}`);
+      console.error(`    → ${v.reason}\n`);
+    }
+    console.error('  User-facing copy says only: Identity Blueprint · Sovereign Intelligence · Neural Engine.\n');
+    process.exit(1);
+  }
+
+  /**
+   * A walk that read nothing is a failure, not a pass.
+   *
+   * This scan has printed `clean — N files` since it was written, and nobody has
+   * ever had to ask what happens when N is 0 — because `walk` would throw on a
+   * missing ROOT and CI would go red for a different reason. That is luck, not a
+   * guard: an over-broad SKIP_DIRS entry, or an ALLOWLIST prefix that swallows
+   * more than its author meant, produces `clean — 0 files, 0 forbidden names` and
+   * a green tick, which is the single most confident-sounding wrong answer this
+   * file can give. Four scans in this repo have already been caught reporting
+   * clean about a tree they never opened.
+   */
+  if (scanned === 0) {
+    console.error('\n✖ BRAND SCAN FAILED — 0 files were read. NOTHING WAS SCANNED.');
+    console.error('  This is not a clean repo; it is a scan that opened nothing. Check SKIP_DIRS,');
+    console.error('  ALLOWLIST and EXTENSIONS — one of them is now matching everything.\n');
+    process.exit(1);
+  }
+
+  // D26-P2-14: when vendor/ is present, the product-surface INCLUDE walk must
+  // actually open files. A green tick that only covers services/docs while the
+  // sole UI lives under vendor/ is the hole this gate closed once already.
+  if (existsSync(join(ROOT, 'vendor')) && vendorProductScanned === 0) {
+    console.error('\n✖ BRAND SCAN FAILED — vendor/ is present but 0 vendor product-surface files were read.');
+    console.error('  Vue project roots + Java src/main/resources must be in scope (D26-P2-14).');
+    console.error('  Check collectVendorProductFiles() / findVendorShellProjectRoots() — discovery is blind.\n');
+    process.exit(1);
+  }
+
+  // The count is qualified on purpose, and on the SAME line, because `gates.mjs`
+  // prints only the last non-empty line as a gate's summary — a caveat on a second
+  // line is a caveat nobody reads in CI.
+  console.log(
+    `✓ brand-scan clean — ${scanned} files (incl. ${vendorProductScanned} vendor product-surface), 0 forbidden names (Doctrine §0.7)`,
+  );
 }
 
-// D26-P2-14: when vendor/ is present, the product-surface INCLUDE walk must
-// actually open files. A green tick that only covers services/docs while the
-// sole UI lives under vendor/ is the hole this gate closed once already.
-if (existsSync(join(ROOT, 'vendor')) && vendorProductScanned === 0) {
-  console.error('\n✖ BRAND SCAN FAILED — vendor/ is present but 0 vendor product-surface files were read.');
-  console.error('  Vue project roots + Java src/main/resources must be in scope (D26-P2-14).');
-  console.error('  Check collectVendorProductFiles() / findVendorShellProjectRoots() — discovery is blind.\n');
-  process.exit(1);
-}
-
-// The count is qualified on purpose, and on the SAME line, because `gates.mjs`
-// prints only the last non-empty line as a gate's summary — a caveat on a second
-// line is a caveat nobody reads in CI.
-console.log(
-  `✓ brand-scan clean — ${scanned} files (incl. ${vendorProductScanned} vendor product-surface), 0 forbidden names (Doctrine §0.7)`,
-);
+if (isDirectRun) main();

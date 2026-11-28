@@ -2,16 +2,11 @@
  * GET /ready must not sell isolate as wired when the lake is missing.
  * Isolate wired is not lake wired. missingLake is named, not silent.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { missingLake } from './backtest/lake.js';
 import { QUANT_BACKTEST_LAKE_MISSING, QUANT_SANDBOX_UNWIRED } from './errors.js';
 import { quantReadyHonesty } from './ready-honesty.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('quant /ready honesty — isolate wired is not a missing lake', () => {
   const apps: FastifyInstance[] = [];
@@ -72,18 +67,15 @@ describe('quant /ready honesty — isolate wired is not a missing lake', () => {
     expect(body).not.toHaveProperty('custodial');
   });
 
-  it('ready-honesty.ts does not literal-stamp custodial:false', () => {
-    const src = readFileSync(join(here, 'ready-honesty.ts'), 'utf8');
-    expect(src).not.toMatch(/custodial:\s*z\.literal\(false\)/);
-    expect(src).not.toMatch(/custodial:\s*false\s+as const/);
-    expect(src).not.toMatch(/custodial:\s*false,/);
-  });
-
-  it('index.ts serves /ready via quantReadyHonesty over missingLake, not a hardcoded isolate wired', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(indexSrc).toContain('quantReadyHonesty');
-    expect(indexSrc).toContain('missingLake');
-    expect(indexSrc).not.toMatch(/app\.get\('\/ready'[\s\S]{0,400}isolate:\s*'wired'/);
-    expect(indexSrc).not.toMatch(/log\.info\(\{[^}]*isolate:\s*'wired'/);
+  it('stamps no custodial claim for any wiring (served by index.ts: index-boot.test.ts)', () => {
+    for (const isolateWired of [true, false]) {
+      for (const lakeWired of [true, false]) {
+        for (const venueVaultSet of [true, false]) {
+          const body = quantReadyHonesty({ isolateWired, lakeWired, venueVaultSet });
+          expect(body).not.toHaveProperty('custodial');
+          expect(JSON.stringify(body)).not.toMatch(/custod/i);
+        }
+      }
+    }
   });
 });

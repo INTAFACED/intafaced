@@ -1,10 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { QUEUE_LIST_LIMIT_UNSET, assertOperatorQueueLimit as publishedQueueLimit } from './operator-queue.js';
-import { SupportError, assertOperatorQueueLimit } from './support-service.js';
+import { QUEUE_LIST_LIMIT_UNSET, assertOperatorQueueLimit as publishedQueueLimit, buildOperatorQueue } from './operator-queue.js';
+import type { SupportTicket } from '@intafaced/contracts';
+import { SupportError, SupportService, assertOperatorQueueLimit } from './support-service.js';
 import { userCopy } from './user-copy.js';
+import { callerAs } from './testing/router-caller.js';
 
 /**
  * listQueue page size is refuse-closed when unset.
@@ -13,8 +12,6 @@ import { userCopy } from './user-copy.js';
  * `input?.limit`, so omit invented a 100-row operator ticket queue. Blank
  * must refuse. Owner/client may pass 100 explicitly.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('listQueue limit unset refuse', () => {
   it('assertOperatorQueueLimit refuses blank / NaN / 0 — never invents 100', () => {
@@ -41,23 +38,34 @@ describe('listQueue limit unset refuse', () => {
     expect(assertOperatorQueueLimit(501)).toBe(500);
   });
 
-  it('buildOperatorQueue no longer defaults limit to 100', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/operator-queue.ts'), 'utf8');
-    const start = src.indexOf('export function buildOperatorQueue(');
-    const end = src.indexOf('export function assignNext(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertOperatorQueueLimit');
-    expect(fn).not.toMatch(/limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
+  it('buildOperatorQueue refuses an omitted limit by name and pages an explicit one', () => {
+    const now = new Date('2026-08-05T12:00:00.000Z');
+    const rows: SupportTicket[] = [0, 1, 2].map((i) => ({
+      id: `t${i}`,
+      userId: '11111111-1111-4111-8111-111111111111',
+      category: 'other',
+      subject: `S${i}`,
+      body: 'B',
+      status: 'open',
+      assigneeId: null,
+      createdAt: `2026-08-05T0${i}:00:00.000Z`,
+      updatedAt: `2026-08-05T0${i}:00:00.000Z`,
+    }));
+    expect(() => buildOperatorQueue(rows, { now })).toThrow(/support\.queue_list_limit_unset/);
+    const page = buildOperatorQueue(rows, { now, limit: 2 });
+    expect(page.status === 'ok' ? page.entries : []).toHaveLength(2);
   });
 
-  it('router does not invent 100 when listQueue omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/router.ts'), 'utf8');
-    const start = src.indexOf('listQueue:');
-    const end = src.indexOf('next:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('listOperatorQueue({ limit: input?.limit })');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
+  it('the listQueue door refuses an omitted limit by name and pages an explicit one', async () => {
+    const svc = new SupportService();
+    for (let i = 0; i < 3; i += 1) {
+      await svc.createTicket({ userId: '11111111-1111-4111-8111-111111111111', category: 'other', subject: `S${i}`, body: 'B' });
+    }
+    const desk = await callerAs(svc, '33333333-3333-4333-8333-333333333333', ['support:ops', 'support:read', 'support:write']);
+    for (const input of [undefined, {}]) {
+      await expect(desk.listQueue(input)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: userCopy(QUEUE_LIST_LIMIT_UNSET) });
+    }
+    const page = await desk.listQueue({ limit: 2 });
+    expect(page.status === 'ok' ? page.entries : []).toHaveLength(2);
   });
 });

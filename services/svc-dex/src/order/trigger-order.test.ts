@@ -35,6 +35,17 @@ import { triggerOrderCodes } from './trigger-error.js';
 import type { TriggerOrderInput } from './trigger-order.js';
 import { createDexRouter } from '../router.js';
 
+/** Every id node:crypto mints while this file runs: a trigger order's ids are its own, never minted. */
+const minted = vi.hoisted(() => ({ count: 0 }));
+vi.mock('node:crypto', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:crypto')>();
+  const randomUUID: typeof real.randomUUID = (...args) => {
+    minted.count += 1;
+    return real.randomUUID(...args);
+  };
+  return { ...real, default: { ...real, randomUUID }, randomUUID };
+});
+
 const SECRET = 'a-dex-trigger-order-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '33333333-3333-4333-8333-333333333333';
@@ -298,23 +309,63 @@ async function refused(run: Promise<unknown>) {
 }
 
 describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
-  it('does not call a service, open a database, or mint an id', () => {
-    const files = [
-      'trigger-order.ts',
-      'trigger-keeper.ts',
-      'order-book.ts',
-      'order-signature.ts',
-      'trigger-ports.ts',
-      'trigger-settings.ts',
-      'trigger-math.ts',
-      'trigger-error.ts',
-    ];
-    for (const file of files) {
-      const src = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '');
-      expect(src).not.toMatch(/svc-identity|INTERNAL_SERVICE_SECRET|DATABASE_URL|fetch\(|randomUUID|ledger\.post/);
-      expect(src).not.toMatch(/from\s+['"]@intafaced\/ledger-client\/recipes['"]/);
+  it('does not call a service, open a database, or mint an id', async () => {
+    // No ledger write: svc-dex is a Protocol Plane service, so `pnpm scan:custody` refuses a write recipe import or a
+    // ledger.post anywhere in it (tooling/ci/custody-scan.mjs, WRITE_SURFACE).
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string | URL) => {
+      calls.push(String(url));
+      throw new Error('TEST: a trigger order must not call out');
+    });
+    const webUuid = vi.spyOn(globalThis.crypto, 'randomUUID');
+    minted.count = 0;
+    // Every read of process.env while each trigger module loads fresh and one order lives its whole life.
+    const reads: string[] = [];
+    const realEnv = process.env;
+    process.env = new Proxy(realEnv, {
+      get: (target, key, receiver) => (reads.push(String(key)), Reflect.get(target, key, receiver)),
+      has: (target, key) => (reads.push(String(key)), Reflect.has(target, key)),
+      getOwnPropertyDescriptor: (target, key) => (reads.push(String(key)), Reflect.getOwnPropertyDescriptor(target, key)),
+    });
+    try {
+      vi.resetModules();
+      for (const load of [
+        () => import('./trigger-order.js'),
+        () => import('./trigger-keeper.js'),
+        () => import('./order-book.js'),
+        () => import('./order-signature.js'),
+        () => import('./trigger-ports.js'),
+        () => import('./trigger-settings.js'),
+        () => import('./trigger-math.js'),
+        () => import('./trigger-error.js'),
+      ])
+        await load();
+      // The whole life of one order: placed, validated, read, held below its trigger, then filled by the keeper.
+      const price = new ScriptPrice();
+      const fill = new ScriptFill();
+      const { caller, book } = harness({ price, fill, book: new OrderBook(mkdtempSync(join(tmpdir(), 'dex-trigger-ids-'))) });
+      const input = await placed();
+      await caller().order.validate(input);
+      const created = await caller().order.createTrigger(input);
+      await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'below');
+      price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+      await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'cross');
+      const filled = await caller().order.get({ orderHash: created.orderHash });
+      expect(filled.state).toBe('filled');
+      await caller().order.attempts({ orderHash: created.orderHash });
+      // Its ids are its own: the hash is the signed order's, the fill key is built from it.
+      expect(fill.sent[0]?.key).toBe(`dex.order.fill:${created.orderHash}:1`);
+      expect(calls).toEqual([]);
+      expect(minted.count).toBe(0);
+      expect(webUuid).not.toHaveBeenCalled();
+      // The env it does read (the screening answer) is seen, so a read of a service secret, a database or an
+      // identity address would be too.
+      expect(reads).toContain(SANCTIONS_REGIONS_ENV);
+      expect(reads.filter((key) => /SECRET|DATABASE|IDENTITY/.test(key))).toEqual([]);
+    } finally {
+      process.env = realEnv;
+      webUuid.mockRestore();
+      vi.unstubAllGlobals();
     }
   });
 

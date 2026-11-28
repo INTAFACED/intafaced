@@ -9,7 +9,6 @@ import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ROUTES = resolve(import.meta.dirname, '../../svc-edge/src/routes.ts');
 
 function serviceBlock(source: string, name: string): string {
   return composeServiceBlock(source, name);
@@ -30,7 +29,6 @@ describe('ops.support fleet compose pin', () => {
   it('points the edge door at that container (not localhost-in-compose)', () => {
     const edge = serviceBlock(readFileSync(COMPOSE, 'utf8'), 'svc-edge');
     expect(edge).toMatch(/SUPPORT_URL:\s*http:\/\/svc-support:4017/);
-    const routes = readFileSync(ROUTES, 'utf8');
-    expect(routes).toMatch(/prefix: '\/api\/support'[\s\S]*envVar: 'SUPPORT_URL'/);
+    // That the edge sends /api/support to SUPPORT_URL is svc-edge's own: services/svc-edge/src/routes.test.ts.
   });
 });

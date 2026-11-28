@@ -29,7 +29,6 @@ import { assertPublishedSandboxMaxOps, assertPublishedSandboxMaxSource } from '.
 import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 function quantServiceBlock(source: string): string {
@@ -65,23 +64,19 @@ afterEach(() => {
 
 describe('compose SANDBOX_MAX_OPS / SANDBOX_MAX_SOURCE for svc-quant', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-quant/src/env.ts'), 'utf8');
-  const helperTs = readFileSync(join(HERE, 'max.ts'), 'utf8');
   const block = quantServiceBlock(compose);
 
-  it('env.ts refuses blank ceilings — no 50000 / 8000 default; timeout stays 500', () => {
-    expect(envTs).not.toMatch(/SANDBOX_MAX_OPS:[\s\S]{0,400}\.default\(50_000\)/);
-    expect(envTs).not.toMatch(/SANDBOX_MAX_OPS:[\s\S]{0,400}\.default\(50000\)/);
-    expect(envTs).not.toMatch(/SANDBOX_MAX_SOURCE:[\s\S]{0,400}\.default\(8_000\)/);
-    expect(envTs).not.toMatch(/SANDBOX_MAX_SOURCE:[\s\S]{0,400}\.default\(8000\)/);
-    expect(envTs).toMatch(
-      /SANDBOX_MAX_OPS:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.union\(\[z\.undefined\(\), z\.coerce\.number\(\)\.int\(\)\.min\(100\)\.max\(1_000_000\)\]\),\s*\)/,
-    );
-    expect(envTs).toMatch(
-      /SANDBOX_MAX_SOURCE:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.union\(\[z\.undefined\(\), z\.coerce\.number\(\)\.int\(\)\.min\(32\)\.max\(64_000\)\]\),\s*\)/,
-    );
-    expect(envTs).toMatch(/SANDBOX_TIMEOUT_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(50\)\.max\(10_000\)\.default\(500\)/);
-  });
+  it('env.ts refuses blank ceilings — no 50000 / 8000 default; the ranges hold; timeout stays 500', async () => {
+    const parsed = await loadWith({});
+    expect(parsed.SANDBOX_MAX_OPS).toBeUndefined();
+    expect(parsed.SANDBOX_MAX_SOURCE).toBeUndefined();
+    expect(parsed.SANDBOX_TIMEOUT_MS).toBe(500);
+    const top = await loadWith({ SANDBOX_MAX_OPS: '1000000', SANDBOX_MAX_SOURCE: '64000' });
+    expect([top.SANDBOX_MAX_OPS, top.SANDBOX_MAX_SOURCE]).toEqual([1_000_000, 64_000]);
+    await expect(loadWith({ SANDBOX_MAX_OPS: '1000001' })).rejects.toThrow(/SANDBOX_MAX_OPS/);
+    await expect(loadWith({ SANDBOX_MAX_SOURCE: '64001' })).rejects.toThrow(/SANDBOX_MAX_SOURCE/);
+    await expect(loadWith({ SANDBOX_MAX_OPS: '5000.5' })).rejects.toThrow(/SANDBOX_MAX_OPS/);
+  }, 20_000);
 
   it('compose svc-quant block is the unique home; ceilings are empty pass-through', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-quant/);
@@ -99,8 +94,6 @@ describe('compose SANDBOX_MAX_OPS / SANDBOX_MAX_SOURCE for svc-quant', () => {
     expect(block).not.toMatch(/SANDBOX_TIMEOUT_MS:/);
     expect(block.match(VAULT)).toHaveLength(1);
     expect(block).toMatch(/HTTP_PORT:\s*'4021'/);
-    expect(helperTs).toMatch(/quant\.sandbox_max_ops_unset/);
-    expect(helperTs).toMatch(/quant\.sandbox_max_source_unset/);
   });
 });
 

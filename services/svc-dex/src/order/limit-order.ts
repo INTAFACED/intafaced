@@ -26,7 +26,7 @@ export const limitOrderCodes = {
 
 export type LimitOrderCode = (typeof limitOrderCodes)[keyof typeof limitOrderCodes];
 
-export class LimitOrderRefused extends Error {
+class LimitOrderRefused extends Error {
   constructor(
     readonly code: LimitOrderCode,
     message: string,
@@ -44,7 +44,7 @@ const windowObject = z.object({
   endsAt: z.string().optional(),
 });
 
-export const limitOrderInput = z.object({
+const limitOrderInput = z.object({
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
   price: z.string().optional(),
@@ -107,7 +107,7 @@ function windowBounds(window: LimitOrderInput['window'], now: Date): { startsAt:
  * Returns `never`: a resolved call would look like an order this service did not place.
  * Price and size are scaled bigint (`parseAmount`); they are not kept as numbers.
  */
-export function placeLimitOrder(principalUserId: string | null, input: LimitOrderInput, now: Date): never {
+function placeLimitOrder(principalUserId: string | null, input: LimitOrderInput, now: Date): never {
   if (blank(principalUserId ?? undefined)) {
     refuse(limitOrderCodes.principalRequired, 'a limit order needs the edge-forwarded principal; this service does not issue a session');
   }
@@ -125,7 +125,7 @@ export function placeLimitOrder(principalUserId: string | null, input: LimitOrde
   refuse(limitOrderCodes.notPlaced, 'svc-dex does not place the order, store it, or call another service');
 }
 
-export function limitOrderTrpcError(err: LimitOrderRefused): TRPCError {
+function limitOrderTrpcError(err: LimitOrderRefused): TRPCError {
   const code =
     err.code === limitOrderCodes.principalRequired
       ? 'UNAUTHORIZED'

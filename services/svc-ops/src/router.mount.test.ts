@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -59,10 +56,12 @@ describe('svc-ops health — liveness is not a custodial stamp', () => {
     expect(health).not.toHaveProperty('custodial');
   });
 
-  it('router.ts health does not literal-stamp custodial:false', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
-    expect(src).not.toMatch(/custodial:\s*z\.literal\(false\)/);
-    expect(src).not.toMatch(/custodial:\s*false\s+as const/);
+  it('answers the same ok + service to a signed operator, never a custodial stamp', async () => {
+    // Its output schema holds exactly these two fields; what index.ts serves over HTTP: index-boot.test.ts.
+    const api = createOpsRouter(new OpsService()).createCaller(await signed());
+    const health = await api.health();
+    expect(health).toEqual({ ok: true, service: 'svc-ops' });
+    expect(JSON.stringify(health)).not.toMatch(/custodial/);
   });
 });
 

@@ -11,16 +11,12 @@
  * 5. Paths: market-data-source.ts orderBook()
  * 6. RED: omitting limit returns a 50-level book
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount as amt } from '@intafaced/ledger-client/money';
 import { MarketDataSource } from './market-data-source.js';
 import type { TimestampedBook } from './venue.js';
 
 const NOW = new Date('2026-07-29T12:00:00.000Z');
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 class LiveVenue extends MarketDataSource {
   readonly id = 'intachain-clob';
@@ -48,12 +44,6 @@ class LiveVenue extends MarketDataSource {
 }
 
 describe('MarketDataSource orderBook limit refuse-closed', () => {
-  it('market-data-source.ts has no invented 50 on orderBook()', () => {
-    const src = readFileSync(join(HERE, 'market-data-source.ts'), 'utf8');
-    expect(src).not.toMatch(/orderBook\(symbol: string, limit = 50\)/);
-    expect(src).toMatch(/publishedOrderBookLimit/);
-  });
-
   it('unset limit refuses (no invent 50)', async () => {
     const venue = new LiveVenue();
     await expect(venue.orderBook('IFC-USD')).rejects.toThrow(/refuse to invent 50/);

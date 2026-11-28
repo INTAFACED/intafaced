@@ -10,25 +10,10 @@
  * 5. Paths: blueprint-service.ts publishedCrewCapacity / publishedMentorShortlistSize / publishedSeason
  * 6. RED: unset helper returns 6 / 3 / 1 or source git-defaults them
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { publishedCrewCapacity, publishedMentorShortlistSize, publishedSeason } from './blueprint-service.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
 describe('unpublished crew / mentor / season knobs', () => {
-  it('blueprint-service.ts does not git-default 6 / 3 / 1', () => {
-    const src = readFileSync(join(HERE, 'blueprint-service.ts'), 'utf8');
-    expect(src).not.toMatch(/options\.crewCapacity\s*\?\?\s*6/);
-    expect(src).not.toMatch(/options\.mentorShortlistSize\s*\?\?\s*3/);
-    expect(src).not.toMatch(/options\.season\s*\?\?\s*1/);
-    expect(src).toMatch(/blueprint\.crew_capacity_unset/);
-    expect(src).toMatch(/blueprint\.mentor_shortlist_unset/);
-    expect(src).toMatch(/blueprint\.season_unset/);
-  });
-
   it('unset / NaN / 0 / 25 refuse capacity — never invent 6', () => {
     for (const value of [undefined, Number.NaN, 0, 1, 25] as const) {
       try {

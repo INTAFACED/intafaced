@@ -9,9 +9,6 @@
  * 5. Paths: quote-service.ts sourceQuote
  * 6. RED: unset quote succeeds or source git-defaults 2000
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount as amt } from '@intafaced/ledger-client/money';
 import { QuoteRefusedError, sourceQuote } from './quote-service.js';
@@ -48,13 +45,6 @@ class LiveVenue extends MarketDataSource {
 const buyOne = { symbol: 'IFC-USD', side: 'buy' as const, qty: amt('1') };
 
 describe('sourceQuote max age unpublished', () => {
-  it('quote-service.ts does not git-default 2000', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'quote-service.ts'), 'utf8');
-    expect(src).toMatch(/dex\.quote\.max_age_unset/);
-    expect(src).not.toMatch(/maxAgeMs\s*=\s*2_?000/);
-    expect(src).not.toMatch(/DEFAULT_QUOTE_MAX_AGE/);
-  });
-
   it('unset maxAgeMs refuses (does not invent 2000) and does not fetch', async () => {
     const venue = new LiveVenue();
     await expect(sourceQuote({ venues: [venue], depth: 50, now: () => NOW }, buyOne)).rejects.toMatchObject({

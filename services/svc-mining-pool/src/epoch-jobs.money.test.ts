@@ -15,10 +15,29 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { MemoryLedger } from '@intafaced/ledger-client';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { MemoryLedger, MoneyError, parseAmount, recipes } from '@intafaced/ledger-client';
 import { MINING_EPOCH_PAYOUT_JOB, startMiningJobs } from './epoch-jobs.js';
-import { submitShare } from './submit-share.js';
+import * as ledgerModule from './ledger.js';
+import { buildPayoutRecipes, miningPayoutRewardId, postPayouts } from './ledger.js';
+import { planPplns } from './pplns.js';
+import * as submitShareModule from './submit-share.js';
+import { handleSubmitSharePost, submitShare } from './submit-share.js';
+import { EMISSION_UNPUBLISHED, EPOCH_UNSET } from './window-store.js';
+
+/** Every call into the payout door (ledger.ts postPayouts), from any module in this service. */
+const payoutDoor = vi.hoisted(() => ({ calls: 0 }));
+vi.mock('./ledger.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./ledger.js')>();
+  return {
+    ...real,
+    postPayouts: (...args: Parameters<typeof real.postPayouts>) => {
+      payoutDoor.calls += 1;
+      return real.postPayouts(...args);
+    },
+  };
+});
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', 'drizzle');
@@ -82,26 +101,57 @@ describe('Q-mine JobHost money hitch (source)', () => {
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('HTTP submitShare persists only; JobHost is the payout door and refuses unpublished mint/reward', () => {
-    const submitSrc = readFileSync(join(here, 'submit-share.ts'), 'utf8');
-    const jobsSrc = readFileSync(join(here, 'epoch-jobs.ts'), 'utf8');
-    const serverSrc = readFileSync(join(here, 'server.ts'), 'utf8');
-    const ledgerSrc = readFileSync(join(here, 'ledger.ts'), 'utf8');
-    const pplnsSrc = readFileSync(join(here, 'pplns.ts'), 'utf8');
-    expect(submitSrc).not.toMatch(/postPayouts/);
-    expect(submitSrc).toMatch(/persistWindowShares/);
-    expect(jobsSrc).toMatch(/postPayouts/);
-    expect(jobsSrc).toMatch(/createJobHost/);
-    expect(jobsSrc).toMatch(/EMISSION_UNPUBLISHED/);
-    expect(serverSrc).toMatch(/startMiningJobs/);
-    expect(serverSrc).not.toMatch(/postPayouts/);
-    expect(ledgerSrc).toMatch(/parseAmount\(payout\.amount\)/);
-    expect(ledgerSrc).toMatch(/parseAmount\(input\.reward\)/);
-    expect(ledgerSrc).toMatch(/EMISSION_UNPUBLISHED/);
-    expect(ledgerSrc).not.toMatch(/mintEmission/);
-    expect(ledgerSrc).not.toMatch(/ledger\.post/);
-    expect(pplnsSrc).toMatch(/parseAmount\(input\.reward\)/);
-    expect(pplnsSrc).not.toMatch(/Number\(input\.reward\)/);
+  it('the payout door refuses unpublished mint/reward and never posts; amounts are decimal strings, never numbers', async () => {
+    const posts: unknown[] = [];
+    const ledger = {
+      post: async (request: unknown): Promise<never> => {
+        posts.push(request);
+        throw new Error('TEST: no post');
+      },
+    };
+    const window = {
+      windowId: 'epoch-1',
+      epoch: 1,
+      assetId: 'IFC',
+      reward: '10',
+      feeBps: 100,
+      shares: [{ shareId: 'a', minerId: ALICE, weight: 1n }],
+    };
+    // An owner-unpublished emission refuses by name even with a set epoch and a caller reward (ledger.ts).
+    await expect(postPayouts(ledger, window)).rejects.toThrow(EMISSION_UNPUBLISHED);
+    const { epoch: _unset, ...noEpoch } = window;
+    await expect(postPayouts(ledger, noEpoch)).rejects.toThrow(EPOCH_UNSET);
+    // The reward is parsed as a decimal string: an exponent or a lossy figure refuses before anything else.
+    for (const reward of ['1e1', '10.0000000000000000001', 'ten']) {
+      await expect(postPayouts(ledger, { ...window, reward })).rejects.toThrow(MoneyError);
+      expect(() => planPplns({ ...window, reward })).toThrow(MoneyError);
+    }
+    expect(posts).toEqual([]);
+    // A reward a JS number cannot hold is paid out exactly (pplns.ts keeps it a scaled bigint).
+    const plan = planPplns({ ...window, reward: '123456789012345678.000000000000000001', feeBps: 0 });
+    expect(plan.gross).toBe('123456789012345678.000000000000000001');
+    expect(plan.payouts).toEqual([{ minerId: ALICE, amount: '123456789012345678.000000000000000001' }]);
+    // The recipe it would post is the ledger-client's rewardPay at that exact amount, for that miner: never a mint.
+    const built = buildPayoutRecipes({ ...window, reward: '2.5', feeBps: 0 });
+    expect(built).toEqual([
+      recipes.rewardPay({
+        rewardId: miningPayoutRewardId('epoch-1', ALICE),
+        userId: ALICE,
+        assetId: 'IFC',
+        amount: parseAmount('2.5'),
+        reason: 'mining.pplns.payout',
+      }),
+    ]);
+    // Every export of ledger.ts, called with a valid window: none of them posts.
+    const calls: Record<string, () => unknown> = {
+      miningPayoutRewardId: () => ledgerModule.miningPayoutRewardId('epoch-1', ALICE),
+      miningPayoutIdempotencyKey: () => ledgerModule.miningPayoutIdempotencyKey('epoch-1', ALICE),
+      buildPayoutRecipes: () => ledgerModule.buildPayoutRecipes(window),
+      postPayouts: () => ledgerModule.postPayouts(ledger, window).catch((err: unknown) => err),
+    };
+    expect(Object.keys(ledgerModule).sort()).toEqual(Object.keys(calls).sort());
+    for (const call of Object.values(calls)) await call();
+    expect(posts).toEqual([]);
   });
 });
 
@@ -162,6 +212,66 @@ describe('svc-mining-pool JobHost mint/rewardPay money', () => {
     expect(ledger.journal()).toHaveLength(0);
     const [row] = await sql<{ status: string }[]>`SELECT status FROM mining_pool.windows WHERE window_id = 'epoch-1'`;
     expect(row?.status).toBe('open');
+    handle.stop();
+  });
+
+  it('only the JobHost tick reaches the payout door: every export of submit-share.ts persists without paying', async () => {
+    const SECRET = 'q-mine-submit-share-secret-long-enough';
+    const ledger = new MemoryLedger();
+    const window = {
+      windowId: 'epoch-doors',
+      epoch: 1,
+      assetId: 'IFC',
+      reward: '10',
+      feeBps: 100,
+      shares: [{ shareId: 'd1', minerId: ALICE, weight: 1n }],
+    };
+    const body = Buffer.from(
+      JSON.stringify({ ...window, windowId: 'epoch-doors-http', epoch: 2, shares: [{ shareId: 'd2', minerId: BOB, weight: '2' }] }),
+      'utf8',
+    );
+    payoutDoor.calls = 0;
+    const calls: Record<string, () => Promise<unknown>> = {
+      MINING_UNAUTHENTICATED: async () => submitShareModule.MINING_UNAUTHENTICATED,
+      authorizeSubmitShare: async () =>
+        submitShareModule.authorizeSubmitShare(serviceAuthHeadersForBody('svc-cron', SECRET, body), SECRET, body),
+      parsePplnsBody: async () => submitShareModule.parsePplnsBody(JSON.parse(body.toString('utf8'))),
+      submitShare: () => submitShareModule.submitShare(sql, window),
+      handleSubmitSharePost: async () => {
+        const signed = await handleSubmitSharePost({
+          headers: serviceAuthHeadersForBody('svc-cron', SECRET, body),
+          rawBody: body,
+          secret: SECRET,
+          sql,
+        });
+        expect(signed.status).toBe(200);
+        return signed;
+      },
+      ingestRigShare: () =>
+        submitShareModule
+          .ingestRigShare(sql, {}, { windowId: 'epoch-doors', assetId: 'IFC', minerId: ALICE, workerName: 'rig-1', powNonce: '00' })
+          .catch((err: unknown) => err),
+    };
+    expect(Object.keys(submitShareModule).sort()).toEqual(Object.keys(calls).sort());
+    for (const call of Object.values(calls)) await call();
+    const stored = await sql<{ window_id: string }[]>`SELECT DISTINCT window_id FROM mining_pool.shares ORDER BY window_id`;
+    expect(stored.map((row) => row.window_id)).toEqual(['epoch-doors', 'epoch-doors-http']);
+    expect(payoutDoor.calls).toBe(0);
+    expect(ledger.journal()).toHaveLength(0);
+
+    // The JobHost tick is the door that does reach it (and it still refuses, posting nothing).
+    const clock = captureIntervals();
+    const handle = startMiningJobs({
+      sql,
+      ledger,
+      intervalMs: 15_000,
+      setIntervalFn: clock.setIntervalFn,
+      clearIntervalFn: clock.clearIntervalFn,
+      onError: () => undefined,
+    });
+    await clock.timers[0]!.fn();
+    expect(payoutDoor.calls).toBeGreaterThan(0);
+    expect(ledger.journal()).toHaveLength(0);
     handle.stop();
   });
 

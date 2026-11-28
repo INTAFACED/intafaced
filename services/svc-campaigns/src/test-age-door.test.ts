@@ -1,13 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { rawBodyOf, serviceAuthHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { TEST_AGE_PATH, registerTestAgeDoor, type TestAgeSubject } from '@intafaced/service-kit';
 import { describe, expect, it } from 'vitest';
 
 const SECRET = 'test-age-door-campaigns-secret-32c';
-const here = dirname(fileURLToPath(import.meta.url));
 const AGE = { subject: 'reward', id: 'task:c1:a1:once', ms: 61_000 };
 
 /** svc-campaigns' app as index.ts builds it: the door in its own scope, and a JSON route beside it. */
@@ -79,18 +75,4 @@ describe("svc-campaigns' TEST age door", () => {
   });
 });
 
-describe('index.ts wiring', () => {
-  const source = readFileSync(join(here, 'index.ts'), 'utf8');
-
-  it('reads the flag before opening the database, mounts the door once in its own scope, and opens it only from that read', () => {
-    const check = source.indexOf('const testAgeDoor = testAgeDoorOpen(process.env);');
-    expect(check).toBeGreaterThan(-1);
-    expect(check).toBeLessThan(source.indexOf('postgres(env.DATABASE_URL'));
-    expect(source.match(/registerTestAgeDoor\(/g)).toHaveLength(1);
-    expect(source).toMatch(/await app\.register\(async \(scope\) => \{\n\s+registerTestAgeDoor\(scope, \{\n\s+open: testAgeDoor,/);
-    expect(source).toMatch(/subjects: \{ reward: ageReward\(sql\), distribution: ageDistributionRun\(sql\) \}/);
-    // The TEST pay-fault door opens only from the same read, behind a signed call.
-    expect(source).toMatch(/if \(!testAgeDoor\) \{\n\s+return reply\n\s+\.code\(403\)/);
-    expect(source).not.toMatch(/retainRawBody\(app\)/);
-  });
-});
+// Which doors the booted index.ts opens, and that it reads TEST_AGE_DOOR before the database: index-boot.test.ts.

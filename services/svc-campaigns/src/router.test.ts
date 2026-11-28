@@ -1,12 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import type { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
-import { createCampaignsRouter } from './router.js';
+import { partial } from '@intafaced/service-kit/testing';
+import { createCampaignsRouter, type CampaignServices } from './router.js';
+import { campaignRoutes } from './routes/campaigns.js';
+import { competitionRoutes } from './routes/competitions.js';
+import { distributionRoutes } from './routes/distributions.js';
+import { drawRoutes } from './routes/draws.js';
+import { dropRoutes } from './routes/drops.js';
+import { pointsRoutes } from './routes/points.js';
+import { poolRoutes } from './routes/pools.js';
+import { referralRoutes } from './routes/referrals.js';
+import { riskRoutes } from './routes/risk.js';
+import { taskRoutes } from './routes/tasks.js';
+import { trialPassRoutes } from './routes/trial-passes.js';
+import { voucherRoutes } from './routes/vouchers.js';
+import { watchRoutes } from './routes/watch.js';
 import type { TaskService } from './tasks.js';
 import type { VoucherService } from './vouchers.js';
 import type { WatchService } from './watch.js';
@@ -234,23 +246,50 @@ describe('campaigns router', () => {
 });
 
 /**
- * `router.ts` composes only, so a change to one feature never edits the file every other feature shares. A procedure
- * written there is refused with the place it belongs.
+ * `router.ts` composes only, so a change to one feature never edits the file every other feature shares: the router it
+ * builds serves exactly the procedures the feature files make (their customer doors at the top, `ops` under `ops.`,
+ * `opsCampaigns` under `ops.campaigns.`) and the kit's `health`, and nothing of its own.
  */
-function proceduresWrittenIn(source: string): string[] {
-  return source
-    .split('\n')
-    .map((line, i) => ({ line, at: i + 1 }))
-    .filter(({ line }) => /\b(scopedProcedure|opsProcedure|publicProcedure|serviceProcedureFor)\b|\.(query|mutation)\(/.test(line))
-    .map(({ line, at }) => `router.ts:${at}: ${line.trim()}`);
+type AnyRouter = { _def: { procedure?: boolean; procedures: Record<string, unknown> } };
+const FEATURES = [
+  campaignRoutes,
+  referralRoutes,
+  competitionRoutes,
+  drawRoutes,
+  distributionRoutes,
+  poolRoutes,
+  trialPassRoutes,
+  taskRoutes,
+  voucherRoutes,
+  watchRoutes,
+  dropRoutes,
+  () => pointsRoutes(),
+  riskRoutes,
+] as const;
+/** Every procedure path one made entry serves: a procedure is itself, a nested router is each of its procedures. */
+function paths(made: unknown, name: string): string[] {
+  const def = (made as AnyRouter)._def;
+  return def.procedure ? [name] : Object.keys(def.procedures).map((path) => `${name}.${path}`);
 }
+const SECTION_PREFIX: Record<string, string> = { customer: '', ops: 'ops.', opsCampaigns: 'ops.campaigns.' };
 
 describe('router.ts', () => {
-  it("defines no procedure: each feature's procedures live in its own routes/<feature>.ts", () => {
-    const source = readFileSync(fileURLToPath(new URL('./router.ts', import.meta.url)), 'utf8');
+  it("serves only its features' procedures: each lives in its own routes/<feature>.ts", () => {
+    // Building the doors calls no service: each is reached only when a door is called.
+    const services = partial<CampaignServices>({});
+    const fromFeatures = ['health'];
+    for (const feature of FEATURES) {
+      for (const [section, procedures] of Object.entries(feature(services) as Record<string, Record<string, unknown>>)) {
+        const prefix = SECTION_PREFIX[section];
+        expect(prefix, `a feature section router.ts does not mount: ${section}`).toBeDefined();
+        for (const [name, made] of Object.entries(procedures)) fromFeatures.push(...paths(made, `${prefix}${name}`));
+      }
+    }
+    const served = Object.keys(createCampaignsRouter(services)._def.procedures);
+    expect(fromFeatures.length).toBeGreaterThan(FEATURES.length);
     expect(
-      proceduresWrittenIn(source),
+      served.sort(),
       'Write the procedure in services/svc-campaigns/src/routes/<feature>.ts and spread that file into createCampaignsRouter',
-    ).toEqual([]);
+    ).toEqual(fromFeatures.sort());
   });
 });

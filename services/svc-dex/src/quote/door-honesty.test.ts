@@ -1,11 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BEST_EX_CLAIM_UNSET, copyClaimsBestEx } from '@intafaced/venue-adapter';
 import { dexBestExHonesty, dexDoorHonesty, dexHealthHonesty, dexReadyHonesty } from './door-honesty.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const UNSET_DETAIL = 'owner best-ex law is unset — refusing rather than claiming best execution';
 
 describe('Q-dex door honesty — internal book is not non-custodial', () => {
@@ -94,11 +90,15 @@ describe('Q-dex door honesty — ranking is not certified best execution', () =>
     });
   });
 
-  it('quote-door copy does not sell a live quote as certified best execution', () => {
-    const router = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    const quoteFn = router.slice(router.indexOf('quote: publicJurisdictionProcedure'));
-    expect(copyClaimsBestEx(quoteFn)).toBe(false);
-    expect(copyClaimsBestEx(readFileSync(join(here, 'door-honesty.ts'), 'utf8'))).toBe(false);
-    expect(copyClaimsBestEx(readFileSync(join(here, '..', 'index.ts'), 'utf8'))).toBe(false);
+  it('the door honesty copy does not sell a live quote as certified best execution, for any wiring', () => {
+    // Served by index.ts (index-boot.test.ts); the quote door's own answer: internal-book-http.honesty.test.ts.
+    const answers: unknown[] = [dexBestExHonesty({ claim: false }), dexBestExHonesty({ claim: true })];
+    for (const internalBookEnabled of [true, false]) {
+      for (const flag of [true, false]) {
+        const wiring = { internalBookEnabled, ammVenueWired: flag, externalVenueWired: !flag };
+        answers.push(dexDoorHonesty(wiring), dexHealthHonesty(wiring), dexReadyHonesty(wiring));
+      }
+    }
+    for (const answer of answers) expect(copyClaimsBestEx(JSON.stringify(answer)), JSON.stringify(answer)).toBe(false);
   });
 });

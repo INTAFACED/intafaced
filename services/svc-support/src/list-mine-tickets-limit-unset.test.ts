@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { LIST_MINE_LIMIT_UNSET, SupportError, SupportService, assertListMineTicketsLimit } from './support-service.js';
 import { userCopy } from './user-copy.js';
+import { callerAs } from './testing/router-caller.js';
 
 /**
  * listMine page size is refuse-closed when unset.
@@ -12,8 +10,8 @@ import { userCopy } from './user-copy.js';
  * ticket for the caller. Blank must refuse. Owner/client may pass 100 explicitly.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const USER = '11111111-1111-4111-8111-111111111111';
+const OTHER = '22222222-2222-4222-8222-222222222222';
 
 describe('listMine limit unset refuse', () => {
   it('assertListMineTicketsLimit refuses blank / NaN / 0 — never invents 100', () => {
@@ -59,24 +57,17 @@ describe('listMine limit unset refuse', () => {
     expect(one).toHaveLength(1);
   });
 
-  it('router does not invent 100 when listMine omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/router.ts'), 'utf8');
-    const start = src.indexOf('listMine:');
-    const end = src.indexOf('listAll:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('listMyTickets({ userId: ctx.principal!.userId, limit: input?.limit })');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
-  });
-
-  it('listMyTickets no longer dumps store.listByUser() without a page', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/support-service.ts'), 'utf8');
-    const start = src.indexOf('async listMyTickets(');
-    const end = src.indexOf('async listAllTickets(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertListMineTicketsLimit');
-    expect(fn).toContain('this.store.listByUser(input.userId, { limit })');
-    expect(fn).not.toMatch(/this\.store\.listByUser\(input\.userId\)/);
-    expect(fn).not.toMatch(/\?\? 100/);
+  it("the listMine door refuses an omitted limit by name and pages an explicit one of the caller's own tickets", async () => {
+    const svc = new SupportService();
+    for (let i = 0; i < 3; i += 1) {
+      await svc.createTicket({ userId: USER, category: 'other', subject: `S${i}`, body: 'B' });
+    }
+    await svc.createTicket({ userId: OTHER, category: 'other', subject: 'Not mine', body: 'B' });
+    const me = await callerAs(svc, USER, ['support:read', 'support:write']);
+    for (const input of [undefined, {}]) {
+      await expect(me.listMine(input)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: userCopy(LIST_MINE_LIMIT_UNSET) });
+    }
+    expect(await me.listMine({ limit: 100 })).toHaveLength(3);
+    expect(await me.listMine({ limit: 1 })).toHaveLength(1);
   });
 });

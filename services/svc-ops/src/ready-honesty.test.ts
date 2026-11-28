@@ -3,9 +3,6 @@
  * or as a constructed client. A set URL is config. This process does
  * not fetch; identity/support sources stay hardcoded-absent.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED } from './codes.js';
@@ -18,7 +15,6 @@ import {
   supportUrlHonesty,
 } from './ready-honesty.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const HARDCODED = {
   identitySource: OPS_SOURCE_HARDCODED_ABSENT,
   supportSource: OPS_SOURCE_HARDCODED_ABSENT,
@@ -95,16 +91,5 @@ describe('ops ready honesty — URL-set is not live', () => {
     expect(body.supportSource).toBe('hardcoded-absent');
     expect(JSON.stringify(body)).not.toMatch(/identity\.test/);
   });
-
-  it('index.ts serves opsReadyUrlHonesty, not Boolean(env.IDENTITY_URL)', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(indexSrc).toContain('opsReadyUrlHonesty');
-    expect(indexSrc).toContain('...opsReadyUrlHonesty(env)');
-    expect(indexSrc).not.toMatch(/custodial:\s*false/);
-    expect(indexSrc).not.toMatch(/identityUrl:\s*Boolean\(env\.IDENTITY_URL\)/);
-    expect(indexSrc).not.toMatch(/supportUrl:\s*Boolean\(env\.SUPPORT_URL\)/);
-    expect(indexSrc).not.toMatch(/fetch\(/);
-    expect(indexSrc).toMatch(/identitySource:\s*async\s*\(\)\s*=>\s*\(\{\s*status:\s*'absent',\s*code:\s*OPS_IDENTITY_UNWIRED/);
-    expect(indexSrc).toMatch(/supportSource:\s*async\s*\(\)\s*=>\s*\(\{\s*status:\s*'absent',\s*code:\s*OPS_SUPPORT_UNWIRED/);
-  });
+  // What the booted index.ts serves on /ready, and that it fetches no peer: index-boot.test.ts.
 });

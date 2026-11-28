@@ -11,9 +11,6 @@
  *
  * OpsService maps remain the in-process book — not recut here.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -35,7 +32,6 @@ import { assertOpsListLimit, OPS_LIST_LIMIT_CAP } from './list-limit.js';
 import { OpsService } from './ops-service.js';
 import { createOpsRouter } from './router.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const SECRET = 'a-ops-list-limit-test-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-ops' });
@@ -98,28 +94,6 @@ describe('assertOpsListLimit', () => {
 });
 
 describe('ops directory list limit unset refuse', () => {
-  it('router does not dump maps when list doors omit limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-ops/src/router.ts'), 'utf8');
-    expect(src).toContain('assertOpsListLimit(input?.limit, OPS_CONTACTS_LIST_LIMIT_UNSET)');
-    expect(src).toContain('assertOpsListLimit(input?.limit, OPS_TEAM_LIST_LIMIT_UNSET)');
-    expect(src).toContain('assertOpsListLimit(input?.limit, OPS_PROJECTS_LIST_LIMIT_UNSET)');
-    expect(src).toContain('assertOpsListLimit(input?.limit, OPS_FUNDRAISING_LIST_LIMIT_UNSET)');
-    expect(src).toContain('assertOpsListLimit(input?.limit, OPS_FUNDRAISING_MILESTONES_LIST_LIMIT_UNSET)');
-    expect(src).toContain('assertOpsListLimit(input?.limit, OPS_STRUCTURED_LIST_LIMIT_UNSET)');
-    expect(src).toContain('assertOpsListLimit(input?.limit, OPS_CUSTODY_LIST_LIMIT_UNSET)');
-    expect(src).toContain('.slice(0, limit)');
-    expect(src).toContain('limit: listLimitField');
-    expect(src).not.toMatch(/\?\? 50/);
-    expect(src).not.toMatch(/limit = 50/);
-    expect(src).not.toContain('contacts: [...out.contacts]');
-    expect(src).not.toContain('members: [...out.members]');
-    expect(src).not.toContain('projects: [...out.projects]');
-    expect(src).not.toContain('raises: [...out.raises]');
-    expect(src).not.toContain('milestones: [...out.milestones]');
-    expect(src).not.toContain('records: [...out.records]');
-    expect(src).not.toContain('approvals: [...out.approvals]');
-  });
-
   it('omit / empty input refuses PRECONDITION_FAILED on every directory dump', async () => {
     const api = await caller();
     await expect(api.contacts()).rejects.toMatchObject({

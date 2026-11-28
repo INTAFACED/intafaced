@@ -10,9 +10,6 @@
  *
  * Page size is unchanged. The book itself is keyed by account (see account.test.ts).
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import {
@@ -27,7 +24,6 @@ import { createQuantRouter } from '../router.js';
 import { createMemoryStrategyRepository } from './memory-repository.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './list-limit.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SECRET = 'a-quant-studio-list-limit-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
 function signed() {
@@ -81,14 +77,7 @@ describe('assertStudioListLimit', () => {
 });
 
 describe('studio.list limit unset refuse', () => {
-  it('router does not dump strategies when studio.list omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-quant/src/routes/studio.ts'), 'utf8');
-    const start = src.indexOf('list: mountRecord(\n      QUANT_STUDIO_LIST,');
-    expect(start).toBeGreaterThan(-1);
-    const fn = src.slice(start);
-    expect(fn).toContain('assertStudioListLimit(input?.limit)');
-    expect(fn).toContain('.slice(0, limit)');
-    // The input is the record's: the limit optional (omit reaches the named refusal), whole, 1 to the cap.
+  it("the door's input is the record's: the limit optional (omit reaches the named refusal), whole, 1 to the cap", () => {
     const input = QUANT_STUDIO_LIST.input;
     expect(input.safeParse(undefined).success).toBe(true);
     expect(input.safeParse({}).success).toBe(true);
@@ -96,9 +85,7 @@ describe('studio.list limit unset refuse', () => {
     expect(input.safeParse({ limit: STUDIO_LIST_LIMIT_CAP + 1 }).success).toBe(false);
     expect(input.safeParse({ limit: 0 }).success).toBe(false);
     expect(input.safeParse({ limit: 1.5 }).success).toBe(false);
-    expect(fn).not.toMatch(/\?\? 50/);
-    expect(fn).not.toMatch(/limit = 50/);
-    expect(fn).not.toMatch(/strategies: \[\.\.\.studio\.list\(\)\]/);
+    expect(QUANT_STUDIO_LIST.refusals['quant.studio_list_limit_unset']).toBe('PRECONDITION_FAILED');
   });
 
   it('omit / empty input refuses PRECONDITION_FAILED — never dumps both saves', async () => {

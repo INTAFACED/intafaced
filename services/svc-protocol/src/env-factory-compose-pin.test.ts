@@ -17,7 +17,7 @@
  *    Does not invent chainId. Does not mill nginx.
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -79,16 +79,7 @@ afterEach(() => {
 
 describe('compose factory quartet empty pass-through (no invented Anvil CREATE)', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
   const block = protocolComposeBlock();
-
-  it('env.ts still defaults factory quartet to 0x0 (not Anvil CREATE)', () => {
-    expect(envTs).toMatch(/evmAddress\.default\('0x0000000000000000000000000000000000000000'\)/);
-    expect(envTs).not.toMatch(ANVIL_FACTORY);
-    expect(envTs).not.toMatch(ANVIL_IMPLEMENTATION);
-    expect(envTs).not.toMatch(ANVIL_TOKEN_FACTORY);
-    expect(envTs).not.toMatch(ANVIL_AMM);
-  });
 
   it('compose svc-protocol block empty-passes each factory addr once', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-protocol/);

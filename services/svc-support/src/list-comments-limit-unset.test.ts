@@ -1,10 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { LIST_COMMENTS_LIMIT_UNSET, SupportError, assertListCommentsLimit } from './support-service.js';
 import { userCopy } from './user-copy.js';
 import { withTestCommentCap } from './comment-cap.fixture.js';
+import { callerAs } from './testing/router-caller.js';
 
 /**
  * listComments page size is refuse-closed when unset.
@@ -14,7 +12,6 @@ import { withTestCommentCap } from './comment-cap.fixture.js';
  * pass 100 explicitly.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const USER = '11111111-1111-4111-8111-111111111111';
 
 describe('listComments limit unset refuse', () => {
@@ -65,24 +62,17 @@ describe('listComments limit unset refuse', () => {
     expect(one[0]!.body).toBe('c0');
   });
 
-  it('router does not invent 100 when listComments omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/router.ts'), 'utf8');
-    const start = src.indexOf('listComments:');
-    const end = src.indexOf('setStatus:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('limit: input.limit');
-    expect(fn).not.toMatch(/input\.limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
-  });
-
-  it('listComments no longer dumps store.listComments(ticketId) without a page', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/support-service.ts'), 'utf8');
-    const start = src.indexOf('async listComments(');
-    const end = src.indexOf('async setStatus(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertListCommentsLimit');
-    expect(fn).toContain('this.store.listComments(input.ticketId, { limit })');
-    expect(fn).not.toMatch(/this\.store\.listComments\(input\.ticketId\)/);
-    expect(fn).not.toMatch(/\?\? 100/);
+  it('the listComments door refuses an omitted limit by name and pages an explicit one; it never dumps the thread', async () => {
+    const svc = withTestCommentCap();
+    const ticket = await svc.createTicket({ userId: USER, category: 'other', subject: 'S', body: 'B' });
+    for (const body of ['c0', 'c1', 'c2']) await svc.comment({ userId: USER, ticketId: ticket.id, body });
+    const me = await callerAs(svc, USER, ['support:read', 'support:write']);
+    await expect(me.listComments({ ticketId: ticket.id })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: userCopy(LIST_COMMENTS_LIMIT_UNSET),
+    });
+    expect(await me.listComments({ ticketId: ticket.id, limit: 100 })).toHaveLength(3);
+    const one = await me.listComments({ ticketId: ticket.id, limit: 1 });
+    expect(one.map((c) => c.body)).toEqual(['c0']);
   });
 });

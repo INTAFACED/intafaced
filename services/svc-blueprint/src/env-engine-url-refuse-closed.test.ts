@@ -18,7 +18,7 @@
  *    URL, or compose interpolates :-http://host.docker.internal:4108
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -52,14 +52,6 @@ afterEach(() => {
 });
 
 describe('svc-blueprint BLUEPRINT_ENGINE_URL refuse-closed', () => {
-  it('env.ts has no localhost or docker.internal git-default', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/BLUEPRINT_ENGINE_URL:\s*z\.string\(\)\.url\(\)\.default\('http:\/\/localhost:4108'\)/);
-    expect(envTs).not.toMatch(/BLUEPRINT_ENGINE_URL:[\s\S]{0,200}\.default\(['"]http:\/\/host\.docker\.internal:4108['"]\)/);
-    expect(envTs).not.toMatch(/BLUEPRINT_ENGINE_URL:[\s\S]{0,200}\.default\(['"]http:\/\/localhost:4108['"]\)/);
-    expect(envTs).toMatch(/BLUEPRINT_ENGINE_URL is unset — will not invent http:\/\/host\.docker\.internal:4108 as live/);
-  });
-
   it('compose does not interpolate :-http://host.docker.internal:4108', () => {
     const compose = readFileSync(COMPOSE, 'utf8');
     const start = compose.indexOf('\n  svc-blueprint:');
