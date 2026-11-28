@@ -15,6 +15,8 @@
  *      exception (#11076): one group per pull request and head, so a push never cancels the run before it by itself;
  *      its `stop` job (the default branch's script alone) stops the pull request's runs still going on a commit shown to
  *      differ in journey code, never one whose runs count for the head (journey-carry.mjs supersededRuns, journey-carry.test.mjs), so a superseded head still holds no runner.
+ *      CI (ci.yml) is the other (project-state#4147): one group per pull request and head, so a push never cancels
+ *      the run on the head before it, and a check pushed red before its fix keeps the run that shows it red.
  *   4. (Retired with Journey seal re-check, 9 Nov 2026.)
  *   5. CI merge seal (INTAFACED/project-state#1574 item 2): a push's or an open's first attempt cancels the older head's
  *      seal (rule 1), and nothing else is ever cancelled or cancels: an edit's, an arming's or a reopen's seal runs on the head being
@@ -227,6 +229,9 @@ export const PR_EXCEPTIONS = new Set([
   // One group per pull request and head (rule 3): its `stop` job stops the superseded runs shown to count for nothing,
   // and keeps the one before a push that changes no code a journeys run executes, which the seal reads (#11076).
   'real-app-journeys.yml',
+  // One group per pull request and head (project-state#4147; ciProblems): a bug's check pushed alone, red, keeps its run
+  // when the fix is pushed after it, so a run shows the check failing on the old code.
+  'ci.yml',
 ]);
 
 /** Problems with rule 1 in one workflow's text, or []. */
@@ -663,12 +668,17 @@ export function ciProblems(text) {
   if (rerun.cancel) problems.push('a re-run of a main run could cancel another main run');
   if (first.some((r) => r.group === rerun.group)) problems.push('a re-run of a red main run waits in the group the next main run joins');
   if (rerun.group === resolve(text, ciRun('push', MAIN, '2')).group) problems.push('two main re-runs share one group');
-  const pr = (n, attempt) => {
-    const ctx = prEvent('pull_request', n, 'x', { attempt });
+  const pr = (n, attempt, sha = 'x') => {
+    const ctx = prEvent('pull_request', n, sha, { attempt });
     return resolve(text, { ...ctx, github: { ...ctx.github, workflow: 'CI' } });
   };
-  if (pr(7, '1').group !== 'CI-refs/pull/7/merge' || pr(7, '2').group !== 'CI-refs/pull/7/merge')
-    problems.push("a pull request's CI left its group CI-refs/pull/<n>/merge, which journey-seal.mjs relies on");
+  if (pr(7, '1').group !== 'CI-refs/pull/7/merge:x' || pr(7, '2').group !== 'CI-refs/pull/7/merge:x')
+    problems.push(
+      "a pull request's CI left its group CI-refs/pull/<n>/merge:<head>, which journey-seal.mjs relies on (a re-run joins its head's run)",
+    );
+  // project-state#4147: a bug's check pushed alone, red, then its fix: the fix's push must not cancel the check's run.
+  if (pr(7, '1', 'test-only').group === pr(7, '1', 'fix').group)
+    problems.push('a push to a pull request cancels CI on the head before it, so a check pushed red first never shows it');
   return problems;
 }
 
@@ -681,6 +691,13 @@ test("planted: yesterday's CI group (one per ref, re-runs included) fails", () =
   const old = t.replace(concurrency(t).group, '${{ github.workflow }}-${{ github.ref }}');
   assert.notEqual(old, t);
   assert.ok(ciProblems(old).some((p) => /waits in the group the next main run joins/.test(p)));
+  // project-state#4147, the old group on pull requests (one per ref): the fix's push cancelled the red-first run.
+  const perRef = t.replace(
+    concurrency(t).group,
+    "${{ (github.ref != 'refs/heads/main' || github.run_attempt == '1') && format('{0}-{1}', github.workflow, github.ref) || format('{0}-rerun-{1}', github.workflow, github.run_id) }}",
+  );
+  assert.notEqual(perRef, t);
+  assert.ok(ciProblems(perRef).some((p) => /cancels CI on the head before it/.test(p)));
   const always = t.replace(`cancel-in-progress: ${concurrency(t).cancel}`, 'cancel-in-progress: true');
   assert.notEqual(always, t);
   assert.ok(ciProblems(always).some((p) => /could be cancelled/.test(p)));
