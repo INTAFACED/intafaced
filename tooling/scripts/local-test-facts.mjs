@@ -36,7 +36,17 @@ export function localStackState(home = os.homedir(), env = process.env) {
  * script and journey run from that checkout then reads the slot from that claim. LOCAL_STACK_SLOT names one by hand.
  */
 export const CHECKOUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+/**
+ * Every slot a claim can sit on (slot n adds 1000 × n to every port). A new start takes only a shared one, and the beta
+ * its own (stack-rule.mjs, from stack-slots.json); slot 2 is handed to no new start since owner decision A (28 Nov 2026,
+ * project-state#4160), and a claim already on it runs on until its stack stops.
+ */
 export const SLOTS = [0, 1, 2, 3];
+// Read here with fs, not imported: this file imports node built-ins only.
+const STACK_RULE = JSON.parse(fs.readFileSync(new URL('./stack-slots.json', import.meta.url), 'utf8'));
+/** The slots a new start may take (stack-slots.json `shared`). */
+export const SHARED_SLOTS = Object.freeze([...STACK_RULE.shared]);
+if (![...SHARED_SLOTS, STACK_RULE.beta].every((s) => SLOTS.includes(s))) throw new Error('stack-slots.json names a slot with no ports');
 const slotFile = (slot, home = os.homedir()) => path.join(home, '.intafaced', 'slots', `${slot}.json`);
 const alive = (pid) => {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -191,7 +201,7 @@ export function anotherCheckoutsStack(env = process.env, home = os.homedir()) {
   if (claims.some((c) => c.claim?.repo === CHECKOUT)) return null;
   const zero = claims[0];
   if (!zero.claim || !zero.live || zero.claim.repo === CHECKOUT) return null;
-  const free = claims.filter((c) => !(c.claim && c.live)).map((c) => c.slot);
+  const free = claims.filter((c) => SHARED_SLOTS.includes(c.slot) && !(c.claim && c.live)).map((c) => c.slot);
   return (
     `refusing: this checkout has no stack of its own, and slot 0 is ${zero.claim.repo}'s (pid ${zero.claim.pid}). ` +
     (free.length

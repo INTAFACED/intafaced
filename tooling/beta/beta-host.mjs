@@ -62,6 +62,7 @@ import { INVITED_RECENT_MS, invitedPaths, readInvited, recordInvited } from './b
 import { limitsLine, limitsReport, readLimits } from './beta-limits.mjs';
 import { liveDeps } from './beta-testnet.mjs';
 import { LAUNCH_CUSTODY_LAYER } from '../scripts/launch-custody.mjs';
+import { BETA_SLOT } from '../scripts/stack-rule.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -69,8 +70,8 @@ const SELF = fileURLToPath(import.meta.url);
 const LAUNCH_CUSTODY_FILE = fileURLToPath(new URL('../scripts/launch-custody.mjs', import.meta.url));
 const selfHash = () => `${fileHash(SELF)}:${fileHash(LAUNCH_CUSTODY_FILE)}`;
 
-/** The beta's fixed slot. Slot n adds 1000 × n to every stack port (local-test-facts.mjs), so the link is stable. */
-export const BETA_SLOT = 3;
+/** The beta's fixed slot, from the one rule (stack-slots.json). Slot n adds 1000 × n to every stack port, so the link is stable. */
+export { BETA_SLOT };
 /** The Customer app on the beta slot. `localhost`, not 127.0.0.1: passkeys and T3's "Open on this device" need a name. */
 export const BETA_LINK = `http://localhost:${3210 + 1000 * BETA_SLOT}/`;
 /** The TEST mailbox page: the codes and links the beta stack "mails" into its LOCAL-TEST outbox file. */

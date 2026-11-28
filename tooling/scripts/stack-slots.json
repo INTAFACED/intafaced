@@ -1,0 +1,7 @@
+{
+  "about": "How heavy work runs, in one place (owner decision A, 28 Nov 2026, project-state#4160): CI runs the journeys; a builder runs only the tests beside its change; a full local stack runs only in a shared slot, queued, to prove a visible change; the beta keeps its own slot. stack-rule.mjs reads this file for every start; beta-host.mjs takes the beta's slot from it; the factory's pull reads it from main to derive how many builders the box holds (claude-hub machine/load/owners.py, box_ceiling). Change the rule here and nowhere else. stackGiB: one stack's measured peak with its journey browser (anonymous memory, on the box, 21 Nov: claude-hub#918). queueMinutes: how long a start waits for a shared slot before it says to prove on CI.",
+  "shared": [0, 1],
+  "beta": 3,
+  "stackGiB": 6.44,
+  "queueMinutes": 45
+}

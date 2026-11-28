@@ -22,8 +22,8 @@
  * It wraps what exists and adds no second harness: the start, stop, status and plan of local-test-stack.mjs; the readying
  * of journey-local.mjs (`readyStack`); the journeys' Playwright config, fixtures and helpers. A drive is a run of the
  * journey's own step tests, so a step proves here exactly what it proves in CI. A local pass never counts as proof: the
- * proof is the Real-app journeys run on the pull request's exact head. On the box (Linux), a ready launch and each drive
- * or look label the branch's open PR `self-verified` (the pilot, project-state#4001), or say to open it with that label.
+ * proof is the Real-app journeys run on the pull request's exact head. A stack runs only in a shared slot, to prove a
+ * visible change (stack-rule.mjs; owner decision A, 28 Nov 2026, project-state#4160); the self-verify pilot is over.
  *
  * Exit: 0 done (doctor: worth driving; drive and look: passed); 1 not (the line says why and what to run); 2 usage;
  * 3 no local stack (every slot held, or the start refused).
@@ -991,7 +991,6 @@ async function launch(opts, io) {
   io.say(
     `${PREFIX} launch: ready in ${secs}s: ${customer} (slot ${claim.slot}; ${startedByUs ? `${RUN} stop stops it` : 'not started by verify launch, so verify stop leaves it running'})`,
   );
-  markPilot(io);
   return 0;
 }
 
@@ -1121,43 +1120,7 @@ function finishRun(io, { dir, output, label, what, command, startedAt, exit, rep
   for (const t of tests) io.say(`${PREFIX} ${WORD[t.status]} ${t.title}${t.error ? `: ${t.error}` : ''}`);
   if (!tests.length) io.say(`${PREFIX} FAIL: Playwright exited ${exit} and reported no test`);
   io.say(`${PREFIX} ${run.verdict}. Evidence: ${path.relative(CHECKOUT, dir)}/summary.md (kept after ${RUN} stop)`);
-  markPilot(io);
   return passed ? 0 : 1;
-}
-
-// ── The pilot's label ───────────────────────────────────────────────────────
-
-// The builder self-verification pilot (project-state#4001): a builder on the box that holds a slot drives its change
-// before its first push, and its PR carries this label, so the pilot's bar is read from GitHub, not from the builder's
-// word. The Mac stays CI-only until it is measured.
-export const PILOT_LABEL = 'self-verified';
-
-/** What a ready launch or a drive does about the label: { act: 'label', number } | { act: 'open' } | { act: 'none' }. */
-export function pilotPlan({ platform, branch, pr }) {
-  if (platform !== 'linux' || !branch || branch === 'HEAD' || branch === 'main') return { act: 'none' };
-  if (!pr) return { act: 'open' };
-  if (pr.state !== 'OPEN' || (pr.labels ?? []).some((l) => l.name === PILOT_LABEL)) return { act: 'none' };
-  return { act: 'label', number: pr.number };
-}
-
-/** Labels this branch's open PR on the box; never changes the command's exit. */
-function markPilot(io) {
-  const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
-  const gh = (...args) => spawnSync('gh', args, { cwd: CHECKOUT, encoding: 'utf8' });
-  const view =
-    process.platform === 'linux' && branch && branch !== 'HEAD' ? gh('pr', 'view', branch, '--json', 'number,state,labels') : null;
-  let pr = null;
-  try {
-    pr = view?.status === 0 ? JSON.parse(view.stdout) : null;
-  } catch {}
-  const plan = pilotPlan({ platform: process.platform, branch, pr });
-  if (plan.act === 'open') io.say(`${PREFIX} pilot: open this branch's PR with --label ${PILOT_LABEL}`);
-  if (plan.act === 'label') {
-    const r = gh('pr', 'edit', String(plan.number), '--add-label', PILOT_LABEL);
-    io.say(
-      `${PREFIX} pilot: ${r.status === 0 ? `#${plan.number} labelled ${PILOT_LABEL}` : `could not label #${plan.number} ${PILOT_LABEL}: ${(r.stderr ?? '').trim().split('\n')[0]}; add it by hand`}`,
-    );
-  }
 }
 
 function evidence(io) {
