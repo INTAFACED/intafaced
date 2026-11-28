@@ -197,6 +197,18 @@ test('the verdict: one test shown failing passes it; a test passing on the base 
   assert.equal(verdict({ issue: 9, results: [{ file: 'a.test.ts', state: 'not-loaded', why: 'TS2305' }] }).ok, false);
 });
 
+test('the verdict: a fix whose every changed file is a test passes with a notice naming its head run as the proof', () => {
+  const only = verdict({ issue: 9, testOnly: true, results: [{ file: 'a.test.ts' }] });
+  assert.equal(only.ok, true);
+  assert.deepEqual(only.lines, [
+    {
+      level: 'notice',
+      text: "every file this fix for #9 changes is a test (`a.test.ts`), so the fix is in the tests themselves: there is no code before the fix, and the base would run the head's own code. Their head run, the package's own CI tests, is the proof.",
+    },
+  ]);
+  assert.equal(verdict({ issue: 9, testOnly: true, results: [] }).ok, false);
+});
+
 // ── The whole run, on a throwaway repository ───────────────────────────────────────────────────────────────────────
 
 function repo() {
@@ -319,6 +331,31 @@ test('a fix with no test fails; one whose only test is a journey test passes wit
       journey.stdout,
       /::warning::`apps\/customer\/tests\/real-app\/J-x\.pw\.mjs` is not run on the base here: a real-app journey test/,
     );
+  } finally {
+    r.done();
+  }
+});
+
+test('a fix whose every changed file is a test passes without a base run; one that also changes code still runs there', () => {
+  const r = repo();
+  try {
+    // #11305: the bug was in the test itself, so the test is the whole fix and the code before it is the code after it.
+    r.commit({ 'lib/sum.test.mjs': `${header}test('two', () => assert.equal(1 + 1, 2));\n` }, 'fix the test');
+    const only = r.run();
+    assert.equal(only.status, 0, only.stdout);
+    assert.match(
+      only.stdout,
+      /::notice::every file this fix for #9 changes is a test \(`lib\/sum\.test\.mjs`\), so the fix is in the tests/,
+    );
+    assert.doesNotMatch(only.stdout, /passes on the code before this fix/);
+    assert.match(only.stdout, /Not run on the base: the fix is in the tests\./);
+    assert.doesNotMatch(only.stdout, /[Ss]hown failing/);
+    // One changed file that is not a test brings the base run back: a test that passes there still fails the job.
+    r.commit({ ...FIX, 'lib/sum.test.mjs': `${header}test('two', () => assert.equal(2 + 0, 2));\n` }, 'fix the code too');
+    const mixed = r.run();
+    assert.equal(mixed.status, 1, mixed.stdout);
+    assert.match(mixed.stdout, /::error::`lib\/sum\.test\.mjs` passes on the code before this fix, so it does not catch #9/);
+    assert.equal(r.git('status', '--porcelain'), '');
   } finally {
     r.done();
   }
