@@ -12,7 +12,7 @@ import {
   signPrincipalHeader,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
-import { bootNotify } from '../testing/boot.js';
+import { BOOT_EDGE_SECRET, bootNotify } from '../testing/boot.js';
 import { createGuestIngressContext } from './context.js';
 
 type Principal = Parameters<typeof encodeForwardedPrincipal>[0];
@@ -89,5 +89,22 @@ describe('guest ingress: edge principal', () => {
       }),
     ).toBe(USER);
     expect(await principalSeenBy({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined })).toBeNull();
+  });
+
+  it('index.ts verifies the shared-secret principal with its own EDGE_PRINCIPAL_SECRET', async () => {
+    const booted = await bootNotify();
+    try {
+      const raw = encodePrincipal(principal());
+      const seenWith = (secret: string) =>
+        (
+          booted.trpc.createContext({ req: request(raw, signPrincipalHeader(raw, secret, 'DE')), res: {} }) as {
+            principal: { userId: string } | null;
+          }
+        ).principal?.userId ?? null;
+      expect(seenWith(BOOT_EDGE_SECRET)).toBe(USER);
+      expect(seenWith('another-edge-secret-that-is-not-the-boot-one')).toBeNull();
+    } finally {
+      await booted.close();
+    }
   });
 });

@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Principal } from '@intafaced/auth';
+import { encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { parseAmount } from '@intafaced/ledger-client';
-import { bootExecution } from './testing/boot.js';
+import { BOOT_EDGE_SECRET, bootExecution } from './testing/boot.js';
 import type { FileEmsOrderStore } from './file-ems-order-store.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
 import { describeExecutionSpine } from './oms-spine.js';
@@ -21,6 +23,18 @@ import { executionSorMountVsTrackerBoardCard, executionSorTrackerBackendDoneBarM
  * The boot this file checks: one execution venue with its own keys, one operator-only supplement venue, a trade URL
  * and a port. Fixture values only.
  */
+/** A trade:read principal, as the edge forwards one. */
+const operatorPrincipal = (): Principal =>
+  ({
+    sub: '11111111-1111-4111-8111-111111111111',
+    userId: '11111111-1111-4111-8111-111111111111',
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['trade:read'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 600_000),
+  }) as Principal;
+
 const BOOT_ENV = {
   EXECUTION_VENUE_IDS: 'binance-spot',
   EXECUTION_VENUE_BINANCE_SPOT_API_KEY: 'fixture-key',
@@ -395,7 +409,56 @@ describe('execution boot createExecutionRouter wiring complete (D69)', () => {
 describe('execution boot trpc mount complete (D70)', () => {
   it('index registers trpc with edge context and graceful shutdown on boot', async () => {
     await expectBootWired();
-    // Whole request, not `{ headers, id }`: the S2S body-bind needs req.body.
+    const SERVICE = 'svc-execution-boot-placeholder-internal-secret';
+    const booted = await bootExecution({ ...BOOT_ENV, INTERNAL_SERVICE_SECRET: SERVICE });
+    const exits: number[] = [];
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exits.push(code ?? 0);
+    }) as typeof process.exit);
+    try {
+      // Whole request, not `{ headers, id }`: the S2S body-bind needs req.body. A v2 service signature over the
+      // body that came in is accepted; the same signature over other bytes is refused.
+      const body = JSON.stringify({ parentClientOrderId: 'parent-1' });
+      const post = (sent: string) =>
+        booted.app.inject({
+          method: 'POST',
+          url: '/trpc/execution.oms.start',
+          headers: {
+            ...serviceAuthHeadersForBody('svc-execution', SERVICE, body),
+            'content-type': 'application/json',
+            'x-intafaced-region': 'DE',
+          },
+          payload: sent,
+        });
+      expect((await post(body)).statusCode).toBe(200);
+      expect((await post(JSON.stringify({ parentClientOrderId: 'parent-2' }))).statusCode).toBe(401);
+
+      // The edge principal is verified with EDGE_PRINCIPAL_SECRET, and nothing else.
+      const raw = encodePrincipal(operatorPrincipal());
+      const policyAs = async (secret: string) =>
+        (
+          await booted.app.inject({
+            method: 'GET',
+            url: '/trpc/execution.arb.opportunities?input=' + encodeURIComponent(JSON.stringify({ symbol: 'BTC/USDT', amount: '1' })),
+            headers: {
+              'x-intafaced-principal': raw,
+              'x-intafaced-principal-sig': signPrincipalHeader(raw, secret, 'DE'),
+              'x-intafaced-region': 'DE',
+            },
+          })
+        ).statusCode;
+      expect(await policyAs(BOOT_EDGE_SECRET)).toBe(200);
+      expect(await policyAs('another-edge-secret-that-is-not-the-boot-one')).toBe(401);
+
+      // Graceful shutdown: SIGTERM closes the app, then exits 0.
+      const closeSpy = vi.spyOn(booted.app, 'close');
+      for (const handler of booted.signalHandlers.SIGTERM) handler();
+      await vi.waitFor(() => expect(exits).toEqual([0]));
+      expect(closeSpy).toHaveBeenCalled();
+    } finally {
+      exitSpy.mockRestore();
+      await booted.close();
+    }
   });
 });
 

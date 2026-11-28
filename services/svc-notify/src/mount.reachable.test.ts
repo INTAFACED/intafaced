@@ -36,7 +36,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import { retainRawBody, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { retainRawBody, encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { BOOT_EDGE_SECRET, bootNotify } from './testing/boot.js';
 import { createGuestIngressContext } from './guests/context.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
@@ -304,6 +304,27 @@ describe('the mount proven above is the mount index.ts ships', () => {
         },
       });
       expect(forged.statusCode).toBe(401);
+    } finally {
+      await booted.close();
+    }
+  });
+
+  it('hands the guest ingress context the whole request, so an ops call binds its exact body', async () => {
+    // createGuestIngressContext checks the ops signature over the bytes that came in. Given `{ headers, id }` it
+    // would have no body and refuse every ops call; given the request, the signed bytes pass and other bytes do not.
+    const OPS = 'notify-ops-boot-placeholder-secret-long-x';
+    const booted = await bootNotify({ NOTIFY_OPS_SERVICE_SECRET: OPS });
+    try {
+      const signedFor = JSON.stringify({ businessKey: 'acknowledgement:boot-1' });
+      const post = (sent: string) =>
+        booted.app.inject({
+          method: 'POST',
+          url: `${PREFIX}/guestNotifications.get`,
+          payload: sent,
+          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-ops', OPS, signedFor) },
+        });
+      expect((await post(signedFor)).statusCode).toBe(200);
+      expect((await post(JSON.stringify({ businessKey: 'acknowledgement:boot-2' }))).statusCode).toBe(401);
     } finally {
       await booted.close();
     }

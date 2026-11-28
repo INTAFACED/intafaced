@@ -15,7 +15,7 @@ import {
   signPrincipalHeader,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
-import { bootIndexer } from './testing/boot.js';
+import { BOOT_EDGE_SECRET, bootIndexer } from './testing/boot.js';
 
 type Principal = Parameters<typeof encodeForwardedPrincipal>[0];
 
@@ -87,5 +87,21 @@ describe('edge principal receiver', () => {
     };
     expect(await principalSeenBy(withKey)).toBe(USER);
     expect(await principalSeenBy({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined })).toBeNull();
+  });
+
+  it('index.ts verifies the shared-secret principal with its own EDGE_PRINCIPAL_SECRET', async () => {
+    // The same booted context, given a principal signed with the secret the service started with, and another one.
+    const booted = await bootIndexer();
+    try {
+      const raw = encodePrincipal(principal());
+      const seenWith = async (secret: string) => {
+        const context = await booted.publicHttp.createContext({ req: request(raw, signPrincipalHeader(raw, secret, 'DE')) } as never);
+        return context.principal?.userId ?? null;
+      };
+      expect(await seenWith(BOOT_EDGE_SECRET)).toBe(USER);
+      expect(await seenWith('another-edge-secret-that-is-not-the-boot-one')).toBeNull();
+    } finally {
+      await booted.close();
+    }
   });
 });

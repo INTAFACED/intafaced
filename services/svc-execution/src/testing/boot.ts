@@ -12,7 +12,8 @@ import type { FastifyInstance } from 'fastify';
 import { vi } from 'vitest';
 
 /** The secret the booted service verifies the edge principal with. Fixture only. */
-const BOOT_EDGE_SECRET = 'svc-execution-boot-placeholder-edge-secret-long';
+/** The edge secret every boot gets unless a test sets its own. Fixture only. */
+export const BOOT_EDGE_SECRET = 'svc-execution-boot-placeholder-edge-secret-long';
 
 type Signal = 'SIGTERM' | 'SIGINT';
 const SIGNALS: readonly Signal[] = ['SIGTERM', 'SIGINT'];

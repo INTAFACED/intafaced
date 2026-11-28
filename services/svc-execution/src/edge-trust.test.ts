@@ -13,9 +13,10 @@ import {
   encodePrincipal,
   generateEdgePrincipalKeyPair,
   signPrincipalHeader,
+  serviceAuthHeadersForBody,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
-import { bootExecution } from './testing/boot.js';
+import { BOOT_EDGE_SECRET, bootExecution } from './testing/boot.js';
 
 type Principal = Parameters<typeof encodeForwardedPrincipal>[0];
 
@@ -92,5 +93,54 @@ describe('edge principal receiver', () => {
     };
     expect(await statusOf(withKey)).not.toBe(401);
     expect(await statusOf({})).toBe(401);
+  });
+
+  it('index.ts verifies the shared-secret principal with its own EDGE_PRINCIPAL_SECRET', async () => {
+    // The booted service, given a principal signed with the secret it was started with, and with another one.
+    const booted = await bootExecution();
+    try {
+      const input = encodeURIComponent(JSON.stringify({ symbol: 'BTC/USDT', amount: '1' }));
+      const raw = encodePrincipal(principal());
+      const statusFor = async (secret: string) =>
+        (
+          await booted.app.inject({
+            method: 'GET',
+            url: `/trpc/execution.arb.opportunities?input=${input}`,
+            headers: request(raw, signPrincipalHeader(raw, secret, 'DE')).headers,
+          })
+        ).statusCode;
+      expect(await statusFor(BOOT_EDGE_SECRET)).toBe(200);
+      expect(await statusFor('another-edge-secret-that-is-not-the-boot-one')).toBe(401);
+    } finally {
+      await booted.close();
+    }
+  });
+
+  it('index.ts hands the edge context the whole request, so a service call binds its body', async () => {
+    // A v2 service signature binds the body bytes. The context can only check them if it is given the request
+    // itself (`req.body`); handed `{ headers, id }` it has no body and refuses every service call.
+    const SERVICE = 'svc-execution-boot-placeholder-internal-secret';
+    const booted = await bootExecution({ INTERNAL_SERVICE_SECRET: SERVICE });
+    try {
+      const body = JSON.stringify({ parentClientOrderId: 'parent-1' });
+      const post = async (sent: string) =>
+        booted.app.inject({
+          method: 'POST',
+          url: '/trpc/execution.oms.start',
+          headers: {
+            ...serviceAuthHeadersForBody('svc-execution', SERVICE, body),
+            'content-type': 'application/json',
+            'x-intafaced-region': 'DE',
+          },
+          payload: sent,
+        });
+      const bound = await post(body);
+      expect(bound.statusCode).toBe(200);
+      expect(bound.json().result.data).toMatchObject({ ok: false, reason: 'jobs_off' });
+      // The same signature over other bytes is refused: the body the context checked is the one that came in.
+      expect((await post(JSON.stringify({ parentClientOrderId: 'parent-2' }))).statusCode).toBe(401);
+    } finally {
+      await booted.close();
+    }
   });
 });

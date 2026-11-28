@@ -15,7 +15,8 @@ import { vi } from 'vitest';
 import type { IndexerPublicHttpDeps } from '../public-http.js';
 
 /** The secret the booted service verifies the edge principal with. Fixture only. */
-const BOOT_EDGE_SECRET = 'svc-indexer-boot-placeholder-edge-secret-long';
+/** The edge secret every boot gets unless a test sets its own. Fixture only. */
+export const BOOT_EDGE_SECRET = 'svc-indexer-boot-placeholder-edge-secret-long';
 
 /** A complete operator environment for a boot. Fixture values only. */
 export const BOOT_ENV: Readonly<Record<string, string>> = {
