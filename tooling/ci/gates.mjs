@@ -342,6 +342,10 @@ export const NOT_GATES = {
     "not a gate: the paths that draw a Customer room or kit part (reachesLook), read by ci-affected.mjs, review-marker.mjs and journey-touch.mjs. It changes no pass or fail by itself. Its tests are ci-affected.test.mjs's reachesLook cases.",
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Its tests are ci-affected.test.mjs.',
+  'bug-test-base.mjs':
+    "runs from ci.yml's `Bug test on the base` job on a pull request that closes a `bug` issue: puts the change's non-test files back to main and runs its changed tests there (#11267). Not a doctrine gate: it needs the pull request's merge commit, its issue and the test databases, so a laptop verify has no input. bug-test-base.test.mjs runs it on a throwaway repository.",
+  'bug-test-base-reporter.mjs':
+    'the node:test reporter bug-test-base.mjs runs a test file with. It asserts nothing by itself; bug-test-base.test.mjs runs through it.',
   'bisect-main.mjs':
     'runs from main-bisect.yml, started by Main trust when a main run has failed twice: walks the commits since the last green and comments the first one where the failing test files fail. Needs a token, a red run and the test infrastructure, so a laptop verify has no input. bisect-main.test.mjs runs the search on fixtures.',
   'test-shards.mjs':
