@@ -112,7 +112,7 @@ export type ChartMarkProps = Omit<React.HTMLAttributes<HTMLElement>, 'style'> & 
   /** A button mark that can't be used right now. */
   disabled?: boolean;
   /** The drawn mark, for a room that lays marks out by their measured size (two labels near one price). */
-  ref?: React.Ref<HTMLElement>;
+  ref?: React.RefCallback<HTMLElement>;
 };
 
 /** One mark on a ChartOverlay, placed at the chart's coordinates; buy and sell read `data-side`. */
@@ -123,16 +123,14 @@ export function ChartMark({ kind, y, x, as = 'div', disabled, className, ref, ..
       <button
         type="button"
         {...props}
-        ref={ref as React.Ref<HTMLButtonElement>}
+        ref={ref}
         disabled={disabled}
         data-mark={kind}
         className={clsx('lt-chart-mark', className)}
         style={style}
       />
     );
-  return (
-    <div {...props} ref={ref as React.Ref<HTMLDivElement>} data-mark={kind} className={clsx('lt-chart-mark', className)} style={style} />
-  );
+  return <div {...props} ref={ref} data-mark={kind} className={clsx('lt-chart-mark', className)} style={style} />;
 }
 
 // ---- Split grid: panels the person resizes by dragging the borders between them ----------------------------------
