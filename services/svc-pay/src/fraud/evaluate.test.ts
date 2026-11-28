@@ -1,9 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { evaluateFraud, FRAUD_THRESHOLD_UNPUBLISHED, isAutoDecline, type FraudDecision } from './evaluate.js';
-import { payServiceSource } from '../payment-service/source.testkit.js';
 
 /**
  * Unit card — pay.fraud mechanism · wave 13 L02
@@ -20,7 +16,6 @@ import { payServiceSource } from '../payment-service/source.testkit.js';
  * 7. Collision: clear of Denon #1625–1627.
  */
 
-const here = dirname(fileURLToPath(import.meta.url));
 const base = {
   merchantId: 'm_1',
   amount: '100',
@@ -247,25 +242,32 @@ describe('pay.fraud mechanism — evaluateFraud', () => {
     }
   });
 
-  it('chargeback ledger recipes stay unwired from fraud module (Class X park)', () => {
-    const src = readFileSync(join(here, 'evaluate.ts'), 'utf8');
-    expect(src).not.toMatch(/chargebackOpen|chargebackWon|chargebackShortfall/);
-    expect(src).not.toMatch(/postTransaction|PostRequest|recipes\./);
-    expect(src).toMatch(/parseAmount/);
-    expect(src).not.toMatch(/from '@intafaced\/ledger-client\/recipes'/);
-    // Outcome posts live in chargeback-ledger.ts. This module stays free of them.
-    const pay = payServiceSource();
-    expect(pay).not.toMatch(/recipes\.chargeback/);
-    expect(pay).toMatch(/postDisputeWon/);
-    expect(pay).toMatch(/postDisputeShortfall/);
+  it('chargeback ledger recipes stay unwired from fraud module (Class X park)', async () => {
+    // The module is a decision and its checks: nothing in it takes a ledger, and the evaluator answers synchronously
+    // with a decision, so it cannot post. Outcome posts live in chargeback-ledger.ts (chargeback-unwired.test.ts:
+    // "each dispute post is exactly its ledger-client recipe").
+    const mod = await import('./evaluate.js');
+    expect(Object.keys(mod).sort()).toEqual([
+      'FORBIDDEN_FRAUD_SCORE_FIELDS',
+      'FRAUD_THRESHOLD_UNPUBLISHED',
+      'FraudScoreError',
+      'assertFraudScoreSourceNotBlank',
+      'assertNoInventedFraudScores',
+      'evaluateFraud',
+      'isAutoDecline',
+    ]);
+    for (const fn of [mod.evaluateFraud, mod.isAutoDecline, mod.assertFraudScoreSourceNotBlank, mod.assertNoInventedFraudScores]) {
+      expect(fn.length).toBe(1);
+    }
+    const decision = evaluateFraud({ ...base, ip: '9.9.9.9', blocklists: { ips: ['9.9.9.9'] }, enabled: scoringOff });
+    expect(decision).not.toBeInstanceOf(Promise);
+    expect(Object.keys(decision).sort()).toEqual(Object.keys(evaluateFraud({ ...base, enabled: scoringOff })).sort());
+    expect(decision).not.toHaveProperty('txId');
+    expect(decision).not.toHaveProperty('ledgerTxId');
   });
 
   it('compares volume and amount as scaled bigint — never Number()', () => {
-    const src = readFileSync(join(here, 'evaluate.ts'), 'utf8');
-    expect(src).not.toMatch(/\bparseFloat\s*\(/);
-    expect(src).not.toMatch(/function parseDecimal/);
-    expect(src).not.toMatch(/const n = Number\(/);
-
+    // Past 2^53 a Number() reading rounds 9007199254740993 to ...992 and these would not trip.
     const pastSafe = evaluateFraud({
       ...base,
       amount: '9007199254740993',
@@ -296,7 +298,20 @@ describe('pay.fraud mechanism — evaluateFraud', () => {
   });
 
   it('does not score protected-characteristic fields', () => {
-    const src = readFileSync(join(here, 'evaluate.ts'), 'utf8');
-    expect(src).not.toMatch(/\b(race|religion|gender|ethnicity|nationality)\b/i);
+    const protectedFields = { race: 'x', religion: 'x', gender: 'x', ethnicity: 'x', nationality: 'DE' };
+    const inputs = [
+      { ...base, enabled: scoringOff },
+      { ...base, ip: '9.9.9.9', blocklists: { ips: ['9.9.9.9'] } },
+      {
+        ...base,
+        amount: '500',
+        baselineAmount: '100',
+        thresholds: { amountAnomalyMultiplier: 2 },
+        enabled: { velocity_count: false, velocity_volume: false },
+      },
+    ];
+    for (const input of inputs) {
+      expect(evaluateFraud({ ...input, ...protectedFields } as typeof input)).toEqual(evaluateFraud(input));
+    }
   });
 });

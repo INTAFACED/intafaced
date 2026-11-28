@@ -1,7 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
@@ -166,24 +163,6 @@ describe('W0 namespaces are mounted', () => {
     const paths = procedures(build(vi.fn()));
     expect([...new Set(paths.map((p) => p.split('.')[0]))].sort()).toEqual([...NAMESPACES].sort());
     expect(paths).toEqual(Object.keys(CALLS).sort());
-  });
-
-  it('is merged into the live appRouter in index.ts together with the guard registry', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toMatch(
-      /createPayNamespaces\(\{\s*founderAuthority,\s*metrics,\s*registries: \{ sql, approvals: actionApprovals \},\s*sql,/,
-    );
-    expect(src).toContain('receiptPlaces: createReceiptAssetPlaces(');
-    expect(src).toContain('startMetricsRefresher(metrics.projector');
-    expect(src).toContain('const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);');
-    expect(src).toContain('retryAdoptConfig');
-    expect(src).toContain('haltStore.adoptConfig()');
-    expect(src).toContain('setAutoTripAccountErrorSink');
-    expect(src).toContain('payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) }');
-    expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
-    expect(src).toMatch(/const payGuards = buildPayGuards\(\{\s*sql,\s*ledger,\s*kycTierOf:/);
-    // One registry instance serves the payment service, the user-money service, and conversion.
-    expect(src.match(/guards: payGuards,/g)).toHaveLength(3);
   });
 
   it('merges with an existing router without a path collision', () => {

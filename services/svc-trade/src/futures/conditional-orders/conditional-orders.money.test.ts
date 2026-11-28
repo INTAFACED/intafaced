@@ -1,5 +1,4 @@
-import './../position-mode.js';
-import { PositionService } from '../../controls/test-admission.js';
+import { PositionService, layeredPositionService } from '../../controls/test-admission.js';
 /**
  * Conditional orders against Postgres: store, claim-once trigger, protection, resting refusal.
  * H8a PG-hard. Uses TEST_DATABASE_URL when it is set. Does not start Docker itself.
@@ -19,6 +18,10 @@ import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } 
 import { TEST_MAX_LEVERAGE_AMOUNT } from '../initial-margin.test-harness.js';
 import { createConditionalOrderService, type ConditionalOrderService } from './service.js';
 import { FUTURES_RESTING_UNSUPPORTED, refuseFuturesRestingLimit, type RestingLimitInput } from './resting.js';
+import { withPositionModeOpen } from '../position-mode.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredPositionService = layeredPositionService(withPositionModeOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', '..', 'drizzle');
@@ -99,7 +102,7 @@ describe('futures conditional orders', () => {
     `;
     ledger = new MemoryLedger();
     marks = memoryMarkBook();
-    positions = new PositionService(sql, ledger, {
+    positions = new LayeredPositionService(sql, ledger, {
       marks: marks.source(),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

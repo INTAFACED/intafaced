@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { Sql } from 'postgres';
 import { describe, expect, it } from 'vitest';
-import { projectActivityDetail } from './activity.js';
+import { ActivityFeed, projectActivityDetail } from './activity.js';
+import { scriptedSql } from '../scripted-sql.testkit.js';
 import { resolveExportColumns } from './exports.js';
 import { payoutReference } from './payouts.js';
 import { loadWebhookRetryLimit } from './webhooks.js';
@@ -38,12 +37,25 @@ describe('merchant portal redaction', () => {
     expect(() => resolveExportColumns('payments', 'owner', ['risk_score'])).toThrow(/pay\.export_columns_forbidden/);
   });
 
-  it('bounds every activity source and hides an operator id behind the pay scope', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'activity.ts'), 'utf8');
-    expect(src).toContain(`CASE WHEN k.actor_scope LIKE 'pay:%' THEN k.actor_id ELSE 'intafaced' END`);
-    // Ten sources: payment events, team, KYB, evidence, responses, exports, approvals, endpoints, deliveries and unmask reads.
-    expect(src.match(/\$\{bound\(/g)).toHaveLength(10);
-    expect(src).toContain('LIMIT ${cap}');
+  it('bounds every activity source and hides an operator id behind the pay scope', async () => {
+    // What the feed asks the database: each of its ten sources stops at one page (limit + 1), and so does the merge.
+    // Which rows that returns, and that an operator's KYB decision shows as 'intafaced', is portal-gap.db.test.ts
+    // ("activity is merchant-scoped, paged, and hides founder text and full destinations").
+    const caller = { merchantId: 'm-1', userId: 'u-1', role: 'owner', viaApiKey: false, interactive: true } as const;
+    const { sql, calls } = scriptedSql<Sql>();
+    await new ActivityFeed(sql).list(caller, { limit: 7 });
+    const paged = calls.filter((c) => /LIMIT \$\?\s*$/.test(c.text));
+    expect(paged).toHaveLength(11);
+    for (const call of paged) expect(call.values.at(-1)).toBe(8);
+    expect(calls.map((c) => c.text)).toContain(`CASE WHEN k.actor_scope LIKE 'pay:%' THEN k.actor_id ELSE 'intafaced' END`);
+    // A narrow page shuts every other source inside its own branch.
+    const narrow = scriptedSql<Sql>();
+    await new ActivityFeed(narrow.sql).list(caller, { limit: 1, objectType: 'kyb' });
+    expect(narrow.calls.filter((c) => c.text === 'AND false')).toHaveLength(9);
+    // Without a page size it asks nothing.
+    const unpaged = scriptedSql<Sql>();
+    await expect(new ActivityFeed(unpaged.sql).list(caller, {})).rejects.toBeInstanceOf(Error);
+    expect(unpaged.calls).toEqual([]);
   });
 
   it('leaves webhook retry unconfigured unless both limits are positive integers', () => {

@@ -79,7 +79,6 @@ export {
 } from './follows.js';
 export {
   COPY_CONTROL_DISPOSITIONS,
-  COPY_RELATIONSHIP_STATES,
   applyCopyDetach,
   applyCopyPause,
   applyCopyResume,

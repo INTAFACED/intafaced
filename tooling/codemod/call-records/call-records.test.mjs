@@ -3422,6 +3422,28 @@ test('the router reader follows an optional part (`...ext?.merchant`) and a prop
   );
 });
 
+test("a screen's type error keeps its calls on their callers' own schemas before any is left by name (svc-trade, whose run left 21 of 23)", async () => {
+  const { settleErrors } = await import('./run.mjs');
+  const moved = [{ path: 'copy.deskStatus' }, { path: 'copy.listMyFollows' }, { path: 'bots.grid.get' }];
+  // The error sits by copy.deskStatus's caller, but copy.listMyFollows' answer type causes it (CopyRoom.tsx reads both).
+  const owners = new Map([['apps/customer/src/screens/trade/copybots/CopyRoom.tsx', new Map([['copy.deskStatus', 'TS2322']])]]);
+  const keep = {};
+  const skip = {};
+  settleErrors(owners, moved, keep, skip);
+  assert.deepEqual(Object.keys(keep), ['copy.deskStatus']);
+  assert.deepEqual(skip, {}, 'the first round left the call by name, and every call that error named with it');
+  settleErrors(owners, moved, keep, skip);
+  assert.deepEqual(Object.keys(keep).sort(), ['bots.grid.get', 'copy.deskStatus', 'copy.listMyFollows']);
+  assert.deepEqual(skip, {}, 'an error its owners being kept did not clear keeps every moved call before leaving one');
+  settleErrors(owners, moved, keep, skip);
+  assert.deepEqual(Object.keys(skip), ['copy.deskStatus']);
+  assert.match(skip['copy.deskStatus'].why, /even through its callers' own schemas: TS2322/);
+  // The service's own handler that no longer fits its record is left at once: no caller's schema mends it.
+  const svcSkip = {};
+  settleErrors(new Map([['services/svc-trade/src/router.ts', new Map([['bots.grid.get', 'TS2345']])]]), moved, {}, svcSkip);
+  assert.match(svcSkip['bots.grid.get'].why, /handler no longer typechecks/);
+});
+
 test("a run's new type error is owned by the moved call whose caller is in its file, or in a file it reaches by imports; one with neither is owned by none", async () => {
   const { ownersOf } = await import('./run.mjs');
   const moved = [

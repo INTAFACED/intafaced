@@ -27,6 +27,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { payEnv } from './env.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -43,18 +44,21 @@ const WATCHER_INTERVAL = /^\s+PAY_CRYPTO_WATCHER_INTERVAL_MS:\s*\$\{PAY_CRYPTO_W
 
 describe('compose checkout and confirmation flags for svc-pay', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
   const block = payServiceBlock(compose);
 
-  it('env.ts still declares the flags this pin tracks, matching compose defaults', () => {
-    expect(envTs).toMatch(/PAY_MIN_CONFIRMATIONS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\),/);
-    expect(envTs).not.toMatch(/PAY_MIN_CONFIRMATIONS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.default\(6\)/);
-    expect(envTs).toMatch(/PAY_CHECKOUT_SESSION_TTL_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(60\)\.max\(86_400\),/);
-    expect(envTs).not.toMatch(
-      /PAY_CHECKOUT_SESSION_TTL_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(60\)\.max\(86_400\)\.default\(900\)/,
-    );
-    expect(envTs).toMatch(/PAY_PUBLIC_BASE_PATH:\s*z[\s\S]*?\.default\('\/api\/pay'\)/);
-    expect(envTs).toMatch(/PAY_ALLOW_SANDBOX_RAILS:\s*z\.enum\(\['true',\s*'false'\]\)\.default\('false'\)/);
+  it('svc-pay reads the flags this pin tracks, with the same defaults compose has', () => {
+    // Blank or missing confirmations and session lifetime refuse the boot: never 6, never 900.
+    for (const blank of [undefined, '', '0']) {
+      expect(() => payEnv({ PAY_MIN_CONFIRMATIONS: blank })).toThrow(/PAY_MIN_CONFIRMATIONS/);
+      expect(() => payEnv({ PAY_CHECKOUT_SESSION_TTL_SECONDS: blank })).toThrow(/PAY_CHECKOUT_SESSION_TTL_SECONDS/);
+    }
+    expect(() => payEnv({ PAY_CHECKOUT_SESSION_TTL_SECONDS: '86401' })).toThrow(/PAY_CHECKOUT_SESSION_TTL_SECONDS/);
+    expect(payEnv({ PAY_MIN_CONFIRMATIONS: '6' }).PAY_MIN_CONFIRMATIONS).toBe(6);
+    expect(payEnv({ PAY_CHECKOUT_SESSION_TTL_SECONDS: '900' }).PAY_CHECKOUT_SESSION_TTL_SECONDS).toBe(900);
+    // The public path and the sandbox switch default as compose does.
+    expect(payEnv({ PAY_PUBLIC_BASE_PATH: undefined }).PAY_PUBLIC_BASE_PATH).toBe('/api/pay');
+    expect(payEnv({ PAY_ALLOW_SANDBOX_RAILS: undefined }).PAY_ALLOW_SANDBOX_RAILS).toBe('false');
+    expect(payEnv({ PAY_ALLOW_SANDBOX_RAILS: 'true' }).PAY_ALLOW_SANDBOX_RAILS).toBe('true');
   });
 
   it('compose svc-pay block passes unique keys once; sandbox default stays false', () => {

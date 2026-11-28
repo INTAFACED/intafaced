@@ -1,4 +1,4 @@
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,20 +8,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 
-import {
-  installMarketHaltPlace,
-  matchingMarketHaltedRefuse,
-  matchingSubmitMarketHaltedRefuse,
-  MARKET_HALTED,
-} from './market-halt-place.js';
+import { matchingMarketHaltedRefuse, matchingSubmitMarketHaltedRefuse, MARKET_HALTED, withMarketHaltPlace } from './market-halt-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { Market } from './types.js';
 import type { Principal } from '@intafaced/auth';
 import { toCcxtError } from '../ccxt-errors.js';
 import { TradeError } from './types.js';
 import type { EngineSubmitResult } from './matching-client.js';
+import { layeredStandIn } from '../layered.testkit.js';
 
-installMarketHaltPlace(TradeService);
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withMarketHaltPlace);
 
 describe('market-halt place wrap (no swallowed fill)', () => {
   it('matching market_halted wraps as trade.market_halted; other codes do not', () => {
@@ -55,8 +52,8 @@ describe('market-halt place wrap (no swallowed fill)', () => {
         return { id: 'take', status: 'rejected', rejectCode: 'market_halted' };
       }
     }
-    installMarketHaltPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
+    const LayeredDoor = layeredStandIn(Door, withMarketHaltPlace);
+    const door = new LayeredDoor();
     await expect(door.placeOrder({} as Principal, {})).rejects.toMatchObject({ code: 'trade.market_halted' });
   });
 
@@ -73,8 +70,8 @@ describe('market-halt place wrap (no swallowed fill)', () => {
         expect(result.rejected?.code).toBe('market_halted');
       }
     }
-    installMarketHaltPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
+    const LayeredDoor = layeredStandIn(Door, withMarketHaltPlace);
+    const door = new LayeredDoor();
     const fill = {
       sequence: 1,
       makerOrderId: 'rest',
@@ -194,7 +191,7 @@ describe('svc-trade market-halt-place (H8a PG-hard)', () => {
       await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
       matching = new StubMatching();
-      trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      trade = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,

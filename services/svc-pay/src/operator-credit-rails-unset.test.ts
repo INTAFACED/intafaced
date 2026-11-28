@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { operatorCreditRailsSchema } from './operator-credit-rails-env.js';
+import { payEnv } from './env.testkit.js';
 
 /**
  * Owner operator-credit allow-list is refuse-closed when unset.
@@ -15,13 +16,12 @@ import { operatorCreditRailsSchema } from './operator-credit-rails-env.js';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('PAY_OPERATOR_CREDIT_RAILS unset refuse', () => {
-  it('env.ts does not default blank to card-sandbox', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
-    const parser = readFileSync(join(ROOT, 'services/svc-pay/src/operator-credit-rails-env.ts'), 'utf8');
-    expect(envTs).toMatch(/PAY_OPERATOR_CREDIT_RAILS:\s*operatorCreditRailsSchema/);
-    expect(envTs).not.toMatch(/PAY_OPERATOR_CREDIT_RAILS:[\s\S]{0,120}\.default\('card-sandbox'\)/);
-    expect(parser).toMatch(/\.min\(1\)/);
-    expect(parser).not.toMatch(/\.default\('card-sandbox'\)/);
+  it('the boot settings refuse a blank allow-list rather than defaulting it to card-sandbox', () => {
+    for (const blank of [undefined, '', '   ', ',']) {
+      expect(() => payEnv({ PAY_OPERATOR_CREDIT_RAILS: blank })).toThrow(/PAY_OPERATOR_CREDIT_RAILS/);
+    }
+    expect(payEnv({ PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox' }).PAY_OPERATOR_CREDIT_RAILS).toEqual(['card-sandbox']);
+    expect(payEnv({ PAY_OPERATOR_CREDIT_RAILS: 'crypto-native' }).PAY_OPERATOR_CREDIT_RAILS).toEqual(['crypto-native']);
   });
 
   it('compose empty pass-through — never a baked card-sandbox', () => {

@@ -11,7 +11,7 @@ import { describeMoneyDoor, type MoneyDoorScenario } from '@intafaced/ledger-cli
 import { PayError } from './payment-service.js';
 import { railFailure } from './rails/rail-adapter.js';
 import { createLedgerClient } from './ledger-client.js';
-import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
+import { installPayoutDestinationShim } from './payout-destination.testkit.js';
 import { overHarness, payServiceOver, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture-test.js';
 
 // Each replay boots a database and runs the door several times; the 5s default is too tight on a loaded CI runner.

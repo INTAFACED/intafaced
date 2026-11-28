@@ -7,6 +7,7 @@ import {
   otcMakersAnswer,
   otcSettleAnswer,
   otcConvertQuoteAnswer,
+  otcDeskStatusAnswer,
 } from './trade-call-schemas.js';
 import { orderSideSchema } from './order-enums.js';
 
@@ -102,4 +103,16 @@ export const TRADE_OTC_CONVERT_QUOTE = defineProcedure({
     { verdict: 'accept', input: { flow: 'convert', side: 'buy', baseAsset: 'USDC', quoteAsset: 'USDC', qty: '1' } },
     { verdict: 'refuse', input: 42 },
   ],
+});
+
+export const TRADE_OTC_DESK_STATUS = defineProcedure({
+  ...base,
+  name: 'trade.otc.deskStatus',
+  kind: 'query',
+  path: 'otc.deskStatus',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: {},
+  input: NO_INPUT,
+  output: otcDeskStatusAnswer,
+  samples: [{ verdict: 'accept' }],
 });

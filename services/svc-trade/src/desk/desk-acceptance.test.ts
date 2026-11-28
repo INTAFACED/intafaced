@@ -9,8 +9,7 @@ import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import type { Principal } from '@intafaced/auth';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
-import { TradeService } from '../controls/test-admission.js';
-import { installIcebergPlace } from '../spot/iceberg-place.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from '../spot/testing.js';
 import { fakeOrder, registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
 import type { PlaceOrderInput } from '../spot/trade-service.js';
@@ -43,8 +42,12 @@ import {
   type ScaleGroupPorts,
 } from '../spot/scale-group.js';
 import { TradeError, type Market } from '../spot/types.js';
+import { withIcebergPlace } from '../spot/iceberg-place.js';
+import { withBracketPlace } from '../spot/bracket-place.js';
+import { withOcoPlace } from '../spot/oco-place.js';
 
-installIcebergPlace(TradeService);
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withIcebergPlace, withBracketPlace, withOcoPlace);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -244,7 +247,7 @@ describe('desk acceptance (shared test postgres)', () => {
     `;
     ledger = new MemoryLedger();
     matching = new StubMatching();
-    trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+    trade = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
@@ -540,7 +543,7 @@ describe('desk acceptance (shared test postgres)', () => {
     const rows = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM scale_groups`;
     expect(rows[0]?.n).toBe(0);
     ledger = new MemoryLedger();
-    trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+    trade = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
@@ -776,7 +779,7 @@ describe('desk acceptance (shared test postgres)', () => {
       spotEnabled: true,
       marketSlippageCapBps: 200,
     };
-    const lawOnly = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+    const lawOnly = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       ...doorDeps,
       optionsSettlementAssetLaw: 'USDT',
       optionsSettlementFixing: '',
@@ -784,7 +787,7 @@ describe('desk acceptance (shared test postgres)', () => {
     expect(lawOnly.optionsPositions(read).code).toBe(OPTIONS_FIXING_UNCONFIGURED);
     expect(lawOnly.optionsExercises(read, false).code).toBe(OPTIONS_FIXING_UNCONFIGURED);
     expect(lawOnly.optionsMarginPreview(read).code).toBe(OPTIONS_FIXING_UNCONFIGURED);
-    const bothSet = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+    const bothSet = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       ...doorDeps,
       optionsSettlementAssetLaw: 'USDT',
       optionsSettlementFixing: 'stamp',

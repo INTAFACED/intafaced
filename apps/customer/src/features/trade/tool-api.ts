@@ -28,8 +28,22 @@ import {
   TRADE_ALGO_RESUME,
   TRADE_ALGO_CANCEL,
 } from '@intafaced/contracts/trade-algo-procedures';
-import { TRADE_OTC_MAKERS_LIST, TRADE_OTC_ACCEPT, TRADE_OTC_SETTLE } from '@intafaced/contracts/trade-otc-procedures';
-import { TRADE_RFQ_GET } from '@intafaced/contracts/trade-rfq-procedures';
+import {
+  TRADE_OTC_MAKERS_LIST,
+  TRADE_OTC_ACCEPT,
+  TRADE_OTC_SETTLE,
+  TRADE_OTC_DESK_STATUS,
+} from '@intafaced/contracts/trade-otc-procedures';
+import { TRADE_RFQ_GET, TRADE_RFQ_QUOTE } from '@intafaced/contracts/trade-rfq-procedures';
+import { callAs } from '../../shared/api';
+import {
+  TRADE_COPY_DESK_STATUS,
+  TRADE_COPY_LIST_MY_FOLLOWS,
+  TRADE_COPY_PAUSE,
+  TRADE_COPY_STOP,
+  TRADE_COPY_DETACH,
+  TRADE_COPY_RESUME,
+} from '@intafaced/contracts/trade-copy-records';
 
 /** The trading tools' reply schemas live once in contracts; this file keeps the calls. */
 export * from '@intafaced/contracts/trade-tools';
@@ -63,14 +77,20 @@ export function createToolApi(api: ApiClient) {
         : action === 'resume'
           ? api.call(TRADE_ALGO_RESUME, { algoId })
           : api.call(TRADE_ALGO_CANCEL, { algoId }),
-    copyStatus: (signal?: AbortSignal) => api.query('trade', 'copy.deskStatus', undefined, copyStatusSchema, { signal }),
-    copyFollows: (signal?: AbortSignal) => api.query('trade', 'copy.listMyFollows', { limit: 100 }, z.array(copyFollowSchema), { signal }),
+    copyStatus: (signal?: AbortSignal) => callAs(api, TRADE_COPY_DESK_STATUS, undefined, copyStatusSchema, { signal }),
+    copyFollows: (signal?: AbortSignal) => callAs(api, TRADE_COPY_LIST_MY_FOLLOWS, { limit: 100 }, z.array(copyFollowSchema), { signal }),
     copyAction: (action: 'pause' | 'stop' | 'detach' | 'resume', followId: string) =>
-      api.mutate('trade', `copy.${action}`, { followId }, copyActionSchema),
-    otcStatus: (signal?: AbortSignal) => api.query('trade', 'otc.deskStatus', undefined, otcStatusSchema, { signal }),
+      action === 'pause'
+        ? callAs(api, TRADE_COPY_PAUSE, { followId }, copyActionSchema)
+        : action === 'stop'
+          ? callAs(api, TRADE_COPY_STOP, { followId }, copyActionSchema)
+          : action === 'detach'
+            ? callAs(api, TRADE_COPY_DETACH, { followId }, copyActionSchema)
+            : callAs(api, TRADE_COPY_RESUME, { followId }, copyActionSchema),
+    otcStatus: (signal?: AbortSignal) => callAs(api, TRADE_OTC_DESK_STATUS, undefined, otcStatusSchema, { signal }),
     otcMakers: (signal?: AbortSignal) => api.call(TRADE_OTC_MAKERS_LIST, undefined, { signal }),
     otcQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[] }) =>
-      api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
+      callAs(api, TRADE_RFQ_QUOTE, input, otcQuoteSchema),
     otcGet: (quoteId: string) => api.call(TRADE_RFQ_GET, { quoteId }),
     otcAccept: (quoteId: string, assertedPrice: string) => api.call(TRADE_OTC_ACCEPT, { quoteId, assertedPrice }),
     otcSettle: (quoteId: string) => api.call(TRADE_OTC_SETTLE, { quoteId }),

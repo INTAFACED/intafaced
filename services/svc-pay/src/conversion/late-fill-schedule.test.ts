@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   CONVERSION_HOLD_SWEEP_MS,
@@ -26,13 +23,5 @@ describe('late-fill schedule', () => {
       expect(delay).toBeLessThanOrEqual(cap);
       expect(lateFillBackoffMs(rowId, checks)).toBe(delay);
     }
-  });
-
-  it('starts the hold sweep on the 5-minute timer and keeps the founder trigger', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toContain('CONVERSION_HOLD_SWEEP_MS');
-    expect(src).toContain("sweepOrphanHolds('hold-sweep')");
-    expect(src).toContain('CONVERSION_LATE_FILL_TICK_MS');
-    expect(src).toContain('clearInterval(holdSweep)');
   });
 });

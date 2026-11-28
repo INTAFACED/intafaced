@@ -6,9 +6,8 @@
  * with a different body is 409. A withdrawal's step-up codes come from identity unchanged: `identity.step_up_required`
  * is 403 and `identity.step_up_unavailable` 503. With no grid service mounted every door answers 503 `trade.grid_unavailable`.
  */
-import { z } from 'zod';
 import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { GRID_SET_EXITS, GRID_SET_IDLE_YIELD, GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
 import { answerKeys } from '../answer-keys.js';
@@ -23,7 +22,6 @@ import {
   ownGridAnswer,
   gridAnswer,
   gridTopUpFreeAnswer,
-  decimalOrBlank,
   gridTopUpAnswer,
   gridWithdrawalAnswer,
 } from '@intafaced/contracts/trade-call-schemas';
@@ -35,6 +33,9 @@ import {
   TRADE_BOTS_GRID_TOP_UP,
   TRADE_BOTS_GRID_MODIFY,
   TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+  TRADE_BOTS_GRID_CREATE,
+  TRADE_BOTS_GRID_GET,
+  TRADE_BOTS_GRID_LIST,
 } from '@intafaced/contracts/trade-bots-procedures';
 
 const VERIFICATION_CODES = new Set(['trade.bots_verification_insufficient', 'trade.bots_verification_level_not_set']);
@@ -106,41 +107,31 @@ export function gridRouter(grid?: GridService, venueGrid?: VenueGrid | null) {
   return router({
     setup: mountRecord(TRADE_BOTS_GRID_SETUP, ({ ctx }) => call((g) => g.setup(ctx.principal)), gridRefusalOf),
     presets: mountRecord(TRADE_BOTS_GRID_PRESETS, () => call((g) => g.presets()), gridRefusalOf),
-    create: scopedProcedure('trade:write', { module: 'trade' })
-      .input(
-        z.object({
-          clientRequestId: z.string().min(8).max(120),
-          symbol: z.string().min(3).max(64),
-          lowerPrice: decimalOrBlank,
-          upperPrice: decimalOrBlank,
-          gridCount: z.number().int().optional().nullable(),
-          investment: decimalOrBlank,
-          /** The person's own venue account (their wallet) a venue grid trades on. */
-          owner: z.string().max(64).optional().nullable(),
-        }),
-      )
-      .output(gridAnswer)
-      .mutation(({ ctx, input }) =>
+    create: mountRecord(
+      TRADE_BOTS_GRID_CREATE,
+      ({ ctx, input }) =>
         call((g): Promise<VenueGridView | GridBotView> =>
           venueGrid ? venueGrid.create(ctx.principal, input, ctx.region) : g.create(ctx.principal, input),
         ),
-      ),
-    get: scopedProcedure('trade:read', { module: 'trade' })
-      .input(z.object({ botId: z.string().min(1).max(64) }))
-      .output(gridAnswer)
-      .query(({ ctx, input }) =>
+      gridRefusalOf,
+    ),
+    get: mountRecord(
+      TRADE_BOTS_GRID_GET,
+      ({ ctx, input }) =>
         call(async (g): Promise<VenueGridView | GridBotView> =>
           venueGrid && (await venueGrid.has(input.botId)) ? venueGrid.get(ctx.principal, input.botId) : g.get(ctx.principal, input.botId),
         ),
-      ),
-    list: scopedProcedure('trade:read', { module: 'trade' })
-      .output(z.array(gridAnswer))
-      .query(({ ctx }) =>
+      gridRefusalOf,
+    ),
+    list: mountRecord(
+      TRADE_BOTS_GRID_LIST,
+      ({ ctx }) =>
         call(async (g): Promise<Array<VenueGridView | GridBotView>> => [
           ...(venueGrid ? await venueGrid.list(ctx.principal) : []),
           ...(await g.list(ctx.principal)),
         ]),
-      ),
+      gridRefusalOf,
+    ),
     withdrawProfit: mountRecord(
       TRADE_BOTS_GRID_WITHDRAW_PROFIT,
       ({ ctx, input }) =>

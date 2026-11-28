@@ -1,14 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Sql } from 'postgres';
 import { describe, expect, it } from 'vitest';
 import { createW10B2bRampGuards } from '../seams/slots/w10-b2b-ramp.js';
 import { B2bRampBootError } from './errors.js';
 import { loadB2bRampConfig } from './config.js';
 import { parseAsset, parsePositiveAmount, sameAmount } from './money.js';
+import { payEnv } from '../env.testkit.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const sql = {} as Sql;
 const attestation = 'operator-attestation-present';
 
@@ -66,11 +63,13 @@ describe('pay.b2b_ramp flag', () => {
     expect(Object.keys(createW10B2bRampGuards({ sql, env: { PAY_B2B_RAMP: 'on', APP_ENV: 'test' } }))).toEqual([]);
   });
 
-  it('the service schema defaults the flag off and does not default an attestation', () => {
-    const src = readFileSync(join(here, '..', 'env.ts'), 'utf8');
-    expect(src).toContain("PAY_B2B_RAMP: z.enum(['off', 'on']).default('off')");
-    expect(src).toContain('PAY_B2B_RAMP_LICENCE_ATTESTATION: z.string().optional()');
-    expect(src).not.toMatch(/PAY_B2B_RAMP_LICENCE_ATTESTATION:[\s\S]{0,80}\.default\(/);
+  it('the service settings default the flag off and do not default an attestation', () => {
+    const unset = payEnv({ PAY_B2B_RAMP: undefined, PAY_B2B_RAMP_LICENCE_ATTESTATION: undefined });
+    expect(unset.PAY_B2B_RAMP).toBe('off');
+    expect(unset.PAY_B2B_RAMP_LICENCE_ATTESTATION).toBeUndefined();
+    expect(payEnv({ PAY_B2B_RAMP: 'on' }).PAY_B2B_RAMP).toBe('on');
+    expect(() => payEnv({ PAY_B2B_RAMP: 'yes' })).toThrow(/PAY_B2B_RAMP/);
+    expect(payEnv({ PAY_B2B_RAMP_LICENCE_ATTESTATION: 'TEST-attestation' }).PAY_B2B_RAMP_LICENCE_ATTESTATION).toBe('TEST-attestation');
   });
 });
 

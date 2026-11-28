@@ -1,12 +1,13 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import type { Sql } from 'postgres';
+import { partial } from '@intafaced/service-kit/testing';
+import { describe, expect, it, vi } from 'vitest';
 import { decodeListCursor, encodeListCursor, ListQueryError, parseListFilters } from './list-page.js';
 import { safeFailure } from './merchant-failure.js';
+import type { PricingQuote } from './control/pricing.js';
+import { readPricingSnapshots } from './control/snapshots.js';
 import { roleHasPermission } from './merchant-ops/roles.js';
+import { scriptedSql } from './scripted-sql.testkit.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const CURSOR_AT = '2026-10-16T01:02:03.000123Z';
 const ID = '44444444-4444-4444-8444-444444444444';
 
@@ -78,9 +79,77 @@ describe('team read permissions', () => {
 });
 
 describe('pricing snapshot read', () => {
-  it('does not recompute a fee from the pricing engine', () => {
-    const src = readFileSync(join(here, 'control', 'snapshots.ts'), 'utf8');
-    expect(src).not.toContain('computePricing');
-    expect(src).toContain('control_pricing_snapshots');
+  it('does not recompute a fee from the pricing engine', async () => {
+    // The stored row is the answer: a fee no rule would give from 1% of anything is returned as recorded, and the only
+    // question asked is of the snapshot table.
+    const row = {
+      subject_id: ID,
+      asset_code: 'USDT',
+      applied_layer: 'merchant',
+      rule_id: '55555555-5555-4555-8555-555555555555',
+      fee_bps: 100,
+      flat_fee: null,
+      spread_bps: null,
+      rounding_beneficiary: 'platform',
+      rounding_mode: 'ceil',
+      fee: '7.77',
+      bps_fee: null,
+      fee_before_clamp: null,
+      booked_fee: '7.77',
+      reserve_amount: null,
+      created_at: new Date('2026-11-01T00:00:00Z'),
+    };
+    const { sql, calls } = scriptedSql<Sql>(() => [row]);
+    const snaps = await readPricingSnapshots(sql, 'payment', [ID]);
+    expect(snaps.get(ID)).toMatchObject({ fee: '7.77', bookedFee: '7.77', feeBps: 100, ruleId: row.rule_id });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.text).toContain('FROM pay.control_pricing_snapshots');
+    expect(calls[0]!.text).not.toMatch(/control_pricing_rules/);
+  });
+
+  it('the whole snapshot module runs with the pricing engine refusing to load', async () => {
+    // Every export of control/snapshots.ts (write, read, fee parts) runs with control/pricing.ts refusing to load, so
+    // nothing in the module can recompute a fee from the engine.
+    vi.resetModules();
+    vi.doMock('./control/pricing.js', () => {
+      throw new Error('the snapshot module loaded the pricing engine');
+    });
+    try {
+      await expect(import('./control/pricing.js')).rejects.toThrow(/error when mocking a module/);
+      const snapshots = await import('./control/snapshots.js');
+      expect(Object.keys(snapshots).sort()).toEqual(['feeParts', 'readPricingSnapshots', 'writePricingSnapshot']);
+      const { sql, calls } = scriptedSql<Sql>(() => []);
+      const quote: PricingQuote = {
+        layer: 'merchant',
+        ruleId: 'rule-1',
+        bandFrom: 0n,
+        feeBps: 100,
+        flatFee: null,
+        spreadBps: null,
+        roundingBeneficiary: 'platform',
+        roundingMode: 'ceil',
+        bpsFee: 1n,
+        feeBeforeClamp: 1n,
+        fee: 1n,
+        spread: null,
+        net: 99n,
+      };
+      await snapshots.writePricingSnapshot(sql, {
+        subjectKind: 'payment',
+        subjectId: ID,
+        merchantId: ID,
+        assetCode: 'USDT',
+        resolved: partial<Parameters<typeof snapshots.writePricingSnapshot>[1]['resolved']>({ chain: [] }),
+        quote,
+        baseAmount: 100n,
+        monthlyVolumeBefore: 0n,
+      });
+      await snapshots.readPricingSnapshots(sql, 'payment', [ID]);
+      expect(snapshots.feeParts({ fee: '1', bpsFee: '1', flatFee: null, feeBeforeClamp: '1' })).not.toBeUndefined();
+      expect(calls.map((c) => c.text.match(/pay\.\w+/g))).toEqual([['pay.control_pricing_snapshots'], ['pay.control_pricing_snapshots']]);
+    } finally {
+      vi.doUnmock('./control/pricing.js');
+      vi.resetModules();
+    }
   });
 });

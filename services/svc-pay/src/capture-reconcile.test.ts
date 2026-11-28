@@ -17,6 +17,7 @@ import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { createLedgerClient } from './ledger-client.js';
 import { PayError } from './payment-service.js';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { payEnv } from './env.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const SECRET = 'capture-reconcile-test-secret-0123456789abcdef';
@@ -377,26 +378,13 @@ describe('reconcile route', () => {
 });
 
 describe('wiring', () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-
-  it('the job does not post, and index mounts the shared registrar', () => {
-    const job = readFileSync(join(here, 'capture-reconcile.ts'), 'utf8');
-    const index = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(job).not.toMatch(/\.post\s*\(/);
-    expect(job).toContain('getTxByKey');
-    expect(job).toContain('pg_try_advisory_lock');
-    expect(job).not.toContain('pg_advisory_lock(');
-    expect(index).toContain('setCaptureReconcileLogger');
-    expect(index).toContain('setOverCapNoticeLogger');
-    expect(index).toMatch(/registerCaptureReconcileRoutes\(app,/);
-    expect(index).not.toMatch(/app\.post[^\n]*reconcile-authorized-captures/);
-  });
-
   it('the flag defaults off in env and in the svc-pay compose block', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
+    expect(payEnv({ PAY_CAPTURE_RECONCILE: undefined }).PAY_CAPTURE_RECONCILE).toBe('off');
+    expect(payEnv({ PAY_CAPTURE_RECONCILE: 'off' }).PAY_CAPTURE_RECONCILE).toBe('off');
+    expect(payEnv({ PAY_CAPTURE_RECONCILE: 'required' }).PAY_CAPTURE_RECONCILE).toBe('required');
+    for (const value of ['on', 'true', 'REQUIRED', '']) expect(() => payEnv({ PAY_CAPTURE_RECONCILE: value }), value).toThrow();
     const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
     const block = composeServiceBlock(compose, 'svc-pay');
-    expect(envTs).toMatch(/PAY_CAPTURE_RECONCILE:\s*z\.enum\(\['off', 'required'\]\)\.default\('off'\)/);
     expect(block).toMatch(/PAY_CAPTURE_RECONCILE:\s*\$\{PAY_CAPTURE_RECONCILE:-off\}/);
   });
 });

@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PayError, publishedMaxOpenSessionsPerLink } from './payment-service.js';
+import { payEnv } from './env.testkit.js';
+import { scriptedCheckout, wrotePayment, wroteSession } from './checkout-open.testkit.js';
 
 /**
  * Owner hosted-checkout open-session cap is refuse-closed when unset.
@@ -15,10 +17,12 @@ import { PayError, publishedMaxOpenSessionsPerLink } from './payment-service.js'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('PAY_CHECKOUT_MAX_OPEN_SESSIONS unset refuse', () => {
-  it('env.ts does not default blank to 25', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
-    expect(envTs).toMatch(/PAY_CHECKOUT_MAX_OPEN_SESSIONS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(10_000\),/);
-    expect(envTs).not.toMatch(/PAY_CHECKOUT_MAX_OPEN_SESSIONS:[\s\S]{0,80}\.default\(25\)/);
+  it('the boot settings refuse a blank cap rather than defaulting it to 25', () => {
+    for (const blank of [undefined, '', ' ', '0']) {
+      expect(() => payEnv({ PAY_CHECKOUT_MAX_OPEN_SESSIONS: blank })).toThrow(/PAY_CHECKOUT_MAX_OPEN_SESSIONS/);
+    }
+    expect(payEnv({ PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25' }).PAY_CHECKOUT_MAX_OPEN_SESSIONS).toBe(25);
+    expect(payEnv({ PAY_CHECKOUT_MAX_OPEN_SESSIONS: '1' }).PAY_CHECKOUT_MAX_OPEN_SESSIONS).toBe(1);
   });
 
   it('compose refuses missing — never a baked 25', () => {
@@ -34,11 +38,25 @@ describe('PAY_CHECKOUT_MAX_OPEN_SESSIONS unset refuse', () => {
     expect(block).not.toMatch(/PAY_CHECKOUT_MAX_OPEN_SESSIONS:\s*['"]?25/);
   });
 
-  it('constructor does not invent 25', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-pay/src/payment-service.ts'), 'utf8');
-    expect(src).not.toMatch(/maxOpenSessionsPerLink = options\.maxOpenSessionsPerLink \?\? 25/);
-    expect(src).toMatch(/maxOpenSessionsPerLink = options\.maxOpenSessionsPerLink \?\? null/);
-    expect(src).toMatch(/pay\.checkout_max_open_sessions_unset/);
+  it('a service built without the cap refuses to open a checkout before any payment or session — never 25', async () => {
+    const { pay, calls } = scriptedCheckout({ checkoutSessionTtlSeconds: 900 });
+    await expect(pay.openCheckoutSession({ linkToken: 'pl_test_token', geoCountry: 'DE' })).rejects.toMatchObject({
+      code: 'pay.checkout_max_open_sessions_unset',
+    });
+    expect(wrotePayment(calls)).toBe(false);
+    expect(wroteSession(calls)).toBe(false);
+  });
+
+  it('a service built with the owner cap refuses the link once that many sessions are open, and not before', async () => {
+    const full = scriptedCheckout({ checkoutSessionTtlSeconds: 900, maxOpenSessionsPerLink: 3 }, { openSessions: 3 });
+    await expect(full.pay.openCheckoutSession({ linkToken: 'pl_test_token', geoCountry: 'DE' })).rejects.toMatchObject({
+      code: 'pay.checkout_busy',
+      detail: { limit: 3 },
+    });
+    expect(wrotePayment(full.calls)).toBe(false);
+    const room = scriptedCheckout({ checkoutSessionTtlSeconds: 900, maxOpenSessionsPerLink: 3 }, { openSessions: 2 });
+    await room.pay.openCheckoutSession({ linkToken: 'pl_test_token', geoCountry: 'DE' }).catch(() => undefined);
+    expect(wrotePayment(room.calls)).toBe(true);
   });
 
   it('publishedMaxOpenSessionsPerLink refuses null rather than inventing 25', () => {

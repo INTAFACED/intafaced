@@ -1,13 +1,14 @@
-import { readFileSync } from 'node:fs';
+import type { Sql } from 'postgres';
+import type { Context } from '@intafaced/contracts';
+import type { LedgerClient } from '@intafaced/ledger-client';
 import { PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
 import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/pay-account-controls-procedures';
 import { accountControlHistoryInputSchema } from '@intafaced/contracts/account-controls';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   PayError,
+  PayService,
   assertDueSubscriptionsBatchLimit,
   assertDueWebhookDeliveriesBatchLimit,
   assertCycleListLimit,
@@ -22,12 +23,28 @@ import {
   assertWebhookEndpointListLimit,
   assertWithdrawalListLimit,
 } from './payment-service.js';
-import { KybError, assertKybHistoryLimit } from './kyb-service.js';
-import { PspModeError, assertPricingHistoryLimit } from './psp-mode.js';
-import { MerchantStateError, assertMerchantStateHistoryLimit } from './merchant-state-service.js';
-import { SubMerchantError, assertPermissionHistoryLimit, assertPermissionListLimit, assertSubMerchantListLimit } from './submerchants.js';
-import { FraudReviewError, assertFraudReviewListLimit } from './fraud/review-queue.js';
+import { KybError, KybService, assertKybHistoryLimit } from './kyb-service.js';
+import { PspModeError, PspModeService, assertPricingHistoryLimit } from './psp-mode.js';
+import { MerchantStateError, MerchantStateService, assertMerchantStateHistoryLimit } from './merchant-state-service.js';
+import {
+  SubMerchantError,
+  SubMerchantService,
+  assertPermissionHistoryLimit,
+  assertPermissionListLimit,
+  assertSubMerchantListLimit,
+} from './submerchants.js';
+import { FraudReviewError, MemoryFraudReviewQueue, assertFraudReviewListLimit, defaultFraudReviewQueue } from './fraud/review-queue.js';
 import { UserMoneyService } from './user-money-service.js';
+import { MemoryMerchantWebhookStore, MerchantWebhookService } from './merchant-webhooks.js';
+import { SubscriptionService } from './subscriptions/subscription-service.js';
+import { RailRegistry } from './rails/registry.js';
+import { createPayRouter } from './router.js';
+import { createKybPspRouter } from './kyb-router.js';
+import { createMerchantStateRouter } from './merchant-state-router.js';
+import type { MerchantAccountControls } from './merchant-account-controls.js';
+import { createSubMerchantRouter } from './submerchant-router.js';
+import { createSubscriptionRouter } from './subscription-router.js';
+import { scriptedSql, type SqlCall } from './scripted-sql.testkit.js';
 
 /**
  * List/history page size is refuse-closed when unset (tRPC + REST).
@@ -35,8 +52,6 @@ import { UserMoneyService } from './user-money-service.js';
  * Omit used to invent a 50-row (or 100-row) page. Blank must refuse.
  * Owner/client may pass 50 / 100 explicitly.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 function refusePay(fn: (n: number | undefined) => number, code: string) {
   expect(() => fn(undefined)).toThrow(PayError);
@@ -225,189 +240,305 @@ describe('svc-pay list/history limit unset refuse', () => {
     expect(assertWithdrawalListLimit(50)).toBe(50);
   });
 
-  it('services no longer default list/history limit to 50/100', () => {
-    const pay = readFileSync(join(ROOT, 'services/svc-pay/src/payment-service.ts'), 'utf8');
-    // Since the split by area, a moved method's body is an exported function in payment-service/<area>.ts.
-    const area = (file: string, fn: string): string => {
-      const src = readFileSync(join(ROOT, 'services/svc-pay/src/payment-service', file), 'utf8');
-      const start = src.indexOf(`export async function ${fn}(`);
-      expect(start, `${fn} missing from ${file}`).toBeGreaterThanOrEqual(0);
-      const end = src.indexOf('\nexport ', start + 1);
-      return src.slice(start, end === -1 ? undefined : end);
+  it('services refuse an omitted page size before reading, and send a given one to the query', async () => {
+    const MERCHANT = '11111111-1111-4111-8111-111111111111';
+    const OTHER = '22222222-2222-4222-8222-222222222222';
+    const merchantRow = {
+      id: MERCHANT,
+      user_id: 'merchant-user',
+      mode: 'gateway',
+      tier: 1,
+      kyb_status: 'approved',
+      kyb_ref: null,
+      status: 'active',
+      pricing: { feeBps: 100 },
+      settlement_prefs: {},
     };
-    const listPay = area('payment-reads.ts', 'listPayments');
-    expect(listPay).toContain('assertPaymentListLimit');
-    expect(listPay).not.toMatch(/\?\? 50/);
-    const hist = area('payment-reads.ts', 'history');
-    expect(hist).toContain('assertPaymentHistoryLimit');
-    expect(hist).toContain('LIMIT ${limit}');
-    expect(hist).not.toMatch(/\?\? 50/);
-    expect(hist).not.toMatch(/\?\? all\.length/);
-    expect(hist).not.toMatch(/limit = 50/);
-    const listLinksStart = pay.indexOf('async listPaymentLinks(');
-    const listLinks = pay.slice(listLinksStart, pay.indexOf('async deactivatePaymentLink(', listLinksStart));
-    expect(listLinks).toContain('assertPaymentLinkListLimit');
-    expect(listLinks).toContain('LIMIT ${page + 1}');
-    expect(listLinks).not.toMatch(/\?\? 50/);
-    const listSet = area('payouts.ts', 'listSettlements');
-    expect(listSet).toContain('assertSettlementListLimit');
-    expect(listSet).not.toMatch(/\?\? 50/);
+    const subscriptionRow = {
+      id: '44444444-4444-4444-8444-444444444444',
+      mandate_id: '55555555-5555-4555-8555-555555555555',
+      merchant_id: MERCHANT,
+      customer_id: 'customer-1',
+      next_run_at: new Date(),
+      status: 'active',
+      cancelled_at: null,
+      path: 'crypto_invoice',
+      created_at: new Date(),
+      anchor_at: new Date(),
+      anchor_occurrence: 0,
+      paused_at: null,
+      resumed_at: null,
+      stalled_at: null,
+      stall_reason: null,
+      price_id: null,
+    };
+    const db = () =>
+      scriptedSql<Sql>((call) =>
+        call.text.includes('FROM pay.merchants')
+          ? [merchantRow]
+          : call.text.includes('FROM pay.subscriptions WHERE id')
+            ? [subscriptionRow]
+            : [],
+      );
+    /** The page size the service sent: the value bound right after `LIMIT`. */
+    const sentLimit = (calls: readonly SqlCall[]): unknown => {
+      for (const call of calls) {
+        const at = call.text.split('$?').findIndex((part) => /LIMIT\s*$/.test(part));
+        if (at >= 0) return call.values[at];
+      }
+      return undefined;
+    };
+    const omitted = async (run: (sql: Sql) => Promise<unknown>, code: string) => {
+      const { sql, calls } = db();
+      await expect(run(sql)).rejects.toMatchObject({ code });
+      expect(sentLimit(calls), `${code}: nothing paged`).toBeUndefined();
+    };
+    const given = async (run: (sql: Sql) => Promise<unknown>, expected: number) => {
+      const { sql, calls } = db();
+      // Only what was asked of the database matters here; a page built from no rows may still refuse after it.
+      await run(sql).catch(() => undefined);
+      expect(sentLimit(calls)).toBe(expected);
+    };
+    const ledger = {} as LedgerClient;
+    const rails = new RailRegistry([]);
+    const pay = (sql: Sql) => new PayService(sql, ledger, rails);
 
-    const money = readFileSync(join(ROOT, 'services/svc-pay/src/user-money-service.ts'), 'utf8');
-    const listW = money.slice(money.indexOf('async listWithdrawals('), money.indexOf('async availableBalance('));
-    expect(listW).toContain('assertWithdrawalListLimit');
-    expect(listW).not.toMatch(/limit = 50/);
-    expect(listW).not.toMatch(/\?\? 50/);
+    await omitted((sql) => pay(sql).listPayments({ merchantId: MERCHANT }), 'pay.payment_list_limit_unset');
+    await given((sql) => pay(sql).listPayments({ merchantId: MERCHANT, limit: 7 }), 8);
+    await omitted((sql) => pay(sql).history(MERCHANT), 'pay.payment_history_limit_unset');
+    await given((sql) => pay(sql).history(MERCHANT, 7), 7);
+    await omitted((sql) => pay(sql).listPaymentLinks(MERCHANT, {}), 'pay.payment_link_list_limit_unset');
+    await given((sql) => pay(sql).listPaymentLinks(MERCHANT, { limit: 7 }), 8);
+    await omitted((sql) => pay(sql).listSettlements({ merchantId: MERCHANT }), 'pay.settlement_list_limit_unset');
+    await given((sql) => pay(sql).listSettlements({ merchantId: MERCHANT, limit: 7 }), 8);
 
-    const kyb = readFileSync(join(ROOT, 'services/svc-pay/src/kyb-service.ts'), 'utf8');
-    const kybH = kyb.slice(kyb.indexOf('async history('), kyb.indexOf('async currentStatus('));
-    expect(kybH).toContain('assertKybHistoryLimit');
-    expect(kybH).not.toMatch(/limit = 50/);
+    const money = (sql: Sql) => new UserMoneyService(sql, ledger, rails, { operatorCreditRails: [] });
+    await omitted((sql) => money(sql).listWithdrawals('user'), 'pay.withdrawal_list_limit_unset');
+    await given((sql) => money(sql).listWithdrawals('user', 7), 7);
 
-    const fraudQ = readFileSync(join(ROOT, 'services/svc-pay/src/fraud/review-queue.ts'), 'utf8');
-    const listOpen = fraudQ.slice(fraudQ.lastIndexOf('listOpen(merchantId?: string, limit?: number): readonly FraudReviewCase[] {'));
-    expect(listOpen).toContain('assertFraudReviewListLimit');
-    expect(listOpen).not.toMatch(/limit = 50/);
-    expect(listOpen).not.toMatch(/\?\? 50/);
+    await omitted((sql) => new KybService(sql).history(MERCHANT), 'pay.kyb_history_limit_unset');
+    await given((sql) => new KybService(sql).history(MERCHANT, 7), 7);
+    await omitted((sql) => new PspModeService(sql).pricingHistory(MERCHANT), 'pay.psp_pricing_history_limit_unset');
+    await given((sql) => new PspModeService(sql).pricingHistory(MERCHANT, 7), 7);
+    await omitted((sql) => new MerchantStateService(sql).history(MERCHANT), 'pay.merchant_state_history_limit_unset');
+    await given((sql) => new MerchantStateService(sql).history(MERCHANT, 7), 7);
 
-    const psp = readFileSync(join(ROOT, 'services/svc-pay/src/psp-mode.ts'), 'utf8');
-    const pspH = psp.slice(psp.indexOf('async pricingHistory('), psp.indexOf('async enablePspMode('));
-    expect(pspH).toContain('assertPricingHistoryLimit');
-    expect(pspH).not.toMatch(/limit = 50/);
+    // The subtree reads refuse a blank page before they look at the tree at all.
+    await omitted((sql) => new SubMerchantService(sql).listSubMerchants(MERCHANT, OTHER), 'pay.submerchant_list_limit_unset');
+    await omitted((sql) => new SubMerchantService(sql).listPermissions(MERCHANT, OTHER), 'pay.submerchant_permission_list_limit_unset');
+    await omitted(
+      (sql) => new SubMerchantService(sql).permissionHistory(MERCHANT, OTHER),
+      'pay.submerchant_permission_history_limit_unset',
+    );
 
-    const state = readFileSync(join(ROOT, 'services/svc-pay/src/merchant-state-service.ts'), 'utf8');
-    const stateH = state.slice(state.indexOf('async history('), state.indexOf('async currentStatus('));
-    expect(stateH).toContain('assertMerchantStateHistoryLimit');
-    expect(stateH).not.toMatch(/limit = 50/);
+    const subs = (sql: Sql) => new SubscriptionService(sql);
+    await omitted((sql) => subs(sql).listMandates(MERCHANT), 'pay.subscription_mandate_list_limit_unset');
+    await given((sql) => subs(sql).listMandates(MERCHANT, { limit: 7 }), 8);
+    await omitted((sql) => subs(sql).listSubscriptions(MERCHANT), 'pay.subscription_list_limit_unset');
+    await given((sql) => subs(sql).listSubscriptions(MERCHANT, { limit: 7 }), 8);
+    await omitted((sql) => subs(sql).listCycles(MERCHANT), 'pay.subscription_cycle_list_limit_unset');
+    await given((sql) => subs(sql).listCycles(MERCHANT, { limit: 7 }), 7);
+    await omitted((sql) => subs(sql).listExecutions(subscriptionRow.id), 'pay.subscription_execution_list_limit_unset');
+    await given((sql) => subs(sql).listExecutions(subscriptionRow.id, { limit: 7 }), 7);
+    await omitted((sql) => subs(sql).runDueSubscriptions(), 'pay.due_subscriptions_batch_limit_unset');
+    await given((sql) => subs(sql).runDueSubscriptions({ limit: 7 }), 7);
 
-    const sub = readFileSync(join(ROOT, 'services/svc-pay/src/submerchants.ts'), 'utf8');
-    const listSub = sub.slice(sub.indexOf('async listSubMerchants('), sub.indexOf('async getSubMerchant('));
-    expect(listSub).toContain('assertSubMerchantListLimit');
-    expect(listSub).not.toMatch(/limit = 100/);
-    const permH = sub.slice(sub.indexOf('async permissionHistory('));
-    expect(permH).toContain('assertPermissionHistoryLimit');
-    expect(permH).not.toMatch(/limit = 50/);
-    const permL = sub.slice(sub.indexOf('async listPermissions('), sub.indexOf('async permissionHistory('));
-    expect(permL).toContain('assertPermissionListLimit');
-    expect(permL).toContain('LIMIT ${page}');
-    expect(permL).not.toMatch(/limit = 50/);
-    expect(permL).not.toMatch(/\?\? 50/);
-
-    const webhooks = readFileSync(join(ROOT, 'services/svc-pay/src/merchant-webhooks.ts'), 'utf8');
-    const listEp = webhooks.slice(webhooks.lastIndexOf('async listEndpoints('), webhooks.indexOf('async disableEndpoint('));
-    expect(listEp).toContain('assertWebhookEndpointListLimit');
-    expect(listEp).not.toMatch(/\?\? 50/);
-    const listD = webhooks.slice(webhooks.indexOf('async listDeliveries('), webhooks.indexOf('async processDue('));
-    expect(listD).toContain('assertWebhookDeliveryListLimit');
-    expect(listD).not.toMatch(/\?\? 50/);
-    const dueW = webhooks.slice(webhooks.indexOf('async processDue('));
-    expect(dueW).toContain('assertDueWebhookDeliveriesBatchLimit');
-    expect(dueW).not.toMatch(/limit = 25/);
-    expect(dueW).not.toMatch(/\?\? 25/);
-
-    const subs = readFileSync(join(ROOT, 'services/svc-pay/src/subscriptions/subscription-service.ts'), 'utf8');
-    const listM = subs.slice(subs.indexOf('async listMandates('), subs.indexOf('async listSubscriptions('));
-    expect(listM).toContain('assertMandateListLimit');
-    expect(listM).not.toMatch(/\?\? 50/);
-    const listS = subs.slice(subs.indexOf('async listSubscriptions('), subs.indexOf('async listCycles('));
-    expect(listS).toContain('assertSubscriptionListLimit');
-    expect(listS).not.toMatch(/\?\? 50/);
-    const listC = subs.slice(subs.indexOf('async listCycles('), subs.indexOf('async cancelSubscription('));
-    expect(listC).toContain('assertCycleListLimit');
-    expect(listC).toContain('LIMIT ${limit}');
-    expect(listC).not.toMatch(/\?\? 50/);
-    const listE = subs.slice(subs.indexOf('async listExecutions('), subs.indexOf('async pauseSubscription('));
-    expect(listE).toContain('assertExecutionListLimit');
-    expect(listE).not.toMatch(/\?\? 50/);
-    const due = subs.slice(subs.indexOf('async runDueSubscriptions('), subs.indexOf('private async runOneSubscription('));
-    expect(due).toContain('assertDueSubscriptionsBatchLimit');
-    expect(due).not.toMatch(/\?\? 50/);
+    // The fraud queue and the webhook store page in memory: the omitted page refuses, a given one is what is asked for.
+    expect(() => new MemoryFraudReviewQueue().listOpen(MERCHANT)).toThrow(
+      expect.objectContaining({ code: 'pay.fraud_review_list_limit_unset' }),
+    );
+    const store = new MemoryMerchantWebhookStore();
+    const seen: Array<{ method: string; limit: unknown }> = [];
+    const watched = new Proxy(store, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver) as unknown;
+        if (typeof value !== 'function') return value;
+        return (...args: unknown[]) => {
+          const opts = args[1] as { limit?: unknown } | undefined;
+          if (prop === 'claimDue') seen.push({ method: 'claimDue', limit: args[0] });
+          else if (opts && typeof opts === 'object' && 'limit' in opts) seen.push({ method: String(prop), limit: opts.limit });
+          return (value as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    });
+    const hooks = new MerchantWebhookService(watched, { retryScheduleSeconds: [60] });
+    await expect(hooks.listEndpoints(MERCHANT)).rejects.toMatchObject({ code: 'pay.webhook_endpoint_list_limit_unset' });
+    await expect(hooks.listDeliveries(MERCHANT)).rejects.toMatchObject({ code: 'pay.webhook_delivery_list_limit_unset' });
+    await expect(hooks.processDue()).rejects.toMatchObject({ code: 'pay.due_webhook_deliveries_batch_limit_unset' });
+    expect(seen).toEqual([]);
+    await hooks.listEndpoints(MERCHANT, 7);
+    await hooks.listDeliveries(MERCHANT, { limit: 7 });
+    await hooks.processDue(7);
+    expect(seen).toEqual([
+      { method: 'listEndpoints', limit: 7 },
+      { method: 'listDeliveries', limit: 7 },
+      { method: 'claimDue', limit: 7 },
+    ]);
   });
 
-  it('routers do not invent 50/100 when list/history omits limit', () => {
-    const router = readFileSync(join(ROOT, 'services/svc-pay/src/router.ts'), 'utf8');
-    const listLinksProc = router.slice(router.indexOf('PAY_MERCHANT_LIST_LINKS,\n'), router.indexOf('deactivateLink:'));
-    expect(listLinksProc).toContain('listPaymentLinks(input.merchantId, input)');
-    expect(listLinksProc).not.toMatch(/\?\? 50/);
-    // The record's input keeps limit optional and undefaulted, so an omitted limit reaches pay.payment_link_list_limit_unset.
-    const noLimit = PAY_MERCHANT_LIST_LINKS.input.safeParse({ merchantId: '11111111-1111-4111-8111-111111111111' });
-    expect(noLimit.success && !('limit' in noLimit.data)).toBe(true);
-    const payHist = router.slice(router.indexOf('PAY_PAYMENT_HISTORY,\n'), router.indexOf('settlement: router'));
-    expect(payHist).toContain('pay.history(input.paymentId, input.limit)');
-    // The record's input keeps limit optional and undefaulted, so an omitted limit reaches pay.payment_history_limit_unset.
-    const omitted = PAY_PAYMENT_HISTORY.input.safeParse({ paymentId: '11111111-1111-4111-8111-111111111111' });
-    expect(omitted.success && !('limit' in omitted.data)).toBe(true);
-    expect(payHist).not.toMatch(/\?\? 50/);
-    expect(payHist).not.toMatch(/\?\? all\.length/);
-    const mine = router.slice(router.indexOf('mine: scopedProcedure'), router.indexOf('balance: scopedProcedure'));
-    expect(mine).toContain('listWithdrawals(ctx.principal.userId, input?.limit)');
-    expect(mine).not.toMatch(/input\?\.limit \?\? 50/);
-    const listReviews = router.slice(router.indexOf('listOpenReviews:'), router.indexOf('resolveReview:'));
-    expect(listReviews).toContain('input?.limit');
-    expect(listReviews).not.toMatch(/\?\? 50/);
+  it('routers pass an omitted page size on as omitted, so the service refuses it', async () => {
+    const USER = '33333333-3333-4333-8333-333333333333';
+    const MERCHANT = '11111111-1111-4111-8111-111111111111';
+    const SUB = '44444444-4444-4444-8444-444444444444';
+    const ctx = (scopes: string[]): Context => ({
+      principal: {
+        userId: USER,
+        sub: USER,
+        sid: '77777777-7777-4777-8777-777777777777',
+        scopes,
+        mfa: true,
+        tier: 'full',
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+      service: null,
+      region: 'DE',
+      requestId: 'req-1',
+    });
+    const merchant = {
+      id: MERCHANT,
+      userId: USER,
+      mode: 'gateway' as const,
+      tier: 1,
+      kybStatus: 'approved' as const,
+      kybRef: null,
+      status: 'active' as const,
+      pricing: { feeBps: 100 },
+      settlementPrefs: {},
+    };
+    /** The router's refusal carries the service's code, in its cause or its words. */
+    const refusedWith = (code: string) => (err: unknown) => {
+      const e = err as { message?: string; cause?: { code?: string } };
+      return e.cause?.code === code || String(e.message).includes(code);
+    };
+    /** A stand-in that keeps what each method was asked, then answers as the real one does on a blank page. */
+    function recording<T>(answers: Record<string, (...args: never[]) => unknown>) {
+      const calls: Array<{ method: string; args: unknown[] }> = [];
+      const service = new Proxy(
+        {},
+        {
+          get: (_target, prop) => {
+            if (typeof prop !== 'string' || prop === 'then') return undefined;
+            return (...args: unknown[]) => {
+              calls.push({ method: prop, args });
+              const answer = answers[prop];
+              if (!answer) throw new Error(`stand-in has no ${prop}`);
+              return answer(...(args as never[]));
+            };
+          },
+        },
+      ) as T;
+      const argsOf = (method: string): unknown[] => {
+        const call = calls.find((c) => c.method === method);
+        expect(call, `${method} was called`).toBeDefined();
+        return call!.args;
+      };
+      return { service, argsOf };
+    }
 
-    const kybR = readFileSync(join(ROOT, 'services/svc-pay/src/kyb-router.ts'), 'utf8');
-    expect(kybR).toContain('kyb.history(input.merchantId, input.limit)');
-    expect(kybR).toContain('psp.pricingHistory(input.merchantId, input.limit)');
-    expect(kybR).not.toMatch(/\?\? 50/);
-
-    const stateR = readFileSync(join(ROOT, 'services/svc-pay/src/merchant-state-router.ts'), 'utf8');
-    expect(stateR).toContain('mountRecord(PAY_ACCOUNT_CONTROLS_HISTORY,');
-    // The record's input is the shared history input: limit is required and never defaulted, so an omitted one is refused.
-    expect(PAY_ACCOUNT_CONTROLS_HISTORY.input).toBe(accountControlHistoryInputSchema);
-    expect(
-      PAY_ACCOUNT_CONTROLS_HISTORY.input.safeParse({ target: { area: 'merchant', merchantId: '11111111-1111-4111-8111-111111111111' } })
-        .success,
-    ).toBe(false);
-    expect(stateR).toContain('available().history(ctx, input)');
-    expect(stateR).not.toMatch(/\?\? 50/);
-
-    const subR = readFileSync(join(ROOT, 'services/svc-pay/src/submerchant-router.ts'), 'utf8');
-    expect(subR).toContain('listSubMerchants(actorMerchantId, input.merchantId, input.limit)');
-    expect(subR).toContain('listPermissions(actorMerchantId, input.subjectMerchantId, input.limit)');
-    expect(subR).toContain('permissionHistory(actorMerchantId, input.subjectMerchantId, input.limit)');
-    expect(subR).not.toMatch(/\?\? 50/);
-    expect(subR).not.toMatch(/\?\? 100/);
-
-    const rest = readFileSync(join(ROOT, 'services/svc-pay/src/public-rest.ts'), 'utf8');
-    expect(rest).not.toMatch(/DEFAULT_LIMIT/);
-    expect(rest).toContain('listPaymentLinks(req.query.merchantId, {');
-    expect(rest).not.toMatch(/listPaymentLinks\(req\.query\.merchantId\)/);
-    const payList = rest.slice(rest.indexOf('`${BASE}/payments`'), rest.indexOf('`${BASE}/balances`'));
-    expect(payList).toContain('limit: req.query.limit');
-    expect(payList).not.toMatch(/\?\? 50/);
-    expect(payList).not.toMatch(/default: /);
-    const hookStart = rest.indexOf('`${BASE}/webhook-deliveries`');
-    const hookList = rest.slice(hookStart, rest.indexOf('PayFac permission product path', hookStart));
-    expect(hookList).toContain('limit: req.query.limit');
-    expect(hookList).not.toMatch(/\?\? 50/);
-    expect(hookList).not.toMatch(/default: /);
-    expect(rest).toContain('listEndpoints(req.query.merchantId, req.query.limit)');
-    expect(rest).not.toMatch(/listEndpoints\(req\.query\.merchantId\)/);
-    expect(rest).toContain('listPermissions(actorMerchantId, req.query.subjectMerchantId, req.query.limit)');
-    expect(rest).toContain('req.query.subjectMerchantId, req.query.limit');
-    expect(rest).not.toMatch(/req\.query\.limit \?\? 50/);
-
-    const subRouter = readFileSync(join(ROOT, 'services/svc-pay/src/subscription-router.ts'), 'utf8');
-    expect(subRouter).toContain('limit: input.limit');
-    expect(subRouter).not.toMatch(/\?\? 50/);
-    const cyclesProc = subRouter.slice(
-      subRouter.lastIndexOf('cycles: mountRecord'),
-      subRouter.lastIndexOf('export type SubscriptionRouter'),
+    // svc-pay's own tRPC router: merchant.listLinks hands the input on without a page of its own.
+    const pay = recording<PayService>({
+      getMerchant: async () => merchant,
+      listPaymentLinks: async (_m: string, query: { limit?: number }) => assertPaymentLinkListLimit(query.limit),
+    });
+    const payRouter = createPayRouter(pay.service, new RailRegistry([]), recording<UserMoneyService>({}).service);
+    await expect(payRouter.createCaller(ctx(['pay:read'])).merchant.listLinks({ merchantId: MERCHANT })).rejects.toSatisfy(
+      refusedWith('pay.payment_link_list_limit_unset'),
     );
-    expect(cyclesProc).toContain('listCycles(input.subscriptionId, { limit: input.limit })');
-    expect(cyclesProc).not.toMatch(/\?\? 50/);
+    expect(pay.argsOf('listPaymentLinks')[1]).not.toHaveProperty('limit');
+    // payment.history, withdrawal.mine and fraud.listOpenReviews hand an omitted page on as omitted too.
+    const PAYMENT = '66666666-6666-4666-8666-666666666666';
+    const reads = recording<PayService>({
+      getMerchant: async () => merchant,
+      getPayment: async () => ({ id: PAYMENT, merchantId: MERCHANT }),
+      history: async (_p: string, limit?: number) => assertPaymentHistoryLimit(limit),
+    });
+    const money = recording<UserMoneyService>({
+      listWithdrawals: async (_u: string, limit?: number) => assertWithdrawalListLimit(limit),
+    });
+    // With no database the router reads the in-process review queue.
+    const listOpen = vi.spyOn(defaultFraudReviewQueue, 'listOpen');
+    const readsRouter = createPayRouter(reads.service, new RailRegistry([]), money.service);
+    await expect(readsRouter.createCaller(ctx(['pay:read'])).payment.history({ paymentId: PAYMENT })).rejects.toSatisfy(
+      refusedWith('pay.payment_history_limit_unset'),
+    );
+    expect(reads.argsOf('history')).toEqual([PAYMENT, undefined]);
+    await expect(readsRouter.createCaller(ctx(['trade:read'])).withdrawal.mine()).rejects.toSatisfy(
+      refusedWith('pay.withdrawal_list_limit_unset'),
+    );
+    expect(money.argsOf('listWithdrawals')).toEqual([USER, undefined]);
+    await expect(readsRouter.createCaller(ctx(['admin:treasury'])).fraud.listOpenReviews({})).rejects.toSatisfy(
+      refusedWith('pay.fraud_review_list_limit_unset'),
+    );
+    expect(listOpen).toHaveBeenCalledWith(undefined, undefined);
+    listOpen.mockRestore();
+    // The records' inputs keep limit optional and undefaulted, so an omitted limit reaches the service's refusal.
+    const noLimit = PAY_MERCHANT_LIST_LINKS.input.safeParse({ merchantId: MERCHANT });
+    expect(noLimit.success && !('limit' in noLimit.data)).toBe(true);
+    const omittedHistory = PAY_PAYMENT_HISTORY.input.safeParse({ paymentId: MERCHANT });
+    expect(omittedHistory.success && !('limit' in omittedHistory.data)).toBe(true);
 
-    const cycle = readFileSync(join(ROOT, 'services/svc-pay/src/subscriptions/internal-cycle-routes.ts'), 'utf8');
-    expect(cycle).toContain('assertDueSubscriptionsBatchLimit');
-    expect(cycle).toContain('assertCycleListLimit');
-    expect(cycle).toContain('listCycles(req.params.id, { limit }');
-    expect(cycle).not.toMatch(/listCycles\(req\.params\.id\)/);
-    expect(cycle).not.toMatch(/limit === undefined \? \{\}/);
-    expect(cycle).not.toMatch(/\?\? 50/);
+    // KYB and pricing history (operator reads).
+    const kyb = recording<KybService>({ history: async (_m: string, limit?: number) => assertKybHistoryLimit(limit) });
+    const psp = recording<PspModeService>({ pricingHistory: async (_m: string, limit?: number) => assertPricingHistoryLimit(limit) });
+    const kybCaller = createKybPspRouter(kyb.service, psp.service).createCaller(ctx(['admin:read']));
+    await expect(kybCaller.kyb.history({ merchantId: MERCHANT })).rejects.toSatisfy(refusedWith('pay.kyb_history_limit_unset'));
+    expect(kyb.argsOf('history')).toEqual([MERCHANT, undefined]);
+    await expect(kybCaller.psp.pricingHistory({ merchantId: MERCHANT })).rejects.toSatisfy(
+      refusedWith('pay.psp_pricing_history_limit_unset'),
+    );
+    expect(psp.argsOf('pricingHistory')).toEqual([MERCHANT, undefined]);
 
-    const index = readFileSync(join(ROOT, 'services/svc-pay/src/index.ts'), 'utf8');
-    expect(index).toContain('processDue(25)');
-    expect(index).not.toMatch(/processDue\(\)/);
+    // Merchant state history: the shared input requires a limit and is never defaulted, so an omitted one is refused.
+    expect(PAY_ACCOUNT_CONTROLS_HISTORY.input).toBe(accountControlHistoryInputSchema);
+    expect(PAY_ACCOUNT_CONTROLS_HISTORY.input.safeParse({ target: { area: 'merchant', merchantId: MERCHANT } }).success).toBe(false);
+    const controls = recording<MerchantAccountControls>({});
+    const stateCaller = createMerchantStateRouter({} as MerchantStateService, controls.service).createCaller(ctx(['admin:read']));
+    await expect(stateCaller.merchantState.history({ target: { area: 'merchant', merchantId: MERCHANT } } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+
+    // PayFac subtree reads.
+    const tree = recording<SubMerchantService>({
+      listSubMerchants: async (_a: string, _m: string, limit?: number) => assertSubMerchantListLimit(limit),
+      listPermissions: async (_a: string, _s: string, limit?: number) => assertPermissionListLimit(limit),
+      permissionHistory: async (_a: string, _s: string, limit?: number) => assertPermissionHistoryLimit(limit),
+    });
+    const treeCaller = createSubMerchantRouter(tree.service, { getMerchantByUserId: async () => ({ id: MERCHANT }) }).createCaller(
+      ctx(['pay:read']),
+    );
+    await expect(treeCaller.submerchant.list({ merchantId: MERCHANT })).rejects.toSatisfy(refusedWith('pay.submerchant_list_limit_unset'));
+    expect(tree.argsOf('listSubMerchants')).toEqual([MERCHANT, MERCHANT, undefined]);
+    await expect(treeCaller.submerchantPermission.list({ subjectMerchantId: MERCHANT })).rejects.toSatisfy(
+      refusedWith('pay.submerchant_permission_list_limit_unset'),
+    );
+    expect(tree.argsOf('listPermissions')).toEqual([MERCHANT, MERCHANT, undefined]);
+    await expect(treeCaller.submerchantPermission.history({ subjectMerchantId: MERCHANT })).rejects.toSatisfy(
+      refusedWith('pay.submerchant_permission_history_limit_unset'),
+    );
+    expect(tree.argsOf('permissionHistory')).toEqual([MERCHANT, MERCHANT, undefined]);
+
+    // Subscriptions: the fleet lists and the cycle journal.
+    const subs = recording<SubscriptionService>({
+      getSubscription: async () => ({ id: SUB, merchantId: MERCHANT }),
+      listMandates: async (_m: string, o: { limit?: number }) => assertMandateListLimit(o.limit),
+      listSubscriptions: async (_m: string, o: { limit?: number }) => assertSubscriptionListLimit(o.limit),
+      listExecutions: async (_s: string, o: { limit?: number }) => assertExecutionListLimit(o.limit),
+      listCycles: async (_s: string, o: { limit?: number }) => assertCycleListLimit(o.limit),
+    });
+    const subCaller = createSubscriptionRouter(subs.service, pay.service).createCaller(ctx(['pay:read']));
+    await expect(subCaller.mandate.list({ merchantId: MERCHANT })).rejects.toSatisfy(
+      refusedWith('pay.subscription_mandate_list_limit_unset'),
+    );
+    expect(subs.argsOf('listMandates')[1]).toMatchObject({ limit: undefined });
+    await expect(subCaller.subscription.list({ merchantId: MERCHANT })).rejects.toSatisfy(refusedWith('pay.subscription_list_limit_unset'));
+    expect(subs.argsOf('listSubscriptions')[1]).toMatchObject({ limit: undefined });
+    await expect(subCaller.subscription.listExecutions({ subscriptionId: SUB })).rejects.toSatisfy(
+      refusedWith('pay.subscription_execution_list_limit_unset'),
+    );
+    expect(subs.argsOf('listExecutions')[1]).toEqual({ limit: undefined });
+    await expect(subCaller.subscription.cycles({ subscriptionId: SUB })).rejects.toSatisfy(
+      refusedWith('pay.subscription_cycle_list_limit_unset'),
+    );
+    expect(subs.argsOf('listCycles')[1]).toEqual({ limit: undefined });
   });
 });

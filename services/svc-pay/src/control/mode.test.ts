@@ -1,12 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Sql } from 'postgres';
+import { fakeSql } from '@intafaced/service-kit/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildPayGuards } from '../seams/registry.js';
 import { MerchantControlsBootError, MerchantControlsModeError, resolveMerchantControlsMode } from './mode.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
+import { payEnv } from '../env.testkit.js';
 
 describe('PAY_MERCHANT_CONTROLS is never silently off', () => {
   it('unset or blank outside an explicit dev or test run refuses boot with a typed error', () => {
@@ -59,7 +56,7 @@ describe('PAY_MERCHANT_CONTROLS is never silently off', () => {
         else process.env[key] = value;
       }
     });
-    const sql = (async () => []) as unknown as Sql;
+    const sql = fakeSql<Sql>();
 
     it('does not fall back to off when the process env leaves it unset in a prod-like env', () => {
       delete process.env.PAY_MERCHANT_CONTROLS;
@@ -80,11 +77,22 @@ describe('PAY_MERCHANT_CONTROLS is never silently off', () => {
     });
   });
 
-  it('index.ts resolves the mode before it builds the guards, and env.ts has no off default', () => {
-    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(index.indexOf('resolveMerchantControlsMode(')).toBeGreaterThan(-1);
-    expect(index.indexOf('resolveMerchantControlsMode(')).toBeLessThan(index.indexOf('buildPayGuards('));
-    const env = readFileSync(join(here, '..', 'env.ts'), 'utf8');
-    expect(env).not.toMatch(/PAY_MERCHANT_CONTROLS:[^\n]*default\(/);
+  it('the boot settings carry no off default, and guards built from them refuse an unset mode outside dev or test', () => {
+    // What the boot reads: unset stays unset (no default), blank stays blank, a value passes through for the resolver.
+    expect(payEnv({ PAY_MERCHANT_CONTROLS: undefined }).PAY_MERCHANT_CONTROLS).toBeUndefined();
+    expect(payEnv({ PAY_MERCHANT_CONTROLS: '' }).PAY_MERCHANT_CONTROLS).toBe('');
+    expect(payEnv({ PAY_MERCHANT_CONTROLS: 'required' }).PAY_MERCHANT_CONTROLS).toBe('required');
+    // The guard registry the boot builds resolves the mode itself, so an unset one cannot reach the guards as off.
+    const saved = { controls: process.env.PAY_MERCHANT_CONTROLS, appEnv: process.env.APP_ENV };
+    try {
+      process.env.APP_ENV = 'staging';
+      delete process.env.PAY_MERCHANT_CONTROLS;
+      expect(() => buildPayGuards({ sql: fakeSql<Sql>() })).toThrow(expect.objectContaining({ code: 'pay.merchant_controls_unset' }));
+    } finally {
+      if (saved.controls === undefined) delete process.env.PAY_MERCHANT_CONTROLS;
+      else process.env.PAY_MERCHANT_CONTROLS = saved.controls;
+      if (saved.appEnv === undefined) delete process.env.APP_ENV;
+      else process.env.APP_ENV = saved.appEnv;
+    }
   });
 });

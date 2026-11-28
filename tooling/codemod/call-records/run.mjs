@@ -176,6 +176,32 @@ function nearestOwners(e, paths, callerFiles, moved, strict = false) {
 }
 
 /**
+ * What a round's type errors do to the run's next round (`owners`: ownersOf's file -> path -> error text; `moved`: the
+ * round's moved calls), written into `keep` and `skip` (path -> { why }). An app's error first keeps its callers' own
+ * schemas (`callAs`, index.mjs --keep-file), so the screens read the type they read before. An error can name several
+ * moved calls, so while any of them is not kept yet nothing is left. The owners are read from the files around an error,
+ * so the call that causes it may be none of them: before any call is left, every moved call is kept once. A call that
+ * still owns an error after that, or one its service's handler no longer fits, is left by name.
+ */
+export function settleErrors(owners, moved, keep, skip) {
+  const app = [...owners].filter(([file]) => !file.startsWith('services/'));
+  let toKeep = app.flatMap(([, paths]) => [...paths]).filter(([path]) => !keep[path] && !skip[path]);
+  if (!toKeep.length && app.length)
+    toKeep = moved.filter((m) => !keep[m.path] && !skip[m.path]).map((m) => [m.path, 'kept with every moved call']);
+  for (const [path, text] of toKeep) keep[path] = { why: text };
+  for (const [file, paths] of owners)
+    for (const [path, text] of paths) {
+      const service = file.startsWith('services/');
+      if (!service && toKeep.length) continue;
+      skip[path] ??= {
+        why: service
+          ? `the service's handler no longer typechecks against its record: ${text}`
+          : `the app's own types disagree with its record, even through its callers' own schemas: ${text}`,
+      };
+    }
+}
+
+/**
  * Which moved calls own each new type error: the paths with a caller in the erring file, else in the nearest files it
  * reaches by relative imports (a screen, or its test, reading a type the moved file now takes from its record), up to
  * four imports away; of those, only the ones the code around the error names (nearestOwners), so one error leaves one
@@ -303,6 +329,8 @@ export function run(argv) {
   const skipFile = join(tmpdir(), `call-records-skip-${process.pid}.json`);
   let skip = { ...seed };
   if (Object.keys(skip).length) writeFileSync(skipFile, JSON.stringify(skip));
+  const keepFile = join(tmpdir(), `call-records-keep-${process.pid}.json`);
+  const keep = {};
   let result;
   // Step 8: the apps are typechecked against what they were before the run. A new error in a file a moved caller is in,
   // or in a file that imports one, leaves that call's path by name (the screen reads its answer, or sends its input, other
@@ -311,7 +339,10 @@ export function run(argv) {
   const before = new Set(appTypeErrors(REPO, service).map((e) => e.key));
   for (let pass = 0; ; pass++) {
     for (let round = 0; ; round++) {
-      result = step1(Object.keys(skip).length ? ['--skip-file', skipFile] : []);
+      result = step1([
+        ...(Object.keys(skip).length ? ['--skip-file', skipFile] : []),
+        ...(Object.keys(keep).length ? ['--keep-file', keepFile] : []),
+      ]);
       build();
       let skipped;
       for (;;) {
@@ -357,18 +388,13 @@ export function run(argv) {
     if (!fresh.length) break;
     const owners = ownersOf(fresh, result.moved ?? []);
     const orphans = fresh.filter((e) => !owners.has(e.file));
-    if (orphans.length || pass > 5)
+    if (orphans.length || pass > 11)
       throw new Error(
         `the apps or the service don't typecheck after the run, and no moved call owns these errors:\n${(orphans.length ? orphans : fresh).map((e) => e.text).join('\n')}`,
       );
-    for (const [file, paths] of owners)
-      for (const [path, text] of paths)
-        skip[path] ??= {
-          why: file.startsWith('services/')
-            ? `the service's handler no longer typechecks against its record: ${text}`
-            : `the app's own types disagree with its record: ${text}`,
-        };
+    settleErrors(owners, result.moved ?? [], keep, skip);
     writeFileSync(skipFile, JSON.stringify(skip));
+    writeFileSync(keepFile, JSON.stringify(keep));
     const patch = kept.size ? out('git', ['diff', '--', ...kept]) : '';
     putBack();
     sh('git', ['checkout', '--', 'packages/contracts/procedures']);
@@ -377,7 +403,7 @@ export function run(argv) {
       sh('git', ['apply', patchFile]);
     }
   }
-  for (const f of [summary, unportable, patchFile, skipFile]) if (existsSync(f)) rmSync(f);
+  for (const f of [summary, unportable, patchFile, skipFile, keepFile]) if (existsSync(f)) rmSync(f);
   if (callersOnly) {
     const touched = out('git', ['status', '--porcelain', '--', 'services', 'crates']).trim();
     if (touched) {

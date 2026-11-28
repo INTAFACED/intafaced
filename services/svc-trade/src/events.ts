@@ -1,28 +1,6 @@
 import { MemorySeenStore, idempotent, type EventBus, type SeenStore, type Subscription } from '@intafaced/events';
 import type { TradeService } from './spot/trade-service.js';
 import type { StopTriggerStore } from './spot/stop-trigger-door.js';
-import './spot/qty-up-amend.js';
-import './spot/gtd-gtt-place.js';
-import './spot/reduce-only-place.js';
-import './spot/post-only-place.js';
-import './spot/ioc-place.js';
-import './spot/fok-place.js';
-import './spot/iceberg-place.js';
-import './spot/stop-limit-place.js';
-import './spot/trailing-stop-place.js';
-import './spot/option-place.js';
-import './spot/min-qty-place.js';
-import './spot/aon-place.js';
-import './spot/peg-place.js';
-import './spot/auction-place.js';
-import './spot/oco-place.js';
-import './spot/market-halt-place.js';
-import './spot/venue-halt-place.js';
-import './spot/market-reduce-only-place.js';
-import './spot/market-post-only-place.js';
-import './spot/market-prelaunch-place.js';
-import './spot/market-expired-place.js';
-import './spot/market-delisted-place.js';
 import { bindCloseSpotTrade } from './spot/close-position.js';
 
 /**

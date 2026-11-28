@@ -13,9 +13,6 @@
  * uses `{}`, which still proves refusal because authority runs before parsing, but the
  * POSITIVE CONTROL then names the procedure as `other:BAD_REQUEST`: add its input there.)
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { router, scopedProcedure } from '@intafaced/contracts';
@@ -449,44 +446,7 @@ describe('G: founder-only procedures', () => {
     });
   });
 
-  describe('composition pin', () => {
-    it('src/index.ts still composes the routers this fixture mirrors, with the one live founder authority', () => {
-      const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'index.ts'), 'utf8');
-      for (const piece of [
-        'createPayRouter(pay, rails, userMoney, subMerchants',
-        'createMerchantStateRouter(',
-        'createKybPspRouter(',
-        'createSubMerchantRouter(subMerchants, pay, sql)',
-        'new MerchantAccountControls(sql, founderAuthority',
-        'createMetricsRuntime({ sql, pay, trees: subMerchants, rails }, { settlementAssets })',
-        'registerPublicPayRest(app',
-      ]) {
-        expect(src, piece).toContain(piece);
-      }
-      // The namespaces mount list may grow; what it must keep is the one live authority, the metrics
-      // runtime, the registries wired to the real approvals consumer, and (W15) the pay database, which
-      // is what mounts merchantOps.* and founderAdmin.ops.* (without it every merchantOps call refuses closed).
-      const mount = /createPayNamespaces\(\{([^}]*(?:\{[^}]*\}[^}]*)*)\}\)/.exec(src);
-      expect(mount, 'src/index.ts no longer calls createPayNamespaces({ ... })').not.toBeNull();
-      const args = mount![1]!;
-      for (const piece of ['founderAuthority', 'metrics', 'registries: { sql, approvals: actionApprovals }']) {
-        expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
-      }
-      // W5: one halt store, built from the database, the configured count, and the rail registry,
-      // so payHalts.* answer for real instead of refusing closed. The same object is what rail-send paths record into.
-      expect(src, 'halt store is no longer the live PayHaltStore').toContain(
-        'const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);',
-      );
-      for (const piece of [
-        'payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) }',
-        'treasury: { sql,',
-        'control: new ControlService(sql, teamAccessPorts(sql))',
-      ]) {
-        expect(args, `createPayNamespaces is no longer given ${piece}`).toContain(piece);
-      }
-      const topLevel = args.replace(/\{[^{}]*\}/g, '{}');
-      expect(topLevel, 'createPayNamespaces is no longer given the pay database as its own `sql` argument').toMatch(/(^|,)\s*sql\s*(,|$)/);
-      expect(src.match(/createFounderAuthority\(/g), 'exactly one live founder authority').toHaveLength(1);
-    });
-  });
+  // The composition this fixture mirrors (the routers, the one live founder authority, the namespaces' database,
+  // registries, halts, treasury and control) is read off the booted service: src/index.db.test.ts, "src/index.ts still
+  // composes the routers this fixture mirrors, with the one live founder authority".
 });

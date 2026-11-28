@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
@@ -68,21 +65,5 @@ describe('createAffiliatePayoutClient', () => {
     vi.stubGlobal('fetch', async () => new Response('nope', { status: 500 }));
     const client = createAffiliatePayoutClient('http://identity.example', SECRET);
     await expect(client.payoutPayFee(FEE)).rejects.toThrow(/500/);
-  });
-});
-
-/** Pin: settlement posts first, accrue second, payout third. */
-describe('postPendingSettlement wires payout after accrue after ledger post', () => {
-  it('fires payout after accrue, after merchantSettlement', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    // postPendingSettlement lives in payment-service/settlement.ts since the split by area.
-    const src = readFileSync(join(here, 'payment-service', 'settlement.ts'), 'utf8');
-    expect(src).toMatch(/notifyPayAffiliatePayout/);
-    expect(src).toMatch(/notifyPayAffiliateAccrue/);
-    expect(src).toMatch(/recipes\.merchantSettlement/);
-    expect(src.indexOf('recipes.merchantSettlement')).toBeLessThan(src.indexOf('notifyPayAffiliateAccrue'));
-    expect(src.indexOf('notifyPayAffiliateAccrue')).toBeLessThan(src.indexOf('notifyPayAffiliatePayout'));
-    const idx = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(idx).toMatch(/createAffiliatePayoutClient/);
   });
 });

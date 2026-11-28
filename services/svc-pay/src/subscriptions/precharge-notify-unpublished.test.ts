@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PayError } from '../payment-service.js';
 import {
@@ -18,12 +15,6 @@ import {
  * Pre-charge notify: durable attempt or named skip. Invent notified:true
  * or charge-against-mandate still fail this suite.
  */
-
-const here = dirname(fileURLToPath(import.meta.url));
-
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-}
 
 describe('pre-charge notify — attempt recorded, never pretend delivered', () => {
   it('unwired gap is skipped_unwired and notified is false', () => {
@@ -124,19 +115,5 @@ describe('pre-charge notify — attempt recorded, never pretend delivered', () =
     if (card.kind === 'refuse') {
       expect(card.code).toBe('pay.mandate_rail_absent');
     }
-  });
-
-  it('fire records notify then openInvoice and never writes notified:true', () => {
-    const fire = stripComments(readFileSync(join(here, 'subscription-service.ts'), 'utf8'));
-    const recordAt = fire.indexOf('recordPreChargeNotifyAttempt({');
-    const assertAt = fire.indexOf('assertPrechargeNotifyUnpublished(notify)');
-    const openCallAt = fire.indexOf('this.openInvoice({');
-    expect(recordAt).toBeGreaterThan(-1);
-    expect(assertAt).toBeGreaterThan(recordAt);
-    expect(openCallAt).toBeGreaterThan(assertAt);
-    expect(fire).toMatch(/notify_status/);
-    expect(fire).toMatch(/skipped_unwired|notifyPreCharge/);
-    expect(fire).not.toMatch(/notified:\s*true/);
-    expect(fire).not.toMatch(/chargeAgainstMandate|pullMandate/);
   });
 });

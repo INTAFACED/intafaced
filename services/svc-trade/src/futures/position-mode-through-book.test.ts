@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { TradeService } from '../spot/trade-service.js';
 import { toCcxtError } from '../ccxt-errors.js';
-import { FUTURES_ORDERS_THROUGH_BOOK, futuresOrdersThroughBook, installPositionModePlace } from './position-mode.js';
+import { FUTURES_ORDERS_THROUGH_BOOK, futuresOrdersThroughBook, withPositionModePlace } from './position-mode.js';
+import { layeredStandIn } from '../layered.testkit.js';
 
 /**
  * While futures orders go through the futures book (TRADE_FUTURES_MATCHING_ENABLED), the spot order path refuses a
@@ -25,8 +25,8 @@ function fakeTradeService(kind: 'spot' | 'futures') {
       return { ok: true };
     }
   }
-  installPositionModePlace(Fake as unknown as typeof TradeService);
-  return { svc: new Fake(), placed };
+  const LayeredFake = layeredStandIn(Fake, withPositionModePlace);
+  return { svc: new LayeredFake(), placed };
 }
 
 const ORIGINAL = process.env.TRADE_FUTURES_MATCHING_ENABLED;

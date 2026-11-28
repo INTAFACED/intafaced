@@ -1,8 +1,9 @@
 import { expect, it } from 'vitest';
 import { TradeService } from '../trade-service.js';
-import '../combo-place.js';
+import { withComboPlace } from '../combo-place.js';
+import { layered } from '../../layered.js';
 it('L388 combo:false with legs present does not become combo:true on the engine request', () => {
-  const proto = TradeService.prototype as any;
+  const proto = layered(TradeService, withComboPlace).prototype as any;
   const input = {
     clientOrderId: 'c',
     side: 'buy',

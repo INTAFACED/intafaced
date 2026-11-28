@@ -27,7 +27,7 @@ import type { Principal } from '@intafaced/auth';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 import { createTradeRouter, type TradeRouter } from '../router.js';
 import { FORBIDDEN_PARENT_MONEY_KEYS, assertParentHasNoMoneyFields } from './present.js';
@@ -41,6 +41,11 @@ import {
   recordSchedulerHeartbeat,
 } from './scheduler-heartbeat.js';
 import type { TwapParent } from './types.js';
+import { withBracketPlace } from '../spot/bracket-place.js';
+import { withOcoPlace } from '../spot/oco-place.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withBracketPlace, withOcoPlace);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -140,7 +145,7 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
       TRUNCATE trade.algo_scheduler_heartbeat, trade.fills, trade.orders, trade.algo_parents, trade.markets
       RESTART IDENTITY CASCADE
     `;
-    trade = new TradeService(sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
+    trade = new LayeredTradeService(sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
@@ -525,7 +530,7 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
 });
 
 function serviceAt(sql: Sql, now: Date, intervalMs: number): TradeService {
-  return new TradeService(sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
+  return new LayeredTradeService(sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
     feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
     marketLifecycle: READY_MARKET_LIFECYCLE,
     algoJobsEnabled: true,

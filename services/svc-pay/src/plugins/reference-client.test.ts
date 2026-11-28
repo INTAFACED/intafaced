@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { signPayload } from '../rails/webhook-signature.js';
+import { buildSignedHeaders } from '../merchant-webhooks.js';
 import {
   absoluteUrl,
   assertDecimalAmount,
@@ -160,10 +161,21 @@ describe('pay.plugins — TypeScript reference client', () => {
   it('documents header names merchants must verify', () => {
     expect(MERCHANT_WEBHOOK_HEADERS.signature).toBe('x-intafaced-signature');
     expect(MERCHANT_WEBHOOK_HEADERS.timestamp).toBe('x-intafaced-timestamp');
-    // Core merchant-webhooks must still advertise the signature header.
-    const mw = readFileSync(join(here, '../merchant-webhooks.ts'), 'utf8');
-    expect(mw).toMatch(/x-intafaced-signature/i);
-    expect(mw).toMatch(/X-Intafaced-Signature/);
+    // What svc-pay sends on a delivery carries exactly the headers this client documents, and they verify here.
+    const v = frozenWebhookVectors()[0]!;
+    const sent = buildSignedHeaders(v.secret, v.timestampSeconds, v.rawBody);
+    expect(sent[MERCHANT_WEBHOOK_HEADERS.timestamp]).toBe(v.timestampSeconds);
+    expect(sent[MERCHANT_WEBHOOK_HEADERS.signature]).toBe(v.signatureHex);
+    expect(
+      verifyMerchantWebhook({
+        secret: v.secret,
+        rawBody: v.rawBody,
+        signatureHex: sent[MERCHANT_WEBHOOK_HEADERS.signature]!,
+        timestampSeconds: sent[MERCHANT_WEBHOOK_HEADERS.timestamp]!,
+        now: new Date(Number(v.timestampSeconds) * 1000),
+        toleranceSeconds: 300,
+      }),
+    ).toBe(true);
   });
 
   it('captured vector body keeps amount as a string (contract break detector)', () => {
@@ -172,11 +184,10 @@ describe('pay.plugins — TypeScript reference client', () => {
   });
 
   it('does not ship PHP CMS plugin trees (honest reclassify)', () => {
-    // Presence of this module IS the product path; PHP CMS adapters stay out of CI.
-    const src = readFileSync(join(here, 'reference-client.ts'), 'utf8');
-    expect(src).toMatch(/not Woo\/Magento\/OpenCart PHP/);
-    // Real PHP integration markers — not English product names in comments.
-    expect(src).not.toMatch(/woocommerce_api|Mage::|class ControllerExtensionPayment/i);
+    // This TypeScript client IS the product path; no PHP CMS adapter (Woo, Magento, OpenCart) is shipped beside it.
+    const shipped = (readdirSync(here, { recursive: true }) as string[]).map((f) => f.split('\\').join('/'));
+    expect(shipped.filter((f) => /\.(php|phtml|tpl|twig)$/i.test(f))).toEqual([]);
+    expect(shipped.filter((f) => /(^|\/)(wp-content|app\/code|catalog\/controller|admin\/controller)(\/|$)/i.test(f))).toEqual([]);
   });
 
   it('public-door sendPluginRequest posts create-payment contract to a live HTTP stub', async () => {

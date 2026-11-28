@@ -11,6 +11,7 @@ import {
 import { CopyService as ProductionCopyService } from '../copy/copy-service.js';
 import { OtcDeskService as ProductionOtcDeskService } from '../otc/otc-service.js';
 import { StubEmailProof, principalFor } from '../spot/testing.js';
+import { layered } from '../layered.js';
 import { canonicalPayload, type TradingAdmissionPort } from './trading-controls.js';
 import { createHash } from 'node:crypto';
 
@@ -52,35 +53,51 @@ function readyForSql(sql: object): TradingAdmissionPort {
   }
   return port;
 }
-export class TradeService extends ProductionTradeService {
-  constructor(...args: ConstructorParameters<typeof ProductionTradeService>) {
-    const [sql, ledger, matching, perks, bus, options = {}] = args;
-    super(sql, ledger, matching, perks, bus, {
-      ...options,
-      accountAdmission: options.accountAdmission ?? readyForSql(sql),
-      // Legacy tests predate the email-proof gate (RC-identity-01): every test user is proved.
-      emailProof: options.emailProof ?? new StubEmailProof(),
-      // Legacy tests predate published pair rules (J-cex-spot-04 step 6): their markets publish no band or cap.
-      allowUnpublishedPairRules: options.allowUnpublishedPairRules ?? true,
-    });
-  }
+/** The legacy test defaults over TradeService with `layers` applied (layered.ts), as a test's own imports once installed them. */
+export function layeredTradeService(
+  ...layers: ReadonlyArray<(c: typeof ProductionTradeService) => typeof ProductionTradeService>
+): typeof ProductionTradeService {
+  return class TradeService extends layered(ProductionTradeService, ...layers) {
+    constructor(...args: ConstructorParameters<typeof ProductionTradeService>) {
+      const [sql, ledger, matching, perks, bus, options = {}] = args;
+      super(sql, ledger, matching, perks, bus, {
+        ...options,
+        accountAdmission: options.accountAdmission ?? readyForSql(sql),
+        // Legacy tests predate the email-proof gate (RC-identity-01): every test user is proved.
+        emailProof: options.emailProof ?? new StubEmailProof(),
+        // Legacy tests predate published pair rules (J-cex-spot-04 step 6): their markets publish no band or cap.
+        allowUnpublishedPairRules: options.allowUnpublishedPairRules ?? true,
+      });
+    }
+  };
 }
-export class PositionService extends ProductionPositionService {
-  constructor(...args: ConstructorParameters<typeof ProductionPositionService>) {
-    const [sql, ledger, deps] = args;
-    super(sql, ledger, {
-      ...deps,
-      accountAdmission: deps.accountAdmission ?? readyForSql(sql),
-      emailProof: deps.emailProof ?? new StubEmailProof(),
-    });
-  }
-  override open(input: OpenPositionInput, principal?: Principal, context?: { readonly region?: string | null }) {
-    return super.open(input, principal ?? principalFor(input.userId), context);
-  }
-  override setLeverage(input: SetLeverageInput, principal?: Principal) {
-    return super.setLeverage(input, principal ?? principalFor(input.userId));
-  }
+export const TradeService = layeredTradeService();
+export type TradeService = ProductionTradeService;
+
+/** The legacy test defaults over PositionService with `layers` applied (layered.ts). */
+export function layeredPositionService(
+  ...layers: ReadonlyArray<(c: typeof ProductionPositionService) => typeof ProductionPositionService>
+): typeof ProductionPositionService {
+  return class PositionService extends layered(ProductionPositionService, ...layers) {
+    constructor(...args: ConstructorParameters<typeof ProductionPositionService>) {
+      const [sql, ledger, deps] = args;
+      super(sql, ledger, {
+        ...deps,
+        accountAdmission: deps.accountAdmission ?? readyForSql(sql),
+        emailProof: deps.emailProof ?? new StubEmailProof(),
+      });
+    }
+    override open(input: OpenPositionInput, principal?: Principal, context?: { readonly region?: string | null }) {
+      return super.open(input, principal ?? principalFor(input.userId), context);
+    }
+    override setLeverage(input: SetLeverageInput, principal?: Principal) {
+      return super.setLeverage(input, principal ?? principalFor(input.userId));
+    }
+  };
 }
+export const PositionService = layeredPositionService();
+export type PositionService = ProductionPositionService;
+
 export class CopyService extends ProductionCopyService {
   constructor(...args: ConstructorParameters<typeof ProductionCopyService>) {
     const [ledger, options = {}] = args;

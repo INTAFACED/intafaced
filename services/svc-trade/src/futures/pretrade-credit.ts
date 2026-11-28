@@ -50,47 +50,32 @@ function refuseOpen(check: Extract<PreTradeCreditCheck, { ok: false }>): never {
   throw new FuturesError(check.reason, check.code, 400);
 }
 
-const PLACE_FLAG = Symbol.for('intafaced.trade.preTradeCreditPlace');
-const OPEN_FLAG = Symbol.for('intafaced.trade.preTradeCreditOpen');
-
-export function installPreTradeCreditPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<unknown>;
-    [PLACE_FLAG]?: true;
-  };
-  if (proto[PLACE_FLAG]) return;
-  proto[PLACE_FLAG] = true;
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const tagged = input as PlaceOrderInput & { reduceOnly?: boolean; closePosition?: boolean };
-    // Reducing a position is never refused only because a cap is unset.
-    if (tagged.reduceOnly !== true && tagged.closePosition !== true) {
-      const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
-      if (!check.ok) refusePlace(check);
+export function withPreTradeCreditPlace(Base: typeof TradeService): typeof TradeService {
+  return class PreTradeCreditPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const tagged = input as PlaceOrderInput & { reduceOnly?: boolean; closePosition?: boolean };
+      // Reducing a position is never refused only because a cap is unset.
+      if (tagged.reduceOnly !== true && tagged.closePosition !== true) {
+        const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
+        if (!check.ok) refusePlace(check);
+      }
+      return super.placeOrder(principal, input);
     }
-    return origPlace.call(this, principal, input);
   };
 }
 
-export function installPreTradeCreditOpen(ctor: typeof PositionService): void {
-  const proto = ctor.prototype as unknown as {
-    open: (input: OpenPositionInput, principal?: Principal) => Promise<unknown>;
-    [OPEN_FLAG]?: true;
-  };
-  if (proto[OPEN_FLAG]) return;
-  proto[OPEN_FLAG] = true;
-  const origOpen = proto.open;
-  proto.open = async function (this: PositionService, input: OpenPositionInput, principal?: Principal) {
-    const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
-    if (!check.ok) refuseOpen(check);
-    return origOpen.call(this, input, principal);
+export function withPreTradeCreditOpen(Base: typeof PositionService): typeof PositionService {
+  return class PreTradeCreditOpen extends Base {
+    override async open(input: OpenPositionInput, principal?: Principal): ReturnType<PositionService['open']> {
+      const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
+      if (!check.ok) refuseOpen(check);
+      return super.open(input, principal);
+    }
   };
 }
 
 export function installPreTradeCredit(): void {
   markPreTradeCreditInstalled();
-  installPreTradeCreditPlace(TradeService);
-  installPreTradeCreditOpen(PositionService);
 }
 
 installPreTradeCredit();

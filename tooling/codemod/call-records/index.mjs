@@ -69,6 +69,7 @@ function args(argv) {
     else if (a === '--router-fn') out.routerFn = argv[++i];
     else if (a === '--json') out.json = argv[++i];
     else if (a === '--skip-file') out.skip = JSON.parse(readFileSync(argv[++i], 'utf8'));
+    else if (a === '--keep-file') out.keep = JSON.parse(readFileSync(argv[++i], 'utf8'));
     else if (a === '--door') out.door = argv[++i];
     else if (a === '--from-rev') out.fromRev = argv[++i];
     else if (a === '--callers-only') out.callersOnly = true;
@@ -168,6 +169,9 @@ function plan(opts) {
     // A customer query or mutate whose schema only checks the answer (no transform) keeps that schema: the call goes to its
     // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
     if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
+    // A call whose callers' types disagreed with its record on an earlier round (run.mjs, `--keep-file`) keeps the schema
+    // it parsed with, so the screens hold the very type they held before; only where it can't is it left by name.
+    else if (opts.keep?.[s.path] && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
     // A portal tool's caller keeps its checking schema the same way, in the tool's checked form (tool-forms.mjs).
     else if (checks.length && checked && checkedToolCall(s, checks)) s.checked = text(load(s.file), checked);
     else if (checks.length) {

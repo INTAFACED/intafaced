@@ -10,8 +10,6 @@ import type { Market } from './types.js';
  * Trade does not swallow the refuse as a fill.
  */
 
-const FLAG = Symbol.for('intafaced.trade.marketReduceOnlyPlace');
-
 export const MARKET_REDUCE_ONLY = 'market_reduce_only' as const;
 
 const MARKET_REDUCE_ONLY_MESSAGE =
@@ -51,34 +49,26 @@ function reduceOnlyRejectResult(): EngineSubmitResult {
   };
 }
 
-export function installMarketReduceOnlyPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string | null }>;
-    applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withMarketReduceOnlyPlace(Base: typeof TradeService): typeof TradeService {
+  return class MarketReduceOnlyPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const order = await super.placeOrder(principal, input);
+      const refuse = matchingMarketReduceOnlyRefuse(order.rejectCode ? { code: order.rejectCode } : null);
+      if (refuse) throw refuse;
+      return order;
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const order = await origPlace.call(this, principal, input);
-    const refuse = matchingMarketReduceOnlyRefuse(order.rejectCode ? { code: order.rejectCode } : null);
-    if (refuse) throw refuse;
-    return order;
-  };
-
-  if (typeof proto.applySubmitResult === 'function') {
-    const origApply = proto.applySubmitResult;
-    proto.applySubmitResult = async function (this: TradeService, market: Market, orderId: string, result: EngineSubmitResult) {
+    override async applySubmitResult(
+      market: Market,
+      orderId: string,
+      result: EngineSubmitResult,
+    ): ReturnType<TradeService['applySubmitResult']> {
       const refuse = matchingSubmitMarketReduceOnlyRefuse(result);
       if (refuse) {
-        await origApply.call(this, market, orderId, reduceOnlyRejectResult());
+        await super.applySubmitResult(market, orderId, reduceOnlyRejectResult());
         throw refuse;
       }
-      return origApply.call(this, market, orderId, result);
-    };
-  }
+      return super.applySubmitResult(market, orderId, result);
+    }
+  };
 }
-
-installMarketReduceOnlyPlace(TradeService);

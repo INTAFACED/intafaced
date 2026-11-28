@@ -1,4 +1,4 @@
-import { PositionService } from '../controls/test-admission.js';
+import { PositionService, layeredPositionService } from '../controls/test-admission.js';
 /**
  * CARD F8 money proof — collateral haircuts (PTX-M08-R03 PTX-M08-R11).
  *
@@ -28,8 +28,11 @@ import {
   MARGIN_IS_NOT_A_LOAN,
   UNSUPPORTED_COLLATERAL_CLASS,
   checkPostedMarginCollateral,
-  installCollateralHaircut,
+  withCollateralHaircutOpen,
 } from './collateral-haircut.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredPositionService = layeredPositionService(withCollateralHaircutOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -83,8 +86,6 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 }
 
-installCollateralHaircut();
-
 describe('collateral haircut hitch (source) — no invented bps, not a loan', () => {
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
     const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
@@ -97,7 +98,7 @@ describe('collateral haircut hitch (source) — no invented bps, not a loan', ()
     const mill = readFileSync(join(here, 'collateral-haircut.ts'), 'utf8');
     expect(mill).toMatch(/checkPostedMarginCollateral/);
     expect(mill).toMatch(/checkCollateralClassForMargin/);
-    expect(mill).toMatch(/origOpen\.call/);
+    expect(mill).toMatch(/super\.open\(/);
     expect(mill).toMatch(/refuse rather than invent a haircut/);
     expect(mill).toMatch(/posted margin is not a loan/);
     expect(mill).not.toMatch(/haircutBps\s*=\s*0/);
@@ -192,7 +193,7 @@ describe('svc-trade collateral haircut F8 money', () => {
     ledger = new MemoryLedger();
     bus = new MemoryEventBus('svc-trade');
     marks = memoryMarkBook();
-    positions = new PositionService(sql, ledger, {
+    positions = new LayeredPositionService(sql, ledger, {
       marks: marks.source(),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

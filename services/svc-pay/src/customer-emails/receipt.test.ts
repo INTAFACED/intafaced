@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { assertReceiptAddress, automaticReceipts, gateReceipt } from './receipt.js';
-import { payServiceSource } from '../payment-service/source.testkit.js';
 
 describe('receipt gate (M-plat-org-10)', () => {
   it('does not treat a pending or failed payment as paid', () => {
@@ -54,10 +53,5 @@ describe('receipt gate (M-plat-org-10)', () => {
     expect(() => assertReceiptAddress('Payer@Example.test')).not.toThrow();
   });
 
-  it('does not hook receipt send into payment capture', () => {
-    const src = payServiceSource();
-    expect(src).not.toContain('customerEmails');
-    expect(src).not.toContain('vendor.email');
-    expect(src).not.toContain('ReceiptService');
-  });
+  // That capture sends no receipt is payment-service.test.ts: "a capture queues no status email and sends no receipt".
 });

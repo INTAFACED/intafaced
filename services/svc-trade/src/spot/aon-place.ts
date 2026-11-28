@@ -1,7 +1,6 @@
 import type { Principal } from '@intafaced/auth';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest } from './matching-client.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
 /**
@@ -15,8 +14,6 @@ type PlaceWithAon = PlaceOrderInput & {
   iceberg?: boolean;
   displayQty?: unknown;
 };
-
-const FLAG = Symbol.for('intafaced.trade.aonPlace');
 
 export const AON_ICEBERG = 'aon_iceberg' as const;
 
@@ -54,34 +51,24 @@ export function bindAon(input: PlaceOrderInput): PlaceWithAon {
   return { ...extra, aon: hit.aon };
 }
 
-export function installAonPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindAon(input);
-    if (readAon(bound)) {
-      const refuse = aonIcebergRefuse(true, wantsIceberg(bound));
-      if (refuse) throw refuse;
+export function withAonPlace(Base: typeof TradeService): typeof TradeService {
+  return class AonPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindAon(input);
+      if (readAon(bound)) {
+        const refuse = aonIcebergRefuse(true, wantsIceberg(bound));
+        if (refuse) throw refuse;
+      }
+      return super.placeOrder(principal, bound);
     }
-    return origPlace.call(this, principal, bound);
-  };
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithAon | undefined;
-    if (input && readAon(input)) {
-      return { ...req, aon: true };
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithAon | undefined;
+      if (input && readAon(input)) {
+        return { ...req, aon: true };
+      }
+      return req;
     }
-    return req;
   };
 }
-
-installAonPlace(TradeService);

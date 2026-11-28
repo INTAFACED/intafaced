@@ -158,7 +158,7 @@ import { SecurityStepUp } from './auth/security-step-up.js';
 import { createUnenrollPasskeyRouter } from './unenroll-passkey-router.js';
 import { installDisabledMintRefuse } from './auth/disable-user.js';
 import { installPasskeyMintRefuse } from './auth/mint-api-key-passkey.js';
-import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
+import { installApiKeyAttribution } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { requestMetaAls } from './auth/request-meta.js';
@@ -662,7 +662,6 @@ installApiKeyProductExchange(auth, sql);
 installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
 auth.usePasskeyLimit(env.PASSKEY_MAX_PER_ACCOUNT);
-installFourEyes();
 installApiKeyAttribution(auth);
 installApiKeyRequestSignExchange(auth, sql, signingEncKey, requestSignWindowSeconds);
 

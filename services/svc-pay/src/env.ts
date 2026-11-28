@@ -380,5 +380,6 @@ const schema = serviceEnvSchema
     }),
   );
 
+export { schema };
 export const env = loadEnv(schema);
 export type Env = typeof env;

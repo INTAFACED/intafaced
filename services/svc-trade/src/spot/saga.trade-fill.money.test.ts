@@ -24,8 +24,14 @@ import {
   openTradeDatabase,
   publishTestCreditLimits,
   resetAndListMarket,
-  tradeOver,
+  tradeOverLayered,
 } from './__tests__/saga-trade-fixture.js';
+import { withPreTradeCreditPlace } from '../futures/pretrade-credit.js';
+import { withPositionModePlace } from '../futures/position-mode.js';
+
+// The layers this file's imports used to install on TradeService on import, applied here in the same order
+// (garden/no-runtime-swap).
+const tradeOver = tradeOverLayered(withPreTradeCreditPlace, withPositionModePlace);
 
 let db: TestDatabase | undefined;
 let stop: () => Promise<void> = async () => undefined;

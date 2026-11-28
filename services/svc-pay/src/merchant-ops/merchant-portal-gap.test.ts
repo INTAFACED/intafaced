@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import type { Sql } from 'postgres';
+import { describe, expect, it, vi } from 'vitest';
 import {
   EVIDENCE_CONTENT_BYTE_CEILING,
   EVIDENCE_CONTENT_TYPES,
@@ -12,10 +13,15 @@ import {
   disputeEvidenceUploadEnabled,
 } from './dispute-evidence-policy.js';
 import { MerchantOpsError } from './errors.js';
-import { parseInvoiceAmount } from './invoices.js';
-import { formatAmount } from '@intafaced/ledger-client';
+import { InvoiceService, parseInvoiceAmount } from './invoices.js';
+import { scriptedSql } from '../scripted-sql.testkit.js';
+import { MemoryLedger, formatAmount } from '@intafaced/ledger-client';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const MERCHANT = '11111111-1111-4111-8111-111111111111';
+const OWNER = '22222222-2222-4222-8222-222222222222';
+const INVOICE = '33333333-3333-4333-8333-333333333333';
+const PAYMENT = '44444444-4444-4444-8444-444444444444';
 
 describe('dispute evidence policy', () => {
   it('enables upload and scan only for the exact env value on', () => {
@@ -66,8 +72,81 @@ describe('invoice amounts', () => {
     }
   });
 
-  it('does not post a ledger entry from the invoice module', () => {
-    const source = readFileSync(join(here, 'invoices.ts'), 'utf8');
-    expect(source).not.toMatch(/ledger\.post|recipes\.|chargebackOpen|withdrawHold/);
+  it('does not post a ledger entry from the invoice module', async () => {
+    // An invoice is created and marked paid by a captured payment: the module writes only its own rows and reaches no
+    // other service (svc-ledger is reached over HTTP), so marking paid moves no money.
+    const invoiceRow = {
+      id: INVOICE,
+      status: 'draft',
+      asset_id: 'USDT',
+      amount: '10',
+      customer_ref: null,
+      customer_email: null,
+      description: null,
+      due_at: null,
+      payment_link_id: null,
+      payment_id: null,
+      sent_at: null,
+      voided_at: null,
+      paid_at: null,
+      created_at: new Date(),
+      created_at_cursor: '2026-11-28T00:00:00.000000Z',
+      updated_at: new Date(),
+    };
+    const { sql, calls } = scriptedSql<Sql>((call) => {
+      if (call.text.includes('FROM pay.merchants')) return [{ status: 'active' }];
+      if (call.text.includes('FROM pay.merchant_invoice_actions')) return [];
+      if (call.text.includes('INSERT INTO pay.merchant_invoices')) return [invoiceRow];
+      if (call.text.includes('UPDATE pay.merchant_invoices'))
+        return [{ ...invoiceRow, status: 'paid', payment_id: PAYMENT, paid_at: new Date() }];
+      if (call.text.includes('FROM pay.payments p')) return [{ id: PAYMENT, currency: 'USDT', amount: '10', status: 'captured' }];
+      if (call.text.includes('FROM pay.merchant_invoices')) return [invoiceRow];
+      return [];
+    });
+    const fetched = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the invoice module called out'));
+    const memoryPost = vi.spyOn(MemoryLedger.prototype, 'post');
+    try {
+      const invoices = new InvoiceService(sql);
+      const caller = { merchantId: MERCHANT, userId: OWNER, role: 'owner', viaApiKey: false, interactive: true } as const;
+      await invoices.create(caller, { requestId: 'inv-create-1', assetId: 'USDT', amount: '10' });
+      await expect(
+        invoices.markPaidByPayment(caller, { requestId: 'inv-paid-1', invoiceId: INVOICE, paymentId: PAYMENT }),
+      ).resolves.toMatchObject({
+        status: 'paid',
+        paymentId: PAYMENT,
+      });
+      // Every other door of the module too (list, get, duplicate, send, reissue the link, void), with the link port
+      // recorded: whatever each answers, it reaches nothing outside its own rows and the payment-link port.
+      const linkCalls: string[] = [];
+      const links = {
+        createPaymentLink: async (input: { label: string }) => {
+          linkCalls.push('createPaymentLink');
+          return { id: 'link-1', token: 'tok', prefix: 'pl_', label: input.label, expiresAt: new Date(), maxUses: null };
+        },
+        deactivatePaymentLink: async () => {
+          linkCalls.push('deactivatePaymentLink');
+          return { deactivated: true };
+        },
+      };
+      const withLinks = new InvoiceService(sql, links);
+      const doors: Array<() => Promise<unknown>> = [
+        () => withLinks.list(caller, { limit: 10 }),
+        () => withLinks.get(caller, INVOICE),
+        () => withLinks.duplicate(caller, { requestId: 'inv-dup-1', invoiceId: INVOICE }),
+        () => withLinks.send(caller, { requestId: 'inv-send-1', invoiceId: INVOICE }),
+        () => withLinks.reissueLink(caller, { requestId: 'inv-reissue-1', invoiceId: INVOICE }),
+        () => withLinks.void(caller, { requestId: 'inv-void-1', invoiceId: INVOICE }),
+      ];
+      for (const door of doors) await door().catch(() => undefined);
+      expect(linkCalls.length).toBeGreaterThan(0);
+      expect(memoryPost).not.toHaveBeenCalled();
+      expect(fetched).not.toHaveBeenCalled();
+    } finally {
+      fetched.mockRestore();
+      memoryPost.mockRestore();
+    }
+    const writes = calls.map((c) => c.text.trim()).filter((text) => /^(INSERT|UPDATE|DELETE)\b/i.test(text));
+    expect(writes.length).toBeGreaterThanOrEqual(5);
+    for (const write of writes) expect(write).toMatch(/^(INSERT INTO|UPDATE) pay\.merchant_invoice(s|_actions|_lines)\b/);
   });
 });

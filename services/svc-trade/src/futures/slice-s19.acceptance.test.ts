@@ -26,19 +26,20 @@ import {
   type AccountRef,
 } from '@intafaced/ledger-client';
 import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
-import { TradeService, type PlaceOrderInput } from '../spot/trade-service.js';
-import { installCollateralHaircutOpen } from './collateral-haircut.js';
+import { type PlaceOrderInput } from '../spot/trade-service.js';
 import { checkInsuranceBound } from './insurance-bound.js';
 import { LIQUIDATION_NOT_SCHEDULED, presentFuturesJobsHealth } from './futures-jobs-health.js';
 import { startFuturesJobs } from './futures-jobs.js';
 import { decideOpenCredit } from './haircut-credit.js';
 import { planLiquidation } from './liquidation-planner.js';
 import { memoryMarginModeSwitchAudit } from './margin-mode.js';
-import { installPositionModePlace } from './position-mode.js';
-import { FuturesError, PositionService } from './position-service.js';
-import { installPreTradeCreditPlace } from './pretrade-credit.js';
+import { FuturesError } from './position-service.js';
 import { checkMaxOrder } from './pretrade-limits.js';
 import { gateLiquidationRecipe } from './sub-account-loss.js';
+import { layeredStandIn } from '../layered.testkit.js';
+import { withCollateralHaircutOpen } from './collateral-haircut.js';
+import { withPositionModePlace } from './position-mode.js';
+import { withPreTradeCreditPlace } from './pretrade-credit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's19-futures-slice-edge-secret-long-enough';
@@ -508,8 +509,8 @@ describe('TRD-0326 reduce-only ignores a blank max-order', () => {
         return { id: 'o' };
       }
     }
-    installPreTradeCreditPlace(Door as unknown as typeof TradeService);
-    const doorInstance = new Door();
+    const LayeredDoor = layeredStandIn(Door, withPreTradeCreditPlace);
+    const doorInstance = new LayeredDoor();
     const principal = { userId: USER } as Principal;
     const prevOrder = process.env.TRADE_MAX_ORDER;
     const prevPos = process.env.TRADE_MAX_POSITION;
@@ -546,8 +547,8 @@ describe('TRD-0429 TRD-0510 TRD-0517 blank haircut locks nothing', () => {
         return { id: POSITION };
       }
     }
-    installCollateralHaircutOpen(Door as unknown as typeof PositionService);
-    const doorInstance = new Door();
+    const LayeredDoor = layeredStandIn(Door, withCollateralHaircutOpen);
+    const doorInstance = new LayeredDoor();
     const prev = process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
     try {
       delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
@@ -562,8 +563,8 @@ describe('TRD-0429 TRD-0510 TRD-0517 blank haircut locks nothing', () => {
       if (prev === undefined) delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
       else process.env.TRADE_COLLATERAL_HAIRCUT_BPS = prev;
     }
-    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
-    expect(boot).toMatch(/installCollateralHaircut\(\)/);
+    const boot = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(boot).toMatch(/withCollateralHaircutOpen/);
   });
 });
 
@@ -616,8 +617,8 @@ describe('TRD-0519 a futures place without a position mode', () => {
         return { id: 'o' };
       }
     }
-    installPositionModePlace(Door as unknown as typeof TradeService);
-    const doorInstance = new Door();
+    const LayeredDoor = layeredStandIn(Door, withPositionModePlace);
+    const doorInstance = new LayeredDoor();
     const ledger = new MemoryLedger();
     await fundUser(ledger, USER, '3', 'spot-bal');
     const principal = { userId: USER } as Principal;
@@ -649,8 +650,8 @@ describe('TRD-0524 staked plus a blank haircut refuses; a published haircut does
         return { id: POSITION };
       }
     }
-    installCollateralHaircutOpen(Door as unknown as typeof PositionService);
-    const doorInstance = new Door();
+    const LayeredDoor = layeredStandIn(Door, withCollateralHaircutOpen);
+    const doorInstance = new LayeredDoor();
     const prev = process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
     try {
       delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;

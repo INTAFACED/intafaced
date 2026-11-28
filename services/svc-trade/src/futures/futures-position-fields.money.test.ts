@@ -1,5 +1,4 @@
-import './position-mode.js';
-import { PositionService } from '../controls/test-admission.js';
+import { PositionService, layeredPositionService } from '../controls/test-admission.js';
 /**
  * Items 16–21. Position fields the service computes, replay-safe close,
  * rolled-back mark refusals, and the liquidation rung on add-margin.
@@ -30,6 +29,10 @@ import { unrealizedPnl } from './liquidation-planner.js';
 import { DEFAULT_FUTURES_LADDER_POLICY } from './ladder-policy.test-harness.js';
 import { positionPercentage } from './position-service.js';
 import { resolveOpenPositionMode } from './account-mode.js';
+import { withPositionModeOpen } from './position-mode.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredPositionService = layeredPositionService(withPositionModeOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -133,7 +136,7 @@ describe('futures position fields', () => {
     `;
     ledger = new MemoryLedger();
     marks = memoryMarkBook();
-    positions = new PositionService(sql, ledger, {
+    positions = new LayeredPositionService(sql, ledger, {
       marks: marks.source(),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

@@ -1,12 +1,9 @@
 /**
  * The merchant REST door and the tRPC mount verify the edge principal with the shared secret AND,
- * when configured, the edge's public key. The REST door is exercised over real headers; the tRPC
- * mount in index.ts is pinned by source (it boots the whole service).
+ * when configured, the edge's public key. The REST door is exercised over real headers here; that the booted
+ * service hands its edge trust settings to both doors is index.db.test.ts.
  */
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -108,17 +105,5 @@ describe('merchant REST door: edge principal', () => {
       'x-intafaced-region': 'DE',
     };
     expect(await get(headers)).not.toBe(401);
-  });
-});
-
-describe('index.ts wiring', () => {
-  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8');
-
-  it('hands the edge trust settings to the tRPC edge context', () => {
-    expect(source).toMatch(/createEdgeContext\(\{ secret: env\.EDGE_PRINCIPAL_SECRET, \.\.\.edgeTrustFromEnv\(env\),/);
-  });
-
-  it('hands the edge trust settings to the merchant REST door', () => {
-    expect(source).toMatch(/edgeSecret: env\.EDGE_PRINCIPAL_SECRET,\s*edgeTrust: edgeTrustFromEnv\(env\),/);
   });
 });

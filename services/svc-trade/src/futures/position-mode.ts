@@ -214,64 +214,47 @@ function refuseThroughBook(): never {
   );
 }
 
-const OPEN_FLAG = Symbol.for('intafaced.trade.positionModeOpen');
-const PLACE_FLAG = Symbol.for('intafaced.trade.positionModePlace');
-
-export function installPositionModeOpen(ctor: typeof PositionService): void {
-  const proto = ctor.prototype as unknown as {
-    open: (input: OpenPositionInput, principal?: Principal) => Promise<unknown>;
-    [OPEN_FLAG]?: true;
-  };
-  if (proto[OPEN_FLAG]) return;
-  proto[OPEN_FLAG] = true;
-  const origOpen = proto.open;
-  proto.open = async function (this: PositionService, input: OpenPositionInput, principal?: Principal) {
-    const tagged = input as OpenWithMode;
-    if (tagged.reduceOnly === true) {
-      const mode = parsePositionMode(tagged.positionMode == null ? 'one_way' : tagged.positionMode);
-      if (tagged.positionMode != null && !mode.ok) refuseOpen(mode);
-      return origOpen.call(this, input, principal);
-    }
-    const stored = await this.readAccountMode(input.userId);
-    const decision = resolveOpenPositionMode({
-      requested: tagged.positionMode,
-      stored: stored.mode,
-    });
-    if (!decision.ok) refuseOpen(decision);
-    const side = checkOrderSideForPositionMode({
-      mode: decision.mode,
-      side: tagged.side,
-      positionSide: tagged.positionSide,
-    });
-    if (!side.ok) refuseOpen(side);
-    const next = tagged.positionMode === decision.mode ? input : { ...input, positionMode: decision.mode };
-    const opened = await origOpen.call(this, next, principal);
-    if (decision.store) {
-      const clientOpenId = input.clientOpenId?.trim() ?? '';
-      if (clientOpenId.length > 0 && clientOpenId.length <= 64) {
-        await this.writeAccountMode(input.userId, { mode: 'one_way', clientModeId: clientOpenId });
+export function withPositionModeOpen(Base: typeof PositionService): typeof PositionService {
+  return class PositionModeOpen extends Base {
+    override async open(input: OpenPositionInput, principal?: Principal): ReturnType<PositionService['open']> {
+      const tagged = input as OpenWithMode;
+      if (tagged.reduceOnly === true) {
+        const mode = parsePositionMode(tagged.positionMode == null ? 'one_way' : tagged.positionMode);
+        if (tagged.positionMode != null && !mode.ok) refuseOpen(mode);
+        return super.open(input, principal);
       }
+      const stored = await this.readAccountMode(input.userId);
+      const decision = resolveOpenPositionMode({
+        requested: tagged.positionMode,
+        stored: stored.mode,
+      });
+      if (!decision.ok) refuseOpen(decision);
+      const side = checkOrderSideForPositionMode({
+        mode: decision.mode,
+        side: tagged.side,
+        positionSide: tagged.positionSide,
+      });
+      if (!side.ok) refuseOpen(side);
+      const next = tagged.positionMode === decision.mode ? input : { ...input, positionMode: decision.mode };
+      const opened = await super.open(next, principal);
+      if (decision.store) {
+        const clientOpenId = input.clientOpenId?.trim() ?? '';
+        if (clientOpenId.length > 0 && clientOpenId.length <= 64) {
+          await this.writeAccountMode(input.userId, { mode: 'one_way', clientModeId: clientOpenId });
+        }
+      }
+      return opened;
     }
-    return opened;
   };
 }
 
-export function installPositionModePlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<unknown>;
-    [PLACE_FLAG]?: true;
-  };
-  if (proto[PLACE_FLAG]) return;
-  proto[PLACE_FLAG] = true;
-  const origPlace = proto.placeOrder;
-  // The copy-trading mirror places through its own entry (placeOrderInner, not placeOrder), so it gets the same
-  // through-the-book refusal: a follower's spot hold must not rest on a futures book either.
-  const mirror = proto as unknown as {
-    placeCopyMirror?: (principal: Principal, input: PlaceOrderInput, followId: string) => Promise<unknown>;
-  };
-  const origMirror = mirror.placeCopyMirror;
-  if (origMirror) {
-    mirror.placeCopyMirror = async function (this: TradeService, principal: Principal, input: PlaceOrderInput, followId: string) {
+export function withPositionModePlace(Base: typeof TradeService): typeof TradeService {
+  return class PositionModePlace extends Base {
+    override async placeCopyMirror(
+      principal: Principal,
+      input: PlaceOrderInput,
+      followId: string,
+    ): ReturnType<TradeService['placeCopyMirror']> {
       if (futuresOrdersThroughBook()) {
         const market = input.marketId
           ? await this.marketById(input.marketId)
@@ -280,15 +263,28 @@ export function installPositionModePlace(ctor: typeof TradeService): void {
             : null;
         if (market?.kind === 'futures') refuseThroughBook();
       }
-      return origMirror.call(this, principal, input, followId);
-    };
-  }
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const tagged = input as PlaceWithMode;
-    const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
-    // A futures order with no position mode must not fall through to a spot hold.
-    if (market?.kind === 'futures') {
-      if (futuresOrdersThroughBook()) refuseThroughBook();
+      return super.placeCopyMirror(principal, input, followId);
+    }
+
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const tagged = input as PlaceWithMode;
+      const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
+      // A futures order with no position mode must not fall through to a spot hold.
+      if (market?.kind === 'futures') {
+        if (futuresOrdersThroughBook()) refuseThroughBook();
+        const mode = parsePositionMode(tagged.positionMode);
+        if (!mode.ok) refusePlace(mode);
+        const side = checkOrderSideForPositionMode({
+          mode: mode.mode,
+          side: tagged.side,
+          positionSide: tagged.positionSide,
+        });
+        if (!side.ok) refusePlace(side);
+        return super.placeOrder(principal, input);
+      }
+      if (tagged.positionMode === undefined && tagged.positionSide === undefined) {
+        return super.placeOrder(principal, input);
+      }
       const mode = parsePositionMode(tagged.positionMode);
       if (!mode.ok) refusePlace(mode);
       const side = checkOrderSideForPositionMode({
@@ -297,26 +293,7 @@ export function installPositionModePlace(ctor: typeof TradeService): void {
         positionSide: tagged.positionSide,
       });
       if (!side.ok) refusePlace(side);
-      return origPlace.call(this, principal, input);
+      return super.placeOrder(principal, input);
     }
-    if (tagged.positionMode === undefined && tagged.positionSide === undefined) {
-      return origPlace.call(this, principal, input);
-    }
-    const mode = parsePositionMode(tagged.positionMode);
-    if (!mode.ok) refusePlace(mode);
-    const side = checkOrderSideForPositionMode({
-      mode: mode.mode,
-      side: tagged.side,
-      positionSide: tagged.positionSide,
-    });
-    if (!side.ok) refusePlace(side);
-    return origPlace.call(this, principal, input);
   };
 }
-
-export function installPositionMode(): void {
-  installPositionModeOpen(PositionService);
-  installPositionModePlace(TradeService);
-}
-
-installPositionMode();

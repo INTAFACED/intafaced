@@ -6,6 +6,7 @@ import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
+import { describeVenueAggregationPolicy } from '@intafaced/venue-adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   ActionApprovalConsumeError,
@@ -248,12 +249,7 @@ describe('venue, network and wallet-route registries', () => {
     });
 
     it('the known venue keys mirror the venue-adapter factory list', () => {
-      const src = readFileSync(
-        join(here, '..', '..', '..', '..', 'packages', 'venue-adapter', 'src', 'fabric', 'venues', 'factory.ts'),
-        'utf8',
-      );
-      const literal = /PUBLIC_MARKET_DATA_VENUE_IDS = \[([^\]]*)\]/.exec(src)?.[1] ?? '';
-      const ids = [...literal.matchAll(/'([a-z0-9-]+)'/g)].map((m) => m[1]);
+      const ids = describeVenueAggregationPolicy().publicMarketDataVenueIds;
       expect(ids.length).toBeGreaterThan(0);
       expect([...KNOWN_VENUE_KEYS].sort()).toEqual([...ids].sort());
     });

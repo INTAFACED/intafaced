@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { payEnv } from './env.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -32,14 +33,17 @@ const INTERVAL_LINE = /^\s+PAY_CRYPTO_WATCHER_INTERVAL_MS:\s*\$\{PAY_CRYPTO_WATC
 
 describe('compose crypto watcher flags for svc-pay', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
   const block = payServiceBlock(compose);
 
-  it('env.ts still declares the flags this pin tracks, matching compose defaults', () => {
-    expect(envTs).toMatch(new RegExp(`${ENABLED}:\\s*z\\.enum\\(\\['true',\\s*'false'\\]\\)\\.default\\('true'\\)`));
-    expect(envTs).toMatch(
-      new RegExp(`${INTERVAL}:\\s*z\\.coerce\\.number\\(\\)\\.int\\(\\)\\.min\\(500\\)\\.max\\(60_000\\)\\.default\\(2_000\\)`),
-    );
+  it('svc-pay reads the flags this pin tracks, with the same defaults compose has', () => {
+    const unset = payEnv({ [ENABLED]: undefined, [INTERVAL]: undefined });
+    expect(unset.PAY_CRYPTO_WATCHER_ENABLED).toBe('true');
+    expect(unset.PAY_CRYPTO_WATCHER_INTERVAL_MS).toBe(2_000);
+    expect(payEnv({ [ENABLED]: 'false' }).PAY_CRYPTO_WATCHER_ENABLED).toBe('false');
+    expect(payEnv({ [INTERVAL]: '500' }).PAY_CRYPTO_WATCHER_INTERVAL_MS).toBe(500);
+    expect(() => payEnv({ [INTERVAL]: '499' })).toThrow(new RegExp(INTERVAL));
+    expect(() => payEnv({ [INTERVAL]: '60001' })).toThrow(new RegExp(INTERVAL));
+    expect(() => payEnv({ [ENABLED]: 'yes' })).toThrow(new RegExp(ENABLED));
   });
 
   it('compose svc-pay block passes both flags from the host, unique keys once', () => {

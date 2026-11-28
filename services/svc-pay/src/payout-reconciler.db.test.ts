@@ -5,8 +5,9 @@ import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { formatAmount, MemoryLedger, merchantProceeds, parseAmount as amt, type LedgerClient } from '@intafaced/ledger-client';
+import { payEnv } from './env.testkit.js';
 import { PayService, type PaymentView } from './payment-service.js';
-import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
+import { installPayoutDestinationShim } from './payout-destination.testkit.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
 import { memoryPayoutDestinations } from './merchant-payout-destination.js';
 import { RailRegistry } from './rails/registry.js';
@@ -55,8 +56,6 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
     },
   };
 }
-
-const SERVICE_DIR = join(here, '..');
 
 describe('payout reconciler job', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
@@ -188,12 +187,17 @@ describe('payout reconciler job', { timeout: 30_000 }, () => {
   });
 
   it('index.ts starts the job and env.ts has no default for either setting', () => {
-    const index = readFileSync(join(SERVICE_DIR, 'src/index.ts'), 'utf8');
-    expect(index).toMatch(/startPayoutReconciler\(/);
-    const envTs = readFileSync(join(SERVICE_DIR, 'src/env.ts'), 'utf8');
-    expect(envTs).toMatch(/PAY_PAYOUT_RECONCILE_INTERVAL_MS/);
-    expect(envTs).toMatch(/PAY_PAYOUT_RECONCILE_BATCH_LIMIT/);
-    expect(envTs).not.toMatch(/PAY_PAYOUT_RECONCILE_(?:INTERVAL_MS|BATCH_LIMIT):[^\n]*\.default\(/);
+    // That the booted service starts this job with the two settings is index.db.test.ts. Here: unset stays unset,
+    // a published value is read as given, and a value that is not a positive whole number refuses the boot.
+    const unset = payEnv({ PAY_PAYOUT_RECONCILE_INTERVAL_MS: undefined, PAY_PAYOUT_RECONCILE_BATCH_LIMIT: undefined });
+    expect(unset.PAY_PAYOUT_RECONCILE_INTERVAL_MS).toBeUndefined();
+    expect(unset.PAY_PAYOUT_RECONCILE_BATCH_LIMIT).toBeUndefined();
+    const blank = payEnv({ PAY_PAYOUT_RECONCILE_INTERVAL_MS: '', PAY_PAYOUT_RECONCILE_BATCH_LIMIT: '  ' });
+    expect(blank.PAY_PAYOUT_RECONCILE_INTERVAL_MS).toBeUndefined();
+    expect(blank.PAY_PAYOUT_RECONCILE_BATCH_LIMIT).toBeUndefined();
+    const set = payEnv({ PAY_PAYOUT_RECONCILE_INTERVAL_MS: '5000', PAY_PAYOUT_RECONCILE_BATCH_LIMIT: '10' });
+    expect(set.PAY_PAYOUT_RECONCILE_INTERVAL_MS).toBe(5000);
+    expect(set.PAY_PAYOUT_RECONCILE_BATCH_LIMIT).toBe(10);
   });
 
   it('a pass finalises a payout whose send was confirmed, once', async () => {
