@@ -2231,6 +2231,14 @@ console.log('local-test-stack: customer folder override checks passed');
       assert.ok(testnet.includes('PURR-USDC') && testnet.includes('BTC-PERP'), `${raw} keeps PURR-USDC and BTC-PERP`);
     }
     for (const raw of ['on', 'two']) assert.ok(listings(raw).includes('BTC-USDC'), `${raw} seeds BTC-USDC`);
+    // Every TEST perpetual the venue lists, one file each in packages/venue-sim/src/instruments/, is seeded, in file order.
+    const { testVenuePerpetuals } = await import('./local-test-venue.mjs');
+    const perps = testVenuePerpetuals();
+    assert.ok(perps.length >= 13 && perps[0] === 'BTC-PERP' && perps.includes('XJRN-PERP'), `the venue's perpetuals: ${perps}`);
+    assert.deepEqual(
+      listings('on').filter((s) => !s.startsWith('xyz:') && s.endsWith('-PERP')),
+      perps,
+    );
   } finally {
     if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = saved;

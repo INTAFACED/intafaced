@@ -30,6 +30,18 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 /** The built simulator. The stack builds it with svc-trade (a dev dependency there); a bare run says how to build it. */
 export const VENUE_SIM_DIST = path.join(REPO, 'packages', 'venue-sim', 'dist', 'index.js');
 /** The built Hyperliquid test network adapter, built with svc-trade too (a dev dependency there). */
+/**
+ * The TEST venue's perpetuals, in its own listing order: one file per instrument in packages/venue-sim/src/instruments/,
+ * named `<order>-<symbol>.ts`. svc-trade's LOCAL TEST listing seed reads this, so adding an instrument adds only its file.
+ */
+export function testVenuePerpetuals() {
+  return fs
+    .readdirSync(path.join(REPO, 'packages', 'venue-sim', 'src', 'instruments'))
+    .filter((name) => /^\d{4}-[A-Z0-9-]+-PERP\.ts$/.test(name))
+    .sort()
+    .map((name) => name.slice(5, -'.ts'.length));
+}
+
 const VENUE_HL_DIST = path.join(REPO, 'packages', 'venue-hyperliquid', 'dist', 'index.js');
 
 /** The stack's TEST app chain (local-test-chain.mjs; the same id as eip1193.ts APP_CHAIN_ID). */
