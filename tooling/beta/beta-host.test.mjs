@@ -520,11 +520,13 @@ test("the beta's balance watch reads the test network every 15 s, inside its 120
   for (const key of ['TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS', 'TRADE_BUILDER_MODE_CHECK_INTERVAL_MS', 'TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS'])
     assert.equal(beta[key], '60000', key);
   // The TEST venue keeps its seconds, so a journey sees a sweep, a mode alert and a claim inside its run.
-  for (const venue of ['on', 'hl-recorded']) {
-    assert.equal(tradeEnv(venue).TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS, '3000', venue);
-    assert.equal(tradeEnv(venue).TRADE_BUILDER_MODE_CHECK_INTERVAL_MS, '2000', venue);
-    assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS, '2000', venue);
-  }
+  assert.equal(tradeEnv('on').TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS, '3000');
+  assert.equal(tradeEnv('on').TRADE_BUILDER_MODE_CHECK_INTERVAL_MS, '2000');
+  assert.equal(tradeEnv('on').TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS, '2000');
+  // A replay of the test network asks what the live run asked: on its minute, never the builder account's balance at
+  // the TEST venue's seconds, which no recording of the live run holds (#11238: run 46099501924, four replayed files red).
+  for (const key of ['TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS', 'TRADE_BUILDER_MODE_CHECK_INTERVAL_MS', 'TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS'])
+    assert.equal(tradeEnv('hl-recorded')[key], '60000', key);
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {

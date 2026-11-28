@@ -240,4 +240,63 @@ describe('a recorded run of the venue journeys (hl-recorded)', () => {
     expect(() => replayRecording(recording)).toThrow(/needs the trader address/);
     expect(() => replayRecording(recording, { trader: 'not-an-address' })).toThrow(/needs the trader address/);
   });
+
+  it("a replayed session approval names this run's agent and expiry, so the agent list after it shows this run's session", async () => {
+    // A trading session approves a key made fresh each run, valid until a time from the run's clock: neither is what the
+    // live run approved. The approval is the recorded one with both paired, and the agent list answered after it names
+    // the current agent and expiry; a different agent name is another approval, refused.
+    const RECORDED_AGENT = '0xe0fa1cf753fd8597c3ea662e0b262116606c2513';
+    const CURRENT_AGENT = '0x2a777840ffa089460dde7d8d557c0df1ca06f431';
+    const approve = (agentAddress: string, agentName: string, nonce: number) => ({
+      action: { type: 'approveAgent', signatureChainId: '0x66eee', hyperliquidChain: 'Testnet', agentAddress, agentName, nonce },
+      nonce,
+      vaultAddress: null,
+    });
+    const agents = { type: 'extraAgents', user: '<trader>' };
+    const recording = parseRecording({
+      label: 'TEST',
+      note: 'TEST',
+      trader: '<trader>',
+      calls: [
+        { path: '/info', request: agents, status: 200, answer: [], source: 'testnet' },
+        {
+          path: '/exchange',
+          request: approve(RECORDED_AGENT, 'trading-session valid_until 1795862074406', 1795833274410),
+          status: 200,
+          answer: { status: 'ok', response: { type: 'default' } },
+          source: 'testnet',
+        },
+        {
+          path: '/info',
+          request: agents,
+          status: 200,
+          answer: [{ name: 'trading-session', address: RECORDED_AGENT, validUntil: 1795862074406 }],
+          source: 'testnet',
+        },
+      ],
+    });
+    const trader = replayKey.address.toLowerCase();
+    const post = async (fetch: FetchLike, path: string, body: unknown) =>
+      JSON.parse(
+        await (
+          await fetch(`https://api.hyperliquid-testnet.xyz${path}`, {
+            method: 'POST',
+            headers: {},
+            body: JSON.stringify(body),
+            signal: new AbortController().signal,
+          })
+        ).text(),
+      );
+    const replay = replayRecording(recording, { trader });
+    const listed = { type: 'extraAgents', user: trader };
+    expect(await post(replay, '/info', listed)).toEqual([]);
+    await expect(
+      post(replay, '/exchange', approve(CURRENT_AGENT, 'another-name valid_until 1795950000000', 1795921000000)),
+    ).rejects.toThrow(NotRecordedError);
+    expect(await post(replay, '/exchange', approve(CURRENT_AGENT, 'trading-session valid_until 1795950000000', 1795921000000))).toEqual({
+      status: 'ok',
+      response: { type: 'default' },
+    });
+    expect(await post(replay, '/info', listed)).toEqual([{ name: 'trading-session', address: CURRENT_AGENT, validUntil: 1795950000000 }]);
+  });
 });
