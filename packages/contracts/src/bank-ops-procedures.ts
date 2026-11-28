@@ -788,20 +788,16 @@ export const BANK_OPS_LOAN_BOOK = defineProcedure({
  * authorisation's lifecycle, capture variance and trace, a signed report export, staff roles, the audit log, bulk issue,
  * reassign and the TEST card event simulator.
  *
- * Nothing here holds a balance or posts to the ledger. Card money is the card partner's (OWNER 226): the simulator drives
+ * Nothing here holds a balance or posts to the ledger. Card money is the card partner's: the simulator drives
  * the same authorise and capture path a real issuer's message does, and a reassign moves a card, never money. Fees are
  * recorded settings: svc-bank has no fee recipe, so none is charged. Every change writes one audit row, which the
  * database refuses to edit. A staff member with the viewer role reads everything here and changes nothing.
  */
-export const SETTING_KEYS = ['programme', 'product', 'bin', 'fees', 'threeds'] as const;
-
 export const setting = z
   .object({ value: jsonValueSchema, version: z.number().int(), updatedBy: z.string(), updatedAt: z.string() })
   .nullable();
 
-export const settings = z.object(
-  Object.fromEntries(SETTING_KEYS.map((k) => [k, setting])) as Record<(typeof SETTING_KEYS)[number], typeof setting>,
-);
+export const settings = z.object({ programme: setting, product: setting, bin: setting, fees: setting, threeds: setting });
 
 export const assetId = z.string().regex(/^[A-Z0-9]{2,16}$/);
 

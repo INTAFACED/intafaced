@@ -235,7 +235,7 @@ export const id = z.object({ disputeId: z.string().guid() });
  * the case. Every step is a row in the case's timeline with who did it and when; evidence added after the representment was
  * submitted is kept with its own time and marked so.
  *
- * The money is the partner's (OWNER 226). A provisional credit is the partner's credit to its own cardholder: the partner
+ * The money is the partner's. A provisional credit is the partner's credit to its own cardholder: the partner
  * answers with its reference and the amount it credited, and the cardholder's available, as the partner reports it, rises
  * by that amount. Who bears a fraud loss is the partner's terms at the moment of the decision, or "not known"; it is never
  * assumed to be the partner. Nothing here posts to the ledger, and no figure here is summed into a balance.
@@ -388,20 +388,16 @@ export const BANK_OPS_CARD_DISPUTE_DECIDE = defineProcedure({
  * authorisation's lifecycle, capture variance and trace, a signed report export, staff roles, the audit log, bulk issue,
  * reassign and the TEST card event simulator.
  *
- * Nothing here holds a balance or posts to the ledger. Card money is the card partner's (OWNER 226): the simulator drives
+ * Nothing here holds a balance or posts to the ledger. Card money is the card partner's: the simulator drives
  * the same authorise and capture path a real issuer's message does, and a reassign moves a card, never money. Fees are
  * recorded settings: svc-bank has no fee recipe, so none is charged. Every change writes one audit row, which the
  * database refuses to edit. A staff member with the viewer role reads everything here and changes nothing.
  */
-export const SETTING_KEYS = ['programme', 'product', 'bin', 'fees', 'threeds'] as const;
-
 export const setting = z
   .object({ value: jsonValueSchema, version: z.number().int(), updatedBy: z.string(), updatedAt: z.string() })
   .nullable();
 
-export const settings = z.object(
-  Object.fromEntries(SETTING_KEYS.map((k) => [k, setting])) as Record<(typeof SETTING_KEYS)[number], typeof setting>,
-);
+export const settings = z.object({ programme: setting, product: setting, bin: setting, fees: setting, threeds: setting });
 
 export const assetId = z.string().regex(/^[A-Z0-9]{2,16}$/);
 
