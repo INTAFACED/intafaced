@@ -1,0 +1,39 @@
+{
+  "// why": "Inputs written by hand for calls the wire replay never sends past the door's checks (a file, a wallet's signature): the call-records codemod's samples (tooling/codemod/call-records/samples.mjs).",
+  "businessBills.upload": {
+    "accountId": "22222222-2222-4222-8222-222222222222",
+    "billId": "22222222-2222-4222-8222-222222222222",
+    "fileName": "bill.pdf",
+    "contentType": "application/pdf",
+    "contentBase64": "JVBERi0="
+  },
+  "businessCards.attachReceipt": {
+    "purchaseId": "22222222-2222-4222-8222-222222222222",
+    "receiptId": "22222222-2222-4222-8222-222222222222",
+    "fileName": "receipt.pdf",
+    "contentType": "application/pdf",
+    "contentBase64": "JVBERi0="
+  },
+  "businessCards.submitClaim": {
+    "accountId": "22222222-2222-4222-8222-222222222222",
+    "claimId": "22222222-2222-4222-8222-222222222222",
+    "amount": "1.50",
+    "description": "TEST lunch",
+    "receiptId": "22222222-2222-4222-8222-222222222222",
+    "fileName": "receipt.pdf",
+    "contentType": "application/pdf",
+    "contentBase64": "JVBERi0="
+  },
+  "businessPayouts.connectWallet": {
+    "offerId": "22222222-2222-4222-8222-222222222222",
+    "signature": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+  },
+  "businessPayouts.prepareRun": {
+    "payrollId": "22222222-2222-4222-8222-222222222222",
+    "period": "2026-11"
+  },
+  "businessPayouts.signRun": {
+    "runId": "22222222-2222-4222-8222-222222222222",
+    "signature": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+  }
+}

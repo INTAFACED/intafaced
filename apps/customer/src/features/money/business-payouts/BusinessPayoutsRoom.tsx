@@ -26,6 +26,30 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
+import { BANK_BUSINESS_TEAM_OVERVIEW } from '@intafaced/contracts/bank-business-team-procedures';
+import {
+  BANK_BUSINESS_PAYOUTS_RUNS,
+  BANK_BUSINESS_PAYOUTS_CONTRACTORS,
+  BANK_BUSINESS_PAYOUTS_BATCHES,
+  BANK_BUSINESS_PAYOUTS_WALLET,
+  BANK_BUSINESS_PAYOUTS_PAYROLLS,
+  BANK_BUSINESS_PAYOUTS_INVITE_INFO,
+  BANK_BUSINESS_PAYOUTS_IMPORT_RUN,
+  BANK_BUSINESS_PAYOUTS_CONFIRM_RUN,
+  BANK_BUSINESS_PAYOUTS_APPROVE_RUN,
+  BANK_BUSINESS_PAYOUTS_ADD_INVOICE,
+  BANK_BUSINESS_PAYOUTS_ADD_CONTRACTOR,
+  BANK_BUSINESS_PAYOUTS_PAY_BATCH,
+  BANK_BUSINESS_PAYOUTS_APPROVE_BATCH,
+  BANK_BUSINESS_PAYOUTS_CREATE_INVITE,
+  BANK_BUSINESS_PAYOUTS_WALLET_OFFER,
+  BANK_BUSINESS_PAYOUTS_CONNECT_WALLET,
+  BANK_BUSINESS_PAYOUTS_CREATE_PAYROLL,
+  BANK_BUSINESS_PAYOUTS_PREPARE_RUN,
+  BANK_BUSINESS_PAYOUTS_SIGN_RUN,
+  BANK_BUSINESS_PAYOUTS_JOIN_AS_CONTRACTOR,
+} from '@intafaced/contracts/bank-business-payouts-procedures';
+import { callAs, type AppProcedure } from '../../../shared/api';
 
 /**
  * A business pays its team and contractors in bulk (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05), on the flow template.
@@ -198,7 +222,7 @@ function signedOutState(t: T, path: string): RoomState {
 
 /** One read of the bank; while a reload of the same read is on its way the last answer stays on screen. */
 function useBank<S>(
-  procedure: string,
+  procedure: AppProcedure,
   input: unknown,
   schema: ZodType<S>,
   base: string,
@@ -208,9 +232,9 @@ function useBank<S>(
   const read = useResource<S>(
     (signal) =>
       userId && input !== null
-        ? api.query('bank', procedure, input, schema, { signal })
+        ? callAs(api, procedure, input, schema, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
-    `payouts:${procedure}:${userId ?? 'out'}:${base}:${rev}`,
+    `payouts:${procedure.path}:${userId ?? 'out'}:${base}:${rev}`,
   );
   const kept = useRef<{ base: string; data: S } | null>(null);
   const keyed = `${userId ?? 'out'}:${base}`;
@@ -228,7 +252,7 @@ function useChange(after: () => void) {
   const [failed, setFailed] = useState<Failed | null>(null);
   const [notice, setNotice] = useState('');
   async function run<S>(
-    procedure: string,
+    procedure: AppProcedure,
     body: unknown,
     schema: ZodType<S>,
     done?: (data: S) => string,
@@ -238,7 +262,7 @@ function useChange(after: () => void) {
     setBusy(true);
     setFailed(null);
     setNotice('');
-    const out = await api.mutate('bank', procedure, body, schema);
+    const out = await callAs(api, procedure, body, schema);
     setBusy(false);
     held?.settle(out);
     if (!out.ok) {
@@ -269,7 +293,7 @@ export function BusinessPayoutsRoom() {
   const { userId, profiles } = useSession();
   const business = profiles.business;
   const accountId = business?.accountId ?? null;
-  const overview = useBank('businessTeam.overview', accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
+  const overview = useBank(BANK_BUSINESS_TEAM_OVERVIEW, accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
   let state: RoomState = { kind: 'ready' };
   if (!userId) state = signedOutState(t, '/bank/business/payouts');
   else if (!business) state = { kind: 'refused', refusal: { variant: 'refused', title: t('personalTitle'), body: t('personalBody') } };
@@ -330,11 +354,11 @@ function Parts({
   const { userId } = useSession();
   const [rev, setRev] = useState(0);
   const input = { accountId };
-  const runs = useBank('businessPayouts.runs', input, z.array(businessBulkRunSchema), accountId, rev);
-  const contractors = useBank('businessPayouts.contractors', input, z.array(businessContractorSchema), accountId, rev);
-  const batches = useBank('businessPayouts.batches', input, z.array(businessContractorBatchSchema), accountId, rev);
-  const wallet = useBank('businessPayouts.wallet', input, businessPayrollWalletSchema.nullable(), accountId, rev);
-  const payrolls = useBank('businessPayouts.payrolls', input, z.array(businessCryptoPayrollSchema), accountId, rev);
+  const runs = useBank(BANK_BUSINESS_PAYOUTS_RUNS, input, z.array(businessBulkRunSchema), accountId, rev);
+  const contractors = useBank(BANK_BUSINESS_PAYOUTS_CONTRACTORS, input, z.array(businessContractorSchema), accountId, rev);
+  const batches = useBank(BANK_BUSINESS_PAYOUTS_BATCHES, input, z.array(businessContractorBatchSchema), accountId, rev);
+  const wallet = useBank(BANK_BUSINESS_PAYOUTS_WALLET, input, businessPayrollWalletSchema.nullable(), accountId, rev);
+  const payrolls = useBank(BANK_BUSINESS_PAYOUTS_PAYROLLS, input, z.array(businessCryptoPayrollSchema), accountId, rev);
   const change = useChange(() => {
     setRev((n) => n + 1);
     reloadTop();
@@ -363,7 +387,7 @@ function Parts({
             if (!file) return;
             void file.text().then((csv) =>
               change.run(
-                'businessPayouts.importRun',
+                BANK_BUSINESS_PAYOUTS_IMPORT_RUN,
                 { accountId, runId: runId.id, csv },
                 businessBulkRunSchema,
                 (run) => {
@@ -474,7 +498,9 @@ function RunView({
           <Button
             tone="primary"
             disabled={change.busy}
-            onClick={() => void change.run('businessPayouts.confirmRun', { runId: run.id }, businessBulkRunSchema, () => t('confirmed'))}
+            onClick={() =>
+              void change.run(BANK_BUSINESS_PAYOUTS_CONFIRM_RUN, { runId: run.id }, businessBulkRunSchema, () => t('confirmed'))
+            }
           >
             {t('confirm')}
           </Button>
@@ -489,7 +515,9 @@ function RunView({
         <Button
           tone="primary"
           disabled={change.busy}
-          onClick={() => void change.run('businessPayouts.approveRun', { runId: run.id }, businessBulkRunSchema, () => t('runApproved'))}
+          onClick={() =>
+            void change.run(BANK_BUSINESS_PAYOUTS_APPROVE_RUN, { runId: run.id }, businessBulkRunSchema, () => t('runApproved'))
+          }
         >
           {t('approveRun')}
         </Button>
@@ -537,7 +565,7 @@ function ContractorParts({ accountId, people, change, t }: { accountId: string; 
           e.preventDefault();
           void change
             .run(
-              'businessPayouts.addContractor',
+              BANK_BUSINESS_PAYOUTS_ADD_CONTRACTOR,
               {
                 accountId,
                 contractorId: contractorId.id,
@@ -582,7 +610,7 @@ function ContractorParts({ accountId, people, change, t }: { accountId: string; 
             e.preventDefault();
             void change
               .run(
-                'businessPayouts.payBatch',
+                BANK_BUSINESS_PAYOUTS_PAY_BATCH,
                 { accountId, batchId: batchId.id, invoiceIds: picked },
                 businessContractorBatchSchema,
                 () => t('batchMade'),
@@ -636,7 +664,7 @@ function ContractorRow({ c, change, t }: { c: BusinessContractor; change: Change
           e.preventDefault();
           void change
             .run(
-              'businessPayouts.addInvoice',
+              BANK_BUSINESS_PAYOUTS_ADD_INVOICE,
               {
                 contractorId: c.id,
                 invoiceId: invoiceId.id,
@@ -699,7 +727,7 @@ function BatchRow({ b, label, me, change, t }: { b: BusinessContractorBatch; lab
           tone="primary"
           disabled={change.busy}
           onClick={() =>
-            void change.run('businessPayouts.approveBatch', { batchId: b.id }, businessContractorBatchSchema, () => t('runApproved'))
+            void change.run(BANK_BUSINESS_PAYOUTS_APPROVE_BATCH, { batchId: b.id }, businessContractorBatchSchema, () => t('runApproved'))
           }
         >
           {t('approveBatch')}
@@ -718,7 +746,7 @@ function InviteParts({ accountId, change, t }: { accountId: string; change: Chan
         tone="primary"
         disabled={change.busy}
         onClick={() =>
-          void change.run('businessPayouts.createInvite', { accountId }, businessContractorInviteSchema).then((made) => {
+          void change.run(BANK_BUSINESS_PAYOUTS_CREATE_INVITE, { accountId }, businessContractorInviteSchema).then((made) => {
             if (made) setLink(`${location.origin}/bank/business/contractor-join?token=${encodeURIComponent(made.token)}`);
           })
         }
@@ -795,7 +823,7 @@ function WalletParts({
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
           void change
-            .run('businessPayouts.walletOffer', { accountId, address: address.trim() }, businessPayrollWalletOfferSchema)
+            .run(BANK_BUSINESS_PAYOUTS_WALLET_OFFER, { accountId, address: address.trim() }, businessPayrollWalletOfferSchema)
             .then((o) => {
               if (o) setOffer(o);
             });
@@ -815,7 +843,7 @@ function WalletParts({
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             void change
-              .run('businessPayouts.connectWallet', { offerId: offer.offerId, signature: sig }, businessPayrollWalletSchema, () =>
+              .run(BANK_BUSINESS_PAYOUTS_CONNECT_WALLET, { offerId: offer.offerId, signature: sig }, businessPayrollWalletSchema, () =>
                 t('connected'),
               )
               .then((r) => {
@@ -849,7 +877,7 @@ function PayrollSetup({ accountId, people, change, t }: { accountId: string; peo
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         void change.run(
-          'businessPayouts.createPayroll',
+          BANK_BUSINESS_PAYOUTS_CREATE_PAYROLL,
           { accountId, payrollId: payrollId.id, name: name.trim(), dayOfMonth: Number(day), members },
           businessCryptoPayrollSchema,
           () => t('payrollMade'),
@@ -895,7 +923,7 @@ function PayrollView({ p, change, t }: { p: BusinessCryptoPayroll; change: Chang
         aria-label={`${t('prepareRun')} ${p.name}`}
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
-          void change.run('businessPayouts.prepareRun', { payrollId: p.id, period: period.trim() }, businessCryptoPayrollSchema, () =>
+          void change.run(BANK_BUSINESS_PAYOUTS_PREPARE_RUN, { payrollId: p.id, period: period.trim() }, businessCryptoPayrollSchema, () =>
             t('runPrepared'),
           );
         }}
@@ -939,7 +967,9 @@ function PayrollRunView({ r, change, t }: { r: BusinessPayrollRun; change: Chang
           aria-label={`${t('signRun')} ${r.period}`}
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
-            void change.run('businessPayouts.signRun', { runId: r.id, signature: sig }, businessCryptoPayrollSchema, () => t('runSigned'));
+            void change.run(BANK_BUSINESS_PAYOUTS_SIGN_RUN, { runId: r.id, signature: sig }, businessCryptoPayrollSchema, () =>
+              t('runSigned'),
+            );
           }}
         >
           <SignatureField message={r.message} address={r.walletAddress} value={sig} onChange={setSig} t={t} />
@@ -961,7 +991,7 @@ export function ContractorJoinRoom({ search }: { search: string }) {
   const token = new URLSearchParams(search).get('token');
   const path = `/bank/business/contractor-join${search}`;
   const [rev, setRev] = useState(0);
-  const info = useBank('businessPayouts.inviteInfo', token ? { token } : null, businessContractorInviteInfoSchema, token ?? '-', rev);
+  const info = useBank(BANK_BUSINESS_PAYOUTS_INVITE_INFO, token ? { token } : null, businessContractorInviteInfoSchema, token ?? '-', rev);
   const change = useChange(() => setRev((n) => n + 1));
   const [form, setForm] = useState({ name: '', email: '', iban: '', wallet: '' });
   const [joined, setJoined] = useState<string | null>(null);
@@ -998,7 +1028,7 @@ export function ContractorJoinRoom({ search }: { search: string }) {
                   e.preventDefault();
                   void change
                     .run(
-                      'businessPayouts.joinAsContractor',
+                      BANK_BUSINESS_PAYOUTS_JOIN_AS_CONTRACTOR,
                       {
                         token,
                         name: form.name.trim(),

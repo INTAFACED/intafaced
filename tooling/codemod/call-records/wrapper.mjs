@@ -21,6 +21,14 @@ const isString = (n) => n?.type === 'Literal' && typeof n.value === 'string';
 const lineOf = (p, n) => p.src.slice(0, n.start).split('\n').length;
 const at = (p, n) => `${relative(join(p.file.slice(0, p.file.indexOf('/apps/')), '.'), p.file)}:${lineOf(p, n)}`;
 
+/** The strings a caller names its call by: one string, or a `? :` of two (each becomes its record in place); else undefined. */
+const namesOf = (arg) =>
+  isString(arg)
+    ? [arg]
+    : arg?.type === 'ConditionalExpression' && isString(arg.consequent) && isString(arg.alternate)
+      ? [arg.consequent, arg.alternate]
+      : undefined;
+
 /** `x.query(module, path, input, schema, opts?)` or `x.mutate(...)`, its module a string: the sender a wrapper may hand its name to. */
 function sender(n) {
   if (n?.type !== 'CallExpression' || n.callee.type !== 'MemberExpression' || n.callee.computed) return undefined;
@@ -92,6 +100,94 @@ function importers(p, name, files) {
 }
 
 /**
+ * A wrapper handed out by the hook around it, in the object it returns (`function useChange() { ...; return { busy, run }; }`),
+ * and called only through what each caller of the hook holds (`const change = useChange(); change.run('a.b', ...)`): those
+ * calls, `{ calls }`; or `{ why }` for the first use that is not one (the holder handed on whole, taken apart, or the
+ * wrapper read off it but not called).
+ */
+function heldCalls(p, id, name) {
+  const on = `${at(p, id)} hands ${name} on rather than calling it`;
+  const prop = p.parents.get(id);
+  // A shorthand `{ run }` is read twice, by its key and its value: the value alone is followed.
+  if (prop?.type === 'Property' && prop.shorthand && prop.key === id) return { calls: [] };
+  const obj = prop?.type === 'Property' && prop.shorthand && prop.value === id ? p.parents.get(prop) : undefined;
+  const ret = obj?.type === 'ObjectExpression' ? p.parents.get(obj) : undefined;
+  if (ret?.type !== 'ReturnStatement') return { why: on };
+  let hook = p.parents.get(ret);
+  while (hook && !/Function/.test(hook.type)) hook = p.parents.get(hook);
+  const hookName = hook && nameOf(p, hook);
+  if (!hookName) return { why: on };
+  const exported = p.program.body.some(
+    (s) =>
+      s.type === 'ExportNamedDeclaration' &&
+      (s.declaration === hook ||
+        s.declaration?.declarations?.some((d) => d.init === hook) ||
+        s.specifiers?.some((x) => x.local.name === hookName)),
+  );
+  if (exported) return { why: `${on}: its hook ${hookName} is exported, and the codemod follows what it returns only in its file` };
+  const calls = [];
+  const seen = new Set();
+  for (const h of readsOf(p, p.program, hookName, (n) => boundTo(p, n, hook), hook.id ?? p.parents.get(hook).id)) {
+    const made = p.parents.get(h);
+    const decl = made?.type === 'CallExpression' && made.callee === h ? p.parents.get(made) : undefined;
+    if (decl?.type !== 'VariableDeclarator' || decl.init !== made || decl.id.type !== 'Identifier')
+      return { why: `${on}: ${at(p, h)} takes ${hookName}'s answer other than into one name` };
+    const holder = decl.id.name;
+    const scope = p.parents.get(p.parents.get(decl));
+    const reads = readsOf(p, scope, holder, (n) => bindingOf(p, n, holder).declarator === decl, decl.id);
+    const why = holderCalls(p, reads, holder, name, on, calls, seen);
+    if (why) return { why };
+  }
+  if (!calls.length) return { why: `${on}: nothing calls it through ${hookName}` };
+  return { calls };
+}
+
+/** The function a destructured parameter `name` read at `n` belongs to. */
+function paramOwner(p, n, name) {
+  for (let up = p.parents.get(n); up; up = p.parents.get(up))
+    if (/Function/.test(up.type) && up.params.some((x) => JSON.stringify(x).includes(`"name":"${name}"`))) return up;
+  return undefined;
+}
+
+/**
+ * Each read of a hook's holder: `holder.<name>(...)` is a call, another member is no matter, and the holder handed as a
+ * JSX prop (`<Form change={change} />`) to a component of this file that takes that prop apart is followed into it.
+ * Pushes the calls; returns why one read is none of these.
+ */
+function holderCalls(p, reads, holder, name, on, calls, seen) {
+  for (const r of reads) {
+    const m = p.parents.get(r);
+    if (m?.type === 'MemberExpression' && m.object === r && !m.computed) {
+      if (m.property.name !== name) continue;
+      const c = p.parents.get(m);
+      if (c?.type !== 'CallExpression' || c.callee !== m) return `${on}: ${at(p, m)} reads ${holder}.${name} rather than calling it`;
+      calls.push(c);
+      continue;
+    }
+    const box = m?.type === 'JSXExpressionContainer' ? p.parents.get(m) : undefined;
+    const tag = box?.type === 'JSXAttribute' && box.name.type === 'JSXIdentifier' ? p.parents.get(box) : undefined;
+    const comp = tag?.type === 'JSXOpeningElement' && tag.name.type === 'JSXIdentifier' ? tag.name : undefined;
+    const b = comp && bindingOf(p, comp, comp.name);
+    const fn = b?.kind === 'function' ? b.declaration : b?.kind === 'var' ? b.declarator.init : undefined;
+    const props = fn && /Function/.test(fn.type) ? fn.params[0] : undefined;
+    const prop = box?.name.name;
+    const field =
+      props?.type === 'ObjectPattern' &&
+      props.properties.find(
+        (x) => x.type === 'Property' && !x.computed && (x.key.name ?? x.key.value) === prop && x.value.type === 'Identifier',
+      );
+    if (!field) return `${on}: ${at(p, r)} hands ${holder}, which holds it, on whole`;
+    if (seen.has(fn)) continue;
+    seen.add(fn);
+    const local = field.value.name;
+    const inner = readsOf(p, fn.body, local, (n) => bindingOf(p, n, local).kind === 'param' && paramOwner(p, n, local) === fn);
+    const why = holderCalls(p, inner, local, name, on, calls, seen);
+    if (why) return why;
+  }
+  return undefined;
+}
+
+/**
  * The calls of the wrapper `fn`, each with the string it names its call by at parameter `index`: `{ calls: [{ q, call, arg }] }`,
  * or `{ why }` for the first use that is not such a call.
  */
@@ -116,13 +212,26 @@ function callersOf(p, fn, index, files) {
   const calls = [];
   for (const { q, ids } of uses)
     for (const id of ids) {
-      const call = q.parents.get(id);
-      if (call?.type !== 'CallExpression' || call.callee !== id) return { why: `${at(q, id)} hands ${name} on rather than calling it` };
+      let call = q.parents.get(id);
+      if (call?.type !== 'CallExpression' || call.callee !== id) {
+        const held = heldCalls(q, id, name);
+        if (held.why) return { why: held.why };
+        for (const c of held.calls) {
+          const arg = c.arguments[index];
+          if (c.arguments.slice(0, index + 1).some((a) => a.type === 'SpreadElement'))
+            return { why: `${at(q, c)} calls ${name} with a spread` };
+          const named = namesOf(arg);
+          if (!named) return { why: `${at(q, c)} names its call by ${arg ? text(q, arg).slice(0, 40) : 'nothing'}, not a string` };
+          for (const a of named) calls.push({ q, call: c, arg: a });
+        }
+        continue;
+      }
       if (call.arguments.slice(0, index + 1).some((a) => a.type === 'SpreadElement'))
         return { why: `${at(q, call)} calls ${name} with a spread` };
       const arg = call.arguments[index];
-      if (!isString(arg)) return { why: `${at(q, call)} names its call by ${arg ? text(q, arg).slice(0, 40) : 'nothing'}, not a string` };
-      calls.push({ q, call, arg });
+      const named = namesOf(arg);
+      if (!named) return { why: `${at(q, call)} names its call by ${arg ? text(q, arg).slice(0, 40) : 'nothing'}, not a string` };
+      for (const a of named) calls.push({ q, call, arg: a });
     }
   if (!calls.length) return { why: `nothing calls ${name}` };
   return { calls };
@@ -149,12 +258,19 @@ function paramWrapper(p, site, files) {
     (n) => bindingOf(p, n, n.name).kind === 'param' && paramOf(p, n, n.name)?.fn === param.fn,
   );
   const inner = [];
+  // A read inside a template string (a cache key, `bills:${procedure}:...`) reads the record's path, which is the string.
+  const keys = [];
   for (const r of reads) {
     const call = p.parents.get(r);
+    if (call?.type === 'TemplateLiteral' && call.expressions.includes(r)) {
+      keys.push(r);
+      continue;
+    }
     const s = sender(call);
     if (!s || call.arguments[1] !== r) return { why: `its wrapper ${fname} reads its call name for more than sending it (${at(p, r)})` };
     inner.push({ call, ...s });
   }
+  if (!inner.length) return { why: `its wrapper ${fname} reads its call name only in a template string` };
   if (new Set(inner.map((x) => `${x.module} ${x.kind}`)).size !== 1)
     return { why: `its wrapper ${fname} sends its call name to more than one service, or both as a query and a mutation` };
   const found = callersOf(p, param.fn, param.index, files);
@@ -167,6 +283,7 @@ function paramWrapper(p, site, files) {
     kind: inner[0].kind,
     typed: { node: param.id.typeAnnotation, after: param.id },
     inner: inner.map((x) => x.call),
+    keys,
     callers: found.calls.map(({ q, call, arg }) => ({ q, node: call, arg })),
   };
 }
@@ -313,6 +430,7 @@ export function wrapperIn(changes, planned, done, kindOf = () => undefined) {
       const p = load(w.file);
       if (w.typed.node) changes.edit(w.file, w.typed.node.start, w.typed.node.end, ': AppProcedure');
       else changes.edit(w.file, w.typed.after.end, w.typed.after.end, ': AppProcedure');
+      for (const k of w.keys ?? []) changes.edit(w.file, k.start, k.end, `${k.name}.path`);
       for (const call of w.inner) {
         const a = call.arguments.slice(1).map((x) => text(p, x));
         changes.edit(w.file, call.start, call.end, `callAs(${text(p, call.callee.object)}, ${a.join(', ')})`);
