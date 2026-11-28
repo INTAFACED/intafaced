@@ -85,8 +85,10 @@ export function setupDrift(files) {
   if (!shard.includes(`uses: ${RUNNER}`)) out.push(`${JOURNEYS} journeys: ready the runner with \`uses: ${RUNNER}\``);
   for (const v of envWrites(shard).filter((v) => v !== 'LOCAL_STACK_CUSTODY_LAYER'))
     out.push(`${JOURNEYS} journeys: writes ${v} to GITHUB_ENV, which no probe sets — set it in ${SHARD_SH} or ${RUNNER}`);
-  if (envWrites(shard).includes('LOCAL_STACK_CUSTODY_LAYER') && !/custody=\$\(bash tooling\/ci\/journey-shard\.sh custody /.test(shard))
-    out.push(`${JOURNEYS} journeys: take LOCAL_STACK_CUSTODY_LAYER from \`journey-shard.sh custody\`, as the probe does`);
+  if (!envWrites(shard).includes('LOCAL_STACK_CUSTODY_LAYER') || !/custody=\$\(bash tooling\/ci\/journey-shard\.sh custody /.test(shard))
+    out.push(
+      `${JOURNEYS} journeys: set LOCAL_STACK_CUSTODY_LAYER from \`journey-shard.sh custody\` and write it to GITHUB_ENV, as the probe sets it`,
+    );
   const probe = String(files[PROBE] ?? '');
   if (!/LOCAL_STACK_CUSTODY_LAYER="\$c"/.test(probe) || !/c=\$\(bash "\$shard" custody /.test(probe))
     out.push(`${PROBE}: set LOCAL_STACK_CUSTODY_LAYER from \`journey-shard.sh custody\`, as a shard does`);
@@ -169,6 +171,13 @@ test('planted: a setup step only the shard has fails', () => {
   );
   assert.notEqual(key, files[JOURNEYS]);
   assert.match(setupDrift({ ...files, [JOURNEYS]: key }).join('\n'), /revert-probe-leg: a shard's job sets LOCAL_STACK_OTHER/);
+});
+
+test('planted: a shard that drops its custody switch fails', () => {
+  const files = today();
+  const gone = files[JOURNEYS].replace('          echo "LOCAL_STACK_CUSTODY_LAYER=$custody" >> "$GITHUB_ENV"\n', '');
+  assert.notEqual(gone, files[JOURNEYS]);
+  assert.match(setupDrift({ ...files, [JOURNEYS]: gone }).join('\n'), /set LOCAL_STACK_CUSTODY_LAYER from/);
 });
 
 test('planted: a probe job that sets up its own stack, or skips the shared runner, fails', () => {

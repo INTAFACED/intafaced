@@ -6,10 +6,14 @@ import path from 'node:path';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, api, fund, signUpInBrowser, startService, stopService, toUnits } from './stack.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
+import { ORIGIN, api, signUpInBrowser, startService, stopService } from './stack.mjs';
 import { verify } from './desk.mjs';
-import { takeBest } from './copy.mjs';
 import { staffSignIn } from './staff.mjs';
+import { fundAtPartner, holdAtPartner } from './partner.mjs';
+import { ownSpotMarket } from './own-market.mjs';
+import { testWalletKey } from './test-wallet.mjs';
+import { testDeposit, venueForThisFile, venueRecord, walletDoorAct } from './venue.mjs';
 
 // J-ops-console-02 steps #3 and #4: /accounts/:userId shows the money, trade, pay, cards, documents and tickets tabs for one
 // account, each read loading or refusing on its own; with svc-trade stopped only the trade tab refuses and every other tab
@@ -17,10 +21,11 @@ import { staffSignIn } from './staff.mjs';
 // rather than show a number (#4). Step #5 (each document's status and the viewer) is its own test,
 // J-ops-console-02-documents.pw.mjs.
 // #4 looks at the stack's second TEST founder, an account that always exists on the stack. #3 looks at a fresh TEST
-// customer who has, each made as that customer through the running product: a deposit (TEST USDT posted through the real
-// ledger), a trade (a buy filled on the real BTC/USDT book), a payment (a send to another person), a card (a TEST card from
-// the stack's card simulator) and a support request. Each tab then shows that customer's own record, value for value, read
-// from the service that holds it. #3's last clause, a staff member without the cards scope seeing "permission denied",
+// customer on the launch money model (INTAFACED holds no customer money; custody off) who has, each made as that customer
+// through the running product: a deposit (TEST USDT paid in at the TEST partner bank that holds their bank money), a trade
+// (a TEST limit buy from their own venue account through our door, on this file's own TEST market), a payment (a send to
+// another person), a card (a TEST card from the stack's card simulator) and a support request. Each tab then shows that
+// customer's own record, value for value, read from the service that holds it. #3's last clause, a staff member without the cards scope seeing "permission denied",
 // signs in the stack's TEST support staff member (staff.mjs), whose role reads accounts, payments, trading and documents
 // and not cards.
 
@@ -32,6 +37,14 @@ const deskWhen = (iso) => {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} UTC`;
 };
 const DESK_TIME = /^\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}, \d{2}:\d{2}:\d{2} UTC$/;
+const J = 'J-ops-console-02';
+/** The TEST partner bank's label (svc-bank `partner/test-partner.ts`). */
+const PARTNER_BANK = 'TEST partner bank';
+/** Every read on the trade tab, answered. */
+const TRADE_READ = { 'read-trade.orders': 'read', 'read-trade.venue-orders': 'read', 'read-trade.controls': 'read' };
+
+// #3's trade is on the launch desk, the customer's own venue account: svc-trade's user-venue door is on for this file.
+venueForThisFile(test);
 
 /** A fresh TEST person, signed up and verified in a browser of their own. */
 async function verifiedPerson(browser, prefix) {
@@ -48,24 +61,62 @@ async function verifiedPerson(browser, prefix) {
 }
 
 /**
- * A fresh verified TEST customer with a deposit, a trade, a payment, a card and a support request, each made as that
- * customer through the running product, and what the product answered for each. Their balances are read last, through
- * the customer's own door, once every record above has moved their money.
+ * A fresh verified TEST customer on the launch money model with a deposit, a trade, a payment, a card and a support
+ * request, each made as that customer through the running product, and what the product answered for each. Their bank
+ * money is held at the TEST partner bank, never on our ledger; their trade is on their own TEST venue account.
  */
 async function customerWithRecords(browser) {
   const who = await verifiedPerson(browser, 'ops23');
   const payee = await verifiedPerson(browser, 'ops2p');
   const tag = randomUUID().slice(0, 8);
-  // The deposit: TEST USDT posted to the customer through the real ledger.
-  expect(fund(who.email, 'USDT', '2000').tx, 'the TEST deposit posted to the ledger').toBeTruthy();
+  // The deposit: TEST USDT paid in at the TEST partner bank, where launch holds a person's bank money.
+  await holdAtPartner(who);
+  await holdAtPartner(payee);
+  await fundAtPartner(who, `ops02-3-${tag}`, 'USDT', '2000');
   const own = await api(who);
-  // The trade: one buy that fills in full against the TEST market maker on the real BTC/USDT book.
-  const order = await takeBest(who, 'buy', '0.001', `ops02-3-${tag}`);
-  expect(toUnits(order.filled), 'the buy filled in full').toBe(toUnits('0.001'));
-  // The payment: a send of TEST 5 USDT from the customer's primary space to another person, posted to the ledger.
-  const spaces = await own.get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
-  expect(spaces.status, JSON.stringify(spaces.body).slice(0, 300)).toBe(200);
-  const from = spaces.body.result.data.find((space) => space.kind === 'primary' && space.assetId === 'USDT');
+  // The trade: a TEST limit buy of 1 at 10 USDC, signed by the customer's own wallet and sent through our door from their own
+  // TEST venue account (TEST 100 USDC paid in there), on this file's own TEST market, whose empty book leaves it resting.
+  const key = privateKeyToAccount(testWalletKey());
+  const owner = key.address.toLowerCase();
+  expect(await testDeposit(owner, 'USDC', '100', `84532:0x${randomUUID().replace(/-/g, '')}${'0'.repeat(32)}:0`)).toBe(true);
+  const { symbol } = await ownSpotMarket(J, 'OC', 'A');
+  const intent = {
+    kind: 'place_order',
+    symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '1',
+    price: '10',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    builderFee: null,
+    clientOrderKey: `order:${owner}:${symbol.toLowerCase()}:ops02-3-${tag}`,
+  };
+  // Our door re-reads the venue's market list on a miss, at most every few seconds: wait until it previews this market.
+  await expect
+    .poll(async () => (await own.post('/api/v1/venue/preview', { owner, intent })).status, { timeout: 30_000, intervals: [2_000] })
+    .toBe(200);
+  await walletDoorAct(own, key, { intent });
+  const resting = (await venueRecord(owner, '/open-orders')).value;
+  expect(resting, 'the buy rests on the customer’s own venue account').toHaveLength(1);
+  const order = { ...resting[0], owner };
+  expect(order).toMatchObject({
+    symbol,
+    side: 'buy',
+    type: 'limit',
+    status: 'open',
+    amount: '1',
+    filled: '0',
+    price: '10',
+    venueClientOrderId: expect.stringMatching(/^0x[0-9a-f]{32}$/),
+  });
+  // The payment: a send of TEST 5 USDT from the customer's primary space, held at the partner, to another person.
+  const spacesOf = async () => {
+    const res = await own.get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  const from = (await spacesOf()).find((space) => space.kind === 'primary' && space.assetId === 'USDT');
   expect(from?.id, 'the customer has a primary USDT space to pay from').toBeTruthy();
   const payeeId = (await api(payee)).userId;
   const paymentId = `ops02-pay-${tag}`;
@@ -76,7 +127,6 @@ async function customerWithRecords(browser) {
     amount: '5',
   });
   expect(paid.status, JSON.stringify(paid.body).slice(0, 300)).toBe(200);
-  expect(paid.body.result.data.ledgerTxId, 'the payment posted to the ledger').toBeTruthy();
   // The card: one TEST virtual card from the stack's card simulator.
   const cardId = randomUUID();
   const issued = await own.post('/api/bank/trpc/cards.issue', {
@@ -98,13 +148,9 @@ async function customerWithRecords(browser) {
   expect(asked.status, JSON.stringify(asked.body).slice(0, 300)).toBe(200);
   const ticket = asked.body.result.data;
   expect(ticket.userId, 'the support request is this customer’s').toBe(own.userId);
-  // The balances, as the customer's own breakdown reads them from the ledger.
-  const breakdown = await own.get('/api/bank/trpc/portfolio.balanceBreakdown');
-  expect(breakdown.status, JSON.stringify(breakdown.body).slice(0, 300)).toBe(200);
-  const assets = breakdown.body.result.data.assets;
-  // The deposit, less what the payment and the buy took, is still there in USDT; the buy brought BTC.
-  expect(assets.map((a) => a.assetId)).toEqual(expect.arrayContaining(['USDT', 'BTC']));
-  expect(toUnits(assets.find((a) => a.assetId === 'USDT').total) > 0n, 'the customer holds USDT').toBe(true);
+  // The balances, as the customer's own spaces read them from the partner holding them: the deposit less the payment.
+  const spaces = (await spacesOf()).filter((space) => space.balance !== undefined);
+  expect(spaces.find((space) => space.id === from.id)?.balance).toBe('1995');
   // The operator balances read stays shut to a session holding neither admin:read nor admin:treasury: the customer's own
   // session asking it for themselves is refused 403 with the platform's one scope code, and gets no figure.
   const operatorRead = await own.get(
@@ -114,22 +160,15 @@ async function customerWithRecords(browser) {
   expect(operatorRead.body.result).toBeUndefined();
   expect(operatorRead.body.error.message).toBe('One of admin:read, admin:treasury is required');
   expect(operatorRead.body.error.data.intafacedCode).toBe('scope.denied');
-  return { userId: own.userId, payeeId, order, paymentId, card, ticket, assets };
+  return { userId: own.userId, payeeId, order, paymentId, card, ticket, spaces };
 }
 
-/** The table row of `read` whose first cell is exactly `first`. */
-const rowOf = (page, read, first) =>
-  page
-    .getByTestId(read)
-    .locator('tbody tr')
-    .filter({ has: page.locator('td:first-child', { hasText: new RegExp(`^${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) });
-
-/** The customer's balance of each coin, as the console's balances table must show it: coin, total, available and each lock. */
-const balanceRows = (assets) =>
-  assets.map((a) => {
-    const lock = (kind) => a.locked.find((l) => l.kind === kind)?.amount ?? '0';
-    return [a.assetId, a.total, a.available, lock('hold'), lock('escrow'), lock('stake'), lock('collateral'), 'Open'];
-  });
+/**
+ * The customer's balance in each space, as the console's partner balances table must show it: coin, space, kind, balance,
+ * who reported it and whether the figure is current, each the one the customer's own spaces show.
+ */
+const partnerRows = (spaces, source) =>
+  spaces.map((space) => [space.assetId, space.name, space.kind, space.balance, source, 'Current', 'Open']);
 
 async function secondFounder() {
   const ctx = await makeContext({ log: () => {} });
@@ -205,7 +244,7 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   };
   /** Each of the customer's records, value for value, on the tab that holds it. */
   const orderCells = [
-    deskWhen(order.datetime),
+    DESK_TIME,
     order.symbol,
     order.side,
     order.type,
@@ -213,14 +252,22 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
     order.amount,
     order.filled,
     order.price,
+    order.owner,
     'Open',
   ];
   const paymentCells = [DESK_TIME, 'Sent', record.payeeId, '5', 'USDT', 'Posted', 'Open'];
   const ticketCells = [deskWhen(ticket.createdAt), ticket.subject, ticket.category, ticket.status, 'Open'];
+  /** The money tab's balances: the ledger holds none of this customer's money, and the partner bank holds each space's. */
   const balancesShown = async (p) => {
-    await expect(p.getByTestId('read-bank.customer-balances').locator('tbody tr')).toHaveCount(record.assets.length);
-    for (const cells of balanceRows(record.assets))
-      await expect(rowOf(p, 'read-bank.customer-balances', cells[0]).locator('td')).toHaveText(cells);
+    await expect(p.getByTestId('read-bank.customer-balances').getByTestId('list-empty')).toHaveText(
+      'The ledger holds no balance for this customer. That means no coin has ever been posted to them, not that the id is right.',
+    );
+    const partner = p.getByTestId('read-bank.customer-partner-balances');
+    await expect(partner.locator('tbody tr')).toHaveCount(record.spaces.length);
+    for (const cells of partnerRows(record.spaces, PARTNER_BANK)) {
+      const row = partner.locator('tbody tr').filter({ has: p.locator('td:nth-child(2)', { hasText: new RegExp(`^${cells[1]}$`) }) });
+      await expect(row.locator('td')).toHaveText(cells);
+    }
   };
 
   await page.goto(`${ADMIN}/accounts`, { waitUntil: 'load' });
@@ -231,11 +278,13 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   for (const tab of ['money', 'trade', 'pay', 'cards', 'documents', 'tickets'])
     await expect(page.getByTestId(`customer-tab-${tab}`)).toBeVisible();
 
-  // Money: the ledger's balances of this customer load, one row per coin, each figure exactly what the customer's own
-  // breakdown reads (the USDT the deposit brought, less the payment and the buy; the BTC the buy brought). svc-pay's three
-  // deposit reads answer too. Each deposit one by one has no operator read, and the tab says so with its code.
+  // Money: the ledger's balances of this customer load and hold none of their money (the launch model), and the partner
+  // bank's balances load, one row per space, each figure exactly what the customer's own spaces show (the USDT the deposit
+  // paid in, less the payment). svc-pay's three deposit reads answer too. Each deposit one by one has no operator read, and
+  // the tab says so with its code.
   expect(await tabStates(page, 'money')).toEqual({
     'read-bank.customer-balances': 'read',
+    'read-bank.customer-partner-balances': 'read',
     'read-money.deposit-addresses': 'read',
     'read-money.deposit-freezes': 'read',
     'read-money.deposit-travel-rule': 'read',
@@ -243,13 +292,17 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   await balancesShown(page);
   await noSource('money.deposits', 'Each deposit and withdrawal of this account');
 
-  // Trade: svc-trade's orders of this customer load, and the one order is the buy they placed, as svc-trade holds it;
-  // its restriction history loads and says nothing is logged, since this customer was never restricted.
-  expect(await tabStates(page, 'trade')).toEqual({ 'read-trade.orders': 'read', 'read-trade.controls': 'read' });
-  await onlyRow(page, 'read-trade.orders', orderCells);
-  await page.getByTestId('read-trade.orders').getByRole('button', { name: 'Open', exact: true }).click();
-  await expect(page.getByTestId('read-trade.orders').getByTestId('row-detail')).toContainText(order.id);
-  await page.getByTestId('read-trade.orders').getByRole('button', { name: 'Close', exact: true }).click();
+  // Trade: svc-trade's reads of this customer load. Our own book holds no order of theirs (it is off at launch); the venue's
+  // orders on their own venue account hold the one buy they placed, as the venue keeps it; the restriction history says
+  // nothing is logged, since this customer was never restricted.
+  expect(await tabStates(page, 'trade')).toEqual(TRADE_READ);
+  await expect(page.getByTestId('read-trade.orders').getByTestId('list-empty')).toHaveText(
+    'svc-trade holds no order for this account: it has never placed one.',
+  );
+  await onlyRow(page, 'read-trade.venue-orders', orderCells);
+  await page.getByTestId('read-trade.venue-orders').getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.getByTestId('read-trade.venue-orders').getByTestId('row-detail')).toContainText(order.venueClientOrderId);
+  await page.getByTestId('read-trade.venue-orders').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('read-trade.controls').getByTestId('list-empty')).toHaveText(
     'svc-trade has no restriction logged for this account: it has never been restricted or restored here.',
   );
@@ -317,7 +370,7 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   const others = ['money', 'pay', 'cards', 'documents', 'tickets'];
   const before = {};
   for (const tab of others) before[tab] = await tabSnapshot(tab);
-  expect(before.money.words).toContain(balanceRows(record.assets)[0][1]);
+  expect(before.money.words).toContain(record.spaces[0].balance);
   expect(before.pay.words).toContain(record.payeeId);
   expect(before.cards.words).toContain(card.id);
   expect(before.tickets.words).toContain(ticket.subject);
@@ -328,9 +381,10 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
     await expect(page.getByTestId('customer-record-id')).toHaveText(customer, { timeout: 60_000 });
     expect(await tabStates(page, 'trade')).toEqual({
       'read-trade.orders': 'COULD NOT LOAD SVC-TRADE’S ORDERS FOR THIS ACCOUNT / no code',
+      'read-trade.venue-orders': 'COULD NOT LOAD SVC-TRADE’S VENUE ORDERS FOR THIS ACCOUNT / no code',
       'read-trade.controls': 'COULD NOT LOAD SVC-TRADE’S RESTRICTION HISTORY / no code',
     });
-    for (const read of ['read-trade.orders', 'read-trade.controls']) {
+    for (const read of ['read-trade.orders', 'read-trade.venue-orders', 'read-trade.controls']) {
       const refused = page.getByTestId(read).getByTestId('read-failed');
       await expect(refused).toHaveAttribute('data-tone', 'danger');
       await expect(refused).toContainText('Unavailable.');
@@ -345,17 +399,18 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   } catch (error) {
     failure = error;
   }
-  // Bring svc-trade back for the journeys after this one; a failure to restart never hides the tab's own failure.
+  // Bring svc-trade back, its door to the venue on as this file runs it (venueForThisFile); a failure to restart never
+  // hides the tab's own failure.
   try {
-    await startService('trade');
+    await startService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
   } catch (restart) {
     failure ??= restart;
   }
   if (failure) throw failure;
   // svc-trade answers again, with the same order.
   await page.goto(`${ADMIN}/accounts/${customer}?tab=trade`, { waitUntil: 'load' });
-  expect(await tabStates(page, 'trade')).toEqual({ 'read-trade.orders': 'read', 'read-trade.controls': 'read' });
-  await onlyRow(page, 'read-trade.orders', orderCells);
+  expect(await tabStates(page, 'trade')).toEqual(TRADE_READ);
+  await onlyRow(page, 'read-trade.venue-orders', orderCells);
 
   // A staff member without the cards scope: the stack's TEST support staff member (staff.mjs), whose role reads accounts,
   // payments, trading and documents and not cards. The customer's balances, order and payment load for them as they did
@@ -375,8 +430,8 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
     expect(await readState(staff.getByTestId('read-bank.customer-balances'))).toBe('read');
     await balancesShown(staff);
     await staff.goto(`${ADMIN}/accounts/${customer}?tab=trade`, { waitUntil: 'load' });
-    expect(await readState(staff.getByTestId('read-trade.orders'))).toBe('read');
-    await onlyRow(staff, 'read-trade.orders', orderCells);
+    expect(await readState(staff.getByTestId('read-trade.venue-orders'))).toBe('read');
+    await onlyRow(staff, 'read-trade.venue-orders', orderCells);
     await staff.goto(`${ADMIN}/accounts/${customer}?tab=pay`, { waitUntil: 'load' });
     expect(await readState(staff.getByTestId('read-pay.payments'))).toBe('read');
     await onlyRow(staff, 'read-pay.payments', paymentCells);

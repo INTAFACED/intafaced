@@ -16,9 +16,9 @@ import {
   PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
   PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
-import { BANK_OPS_CUSTOMER_TRANSFERS } from '@intafaced/contracts/bank-ops-procedures';
+import { BANK_OPS_CUSTOMER_PARTNER_BALANCES, BANK_OPS_CUSTOMER_TRANSFERS } from '@intafaced/contracts/bank-ops-procedures';
 import { SUPPORT_LIST_ALL } from '@intafaced/contracts/support-list-queue-procedures';
-import { TRADE_ADMIN_CUSTOMER_ORDERS } from '@intafaced/contracts/trade-admin-procedures';
+import { TRADE_ADMIN_CUSTOMER_ORDERS, TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS } from '@intafaced/contracts/trade-admin-procedures';
 import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
 import { BANK_OPS_CUSTOMER_CARDS } from '@intafaced/contracts/bank-ops-3-procedures';
 
@@ -126,6 +126,84 @@ function customerOrders(userId: string): ReadSpec {
     emptyText: 'svc-trade holds no order for this account: it has never placed one.',
     forbiddenText:
       'svc-trade did not accept your session for this read (one customer’s orders need the operator read permission admin:read and the customer lookup permission support:lookup).',
+  };
+}
+
+/**
+ * This account's orders on its own venue accounts, newest first, as the venue keeps them (`admin.venueAccounts.orders`,
+ * J-ops-console-02 #3): on the launch model a customer's orders are the venue's, placed from their own venue account
+ * through our door, and INTAFACED holds none of them. svc-trade records that you read them before it asks the venue.
+ */
+function customerVenueOrders(userId: string): ReadSpec {
+  return {
+    id: 'trade.venue-orders',
+    title: 'Orders on the venue',
+    note: 'Every order on the venue accounts this customer’s own wallet signed for through INTAFACED, newest first, as the venue keeps it now: market, side, type, status, how much was asked and how much filled, up to the newest 200. INTAFACED holds none of it. svc-trade records that you read this account’s venue orders before it asks the venue.',
+    plainName: 'svc-trade’s venue orders for this account',
+    ...readOf(TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS),
+    input: { userId, limit: ORDER_LIMIT },
+    shape: 'list',
+    rowsKey: 'orders',
+    anonymousRows: true,
+    page: ORDER_LIMIT,
+    columns: [
+      col('placedAt', 'Placed', 'time'),
+      col('symbol', 'Market', 'text'),
+      col('side', 'Side', 'text'),
+      col('type', 'Type', 'text'),
+      col('status', 'Status', 'text'),
+      col('amount', 'Amount', 'amount'),
+      col('filled', 'Filled', 'amount'),
+      col('price', 'Limit price', 'amount'),
+      col('owner', 'Venue account', 'text'),
+      col('venueClientOrderId', 'Venue client order id', 'text', { nullable: true, detail: true }),
+      col('venueOrderId', 'Venue order id', 'text', { nullable: true, detail: true }),
+      col('averagePrice', 'Average fill price', 'amount', { nullable: true, detail: true }),
+    ],
+    emptyText:
+      'The venue holds no order on this account’s venue accounts: it has placed none through INTAFACED, or signed for no venue account.',
+    forbiddenText:
+      'svc-trade did not accept your session for this read (one customer’s venue orders need the operator read permission admin:read).',
+    refusals: {
+      'trade.user_venue_off': 'svc-trade’s door to the venue is off on this deployment, so no venue order can be read for anyone.',
+      'trade.venue.not_offered': 'The venue publishes no order history, so svc-trade cannot list this account’s venue orders.',
+    },
+  };
+}
+
+/**
+ * This account's spending balances as the partner bank holding its money reports them (`ops.customerPartnerBalances`): on
+ * the launch model a customer's bank money is at the partner, never on our ledger, so the ledger's balances above hold none
+ * of it. svc-bank logs that you read them before it reads.
+ */
+function customerPartnerBalances(userId: string): ReadSpec {
+  return {
+    id: 'bank.customer-partner-balances',
+    title: 'Balances at the partner bank',
+    note: 'The customer’s spending balances as the partner bank holding their money reports them, each with the partner’s name and as-of time: the same figures the customer’s own spaces show. A figure the partner has not reported refuses by name; ledger figures are never mixed in.',
+    plainName: 'svc-bank’s partner balances for this account',
+    ...readOf(BANK_OPS_CUSTOMER_PARTNER_BALANCES),
+    input: { userId },
+    shape: 'list',
+    rowsKey: 'spaces',
+    idKey: 'spaceId',
+    columns: [
+      col('assetId', 'Coin', 'text'),
+      col('name', 'Space', 'text'),
+      col('kind', 'Kind', 'text'),
+      col('balance', 'Balance', 'amount'),
+      col('source', 'Reported by', 'text'),
+      col('state', 'Figure', 'text', { words: { known: 'Current', stale: 'Stale' } }),
+      col('asOf', 'As of', 'time', { detail: true }),
+      col('spaceId', 'Space id', 'text', { detail: true }),
+    ],
+    emptyText: 'No partner bank holds money for this customer: their bank money, if any, is on the ledger above.',
+    forbiddenText: FORBID_BANK_OPS,
+    refusals: {
+      'bank.ops_audit_unavailable':
+        'svc-bank could not record that you asked, so it read nothing. It writes that record before it reads any figure, and refuses when it cannot.',
+      'bank.partner_balance_not_known': 'The partner bank has not reported a figure for one of this customer’s spaces, so none is shown.',
+    },
   };
 }
 
@@ -539,6 +617,7 @@ export function tabPlan(tab: CustomerTab, userId: string, query: { readonly requ
       return {
         reads: [
           { ...BANK_CUSTOMER_BALANCES, input: { userId } },
+          customerPartnerBalances(userId),
           depositAddresses(userId),
           depositFreezeHistory(userId),
           depositTravelRule(userId),
@@ -553,7 +632,7 @@ export function tabPlan(tab: CustomerTab, userId: string, query: { readonly requ
       };
     case 'trade':
       return {
-        reads: [customerOrders(userId), tradeControlHistory(userId)],
+        reads: [customerOrders(userId), customerVenueOrders(userId), tradeControlHistory(userId)],
         unwired: [
           un(
             'trade.fills',

@@ -75,7 +75,7 @@ async function world() {
     const position = async () => (await sim.positions(account)).value.find((p) => p.symbol === 'XCRS-PERP') ?? null;
     return { who, account, usdc, summary, position };
   };
-  return { sim, run, person };
+  return { sim, run, person, maker, makerAccount, order };
 }
 
 describe('TEST venue cross margin (J-derivatives-26)', () => {
@@ -155,5 +155,39 @@ describe('TEST venue cross margin (J-derivatives-26)', () => {
     const fundAfter = (await w.sim.insuranceFund()).value;
     // 297.75 − 1000: the fund pays 702.25.
     expect(fund.known && fundAfter.known && formatAmount(fund.value.balance - fundAfter.value.balance)).toBe('702.25');
+  });
+
+  it('reports what can leave the account: a withdrawal of exactly that is taken and a cent more refused (J-derivatives-25 #10 #11)', async () => {
+    const w = await world();
+    const p = await w.person('jd25-out');
+    const withdraw = async (amount: string) => {
+      const out = await w.sim.prepare(p.account, p.who.signer, {
+        kind: 'withdraw',
+        asset: 'USDC',
+        amount: a(amount),
+        destination: p.who.address,
+      } as VenueIntent);
+      return w.sim.submit(out, await p.who.sign(out));
+    };
+    // A cross loss at the mark is not free to leave: free less the loss less the venue's TEST fee of 1.
+    const free = (await p.usdc()).free;
+    w.sim.setMark('XCRS-PERP', a('99.9'));
+    const losing = (await p.summary()).withdrawable!;
+    expect(formatAmount(losing)).toBe(formatAmount(free - a('5') - a('1')));
+    // In profit: the long closes and the venue credits the realised profit once; what can leave is free less the fee.
+    w.sim.setMark('XCRS-PERP', a('104'));
+    expect(await w.run(w.maker, w.makerAccount, w.order('buy', '50', '104', 'maker:jd25-out:bid'))).toMatchObject({ accepted: true });
+    const closed = await w.run(p.who, p.account, {
+      ...w.order('sell', '50', '104', 'order:jd25-out:close'),
+      reduceOnly: true,
+    } as VenueIntent);
+    expect(closed).toMatchObject({ accepted: true });
+    expect(await p.position()).toBeNull();
+    const summary = (await p.summary()).withdrawable!;
+    const usdc = await p.usdc();
+    expect(formatAmount(summary)).toBe(formatAmount(usdc.free - a('1')));
+    expect(await withdraw(formatAmount(summary + 1n))).toMatchObject({ accepted: false, refusal: { code: 'insufficient_balance' } });
+    expect(await withdraw(formatAmount(summary))).toMatchObject({ accepted: true });
+    expect(formatAmount((await p.summary()).withdrawable!)).toBe('0');
   });
 });

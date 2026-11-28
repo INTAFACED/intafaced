@@ -18,6 +18,7 @@ const copy = defineCopy('staff-access', {
   colOn: 'On',
   kind_venue_orders_get: 'Looked up one of your routed orders',
   kind_venue_accounts_get: 'Looked at your venue account’s margin and its history',
+  kind_venue_orders_list: 'Looked at the orders on your venue account',
   kind_orders_get: 'Looked up one of your orders',
   kind_orders_list: 'Listed your orders',
   kind_other: 'Staff action: {kind}',
@@ -53,6 +54,7 @@ type T = ReturnType<typeof copy.useCopy>['t'];
 function kindWords(t: T, kind: string): string {
   if (kind === 'venue_orders.get') return t('kind_venue_orders_get');
   if (kind === 'venue_accounts.get') return t('kind_venue_accounts_get');
+  if (kind === 'venue_orders.list') return t('kind_venue_orders_list');
   if (kind === 'orders.get') return t('kind_orders_get');
   if (kind === 'orders.list') return t('kind_orders_list');
   return t('kind_other', { kind });

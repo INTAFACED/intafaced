@@ -21,6 +21,7 @@
  *   (CI) CANDIDATES node journeys-revert-probe.mjs plan                                  (writes GITHUB_OUTPUT points)
  *   (CI) POINT CANDIDATES FILES STEPS PROBE_SH JOURNEY_REPORT RESULT_FILE node journeys-revert-probe.mjs leg
  *   (CI) CANDIDATES RESULTS_DIR node journeys-revert-probe.mjs decide                    (writes GITHUB_OUTPUT culprit)
+ *   (probe.sh) node journeys-revert-probe.mjs merge <out> <part>...                     (the custody groups' one report)
  */
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -142,6 +143,18 @@ export function probeVerdict(report, steps) {
   return stepsFail(report, present) ? 'bad' : 'good';
 }
 
+/**
+ * One report from a probe's custody groups (journeys-revert-probe.sh runs each switch on its own stack), or null, which
+ * gives no verdict. One group is its report as it is. With several, every group must have written a report with no
+ * run-level error: otherwise a step passing in one group could stand for a group that never ran. Pure.
+ */
+export function mergeReports(parts) {
+  if (!parts.length || parts.some((r) => !r)) return null;
+  if (parts.length === 1) return parts[0];
+  if (parts.some((r) => (r.errors ?? []).length || !filesLoaded(r))) return null;
+  return { suites: parts.flatMap((r) => r.suites ?? []), errors: [] };
+}
+
 /** One or more full commit shas: a lone candidate is run too, so a red that was the stack's blames no one. */
 export const validCandidates = (commits) => commits.length > 0 && commits.every((c) => SHA.test(c));
 
@@ -212,6 +225,16 @@ function decide() {
   }
   writeSummary(['### Journeys revert: probe', '', ...lines, culprit ? `Culprit: \`${culprit.slice(0, 10)}\`` : '', ''].join('\n'));
   writeOutput(`culprit=${culprit ?? ''}`);
+}
+
+/** `merge <out> <part>...`: the parts' one report at <out>, or none when mergeReports gives none. */
+function merge(out, files) {
+  if (!out) throw new Error('merge: an output file and the parts');
+  const read = (f) => (existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null);
+  const report = mergeReports(files.map(read));
+  rmSync(out, { force: true });
+  if (report) writeFileSync(out, JSON.stringify(report));
+  else console.log(`probe: no verdict: a custody group wrote no report or broke (${files.join(', ')})`);
 }
 
 function main(mode = null) {
@@ -304,6 +327,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     const mode = process.argv[2];
     if (mode === 'plan') plan();
     else if (mode === 'decide') decide();
+    else if (mode === 'merge') merge(process.argv[3], process.argv.slice(4));
     else main(mode === 'leg' ? 'leg' : null);
   } catch (e) {
     console.error(`✖ journeys-revert-probe: ${e.message}`);

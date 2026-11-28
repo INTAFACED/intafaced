@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # One probe of the journeys revert (journeys-revert-probe.mjs): commit $1 checked out, then $JOURNEY_FILES on the local
-# test stack set up exactly as a Real-app journeys shard sets it up, by the same script (journey-shard.sh, beside this
-# file: custody switch, start, markets, content, first trade, journeys), with no retry. A shard runs one custody switch,
+# test stack set up as a Real-app journeys shard sets it up, by the same script (journey-shard.sh, beside this file:
+# custody switch, start, markets, content, first trade, journeys), with no retry. Two differences stay: it always
+# writes the TEST chart history (a planned shard skips it when its files read no market's past), and it never takes
+# the build job's seeded stack. A shard runs one custody switch,
 # so files that take different switches (journey-shard.sh custody) run on one fresh stack each, and their reports are
 # merged into $JOURNEY_REPORT. Exits 0 when the journeys ran (pass or fail: the report says which), non-zero when a
 # stack didn't come up. It runs from a copy outside the checkout, since it checks out $1. Expects the runner's paths
@@ -47,8 +49,7 @@ for c in "${!group[@]}"; do
   bash "$shard" journeys "${leave[@]}" || code=$?
   # 1 is "journeys failed", which the report holds; anything else is the run itself breaking.
   [ "$code" -le 1 ] || exit "$code"
-  if [ -f "$JOURNEY_REPORT" ]; then parts+=("$JOURNEY_REPORT"); fi
+  parts+=("$JOURNEY_REPORT")
 done
-# One report for the probe's verdict: every part's suites and errors (none written leaves none, which says nothing).
-[ "${#parts[@]}" -gt 0 ] || exit 0
-jq -s '{suites: (map(.suites // []) | add), errors: (map(.errors // []) | add)}' "${parts[@]}" > "$report"
+# One report for the probe's verdict, or none (no verdict) when a group wrote none or broke (mergeReports).
+node "$(dirname "${BASH_SOURCE[0]}")/journeys-revert-probe.mjs" merge "$report" "${parts[@]}"

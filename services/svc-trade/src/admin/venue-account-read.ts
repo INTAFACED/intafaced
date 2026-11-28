@@ -10,6 +10,7 @@
  * access list (`staffAccess.mine`). With the user-venue door off the read refuses `trade.user_venue_off`.
  */
 import type { Principal } from '@intafaced/auth';
+import type { Amount } from '@intafaced/ledger-client/money';
 import { VenueRefusalError, encodeVenueWire, type UserVenue, type UserVenueAccount } from '@intafaced/venue-contracts';
 import type { PreparedActionStore } from '../venue/prepared-action-store.js';
 import { sampleOf, type MarginSampleStore, type VenueMarginSample } from '../venue/venue-margin-samples.js';
@@ -90,3 +91,119 @@ export async function readVenueAccounts(
 
 /** The read on the wire: every amount a decimal string, every time an ISO string. */
 export const venueAccountsReadWire = (read: VenueAccountsRead): unknown => encodeVenueWire(read);
+
+export const VENUE_ORDERS_LIST_KIND = 'venue_orders.list';
+
+/** One order on one of the person's venue accounts, as the venue keeps it. */
+export interface VenueCustomerOrder {
+  readonly owner: string;
+  readonly subAccount: string | null;
+  readonly venueClientOrderId: string | null;
+  readonly venueOrderId: string | null;
+  readonly symbol: string;
+  readonly side: 'buy' | 'sell';
+  readonly type: string;
+  readonly status: string;
+  readonly amount: Amount;
+  readonly filled: Amount;
+  readonly price: Amount;
+  readonly averagePrice: Amount | null;
+  readonly placedAt: Date;
+}
+
+export interface VenueOrdersRead {
+  readonly userId: string;
+  readonly venueId: string;
+  /** The venue's name: the source of every order here. */
+  readonly source: string;
+  /** The oldest as-of time of the venue's reads; null when the person signed for no account. */
+  readonly asOf: Date | null;
+  readonly orders: readonly VenueCustomerOrder[];
+  /** An older order exists beyond `limit`. */
+  readonly truncated: boolean;
+  readonly auditId: string;
+}
+
+/**
+ * One person's orders on their own venue accounts, newest first (J-ops-console-02 #3: the customer record's trade tab on
+ * the launch model, where the person's orders are the venue's, never a book of ours). The accounts are the ones their own
+ * signed actions named, as `readVenueAccounts` reads them; each account's orders are the venue's own order history. The
+ * read is audited (`venue_orders.list`) naming the founder and the person before the venue is asked. A venue that
+ * publishes no order history refuses `trade.venue.not_offered`, never an empty list.
+ */
+export async function readVenueOrders(
+  deps: Pick<VenueAccountReadDeps, 'audit' | 'venue' | 'store' | 'now'>,
+  principal: Principal,
+  input: { userId: string; limit: number },
+): Promise<VenueOrdersRead> {
+  requireOperator(principal);
+  const userId = input.userId.trim();
+  if (!UUID.test(userId)) throw new TradeOpsError('venue_accounts_user_invalid', 'name the person by their user id');
+  if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200)
+    throw new TradeOpsError('venue_orders_limit_invalid', 'ask for 1 to 200 orders');
+  if (!deps.venue) throw new TradeOpsError('trade.user_venue_off', 'the user-venue door is off: venue orders cannot be read');
+  const auditId = await deps.audit(
+    {
+      kind: VENUE_ORDERS_LIST_KIND,
+      operatorId: principal.userId,
+      accountId: userId,
+      objectId: userId,
+      approverId: null,
+      reason: null,
+      detail: { limit: input.limit },
+    },
+    deps.now(),
+  );
+  try {
+    const venue = await deps.venue();
+    const venueId = venue.venue.id;
+    const signed = await deps.store.ownerSignedAccounts(userId, venueId);
+    const history = venue.orderHistory?.bind(venue);
+    if (signed.length > 0 && !history)
+      throw new VenueRefusalError({ venueId, code: 'not_offered', detail: `${venue.venue.displayName} publishes no order history` });
+    const orders: VenueCustomerOrder[] = [];
+    let asOf: Date | null = null;
+    for (const s of signed) {
+      if (!history) break;
+      const account: UserVenueAccount = { venueId, owner: s.owner, subAccount: s.subAccount };
+      const read = await history(account);
+      if (asOf === null || read.asOf.getTime() < asOf.getTime()) asOf = read.asOf;
+      for (const { order, placedAt } of read.value)
+        orders.push({
+          owner: s.owner,
+          subAccount: s.subAccount,
+          venueClientOrderId: order.venueClientOrderId,
+          venueOrderId: order.venueOrderId,
+          symbol: order.symbol,
+          side: order.side,
+          type: order.type,
+          status: order.status,
+          amount: order.amount,
+          filled: order.filled,
+          price: order.price,
+          averagePrice: order.averagePrice,
+          placedAt,
+        });
+    }
+    orders.sort(
+      (a, b) =>
+        b.placedAt.getTime() - a.placedAt.getTime() ||
+        (b.venueClientOrderId ?? b.venueOrderId ?? '').localeCompare(a.venueClientOrderId ?? a.venueOrderId ?? ''),
+    );
+    return {
+      userId,
+      venueId,
+      source: venue.venue.displayName,
+      asOf,
+      orders: orders.slice(0, input.limit),
+      truncated: orders.length > input.limit,
+      auditId,
+    };
+  } catch (err) {
+    if (err instanceof VenueRefusalError) throw new TradeOpsError(`trade.venue.${err.refusal.code}`, err.refusal.detail);
+    throw err;
+  }
+}
+
+/** The orders read on the wire: every amount a decimal string, every time an ISO string. */
+export const venueOrdersReadWire = (read: VenueOrdersRead): unknown => encodeVenueWire(read);

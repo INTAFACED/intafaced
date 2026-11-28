@@ -1,0 +1,47 @@
+import { defineCopy } from '../../../shared/i18n';
+
+// The move out of the trading account to spending (J-derivatives-25 #10 #11). English source; curly apostrophes on
+// purpose. No venue or partner brand is written here: each name is the one its own source gives.
+export const moveOutCopy = defineCopy('trade.account.moveOut', {
+  title: 'Move to your spending account',
+  lead: 'Your venue account withdraws the amount to your own wallet, then your wallet sends it to your partner account. Each step is sent once, and each is signed in your wallet.',
+  withdrawable: '{venue} lets {amount} {asset} leave your trading account now, as it reports it.',
+  withdrawableUnknown: '{venue} doesn’t report what can leave your trading account now.',
+  amount: 'Amount to move out ({asset})',
+  review: 'Review move out',
+  badAmount: 'Enter an amount above zero.',
+  unreported: '{venue} doesn’t report what can leave your trading account, so nothing can move out. Nothing was sent.',
+  above: '{venue} lets at most {withdrawable} {asset} leave your trading account now. Nothing was sent.',
+  noPayIn: '{partner} publishes no address on this network to receive it, so nothing can move out. Nothing was sent.',
+  yourPartner: 'your partner bank',
+  legWithdrawal: '{venue} withdraws {amount} {asset} to your wallet {wallet}',
+  legSend: 'Your wallet sends what arrives, in {asset}, to your account at {partner}',
+  legSent: 'Your wallet sends {amount} {asset} to your account at {partner}',
+  fee: 'Fee: {fee}',
+  feeUnknown: 'Fee: not known',
+  networkFee: 'Network fee: {fee}',
+  networkFeeUnknown: 'Network fee: not known',
+  stepUpWhy: 'Money leaves your venue account for your wallet, so confirm it’s you for exactly this amount.',
+  stepUpCode: 'Authenticator code',
+  stepUpCodeHint: 'The 6-digit code from your authenticator app.',
+  stepUpCodeShort: 'Enter the 6-digit code.',
+  stepUpNoFactor: 'A move out needs an authenticator app or a passkey. Add one in Security first.',
+  stepUpSendWithout: 'Continue without',
+  signing: 'Confirm the withdrawal in your wallet.',
+  paying: 'Waiting for {venue} to pay it to your wallet…',
+  forwarding: 'Confirm the send to {partner} in your wallet.',
+  crediting: 'Waiting for {partner} to credit it…',
+  done: 'Done: {partner} reports the money in your account, available to spend.',
+  unconfirmed:
+    '{partner} hasn’t reported your send {tx} as available to spend in the time the room waited. It was sent once; nothing more will be sent.',
+  followAgain: 'Ask {partner} again',
+  refusedTitle: 'Not moved',
+  walletRejected: 'Your wallet didn’t sign, so nothing was sent.',
+  walletFailed: 'Your wallet couldn’t sign: {detail}. Nothing was sent.',
+  notSent: 'The withdrawal wasn’t sent. Nothing moved.',
+  venueRefused: '{venue} refused the withdrawal. Nothing moved.',
+  withdrawalFailed: '{venue} reports the withdrawal failed and returned it to your trading account.',
+  withdrawalPending:
+    '{venue} hasn’t paid the withdrawal in the time the room waits. It is on its way to your wallet; nothing more was sent.',
+  arrivedUnknown: '{venue} doesn’t report what reached your wallet, so the room sends nothing on. The money is in your own wallet.',
+});

@@ -326,7 +326,11 @@ jobs:
     name: Affected tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: under 1 min; a slow registry install passed 5 min on three PRs on 2026-10-22
+    permissions:
+      contents: read
+      issues: read # the labels of the issues a pull request closes, for the bug test below
     outputs:
+      bug: ${{ steps.bug.outputs.issue }}
       full: ${{ steps.cls.outputs.full }}
       affected: ${{ steps.cls.outputs.affected }}
       rust: ${{ steps.cls.outputs.rust }}
@@ -345,6 +349,81 @@ jobs:
       - id: cls
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output
+      # The `bug` issue this pull request closes (`Fixes #N` in its body, or its claim branch fix/<n>), if any.
+      - id: bug
+        name: Which bug this fixes
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/ci/bug-test-base.mjs --which
+
+  # A bug fix's test, shown failing on the code before the fix (#11267): every changed file that is not a test goes back
+  # to main (HEAD^1 of the merge commit), each test file the pull request added or changed runs there, and the job passes
+  # when one fails by its own expect or assert (tooling/ci/bug-test-base.mjs). It reads the head, so the order of pushes
+  # does not matter; a test pushed alone first is no longer the only way to show it. A red here holds the merge: the seal
+  # fails on any red job it does not otherwise read (ci-jobs-seal.mjs otherRedJobs). #11267 allowed that once a real fix's
+  # replay passed it and a planted test that passes on the base failed it, both shown on its pull request (#11280).
+  # Main's copy of the script decides; the pull request's own only while main has none (the pull request that adds it).
+  bug-test:
+    name: Bug test on the base
+    needs: [changes]
+    if: needs.changes.outputs.bug != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30 # healthy run: the install, the test databases and one package's tests, about 5 min
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # the merge commit and main, its first parent: the base
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/test-infra
+      - name: Restore turbo's cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-build-${{ runner.os }}-
+      - name: 'The test for #${{ needs.changes.outputs.bug }}, on the code before the fix'
+        env:
+          BASE: ${{ github.event.repository.default_branch }}
+          ISSUE: ${{ needs.changes.outputs.bug }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE"
+          script=tooling/ci/bug-test-base.mjs
+          if git cat-file -e FETCH_HEAD:tooling/ci/bug-test-base.mjs 2>/dev/null; then
+            git worktree add --detach "$RUNNER_TEMP/rules" FETCH_HEAD
+            script="$RUNNER_TEMP/rules/tooling/ci/bug-test-base.mjs"
+          else
+            echo "::notice::the default branch has no tooling/ci/bug-test-base.mjs yet; this pull request's copy runs"
+          fi
+          node "$script" --issue "$ISSUE" --base HEAD^1
 
   # The Rust workspace (Cargo.toml, crates/): format, clippy with warnings as errors, and tests, by the same command a
   # builder runs (`pnpm rust:check`). It runs when the change reaches Rust (ci-affected.mjs `rust`: a Rust file, the
@@ -976,7 +1055,7 @@ jobs:
   # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's own jobs do.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, build, test-full, rust, look, merge-seal]
+    needs: [changes, gates, build, test-full, rust, look, bug-test, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.base_ref, 'volt/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
