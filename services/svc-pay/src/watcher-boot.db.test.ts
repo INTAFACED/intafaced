@@ -13,6 +13,7 @@ import { bootDatabase, bootEnv, type BootDatabase } from './boot.testkit.js';
 const boot = vi.hoisted(() => ({
   chain: null as unknown,
   watchers: [] as Array<{ options: Record<string, unknown>; started: boolean }>,
+  cursors: [] as unknown[],
 }));
 
 vi.mock('./rails/posture.js', async (importOriginal) => {
@@ -38,7 +39,14 @@ vi.mock('./rails/chain-watcher.js', async (importOriginal) => {
     }
     override stop(): void {}
   }
-  return { ...real, CryptoChainWatcher: RecordedWatcher };
+  class RecordedCursorStore extends real.PostgresChainWatcherCursorStore {
+    constructor(...args: ConstructorParameters<typeof real.PostgresChainWatcherCursorStore>) {
+      super(...args);
+      boot.cursors.push(this);
+    }
+  }
+  Object.defineProperty(RecordedCursorStore, 'name', { value: 'PostgresChainWatcherCursorStore' });
+  return { ...real, CryptoChainWatcher: RecordedWatcher, PostgresChainWatcherCursorStore: RecordedCursorStore };
 });
 
 async function freePort(): Promise<number> {
@@ -146,5 +154,8 @@ describe('the chain watcher starts only on a live chain with the flag on', { tim
     expect(watchers[0]!.started).toBe(true);
     expect(watchers[0]!.options.chain).toBe(chain);
     expect(watchers[0]!.options.cursorStore?.constructor.name).toBe('PostgresChainWatcherCursorStore');
+    // It is the one durable cursor store the boot built (index.db.test.ts: on the service database, and no memory one).
+    expect(boot.cursors.length).toBeGreaterThan(0);
+    expect(watchers[0]!.options.cursorStore).toBe(boot.cursors.at(-1));
   });
 });

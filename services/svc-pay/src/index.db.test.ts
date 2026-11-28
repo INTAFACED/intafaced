@@ -24,8 +24,10 @@ import { loadHaltAutoTripConfig } from './halts/config.js';
 import { payChainReadyHonesty } from './ready-honesty.js';
 
 const seen = vi.hoisted(() => {
-  type Call = { args: unknown[]; result: unknown };
+  /** `at` is the order the call began in, across every wrapped export, so the test can say which came first. */
+  type Call = { args: unknown[]; result: unknown; at: number };
   const calls = new Map<string, Call[]>();
+  let clock = 0;
   const log = (name: string, call: Call) => {
     const list = calls.get(name) ?? [];
     list.push(call);
@@ -40,16 +42,18 @@ const seen = vi.hoisted(() => {
       if (/^class\b/.test(Function.prototype.toString.call(original))) {
         const wrapped = class extends original {
           constructor(...args: unknown[]) {
+            const at = clock++;
             super(...args);
-            log(name, { args, result: this });
+            log(name, { args, result: this, at });
           }
         };
         Object.defineProperty(wrapped, 'name', { value: original.name });
         out[name] = wrapped;
       } else {
         out[name] = function (this: unknown, ...args: unknown[]) {
+          const at = clock++;
           const result = original.apply(this, args);
-          log(name, { args, result });
+          log(name, { args, result, at });
           return result;
         };
       }
@@ -97,7 +101,14 @@ vi.mock('./namespaces/index.js', seen.w(['createPayNamespaces']));
 vi.mock('./halts/store.js', seen.w(['PayHaltStore']));
 vi.mock('./halts/adopt-boot.js', seen.w(['retryAdoptConfig']));
 vi.mock('./halts/autotrip-log.js', seen.w(['setAutoTripAccountErrorSink']));
-vi.mock('./control/index.js', seen.w(['ControlService']));
+vi.mock('./control/index.js', seen.w(['ControlService', 'teamAccessPorts']));
+vi.mock('./control/mode.js', seen.w(['resolveMerchantControlsMode']));
+vi.mock('./limits/identity-tier.js', seen.w(['createIdentityKycTierClient']));
+vi.mock('./limits/guards.js', seen.w(['createWithdrawalLimitGuards']));
+vi.mock('./merchant-team-read.js', seen.w(['teamReadFromSql']));
+vi.mock('./ledger-client.js', seen.w(['createReceiptAssetPlaces']));
+vi.mock('./action-approval-consume.js', seen.w(['createIdentityApprovalClient']));
+vi.mock('./withdrawals/quotes/service.js', seen.w(['WithdrawalQuoteService']));
 vi.mock('./metrics/index.js', seen.w(['createMetricsRuntime', 'startMetricsRefresher']));
 vi.mock('./capture-reconcile.js', seen.w(['setCaptureReconcileLogger']));
 vi.mock('./control/guards.js', seen.w(['setOverCapNoticeLogger']));
@@ -159,6 +170,8 @@ describe('svc-pay boot (index.ts)', { timeout: 60_000 }, () => {
       EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: '120',
       EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS: '10',
       PAY_CRYPTO_WATCHER_ENABLED: 'true',
+      // Not the default (accept-both), so the test can tell the boot handed the setting on rather than leaving it out.
+      INTERNAL_SERVICE_BODY_BIND: 'require',
     });
     for (const [key, value] of Object.entries(env)) process.env[key] = value;
     const setInterval = globalThis.setInterval;
@@ -272,6 +285,35 @@ describe('svc-pay boot (index.ts)', { timeout: 60_000 }, () => {
       expect(argOf('ConversionService')).toMatchObject({ guards: guards.result });
     });
 
+    it('the guard registry reads the KYC tier through the booted identity tier client, not the unwired refusal', async () => {
+      const tier = one('createIdentityKycTierClient');
+      expect(tier.args[0]).toMatchObject({ baseUrl: IDENTITY_URL, internalSecret: BOOT_INTERNAL_SECRET });
+      expect(typeof tier.result).toBe('function');
+      expect(argOf('buildPayGuards').kycTierOf).toBe(tier.result);
+      // The registry hands it to the withdrawal-limit guard, and the guard asks identity through it.
+      const limitArgs =
+        argOf<Parameters<typeof import('./limits/guards.js').createWithdrawalLimitGuards>[0]>('createWithdrawalLimitGuards');
+      expect(limitArgs.tierOf).toBe(tier.result);
+      await expect(limitArgs.tierOf!(USER)).rejects.toThrow('identity unreachable: KYC tier not read');
+      const { createWithdrawalLimitGuards, GUARD_WITHDRAWAL_TIER_UNWIRED } = await import('./limits/guards.js');
+      const ctx = { replay: { kind: 'fresh' }, userId: USER, assetId: 'USDT' } as Parameters<
+        NonNullable<ReturnType<typeof createWithdrawalLimitGuards>['beforeUserMoneyWithdrawal']>
+      >[0];
+      const wired = createWithdrawalLimitGuards({ ...limitArgs, mode: 'required' }).beforeUserMoneyWithdrawal!;
+      await expect(wired(ctx)).rejects.toThrow(/^identity unreachable: /);
+      // The control: without the tier source the same guard refuses by name.
+      const unwired = createWithdrawalLimitGuards({ ...limitArgs, tierOf: undefined, mode: 'required' }).beforeUserMoneyWithdrawal!;
+      await expect(unwired(ctx)).rejects.toMatchObject({ code: GUARD_WITHDRAWAL_TIER_UNWIRED });
+    });
+
+    it('resolves the merchant controls mode before it builds the guards', () => {
+      const resolved = seen
+        .of('resolveMerchantControlsMode')
+        .find((c) => c.args[0] === process.env.PAY_MERCHANT_CONTROLS && c.args[1] === process.env.APP_ENV);
+      expect(resolved).toBeDefined();
+      expect(resolved!.at).toBeLessThan(one('buildPayGuards').at);
+    });
+
     it('index builds the identity accrue and payout clients for the payment service', () => {
       const accrue = one('createAffiliateAccrueClient');
       const payout = one('createAffiliatePayoutClient');
@@ -328,7 +370,7 @@ describe('svc-pay boot (index.ts)', { timeout: 60_000 }, () => {
   });
 
   describe('composition', () => {
-    it('src/index.ts still composes the routers this fixture mirrors, with the one live founder authority', () => {
+    it('src/index.ts still composes the routers this fixture mirrors, with the one live founder authority', async () => {
       const sql = argOf('PayService', 0);
       const pay = one('PayService').result;
       const rails = one('PayService').args[2];
@@ -358,11 +400,45 @@ describe('svc-pay boot (index.ts)', { timeout: 60_000 }, () => {
         treasury: { sql },
         control: one('ControlService').result,
       });
-      expect((ns.registries as { approvals?: unknown }).approvals).toBeDefined();
-      expect(ns.receiptPlaces).toEqual(expect.any(Function));
+      // The approvals are the identity approval client, the same one the pay router consumes.
+      const approvals = one('createIdentityApprovalClient');
+      expect(approvals.args).toEqual([IDENTITY_URL, BOOT_INTERNAL_SECRET]);
+      expect(ns.registries).toEqual({ sql, approvals: approvals.result });
+      expect(router[5]).toBe(approvals.result);
+      // Receipt places come from the ledger's published asset registry.
+      const places = one('createReceiptAssetPlaces');
+      expect(places.args.slice(0, 2)).toEqual([process.env.LEDGER_URL, BOOT_INTERNAL_SECRET]);
+      expect(ns.receiptPlaces).toBe(places.result);
+      // The halt team read and the router's team read are the team read on the service database.
+      const teamReads = seen.of('teamReadFromSql');
+      expect(teamReads.length).toBeGreaterThanOrEqual(2);
+      for (const call of teamReads) expect(call.args).toEqual([sql]);
+      expect(teamReads.map((c) => c.result)).toContain((ns.payHalts as { team: unknown }).team);
+      expect(teamReads.map((c) => c.result)).toContain(router[6]);
+      // The control service gets the service database and the team access ports on it.
+      const ports = one('teamAccessPorts');
+      expect(ports.args).toEqual([sql]);
+      expect(one('ControlService').args).toEqual([sql, ports.result]);
+      // The pay router's last three: the withdrawal quotes, the direct withdrawal door and the merchant terms.
+      // index.ts builds one on the service database; the quotes router builds its own, with a clock.
+      const quotes = seen.of('WithdrawalQuoteService').filter((c) => c.result === router[10]);
+      expect(quotes).toHaveLength(1);
+      expect(quotes[0]!.args).toEqual([{ sql }]);
+      expect(router[11]).toEqual(expect.objectContaining({ assertDirectAllowed: expect.any(Function) }));
+      const { readMerchantTerms } = await import('./merchant-portal/terms.js');
+      expect(router[12]).toEqual(readMerchantTerms(process.env));
+      expect(router).toHaveLength(13);
       expect(one('ControlService').args[0]).toBe(sql);
       expect(one('startMetricsRefresher').args[0]).toBe((one('createMetricsRuntime').result as { projector: unknown }).projector);
       expect(seen.of('retryAdoptConfig')).toHaveLength(1);
+      // What it retries is the halt store's own config adoption.
+      const adopt = vi.spyOn(haltStore.result as { adoptConfig: () => Promise<unknown> }, 'adoptConfig').mockResolvedValue(undefined);
+      try {
+        void (one('retryAdoptConfig').args[0] as () => Promise<unknown>)();
+        expect(adopt).toHaveBeenCalledTimes(1);
+      } finally {
+        adopt.mockRestore();
+      }
       expect(seen.of('setAutoTripAccountErrorSink')).toHaveLength(1);
     });
 
@@ -388,15 +464,42 @@ describe('svc-pay boot (index.ts)', { timeout: 60_000 }, () => {
 
     it('index registers S2S routes at boot', async () => {
       expect(one('retainRawBody').args[0]).toBe(app);
-      expect(argOf('registerMerchantWatchMetricsRoutes', 1)).toMatchObject({ internalSecret: BOOT_INTERNAL_SECRET });
+      expect(one('registerMerchantWatchMetricsRoutes').args[0]).toBe(app);
+      expect(argOf('registerMerchantWatchMetricsRoutes', 1)).toMatchObject({
+        internalSecret: BOOT_INTERNAL_SECRET,
+        bodyBind: 'require',
+        installRawBody: false,
+      });
       expect((await app.inject({ method: 'GET', url: MERCHANT_WATCH_METRICS_PATH })).statusCode).toBe(401);
-      const signed = await app.inject({
+      // INTERNAL_SERVICE_BODY_BIND=require reached the route: a v1 signature, not bound to the body, is refused.
+      const v1 = await app.inject({
         method: 'GET',
         url: MERCHANT_WATCH_METRICS_PATH,
         headers: serviceAuthHeaders('svc-agents', BOOT_INTERNAL_SECRET),
       });
-      expect(signed.statusCode).not.toBe(401);
-      expect(signed.statusCode).not.toBe(404);
+      expect(v1.statusCode).toBe(401);
+      const bound = await app.inject({
+        method: 'GET',
+        url: MERCHANT_WATCH_METRICS_PATH,
+        headers: serviceAuthHeadersForBody('svc-agents', BOOT_INTERNAL_SECRET, ''),
+      });
+      expect(bound.statusCode).not.toBe(401);
+      expect(bound.statusCode).not.toBe(404);
+    });
+
+    it('hands the body-bind setting to the subscription cycle routes: the journal refuses a v1 signature', async () => {
+      expect(argOf('registerSubscriptionCycleRoutes', 1)).toMatchObject({
+        internalSecret: BOOT_INTERNAL_SECRET,
+        subscriptions: one('SubscriptionService').result,
+        bodyBind: 'require',
+        installRawBody: false,
+      });
+      const url = '/internal/subscriptions/66666666-6666-4666-8666-666666666666/cycles?limit=5';
+      const v1 = await app.inject({ method: 'GET', url, headers: serviceAuthHeaders('svc-cron', BOOT_INTERNAL_SECRET) });
+      expect(v1.statusCode).toBe(401);
+      const bound = await app.inject({ method: 'GET', url, headers: serviceAuthHeadersForBody('svc-cron', BOOT_INTERNAL_SECRET, '') });
+      expect(bound.statusCode).not.toBe(401);
+      expect(bound.statusCode).not.toBe(404);
     });
 
     it('registers the shared registrar and defines no second handler', async () => {

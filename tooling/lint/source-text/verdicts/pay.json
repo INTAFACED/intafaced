@@ -52,7 +52,7 @@
       "kind": "test",
       "ref": "services/svc-pay/src/index.db.test.ts#index registers S2S routes at boot"
     },
-    "why": "Asserts the boot retained raw bodies on its app and registered the routes with its internal secret; an unsigned GET is 401 and a signed one answers."
+    "why": "Asserts the boot retained raw bodies on its app and registered the routes with its internal secret; an unsigned GET is 401 and a signed one answers. The boot runs with INTERNAL_SERVICE_BODY_BIND=require: the registered options carry bodyBind require, and a v1 signature is refused (401) while a body-bound one passes."
   },
   {
     "file": "services/svc-pay/src/b2b-ramp/config.test.ts",
@@ -294,7 +294,7 @@
       "kind": "test",
       "ref": "services/svc-pay/src/control/mode.test.ts#the boot settings carry no off default"
     },
-    "why": "Loads the boot settings without the key, then builds the guard registry in staging and asserts the boot refusal."
+    "why": "Loads the boot settings without the key, then builds the guard registry in staging and asserts the boot refusal. That index.ts resolves the mode before it builds the guards: index.db.test.ts \"resolves the merchant controls mode before it builds the guards\", by call order."
   },
   {
     "file": "services/svc-pay/src/control/mode.test.ts",
@@ -811,7 +811,7 @@
       "kind": "test",
       "ref": "services/svc-pay/src/index.db.test.ts#is merged into the live appRouter in index.ts together with the guard registry"
     },
-    "why": "Asserts every namespaces procedure is on the live appRouter; \"builds one guard registry and hands it to the payment service\" asserts the one registry."
+    "why": "Asserts every namespaces procedure is on the live appRouter; \"builds one guard registry and hands it to the payment service\" asserts the one registry. The kycTierOf the pin named: index.db.test.ts \"the guard registry reads the KYC tier through the booted identity tier client, not the unwired refusal\" (same object, read through, a dropped one refuses by name). The order against resolveMerchantControlsMode and the approvals, receipt places, team reads and control ports are each asserted by identity in the composition test."
   },
   {
     "file": "services/svc-pay/src/operator-credit-rails-compose-pin.test.ts",
@@ -1130,7 +1130,7 @@
       "kind": "test",
       "ref": "services/svc-pay/src/index.db.test.ts#index registers S2S routes at boot"
     },
-    "why": "Asserts the routes were registered with the internal secret and answer a v1 signature under the default setting."
+    "why": "Asserts the routes were registered with the internal secret and answer a v1 signature under the default setting. With INTERNAL_SERVICE_BODY_BIND=require at boot, both the merchant-watch and the cycle journal registrars get bodyBind require, and a v1-signed GET to either is refused."
   },
   {
     "file": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts",
