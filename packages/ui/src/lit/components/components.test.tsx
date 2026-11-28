@@ -782,6 +782,10 @@ describe('a price alert handle on a drawn chart', () => {
     );
     expect(css).toMatch(/\.lt-chart-mark\[data-mark='alert'\] \{[^}]*inset-inline-end: 4\.5rem;[^}]*pointer-events: auto;/);
   });
+
+  it('a line a finger drags is at least a 24px target (WCAG 2.5.8), however close the next line sits', () => {
+    expect(css).toMatch(/\.lt-chart-mark\[data-mark='line'\] \{[^}]*min-block-size: 24px;[^}]*pointer-events: auto;/);
+  });
 });
 
 describe('a tag', () => {
