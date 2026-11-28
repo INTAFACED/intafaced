@@ -280,6 +280,7 @@ describe('HTTP answers', () => {
       'XCRS-PERP',
       'XTGM-PERP',
       'XDEV-PERP',
+      'XJRN-PERP',
     ]);
 
     // A resting order placed while trading stays as it is through every state change.
