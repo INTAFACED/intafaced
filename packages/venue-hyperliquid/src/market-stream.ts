@@ -53,9 +53,9 @@ export const SILENT_MS = 40_000;
 /** A subscription nobody asked for in this long is dropped. */
 export const IDLE_MS = 120_000;
 /** At most this many subscriptions at once (the venue allows 1,000 per IP); past it, reads go to REST. */
-export const MAX_SUBSCRIPTIONS = 200;
+const MAX_SUBSCRIPTIONS = 200;
 /** After a socket closes, a new one is opened no sooner than this. */
-export const RECONNECT_MS = 5_000;
+const RECONNECT_MS = 5_000;
 /** A seeded candle series holds at most this many candles. */
 const MAX_CANDLES = 5_000;
 
