@@ -332,7 +332,7 @@ test(`${J} #3 opens it: a venue withdrawal filled in with the share and the cold
   const free = (await venueBalance(owner, 'USDC')).free;
   const lockPrice = '30000';
   const keep = toUnits(amount) / 2n;
-  const size = ((toUnits(free) - keep) * 10n) / toUnits(lockPrice); // in 1e18 units of BTC at 10x
+  const size = ((toUnits(free) - keep) * 10n * toUnits('1')) / toUnits(lockPrice); // in 1e18 units of BTC, margin at 10x
   const lot = toUnits('0.001');
   await venueAct(order('buy', 'limit', lockPrice, 'lock-free', { amount: fromUnits(size - (size % lot)) }));
   const freeNow = (await venueBalance(owner, 'USDC')).free;
