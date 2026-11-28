@@ -315,6 +315,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-charts-desk-21's TEST perpetual XTGM-PERP (isolated margin; its mark moves margin use past 80% and 90%).
           // J-portfolio-19's TEST perpetual XJRN-PERP (the one its journal's "keeping my rules" trades are made on).
           // J-derivatives-32's TEST perpetuals XEXA-PERP and XEXB-PERP (a long's and a short's stops and targets on the chart).
+          // J-portfolio-18's TEST perpetual XJRL-PERP (the one whose trades fill the journal).
           // PURR-USDC: the one spot pair Hyperliquid's test network trades every day, so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
           // PURR-USDC, so the seed skips it there.
           // On Hyperliquid's test network, the live stock, index and gold perpetuals of its `xyz` HIP-3 DEX
@@ -324,7 +325,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // database (svc-trade seedTestListings). A replay of the test network (`hl-recorded`) lists what the live run did.
           TRADE_USER_VENUE_TEST_LISTINGS: [
             ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE)?.startsWith('hl-') ? [] : ['BTC-USDC']),
-            'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,XJRN-PERP,XTGM-PERP,XEXA-PERP,XEXB-PERP',
+            'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,XJRN-PERP,XTGM-PERP,XEXA-PERP,XEXB-PERP,XJRL-PERP',
             'xyz:TSLA-PERP,xyz:NVDA-PERP,xyz:AAPL-PERP,xyz:XYZ100-PERP,xyz:GOLD-PERP,xyz:SILVER-PERP',
           ].join(','),
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
@@ -376,9 +377,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // account's fills at 20 weight or more, against the box's one 1200 a minute: every 30 s there.
           TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
           TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet' ? '30000' : '2000',
-          // There it reads 6 accounts' fills a minute in turn, 20 weight or more each, whatever the account count.
+          // There it reads 6 accounts' fills a minute in turn, 20 weight or more each, whatever the account count, and so does
+          // the 5-minute recon (it read every account's fills in its one minute: 13 accounts were 380 weight).
           ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet'
-            ? { TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE: '6' }
+            ? { TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE: '6', TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE: '6' }
             : {}),
           // Collect (J-derivatives-17, J-campaigns-03): every 2 seconds the TEST venue's own claim record is read and each
           // claim posts once; a claim exists only once a journey asks the TEST venue for one (`/test/builder-claim`).
@@ -395,8 +397,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_BUILDER_KEY_SEED: testValue('TRADE_BUILDER_KEY_SEED'),
           // On the test network those seconds were the box's weight with no desk open (#11041): the sweep's one balance read
           // 20 times a minute, the mode check 30 and the claim read 60. There each runs once a minute; the TEST venue keeps
-          // its seconds, so a journey sees a sweep, a mode alert and a claim inside its run.
-          ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet'
+          // its seconds, so a journey sees a sweep, a mode alert and a claim inside its run. A replay of the test network
+          // (`hl-recorded`) runs on the live run's minute too: at the TEST venue's seconds it read our builder account's
+          // balance, which the live run never asked within its files, so every replayed file failed on the unrecorded read.
+          ...(['hl-testnet', 'hl-recorded'].includes(userVenueKind(process.env.LOCAL_STACK_USER_VENUE))
             ? {
                 TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '60000',
                 TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: '60000',

@@ -194,4 +194,52 @@ describe('DataDownloadsRoom (RC-cex-spot-05; J-cex-spot-15 #10)', () => {
     await mountAndFlush();
     expect(host.textContent).toContain('Book snapshots are not configured');
   });
+
+  it('folds a long gap list behind its count, and the checksum breaks inside its cell so the table fits the card', async () => {
+    const id = '44444444-4444-4444-8444-444444444444';
+    const gaps = Array.from({ length: 40 }, (_, i) => ({ fromSequence: 3 * i + 10, toSequence: 3 * i + 11 }));
+    world.answers = {
+      '/history/datasets': {
+        datasets: [
+          {
+            id,
+            key: 'history:BTC/USDC:trades:2026-11-25',
+            symbol: 'BTC/USDC',
+            kind: 'trades',
+            day: '2026-11-25',
+            windowStart: '2026-11-25T00:00:00.000Z',
+            windowEnd: '2026-11-26T00:00:00.000Z',
+            schemaVersion: '1',
+            format: 'ndjson',
+            compression: 'gzip',
+            rowCount: 48,
+            byteLength: 1024,
+            sha256: 'c'.repeat(64),
+            firstSequence: 10,
+            lastSequence: 130,
+            completenessPct: '33.80',
+            gaps,
+            provenance: HISTORY_PROVENANCE,
+            generatedAt: '2026-11-25T00:05:00.000Z',
+            supersededBy: null,
+            corrections: [],
+            downloadPath: `/api/v1/history/datasets/${id}/download`,
+          },
+        ],
+        bookIntervalMs: 5000,
+        bookSnapshotsStatus: 'configured',
+        bookSnapshotsCode: null,
+      },
+    };
+    await mountAndFlush();
+    const folded = host.querySelector(`[data-testid="gaps-${id}"]`);
+    expect(folded?.tagName).toBe('DETAILS');
+    expect(folded?.hasAttribute('open')).toBe(false);
+    expect(folded?.querySelector('summary')?.textContent).toBe('40 gaps');
+    // Every range is still there once opened: folded, not dropped.
+    expect(folded?.textContent).toContain('10..11');
+    expect(folded?.textContent).toContain('127..128');
+    // The checksum may break inside its cell, so the table's columns fit the card.
+    expect(host.querySelector(`[data-testid="checksum-${id}"]`)?.classList.contains('lt-wrap')).toBe(true);
+  });
 });
