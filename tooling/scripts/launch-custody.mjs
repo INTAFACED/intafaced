@@ -77,7 +77,9 @@ export const LAUNCH_ORDER = 1;
  * J-portfolio-01-custodial.pw.mjs, and #8 moved to J-portfolio-01-venue.pw.mjs: with the published prices unreadable
  * (svc-ops stopped), Assets refuses in words with its reference and values nothing.
  * J-agents-01 left it once its start stopped funding the person with 100 TEST USDT through our ledger, which no step used:
- * its person is verified and holds TEST USDT only at the TEST partner bank (agents.mjs launchAgentsRun).
+ * its person is verified and holds TEST USDT only at the TEST partner bank (agents.mjs launchAgentsRun), and #5's
+ * research read the market its question names from the launch desk's venue, where our own book has no trade (svc-agents
+ * navigator/ports.rs TradeHttp::quote).
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-02',
