@@ -70,11 +70,6 @@ async function offer(maker: string) {
   return rows[0]!.id;
 }
 
-it('mounts the signed route from svc-p2p index', () => {
-  const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-  expect(index).toMatch(/registerClosureCheck\(app, \{ sql, secret: env\.INTERNAL_SERVICE_SECRET, s2s: doorS2s \}\)/);
-});
-
 it('refuses a missing or bad signature with 401', async () => {
   const raw = JSON.stringify({ userId: USER, subAccountIds: [] });
   const missing = await app.inject({

@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import { exchangeErrorSchema, marketSchema, ohlcvSchema, orderBookSchema, tickerSchema, tradeSchema } from '@intafaced/exchange-contract';
 import { parseAmount } from '@intafaced/ledger-client';
@@ -1361,11 +1360,32 @@ describe('public REST routes', () => {
     await app.close();
   });
 
-  it('does not invent nextFundingTimestamp from TRADE_FUTURES_FUNDING_INTERVAL_MS', () => {
-    const src = readFileSync(new URL('./public-rest.ts', import.meta.url), 'utf8');
-    expect(src).toMatch(/nextFundingTimestamp:\s*quote\.nextFundingTimestamp/);
-    expect(src).not.toMatch(/TRADE_FUTURES_FUNDING_INTERVAL_MS/);
-    expect(src).not.toMatch(/8 \* 60 \* 60/);
-    expect(src).not.toMatch(/28_?800_?000/);
+  it('does not invent nextFundingTimestamp from TRADE_FUTURES_FUNDING_INTERVAL_MS', async () => {
+    const perp = fakeMarket({ id: '11111111-1111-4111-8111-111111111111', symbol: 'BTC/USDT-PERP', kind: 'futures' });
+    vi.stubEnv('TRADE_FUTURES_FUNDING_INTERVAL_MS', String(8 * 60 * 60 * 1000));
+    try {
+      for (const next of [null, 1_700_000_123_000]) {
+        const app = await build(
+          deps({
+            marketBySymbol: async (s) => (s === perp.symbol ? perp : null),
+            fundingRateForMarket: async () => ({
+              fundingRate: '0.0001',
+              fundingTimestamp: 1_700_000_000_000,
+              fundingDatetime: '2023-11-14T22:13:20.000Z',
+              nextFundingTimestamp: next,
+              markPrice: null,
+              indexPrice: null,
+            }),
+          }),
+        );
+        const res = await app.inject({ method: 'GET', url: '/api/v1/funding-rate/BTC%2FUSDT-PERP' });
+        expect(res.statusCode).toBe(200);
+        // Only the published quote's own next time goes out: never the last stamp plus an interval.
+        expect(res.json().nextFundingTimestamp, String(next)).toBe(next);
+        await app.close();
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

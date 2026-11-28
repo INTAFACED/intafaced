@@ -11,9 +11,6 @@
  * 5. Paths: private-rest.ts parsePrivateRestLimit + four GET doors
  * 6. RED: omitting limit returns a 100 window
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import type { Principal } from '@intafaced/auth';
@@ -31,7 +28,6 @@ import {
   type PrivateRestDeps,
 } from './private-rest.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 'a-trade-private-rest-history-unset-edge-secret';
 const USER = '11111111-1111-4111-8111-111111111111';
 
@@ -186,19 +182,6 @@ describe('GET private REST refuses unpublished history limit', () => {
     expect(res.statusCode).toBe(200);
     expect(seen).toEqual([100]);
     await app.close();
-  });
-
-  it('private-rest.ts does not invent 100', () => {
-    const src = readFileSync(join(HERE, 'private-rest.ts'), 'utf8');
-    expect(src).not.toMatch(/DEFAULT_HISTORY/);
-    expect(src).not.toMatch(/DEFAULT_FILLS/);
-    expect(src).not.toMatch(/raw \?\? fallback/);
-    expect(src).toMatch(/TRADE_ORDERS_CLOSED_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_ORDERS_OPEN_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_ACCOUNT_TRADES_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_POSITIONS_CLOSED_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_ADMIN_ORDERS_LIMIT_UNSET/);
-    expect(src).toMatch(/TRADE_ADL_EVENTS_LIMIT_UNSET/);
   });
 
   it('blank orders/closed refuses and does not call orderHistory', async () => {

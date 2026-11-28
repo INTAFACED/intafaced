@@ -19,8 +19,3 @@ export function tradeServiceAreaFiles(): string[] {
 export function tradeServiceSource(): string {
   return [join(here, '..', 'trade-service.ts'), ...tradeServiceAreaFiles()].map((f) => readFileSync(f, 'utf8')).join('\n');
 }
-
-/** One area file's source, for checks on code that lives in that area: `area` is its name without `.ts`. */
-export function tradeServiceArea(area: string): string {
-  return readFileSync(join(here, `${area}.ts`), 'utf8');
-}

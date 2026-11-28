@@ -15,11 +15,11 @@ import { TradeService } from '../controls/test-admission.js';
  *    orderHistory
  * 6. RED: omitting limit returns a 100-row tape/page
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
 import type { Principal } from '@intafaced/auth';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { createTradeRouter } from '../router.js';
 import {
   FILLS_MINE_LIMIT_MAX,
   FillsMineLimitUnsetError,
@@ -30,9 +30,32 @@ import {
   TRADE_FILLS_MINE_LIMIT_UNSET,
   TRADE_ORDER_HISTORY_LIMIT_UNSET,
 } from './trade-service.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+const SECRET = 'a-trade-fills-history-limit-test-edge-secret';
+const USER = '11111111-1111-4111-8111-111111111111';
+const MARKET = '44444444-4444-4444-8444-444444444444';
+const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-trade' });
+
+function signed() {
+  const p = {
+    sub: USER,
+    userId: USER,
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['trade:read', 'trade:write'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 60_000),
+  } as Principal;
+  const raw = encodePrincipal(p);
+  return edgeContext({
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'SG'),
+      'x-intafaced-region': 'SG',
+    },
+    id: 'req-fills-history',
+  });
+}
 
 const READER = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -50,28 +73,34 @@ function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => bo
 }
 
 describe('fills.mine / orders.history limit unset refuse (no invented 100)', () => {
-  it('router.ts does not invent 100 via ?? or optional limit', () => {
-    const src = readFileSync(join(HERE, '../router.ts'), 'utf8');
-    expect(src).not.toMatch(/myFills\(ctx\.principal, input\?\.limit \?\? 100\)/);
-    expect(src).toMatch(/trade\.myFills\(ctx\.principal, input\.limit\)/);
-    const historyStart = src.indexOf('history: scopedProcedure');
-    expect(historyStart).toBeGreaterThan(-1);
-    const historyFn = src.slice(historyStart, src.indexOf('fills: router', historyStart));
-    expect(historyFn).toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(500\)/);
-    expect(historyFn).not.toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(500\)\.optional\(\)/);
-    expect(src).toMatch(/orderHistory\(ctx\.principal, \{ marketId: input\.marketId, limit: input\.limit \}\)/);
-  });
+  it("the router hands fills.mine and orders.history the caller's own limit, and refuses a read outside 1..500", async () => {
+    const seen: unknown[] = [];
+    const trade = partial<TradeService>({
+      myFills: async (_principal: Principal, limit: number) => {
+        seen.push(['myFills', limit]);
+        return [];
+      },
+      orderHistory: async (_principal: Principal, input: { marketId?: string; limit: number }) => {
+        seen.push(['orderHistory', input]);
+        return [];
+      },
+    });
+    const caller = createTradeRouter(trade).createCaller(signed());
 
-  it('trade-service.ts does not invent 100 via default param or clamp', () => {
-    const src = tradeServiceSource();
-    expect(src).not.toMatch(/async (?:function )?myFills\([^)]*limit = 100/);
-    expect(src).toMatch(/async myFills\(principal: Principal, limit: number/);
-    expect(src).toMatch(/publishedFillsMineLimit\(limit\)/);
-    expect(src).not.toMatch(/input\.limit \?\? 100/);
-    expect(src).toMatch(/publishedOrderHistoryLimit\(input\.limit\)/);
-    expect(src).toMatch(/async fillsForOrder\(principal: Principal, orderId: string, limit: number\)/);
-    expect(src).toMatch(/ORDER BY ts ASC, sequence ASC, id ASC LIMIT \$\{capped\}/);
-    expect(src).not.toMatch(/async fillsForOrder\(principal: Principal, orderId: string\): Promise/);
+    for (const input of [{}, { limit: 0 }, { limit: 501 }, { limit: 1.5 }]) {
+      const label = JSON.stringify(input);
+      await expect(caller.fills.mine(input as { limit: number }), label).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      await expect(caller.orders.history(input as { limit: number }), label).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    }
+    expect(seen).toEqual([]);
+    await expect(caller.fills.mine({ limit: 50 })).resolves.toEqual([]);
+    await expect(caller.orders.history({ marketId: MARKET, limit: 20 })).resolves.toEqual([]);
+    await expect(caller.orders.history({ limit: 500 })).resolves.toEqual([]);
+    expect(seen).toEqual([
+      ['myFills', 50],
+      ['orderHistory', { marketId: MARKET, limit: 20 }],
+      ['orderHistory', { marketId: undefined, limit: 500 }],
+    ]);
   });
 
   it('blank / non-integer / out of 1..500 throws trade.fills_mine_limit_unset', () => {

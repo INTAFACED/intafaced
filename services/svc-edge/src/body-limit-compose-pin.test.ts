@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { loadEdgeEnv } from './testing/env-load-fixture.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -39,13 +40,15 @@ const JWT_AUDIENCE = /^\s+JWT_AUDIENCE:\s*\$\{JWT_AUDIENCE:-intafaced\.api\}\s*$
 
 describe('compose body-limit for svc-edge', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-edge/src/env.ts'), 'utf8');
   const block = edgeServiceBlock(compose);
 
-  it('env.ts refuses blank body-limit — no 1048576 default', () => {
-    expect(envTs).toMatch(/EDGE_BODY_LIMIT_BYTES:\s*z\.coerce\s*\.number\(\)\s*\.int\(\)\s*\.min\(1024\)\s*\.max\(32 \* 1024 \* 1024\),/);
-    expect(envTs).not.toMatch(/EDGE_BODY_LIMIT_BYTES:[\s\S]{0,200}\.default\(1_048_576\)/);
-    expect(envTs).not.toMatch(/EDGE_BODY_LIMIT_BYTES:[\s\S]{0,200}\.default\(1048576\)/);
+  it('env.ts refuses blank body-limit — no 1048576 default', async () => {
+    for (const blank of [undefined, '', '   ']) {
+      await expect(loadEdgeEnv({ EDGE_BODY_LIMIT_BYTES: blank }), String(blank)).rejects.toThrow(/EDGE_BODY_LIMIT_BYTES/);
+    }
+    await expect(loadEdgeEnv({ EDGE_BODY_LIMIT_BYTES: '1023' })).rejects.toThrow(/EDGE_BODY_LIMIT_BYTES/);
+    await expect(loadEdgeEnv({ EDGE_BODY_LIMIT_BYTES: '33554433' })).rejects.toThrow(/EDGE_BODY_LIMIT_BYTES/);
+    expect((await loadEdgeEnv({ EDGE_BODY_LIMIT_BYTES: '1048576' })).EDGE_BODY_LIMIT_BYTES).toBe(1_048_576);
   });
 
   it('compose svc-edge block is empty pass-through (never invent 1048576)', () => {

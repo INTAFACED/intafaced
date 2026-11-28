@@ -11,16 +11,12 @@ import { TradeService } from './controls/test-admission.js';
  * 5. Paths: router.ts orders.open
  * 6. RED: omitting limit returns every open/pending/recovery order
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTradeRouter } from './router.js';
 import { TRADE_OPEN_ORDERS_LIMIT_UNSET } from './spot/trade-service.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 'a-trade-orders-open-limit-test-edge-secret';
 const USER = '11111111-1111-4111-8111-111111111111';
 const SESSION = '22222222-2222-4222-8222-222222222222';
@@ -48,17 +44,6 @@ function signed() {
 }
 
 describe('tRPC orders.open limit unset refuse (no invented 100)', () => {
-  it('router.ts does not invent 100 when orders.open omits limit', () => {
-    const src = readFileSync(join(HERE, 'router.ts'), 'utf8');
-    const start = src.indexOf('open: scopedProcedure');
-    expect(start).toBeGreaterThan(-1);
-    const fn = src.slice(start, src.indexOf('history: scopedProcedure', start));
-    expect(fn).toContain('limit: z.number().int().min(1).max(500).optional()');
-    expect(fn).toContain('publishedOpenOrdersLimit(input?.limit)');
-    expect(fn).not.toMatch(/\?\? 100/);
-    expect(fn).not.toMatch(/limit = 100/);
-  });
-
   it('omit / undefined limit is named refuse; owner-explicit 50 reaches openOrders', async () => {
     const seen: Array<{ marketId: string | undefined; limit: number }> = [];
     const trade = {

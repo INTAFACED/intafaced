@@ -2,15 +2,10 @@
  * GET /health, /ready, and tRPC health must not sell an env allowlist as a
  * live moderator. Configured is not reachable. This process never probes.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isModerationConfigured } from './moderation-auth.js';
 import { P2P_MODERATION_UNPROBED, P2P_MODERATION_UNREACHABLE, moderationHonesty, moderationOnPublicDoor } from './moderation-honesty.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('p2p moderation honesty — configured is not reachable', () => {
   const apps: FastifyInstance[] = [];
@@ -56,15 +51,5 @@ describe('p2p moderation honesty — configured is not reachable', () => {
     expect(body).not.toHaveProperty('moderationReachable');
     expect(body.moderationConfigured).toBe(true);
     expect(body.moderation).toEqual({ status: 'configured', code: P2P_MODERATION_UNPROBED });
-  });
-
-  it('index.ts and router.ts serve moderationOnPublicDoor, not moderationReachable from the allowlist', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    const routerSrc = readFileSync(join(here, 'router.ts'), 'utf8');
-    expect(indexSrc).toContain('moderationOnPublicDoor');
-    expect(routerSrc).toContain('moderationOnPublicDoor');
-    expect(indexSrc).not.toContain('moderationReachable');
-    expect(routerSrc).not.toContain('moderationReachable');
-    expect(indexSrc).not.toMatch(/moderationReachable:\s*moderatorUserIds/);
   });
 });

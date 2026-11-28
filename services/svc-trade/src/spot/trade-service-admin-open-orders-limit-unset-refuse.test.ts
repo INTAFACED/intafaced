@@ -20,7 +20,6 @@ import {
   publishedAdminOpenOrdersLimit,
   TRADE_ADMIN_OPEN_ORDERS_LIMIT_UNSET,
 } from './trade-service.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const ADMIN = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -38,14 +37,6 @@ function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => bo
 }
 
 describe('adminOpenOrders limit unset refuse (no invented 100)', () => {
-  it('trade-service.ts does not invent 100 via default param or clamp', () => {
-    const src = tradeServiceSource();
-    expect(src).not.toMatch(/async (?:function )?adminOpenOrders\([^)]*limit = 100/);
-    expect(src).toMatch(/async adminOpenOrders\(principal: Principal, limit: number\)/);
-    expect(src).toMatch(/publishedAdminOpenOrdersLimit\(limit\)/);
-    expect(src).not.toMatch(/adminOpenOrders[\s\S]{0,200}Math\.min\(Math\.max\(limit, 1\), 500\)/);
-  });
-
   it('blank / non-integer / out of 1..500 throws trade.admin_open_orders_limit_unset', () => {
     for (const limit of [undefined, null, 0, -1, 501, 1.5, Number.NaN]) {
       try {

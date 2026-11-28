@@ -90,11 +90,6 @@ async function convertQuote(userId: string, lifecycle: 'open' | 'bound' | 'settl
   return quoteId;
 }
 
-it('mounts the signed route from svc-trade index', () => {
-  const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-  expect(index).toMatch(/registerClosureCheck\(app, \{ sql, secret: env\.INTERNAL_SERVICE_SECRET, s2s: doorS2s \}\)/);
-});
-
 it('refuses a missing or bad signature with 401', async () => {
   const raw = JSON.stringify({ userId: USER, subAccountIds: [] });
   const missing = await app.inject({

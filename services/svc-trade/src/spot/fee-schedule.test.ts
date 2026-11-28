@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { tradeEnvOf, tradeRouterPaths } from '../__tests__/entry.js';
 import {
   FEE_SCHEDULE_RESIDUAL,
   feeScreenLines,
@@ -13,10 +14,8 @@ import {
   TRADE_FEE_SCHEDULE_ENV,
   UNPUBLISHED_FEE_SCHEDULE,
 } from './fee-schedule.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
-const here = dirname(fileURLToPath(import.meta.url));
 
 const PUBLISHED = JSON.stringify({
   published: true,
@@ -139,29 +138,30 @@ describe('TRADE_FEE_SCHEDULE wiring', () => {
   });
 
   it('env.ts defaults blank (unpublished)', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-trade/src/env.ts'), 'utf8');
-    expect(envTs).toMatch(/TRADE_FEE_SCHEDULE:\s*z\.string\(\)\.default\(''\)/);
-  });
-
-  it('index hitch parses env and passes feeSchedule into place and the preview door', () => {
-    const index = readFileSync(join(ROOT, 'services/svc-trade/src/index.ts'), 'utf8');
-    expect(index).toMatch(/parseFeeScheduleJson\(env\.TRADE_FEE_SCHEDULE\)/);
-    expect(index).toMatch(/new LayeredTradeService\([\s\S]*feeSchedule/);
-    expect(index).toMatch(/registerSpotOrderPreviewRest\(app, \{[\s\S]*feeSchedule/);
+    expect(tradeEnvOf().TRADE_FEE_SCHEDULE).toBe('');
+    // Blank parses to no schedule at all: nothing is invented in its place.
+    expect(parseFeeScheduleJson(tradeEnvOf().TRADE_FEE_SCHEDULE)).toEqual(UNPUBLISHED_FEE_SCHEDULE);
   });
 
   it('does not recut router.ts', () => {
-    const router = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(router).not.toMatch(/TRADE_FEE_SCHEDULE|parseFeeScheduleJson|fee-schedule/);
-  });
-
-  it('place/fill hitch uses owner schedule, not market.makerBps', () => {
-    const service = tradeServiceSource();
-    expect(service).toContain('assertOwnerFeeSchedulePublished');
-    // The schedule is the owner's: the boot value or an approved version, resolved at the order's placement time.
-    expect(service).toMatch(/feeScheduleAtStore\(this\.sql, this\.feeSchedule,/);
-    expect(service).toMatch(/feeRatesForFill\(\s*schedule/);
-    expect(service).not.toMatch(/ratesForFill\(market/);
+    // The tRPC door decides no fee: its only fee procedures are the console's fee desk and copy's fee share, and it
+    // builds the same whatever TRADE_FEE_SCHEDULE holds (it never reads it; TradeService gets the parsed schedule).
+    vi.stubEnv('TRADE_FEE_SCHEDULE', '{ not json');
+    try {
+      expect(tradeRouterPaths().filter((path) => /fee(?!d)/i.test(path))).toEqual([
+        'admin.builderFees.accountMode',
+        'admin.builderFees.recon',
+        'admin.fees.builderCaps',
+        'admin.fees.get',
+        'admin.fees.set',
+        'admin.fees.snapshots',
+        'copy.killFeeShare',
+        'copy.myCopyFees',
+        'copy.settleFeeShare',
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('names the env key constantly', () => {

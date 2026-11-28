@@ -1,9 +1,18 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
 import { PlaceDoor } from './place-door.js';
+import * as oneOfTwo from './unenroll-one-of-two.js';
 import { unenrollLastRemainingPasskey } from './last-passkey-unenroll.js';
+
+// The step it reuses, and the WebAuthn library, watched: each still runs for real.
+vi.mock('./unenroll-one-of-two.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./unenroll-one-of-two.js')>();
+  return { ...real, unenrollOneOfTwo: vi.fn(real.unenrollOneOfTwo) };
+});
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...real, generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions) };
+});
 
 /** The factor-changed outbox rows each removal queued. */
 const factorNotices: unknown[][] = [];
@@ -16,8 +25,10 @@ type KeyRow = { id: string; user_id: string; revoked: boolean };
 function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[]) {
   let sessionWrites = 0;
   let keyWrites = 0;
+  const statements: string[] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push(text.replace(/\s+/g, ' ').trim());
     // The last-way-in check (I-account-lifecycle-07) reads the account's methods: these accounts also hold a password.
     if (text.includes('password_set')) {
       const userId = values[0];
@@ -125,19 +136,19 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
     users,
     sessions,
     keys,
+    statements,
   }) as Parameters<typeof unenrollLastRemainingPasskey>[0] & {
     sessionWrites: number;
     keyWrites: number;
     users: UserRow[];
     sessions: SessionRow[];
     keys: KeyRow[];
+    statements: string[];
   };
 }
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const enrolled = { credentialId: 'cred-1' };
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'last-passkey-unenroll.ts'), 'utf8');
 
 function liveSeats() {
   return [
@@ -148,11 +159,17 @@ function liveSeats() {
 }
 
 describe('unenrollLastRemainingPasskey — last remaining passkey unenrolled', () => {
-  it('reuses unenrollOneOfTwo; no invented challenge, session, or key ids', () => {
-    expect(src).toMatch(/unenrollOneOfTwo/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT INTO sessions/i);
-    expect(src).not.toMatch(/INSERT INTO api_keys/i);
+  it('reuses unenrollOneOfTwo; no invented challenge, session, or key ids', async () => {
+    vi.clearAllMocks();
+    const sql = combinedStore([{ id: A, webauthn_creds: [enrolled] }], liveSeats(), liveSeats());
+    const out = await unenrollLastRemainingPasskey(sql, A, 'cred-1');
+    // Exactly one unenrollOneOfTwo for this person and passkey, and its answer is the answer.
+    const spy = vi.mocked(oneOfTwo.unenrollOneOfTwo);
+    expect(spy.mock.calls.map(([s, ...rest]) => [s === sql, ...rest])).toEqual([[true, A, 'cred-1']]);
+    await expect(spy.mock.results[0]?.value).resolves.toEqual(out);
+    // Nothing is opened or minted on the way, and no ceremony is started.
+    expect(sql.statements.filter((s) => /insert\s+into\s+(sessions|api_keys)\b/.test(s))).toEqual([]);
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 
   it('last remaining cred revokes sessions and keys so PlaceDoor refuses', async () => {

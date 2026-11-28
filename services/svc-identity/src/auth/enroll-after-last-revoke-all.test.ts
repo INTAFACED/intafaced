@@ -1,22 +1,41 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
+import { revokeAllApiKeys } from './revoke-all-api-keys.js';
 import { newlyEnrolledPasskeyRevokesAllKeys, revokeAllApiKeysAfterNewlyEnrolledPasskey } from './enroll-after-last-revoke-all.js';
+
+// The WebAuthn library, watched: revoking after a passkey must never start a ceremony of its own.
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...real, generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions) };
+});
+
+/** The code a synchronous check refuses with, or null when it passes. */
+function refusalOf(check: () => void): unknown {
+  try {
+    check();
+    return null;
+  } catch (err) {
+    return (err as { code?: unknown }).code;
+  }
+}
 
 type KeyRow = { id: string; user_id: string; revoked: boolean };
 
 function fakeSql(creds: unknown[] | null, keys: KeyRow[]) {
   let keyWrites = 0;
+  const statements: string[] = [];
+  const writes: unknown[][] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push(text.replace(/\s+/g, ' ').trim());
     if (text.includes('select') && text.includes('webauthn_creds')) {
       if (creds === null) return [];
       return [{ webauthn_creds: creds }];
     }
     if (text.includes('update api_keys')) {
       keyWrites += 1;
+      writes.push(values);
       const named = values[0];
       const out: Array<{ id: string }> = [];
       for (const k of keys) {
@@ -29,9 +48,11 @@ function fakeSql(creds: unknown[] | null, keys: KeyRow[]) {
     }
     throw new Error(`unexpected sql: ${text}`);
   };
-  const sql = Object.assign(fn, { keys }) as Parameters<typeof revokeAllApiKeysAfterNewlyEnrolledPasskey>[0] & {
+  const sql = Object.assign(fn, { keys, statements, writes }) as Parameters<typeof revokeAllApiKeysAfterNewlyEnrolledPasskey>[0] & {
     keyWrites: number;
     keys: KeyRow[];
+    statements: string[];
+    writes: unknown[][];
   };
   Object.defineProperty(sql, 'keyWrites', { get: () => keyWrites });
   return sql;
@@ -113,13 +134,27 @@ describe('newlyEnrolledPasskeyRevokesAllKeys — enroll after last unenroll', ()
     expect(sql.keys.map((k) => k.revoked)).toEqual([false, false, true]);
   });
 
-  it('source reuses requireVerifiedPasskey and revokeAllApiKeys; no invented challenge; not one-key revoke', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'enroll-after-last-revoke-all.ts'), 'utf8');
-    expect(src).toMatch(/requireVerifiedPasskey/);
-    expect(src).toMatch(/revokeAllApiKeys/);
-    expect(src).not.toMatch(/revokeApiKey\(/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+challenges/i);
+  it('revokes exactly as revokeAllApiKeys does, after one passkey read; no invented challenge; not one-key revoke', async () => {
+    const own = fakeSql([enrolledAgain], liveKeys());
+    const ownOut = await revokeAllApiKeysAfterNewlyEnrolledPasskey(own, { userId: A });
+    const base = fakeSql([enrolledAgain], liveKeys());
+    const baseOut = await revokeAllApiKeys(base, A, A);
+    expect(ownOut).toEqual(baseOut);
+    expect(own.keys).toEqual(base.keys);
+    // One read of the stored passkeys (the gate), then revokeAllApiKeys's own statements and nothing else.
+    expect(own.statements[0]).toMatch(/^select webauthn_creds from users where id = \? limit 1$/);
+    expect(own.statements.slice(1)).toEqual(base.statements);
+    // The update names the user alone, never one key id.
+    expect(own.writes).toEqual([[A]]);
+    expect(own.statements.filter((s) => /insert\s+(into\s+)?challenges/.test(s))).toEqual([]);
+    // Refused at the gate, revokeAllApiKeys never runs: only the passkey read.
+    for (const creds of [[enrolledUnverified], []]) {
+      const refused = fakeSql(creds, liveKeys());
+      await expect(revokeAllApiKeysAfterNewlyEnrolledPasskey(refused, { userId: A })).rejects.toMatchObject({
+        code: refusalOf(() => requireVerifiedPasskey(creds)),
+      });
+      expect(refused.statements).toHaveLength(1);
+    }
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 });

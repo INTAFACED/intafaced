@@ -1,7 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
+import * as unenrollPasskeyMod from './unenroll-passkey.js';
+import * as revokeAllSessionsMod from './revoke-all-sessions.js';
+import * as revokeAllApiKeysMod from './revoke-all-api-keys.js';
+import * as revokeKeysMod from './unenroll-passkey-keys.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 import { mintApiKeyAfterPasskey, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 import { PlaceDoor } from './place-door.js';
@@ -9,6 +11,28 @@ import { rotateApiKeyAfterPasskey } from './rotate-api-key-passkey.js';
 import { unenrollOneOfTwo } from './unenroll-one-of-two.js';
 import { beginVerifyPasskey, type VerifyPasskeyCeremony } from './verify-passkey.js';
 import type { ChallengeStorePort } from './webauthn.js';
+
+// The steps it is made of, and the WebAuthn library, watched: each still runs for real.
+vi.mock('./unenroll-passkey.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./unenroll-passkey.js')>();
+  return { ...real, unenrollPasskey: vi.fn(real.unenrollPasskey) };
+});
+vi.mock('./revoke-all-sessions.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./revoke-all-sessions.js')>();
+  return { ...real, revokeAllSessions: vi.fn(real.revokeAllSessions) };
+});
+vi.mock('./revoke-all-api-keys.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./revoke-all-api-keys.js')>();
+  return { ...real, revokeAllApiKeys: vi.fn(real.revokeAllApiKeys) };
+});
+vi.mock('./unenroll-passkey-keys.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./unenroll-passkey-keys.js')>();
+  return { ...real, unenrollPasskeyAndRevokeKeys: vi.fn(real.unenrollPasskeyAndRevokeKeys) };
+});
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...real, generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions) };
+});
 
 /** The factor-changed outbox rows each removal queued. */
 const factorNotices: unknown[][] = [];
@@ -22,8 +46,10 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
   let sessionWrites = 0;
   let keyWrites = 0;
   const written: unknown[] = [];
+  const statements: string[] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push(text.replace(/\s+/g, ' ').trim());
     // The last-way-in check (I-account-lifecycle-07) reads the account's methods: these accounts also hold a password.
     if (text.includes('password_set')) {
       const userId = values[0];
@@ -151,6 +177,7 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
     sessions,
     keys,
     written,
+    statements,
   }) as Parameters<typeof unenrollOneOfTwo>[0] & {
     sessionWrites: number;
     keyWrites: number;
@@ -158,6 +185,7 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
     sessions: SessionRow[];
     keys: KeyRow[];
     written: unknown[];
+    statements: string[];
   };
 }
 
@@ -208,8 +236,6 @@ const mintInput = {
 };
 const rotateInput = { userId: A, keyId: 'live-1', grantorScopes: ['identity:read'] as const };
 const rp = { rpId: 'intafaced.com', rpName: 'INTAFACED', origin: 'https://app.intafaced.com' };
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'unenroll-one-of-two.ts'), 'utf8');
 
 function liveSeats() {
   return [
@@ -220,14 +246,32 @@ function liveSeats() {
 }
 
 describe('unenrollOneOfTwo', () => {
-  it('reuses unenrollPasskey and, on last cred, revokeAllSessions then revokeAllApiKeys; never the always-revoke helper', () => {
-    expect(src).toMatch(/unenrollPasskey\(/);
-    expect(src).toMatch(/revokeAllSessions\(/);
-    expect(src).toMatch(/revokeAllApiKeys\(/);
-    expect(src).not.toMatch(/unenrollPasskeyAndRevokeKeys/);
-    expect(src).not.toMatch(/INSERT INTO sessions/i);
-    expect(src).not.toMatch(/INSERT INTO api_keys/i);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
+  it('reuses unenrollPasskey and, on last cred, revokeAllSessions then revokeAllApiKeys; never the always-revoke helper', async () => {
+    vi.clearAllMocks();
+    const calls = (fn: unknown, sql: unknown) =>
+      vi.mocked(fn as (...a: unknown[]) => unknown).mock.calls.map(([s, ...rest]) => [s === sql, ...rest]);
+    // One of two: unenrollPasskey alone; the seats and keys stay.
+    const two = combinedStore([{ id: A, webauthn_creds: [enrolled, other] }], liveSeats(), liveSeats());
+    await unenrollOneOfTwo(two, A, 'cred-1');
+    expect(calls(unenrollPasskeyMod.unenrollPasskey, two)).toEqual([[true, A, 'cred-1']]);
+    expect(revokeAllSessionsMod.revokeAllSessions).not.toHaveBeenCalled();
+    expect(revokeAllApiKeysMod.revokeAllApiKeys).not.toHaveBeenCalled();
+
+    // The last one: unenrollPasskey, then revokeAllSessions, then revokeAllApiKeys, each for this person alone.
+    vi.clearAllMocks();
+    const last = combinedStore([{ id: A, webauthn_creds: [other] }], liveSeats(), liveSeats());
+    await unenrollOneOfTwo(last, A, 'cred-2');
+    expect(calls(unenrollPasskeyMod.unenrollPasskey, last)).toEqual([[true, A, 'cred-2']]);
+    expect(calls(revokeAllSessionsMod.revokeAllSessions, last)).toEqual([[true, A, A]]);
+    expect(calls(revokeAllApiKeysMod.revokeAllApiKeys, last)).toEqual([[true, A, A]]);
+    const order = (fn: unknown) => vi.mocked(fn as (...a: unknown[]) => unknown).mock.invocationCallOrder[0] ?? 0;
+    expect(order(unenrollPasskeyMod.unenrollPasskey)).toBeLessThan(order(revokeAllSessionsMod.revokeAllSessions));
+    expect(order(revokeAllSessionsMod.revokeAllSessions)).toBeLessThan(order(revokeAllApiKeysMod.revokeAllApiKeys));
+    expect(revokeKeysMod.unenrollPasskeyAndRevokeKeys).not.toHaveBeenCalled();
+
+    // Nothing is opened or minted on the way, and no ceremony is started.
+    for (const sql of [two, last]) expect(sql.statements.filter((s) => /insert\s+into\s+(sessions|api_keys)\b/.test(s))).toEqual([]);
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 
   it('unenrolls the first of two without dropping the second or revoking its seats and keys', async () => {

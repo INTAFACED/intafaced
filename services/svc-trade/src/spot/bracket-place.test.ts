@@ -78,12 +78,6 @@ describe('bracket place helpers', () => {
     expect(rec.stopLoss).toBe('90');
   });
 
-  it('does not String() a JSON number into a stopPrice', () => {
-    const src = readFileSync(fileURLToPath(import.meta.url).replace(/\.test\.ts$/, '.ts'), 'utf8');
-    expect(src).not.toMatch(/typeof raw === 'string' \|\| typeof raw === 'number'/);
-    expect(src).not.toMatch(/String\(raw\)/);
-  });
-
   it('carries a decimal-string 0.1 and bindBracket restores it', () => {
     const bound = bindBracket(
       carryPlacementBody({ clientOrderId: 'brkt-str-01', side: 'buy', type: 'limit', qty: amt('1') } as PlaceOrderInput, {

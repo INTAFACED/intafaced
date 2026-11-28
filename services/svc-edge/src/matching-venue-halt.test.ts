@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   assertMatchingHaltSource,
@@ -136,17 +133,5 @@ describe('assertMatchingVenueNotHaltAll', () => {
         },
       }),
     ).rejects.toMatchObject({ code: 'edge.venue_halt_unavailable' });
-  });
-});
-
-describe('production index wires matching halt-all consume', () => {
-  it('uses MATCHING_URL, never INTERNAL_SERVICE_SECRET, never an invented operator', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(src).toMatch(/registerMatchingVenueHaltGuard/);
-    expect(src).toMatch(/MATCHING_URL/);
-    expect(src).not.toMatch(/process\.env\.INTERNAL_SERVICE_SECRET/);
-    expect(src).not.toMatch(/env\.INTERNAL_SERVICE_SECRET/);
-    expect(src).not.toMatch(/operatorId/);
   });
 });

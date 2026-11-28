@@ -1,0 +1,772 @@
+[
+  {
+    "file": "services/svc-trade/src/router-orders-open-limit-unset-refuse.test.ts",
+    "target": "router.ts",
+    "verdict": "delete",
+    "asserts": "tRPC orders.open without a limit refuses by name instead of reading the caller's whole open book, and an owner-explicit limit reaches the service.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/router-orders-open-limit-unset-refuse.test.ts#omit / undefined limit is named refuse; owner-explicit 50 reaches openOrders"
+    },
+    "why": "The guard calls the router with no input, an empty input and limit 50, and asserts the named refusal, that the service is never reached unbounded, and that 50 is passed through."
+  },
+  {
+    "file": "services/svc-trade/src/router-fills-for-order-limit-unset-refuse.test.ts",
+    "target": "router.ts",
+    "verdict": "delete",
+    "asserts": "tRPC fills.forOrder without a limit refuses by name instead of inventing 100, and an owner-explicit limit reaches the service.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/router-fills-for-order-limit-unset-refuse.test.ts#omit / undefined limit is named refuse; owner-explicit 50 reaches fillsForOrder"
+    },
+    "why": "The guard calls fills.forOrder with and without a limit and asserts the named refusal, no service call, and that 50 is passed through."
+  },
+  {
+    "file": "services/svc-trade/src/router-list-my-follows-limit-unset-refuse.test.ts",
+    "target": "router.ts",
+    "verdict": "delete",
+    "asserts": "tRPC copy.listMyFollows without a limit refuses by name instead of inventing 50, and an owner-explicit limit reaches the copy service.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/router-list-my-follows-limit-unset-refuse.test.ts#omit / undefined limit is named refuse; owner-explicit 50 reaches CopyService"
+    },
+    "why": "The guard calls the router with no input, an empty input and limit 50 and asserts the named refusal, no service call, and 50 passed through."
+  },
+  {
+    "file": "services/svc-trade/src/private-rest-history-limit-unset-refuse.test.ts",
+    "target": "private-rest.ts",
+    "verdict": "delete",
+    "asserts": "Every private REST history door (orders open and closed, account trades, closed positions, admin orders, ADL events) refuses a blank limit by its own code instead of inventing 100.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/private-rest-history-limit-unset-refuse.test.ts#blank orders/closed refuses and does not call orderHistory"
+    },
+    "why": "The same file drives all six doors over HTTP with blank, zero, over-max and malformed limits and asserts each one's code and that its read never runs, and that an explicit limit is passed through."
+  },
+  {
+    "file": "services/svc-trade/src/spot/trade-service-markets-list-limit-unset-refuse.test.ts",
+    "target": "trade-service.ts",
+    "verdict": "delete",
+    "asserts": "TradeService.markets refuses a missing limit by name instead of inventing 50 or clamping.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/trade-service-markets-list-limit-unset-refuse.test.ts#omitted / undefined / null markets limit refuses before SQL"
+    },
+    "why": "The guard calls trade.markets with no limit and asserts MarketsLimitUnsetError before any SQL; the tests beside it pin out-of-range refusals and the explicit windows."
+  },
+  {
+    "file": "services/svc-trade/src/spot/trade-service-fills-history-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The router passes the caller's own fills and order-history limit to the service and refuses one outside 1..500, never inventing 100.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/trade-service-fills-history-limit-unset-refuse.test.ts#the router hands fills.mine and orders.history the caller's own limit"
+    },
+    "why": "Calls fills.mine and orders.history through createTradeRouter with missing, zero, over-max and fractional limits (BAD_REQUEST, service never reached) and with explicit limits (passed through unchanged with the market id)."
+  },
+  {
+    "file": "services/svc-trade/src/copy/copy-service-list-my-follows-limit-unset-refuse.test.ts",
+    "target": "copy-service.ts",
+    "verdict": "delete",
+    "asserts": "CopyService.listMyFollows refuses a missing limit by name instead of inventing 50 or clamping.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/copy/copy-service-list-my-follows-limit-unset-refuse.test.ts#omitted / undefined / null listMyFollows limit refuses before the store"
+    },
+    "why": "The guard calls listMyFollows without a limit and asserts the named refusal before the store is read; the tests beside it pin the range and explicit windows."
+  },
+  {
+    "file": "services/svc-trade/src/spot/candles-fill-limit-unset-refuse.test.ts",
+    "target": "candles.ts",
+    "verdict": "delete",
+    "asserts": "Candles from fills refuse a missing limit by name instead of inventing 500.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/candles-fill-limit-unset-refuse.test.ts#queryCandlesFromFills refuses before SQL when limit is unset"
+    },
+    "why": "The guard calls queryCandlesFromFills with no limit and asserts the refusal before SQL; the tests beside it pin the range and explicit windows."
+  },
+  {
+    "file": "services/svc-trade/src/spot/matching-client-depth-limit-unset-refuse.test.ts",
+    "target": "matching-client.ts",
+    "verdict": "delete",
+    "asserts": "The matching client's depth read refuses a missing limit instead of inventing 1.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/matching-client-depth-limit-unset-refuse.test.ts#omitted limit does not fetch matching"
+    },
+    "why": "The guard calls depth without a limit and asserts matching is never fetched; the next test asserts an explicit 1 is sent as ?limit=1."
+  },
+  {
+    "file": "services/svc-trade/src/public-rest-ohlcv-timeframe-unset-refuse.test.ts",
+    "target": "public-rest.ts",
+    "verdict": "delete",
+    "asserts": "The public OHLCV door refuses a blank timeframe by name instead of inventing 1m.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/public-rest-ohlcv-timeframe-unset-refuse.test.ts#blank timeframe refuses and does not call candles"
+    },
+    "why": "The guard requests /ohlcv with no timeframe and asserts TRADE_OHLCV_TIMEFRAME_UNSET and no candle read; the tests beside it pin explicit 1m and 1h."
+  },
+  {
+    "file": "services/svc-trade/src/public-rest-limits-unset-refuse.test.ts",
+    "target": "public-rest.ts",
+    "verdict": "delete",
+    "asserts": "Every public REST list door (orderbook, trades, ohlcv, markets, tickers) refuses a blank limit by its own code instead of inventing one, and the ticker asks for depth 1 explicitly.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/public-rest-limits-unset-refuse.test.ts#blank tickers refuses and does not call deps.markets"
+    },
+    "why": "The same file drives all five doors over HTTP with blank and bad limits (code asserted, read never run), with explicit limits (passed through), and 'ticker still passes depth 1 explicitly'."
+  },
+  {
+    "file": "services/svc-trade/src/promise-falsify-public-doors.test.ts",
+    "target": "public-rest.ts",
+    "verdict": "delete",
+    "asserts": "The public funding-rate door refuses an unpublished futures rate with trade.funding_rate_unavailable instead of inventing 0.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/promise-falsify-public-doors.test.ts#GET /api/v1/funding-rate refuses unpublished futures rate (never invents 0)"
+    },
+    "why": "The guard requests the door for a futures market with no published rate and asserts the typed code and no fundingRate on the wire."
+  },
+  {
+    "file": "services/svc-trade/src/public-rest.test.ts",
+    "target": "./public-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "The public funding-rate door sends only the quote's own next funding time, never one made from the funding interval.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/public-rest.test.ts#does not invent nextFundingTimestamp from TRADE_FUTURES_FUNDING_INTERVAL_MS"
+    },
+    "why": "With TRADE_FUTURES_FUNDING_INTERVAL_MS set to 8 h, requests the door for a futures market whose quote has no next time and then a known one, and asserts the wire carries null and exactly that time."
+  },
+  {
+    "file": "services/svc-trade/src/algo/algo-jobs-off-pin.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "TRADE_ALGO_JOBS_ENABLED is off when unset and only 1/true/on/yes (any case) turn it on.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/algo/algo-jobs-off-pin.test.ts#only denylist strings enable jobs"
+    },
+    "why": "Parses svc-trade's env schema with the flag unset (false), with blank/0/false/off/no/other words (false) and with each enabling word (true)."
+  },
+  {
+    "file": "services/svc-trade/src/algo/algo-jobs-off-pin.test.ts",
+    "target": "algo-jobs.ts",
+    "verdict": "rewrite",
+    "asserts": "The algo scheduler registers no algo.twap job when disabled, and registers it when enabled.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/algo/algo-jobs-off-pin.test.ts#scheduler returns before registering algo.twap when enabled is falsy"
+    },
+    "why": "Calls startAlgoJobs disabled (host lists nothing) and enabled (host lists algo.twap); the next test asserts a disabled host never ticks."
+  },
+  {
+    "file": "services/svc-trade/src/compose-candle-reconcile-jobs-pin.test.ts",
+    "target": "../../../services/svc-trade/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "Unset, svc-trade's candle and reconcile jobs are off, name no markets or timeframes and invent no limit.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/compose-candle-reconcile-jobs-pin.test.ts#env.ts still declares both jobs default OFF"
+    },
+    "why": "Parses the env schema unset and asserts both flags false, blank market ids and timeframes, a null limit, null for a malformed limit and 200 for an explicit one."
+  },
+  {
+    "file": "services/svc-trade/src/compose-spot-kill-pin.test.ts",
+    "target": "../../../services/svc-trade/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset TRADE_SPOT_ENABLED follows the custodial layer switch, and our own book never runs with the custodial layer off.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/compose-spot-kill-pin.test.ts#env.ts leaves an unset TRADE_SPOT_ENABLED to the custody switch"
+    },
+    "why": "Parses the env schema with the flag unset under custody off (false) and on (true), set false and true under custody on, and set true under custody off or unset, which refuses with the custody message."
+  },
+  {
+    "file": "services/svc-trade/src/token-url-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-trade's TOKEN_URL defaults to localhost:4003, so compose must set the fleet address.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/token-url-compose-pin.test.ts#env.ts still defaults TOKEN_URL to localhost:4003"
+    },
+    "why": "Parses the env schema unset (localhost:4003), with the fleet URL (kept) and with a non-URL (refused)."
+  },
+  {
+    "file": "services/svc-trade/src/jwt-access-ttl-compose-pin.test.ts",
+    "target": "../../../packages/config/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The shared auth env defaults the access token to 900 s, issuer intafaced and audience intafaced.api, which svc-trade's compose block repeats.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/jwt-access-ttl-compose-pin.test.ts#authEnvSchema still defaults TTL 900 issuer intafaced audience intafaced.api"
+    },
+    "why": "Imports authEnvSchema from @intafaced/config, parses it with only the secret set and asserts the three defaults, and that a TTL under 60 or over 3600 refuses."
+  },
+  {
+    "file": "services/svc-trade/src/spot/promo.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-trade's env invents no promo budget or end.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/promo.test.ts#env schema defaults the two sockets empty"
+    },
+    "why": "Parses the env schema unset and asserts both sockets are blank."
+  },
+  {
+    "file": "services/svc-trade/src/greeks/delta-hedge.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-trade's env invents no delta-hedge target, range or instrument.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/greeks/delta-hedge.test.ts#env schema defaults the three sockets empty"
+    },
+    "why": "Parses the env schema unset and asserts all three sockets are blank."
+  },
+  {
+    "file": "services/svc-trade/src/spot/fee-schedule.test.ts",
+    "target": "../../../../services/svc-trade/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-trade's fee schedule is unpublished when the env sets none.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/fee-schedule.test.ts#env.ts defaults blank (unpublished)"
+    },
+    "why": "Parses the env schema unset and asserts a blank TRADE_FEE_SCHEDULE that parses to the unpublished schedule."
+  },
+  {
+    "file": "services/svc-trade/src/agents/copy-leader-fixtures-mount.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "svc-trade's entry registers the copy-leader fixtures S2S route at boot, behind the internal service secret.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#registers the copy leader fixtures S2S route at boot, behind the internal secret"
+    },
+    "why": "Boots the real entry and requests the route unsigned (401) and signed with the env's secret (503 no_live_leaders), in both boots."
+  },
+  {
+    "file": "services/svc-trade/src/algo/algo-env-passthrough.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "GET /capabilities reports algo create and jobs as TRADE_ALGO_ENABLED and TRADE_ALGO_JOBS_ENABLED set them.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#live host passes TRADE_ALGO_ENABLED and TRADE_ALGO_JOBS_ENABLED into capabilities"
+    },
+    "why": "Boots the entry with both flags on and both off and reads notes.algo from GET /api/v1/capabilities over HTTP."
+  },
+  {
+    "file": "services/svc-trade/src/algo/algo-jobs-off-pin.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "The entry starts the algo scheduler from TRADE_ALGO_JOBS_ENABLED, never a literal true.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#live host wires startAlgoJobs from the env flag, not a literal true"
+    },
+    "why": "Boots the entry with the flag on and off and asserts the config startAlgoJobs got, and that the off boot's host lists no job."
+  },
+  {
+    "file": "services/svc-trade/src/closure/closure-check.pg.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "The entry mounts the signed closure-check route with the internal service secret.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#mounts the signed closure-check route with the internal secret"
+    },
+    "why": "Boots the entry and posts to /internal/closure-check unsigned (401) and signed with the env's secret (past the door)."
+  },
+  {
+    "file": "services/svc-trade/src/convert/convert-quote-ttl-unset.test.ts",
+    "target": "quote.ts",
+    "verdict": "delete",
+    "asserts": "The convert quote TTL refuses trade.convert_quote_ttl_unset when unpublished instead of inventing 15000.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/convert/convert-quote-ttl-unset.test.ts#unset / NaN / 0 refuse TTL"
+    },
+    "why": "The guard calls requireConvertQuoteTtlMs with undefined, null, NaN, 0 and 1.5 and asserts the code each time; the next test pins an owner 15000."
+  },
+  {
+    "file": "services/svc-trade/src/convert/convert-quote-ttl-unset.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "The entry hands TRADE_CONVERT_QUOTE_TTL_MS to TradeService instead of dropping it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#passes TRADE_CONVERT_QUOTE_TTL_MS (does not drop the env)"
+    },
+    "why": "Boots the entry with 15000 and with it unset and asserts the convertQuoteTtlMs TradeService was constructed with (15000, null)."
+  },
+  {
+    "file": "services/svc-trade/src/greeks/delta-hedge.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The delta hedge stays its own REST door: no tRPC procedure and nothing the options listing exports runs it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/greeks/delta-hedge.test.ts#router.ts / options-listing.ts not recut; index.ts mounts the door"
+    },
+    "why": "Lists the tRPC router's procedure paths and the options listing module's exports and asserts none is a hedge; the door itself is asked over HTTP in index.boot.test.ts."
+  },
+  {
+    "file": "services/svc-trade/src/greeks/delta-hedge.test.ts",
+    "target": "../spot/options-listing.ts",
+    "verdict": "rewrite",
+    "asserts": "The options listing does not grow a delta hedge.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/greeks/delta-hedge.test.ts#router.ts / options-listing.ts not recut; index.ts mounts the door"
+    },
+    "why": "Imports the options listing module and asserts it exports nothing hedge-shaped."
+  },
+  {
+    "file": "services/svc-trade/src/greeks/delta-hedge.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entry mounts the delta-hedge door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#mounts the greeks what-if, delta-hedge and promo doors behind the person door"
+    },
+    "why": "Boots the entry and posts to /api/v1/greeks/delta-hedge without a person: 401 from the mounted door, where an unmounted path answers 404."
+  },
+  {
+    "file": "services/svc-trade/src/greeks/what-if.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "What-if greeks stay their own REST door: no tRPC procedure computes them.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/greeks/what-if.test.ts#router.ts / options-listing.ts not recut; index.ts mounts the door"
+    },
+    "why": "Lists the tRPC router's procedure paths and the options listing's exports and asserts none is greeks or what-if."
+  },
+  {
+    "file": "services/svc-trade/src/greeks/what-if.test.ts",
+    "target": "../spot/options-listing.ts",
+    "verdict": "rewrite",
+    "asserts": "The options listing does not compute what-if greeks.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/greeks/what-if.test.ts#router.ts / options-listing.ts not recut; index.ts mounts the door"
+    },
+    "why": "Imports the options listing module and asserts it exports nothing greeks-shaped."
+  },
+  {
+    "file": "services/svc-trade/src/greeks/what-if.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entry mounts the what-if greeks door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#mounts the greeks what-if, delta-hedge and promo doors behind the person door"
+    },
+    "why": "Boots the entry and posts to /api/v1/greeks/what-if without a person: 401 from the mounted door."
+  },
+  {
+    "file": "services/svc-trade/src/spot/promo.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "Promotions stay their own REST door: no tRPC procedure creates one.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/promo.test.ts#router.ts not recut; index.ts mounts the door"
+    },
+    "why": "Lists the tRPC router's procedure paths and asserts none is a promotion."
+  },
+  {
+    "file": "services/svc-trade/src/spot/promo.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entry mounts the promotion door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#mounts the greeks what-if, delta-hedge and promo doors behind the person door"
+    },
+    "why": "Boots the entry and posts to /api/v1/promotions without a person: 401 from the mounted door."
+  },
+  {
+    "file": "services/svc-trade/src/hmac-require-mutate.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The funding-rate and outcomes settle doors are mounted with a body-bound signature required, while the copy-leader fixtures read follows INTERNAL_SERVICE_BODY_BIND.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#funding-rate and outcomes settle hardcode require; copy-leader GET stays env"
+    },
+    "why": "Boots the entry under accept-both and require: a legacy (no digest) signature is refused on both money doors in both boots, a body-bound one passes their door, and the fixtures read takes a legacy signature only under accept-both."
+  },
+  {
+    "file": "services/svc-trade/src/hmac-require-mutate.test.ts",
+    "target": "futures/internal-funding-rate.ts",
+    "verdict": "rewrite",
+    "asserts": "The internal funding-rate door requires a body-bound signature whatever the env's body-bind mode.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#funding-rate and outcomes settle hardcode require; copy-leader GET stays env"
+    },
+    "why": "Posts to /internal/futures/funding-rate on the booted service with a legacy signature (401 under accept-both too) and a body-bound one (400, past the door)."
+  },
+  {
+    "file": "services/svc-trade/src/hmac-require-mutate.test.ts",
+    "target": "outcomes-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "The outcomes settle door requires a body-bound signature whatever the env's body-bind mode.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#funding-rate and outcomes settle hardcode require; copy-leader GET stays env"
+    },
+    "why": "Posts to /api/v1/outcomes/settle on the booted service with a legacy signature (401 under accept-both too) and a body-bound one (404 for an unknown market, past the door)."
+  },
+  {
+    "file": "services/svc-trade/src/hmac-require-mutate.test.ts",
+    "target": "agents/copy-leader-fixtures-routes.ts",
+    "verdict": "rewrite",
+    "asserts": "The copy-leader fixtures read takes its body-bind mode from the env.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#funding-rate and outcomes settle hardcode require; copy-leader GET stays env"
+    },
+    "why": "A legacy-signed read answers 503 under accept-both and 401 under require on the booted service."
+  },
+  {
+    "file": "services/svc-trade/src/mm/fill-account.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "The entry starts the market-maker seed jobs behind TRADE_MM_SEED_ENABLED.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#mounts MM seed jobs behind TRADE_MM_SEED_ENABLED"
+    },
+    "why": "Boots the entry with the flag on and off and asserts the config startMmSeedJobs got, and that the off boot's host lists no job."
+  },
+  {
+    "file": "services/svc-trade/src/spot/email-proof.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "The entry builds the identity email-proof client and hands that one client to TradeService, the position service and the OTC desk.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#builds the identity client and hands it to TradeService, the position service and the OTC desk"
+    },
+    "why": "Boots the entry and asserts the client TradeService got was built with IDENTITY_URL and the env's secret, and that PositionService and OtcDeskService got the same object."
+  },
+  {
+    "file": "services/svc-trade/src/spot/fee-schedule.test.ts",
+    "target": "../../../../services/svc-trade/src/index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entry parses TRADE_FEE_SCHEDULE once and hands that schedule to TradeService and the order preview door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#parses TRADE_FEE_SCHEDULE and passes the one schedule into place and the preview door"
+    },
+    "why": "Boots the entry with a published schedule and with none and asserts TradeService's feeSchedule equals the parsed env and is the same object the preview door got."
+  },
+  {
+    "file": "services/svc-trade/src/spot/fee-schedule.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The tRPC door decides no fee and never reads TRADE_FEE_SCHEDULE.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/fee-schedule.test.ts#does not recut router.ts"
+    },
+    "why": "With TRADE_FEE_SCHEDULE set to malformed JSON the router still builds, and its only fee procedures are the console's fee desk and copy's fee share, listed exactly."
+  },
+  {
+    "file": "services/svc-trade/src/spot/fee-schedule-blank.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The tRPC door decides no fee and never reads TRADE_FEE_SCHEDULE.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/fee-schedule-blank.money.test.ts#router.ts has no TRADE_FEE_SCHEDULE / fee-schedule imports"
+    },
+    "why": "With TRADE_FEE_SCHEDULE set to malformed JSON the router still builds, and its only fee procedures are listed exactly."
+  },
+  {
+    "file": "services/svc-trade/src/spot/local-test-tape.test.ts",
+    "target": "../index.ts",
+    "verdict": "delete",
+    "asserts": "The entry reads TRADE_LOCAL_TEST_TAPE_RETIME before opening the database and mounts the retime route only when it is on.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#checks the tape retime flag before opening the database, and registers the route only when it is on"
+    },
+    "why": "Booted off, the route answers 404; on, 401 unsigned; on under APP_ENV=prod the boot refuses with the flag's own error and the pool is never opened."
+  },
+  {
+    "file": "services/svc-trade/src/test-age-door.test.ts",
+    "target": "index.ts",
+    "verdict": "delete",
+    "asserts": "The entry reads TEST_AGE_DOOR before opening the database, mounts the door once, and opens it only from that read.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/index.boot.test.ts#reads TEST_AGE_DOOR before opening the database, mounts the door once, and opens it only from that read"
+    },
+    "why": "Booted off, a signed call is refused test_age.door_closed; on, the same call reaches its subject (test_age.not_found); on under APP_ENV=prod the boot refuses with the door's own error and the pool is never opened."
+  },
+  {
+    "file": "services/svc-trade/src/router-no-futures-positions.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The tRPC router grows no second futures money door (positions, leverage, funding rate, open or close position).",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/router-no-futures-positions.test.ts#does not mount positions, setLeverage, or a funding-rate procedure"
+    },
+    "why": "Lists the router's procedure paths and asserts the only futures-shaped ones are the console's position reads and the options positions view, and that the spot order door is mounted."
+  },
+  {
+    "file": "services/svc-trade/src/convert/convert-settle.money.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "A convert settles only inside convert.accept / convert.execute; no tRPC procedure settles a convert on its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/convert/convert-settle.money.test.ts#router.ts has no convert/settle recut"
+    },
+    "why": "Lists the router's procedure paths: the convert doors are there and none settles."
+  },
+  {
+    "file": "services/svc-trade/src/convert/convert-settle.money.test.ts",
+    "target": "quote.ts",
+    "verdict": "rewrite",
+    "asserts": "A convert spread the owner did not publish refuses by name, never 10.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/convert/convert-settle.money.test.ts#never lists/invents 10 as convert spread in convert/"
+    },
+    "why": "Calls requireConvertSpreadBps with missing and malformed values (trade.convert_spread_unset) and published ones (kept); the pg suite's 'a service the env gave no convert spread or quote TTL' refuses a real quote by name and holds nothing."
+  },
+  {
+    "file": "services/svc-trade/src/convert/convert-settle.money.test.ts",
+    "target": "settle.ts",
+    "verdict": "rewrite",
+    "asserts": "The convert settle's fill takes no maker or taker fee and invents no spread.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/convert/convert-settle.money.test.ts#never lists/invents 10 as convert spread in convert/"
+    },
+    "why": "Plans a settle from a bound quote and asserts its fill recipe has maker and taker fee 0, no leg to a house fee pot, and the person receives the whole quoted base."
+  },
+  {
+    "file": "services/svc-trade/src/mm/seed-jobs.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-trade's env invents no market-maker seed interval, half-spread or step bps.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/mm/seed-jobs.test.ts#production env does not manufacture an MM seed interval"
+    },
+    "why": "Parses the env schema unset (interval undefined), with 5000 (kept) and with values outside 5 s..1 h (refused). Parses the env schema unset and with blank or fractional values (both null) and with explicit integers (kept). (second test: 'production env does not manufacture MM seed 10 bps')"
+  },
+  {
+    "file": "services/svc-trade/src/ccxt-capability-matrix.test.ts",
+    "target": "public-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "Every public row of the CCXT capability matrix is a mounted public route, and the funding-rate refusals it claims are the ones the door answers.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/ccxt-capability-matrix.test.ts#every public matrix path is mounted in public-rest.ts"
+    },
+    "why": "Registers the public REST on Fastify and asks hasRoute for each public row; the funding-rate test calls the door on a spot and an unpublished perp and reads the two codes."
+  },
+  {
+    "file": "services/svc-trade/src/ccxt-capability-matrix.test.ts",
+    "target": "private-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "Each caller-supplied price field the matrix names is refused 400 trade.price_not_accepted on close and open before the service runs.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/ccxt-capability-matrix.test.ts#caller-refused price fields pin private-rest PRICE_FIELDS"
+    },
+    "why": "Injects each field into DELETE /api/v1/positions/:id and POST /api/v1/positions and asserts 400 with the code and that neither service call ran."
+  },
+  {
+    "file": "services/svc-trade/src/ccxt-capability-matrix.test.ts",
+    "target": "spot/order-preview-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "Every private row of the matrix is mounted by the private registers the entry uses.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/ccxt-capability-matrix.test.ts#every private matrix path is mounted in private-rest.ts or a sibling private register"
+    },
+    "why": "Registers private REST (with its statement routes) and the order preview door and asks hasRoute for each private row."
+  },
+  {
+    "file": "services/svc-trade/src/ccxt-capability-matrix.test.ts",
+    "target": "statements/statement-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "Every private row of the matrix is mounted by the private registers the entry uses.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/ccxt-capability-matrix.test.ts#every private matrix path is mounted in private-rest.ts or a sibling private register"
+    },
+    "why": "Same mount as the preview door: the statement routes are attached by registerPrivateRest."
+  },
+  {
+    "file": "services/svc-trade/src/ccxt-capability-matrix.test.ts",
+    "target": "futures/position-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The open refusals the matrix claims (leverage, margin mode, collateral, futures unconfigured, profit source unconfigured) reach the wire with those codes and statuses.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/ccxt-capability-matrix.test.ts#openPosition refuse arms pin private-rest domain codes"
+    },
+    "why": "Posts opens that miss leverage, ask cross or portfolio margin or staked collateral (400 and the code), and a service throwing FuturesError futures_unconfigured on open and profit_source_unconfigured on close (403, error and ccxtCode as the matrix says); ADL routes mounted, no agreements or eligibility route."
+  },
+  {
+    "file": "services/svc-trade/src/ccxt-capability-matrix.test.ts",
+    "target": "futures/margin-mode.ts",
+    "verdict": "rewrite",
+    "asserts": "setMarginMode answers 501 NotSupported without running anything, setLeverage reaches the service and answers 200, and neither is on the public app.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/ccxt-capability-matrix.test.ts#setMarginMode stays 501; setLeverage is a live isolated path that can 200"
+    },
+    "why": "Calls both doors on the private app (leverage reaches a recording service once; margin-mode is 501) and checks the public app mounts neither."
+  },
+  {
+    "file": "services/svc-trade/src/otc/otc-mount.reachable.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "otc.settle is a customer trade:write door like orders.create, not a service-only door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/otc/otc-mount.reachable.test.ts#source pin: otc.settle is scopedProcedure trade:write, not serviceProcedure"
+    },
+    "why": "Over HTTP on the mounted router: a customer principal holding only trade:write passes settle's door, trade:read is FORBIDDEN, nothing posts; the second test refuses unsigned (UNAUTHORIZED) and trade:read (FORBIDDEN) identically on orders.create and otc.settle and admits trade:write past both."
+  },
+  {
+    "file": "services/svc-trade/src/otc/otc-mount.reachable.test.ts",
+    "target": "../../../../packages/auth/src/scopes.ts",
+    "verdict": "rewrite",
+    "asserts": "trade:write is not an interactive-only scope, so an API key may hold it; trade:withdraw is.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/otc/otc-mount.reachable.test.ts#source pin: trade:write is not INTERACTIVE_ONLY"
+    },
+    "why": "Imports INTERACTIVE_ONLY_SCOPES from @intafaced/auth and checks its members."
+  },
+  {
+    "file": "services/svc-trade/src/otc/otc-mount.reachable.test.ts",
+    "target": "../../../../packages/exchange-contract/src/api.ts",
+    "verdict": "rewrite",
+    "asserts": "The CCXT REST contract has no OTC route.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/otc/otc-mount.reachable.test.ts#source pin: REST_ROUTES has no OTC"
+    },
+    "why": "Imports REST_ROUTES from @intafaced/exchange-contract and checks no route name, method or path names otc."
+  },
+  {
+    "file": "services/svc-trade/src/copy/copy-flatten.test.ts",
+    "target": "copy-service.ts",
+    "verdict": "rewrite",
+    "asserts": "Pause, resume, stop, stop close-only and detach never close the follower's copy position; only flatten does.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/copy/copy-flatten.test.ts#pause/stop/detach source never calls flattenFollowerCopyPosition"
+    },
+    "why": "Runs each control on a wired CopyService whose flatten port records calls: none; then flatten closes once for the follow it names."
+  },
+  {
+    "file": "services/svc-trade/src/copy/follow-limits-extra.test.ts",
+    "target": "auto-mirror-place.ts",
+    "verdict": "rewrite",
+    "asserts": "A copy mirror carries no leverage: maxLeverage refuses, and a mirrored order is a plain limit with no leverage or margin field.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/copy/follow-limits-extra.test.ts#refuses maxLeverage and creates no follow"
+    },
+    "why": "Plans and places a mirror through CopyService and reads what reached placeFollowerOrder: a price of 100 and no leverage or margin key."
+  },
+  {
+    "file": "services/svc-trade/src/mm/fill-account.test.ts",
+    "target": "../events.ts",
+    "verdict": "rewrite",
+    "asserts": "The orderFilled consumer hands the event's maker and taker accounts to settleFillEvent, which settles a house maker as the house.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/mm/fill-account.test.ts#orderFilled bus consumer calls settleFillEvent (live recovery path)"
+    },
+    "why": "Publishes orderFilled on a MemoryEventBus to subscribeMatchingEvents and records the settle input and the accounts settleFill got."
+  },
+  {
+    "file": "services/svc-trade/src/spot/drop-copy-ingest.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "Book fills hitch drop-copy as rest, converts as rfq, never ui; the entry builds the client from TRADE_FIX_DROPCOPY_INGEST_URL, which has no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/drop-copy-ingest.test.ts#fillSettled hitch uses book-order rest; convert hitch is rfq; ui/ws/fix/algo/broker never sent"
+    },
+    "why": "The env part parses the schema (default '' and the given URL kept); the sources are held by trade-service.test.ts 'API-key place fill hitches drop-copy as rest; never ui' and convert-settle.money.test.ts 'convertQuote then convertExecute binds exact in/out; one fill post; balances move'; the entry by index.boot.test.ts 'builds the drop-copy ingest client from TRADE_FIX_DROPCOPY_INGEST_URL and hands it to TradeService'."
+  },
+  {
+    "file": "services/svc-trade/src/spot/drop-copy-ingest.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "TRADE_FIX_DROPCOPY_INGEST_URL has no default of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/drop-copy-ingest.test.ts#fillSettled hitch uses book-order rest; convert hitch is rfq"
+    },
+    "why": "tradeEnvOf({}) gives '' and a given URL is kept."
+  },
+  {
+    "file": "services/svc-trade/src/spot/affiliate-accrue.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "A classic fill and a house market-maker fill each post to the ledger first and only then accrue the customer's fee to affiliates.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/affiliate-accrue.test.ts#classic tradeFill and MM fill both call notifyAffiliateAccrue after post"
+    },
+    "why": "Settles both fills on the production TradeService over Postgres with a recording ledger and accrue port (spot/__tests__/affiliate-order.fixture.ts): the fill post comes first, every accrue after the last post, one taker accrue each, none for the house maker. The entry's client: index.boot.test.ts 'TradeService options'."
+  },
+  {
+    "file": "services/svc-trade/src/spot/affiliate-payout.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "Each fill posts, then accrues, then pays out the same fee events, for classic and house market-maker fills.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/affiliate-payout.test.ts#fires payout after accrue, after tradeFill and marketMakerMakerFill"
+    },
+    "why": "Same recorded run: payouts come after the last accrue and name exactly the fee events accrued."
+  },
+  {
+    "file": "services/svc-trade/src/spot/bracket-place.test.ts",
+    "target": ".ts",
+    "verdict": "delete",
+    "asserts": "A JSON number stopPrice is never coerced into a decimal string.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/bracket-place.test.ts#refuses a JSON number nested stopPrice"
+    },
+    "why": "A String() coercion would turn 0.1 into '0.1' and accept it; the two refusal tests (top-level and nested) send JSON numbers and require the refusal."
+  },
+  {
+    "file": "services/svc-trade/src/spot/oco-place.test.ts",
+    "target": ".ts",
+    "verdict": "delete",
+    "asserts": "A JSON number stopPrice is never coerced into a decimal string.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/spot/oco-place.test.ts#refuses a JSON number nested stopPrice"
+    },
+    "why": "A String() coercion would turn 0.1 into '0.1' and accept it; the two refusal tests (top-level and nested) send JSON numbers and require the refusal."
+  }
+]

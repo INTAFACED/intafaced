@@ -97,6 +97,17 @@ describe('supported assets and networks', () => {
     expect(row('OLD').querySelector('a')!.getAttribute('href')).toBe('/money/balance/OLD?source=all');
   });
 
+  it('while the venue door has not answered, no history link is offered: it could still open the wrong history (#11288)', async () => {
+    const assets = ready([
+      asset({ assetId: asAssetId('OLD'), networks: [], defaultNetworkId: null, allowedActions: [], state: 'retired' }),
+    ]);
+    await mount(<SupportedAssetsView resource={assets} reload={() => undefined} sourceRecords="checking" />);
+    expect(host.querySelector('table')).toBeNull();
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    await act(async () => root!.render(<SupportedAssetsView resource={assets} reload={() => undefined} sourceRecords />));
+    expect(row('OLD').querySelector('a')!.getAttribute('href')).toBe('/money/balance/OLD?source=all');
+  });
+
   it('an empty registry says nothing is published; a refusal is named with a retry; loading shows no rows', async () => {
     await mount(<SupportedAssetsView resource={ready([])} reload={() => undefined} />);
     expect(host.textContent).toContain('No asset is published');

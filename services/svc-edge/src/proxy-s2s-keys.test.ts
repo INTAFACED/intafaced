@@ -1,5 +1,4 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   createServiceSigner,
@@ -18,10 +17,7 @@ import { prepareUpstreamRequestHeaders } from './refresh-cookie-proxy.js';
 import { REQUEST_ID_HEADER } from './reply-envelope.js';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 
-const INDEX = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-/** The proxy's upstream headers, exactly as `index.ts` builds them (the first test holds the two together). */
-const FORWARD_EXPRESSION =
-  'const upstreamHeaders = { ...prepareUpstreamRequestHeaders(url.pathname, exchanged.headers), [REQUEST_ID_HEADER]: String(req.id) };';
+/** The proxy's upstream headers as `index.ts` builds them; the booted edge's forward is read in index-wiring.boot.e2e.test.ts. */
 const proxyForwardHeaders = (pathname: string, headers: Record<string, string>, requestId: string) => ({
   ...prepareUpstreamRequestHeaders(pathname, headers),
   [REQUEST_ID_HEADER]: requestId,
@@ -74,14 +70,6 @@ function judged(k: ReturnType<typeof keys>, headers: Record<string, string>, url
 }
 
 describe('the proxy forward carries no service identity', () => {
-  it('index.ts builds the forward from the caller headers and the request id, and signs nothing itself', () => {
-    expect(INDEX).toContain(FORWARD_EXPRESSION);
-    expect(INDEX.match(/const upstreamHeaders\b/g)).toHaveLength(1);
-    for (const signing of ['.signer.headers(', 's2sRequestHeaders(', 'serviceCallSigner(', 's2sFetch(', 'signProxyHeaders']) {
-      expect(INDEX).not.toContain(signing);
-    }
-  });
-
   it('sends the caller headers as prepared, the request id, and no service header of any kind', () => {
     const headers = proxyForwardHeaders('/api/identity/trpc/rank.awardXp', stripReserved(callerHeaders), 'req-1');
     expect(headers).toEqual({ 'content-type': 'application/json', accept: 'application/json', 'x-request-id': 'req-1' });

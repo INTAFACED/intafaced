@@ -10,14 +10,10 @@
  * 5. Paths: public-rest.ts GET /api/v1/ohlcv/:symbol
  * 6. RED: omitting timeframe returns a 1m series
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { fakeMarket, registerPublicRest, TRADE_OHLCV_TIMEFRAME_UNSET, type PublicRestDeps } from './public-rest.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const market = fakeMarket({ id: 'm-btc', symbol: 'BTC/USDT' });
 
 function deps(overrides: Partial<PublicRestDeps> = {}): PublicRestDeps {
@@ -40,13 +36,6 @@ async function build(d: PublicRestDeps = deps()) {
 }
 
 describe('GET public REST refuses unpublished ohlcv timeframe', () => {
-  it('public-rest.ts does not invent 1m', () => {
-    const src = readFileSync(join(HERE, 'public-rest.ts'), 'utf8');
-    expect(src).not.toMatch(/DEFAULT_OHLCV_TIMEFRAME/);
-    expect(src).not.toMatch(/timeframe \?\? /);
-    expect(src).toMatch(/TRADE_OHLCV_TIMEFRAME_UNSET/);
-  });
-
   it('blank timeframe refuses and does not call candles', async () => {
     const seen: string[] = [];
     const app = await build(

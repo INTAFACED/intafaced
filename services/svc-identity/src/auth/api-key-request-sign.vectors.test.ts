@@ -1,7 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   assessRequestSignature as identityAssess,
   canonicalRequest as identityCanonical,
@@ -64,10 +61,48 @@ describe('identity and edge sign the same canonical request', () => {
     expect(identitySign(SECRET, canonical)).toBe('d61e9fa131b74a34ffdf69dbeee3fe8b82b68168d54a230d9d7ed12f042b4283');
   });
 
-  it('compares with timingSafeEqual', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'api-key-request-sign.ts'), 'utf8');
-    expect(src).toContain('timingSafeEqual');
-    expect(src).not.toMatch(/signature\s*===/);
+  it('compares with timingSafeEqual', async () => {
+    // A fresh load of the signer over a watched timingSafeEqual (still the real one).
+    const compare = vi.fn<(a: NodeJS.ArrayBufferView, b: NodeJS.ArrayBufferView) => boolean>();
+    vi.doMock('node:crypto', async (importOriginal) => {
+      const real = await importOriginal<typeof import('node:crypto')>();
+      compare.mockImplementation(real.timingSafeEqual);
+      return { ...real, timingSafeEqual: compare };
+    });
+    vi.resetModules();
+    try {
+      const signer = await import('./api-key-request-sign.js');
+      const canonical = signer.canonicalRequest({
+        method: 'POST',
+        path: '/api/pay/v1/payments',
+        timestamp: String(Math.floor(NOW.getTime() / 1000)),
+        nonce: 'nonce-fresh-1',
+        bodyHash: 'cd'.repeat(32),
+      });
+      const signature = signer.signRequest(SECRET, canonical);
+      const input = {
+        requireSignature: true,
+        secret: SECRET,
+        material: material('cd'.repeat(32), signature),
+        now: NOW,
+        keyId: KEY,
+        nonceStore: { consume: () => true },
+        windowSeconds: 300,
+      };
+      // The good signature is accepted through one constant-time comparison of the two signatures' bytes.
+      await expect(signer.assessRequestSignature(input)).resolves.toEqual({ ok: true });
+      expect(compare).toHaveBeenCalledTimes(1);
+      const [left, right] = compare.mock.calls[0]!;
+      expect(Buffer.from(left as Uint8Array).toString('hex')).toBe(signature);
+      expect(Buffer.from(right as Uint8Array).toString('hex')).toBe(signature);
+      // The comparison is the only judge: when it says no, the very same signature is refused as tampered.
+      compare.mockImplementation(() => false);
+      await expect(signer.assessRequestSignature(input)).resolves.toEqual({ ok: false, reason: 'tampered' });
+      expect(signer.signaturesEqual(signature, signature)).toBe(false);
+    } finally {
+      vi.doUnmock('node:crypto');
+      vi.resetModules();
+    }
   });
 
   it('agrees with the edge assessor on unsigned, tamper, stale, and replay', async () => {
