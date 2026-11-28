@@ -2357,6 +2357,14 @@ test("svc-bank's replay gives each call the first input its door let through; on
   assert.deepEqual(bank.get('salary.form'), { currency: 'xxx' });
   assert.deepEqual(bank.get('salary.details'), {});
   assert.equal(bank.has('analytics.compare'), false, 'its recorded sample is refused by every caller');
+  // A call the replay never got past the door (weed project-state#3724: a bill file, a wallet's signature) takes the input
+  // written by hand in record-samples.json; before, its record was left and with it every caller of its room's wrapper.
+  assert.deepEqual(bank.get('businessPayouts.prepareRun'), { payrollId: '22222222-2222-4222-8222-222222222222', period: '2026-11' });
+  assert.equal(
+    [...bank.keys()].some((k) => k.startsWith('//')),
+    false,
+    'the file says why in a key no call has',
+  );
 });
 
 test('a type a record reads is imported as a type (contracts builds with verbatimModuleSyntax), beside the value it types', () => {
