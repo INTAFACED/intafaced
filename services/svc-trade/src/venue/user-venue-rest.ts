@@ -1369,12 +1369,15 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           if (key !== '' && key !== fromHeader) throw new VenueWireError('with an Idempotency-Key, leave actionKey out');
           key = fromHeader;
         }
+        // The venue the action is on, read before anything is sent: once the send went out, its answer is never lost to
+        // a failed label read, and goes back unlabelled instead.
+        const onVenue = await r.doorOfAction(principal, key);
         const sent = await r.submitRequest(principal, {
           actionKey: key,
           signature: b.signature as VenueSignature,
           requestDeadline: b.requestDeadline ?? null,
         });
-        return labelled(await r.doorOfAction(principal, key), sent);
+        return labelled(onVenue, sent).catch(() => sent);
       },
       null,
       (v) => (v as { replayed?: boolean }).replayed === true,
