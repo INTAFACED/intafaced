@@ -600,9 +600,9 @@
     "asserts": "svc-trade placeOrder consults identity ownership before storing a sub-account label.",
     "guard": {
       "kind": "test",
-      "ref": "services/svc-trade/src/spot/sub-account-ownership.test.ts#denies a foreign parent"
+      "ref": "services/svc-trade/src/spot/sub-account-place-gate.money.test.ts#refuses a stranger’s, a missing, a revoked or an unconfirmable sub-account before storing the label or holding funds"
     },
-    "why": "LEFT: the property is svc-trade behaviour; a svc-identity test may not import svc-trade (boundary-scan B-hops) and svc-trade is outside this part. Needs a svc-trade placeOrder test."
+    "why": "Moved beside the service it read (RECIPE section 3): svc-trade placeOrder on Postgres and the ledger, with a stranger’s, a missing, a revoked sub-account and identity down: each refused with its code, identity asked about the id, no order row and no hold; the owner’s live one is stored on the order."
   },
   {
     "file": "services/svc-identity/src/money-routing-graph.gate.test.ts",
@@ -613,6 +613,6 @@
       "kind": "test",
       "ref": "services/svc-trade/src/spot/sub-account-ownership.test.ts#signs the empty body and does not send one"
     },
-    "why": "LEFT: svc-trade code, outside this part; that svc-trade test already asserts the URL and the ownership check by behaviour, but the identity gate is protected (money) so it is not deleted here."
+    "why": "Moved beside the service it read: that svc-trade test calls createSubAccountOwnershipClient and asserts the request goes to /internal/sub-accounts/:id, and the new placement test asserts placeOrder consults the ownership source (assertSubAccountOwned) before it stores anything."
   }
 ]

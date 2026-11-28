@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { vi } from 'vitest';
 import { issueAccessToken, verifyAccessToken, type Principal } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
+import { productionPostureIssues } from '@intafaced/config/production-posture';
 
 /**
  * svc-identity as `index.ts` boots it, with only its three outside connections stood in: Postgres (every query answers
@@ -21,7 +22,7 @@ export const BOOT_TIMEOUT_MS = 120_000;
 
 export const BOOT_SECRET = 'b'.repeat(32);
 export const BOOT_INTERNAL_SECRET = 'i'.repeat(32);
-export const BOOT_JWT_SECRET = 'j'.repeat(32);
+const BOOT_JWT_SECRET = 'j'.repeat(32);
 
 /** The fewest variables env.ts needs to load: secrets of the right length and a database address nothing dials. */
 const BASE_ENV: Record<string, string> = {
@@ -33,6 +34,21 @@ const BASE_ENV: Record<string, string> = {
   INTERNAL_SERVICE_SECRET: BOOT_INTERNAL_SECRET,
   JWT_ACCESS_SECRET: BOOT_JWT_SECRET,
 };
+
+/**
+ * The service sees the base variables and `env`, and none of the host's development material: a runner that sets a
+ * local chain URL or a published database password for other tests (CI's job env does) would otherwise make every
+ * production-posture boot refuse on the host's value instead of the one the test is about.
+ */
+function stubIdentityEnv(env: Record<string, string | undefined>): void {
+  vi.unstubAllEnvs();
+  const given = { ...BASE_ENV, ...env };
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key in given || value === undefined) continue;
+    if (productionPostureIssues({ APP_ENV: 'prod', [key]: value }).length) vi.stubEnv(key, undefined);
+  }
+  for (const [key, value] of Object.entries(given)) vi.stubEnv(key, value);
+}
 
 const PROCESS_EVENTS = ['SIGTERM', 'SIGINT', 'uncaughtException', 'unhandledRejection', 'beforeExit', 'exit'] as const;
 
@@ -127,8 +143,7 @@ export async function bootIdentity(
   answer: SqlAnswer = () => undefined,
 ): Promise<IdentityBoot> {
   vi.resetModules();
-  vi.unstubAllEnvs();
-  for (const [key, value] of Object.entries({ ...BASE_ENV, ...env })) vi.stubEnv(key, value);
+  stubIdentityEnv(env);
   const { sql, queries } = recordingSql(answer);
   const listened: FastifyInstance[] = [];
   vi.doMock('postgres', () => ({ default: () => sql }));
@@ -182,8 +197,7 @@ export async function bootIdentity(
 /** env.ts as the start loads it, from the base variables and `env` (a key set to undefined is unset). */
 export async function loadIdentityEnv(env: Record<string, string | undefined> = {}): Promise<(typeof import('./env.js'))['env']> {
   vi.resetModules();
-  vi.unstubAllEnvs();
-  for (const [key, value] of Object.entries({ ...BASE_ENV, ...env })) vi.stubEnv(key, value);
+  stubIdentityEnv(env);
   return (await import('./env.js')).env;
 }
 
