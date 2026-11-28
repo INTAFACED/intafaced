@@ -1,6 +1,14 @@
 import { useState } from 'react';
 import { Button, Checkbox, Field, Switch } from '@intafaced/ui/lit';
-import { CHECKLIST_ITEMS, CHECKLIST_ITEM_MAX, deviceStore, saveChecklist, type Checklist } from './pre-trade-checklist';
+import {
+  CHECKLIST_ITEMS,
+  CHECKLIST_ITEM_MAX,
+  deviceStore,
+  firstUnticked,
+  holdsOrder,
+  saveChecklist,
+  type Checklist,
+} from './pre-trade-checklist';
 import { checklistCopy } from './pre-trade-checklist-copy';
 
 /** The ticket's checklist settings (J-derivatives-34 #4): three items and the switch, saved to this device. */
@@ -98,4 +106,35 @@ export function ChecklistTicks({
       ) : null}
     </section>
   );
+}
+
+/**
+ * The checklist's hold on one review that sends an opening order (J-derivatives-34 #5): its items, unticked when the review
+ * opens, to show above Confirm, and `held()`, which Confirm asks first: true while an item is unticked, naming the first
+ * one. A reduce-only order never meets it.
+ */
+export function useChecklistHold(checklist: Checklist, order: { reduceOnly: boolean }) {
+  const [ticked, setTicked] = useState<ReadonlySet<number>>(new Set());
+  const [waiting, setWaiting] = useState<string | null>(null);
+  const shows = holdsOrder(checklist, order);
+  function held(): boolean {
+    const waits = shows ? firstUnticked(checklist, ticked) : null;
+    setWaiting(waits);
+    return waits !== null;
+  }
+  const ticks = shows ? (
+    <ChecklistTicks
+      checklist={checklist}
+      ticked={ticked}
+      waiting={waiting}
+      onTick={(i, on) => {
+        const next = new Set(ticked);
+        if (on) next.add(i);
+        else next.delete(i);
+        setTicked(next);
+        setWaiting(null);
+      }}
+    />
+  ) : null;
+  return { held, ticks };
 }
