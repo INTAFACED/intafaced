@@ -10,7 +10,7 @@
  * 6. RED: env key absent.
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { INDEXER_EXPLORER_LIST_LIMIT_UNSET, parseExplorerListLimit } from './blocks.js';
@@ -50,8 +50,8 @@ describe('INDEXER_EXPLORER_LIST_LIMIT plumbing', () => {
     const env = await loadWith({ INDEXER_EXPLORER_LIST_LIMIT: raw });
     expect(parseExplorerListLimit(env.INDEXER_EXPLORER_LIST_LIMIT)).toEqual({ ok: false, code: INDEXER_EXPLORER_LIST_LIMIT_UNSET });
   });
-  it('env.ts has no default and compose interpolates empty', () => {
-    expect(readFileSync(join(HERE, '..', 'env.ts'), 'utf8')).not.toMatch(/INDEXER_EXPLORER_LIST_LIMIT:[^\n]*\.default\(/);
+  it('env.ts has no default and compose interpolates empty', async () => {
+    expect((await loadWith({ INDEXER_EXPLORER_LIST_LIMIT: undefined })).INDEXER_EXPLORER_LIST_LIMIT).toBeUndefined();
     const compose = readFileSync(COMPOSE, 'utf8');
     expect(compose).toMatch(/INDEXER_EXPLORER_LIST_LIMIT:\s*\$\{INDEXER_EXPLORER_LIST_LIMIT:-\}/);
   });

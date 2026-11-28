@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
@@ -12,6 +12,8 @@ import { latencyGradeWire, type OmsPlanVenue } from './oms-plan.js';
 import { handleOmsCodDoor, handleOmsKillDoor, handleOmsVenueHaltDoor, registerOmsKillDoor } from './oms-kill-http.js';
 import { refuseUnsetCancelOnDisconnect } from './oms-cod-refuse.js';
 import { installOmsWriteRawBody } from './oms-write-hmac.js';
+import { loadMatchingVenueHalt } from './oms-matching-venue-halt.js';
+import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 
 const SECRET = 'a-execution-oms-kill-test-edge-secret';
 const SERVICE_SECRET = 'a'.repeat(32);
@@ -250,20 +252,65 @@ describe('kill mill stays mill', () => {
       expect(readFileSync(join(dir, name), 'utf8'), name).not.toMatch(/withdrawHold/);
     }
   });
-  it('HTTP door never POSTs matching halt-all', () => {
-    const dir = dirname(fileURLToPath(import.meta.url));
-    expect(readFileSync(join(dir, 'oms-kill-http.ts'), 'utf8')).not.toMatch(/app\.post\([^)]*halt-all/);
-    expect(readFileSync(join(dir, 'oms-matching-venue-halt.ts'), 'utf8')).toMatch(/Never POST \/halt-all/);
+  it('HTTP door never POSTs matching halt-all', async () => {
+    // The routes the kill door registers: four POSTs of its own, none of them matching's halt-all.
+    const f = Fastify();
+    const routes: string[] = [];
+    f.addHook('onRoute', (route) => {
+      routes.push(`${String(route.method)} ${route.url}`);
+    });
+    registerOmsKillDoor(f, { edgeContext, internalSecret: SERVICE_SECRET });
+    await f.ready();
+    await f.close();
+    expect(routes.sort()).toEqual([
+      'POST /execution/oms/cod',
+      'POST /execution/oms/drain',
+      'POST /execution/oms/kill',
+      'POST /execution/oms/venue-halt',
+    ]);
+    // The venue-halt door reads matching's GET /markets and sends nothing else.
+    const seen: string[] = [];
+    const answer = await handleOmsVenueHaltDoor(() =>
+      loadMatchingVenueHalt({
+        matchingUrl: 'http://matching.test',
+        fetch: async (input, init) => {
+          seen.push(`${init?.method ?? 'GET'} ${String(input)}`);
+          return new Response(JSON.stringify({ venueHalted: false }), { status: 200 });
+        },
+      }),
+    );
+    expect(answer).toEqual({ ok: true, venueHalted: false });
+    expect(seen).toEqual(['GET http://matching.test/markets']);
   });
 });
 
 describe('prove which kill files are live', () => {
-  it('router uses oms-kill + kill-parent HTTP door; kill-live stays extra', () => {
-    const dir = dirname(fileURLToPath(import.meta.url));
-    const router = readFileSync(join(dir, 'router.ts'), 'utf8');
-    expect(router).toMatch(/oms-kill\.js/);
-    expect(router).toMatch(/oms-kill-parent-http\.js/);
-    expect(router).not.toMatch(/oms-kill-live/);
-    expect(router).not.toMatch(/cancelOnDisconnect/);
+  it('router uses oms-kill + kill-parent HTTP door; kill-live stays extra', async () => {
+    // Load the router fresh and note which kill modules it pulls in; loading oms-kill-live fails the load.
+    const loaded: string[] = [];
+    vi.resetModules();
+    vi.doMock('./oms-kill.js', async (importOriginal) => {
+      loaded.push('oms-kill');
+      return importOriginal();
+    });
+    vi.doMock('./oms-kill-parent-http.js', async (importOriginal) => {
+      loaded.push('oms-kill-parent-http');
+      return importOriginal();
+    });
+    vi.doMock('./oms-kill-live.js', () => {
+      throw new Error('the router loaded oms-kill-live');
+    });
+    try {
+      const { createExecutionRouter: fresh } = await import('./router.js');
+      expect(loaded.sort()).toEqual(['oms-kill', 'oms-kill-parent-http']);
+      const procedures = Object.keys(fresh(new SealedHouseTenantRegistry())._def.procedures);
+      expect(procedures).toEqual(expect.arrayContaining(['execution.oms.kill', 'execution.oms.killParent']));
+      expect(procedures.filter((path) => /cancelOnDisconnect/i.test(path))).toEqual([]);
+    } finally {
+      vi.doUnmock('./oms-kill.js');
+      vi.doUnmock('./oms-kill-parent-http.js');
+      vi.doUnmock('./oms-kill-live.js');
+      vi.resetModules();
+    }
   });
 });

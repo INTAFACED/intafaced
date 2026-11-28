@@ -1,7 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, expect, it, vi } from 'vitest';
+import { bootExecution, loadExecutionEnv } from './testing/boot.js';
 import {
   loadMatchingVenueHalt,
   matchingVenueHaltRefuse,
@@ -9,8 +7,6 @@ import {
   readMatchingUrl,
   resolveMatchingVenueHalt,
 } from './oms-matching-venue-halt.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('optionalVenueHalted', () => {
   it('reads boolean venueHalted; never invents a halt', () => {
@@ -111,18 +107,45 @@ describe('resolveMatchingVenueHalt', () => {
 });
 
 describe('MATCHING_URL env is the halt source, never invented', () => {
-  it('env declares MATCHING_URL optional; blank is absent', () => {
-    const envSrc = readFileSync(join(here, 'env.ts'), 'utf8');
-    expect(envSrc).toMatch(/MATCHING_URL:/);
-    expect(envSrc).not.toMatch(/MATCHING_URL:[\s\S]{0,80}\.default\(/);
-    expect(envSrc).not.toMatch(/localhost:4005/);
+  it('env declares MATCHING_URL optional; blank is absent', async () => {
+    expect((await loadExecutionEnv({ MATCHING_URL: undefined })).MATCHING_URL).toBeUndefined();
+    expect((await loadExecutionEnv({ MATCHING_URL: '' })).MATCHING_URL).toBeUndefined();
+    expect((await loadExecutionEnv({ MATCHING_URL: '   ' })).MATCHING_URL).toBeUndefined();
+    expect((await loadExecutionEnv({ MATCHING_URL: 'http://matching.test:4005' })).MATCHING_URL).toBe('http://matching.test:4005');
   });
 
-  it('index loads GET /markets from MATCHING_URL, never POST /halt-all', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(indexSrc).toMatch(/loadMatchingVenueHalt/);
-    expect(indexSrc).toMatch(/env\.MATCHING_URL/);
-    expect(indexSrc).not.toMatch(/halt-all/);
-    expect(indexSrc).toMatch(/INTERNAL_SERVICE_SECRET/);
+  it('index loads GET /markets from MATCHING_URL, never POST /halt-all', async () => {
+    const seen: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      seen.push(`${init?.method ?? 'GET'} ${String(input)}`);
+      return new Response(JSON.stringify({ venueHalted: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const booted = await bootExecution({
+      MATCHING_URL: 'http://matching.test:4005',
+      IDENTITY_URL: 'http://identity.test:4001',
+      INTERNAL_SERVICE_SECRET: 'i'.repeat(32),
+    });
+    try {
+      // createExecutionRouter's matchingVenueHalt, matchingUrl and operatorApprovals (parameters 23, 24 and 26).
+      const halt = booted.routerArgs[22] as () => Promise<unknown>;
+      expect(seen).toEqual([]);
+      await expect(halt()).resolves.toEqual({ venueHalted: true });
+      expect(seen).toEqual(['GET http://matching.test:4005/markets']);
+      expect(booted.routerArgs[23]).toBe('http://matching.test:4005');
+      // The internal service secret is what lets the host build the operator approval client.
+      expect(booted.routerArgs[25]).toBeDefined();
+    } finally {
+      await booted.close();
+      fetchSpy.mockRestore();
+    }
+
+    const unset = await bootExecution({ IDENTITY_URL: 'http://identity.test:4001' });
+    try {
+      await expect((unset.routerArgs[22] as () => Promise<unknown>)()).resolves.toBeUndefined();
+      expect(unset.routerArgs[23]).toBeUndefined();
+      expect(unset.routerArgs[25]).toBeUndefined();
+    } finally {
+      await unset.close();
+    }
   });
 });

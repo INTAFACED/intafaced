@@ -20,7 +20,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { loadExecutionEnv } from './testing/boot.js';
 import { executionComposeBlock } from './execution-compose-wiring.js';
+import { parseExecutionVenueIds } from './venue-adapters.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const KEY = 'EXECUTION_VENUE_IDS';
@@ -33,12 +35,13 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose EXECUTION_VENUE_IDS for svc-execution', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-execution/src/env.ts'), 'utf8');
   const block = executionComposeBlock();
 
-  it('env.ts still defaults empty — no invented venue list', () => {
-    expect(envTs).toMatch(/EXECUTION_VENUE_IDS:\s*z\.string\(\)\.default\(''\)/);
-    expect(envTs).not.toMatch(/EXECUTION_VENUE_IDS:\s*z\.string\(\)\.default\('binance-spot/);
+  it('env.ts still defaults empty — no invented venue list', async () => {
+    const unset = await loadExecutionEnv({ EXECUTION_VENUE_IDS: undefined });
+    expect(unset.EXECUTION_VENUE_IDS).toBe('');
+    expect(parseExecutionVenueIds(unset.EXECUTION_VENUE_IDS)).toEqual([]);
+    expect((await loadExecutionEnv({ EXECUTION_VENUE_IDS: 'okx-spot' })).EXECUTION_VENUE_IDS).toBe('okx-spot');
   });
 
   it('compose svc-execution block is the unique home; empty pass-through', () => {

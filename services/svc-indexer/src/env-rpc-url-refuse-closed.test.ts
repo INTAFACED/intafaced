@@ -17,7 +17,7 @@
  *    or compose interpolates :-http://evm:8545
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -62,11 +62,12 @@ afterEach(() => {
 });
 
 describe('svc-indexer INDEXER_RPC_URL refuse-closed', () => {
-  it('env.ts has no empty or evm:8545 git-default', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/INDEXER_RPC_URL:\s*z\.string\(\)\.default\(''\)/);
-    expect(envTs).not.toMatch(/INDEXER_RPC_URL:[\s\S]*?\.default\(['"]http:\/\/evm:8545['"]\)/);
-    expect(envTs).toMatch(/INDEXER_RPC_URL is unset — will not invent http:\/\/evm:8545 as live/);
+  it('env.ts has no empty or evm:8545 git-default', async () => {
+    // Unset and blank both refuse with the typed words: no default stands in for the operator's value.
+    await expect(loadWith({ INDEXER_RPC_URL: undefined })).rejects.toThrow(
+      'INDEXER_RPC_URL is unset — will not invent http://evm:8545 as live',
+    );
+    await expect(loadWith({ INDEXER_RPC_URL: '' })).rejects.toThrow('INDEXER_RPC_URL is unset — will not invent http://evm:8545 as live');
   });
 
   it('compose does not interpolate :-http://evm:8545', () => {

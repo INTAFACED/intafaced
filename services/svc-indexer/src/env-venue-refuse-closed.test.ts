@@ -18,7 +18,7 @@
  *    or compose interpolates a venue address
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -65,12 +65,13 @@ afterEach(() => {
 });
 
 describe('svc-indexer INDEXER_VENUE_ADDRESS refuse-closed', () => {
-  it('env.ts has no fixture CLOB or zero-address fallback', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/INDEXER_VENUE_ADDRESS:[\s\S]*?DEV_VENUE_ADDRESS/);
-    expect(envTs).not.toMatch(/INDEXER_VENUE_ADDRESS:[\s\S]*?ZERO_VENUE_ADDRESS/);
-    expect(envTs).toMatch(
-      /INDEXER_VENUE_ADDRESS is unset — will not publish fixture CLOB 0x0116686E2291dbd5e317F47faDBFb43B599786Ef as venue/,
+  it('env.ts has no fixture CLOB or zero-address fallback', async () => {
+    // Unset and blank both refuse with the typed words: no default stands in for the operator's value.
+    await expect(loadWith({ INDEXER_VENUE_ADDRESS: undefined })).rejects.toThrow(
+      'INDEXER_VENUE_ADDRESS is unset — will not publish fixture CLOB 0x0116686E2291dbd5e317F47faDBFb43B599786Ef as venue',
+    );
+    await expect(loadWith({ INDEXER_VENUE_ADDRESS: '' })).rejects.toThrow(
+      'INDEXER_VENUE_ADDRESS is unset — will not publish fixture CLOB 0x0116686E2291dbd5e317F47faDBFb43B599786Ef as venue',
     );
   });
 

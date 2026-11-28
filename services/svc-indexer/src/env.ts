@@ -259,5 +259,6 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   }),
 );
 
+export { schema };
 export const env = loadEnv(schema);
 export type Env = typeof env;
