@@ -12,7 +12,7 @@ import { scriptedSql, type SqlCall } from './scripted-sql.testkit.js';
  * open on it unless `openSessions` says so; `merchant` changes the merchant row. For unit tests of what `openCheckoutSession` refuses with a setting the owner has not published, and
  * what it writes when it is published. `calls` is every query the open sent, in order.
  */
-const CHECKOUT_MERCHANT = '11111111-1111-4111-8111-111111111111';
+export const CHECKOUT_MERCHANT = '11111111-1111-4111-8111-111111111111';
 const CHECKOUT_LINK = '22222222-2222-4222-8222-222222222222';
 const CHECKOUT_PAYMENT = '33333333-3333-4333-8333-333333333333';
 

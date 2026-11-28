@@ -1202,12 +1202,12 @@
     "file": "services/svc-pay/src/w6-honesty-residuals.test.ts",
     "target": "payment-service.ts",
     "verdict": "rewrite",
-    "asserts": "Live acquiring refuses a merchant whose KYB is not approved; a rejected one never transacts; a suspended one is refused first.",
+    "asserts": "PayService never issues pay:* scopes (it calls neither issueMerchantPayScopes nor assertMerchantPayScopeGrantAllowed); live acquiring refuses a merchant whose KYB is not approved, a rejected one never transacts, a suspended one is refused first.",
     "guard": {
       "kind": "test",
-      "ref": "services/svc-pay/src/w6-honesty-residuals.test.ts#assertMerchantActive wires Layer B KYB money gate"
+      "ref": "services/svc-pay/src/w6-honesty-residuals.test.ts#PayService never issues pay:* scopes"
     },
-    "why": "Opens a checkout on a scripted database for each KYB status and policy and asserts pay.kyb_required with nothing written, or the payment written past the gate."
+    "why": "The guard records both auth grant functions (proving the recorder sees the grant path), drives every merchant path (create, KYB submit and decide, checkout open, link, payment) for each KYB status and policy, then calls every PayService method, and asserts neither was called; 'assertMerchantActive wires Layer B KYB money gate' in the same file opens a checkout for each KYB status and asserts pay.kyb_required with nothing written."
   },
   {
     "file": "services/svc-pay/src/w6-honesty-residuals.test.ts",
