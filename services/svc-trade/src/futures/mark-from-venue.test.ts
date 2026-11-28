@@ -1,7 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseAmount, formatAmount } from '@intafaced/ledger-client/money';
 import type { MarketDataAdapter, VenueBookSnapshot } from '@intafaced/venue-contracts';
 import type { HttpPort } from '@intafaced/venue-adapter';
@@ -17,6 +14,9 @@ import {
 } from './mark-from-venue.js';
 import { DEFAULT_MIN_BEST_LEVEL_NOTIONAL, depthRequirement } from './mark-from-depth.js';
 import type { MarkSource } from './liquidation-tick.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** One wei. The smallest order the ledger's 18-decimal scale can express. */
 const DUST = '0.000000000000000001';
@@ -227,14 +227,6 @@ describe('createVenueMarketDataAdapter', () => {
     expect(a!.venue.kind).toBe('external-cex');
     expect(a!.venue.sequencedDepth).toBe(true);
     expect(createVenueMarketDataAdapter('  OKX-SPOT  ')!.venue.id).toBe('okx-spot');
-  });
-
-  it('boot warn and env comments list okx-spot now that the factory knows it', () => {
-    const root = dirname(fileURLToPath(import.meta.url));
-    const indexSrc = readFileSync(join(root, '../index.ts'), 'utf8');
-    const envSrc = readFileSync(join(root, '../env.ts'), 'utf8');
-    expect(indexSrc).toMatch(/Supported: binance-spot, bybit-spot, okx-spot/);
-    expect(envSrc).toMatch(/`binance-spot`, `bybit-spot`, `okx-spot`/);
   });
 
   it('the three ids resolve to DIFFERENT adapters — a median of one is not a check', () => {
@@ -704,5 +696,17 @@ describe('markSourceFromMaintainedVenueBook', () => {
     });
     expect(await cfg!.source.markPrice({ marketId: 'm1', at: observedAt })).toBe('101');
     expect(snapshotBook).not.toHaveBeenCalled();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('boot warn and env comments list okx-spot now that the factory knows it (kept source pin)', () => {
+    const root = dirname(fileURLToPath(import.meta.url));
+    const indexSrc = readFileSync(join(root, '../index.ts'), 'utf8');
+    const envSrc = readFileSync(join(root, '../env.ts'), 'utf8');
+    expect(indexSrc).toMatch(/Supported: binance-spot, bybit-spot, okx-spot/);
+    expect(envSrc).toMatch(/`binance-spot`, `bybit-spot`, `okx-spot`/);
   });
 });

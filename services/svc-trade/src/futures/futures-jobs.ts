@@ -71,7 +71,6 @@ import {
 } from './mark-policy.js';
 import { liquidationJobAlerts } from './futures-jobs-health.js';
 import { runPayoutTick } from './futures-payouts.js';
-export { runDatedFuturesExpiryTick } from './dated-futures.js';
 
 export interface FuturesJobsConfig {
   /** Master kill — false = host created but no intervals started. */

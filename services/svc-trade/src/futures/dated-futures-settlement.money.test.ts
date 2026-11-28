@@ -26,11 +26,14 @@ import {
   recipes,
   userAvailable,
   houseFees,
+  type PostRequest,
 } from '@intafaced/ledger-client';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { TradeError } from '../spot/types.js';
 import { DATED_FUTURES_FIXING_UNCONFIGURED, resolveDatedFuturesListing } from './dated-futures.js';
 import { DATED_FUTURES_SETTLEMENT_PRICE_UNSET, datedSettlementIdFor, runDatedFuturesSettlementJob } from './dated-futures-settlement.js';
+import { planClose } from './close-planner.js';
+import { tradeRouterPaths } from './testing/doors.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -117,23 +120,61 @@ describe('dated futures settlement hitch (source)', () => {
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('router.ts not recut; mill never last-trade exitPrice; listing refuse kept', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/runDatedFuturesSettlementJob/);
-    expect(routerSrc).not.toMatch(/dated-futures-settlement/);
-    const mill = readFileSync(join(here, 'dated-futures-settlement.ts'), 'utf8');
-    expect(mill).toMatch(/void input\.lastTradePrice/);
-    expect(mill).toMatch(/void input\.markPrice/);
-    expect(mill).toMatch(/runDatedFuturesExpiryTick/);
-    expect(mill).toMatch(/planClose/);
-    expect(mill).toMatch(/dated-settle:/);
-    expect(mill).toMatch(/source: 'owner_fixing'/);
-    expect(mill).not.toMatch(/exitPrice:\s*input\.lastTradePrice/);
-    expect(mill).not.toMatch(/settlementPrice.*=.*lastTrade/);
-    expect(mill).not.toMatch(/settlementPrice.*=.*markPrice/);
-    const dated = readFileSync(join(here, 'dated-futures.ts'), 'utf8');
-    expect(dated).toMatch(/TRADE_FUTURES_SETTLEMENT_FIXING/);
-    expect(dated).toMatch(/dated_futures_fixing_unconfigured/);
+  it('router.ts not recut; mill never last-trade exitPrice; listing refuse kept', async () => {
+    expect(tradeRouterPaths().filter((path) => /dated.?settle|datedFuturesSettlement|settlementJob/i.test(path))).toEqual([]);
+    // The mill posts exactly planClose's recipes at the owner fixing, keyed dated-settle:<position>,
+    // whatever last trade and mark say.
+    const expected = planClose({ closeId: datedSettlementIdFor(POS), position: longPosition(), exitPrice: '110' });
+    expect(expected.close).toBe(true);
+    for (const [lastTradePrice, markPrice] of [
+      ['1', '2'],
+      ['500', '600'],
+      [null, null],
+    ] as const) {
+      const posted: PostRequest[] = [];
+      const result = await runDatedFuturesSettlementJob({
+        style: 'dated',
+        expiryAt: EXPIRY,
+        now: AFTER,
+        ownerSettlementPrice: '110',
+        lastTradePrice,
+        markPrice,
+        positions: [longPosition()],
+        ledger: {
+          async post(req) {
+            posted.push(req);
+            return { id: req.idempotencyKey, idempotencyKey: req.idempotencyKey } as never;
+          },
+        },
+      });
+      expect(result).toMatchObject({
+        status: 'settled',
+        settlementPrice: '110',
+        source: 'owner_fixing',
+        settlementIds: [`dated-settle:${POS}`],
+      });
+      expect(posted).toEqual(expected.close ? expected.recipes : []);
+    }
+    // No owner fixing: last trade and mark never stand in, nothing is posted.
+    for (const ownerSettlementPrice of [null, undefined, '']) {
+      expect(
+        await runDatedFuturesSettlementJob({
+          style: 'dated',
+          expiryAt: EXPIRY,
+          now: AFTER,
+          ownerSettlementPrice,
+          lastTradePrice: '1',
+          markPrice: '2',
+          positions: [longPosition()],
+          ledger: {
+            post: async () => {
+              throw new Error('must not post');
+            },
+          },
+        }),
+      ).toEqual({ status: 'refused', reason: 'settlement_price_unset', code: DATED_FUTURES_SETTLEMENT_PRICE_UNSET, posts: [] });
+    }
+    // The listing refuses a dated contract with no fixing named, naming TRADE_FUTURES_SETTLEMENT_FIXING.
     try {
       resolveDatedFuturesListing({
         kind: 'futures',
@@ -240,5 +281,41 @@ describe('svc-trade dated futures settlement F3 money', () => {
         )
       `,
     ).rejects.toThrow();
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('router.ts not recut; mill never last-trade exitPrice; listing refuse kept (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/runDatedFuturesSettlementJob/);
+    expect(routerSrc).not.toMatch(/dated-futures-settlement/);
+    const mill = readFileSync(join(here, 'dated-futures-settlement.ts'), 'utf8');
+    expect(mill).toMatch(/void input\.lastTradePrice/);
+    expect(mill).toMatch(/void input\.markPrice/);
+    expect(mill).toMatch(/runDatedFuturesExpiryTick/);
+    expect(mill).toMatch(/planClose/);
+    expect(mill).toMatch(/dated-settle:/);
+    expect(mill).toMatch(/source: 'owner_fixing'/);
+    expect(mill).not.toMatch(/exitPrice:\s*input\.lastTradePrice/);
+    expect(mill).not.toMatch(/settlementPrice.*=.*lastTrade/);
+    expect(mill).not.toMatch(/settlementPrice.*=.*markPrice/);
+    const dated = readFileSync(join(here, 'dated-futures.ts'), 'utf8');
+    expect(dated).toMatch(/TRADE_FUTURES_SETTLEMENT_FIXING/);
+    expect(dated).toMatch(/dated_futures_fixing_unconfigured/);
+    try {
+      resolveDatedFuturesListing({
+        kind: 'futures',
+        futuresContractStyle: 'dated',
+        expiryAt: EXPIRY,
+        settlementFixingConfigured: '',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(TradeError);
+      expect((err as TradeError).code).toBe(DATED_FUTURES_FIXING_UNCONFIGURED);
+      expect((err as Error).message).toContain('TRADE_FUTURES_SETTLEMENT_FIXING');
+    }
   });
 });

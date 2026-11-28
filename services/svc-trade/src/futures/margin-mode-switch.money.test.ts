@@ -29,6 +29,10 @@ import {
   readIsolatedMarginAggregation,
   sqlMarginModeSwitchAudit,
 } from './margin-mode.js';
+import { refuseArmById } from '../ccxt-capability-matrix.js';
+import { presentOpenPositions } from '../private-rest.js';
+import { DOOR_USER_ID, doorHeaders, positionsOver, privateRestDoor, storedPositionRow, tradeRouterPaths } from './testing/doors.js';
+import type { FuturesJobsDeps } from './futures-jobs.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -71,7 +75,7 @@ const NOW = new Date('2026-08-06T12:00:00.000Z');
 const MARKET_A = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const MARKET_B = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
-describe('margin-mode switch refuse hitch (source)', () => {
+describe('margin-mode switch refuse hitch', () => {
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
     const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
     expect(src).not.toMatch(/\bpostgresAvailable\s*\(/);
@@ -80,62 +84,87 @@ describe('margin-mode switch refuse hitch (source)', () => {
   });
 
   it('router.ts has no margin-mode recut', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/margin-mode/);
-    expect(routerSrc).not.toMatch(/checkMarginModeSwitch/);
-    expect(routerSrc).not.toMatch(/attemptMarginModeSwitch/);
-    expect(routerSrc).not.toMatch(/readIsolatedMarginAggregation/);
+    // No tRPC procedure switches, previews or aggregates a margin mode: isolated-at-open is the only path.
+    expect(tradeRouterPaths().filter((p) => /marginMode|MarginMode|margin_mode|isolatedMargin|crossMargin/.test(p))).toEqual([]);
   });
 
-  it('POST /positions/margin-mode stays 501 — no live switch product', () => {
-    const privateRest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
-    expect(privateRest).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode'/);
-    expect(privateRest).toMatch(/setMarginModeArm\.httpStatus !== 501/);
-    const arm = privateRest.slice(privateRest.indexOf('const setMarginModeArm'));
-    const post = privateRest.indexOf("app.post('/api/v1/positions/margin-mode'");
-    expect(privateRest.indexOf('const setMarginModeArm')).toBeGreaterThan(-1);
-    expect(post).toBeGreaterThan(-1);
-    expect(arm.indexOf('derivativesNotSupported')).toBeGreaterThan(-1);
-    expect(privateRest.slice(post, post + 180)).toMatch(/derivativesNotSupported\('setMarginMode'/);
+  it('POST /positions/margin-mode stays 501 — no live switch product', async () => {
+    const app = await privateRestDoor();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/positions/margin-mode',
+      headers: doorHeaders(),
+      payload: { symbol: 'BTC/USDT-PERP', marginMode: 'cross' },
+    });
+    await app.close();
+    expect(res.statusCode).toBe(501);
+    expect(res.json()).toMatchObject({ code: 'NotSupported', intafacedCode: 'trade.margin_mode_unsupported' });
+    // The published refuse arm says the same.
+    expect(refuseArmById('setMarginMode')).toMatchObject({ httpStatus: 501 });
   });
 
-  it('mill attempt is check-then-audit — no ledger post, no margin_mode rewrite', () => {
-    const mill = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
-    expect(mill).toMatch(/export async function attemptMarginModeSwitch/);
-    expect(mill).toMatch(/export async function auditSwitchAttempt/);
-    expect(mill).toMatch(/export function readIsolatedMarginAggregation/);
-    const attemptStart = mill.indexOf('export async function attemptMarginModeSwitch');
-    const attempt = mill.slice(attemptStart, mill.indexOf('export interface IsolatedPositionMarginRow'));
-    expect(attempt).toMatch(/checkMarginModeSwitch\(input\)/);
-    expect(attempt).toMatch(/auditSwitchAttempt\(audit/);
-    expect(attempt.indexOf('checkMarginModeSwitch')).toBeLessThan(attempt.indexOf('auditSwitchAttempt'));
-    expect(mill).not.toMatch(/recipes\./);
-    expect(mill).not.toMatch(/futuresMarginLock/);
-    expect(mill).not.toMatch(/UPDATE\s+trade\.positions/i);
-    expect(mill).not.toMatch(/SET\s+margin_mode/i);
+  it('mill attempt is check-then-audit — no ledger post, no margin_mode rewrite', async () => {
+    // Every attempt, admitted or refused, writes one audit row with the check's own answer, and nothing else:
+    // the mill is handed no ledger and no position store, so it has nothing to post or rewrite with.
+    const ledger = new MemoryLedger();
+    const audit = memoryMarginModeSwitchAudit();
+    const admitted = await attemptMarginModeSwitch(
+      { from: 'isolated', to: 'isolated', hasOpenRisk: true, eligible: true, now: NOW },
+      audit,
+    );
+    expect(admitted).toEqual({ ok: true });
+    const refused = await attemptMarginModeSwitch({ from: 'isolated', to: 'cross', hasOpenRisk: false, eligible: true, now: NOW }, audit);
+    expect(refused).toMatchObject({ ok: false, code: CROSS_MARGIN_UNSUPPORTED });
+    expect(await audit.list()).toMatchObject([
+      { outcome: 'admitted', code: null, fromMode: 'isolated', toMode: 'isolated' },
+      { outcome: 'refused', code: CROSS_MARGIN_UNSUPPORTED, fromMode: 'isolated', toMode: 'cross' },
+    ]);
+    expect(ledger.journal()).toHaveLength(0);
   });
 
-  it('listOpen / presentOpenPositions do not net isolated IM as a cross book', () => {
-    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async listClosed'));
-    expect(listOpen).toMatch(/rows\.map\(\(row\) => this\.presentListed\(row, figures\.get\(row\.id\)\)\)/);
-    expect(listOpen).not.toMatch(/reduce\s*\(/);
-    expect(listOpen).not.toMatch(/sharedInitialMargin/);
-    const rest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
-    const present = rest.slice(rest.indexOf('export function presentOpenPositions'), rest.indexOf('export function suppliedPriceFields'));
-    expect(present).toMatch(/rows\.map\(\(row\) => \(\{ \.\.\.row, markSource: null \}\)/);
-    expect(present).not.toMatch(/reduce\s*\(/);
-    expect(present).not.toMatch(/sharedInitialMargin/);
+  it('listOpen / presentOpenPositions do not net isolated IM as a cross book', async () => {
+    const a = storedPositionRow({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001', margin_initial: '10000', margin_current: '10000' });
+    const b = storedPositionRow({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002', margin_initial: '25000', margin_current: '25000' });
+    const { service, feed } = positionsOver([a, b]);
+    feed('50000');
+    const listed = await service.listOpen(DOOR_USER_ID);
+    // Each row keeps its own initial margin; nothing adds them into one cross book.
+    expect(listed.map((p) => [p.marginMode, p.initialMargin])).toEqual([
+      ['isolated', '10000'],
+      ['isolated', '25000'],
+    ]);
+    expect(JSON.stringify(listed)).not.toMatch(/35000|sharedInitialMargin|crossBook/);
+    const wire = presentOpenPositions(listed);
+    expect(wire).toEqual(listed.map((p) => ({ ...p, markSource: null })));
+    expect(JSON.stringify(wire)).not.toMatch(/35000|sharedInitialMargin/);
   });
 
   it('owner numbers not invented — no new bps/haircut constants copied into jobs/index', () => {
-    const mill = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
-    expect(mill).not.toMatch(/haircut\s*[:=]/i);
-    expect(mill).not.toMatch(/\b\d+\s*bps\b/i);
-    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
-    expect(jobs).not.toMatch(/checkMarginModeSwitch|attemptMarginModeSwitch|readIsolatedMarginAggregation/);
-    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(index).not.toMatch(/checkMarginModeSwitch|attemptMarginModeSwitch|MARGIN_HAIRCUT|haircutBps/);
+    // Every refusal the mill can give names its reason without a bps or haircut figure of its own.
+    const answers = [
+      checkMarginModeSwitch({ from: 'isolated', to: 'cross', hasOpenRisk: false, eligible: true }),
+      checkMarginModeSwitch({ from: 'isolated', to: 'portfolio', hasOpenRisk: false, eligible: true }),
+      checkMarginModeSwitch({ from: 'isolated', to: 'cash', hasOpenRisk: false, eligible: true }),
+      checkMarginModeSwitch({ from: 'isolated', to: 'cross', hasOpenRisk: true, eligible: true }),
+      checkMarginModeSwitch({ from: 'isolated', to: 'cross', hasOpenRisk: false }),
+    ];
+    for (const answer of answers) {
+      expect(answer.ok).toBe(false);
+      expect(JSON.stringify(answer)).not.toMatch(/\d+\s*bps|haircut\s*[:=]\s*\d/i);
+    }
+    // The live jobs are assembled from FuturesJobsDeps, which has no margin-mode or haircut slot.
+    const base: FuturesJobsDeps = {
+      sql: {} as never,
+      ledger: {} as never,
+      matching: {} as never,
+      bus: null,
+      config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
+    };
+    // @ts-expect-error FuturesJobsDeps has no margin-mode switch
+    const withSwitch: FuturesJobsDeps = { ...base, marginModeSwitch: attemptMarginModeSwitch };
+    // @ts-expect-error FuturesJobsDeps has no haircut
+    const withHaircut: FuturesJobsDeps = { ...base, haircutBps: 1000 };
+    expect([withSwitch, withHaircut]).toHaveLength(2);
   });
 });
 
@@ -326,5 +355,68 @@ describe('svc-trade margin-mode switch F2 money', () => {
     expect(agg.positions).toHaveLength(2);
     expect(agg.positions.every((p) => p.marginMode === 'isolated')).toBe(true);
     expect(JSON.stringify(agg)).not.toMatch(/35000/);
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('owner numbers not invented — no new bps/haircut constants copied into jobs/index (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
+    expect(mill).not.toMatch(/haircut\s*[:=]/i);
+    expect(mill).not.toMatch(/\b\d+\s*bps\b/i);
+    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
+    expect(jobs).not.toMatch(/checkMarginModeSwitch|attemptMarginModeSwitch|readIsolatedMarginAggregation/);
+    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(index).not.toMatch(/checkMarginModeSwitch|attemptMarginModeSwitch|MARGIN_HAIRCUT|haircutBps/);
+  });
+
+  it('router.ts has no margin-mode recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/margin-mode/);
+    expect(routerSrc).not.toMatch(/checkMarginModeSwitch/);
+    expect(routerSrc).not.toMatch(/attemptMarginModeSwitch/);
+    expect(routerSrc).not.toMatch(/readIsolatedMarginAggregation/);
+  });
+
+  it('POST /positions/margin-mode stays 501 — no live switch product (kept source pin)', () => {
+    const privateRest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+    expect(privateRest).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode'/);
+    expect(privateRest).toMatch(/setMarginModeArm\.httpStatus !== 501/);
+    const arm = privateRest.slice(privateRest.indexOf('const setMarginModeArm'));
+    const post = privateRest.indexOf("app.post('/api/v1/positions/margin-mode'");
+    expect(privateRest.indexOf('const setMarginModeArm')).toBeGreaterThan(-1);
+    expect(post).toBeGreaterThan(-1);
+    expect(arm.indexOf('derivativesNotSupported')).toBeGreaterThan(-1);
+    expect(privateRest.slice(post, post + 180)).toMatch(/derivativesNotSupported\('setMarginMode'/);
+  });
+
+  it('mill attempt is check-then-audit — no ledger post, no margin_mode rewrite (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
+    expect(mill).toMatch(/export async function attemptMarginModeSwitch/);
+    expect(mill).toMatch(/export async function auditSwitchAttempt/);
+    expect(mill).toMatch(/export function readIsolatedMarginAggregation/);
+    const attemptStart = mill.indexOf('export async function attemptMarginModeSwitch');
+    const attempt = mill.slice(attemptStart, mill.indexOf('export interface IsolatedPositionMarginRow'));
+    expect(attempt).toMatch(/checkMarginModeSwitch\(input\)/);
+    expect(attempt).toMatch(/auditSwitchAttempt\(audit/);
+    expect(attempt.indexOf('checkMarginModeSwitch')).toBeLessThan(attempt.indexOf('auditSwitchAttempt'));
+    expect(mill).not.toMatch(/recipes\./);
+    expect(mill).not.toMatch(/futuresMarginLock/);
+    expect(mill).not.toMatch(/UPDATE\s+trade\.positions/i);
+    expect(mill).not.toMatch(/SET\s+margin_mode/i);
+  });
+
+  it('listOpen / presentOpenPositions do not net isolated IM as a cross book (kept source pin)', () => {
+    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async listClosed'));
+    expect(listOpen).toMatch(/rows\.map\(\(row\) => this\.presentListed\(row, figures\.get\(row\.id\)\)\)/);
+    expect(listOpen).not.toMatch(/reduce\s*\(/);
+    expect(listOpen).not.toMatch(/sharedInitialMargin/);
+    const rest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+    const present = rest.slice(rest.indexOf('export function presentOpenPositions'), rest.indexOf('export function suppliedPriceFields'));
+    expect(present).toMatch(/rows\.map\(\(row\) => \(\{ \.\.\.row, markSource: null \}\)/);
+    expect(present).not.toMatch(/reduce\s*\(/);
+    expect(present).not.toMatch(/sharedInitialMargin/);
   });
 });

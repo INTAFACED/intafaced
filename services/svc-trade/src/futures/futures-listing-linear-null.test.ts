@@ -10,27 +10,30 @@
  * 7. Collision: none — #1939 pins contractSize/leverage; this pins contract type
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fakeMarket, presentCcxtMarket } from '../public-rest.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, '..', 'public-rest.ts'), 'utf8');
-const presenter = src.match(/export function presentCcxtMarket[\s\S]*?^}/m)?.[0] ?? '';
 
 describe('listed markets do not invent linear/inverse without settle', () => {
-  it('extracts presentCcxtMarket', () => {
-    expect(presenter).toMatch(/export function presentCcxtMarket/);
-  });
-
   it('derives linear and inverse from the stored family, never from the kind', () => {
-    expect(presenter).toMatch(/linear:\s*family === null \? \(null as boolean \| null\) : family === 'linear'/);
-    expect(presenter).toMatch(/inverse:\s*family === null \? \(null as boolean \| null\) : family === 'inverse'/);
-    expect(presenter).toMatch(/settle:\s*settleAsset/);
-    expect(presenter).not.toMatch(/linear:\s*isSpot \? null : true/);
-    expect(presenter).not.toMatch(/inverse:\s*isSpot \? null : false/);
+    const perp = fakeMarket({ symbol: 'BTC/USDT-PERP', kind: 'futures' });
+    expect(presentCcxtMarket({ ...perp, futuresFamily: 'inverse' as const })).toMatchObject({
+      linear: false,
+      inverse: true,
+      family: 'inverse',
+    });
+    // Spot and options carry no family, so neither flag is claimed.
+    for (const kind of ['spot', 'options'] as const) {
+      const wire = presentCcxtMarket(fakeMarket({ symbol: `BTC/USDT-${kind}`, kind }));
+      expect(wire.linear, kind).toBeNull();
+      expect(wire.inverse, kind).toBeNull();
+      expect(wire.settle, kind).toBeNull();
+    }
   });
 
   it('keeps linear, inverse and settle null on a futures listing that recorded no family', () => {
@@ -50,5 +53,25 @@ describe('listed markets do not invent linear/inverse without settle', () => {
     };
     const wire = presentCcxtMarket(stored);
     expect(wire).toMatchObject({ linear: true, inverse: false, settle: 'USDT', family: 'linear', settleAsset: 'USDT' });
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, '..', 'public-rest.ts'), 'utf8');
+
+  const presenter = src.match(/export function presentCcxtMarket[\s\S]*?^}/m)?.[0] ?? '';
+
+  it('extracts presentCcxtMarket (kept source pin)', () => {
+    expect(presenter).toMatch(/export function presentCcxtMarket/);
+  });
+
+  it('derives linear and inverse from the stored family, never from the kind (kept source pin)', () => {
+    expect(presenter).toMatch(/linear:\s*family === null \? \(null as boolean \| null\) : family === 'linear'/);
+    expect(presenter).toMatch(/inverse:\s*family === null \? \(null as boolean \| null\) : family === 'inverse'/);
+    expect(presenter).toMatch(/settle:\s*settleAsset/);
+    expect(presenter).not.toMatch(/linear:\s*isSpot \? null : true/);
+    expect(presenter).not.toMatch(/inverse:\s*isSpot \? null : false/);
   });
 });

@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   FUNDING_RATE_UNSET,
@@ -27,7 +27,10 @@ import {
   requireOwnerFundingRate,
   settleRecipesFromRecon,
 } from './funding-recon.js';
-import type { FundingOpenPosition } from './funding-settlement.js';
+import { planFundingSettlement, type FundingOpenPosition } from './funding-settlement.js';
+import { fixedFundingRateSource } from './funding-rate-source.js';
+import { memoryFundingMarginApplier, memoryFundingPeriodStore, runFundingTick } from './funding-tick.js';
+import { tradeRouterPaths } from './testing/doors.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -107,28 +110,74 @@ describe('funding recon hitch (source) — one recipe, no invented rate', () => 
   });
 
   it('funding-recon.ts uses planFundingSettlement and does not invent a rate', () => {
-    const mill = readFileSync(join(here, 'funding-recon.ts'), 'utf8');
-    expect(mill).toMatch(/planFundingSettlement/);
-    expect(mill).toMatch(/requireOwnerFundingRate/);
-    expect(mill).toMatch(/predict/);
-    expect(mill).toMatch(/accrue/);
-    expect(mill).toMatch(/settle/);
-    expect(mill).toMatch(/correct/);
-    expect(mill).toMatch(/report/);
-    expect(mill).not.toMatch(/rate\s*=\s*['"]0['"]/);
-    expect(mill).not.toMatch(/\?\?\s*['"]0/);
+    // Every surface's recipe is exactly the one plan from the owner rate.
+    const plan = planFundingSettlement({
+      periodId: BASE.periodId,
+      marketId: BASE.marketId,
+      rate: OWNER_RATE,
+      maxAbsRate: OWNER_MAX,
+      positions: POSITIONS,
+    });
+    expect(plan.length).toBeGreaterThan(0);
+    for (const surface of FUNDING_SURFACES) {
+      const check = fundingRecipeForSurface(surface, { ...BASE, rate: OWNER_RATE });
+      expect(check, surface).toMatchObject({ ok: true, rate: OWNER_RATE, legs: plan });
+    }
+    expect(reconFundingSurfaces({ ...BASE, rate: OWNER_RATE })).toMatchObject({ ok: true, rate: OWNER_RATE, legs: plan });
+    // No rate stands in for an unset one: not '0', not a default.
+    for (const rate of [undefined, null, '', '  ', 0]) {
+      for (const surface of FUNDING_SURFACES) {
+        expect(fundingRecipeForSurface(surface, { ...BASE, rate }), `${surface} ${String(rate)}`).toEqual({
+          ok: false,
+          code: FUNDING_RATE_UNSET,
+          reason: expect.any(String),
+        });
+      }
+      expect(() => requireOwnerFundingRate(rate)).toThrow(/unset/);
+    }
   });
 
-  it('funding-tick.ts still plans via planFundingSettlement; no invented rate', () => {
-    const tick = readFileSync(join(here, 'funding-tick.ts'), 'utf8');
-    expect(tick).toMatch(/planFundingSettlement/);
-    expect(tick).toMatch(/never invent/);
+  it('funding-tick.ts still plans via planFundingSettlement; no invented rate', async () => {
+    const run = async (quote: { marketId: string; rate: string; periodId: string } | null) => {
+      const posts: PostRequest[] = [];
+      const result = await runFundingTick(
+        {
+          rates: fixedFundingRateSource(quote),
+          positions: { listOpenForMarket: async () => [...POSITIONS] },
+          periods: memoryFundingPeriodStore(),
+          margins: memoryFundingMarginApplier(),
+          maxAbsRate: OWNER_MAX,
+          ledger: {
+            async post(req) {
+              posts.push(req);
+              return { id: req.idempotencyKey, idempotencyKey: req.idempotencyKey } as never;
+            },
+          },
+          now: () => new Date('2026-09-03T00:00:00.000Z'),
+        },
+        BASE.marketId,
+      );
+      return { result, posts };
+    };
+    // The tick posts exactly the plan's recipes for the published rate.
+    const plan = planFundingSettlement({
+      periodId: BASE.periodId,
+      marketId: BASE.marketId,
+      rate: OWNER_RATE,
+      maxAbsRate: OWNER_MAX,
+      positions: POSITIONS,
+    });
+    const settled = await run({ marketId: BASE.marketId, rate: OWNER_RATE, periodId: BASE.periodId });
+    expect(settled.result).toMatchObject({ status: 'settled', rate: OWNER_RATE, legCount: plan.length });
+    expect(settled.posts).toEqual(plan.map((leg) => leg.recipe));
+    // With no published rate it invents none: skipped, nothing posted.
+    const none = await run(null);
+    expect(none.result).toMatchObject({ status: 'skipped', reason: 'no_rate' });
+    expect(none.posts).toEqual([]);
   });
 
   it('router.ts / svc-ledger (crates/svc-ledger) not recut', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/funding-recon/);
-    expect(routerSrc).not.toMatch(/funding_recon_diverged/);
+    expect(tradeRouterPaths().filter((path) => /funding.?recon|fundingRecon|diverged/i.test(path))).toEqual([]);
     const ledgerDir = join(repoRoot, 'crates', 'svc-ledger', 'src');
     const ledgerFiles = readdirSync(ledgerDir, { recursive: true, encoding: 'utf8' }) as string[];
     expect(ledgerFiles.some((f) => String(f).includes('funding-recon'))).toBe(false);
@@ -222,5 +271,37 @@ describe('svc-trade funding recon F7 money', () => {
     }
     const pays = ledger.journal().filter((tx) => tx.reason === recipes.futuresFundingPay.name || tx.reason.includes('funding'));
     expect(pays.length).toBe(recon.legs.length);
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('funding-recon.ts uses planFundingSettlement and does not invent a rate (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'funding-recon.ts'), 'utf8');
+    expect(mill).toMatch(/planFundingSettlement/);
+    expect(mill).toMatch(/requireOwnerFundingRate/);
+    expect(mill).toMatch(/predict/);
+    expect(mill).toMatch(/accrue/);
+    expect(mill).toMatch(/settle/);
+    expect(mill).toMatch(/correct/);
+    expect(mill).toMatch(/report/);
+    expect(mill).not.toMatch(/rate\s*=\s*['"]0['"]/);
+    expect(mill).not.toMatch(/\?\?\s*['"]0/);
+  });
+
+  it('funding-tick.ts still plans via planFundingSettlement; no invented rate (kept source pin)', () => {
+    const tick = readFileSync(join(here, 'funding-tick.ts'), 'utf8');
+    expect(tick).toMatch(/planFundingSettlement/);
+    expect(tick).toMatch(/never invent/);
+  });
+
+  it('router.ts / svc-ledger (crates/svc-ledger) not recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/funding-recon/);
+    expect(routerSrc).not.toMatch(/funding_recon_diverged/);
+    const ledgerDir = join(repoRoot, 'crates', 'svc-ledger', 'src');
+    const ledgerFiles = readdirSync(ledgerDir, { recursive: true, encoding: 'utf8' }) as string[];
+    expect(ledgerFiles.some((f) => String(f).includes('funding-recon'))).toBe(false);
   });
 });

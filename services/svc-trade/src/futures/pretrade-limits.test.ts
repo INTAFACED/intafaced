@@ -29,6 +29,7 @@ import {
 import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
 const UNIT = 1n; // one scaled unit = 1e-18
 const limits = (over: Partial<AdmissionLimits> = {}): AdmissionLimits => ({
   maxOrder: 1000,
@@ -157,8 +158,12 @@ describe('wire mapping and exempt doors', () => {
       expect(wire).toMatchObject({ status: 422, body: { code: 'InvalidOrder', intafacedCode: code } });
     }
   });
+});
 
-  it('closes, liquidation, ADL and reconcile never call the limits (reducing risk is never blocked)', () => {
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('closes, liquidation, ADL and reconcile never call the limits (reducing risk is never blocked) (kept source pin)', () => {
     for (const file of [
       'close-planner.ts',
       'liquidation-tick.ts',

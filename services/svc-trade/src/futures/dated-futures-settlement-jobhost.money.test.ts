@@ -27,6 +27,8 @@ import {
 } from '@intafaced/ledger-client';
 import { DATED_FUTURES_SETTLEMENT_PRICE_UNSET } from './dated-futures-settlement.js';
 import { startFuturesJobs } from './futures-jobs.js';
+import { futuresJobsHostDeps } from './futures-jobs-host.js';
+import { tradeEnvWith, tradeRouterPaths } from './testing/doors.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -119,12 +121,29 @@ describe('H6 JobHost money hitch (source)', () => {
   });
 
   it('router.ts not recut; live host does not invent a fixing price', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/runDatedFuturesSettlementJob/);
-    expect(routerSrc).not.toMatch(/dated-futures-settlement/);
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(indexSrc).toMatch(/settlementFixing:\s*env\.TRADE_FUTURES_SETTLEMENT_FIXING/);
-    expect(indexSrc).not.toMatch(/ownerSettlementPriceFor/);
+    expect(tradeRouterPaths().filter((path) => /dated.?settle|datedFuturesSettlement|settlementJob/i.test(path))).toEqual([]);
+    // The fixing stamp the host hands the jobs is the service env's, blank unless the owner names it.
+    expect(tradeEnvWith({}, ['TRADE_FUTURES_SETTLEMENT_FIXING']).TRADE_FUTURES_SETTLEMENT_FIXING).toBe('');
+    // What index.ts hands startFuturesJobs is futuresJobsHostDeps's answer: the env's stamp, and no owner price,
+    // last trade, mark or loader override, so a dated market settles only at an owner decimal.
+    const parts = {
+      sql: {} as never,
+      ledger: new MemoryLedger(),
+      matching: {} as never,
+      bus: null,
+      liquidationFeeFraction: null,
+      fundingMarketIds: [],
+      fundingMaxAbsRate: null,
+    };
+    for (const stamp of ['', 'owner-stamp']) {
+      const live = futuresJobsHostDeps(tradeEnvWith({ TRADE_FUTURES_SETTLEMENT_FIXING: stamp }), parts);
+      expect(live.config.settlementFixing).toBe(stamp);
+      for (const slot of ['ownerSettlementPriceFor', 'lastTradePrice', 'markPrice', 'datedSettlement']) {
+        expect(Object.hasOwn(live, slot)).toBe(false);
+      }
+      // @ts-expect-error the live deps have no owner settlement price slot
+      expect(live.ownerSettlementPriceFor).toBeUndefined();
+    }
   });
 });
 
@@ -265,5 +284,25 @@ describe('svc-trade dated futures settlement H6 JobHost money', () => {
     expect(row?.status).toBe('open');
     expect(DATED_FUTURES_SETTLEMENT_PRICE_UNSET).toBe('trade.dated_futures_settlement_price_unset');
     handle.stop();
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('router.ts not recut; live host does not invent a fixing price (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/runDatedFuturesSettlementJob/);
+    expect(routerSrc).not.toMatch(/dated-futures-settlement/);
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    // index.ts hands startFuturesJobs futuresJobsHostDeps's answer and nothing beside it; that function passes the env's stamp.
+    const callStart = indexSrc.indexOf('const futuresJobs = startFuturesJobs(');
+    const call = indexSrc.slice(callStart, indexSrc.indexOf('\n);\n', callStart));
+    expect(callStart).toBeGreaterThan(-1);
+    expect(call).toMatch(/^const futuresJobs = startFuturesJobs\(\s*futuresJobsHostDeps\(env, \{/);
+    expect(call.trimEnd()).toMatch(/\}\),$/);
+    expect(call).not.toMatch(/\.\.\.|lastTradePrice|markPrice|datedSettlement/);
+    // futuresJobsHostDeps passes the env's stamp: held by behaviour in this file's 'live host does not invent a fixing price'.
+    expect(indexSrc).not.toMatch(/ownerSettlementPriceFor/);
   });
 });

@@ -181,6 +181,7 @@ import { createConfiguredVenueMarkSource, createVenueMarketDataAdapter, parseVen
 import { presentVenueLatencyHealth } from './futures/venue-latency-health.js';
 import { presentInsuranceListingPolicy } from './futures/insurance-listing-gate.js';
 import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
+import { futuresJobsHostDeps } from './futures/futures-jobs-host.js';
 import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
@@ -207,8 +208,6 @@ import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spo
 import { liquidationPriceFor } from './futures/liquidation-price.js';
 import { registerRiskCalculatorRest } from './futures/risk-calculator-rest.js';
 import { registerCollateralRest } from './futures/collateral-rest.js';
-import { ownerLadderPolicy } from './futures/futures-ladder-owner-gate.js';
-import { publishedLiquidationLimitsFrom } from './futures/liquidation-limits.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
@@ -1153,35 +1152,24 @@ if (fundingMaxAbsRate) {
 }
 // Liquidation through the book (futures ADR slice 7): bound once the position service exists, below.
 const matchedLiquidation: { current: MatchedLiquidationPort | null } = { current: null };
-const futuresJobs = startFuturesJobs({
-  sql,
-  ledger,
-  matching,
-  bus,
-  venueMarkSource: venueMarkConfigured?.source ?? null,
-  markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
-    byId: (marketId) => trade.marketById(marketId),
-    bySymbol: (symbol) => trade.marketBySymbol(symbol),
-  }),
-  // Only futures orders through the book need a book mark; off, a depth read with no time still gives none (#5033).
-  stampDepthReads: env.TRADE_FUTURES_MATCHING_ENABLED,
-  // The owner's maintenance ladder (D3). Blank: no ladder, as before; a value that is not a coherent policy stops boot.
-  ladderPolicy: ownerLadderPolicy(env.TRADE_FUTURES_LADDER_POLICY),
-  config: {
-    enabled: env.TRADE_FUTURES_JOBS_ENABLED,
-    liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+const futuresJobs = startFuturesJobs(
+  futuresJobsHostDeps(env, {
+    sql,
+    ledger,
+    matching,
+    bus,
+    venueMarkSource: venueMarkConfigured?.source ?? null,
+    markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
+      byId: (marketId) => trade.marketById(marketId),
+      bySymbol: (symbol) => trade.marketBySymbol(symbol),
+    }),
     liquidationFeeFraction,
-    // Blank: unpublished, every liquidation refuses; a malformed value stops boot.
-    liquidationLimits: publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS),
-    fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
-    fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
     fundingMarketIds,
     fundingMaxAbsRate,
-    settlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
-  },
-  onError: (name, err) => app.log.error({ err, job: name }, 'futures job tick failed'),
-  matchedLiquidation,
-});
+    onError: (name, err) => app.log.error({ err, job: name }, 'futures job tick failed'),
+    matchedLiquidation,
+  }),
+);
 const profitSource = optionalProfitSourceFromConfig(env.TRADE_FUTURES_PROFIT_SOURCE);
 const maxLeverage = parseConfiguredMaxLeverage(env.TRADE_FUTURES_MAX_LEVERAGE);
 if (profitSource) {

@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { durableMarginCallNotifier, memoryMarginCallStore, presentMarginCallWire } from './margin-call-transport.js';
@@ -13,8 +10,12 @@ import {
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 import type { LedgerClient, PostRequest } from '@intafaced/ledger-client';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
 const USER = '11111111-1111-4111-8111-111111111111';
 const AT = new Date('2026-08-12T12:00:00.000Z');
 const amt = (s: string) => parseAmount(s);
@@ -172,8 +173,10 @@ describe('D26-P1-T1b — tick delivers into durable store', () => {
   });
 });
 
-describe('D26-P1-T1b — jobs wire (source pin)', () => {
-  it('futures-jobs assembles durable notifier into the liquidation tick', () => {
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('futures-jobs assembles durable notifier into the liquidation tick (kept source pin)', () => {
     const src = readFileSync(join(HERE, 'futures-jobs.ts'), 'utf8');
     expect(src).toContain('durableMarginCallNotifier');
     expect(src).toContain('sqlMarginCallStore');

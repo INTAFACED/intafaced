@@ -17,7 +17,8 @@ import { fileURLToPath } from 'node:url';
 import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, recipes } from '@intafaced/ledger-client';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { tradeRouterPaths } from './testing/doors.js';
 import {
   RFQ_CAPACITY_UNSET,
   RFQ_CAPACITY_UNSUPPORTED,
@@ -25,6 +26,7 @@ import {
   RFQ_OFFBOOK_LEVERAGE_UNSET,
   checkOptionsRfq,
   quoteOptionsRfq,
+  readOwnerRfqCapacity,
 } from './options-rfq.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -74,21 +76,40 @@ describe('options RFQ hitch (source) — matching not folded, book cap not inher
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('options-rfq.ts refuses unset capacity and does not copy book leverage', () => {
-    const mill = readFileSync(join(here, 'options-rfq.ts'), 'utf8');
-    expect(mill).toMatch(/checkOptionsRfq/);
-    expect(mill).toMatch(/quoteOptionsRfq/);
-    expect(mill).toMatch(/TRADE_OPTIONS_RFQ_CAPACITY/);
-    // #3771: the header comment reads "does NOT inherit the book's cap" (the test pinned a wording the source never had).
-    expect(mill).toMatch(/NOT inherit the book's cap/);
-    expect(mill).not.toMatch(/bookLeverageCap\s*\?\?/);
-    expect(mill).not.toMatch(/offBookLeverageCap\s*=\s*book/);
+  it('options-rfq.ts refuses unset capacity and does not copy book leverage', async () => {
+    vi.stubEnv('TRADE_OPTIONS_RFQ_CAPACITY', '');
+    vi.stubEnv('TRADE_OPTIONS_RFQ_OFFBOOK_LEVERAGE_CAP', '');
+    try {
+      // Capacity comes from TRADE_OPTIONS_RFQ_CAPACITY; blank refuses, naming it, before any post.
+      const posts: unknown[] = [];
+      const post = async (recipe: unknown) => posts.push(recipe);
+      const unset = await quoteOptionsRfq({ post, bookLeverageCap: 10 });
+      expect(unset).toMatchObject({ ok: false, code: RFQ_CAPACITY_UNSET });
+      expect(unset.ok ? '' : unset.reason).toContain('TRADE_OPTIONS_RFQ_CAPACITY');
+      expect(readOwnerRfqCapacity({ TRADE_OPTIONS_RFQ_CAPACITY: 'agency' })).toBe('agency');
+      vi.stubEnv('TRADE_OPTIONS_RFQ_CAPACITY', 'principal');
+      // The book's cap is never inherited: with no off-book cap named, a book cap of 10 still refuses.
+      for (const bookLeverageCap of [10, '10', 1]) {
+        expect(checkOptionsRfq({ bookLeverageCap })).toMatchObject({ ok: false, code: RFQ_OFFBOOK_LEVERAGE_UNSET });
+        expect(await quoteOptionsRfq({ post, bookLeverageCap })).toMatchObject({ ok: false, code: RFQ_OFFBOOK_LEVERAGE_UNSET });
+      }
+      expect(posts).toEqual([]);
+      // A named off-book cap is used as given, whatever the book's.
+      expect(checkOptionsRfq({ offBookLeverageCap: 5, bookLeverageCap: 10 })).toMatchObject({
+        ok: true,
+        capacity: 'principal',
+        offBookLeverageCap: 5,
+      });
+      vi.stubEnv('TRADE_OPTIONS_RFQ_OFFBOOK_LEVERAGE_CAP', '3');
+      expect(checkOptionsRfq({ bookLeverageCap: 10 })).toMatchObject({ ok: true, offBookLeverageCap: 3 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('router.ts / matching not recut', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/options-rfq/);
-    expect(routerSrc).not.toMatch(/rfq_capacity_unset/);
+    // The OTC desk's rfq.* procedures are spot RFQ; none is an options RFQ door.
+    expect(tradeRouterPaths().filter((path) => /options?.?rfq|rfq.?options?/i.test(path))).toEqual([]);
     const matchingFiles = readdirSync(matchingRoot, { recursive: true, encoding: 'utf8' }) as string[];
     expect(matchingFiles.length).toBeGreaterThan(0);
     expect(matchingFiles.some((f) => String(f).includes('options-rfq') || String(f).includes('options_rfq'))).toBe(false);
@@ -191,4 +212,29 @@ describe('svc-trade options RFQ E4 money', () => {
     expect(posted).toBe(0);
     expect(ledger.journal()).toHaveLength(0);
   });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('options-rfq.ts refuses unset capacity and does not copy book leverage (kept source pin)', () => {
+    const mill = readFileSync(join(here, 'options-rfq.ts'), 'utf8');
+    expect(mill).toMatch(/checkOptionsRfq/);
+    expect(mill).toMatch(/quoteOptionsRfq/);
+    expect(mill).toMatch(/TRADE_OPTIONS_RFQ_CAPACITY/);
+    // #3771: the header comment reads "does NOT inherit the book's cap" (the test pinned a wording the source never had).
+    expect(mill).toMatch(/NOT inherit the book's cap/);
+    expect(mill).not.toMatch(/bookLeverageCap\s*\?\?/);
+    expect(mill).not.toMatch(/offBookLeverageCap\s*=\s*book/);
+  });
+
+  it('router.ts / matching not recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/options-rfq/);
+    expect(routerSrc).not.toMatch(/rfq_capacity_unset/);
+    const matchingFiles = readdirSync(matchingRoot, { recursive: true, encoding: 'utf8' }) as string[];
+    expect(matchingFiles.length).toBeGreaterThan(0);
+    expect(matchingFiles.some((f) => String(f).includes('options-rfq') || String(f).includes('options_rfq'))).toBe(false);
+    // The recursive walk of svc-matching (including node_modules) takes ~3s alone and exceeds 5s under CI/full-suite load.
+  }, 30_000);
 });

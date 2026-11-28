@@ -8,9 +8,6 @@
  * 5. Paths: svc-trade/src/futures/dated-futures.ts
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { TradeError, type Market } from '../spot/types.js';
@@ -28,9 +25,12 @@ import {
   resolveDatedFuturesSettlement,
   runDatedFuturesExpiryTick,
 } from './dated-futures.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'dated-futures.ts'), 'utf8');
 
 const expiry = new Date('2026-12-26T08:00:00.000Z');
 const beforeExpiry = new Date('2026-12-25T08:00:00.000Z');
@@ -357,13 +357,33 @@ describe('expiry settlement — never invent last trade or mark', () => {
     });
   });
 
-  it('source pin: expiry job never assigns lastTrade or mark as settlement', () => {
-    expect(src).not.toMatch(/ownerSettlementPrice\s*\?\?\s*.*lastTrade/);
-    expect(src).not.toMatch(/settlementPrice.*=.*lastTrade/);
-    expect(src).not.toMatch(/settlementPrice.*=.*markPrice/);
-    expect(src).toMatch(/void input\.lastTradePrice/);
-    expect(src).toMatch(/void input\.markPrice/);
-    expect(src).toMatch(/source: 'owner_fixing'/);
+  it('expiry job never assigns lastTrade or mark as settlement', () => {
+    // With last trade and mark both present, a blank or unusable owner fixing refuses: neither price stands in.
+    for (const ownerSettlementPrice of [null, undefined, '', '   ', 'abc', '0', '-1']) {
+      for (const run of [resolveDatedFuturesSettlement, runDatedFuturesExpiryTick]) {
+        expect(
+          run({ style: 'dated', expiryAt: expiry, now: afterExpiry, ownerSettlementPrice, lastTradePrice: '100', markPrice: '101' }),
+          String(ownerSettlementPrice),
+        ).toEqual({ status: 'refused', reason: 'settlement_price_unset', code: DATED_FUTURES_SETTLEMENT_PRICE_UNSET });
+      }
+    }
+    // A named fixing settles at the fixing alone, whatever last trade and mark say.
+    for (const [lastTradePrice, markPrice] of [
+      ['100', '101'],
+      [null, null],
+      ['99999', '1'],
+    ] as const) {
+      expect(
+        runDatedFuturesExpiryTick({
+          style: 'dated',
+          expiryAt: expiry,
+          now: afterExpiry,
+          ownerSettlementPrice: '100.5',
+          lastTradePrice,
+          markPrice,
+        }),
+      ).toEqual({ status: 'ready', settlementPrice: '100.5', source: 'owner_fixing' });
+    }
   });
 
   it('dated contracts do not accrue perpetual funding', () => {
@@ -390,5 +410,20 @@ describe('CCXT listing — dated is future, perp is swap; expiry is listed not i
     expect(presented.future).toBe(true);
     expect(presented.expiry).toBe(expiry.getTime());
     expect(presented.expiryDatetime).toBe(expiry.toISOString());
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, 'dated-futures.ts'), 'utf8');
+
+  it('source pin: expiry job never assigns lastTrade or mark as settlement (kept source pin)', () => {
+    expect(src).not.toMatch(/ownerSettlementPrice\s*\?\?\s*.*lastTrade/);
+    expect(src).not.toMatch(/settlementPrice.*=.*lastTrade/);
+    expect(src).not.toMatch(/settlementPrice.*=.*markPrice/);
+    expect(src).toMatch(/void input\.lastTradePrice/);
+    expect(src).toMatch(/void input\.markPrice/);
+    expect(src).toMatch(/source: 'owner_fixing'/);
   });
 });

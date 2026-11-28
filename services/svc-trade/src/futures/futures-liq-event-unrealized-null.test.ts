@@ -9,22 +9,76 @@
  * 7. Collision: none — #1921 pins D3 bps / nextFunding; this pins PnL fields
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { sqlPositionCloser } from './tick-stores.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'tick-stores.ts'), 'utf8');
+
+/** Announce one liquidated position through the closer, over a row the sql answers, and return what reached the bus. */
+async function liquidatedEvent() {
+  const published: Array<{ type: string; payload: Record<string, unknown>; opts: unknown }> = [];
+  const sql = (() =>
+    Promise.resolve([
+      {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        user_id: '11111111-1111-4111-8111-111111111111',
+        market_id: 'm-perp',
+        side: 'long',
+        size: '2',
+        entry_price: '50000',
+        leverage: '5',
+        margin_initial: '20000',
+        margin_current: '150',
+        margin_mode: 'isolated',
+        funding_paid: '0',
+        liq_price: '40000',
+        symbol: 'BTC/USDT-PERP',
+      },
+    ])) as never;
+  const bus = {
+    publish: async (type: string, payload: Record<string, unknown>, opts: unknown) => {
+      published.push({ type, payload, opts });
+    },
+  };
+  await sqlPositionCloser(sql, bus as never).announceLiquidated!('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+    liquidationId: 'liq-1',
+    reason: 'test',
+  });
+  expect(published).toHaveLength(1);
+  return published[0]!;
+}
 
 describe('liquidated positionUpdated does not invent unrealized PnL', () => {
-  it('hard-nulls unrealizedPnl and markPrice on the liquidated publish', () => {
+  it('hard-nulls unrealizedPnl and markPrice on the liquidated publish', async () => {
+    const event = await liquidatedEvent();
+    expect(event.payload).toMatchObject({ status: 'liquidated', unrealizedPnl: null, markPrice: null, realizedPnl: null });
+    expect(event.opts).toEqual({ idempotencyKey: 'trade.position.liquidated:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:liq-1' });
+  });
+
+  it('does not format unrealized from a mark', async () => {
+    // The row's entry, size and liquidation price are on the event; nothing is valued off a mark.
+    const event = await liquidatedEvent();
+    expect(event.payload).toMatchObject({ entryPrice: '50000', contracts: '2', liquidationPrice: '40000', collateral: '150' });
+    expect(event.payload.unrealizedPnl).toBeNull();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, 'tick-stores.ts'), 'utf8');
+
+  it('hard-nulls unrealizedPnl and markPrice on the liquidated publish (kept source pin)', () => {
     expect(src).toMatch(/status:\s*'liquidated'/);
     expect(src).toMatch(/unrealizedPnl:\s*null/);
     expect(src).toMatch(/markPrice:\s*null/);
   });
 
-  it('does not format unrealized from a mark', () => {
+  it('does not format unrealized from a mark (kept source pin)', () => {
     expect(src).not.toMatch(/unrealizedPnl:\s*formatAmount/);
   });
 });

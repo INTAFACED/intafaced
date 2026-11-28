@@ -9,21 +9,44 @@
  * 7. Collision: none — REST/host pins are other files; this pins the bot matrix
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { CCXT_CAPABILITY_MATRIX, refuseArmById } from '../ccxt-capability-matrix.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, '..', 'ccxt-capability-matrix.ts'), 'utf8');
+
+const row = (name: string) => CCXT_CAPABILITY_MATRIX.find((r) => r.name === name);
 
 describe('CCXT matrix does not invent futures grace; margin-mode stays refuse', () => {
   it('fetchPositionMarginCall does not mention graceExpiresAt', () => {
+    const call = row('fetchPositionMarginCall');
+    expect(call).toMatchObject({ method: 'GET', path: '/api/v1/positions/:id/margin-call', kind: 'supported' });
+    expect(call!.notes).toMatch(/never invents/);
+    for (const r of CCXT_CAPABILITY_MATRIX) expect(JSON.stringify(r), r.name).not.toMatch(/grace/i);
+  });
+
+  it('setLeverage is supported within 10×; setMarginMode stays refuse', () => {
+    expect(row('setLeverage')).toMatchObject({ kind: 'supported' });
+    expect(row('setLeverage')!.notes).toMatch(/10×/);
+    expect(row('setMarginMode')).toMatchObject({ kind: 'refuse', refuseArmIds: ['setMarginMode'] });
+    expect(refuseArmById('setMarginMode')).toBeDefined();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, '..', 'ccxt-capability-matrix.ts'), 'utf8');
+
+  it('fetchPositionMarginCall does not mention graceExpiresAt (kept source pin)', () => {
     expect(src).toMatch(/fetchPositionMarginCall/);
     expect(src).not.toMatch(/graceExpiresAt/);
   });
 
-  it('setLeverage is supported within 10×; setMarginMode stays refuse', () => {
+  it('setLeverage is supported within 10×; setMarginMode stays refuse (kept source pin)', () => {
     expect(src).toMatch(/'setLeverage',\s*'supported'/);
     expect(src).toMatch(/route\('setMarginMode',\s*'refuse'/);
   });

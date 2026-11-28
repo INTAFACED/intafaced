@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { LedgerError, parseAmount as amt, type AccountRef, type Amount, type Balance, type PostRequest } from '@intafaced/ledger-client';
 import {
   memoryLiquidationAttemptStore,
@@ -15,6 +14,7 @@ import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import { ADL_UNCONFIGURED } from './adl-last-resort.js';
 import { type FuturesLadderPolicy } from './maintenance-ladder.js';
 import { deepFullCloseLadder } from './ladder-policy.test-harness.js';
+import { readFileSync } from 'node:fs';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 
@@ -838,8 +838,12 @@ describe('runLiquidationTick — C15 margin-call transport + grace non-start', (
     expect(closed).toHaveLength(0);
     expect(depth).not.toHaveBeenCalled();
   });
+});
 
-  it('does not fall back to DEFAULT placeholder rungs when policy is omitted', () => {
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('does not fall back to DEFAULT placeholder rungs when policy is omitted (kept source pin)', () => {
     const src = readFileSync(new URL('./liquidation-tick.ts', import.meta.url), 'utf8');
     expect(src).not.toMatch(/\?\?\s*DEFAULT_FUTURES_LADDER_POLICY/);
   });

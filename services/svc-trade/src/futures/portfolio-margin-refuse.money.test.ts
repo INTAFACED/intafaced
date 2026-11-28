@@ -30,6 +30,7 @@ import {
 import { memoryMarkBook } from './mark-source.js';
 import { FuturesError, type OpenPositionInput } from './position-service.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
+import { doorHeaders, privateRestDoor, tradeRouterPaths } from './testing/doors.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -73,30 +74,24 @@ const MARKET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const PROFIT_SOURCE = formatAccountRef(recipeProfitFundingAccount('USDT'));
 
 describe('portfolio-margin refuse hitch (source)', () => {
-  it('open path calls checkMarginModeForFuturesOpen before futuresMarginLock', () => {
-    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const openStart = src.indexOf('async open(input: OpenPositionInput, principal?: Principal');
-    expect(openStart).toBeGreaterThan(-1);
-    const open = src.slice(openStart);
-    const hitch = open.indexOf('checkMarginModeForFuturesOpen(input.marginMode)');
-    const lock = open.indexOf('recipes.futuresMarginLock({');
-    expect(hitch).toBeGreaterThan(-1);
-    expect(lock).toBeGreaterThan(-1);
-    expect(hitch).toBeLessThan(lock);
-  });
-
   it('router.ts has no margin-mode recut', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/margin-mode/);
-    expect(routerSrc).not.toMatch(/checkMarginModeForFuturesOpen/);
-    expect(routerSrc).not.toMatch(/portfolio_margin/);
-    expect(routerSrc).not.toMatch(/MARGIN_PRODUCTS_2X2/);
+    // No tRPC procedure switches, previews or aggregates a margin mode, or offers portfolio margin.
+    expect(
+      tradeRouterPaths().filter((path) => /marginMode|MarginMode|margin_mode|portfolio_?[mM]argin|PortfolioMargin|2x2/.test(path)),
+    ).toEqual([]);
   });
 
-  it('POST /positions/margin-mode stays 501 — isolated-at-open only', () => {
-    const privateRest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
-    expect(privateRest).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode'/);
-    expect(privateRest).toMatch(/setMarginModeArm\.httpStatus !== 501/);
+  it('POST /positions/margin-mode stays 501 — isolated-at-open only', async () => {
+    const app = await privateRestDoor();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/positions/margin-mode',
+      headers: doorHeaders(),
+      payload: { symbol: 'BTC/USDT-PERP', marginMode: 'portfolio' },
+    });
+    await app.close();
+    expect(res.statusCode).toBe(501);
+    expect(res.json()).toMatchObject({ code: 'NotSupported', intafacedCode: 'trade.margin_mode_unsupported' });
   });
 
   it('names all four segregation × calculation combinations', () => {
@@ -262,10 +257,56 @@ describe('svc-trade portfolio-margin-refuse (H8a PG-hard)', () => {
       expect(await avail()).toBe('100000');
     });
 
+    it('open path calls checkMarginModeForFuturesOpen before futuresMarginLock', async () => {
+      // Every mode the check refuses is refused by open with the check's own code, before any lock or row.
+      for (const mode of ['cross', 'portfolio', 'cash', 'bogus']) {
+        const check = checkMarginModeForFuturesOpen(mode);
+        expect(check.ok, mode).toBe(false);
+        await expect(open(mode, `f1-order-${mode}`), mode).rejects.toMatchObject({ code: check.ok ? '' : check.code });
+        expect(lockPosts(), mode).toHaveLength(0);
+        expect(await sql`SELECT id FROM trade.positions`, mode).toHaveLength(0);
+      }
+      expect(await avail()).toBe('100000');
+      // The mode the check admits reaches the lock.
+      expect(checkMarginModeForFuturesOpen('isolated')).toEqual({ ok: true });
+      await open('isolated', 'f1-order-isolated');
+      expect(lockPosts()).toHaveLength(1);
+    });
+
     it('FuturesError carries mill string codes — no TradeErrorCode add', () => {
       const err = new FuturesError('portfolio unset', PORTFOLIO_MARGIN_UNSET, 400);
       expect(err.code).toBe('trade.portfolio_margin_unset');
       expect(err).toBeInstanceOf(Error);
     });
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('open path calls checkMarginModeForFuturesOpen before futuresMarginLock (kept source pin)', () => {
+    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    const openStart = src.indexOf('async open(input: OpenPositionInput, principal?: Principal');
+    expect(openStart).toBeGreaterThan(-1);
+    const open = src.slice(openStart);
+    const hitch = open.indexOf('checkMarginModeForFuturesOpen(input.marginMode)');
+    const lock = open.indexOf('recipes.futuresMarginLock({');
+    expect(hitch).toBeGreaterThan(-1);
+    expect(lock).toBeGreaterThan(-1);
+    expect(hitch).toBeLessThan(lock);
+  });
+
+  it('router.ts has no margin-mode recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/margin-mode/);
+    expect(routerSrc).not.toMatch(/checkMarginModeForFuturesOpen/);
+    expect(routerSrc).not.toMatch(/portfolio_margin/);
+    expect(routerSrc).not.toMatch(/MARGIN_PRODUCTS_2X2/);
+  });
+
+  it('POST /positions/margin-mode stays 501 — isolated-at-open only (kept source pin)', () => {
+    const privateRest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+    expect(privateRest).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode'/);
+    expect(privateRest).toMatch(/setMarginModeArm\.httpStatus !== 501/);
   });
 });

@@ -9,15 +9,16 @@
  * 5. Paths: futures/liquidation-tick.ts
  * 6. RED: underwater position without ladder posts a full close
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount as amt, type AccountRef, type Amount, type Balance, type PostRequest } from '@intafaced/ledger-client';
 import { memoryLiquidationAttemptStore, runLiquidationTick, type LiquidationPositionRow } from './liquidation-tick.js';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
 const USER = '11111111-1111-4111-8111-111111111111';
 
 function underwaterLong(): LiquidationPositionRow {
@@ -35,14 +36,6 @@ function underwaterLong(): LiquidationPositionRow {
 }
 
 describe('liquidation tick without published ladder refuses', () => {
-  it('liquidation-tick.ts does not fall through to planLiquidation', () => {
-    const src = readFileSync(join(HERE, 'liquidation-tick.ts'), 'utf8');
-    expect(src).not.toMatch(/planLiquidation\(/);
-    expect(src).not.toMatch(/summarizeLiquidation/);
-    expect(src).toMatch(/trade\.ladder_unset/);
-    expect(src).toMatch(/if \(!deps\.ladder\)/);
-  });
-
   it('omitted ladder skips an underwater position — no post, no close', async () => {
     const posts: PostRequest[] = [];
     const closed: string[] = [];
@@ -84,5 +77,17 @@ describe('liquidation tick without published ladder refuses', () => {
     expect(result.items[0]!.summary).toMatch(/will not flatten/);
     expect(posts).toHaveLength(0);
     expect(closed).toHaveLength(0);
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('liquidation-tick.ts does not fall through to planLiquidation (kept source pin)', () => {
+    const src = readFileSync(join(HERE, 'liquidation-tick.ts'), 'utf8');
+    expect(src).not.toMatch(/planLiquidation\(/);
+    expect(src).not.toMatch(/summarizeLiquidation/);
+    expect(src).toMatch(/trade\.ladder_unset/);
+    expect(src).toMatch(/if \(!deps\.ladder\)/);
   });
 });

@@ -291,12 +291,46 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
       await expect(limitBuy('100', '2', 'o-after-zero')).rejects.toMatchObject({ code: LIMIT_MAX_ORDER });
     });
 
-    it('algo children and replacements reach the same door (source pin)', () => {
-      const src = tradeServiceSource();
-      expect(src).toMatch(/placeChild:[\s\S]{0,1800}(?:this|svc)\.placeOrderInner\(/);
-      expect(src).toMatch(/const replacement = await (?:this|svc)\.placeOrder\(/);
-      expect(src).toMatch(/assertOwnerOrderLimit\(market, input\.qty, fundingPrice/);
-      expect(src).toMatch(/reduceOnly\?: boolean \}\)\.reduceOnly !== true/);
+    it('algo children reach the same max-order door as a direct order', async () => {
+      // A TWAP child is an ordinary order: a slice over TRADE_MAX_ORDER is refused at the same door, before any
+      // hold or submit; a slice inside it is placed. Replacements and reduce-only are driven below.
+      // The same service, with the bot verification gate off: this test is about the order limit, not bot access.
+      const algoTrade = new TradeService(sql, ledger, matching, new StubPerks(), bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        marketSlippageCapBps: 150,
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        botVerification: { mode: 'off' },
+      });
+      const twap = (clientAlgoId: string) =>
+        algoTrade.createTwap(principalFor(ALICE), {
+          marketId: spot.id,
+          side: 'buy',
+          totalQty: amt('2'),
+          durationMs: 120_000,
+          sliceIntervalMs: 60_000,
+          limitPrice: amt('100'),
+          clientAlgoId,
+        });
+      onlyOrder('50'); // each 1 BTC slice at 100 is 100 USDT notional
+      const over = await twap('algo-over');
+      const holdsBefore = holdPosts().length;
+      const refused = await algoTrade.tickAlgo(over.id);
+      // The engine records the child's refusal as a miss carrying the order door's own max-order answer.
+      expect(refused).toMatchObject({
+        kind: 'miss',
+        miss: {
+          code: 'trade.algo_child_refused',
+          reason: expect.stringMatching(/exceeds the max-order limit of 50 USDT \(TRADE_MAX_ORDER\)/),
+        },
+      });
+      expect(holdPosts()).toHaveLength(holdsBefore);
+      expect(matching.submitted).toHaveLength(0);
+      onlyOrder('100');
+      const within = await twap('algo-within');
+      await algoTrade.tickAlgo(within.id);
+      expect(matching.submitted).toHaveLength(1);
+      expect(holdPosts().length).toBeGreaterThan(holdsBefore);
     });
   });
 
@@ -514,5 +548,17 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
       expect(closed.status).toBe('closed');
       await expect(open('1', 'long', 'fz-2')).rejects.toBeInstanceOf(FuturesError);
     });
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('algo children and replacements reach the same door (source pin) (kept source pin)', () => {
+    const src = tradeServiceSource();
+    expect(src).toMatch(/placeChild:[\s\S]{0,1800}(?:this|svc)\.placeOrderInner\(/);
+    expect(src).toMatch(/const replacement = await (?:this|svc)\.placeOrder\(/);
+    expect(src).toMatch(/assertOwnerOrderLimit\(market, input\.qty, fundingPrice/);
+    expect(src).toMatch(/reduceOnly\?: boolean \}\)\.reduceOnly !== true/);
   });
 });

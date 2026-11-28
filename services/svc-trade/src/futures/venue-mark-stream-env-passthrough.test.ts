@@ -9,16 +9,34 @@
  * 7. Collision: #1866 public-rest listing — this PR only health + venue-latency-health
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { tradeEnvWith } from './testing/doors.js';
+import { presentVenueLatencyHealth } from './venue-latency-health.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const indexSource = readFileSync(join(here, '..', 'index.ts'), 'utf8');
 
 describe('venue mark stream env passthrough into /health', () => {
   it('live host passes TRADE_VENUE_MARK_STREAM into presentVenueLatencyHealth', () => {
+    // Unset is off; set on is on; the health line reports exactly what the env says.
+    const unset = tradeEnvWith({}, ['TRADE_VENUE_MARK_STREAM']).TRADE_VENUE_MARK_STREAM;
+    const on = tradeEnvWith({ TRADE_VENUE_MARK_STREAM: 'true' }).TRADE_VENUE_MARK_STREAM;
+    expect(unset).toBe(false);
+    expect(on).toBe(true);
+    expect(presentVenueLatencyHealth(null, new Date(), { streamEnabled: unset }).streamEnabled).toBe(false);
+    expect(presentVenueLatencyHealth(null, new Date(), { streamEnabled: on }).streamEnabled).toBe(true);
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const indexSource = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+
+  it('live host passes TRADE_VENUE_MARK_STREAM into presentVenueLatencyHealth (kept source pin)', () => {
     expect(indexSource).toMatch(/presentVenueLatencyHealth\([\s\S]*streamEnabled:\s*env\.TRADE_VENUE_MARK_STREAM/);
   });
 });

@@ -22,7 +22,16 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { parseAmount as amt, type AccountRef, type Amount, type Balance, type PostRequest } from '@intafaced/ledger-client';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
-import { ADL_UNCONFIGURED, sqlAdlDisclosureEventStore } from './adl-last-resort.js';
+import {
+  ADL_UNCONFIGURED,
+  memoryAdlDisclosureEventStore,
+  runAdlLastResort,
+  sqlAdlDisclosureEventStore,
+  type AdlOwnerPolicy,
+} from './adl-last-resort.js';
+import { memoryAdlDisclosureStore } from './adl-disclosure.js';
+import { tradeRouterPaths } from './testing/doors.js';
+import type { FuturesJobsDeps } from './futures-jobs.js';
 import { depthNotionalSourceFromDepth } from './mark-from-depth.js';
 import { planLiquidation } from './liquidation-planner.js';
 import { DEFAULT_FUTURES_LADDER_POLICY, deepFullCloseLadder } from './ladder-policy.test-harness.js';
@@ -124,47 +133,96 @@ describe('liquidation waterfall hitch (source)', () => {
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('adl-last-resort.ts does not default maxReduceBps', () => {
-    const src = readFileSync(join(here, 'adl-last-resort.ts'), 'utf8');
-    expect(src).not.toMatch(/maxReduceBps\s*=/);
+  it('adl-last-resort.ts does not default maxReduceBps', async () => {
+    // A policy with no maxReduceBps (or an invalid one) is unconfigured: the mill supplies no default.
+    for (const policy of [{}, { maxReduceBps: 0 }, { maxReduceBps: -1 }, { maxReduceBps: 10_001 }]) {
+      const reduces: string[] = [];
+      const outcome = await runAdlLastResort({
+        bankrupt: { positionId: underwaterLong().positionId, userId: USER, marketId: 'm1', side: 'long', uncoveredShortfall: amt('10') },
+        candidates: [{ positionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', userId: USER, marketId: 'm1', side: 'short', size: amt('1') }],
+        disclosureAcks: memoryAdlDisclosureStore(),
+        reducer: {
+          async reduce(input) {
+            reduces.push(input.positionId);
+            return { sizeClosed: input.sizeClosed };
+          },
+        },
+        policy: policy as AdlOwnerPolicy,
+        events: memoryAdlDisclosureEventStore(),
+        at: AT,
+        newEventId: () => {
+          throw new Error('no ADL event without an owner policy');
+        },
+      });
+      expect(outcome, JSON.stringify(policy)).toMatchObject({ action: 'refused', code: ADL_UNCONFIGURED });
+      expect(reduces).toEqual([]);
+    }
   });
 
   it('router.ts has no liquidation recut', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/runLiquidationTick/);
-    expect(routerSrc).not.toMatch(/liquidation-tick/);
-    expect(routerSrc).not.toMatch(/liquidation-planner/);
-    expect(routerSrc).not.toMatch(/adl-last-resort/);
+    expect(tradeRouterPaths().filter((path) => /liquidationTick|runLiquidation|liquidationPlan|\badl|Adl|lastResort/.test(path))).toEqual(
+      [],
+    );
   });
 
   it('live jobs omit ADL policy and do not copy test ladder bps', () => {
-    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
-    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(jobs).not.toMatch(/WIDE_POLICY/);
-    expect(jobs).not.toMatch(/maxReduceBps\s*:/);
-    expect(jobs).not.toMatch(/startFuturesJobs[\s\S]{0,400}adl:/);
-    expect(index).not.toMatch(/WIDE_POLICY/);
-    expect(index).not.toMatch(/maxReduceBps/);
-    expect(index).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}adl:/);
+    // What the live jobs hand the tick (no adl, the passed ladder or none) is asserted in
+    // futures-jobs-tick-wiring.test.ts; the jobs' deps have no slot to carry either.
+    const base: FuturesJobsDeps = {
+      sql: {} as never,
+      ledger: {} as never,
+      matching: {} as never,
+      bus: null,
+      config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
+    };
+    // @ts-expect-error FuturesJobsDeps has no `adl`: the live jobs cannot carry an ADL policy.
+    const withAdl: FuturesJobsDeps = { ...base, adl: { policy: { maxReduceBps: 10_000 } } };
+    // @ts-expect-error FuturesJobsDeps has no `maxReduceBps`.
+    const withBps: FuturesJobsDeps = { ...base, maxReduceBps: 10_000 };
+    expect(withAdl.ladderPolicy).toBeUndefined();
+    expect(withBps.ladderPolicy).toBeUndefined();
   });
 
-  it('tick insurance-underfunded path calls the ADL gate (ladder only — no flatten fallback)', () => {
-    const tick = readFileSync(join(here, 'liquidation-tick.ts'), 'utf8');
-    expect(tick).toMatch(/parkUnderfundedWithAdl/);
-    const first = tick.indexOf('parkUnderfundedWithAdl');
-    const second = tick.indexOf('parkUnderfundedWithAdl', first + 1);
-    const third = tick.indexOf('parkUnderfundedWithAdl', second + 1);
-    const fourth = tick.indexOf('parkUnderfundedWithAdl', third + 1);
-    expect(first).toBeGreaterThan(-1);
-    expect(second).toBeGreaterThan(first);
-    // import + the decision-time park + the replay park (a stored rung whose insurance leg the ledger refuses).
-    expect(third).toBeGreaterThan(second);
-    expect(fourth).toBe(-1);
-    expect(tick).toMatch(/checkInsuranceBound/);
-    const bound = tick.indexOf('checkInsuranceBound({');
-    const park = tick.indexOf('parkUnderfundedWithAdl({');
-    expect(bound).toBeGreaterThan(-1);
-    expect(park).toBeGreaterThan(bound);
+  it('tick insurance-underfunded path calls the ADL gate (ladder only — no flatten fallback)', async () => {
+    const run = async (insuranceAvailable: Amount) => {
+      const { ledger, posts } = recordingLedger({ insuranceAvailable });
+      const closed: string[] = [];
+      const result = await runLiquidationTick({
+        marks: quotedAt('80'),
+        positions: { listOpen: async () => [underwaterLong()] },
+        closer: {
+          async markLiquidated(id: string) {
+            closed.push(id);
+          },
+        },
+        attempts: memoryLiquidationAttemptStore(),
+        acceptedMarks: memoryAcceptedMarkStore(),
+        ledger,
+        now: () => AT,
+        adl: {
+          policy: null,
+          reducer: {
+            reduce: async () => {
+              throw new Error('reducer must stay idle');
+            },
+          },
+        },
+        ladder: deepFullCloseLadder(),
+      });
+      return { result, posts, closed };
+    };
+    // Insurance short of what is owed: the insurance bound refuses first, then the ADL gate answers
+    // (adl_unconfigured), and nothing is flattened, posted or closed.
+    const short = await run(amt('9'));
+    expect(short.result.items[0]).toMatchObject({ outcome: 'skipped_insurance_underfunded', reason: ADL_UNCONFIGURED });
+    expect(short.posts).toEqual([]);
+    expect(short.closed).toEqual([]);
+    // Insurance that covers it: the bound passes and the ADL gate is never reached.
+    const covered = await run(amt('1000000'));
+    expect(covered.result.items[0]!.outcome).not.toBe('skipped_insurance_underfunded');
+    expect(covered.result.items[0]!.reason).not.toBe(ADL_UNCONFIGURED);
+    // The replay park (a stored rung whose insurance leg the ledger refuses) is driven in
+    // liquidation-rung-machine.test.ts ("M2: when insurance genuinely cannot cover the grown leg ...").
   });
 
   it('underfunded insurance + omitted/null ADL policy → adl_unconfigured, reducer idle, zero posts', async () => {
@@ -337,5 +395,52 @@ describe('liquidation waterfall B8 money', () => {
     expect(result.items[0]!.outcome).toBe('skipped_no_depth');
     expect(posts).toHaveLength(0);
     expect(reduced).toEqual([]);
+  });
+});
+
+// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
+// Each pin below stays until an importable host assembly holds the same property by behaviour.
+describe('kept source pins', () => {
+  it('live jobs omit ADL policy and do not copy test ladder bps (kept source pin)', () => {
+    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
+    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(jobs).not.toMatch(/WIDE_POLICY/);
+    expect(jobs).not.toMatch(/maxReduceBps\s*:/);
+    expect(jobs).not.toMatch(/startFuturesJobs[\s\S]{0,400}adl:/);
+    expect(index).not.toMatch(/WIDE_POLICY/);
+    expect(index).not.toMatch(/maxReduceBps/);
+    expect(index).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}adl:/);
+  });
+
+  it('adl-last-resort.ts does not default maxReduceBps (kept source pin)', () => {
+    const src = readFileSync(join(here, 'adl-last-resort.ts'), 'utf8');
+    expect(src).not.toMatch(/maxReduceBps\s*=/);
+  });
+
+  it('router.ts has no liquidation recut (kept source pin)', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/runLiquidationTick/);
+    expect(routerSrc).not.toMatch(/liquidation-tick/);
+    expect(routerSrc).not.toMatch(/liquidation-planner/);
+    expect(routerSrc).not.toMatch(/adl-last-resort/);
+  });
+
+  it('tick insurance-underfunded path calls the ADL gate (ladder only — no flatten fallback) (kept source pin)', () => {
+    const tick = readFileSync(join(here, 'liquidation-tick.ts'), 'utf8');
+    expect(tick).toMatch(/parkUnderfundedWithAdl/);
+    const first = tick.indexOf('parkUnderfundedWithAdl');
+    const second = tick.indexOf('parkUnderfundedWithAdl', first + 1);
+    const third = tick.indexOf('parkUnderfundedWithAdl', second + 1);
+    const fourth = tick.indexOf('parkUnderfundedWithAdl', third + 1);
+    expect(first).toBeGreaterThan(-1);
+    expect(second).toBeGreaterThan(first);
+    // import + the decision-time park + the replay park (a stored rung whose insurance leg the ledger refuses).
+    expect(third).toBeGreaterThan(second);
+    expect(fourth).toBe(-1);
+    expect(tick).toMatch(/checkInsuranceBound/);
+    const bound = tick.indexOf('checkInsuranceBound({');
+    const park = tick.indexOf('parkUnderfundedWithAdl({');
+    expect(bound).toBeGreaterThan(-1);
+    expect(park).toBeGreaterThan(bound);
   });
 });

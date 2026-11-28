@@ -2,7 +2,7 @@
  * S34 markets — services/svc-trade/src/futures
  * MKT-0057, MKT-0082, MKT-0085, MKT-0105, MKT-0106, MKT-0107, MKT-0126, MKT-0128.
  */
-import { readFileSync } from 'node:fs';
+import { tradeEnvWith } from './testing/doors.js';
 import { publishedLiquidationLimitsFrom } from './liquidation-limits.js';
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
@@ -17,6 +17,8 @@ import { exportMarkHistory } from './mark-history.js';
 import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
 import { registerInternalFundingRate } from './internal-funding-rate.js';
 import type { FundingRateEntry } from './funding-rate-source.js';
+import { readFileSync } from 'node:fs';
+import { futuresJobsHostDeps } from './futures-jobs-host.js';
 
 const NOW = new Date('2026-08-06T12:00:00.000Z');
 const SECRET = 'test-internal-secret-for-trade-funding-rate';
@@ -92,15 +94,12 @@ describe('MKT-0057 unpublished liquidation max age', () => {
   });
 
   it('production liquidation jobs pass null published limits until the owner publishes them', () => {
-    // The jobs pass only the configured publication, and nothing else: no compiled figure stands in for it.
-    const src = readFileSync(new URL('./futures-jobs.ts', import.meta.url), 'utf8');
-    expect(src).toContain('publishedLiquidationLimits: deps.config.liquidationLimits ?? null');
-    expect(src.match(/publishedLiquidationLimits:/g)).toHaveLength(1);
+    // The jobs pass only the configured publication, and nothing else: futures-jobs-tick-wiring.test.ts ("passes null
+    // published limits until the owner publishes them") runs the live job and reads the tick's input.
     // The service reads that publication from its env alone, which is blank by default: blank is null.
-    const index = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
-    expect(index).toContain('liquidationLimits: publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS)');
-    const env = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
-    expect(env).toContain("TRADE_FUTURES_LIQUIDATION_LIMITS: z.string().default('')");
+    const env = tradeEnvWith({}, ['TRADE_FUTURES_LIQUIDATION_LIMITS']);
+    expect(env.TRADE_FUTURES_LIQUIDATION_LIMITS).toBe('');
+    expect(publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS)).toBeNull();
     expect(publishedLiquidationLimitsFrom('')).toBeNull();
   });
 });
@@ -451,5 +450,32 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
     expect(published).toHaveLength(1);
     expect(history).toHaveLength(1);
     await app.close();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('production liquidation jobs pass null published limits until the owner publishes them (kept source pin)', () => {
+    // The jobs pass only the configured publication, and nothing else: no compiled figure stands in for it.
+    const src = readFileSync(new URL('./futures-jobs.ts', import.meta.url), 'utf8');
+    expect(src).toContain('publishedLiquidationLimits: deps.config.liquidationLimits ?? null');
+    expect(src.match(/publishedLiquidationLimits:/g)).toHaveLength(1);
+    // The service reads that publication from its env alone, which is blank by default: blank is null.
+    // index.ts hands startFuturesJobs futuresJobsHostDeps's answer alone (dated-futures-settlement-jobhost.money's kept
+    // pin); that answer carries the env's published limits, blank as none.
+    const hostParts = {
+      sql: {} as never,
+      ledger: {} as never,
+      matching: {} as never,
+      bus: null,
+      liquidationFeeFraction: null,
+      fundingMarketIds: [],
+      fundingMaxAbsRate: null,
+    };
+    expect(futuresJobsHostDeps(tradeEnvWith({}, ['TRADE_FUTURES_LIQUIDATION_LIMITS']), hostParts).config.liquidationLimits).toBeNull();
+    const env = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
+    expect(env).toContain("TRADE_FUTURES_LIQUIDATION_LIMITS: z.string().default('')");
+    expect(publishedLiquidationLimitsFrom('')).toBeNull();
   });
 });

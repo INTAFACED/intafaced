@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { reportLiquidationTick } from './futures-jobs.js';
 import type { LiquidationTickResult } from './liquidation-tick.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 function tick(items: LiquidationTickResult['items']): LiquidationTickResult {
   return { scanned: items.length, liquidated: 0, partial: 0, marginCalls: 0, errored: 0, parked: 0, items };
@@ -69,14 +69,6 @@ describe('reportLiquidationTick: margin alerts', () => {
   });
 });
 
-describe('startFuturesJobs wiring', () => {
-  it('hands the liquidation tick the SQL rung store (a rung that is not stored cannot be replayed)', () => {
-    const src = readFileSync(fileURLToPath(new URL('./futures-jobs.ts', import.meta.url)), 'utf8');
-    expect(src).toMatch(/const rungs = sqlLiquidationRungStore\(deps\.sql\)/);
-    expect(src).toMatch(/runLiquidationTick\(\{[\s\S]*?\brungs,[\s\S]*?\}\)/);
-  });
-});
-
 describe('reportLiquidationTick: margin divergence', () => {
   it('raises a row/pot divergence at error level on every tick, even for a healthy position', () => {
     const logged: { name: string; message: string }[] = [];
@@ -112,5 +104,15 @@ describe('reportLiquidationTick: insurance grown', () => {
     );
     expect(logged).toHaveLength(1);
     expect(logged[0]).toContain('trade.liquidation_insurance_grown positionId=pos-g rungId=r-9 amount=12');
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('hands the liquidation tick the SQL rung store (a rung that is not stored cannot be replayed) (kept source pin)', () => {
+    const src = readFileSync(fileURLToPath(new URL('./futures-jobs.ts', import.meta.url)), 'utf8');
+    expect(src).toMatch(/const rungs = sqlLiquidationRungStore\(deps\.sql\)/);
+    expect(src).toMatch(/runLiquidationTick\(\{[\s\S]*?\brungs,[\s\S]*?\}\)/);
   });
 });
