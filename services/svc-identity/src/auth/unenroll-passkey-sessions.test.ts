@@ -1,9 +1,18 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PlaceDoor } from './place-door.js';
+import * as unenrollMod from './unenroll-passkey.js';
+import * as sessionsMod from './revoke-all-sessions.js';
 import { unenrollPasskeyAndRevokeSessions } from './unenroll-passkey-sessions.js';
+
+// The two steps it is made of, watched: each still runs for real.
+vi.mock('./unenroll-passkey.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./unenroll-passkey.js')>();
+  return { ...real, unenrollPasskey: vi.fn(real.unenrollPasskey) };
+});
+vi.mock('./revoke-all-sessions.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./revoke-all-sessions.js')>();
+  return { ...real, revokeAllSessions: vi.fn(real.revokeAllSessions) };
+});
 
 /** The factor-changed outbox rows each removal queued. */
 const factorNotices: unknown[][] = [];
@@ -15,8 +24,10 @@ type SessionRow = { id: string; user_id: string; revoked: boolean };
 function combinedStore(users: UserRow[], sessions: SessionRow[]) {
   let sessionWrites = 0;
   const written: unknown[] = [];
+  const statements: string[] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push(text.replace(/\s+/g, ' ').trim());
     // The last-way-in check (I-account-lifecycle-07) reads the account's methods: these accounts also hold a password.
     if (text.includes('password_set')) {
       const userId = values[0];
@@ -95,11 +106,13 @@ function combinedStore(users: UserRow[], sessions: SessionRow[]) {
     users,
     sessions,
     written,
+    statements,
   }) as Parameters<typeof unenrollPasskeyAndRevokeSessions>[0] & {
     sessionWrites: number;
     users: UserRow[];
     sessions: SessionRow[];
     written: unknown[];
+    statements: string[];
   };
 }
 
@@ -107,14 +120,28 @@ const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const enrolled = { credentialId: 'cred-1' };
 const other = { credentialId: 'cred-2' };
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'unenroll-passkey-sessions.ts'), 'utf8');
 
 describe('unenrollPasskeyAndRevokeSessions', () => {
-  it('reuses unenrollPasskey then revokeAllSessions; never invents a session id', () => {
-    expect(src).toMatch(/unenrollPasskey\(/);
-    expect(src).toMatch(/revokeAllSessions\(/);
-    expect(src).not.toMatch(/INSERT INTO sessions/i);
+  it('reuses unenrollPasskey then revokeAllSessions; never invents a session id', async () => {
+    vi.clearAllMocks();
+    const sql = combinedStore(
+      [{ id: A, webauthn_creds: [enrolled, other] }],
+      [
+        { id: 'live-1', user_id: A, revoked: false },
+        { id: 'dead', user_id: A, revoked: true },
+      ],
+    );
+    const out = await unenrollPasskeyAndRevokeSessions(sql, A, 'cred-1');
+    const unenroll = vi.mocked(unenrollMod.unenrollPasskey);
+    const revokeAll = vi.mocked(sessionsMod.revokeAllSessions);
+    expect(unenroll.mock.calls.map(([s, ...rest]) => [s === sql, ...rest])).toEqual([[true, A, 'cred-1']]);
+    expect(revokeAll.mock.calls.map(([s, ...rest]) => [s === sql, ...rest])).toEqual([[true, A, A]]);
+    expect(unenroll.mock.invocationCallOrder[0]).toBeLessThan(revokeAll.mock.invocationCallOrder[0] ?? 0);
+    // The answer is the two steps' own: the passkey dropped and left, and the seats ended.
+    const dropped = await unenroll.mock.results[0]?.value;
+    const ended = await revokeAll.mock.results[0]?.value;
+    expect(out).toEqual({ credentialId: dropped.credentialId, remaining: dropped.remaining, sessionsRevoked: ended.revoked });
+    expect(sql.statements.filter((s) => /insert\s+into\s+sessions\b/.test(s))).toEqual([]);
   });
 
   it('after unenroll of an enrolled cred, live sessions are revoked and cannot place', async () => {

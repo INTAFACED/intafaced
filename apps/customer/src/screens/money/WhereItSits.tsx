@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowLeftRight, ArrowUp, Eye, EyeOff, Info, TrendingUp } from 'lucide-react';
-import { AssetIcon, Button, ButtonLink, Fold, PanelHead, Tag } from '@intafaced/ui/lit';
+import { AssetIcon, Button, ButtonLink, Fold, PanelHead, RefusalBox, Tag } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { PartnerHolds } from '../../features/money';
 import { displayAmount, formatAmount, parseAmount } from '../../shared/money';
@@ -30,7 +30,7 @@ import { Movers, spokenOf } from './Movers';
 import { clockTime } from './time';
 import { WhereAllocation } from './WhereAllocation';
 import { WhereHoldingsChange } from './WhereHoldingsChange';
-import { isHiddenPath, navigate } from './deps';
+import { isHiddenPath, navigate, refusalCopy } from './deps';
 import { AssetsPage, MoneyRoomLinks } from './MoneyRoom';
 import { buyHref } from './links';
 import { balanceEntriesHref } from './balance-entries-model';
@@ -91,6 +91,22 @@ function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
   );
 }
 
+/** The code Assets names when the published prices can't be read (refusals.ts pricesDown, its reference PRC-1). */
+const PRICES_DOWN = 'bank.prices_unavailable';
+
+/**
+ * J-portfolio-01 #8: the published prices couldn't be read, so nothing is valued and there is no total. The refusal in
+ * plain words with its short reference, on the face of the room, never a balance-times-ticker guess.
+ */
+function PricesRefused() {
+  const words = refusalCopy(PRICES_DOWN);
+  return (
+    <div data-testid="assets-prices-refused" data-code={PRICES_DOWN}>
+      <RefusalBox refusal={{ variant: 'refused', title: words.title, body: words.body, reference: words.reference }} />
+    </div>
+  );
+}
+
 /**
  * Assets before a wallet is connected: the partner account needs no wallet to be read, so the money the partner
  * holds for this person is listed with its total, each figure as the partner reports it with its time, exactly as Home
@@ -107,6 +123,7 @@ function BeforeWallet({ t, onWithdraw }: { t: T; onWithdraw: () => void }) {
       roomAction={<MoneyRoomLinks />}
       hero={
         <div className="lt-stack">
+          {pricesFailed ? <PricesRefused /> : null}
           {held ? (
             <section className="lt-stack" aria-labelledby="assets-total-title">
               <h2 id="assets-total-title">{t('Total title')}</h2>
@@ -229,6 +246,7 @@ function Read({
             )}
             <QuickActions t={t} />
           </div>
+          {pricesFailed ? <PricesRefused /> : null}
           <WhereTiles standing={standing} venue={venue} wallet={wallet} deposits={deposits} hidden={hideBalances} t={t} />
           {standing.totalUsd !== null ? (
             <Fold title={t('Allocation fold')} data-testid="assets-allocation-fold">

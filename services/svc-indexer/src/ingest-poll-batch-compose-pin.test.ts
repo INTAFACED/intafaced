@@ -20,11 +20,33 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ENV_TS = resolve(import.meta.dirname, './env.ts');
+
+const BASE_ENV = {
+  DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+  DATABASE_POOL_MAX: '10',
+  EDGE_PRINCIPAL_SECRET: 's'.repeat(32),
+  INDEXER_CHAIN_ID: '1',
+  INDEXER_RPC_URL: 'http://127.0.0.1:8545',
+  INDEXER_VENUE_ADDRESS: '0x1111111111111111111111111111111111111111',
+  INDEXER_START_HEIGHT: '0',
+  INDEXER_FINALITY_DEPTH: '64',
+  INDEXER_BATCH_SIZE: '200',
+};
+
+/** The service's own env, loaded fresh as boot loads it, from BASE_ENV with `overrides` (undefined unsets). */
+async function loadWith(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  vi.stubEnv('NODE_ENV', 'test');
+  for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) vi.stubEnv(key, value);
+  return (await import('./env.js')).env;
+}
+
+afterEach(() => vi.unstubAllEnvs());
 
 function indexerServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-indexer');
@@ -40,12 +62,15 @@ const BATCH = /^\s+INDEXER_BATCH_SIZE:\s*\$\{INDEXER_BATCH_SIZE:-\}\s*$/gm;
 
 describe('compose ingest poll interval and batch size for svc-indexer', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envTs = readFileSync(ENV_TS, 'utf8');
   const block = indexerServiceBlock(compose);
 
-  it('env.ts still defaults INDEXER_POLL_INTERVAL_MS 2000; INDEXER_BATCH_SIZE has no git-default 200', () => {
-    expect(envTs).toMatch(/INDEXER_POLL_INTERVAL_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(100\)\.max\(600_000\)\.default\(2_000\)/);
-    expect(envTs).not.toMatch(/INDEXER_BATCH_SIZE:[\s\S]*?\.default\(200\)/);
+  it('env.ts still defaults INDEXER_POLL_INTERVAL_MS 2000; INDEXER_BATCH_SIZE has no git-default 200', async () => {
+    expect((await loadWith({ INDEXER_POLL_INTERVAL_MS: undefined })).INDEXER_POLL_INTERVAL_MS).toBe(2_000);
+    expect((await loadWith({ INDEXER_POLL_INTERVAL_MS: '100' })).INDEXER_POLL_INTERVAL_MS).toBe(100);
+    expect((await loadWith({ INDEXER_POLL_INTERVAL_MS: '600000' })).INDEXER_POLL_INTERVAL_MS).toBe(600_000);
+    await expect(loadWith({ INDEXER_POLL_INTERVAL_MS: '99' })).rejects.toThrow(/INDEXER_POLL_INTERVAL_MS/);
+    await expect(loadWith({ INDEXER_POLL_INTERVAL_MS: '600001' })).rejects.toThrow(/INDEXER_POLL_INTERVAL_MS/);
+    await expect(loadWith({ INDEXER_BATCH_SIZE: undefined })).rejects.toThrow(/INDEXER_BATCH_SIZE/);
   });
 
   it('wires unique host pass-through keys once; poll defaults 2000, batch empty default', () => {

@@ -1046,6 +1046,7 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
       asset: PERP_COLLATERAL_ASSET,
       equity: a('1000.5'),
       free: a('200.1'),
+      withdrawable: a('200.1'),
       usedMargin: a('800.4'),
       maintenanceMargin: a('100.05'),
       marginRatio: { known: true, value: a('0.1') },

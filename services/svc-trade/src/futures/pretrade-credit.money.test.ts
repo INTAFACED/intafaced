@@ -1,4 +1,4 @@
-import { PositionService, TradeService } from '../controls/test-admission.js';
+import { PositionService, TradeService, layeredTradeService, layeredPositionService } from '../controls/test-admission.js';
 /**
  * CARD F5 money proof — pre-trade credit dimensions refuse unset (PTX-M09-R10).
  *
@@ -17,7 +17,7 @@ import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { memoryMarkBook } from './mark-source.js';
 import { FuturesError, type OpenPositionInput } from './position-service.js';
@@ -29,14 +29,17 @@ import {
   checkPreTradeCreditDimensions,
   installPreTradeCredit,
   readOwnerPreTradeCredit,
+  withPreTradeCreditPlace,
+  withPreTradeCreditOpen,
 } from './pretrade-credit.js';
 
 import { TradeError } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
-import { hitchDoubles, tradeRouterPaths } from './testing/doors.js';
-import type { FuturesJobsDeps } from './futures-jobs.js';
-import { installPreTradeCreditOpen, installPreTradeCreditPlace } from './pretrade-credit.js';
 import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withPreTradeCreditPlace);
+const LayeredPositionService = layeredPositionService(withPreTradeCreditOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -98,72 +101,72 @@ function setCreditEnv(dims: { maxOrder?: string; maxPosition?: string; maxLoss?:
 
 installPreTradeCredit();
 
-describe('pre-trade credit hitch — no invented caps, no flatten', () => {
-  const principal = principalFor(ALICE);
-  const order = { marketId: MARKET, side: 'buy', type: 'limit', qty: amt('1'), price: amt('100') } as never;
-  const openInput = { userId: ALICE, clientOpenId: 'f5-hitch', symbol: 'BTC/USDT-PERP', side: 'long', size: amt('1') } as never;
-
-  it('pretrade-credit.ts has no default numbers and does not flatten', async () => {
-    const { Positions, Trades, opened, placed, other } = hitchDoubles();
-    installPreTradeCreditOpen(Positions as never);
-    installPreTradeCreditPlace(Trades as never);
-    const positions: { open(i: unknown): Promise<unknown> } = new Positions();
-    const trades: { placeOrder(p: unknown, i: unknown): Promise<unknown> } = new Trades();
-    try {
-      // Unset caps refuse before the original runs: no number stands in for an unset one.
-      clearCreditEnv();
-      await expect(positions.open(openInput)).rejects.toMatchObject({ code: MAX_ORDER_UNSET });
-      await expect(trades.placeOrder(principal, order)).rejects.toMatchObject({ code: MAX_ORDER_UNSET });
-      setCreditEnv({ maxOrder: '3' });
-      await expect(positions.open(openInput)).rejects.toMatchObject({ code: MAX_POSITION_UNSET });
-      setCreditEnv({ maxOrder: '3', maxPosition: '5' });
-      await expect(trades.placeOrder(principal, order)).rejects.toMatchObject({ code: MAX_LOSS_UNSET });
-      expect(opened).toEqual([]);
-      expect(placed).toEqual([]);
-      // Reducing a position is never refused for an unset cap.
-      clearCreditEnv();
-      const reducing = { ...(order as object), reduceOnly: true };
-      await trades.placeOrder(principal, reducing);
-      expect(placed).toEqual([reducing]);
-      // Published 0s are the owner's numbers: the original runs on the same input, untouched, and nothing is closed.
-      setCreditEnv({ maxOrder: '0', maxPosition: '0', maxLoss: '0' });
-      await positions.open(openInput);
-      await trades.placeOrder(principal, order);
-      expect(opened).toEqual([openInput]);
-      expect(opened[0]).toBe(openInput);
-      expect(placed[1]).toBe(order);
-      expect(other).toEqual([]);
-    } finally {
-      clearCreditEnv();
-    }
+describe('pre-trade credit hitch (source) — no invented caps, no flatten', () => {
+  it('pretrade-credit.ts has no default numbers and does not flatten', () => {
+    const wrappers = readFileSync(join(here, 'pretrade-credit.ts'), 'utf8');
+    // The published-integer check moved to pretrade-limits.ts (#4725); the wrappers stay here.
+    const mill = wrappers + readFileSync(join(here, 'pretrade-limits.ts'), 'utf8');
+    expect(mill).toMatch(/checkPreTradeCreditDimensions/);
+    expect(mill).toMatch(/super\.placeOrder\(/);
+    expect(mill).toMatch(/super\.open\(/);
+    expect(mill).toMatch(/TRADE_MAX_ORDER is unset/);
+    expect(mill).toMatch(/0 is published, not a default/);
+    expect(mill).not.toMatch(/flatten/i);
+    expect(mill).not.toMatch(/planClose/);
+    expect(mill).not.toMatch(/closeAll/);
+    expect(mill).not.toMatch(/maxOrder\s*=\s*\d/);
+    expect(mill).not.toMatch(/maxPosition\s*=\s*\d/);
+    expect(mill).not.toMatch(/maxLoss\s*=\s*\d/);
+    expect(mill).not.toMatch(/\?\?\s*0/);
+    expect(mill).not.toMatch(/n\s*<=\s*0/);
+    expect(mill).not.toMatch(/TRADE_MAX_ORDER.{0,80}default/i);
+    const placeStart = wrappers.indexOf('export function withPreTradeCreditPlace');
+    const openStart = wrappers.indexOf('export function withPreTradeCreditOpen');
+    expect(placeStart).toBeGreaterThan(-1);
+    expect(openStart).toBeGreaterThan(placeStart);
+    const placeFn = wrappers.slice(placeStart, openStart);
+    expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
+    expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(placeFn.indexOf('super.placeOrder('));
+    const openFn = wrappers.slice(openStart);
+    expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
+    expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(openFn.indexOf('super.open('));
   });
 
-  it('router.ts / trade-service.ts / position-service.ts / index.ts not recut', () => {
-    // No tRPC procedure reads or sets the caps; the services meet them only through the hitch (the PG suite below
-    // shows the real place and open refusing before any hold or lock).
-    expect(tradeRouterPaths().filter((p) => /maxOrder|maxPosition|maxLoss|preTrade|pretrade/i.test(p))).toEqual([]);
+  it('router.ts / trade-service.ts / position-service.ts not recut; index.ts applies the layers and holds no limit', () => {
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const tradeSrc = tradeServiceSource();
+    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/pretrade-credit/);
+    expect(routerSrc).not.toMatch(/max_order_unset/);
+    expect(routerSrc).not.toMatch(/TRADE_MAX_ORDER/);
+    expect(tradeSrc).not.toMatch(/pretrade-credit/);
+    expect(tradeSrc).not.toMatch(/max_order_unset/);
+    expect(tradeSrc).not.toMatch(/TRADE_MAX_ORDER/);
+    expect(posSrc).not.toMatch(/pretrade-credit/);
+    expect(posSrc).not.toMatch(/max_order_unset/);
+    expect(posSrc).not.toMatch(/TRADE_MAX_ORDER/);
+    // index.ts is where the service is put together (garden/no-runtime-swap): it applies the two layers, and the
+    // limits themselves stay in the mill.
+    expect(indexSrc).toMatch(/withPreTradeCreditPlace/);
+    expect(indexSrc).toMatch(/withPreTradeCreditOpen/);
+    expect(indexSrc).not.toMatch(/max_order_unset/);
+    expect(indexSrc).not.toMatch(/TRADE_MAX_ORDER/);
   });
 
-  it('live boot loads mill; jobs/index do not copy owner fixtures', async () => {
-    // Loading the ledger client (what the host does at boot) wraps the real classes, in a fresh module graph.
-    vi.resetModules();
-    await import('../ledger-client.js');
-    const { PositionService: BootPositions } = await import('./position-service.js');
-    const { TradeService: BootTrades } = await import('../spot/trade-service.js');
-    expect(Object.getOwnPropertySymbols(BootPositions.prototype)).toContain(Symbol.for('intafaced.trade.preTradeCreditOpen'));
-    expect(Object.getOwnPropertySymbols(BootTrades.prototype)).toContain(Symbol.for('intafaced.trade.preTradeCreditPlace'));
-    vi.resetModules();
-    // The live jobs are assembled from FuturesJobsDeps, which has no slot for an owner cap.
-    const base: FuturesJobsDeps = {
-      sql: {} as never,
-      ledger: {} as never,
-      matching: {} as never,
-      bus: null,
-      config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
-    };
-    // @ts-expect-error FuturesJobsDeps has no pre-trade cap
-    const withCaps: FuturesJobsDeps = { ...base, maxOrder: OWNER_PUBLISHED_F5.maxOrder };
-    expect(withCaps.config.enabled).toBe(false);
+  it('live boot loads mill; jobs/index do not copy owner fixtures', () => {
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
+    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
+    expect(indexSrc).toMatch(/ledger-client/);
+    expect(indexSrc).not.toMatch(/OWNER_PUBLISHED_F5/);
+    expect(boot).toMatch(/installPreTradeCredit/);
+    expect(boot).toMatch(/pretrade-credit/);
+    expect(jobs).not.toMatch(/TRADE_MAX_ORDER/);
+    expect(jobs).not.toMatch(/TRADE_MAX_POSITION/);
+    expect(jobs).not.toMatch(/TRADE_MAX_LOSS/);
+    expect(jobs).not.toMatch(/OWNER_PUBLISHED_F5/);
+    expect(jobs).not.toMatch(/pretrade-credit/);
   });
 });
 
@@ -268,13 +271,13 @@ describe('svc-trade pretrade-credit (H8a PG-hard)', () => {
       matching = new StubMatching();
       perks = new StubPerks();
       marks = memoryMarkBook();
-      trade = new TradeService(sql, ledger, matching, perks, bus, {
+      trade = new LayeredTradeService(sql, ledger, matching, perks, bus, {
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,
         marketSlippageCapBps: 150,
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       });
-      positions = new PositionService(sql, ledger, {
+      positions = new LayeredPositionService(sql, ledger, {
         marks: marks.source(),
         profitSource: profitSourceFromConfig(PROFIT_SOURCE),
         maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
@@ -386,72 +389,5 @@ describe('svc-trade pretrade-credit (H8a PG-hard)', () => {
       const terr = new TradeError('max-position unset', MAX_POSITION_UNSET as 'trade.slippage_cap_unset');
       expect(terr.code).toBe('trade.max_position_unset');
     });
-  });
-});
-
-// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
-// Each pin below stays until an importable host assembly holds the same property by behaviour.
-describe('kept source pins', () => {
-  it('router.ts / trade-service.ts / position-service.ts / index.ts not recut (kept source pin)', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    const tradeSrc = tradeServiceSource();
-    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/pretrade-credit/);
-    expect(routerSrc).not.toMatch(/max_order_unset/);
-    expect(routerSrc).not.toMatch(/TRADE_MAX_ORDER/);
-    expect(tradeSrc).not.toMatch(/pretrade-credit/);
-    expect(tradeSrc).not.toMatch(/max_order_unset/);
-    expect(tradeSrc).not.toMatch(/TRADE_MAX_ORDER/);
-    expect(posSrc).not.toMatch(/pretrade-credit/);
-    expect(posSrc).not.toMatch(/max_order_unset/);
-    expect(posSrc).not.toMatch(/TRADE_MAX_ORDER/);
-    expect(indexSrc).not.toMatch(/pretrade-credit/);
-    expect(indexSrc).not.toMatch(/installPreTradeCredit/);
-  });
-
-  it('live boot loads mill; jobs/index do not copy owner fixtures (kept source pin)', () => {
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
-    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
-    expect(indexSrc).toMatch(/ledger-client/);
-    expect(indexSrc).not.toMatch(/OWNER_PUBLISHED_F5/);
-    expect(boot).toMatch(/installPreTradeCredit/);
-    expect(boot).toMatch(/pretrade-credit/);
-    expect(jobs).not.toMatch(/TRADE_MAX_ORDER/);
-    expect(jobs).not.toMatch(/TRADE_MAX_POSITION/);
-    expect(jobs).not.toMatch(/TRADE_MAX_LOSS/);
-    expect(jobs).not.toMatch(/OWNER_PUBLISHED_F5/);
-    expect(jobs).not.toMatch(/pretrade-credit/);
-  });
-
-  it('pretrade-credit.ts has no default numbers and does not flatten (kept source pin)', () => {
-    const wrappers = readFileSync(join(here, 'pretrade-credit.ts'), 'utf8');
-    // The published-integer check moved to pretrade-limits.ts (#4725); the wrappers stay here.
-    const mill = wrappers + readFileSync(join(here, 'pretrade-limits.ts'), 'utf8');
-    expect(mill).toMatch(/checkPreTradeCreditDimensions/);
-    expect(mill).toMatch(/origPlace\.call/);
-    expect(mill).toMatch(/origOpen\.call/);
-    expect(mill).toMatch(/TRADE_MAX_ORDER is unset/);
-    expect(mill).toMatch(/0 is published, not a default/);
-    expect(mill).not.toMatch(/flatten/i);
-    expect(mill).not.toMatch(/planClose/);
-    expect(mill).not.toMatch(/closeAll/);
-    expect(mill).not.toMatch(/maxOrder\s*=\s*\d/);
-    expect(mill).not.toMatch(/maxPosition\s*=\s*\d/);
-    expect(mill).not.toMatch(/maxLoss\s*=\s*\d/);
-    expect(mill).not.toMatch(/\?\?\s*0/);
-    expect(mill).not.toMatch(/n\s*<=\s*0/);
-    expect(mill).not.toMatch(/TRADE_MAX_ORDER.{0,80}default/i);
-    const placeStart = wrappers.indexOf('export function installPreTradeCreditPlace');
-    const openStart = wrappers.indexOf('export function installPreTradeCreditOpen');
-    expect(placeStart).toBeGreaterThan(-1);
-    expect(openStart).toBeGreaterThan(placeStart);
-    const placeFn = wrappers.slice(placeStart, openStart);
-    expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
-    expect(placeFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(placeFn.indexOf('origPlace.call'));
-    const openFn = wrappers.slice(openStart);
-    expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeGreaterThan(-1);
-    expect(openFn.indexOf('checkPreTradeCreditDimensions')).toBeLessThan(openFn.indexOf('origOpen.call'));
   });
 });

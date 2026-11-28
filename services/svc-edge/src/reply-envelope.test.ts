@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { registerCors, type OriginAllowlist } from './cors.js';
@@ -335,22 +334,5 @@ describe('the pure helpers', () => {
     expect(docsFor(undefined)).toBe('/developers/errors');
     expect(docsFor('"><script>')).toBe('/developers/errors');
     expect(docsFor('a'.repeat(200))).toBe('/developers/errors');
-  });
-});
-
-describe('index.ts wires the envelope', () => {
-  const src = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-
-  it('takes the request id options, registers the envelope before CORS, marks proxied answers and sends its id upstream', () => {
-    expect(src).toMatch(/Fastify\(\{[\s\S]*\.\.\.REQUEST_ID_OPTIONS[\s\S]*\}\);/);
-    const envelope = src.indexOf('registerReplyEnvelope(app);');
-    expect(envelope).toBeGreaterThan(0);
-    expect(envelope).toBeLessThan(src.indexOf('registerCors(app, cors);'));
-    // Marked only as the service's body is sent, after every edge refusal on the way (the checkout-redirect 502).
-    const marked = src.indexOf('markProxied(req);');
-    expect(marked).toBeGreaterThan(src.indexOf("'edge: upstream redirect refused'"));
-    expect(src.indexOf('return sent.send(text);')).toBeGreaterThan(marked);
-    expect(src.slice(marked, src.indexOf('return sent.send(text);')).split('\n').length).toBeLessThanOrEqual(2);
-    expect(src).toContain('[REQUEST_ID_HEADER]: String(req.id)');
   });
 });

@@ -22,7 +22,19 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
-import { BANK_BUSINESS_CARDS_RECEIPTS_ZIP } from '@intafaced/contracts/bank-business-cards-procedures';
+import {
+  BANK_BUSINESS_CARDS_RECEIPTS_ZIP,
+  BANK_BUSINESS_CARDS_OVERVIEW,
+  BANK_BUSINESS_CARDS_ISSUE_CARD,
+  BANK_BUSINESS_CARDS_TEST_PURCHASE,
+  BANK_BUSINESS_CARDS_ATTACH_RECEIPT,
+  BANK_BUSINESS_CARDS_DECIDE_LIMIT_REQUEST,
+  BANK_BUSINESS_CARDS_SET_POLICY,
+  BANK_BUSINESS_CARDS_SUBMIT_CLAIM,
+  BANK_BUSINESS_CARDS_APPROVE_AND_PAY,
+} from '@intafaced/contracts/bank-business-cards-procedures';
+import { BANK_BUSINESS_TEAM_OVERVIEW, BANK_BUSINESS_TEAM_MEMBERS } from '@intafaced/contracts/bank-business-team-procedures';
+import { callAs, type AppProcedure } from '../../../shared/api';
 
 /**
  * A business gives its team cards and handles their expenses (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02), on the
@@ -125,14 +137,14 @@ function Section({ id, title, children }: { id: string; title: string; children:
 }
 
 /** One read of the bank; while a reload of the same read is on its way the last answer stays on screen. */
-function useBank<S>(procedure: string, input: unknown, schema: ZodType<S>, base: string, rev = 0) {
+function useBank<S>(procedure: AppProcedure, input: unknown, schema: ZodType<S>, base: string, rev = 0) {
   const { api, userId } = useSession();
   const read = useResource<S>(
     (signal) =>
       userId && input !== null
-        ? api.query('bank', procedure, input, schema, { signal })
+        ? callAs(api, procedure, input, schema, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
-    `cards:${procedure}:${userId ?? 'out'}:${base}:${rev}`,
+    `cards:${procedure.path}:${userId ?? 'out'}:${base}:${rev}`,
   );
   const kept = useRef<{ base: string; data: S } | null>(null);
   const keyed = `${userId ?? 'out'}:${base}`;
@@ -148,12 +160,12 @@ function useChange(after: () => void) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<Failed | null>(null);
   const [notice, setNotice] = useState('');
-  async function run<S>(procedure: string, body: unknown, schema: ZodType<S>, done: (data: S) => string, held?: HeldId) {
+  async function run<S>(procedure: AppProcedure, body: unknown, schema: ZodType<S>, done: (data: S) => string, held?: HeldId) {
     if (busy) return null;
     setBusy(true);
     setFailed(null);
     setNotice('');
-    const out = await api.mutate('bank', procedure, body, schema);
+    const out = await callAs(api, procedure, body, schema);
     setBusy(false);
     held?.settle(out);
     if (!out.ok) {
@@ -187,7 +199,7 @@ export function BusinessCardsRoom() {
   const { userId, profiles } = useSession();
   const business = profiles.business;
   const accountId = business?.accountId ?? null;
-  const overview = useBank('businessTeam.overview', accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
+  const overview = useBank(BANK_BUSINESS_TEAM_OVERVIEW, accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
   let state: RoomState = { kind: 'ready' };
   if (!userId)
     state = {
@@ -254,12 +266,18 @@ function Parts({
   const { userId, api } = useSession();
   const [rev, setRev] = useState(0);
   const input = { accountId };
-  const data = useBank('businessCards.overview', input, businessExpensesOverviewSchema, accountId, rev);
+  const data = useBank(BANK_BUSINESS_CARDS_OVERVIEW, input, businessExpensesOverviewSchema, accountId, rev);
   const o = ready(data.resource);
   const admin = o?.permissions.includes('manage_team') ?? false;
   const approver = o?.permissions.includes('approve') ?? false;
   const exporter = o?.permissions.includes('export') ?? false;
-  const members = useBank('businessTeam.members', admin ? input : null, z.array(businessTeamMemberSchema), `${accountId}:${admin}`, rev);
+  const members = useBank(
+    BANK_BUSINESS_TEAM_MEMBERS,
+    admin ? input : null,
+    z.array(businessTeamMemberSchema),
+    `${accountId}:${admin}`,
+    rev,
+  );
   const change = useChange(() => {
     setRev((n) => n + 1);
     reloadTop();
@@ -355,7 +373,7 @@ function Parts({
                       disabled={change.busy}
                       onClick={() =>
                         void change.run(
-                          'businessCards.decideLimitRequest',
+                          BANK_BUSINESS_CARDS_DECIDE_LIMIT_REQUEST,
                           { purchaseId: r.purchaseId, approve: true },
                           businessCardLimitRequestSchema,
                           () => t('decided'),
@@ -370,7 +388,7 @@ function Parts({
                       disabled={change.busy}
                       onClick={() =>
                         void change.run(
-                          'businessCards.decideLimitRequest',
+                          BANK_BUSINESS_CARDS_DECIDE_LIMIT_REQUEST,
                           { purchaseId: r.purchaseId, approve: false },
                           businessCardLimitRequestSchema,
                           () => t('decided'),
@@ -436,7 +454,7 @@ function IssueForm({
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         void change.run(
-          'businessCards.issueCard',
+          BANK_BUSINESS_CARDS_ISSUE_CARD,
           { accountId, cardId: held.id, memberUserId: who, perPurchaseLimit: limit.trim() },
           businessCardSchema,
           () => t('issued'),
@@ -477,7 +495,7 @@ function SpendForm({ cards, change, t }: { cards: BusinessCard[]; change: Change
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         void change.run(
-          'businessCards.testPurchase',
+          BANK_BUSINESS_CARDS_TEST_PURCHASE,
           { cardId, purchaseId: held.id, merchant: merchant.trim(), amount: amount.trim() },
           businessCardPurchaseSchema,
           () => t('spent'),
@@ -544,7 +562,7 @@ function PurchaseRow({ p, tail, mine, change, t }: { p: BusinessCardPurchase; ta
             if (!file) return;
             void fileBase64(file).then((contentBase64) =>
               change.run(
-                'businessCards.attachReceipt',
+                BANK_BUSINESS_CARDS_ATTACH_RECEIPT,
                 { purchaseId: p.id, receiptId: held.id, fileName: file.name, contentType: receiptType(file), contentBase64 },
                 businessCardPurchaseSchema,
                 () => t('attached'),
@@ -573,7 +591,7 @@ function PolicyForm({ accountId, change, t }: { accountId: string; change: Chang
       aria-label={t('policyTitle')}
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
-        void change.run('businessCards.setPolicy', { accountId, receiptOver: over.trim() }, businessExpensePolicySchema, () =>
+        void change.run(BANK_BUSINESS_CARDS_SET_POLICY, { accountId, receiptOver: over.trim() }, businessExpensePolicySchema, () =>
           t('policySaved'),
         );
       }}
@@ -612,7 +630,13 @@ function ClaimForm({ accountId, change, t }: { accountId: string; change: Change
             contentType: receiptType(file),
             contentBase64,
           };
-          const out = await change.run('businessCards.submitClaim', body, businessReimbursementSchema, () => t('claimSubmitted'), claim);
+          const out = await change.run(
+            BANK_BUSINESS_CARDS_SUBMIT_CLAIM,
+            body,
+            businessReimbursementSchema,
+            () => t('claimSubmitted'),
+            claim,
+          );
           if (out) receipt.settle({ ok: true });
         });
       }}
@@ -679,7 +703,9 @@ function ClaimRow({
           type="button"
           tone="primary"
           disabled={change.busy}
-          onClick={() => void change.run('businessCards.approveAndPay', { claimId: c.id }, businessReimbursementSchema, () => t('paid'))}
+          onClick={() =>
+            void change.run(BANK_BUSINESS_CARDS_APPROVE_AND_PAY, { claimId: c.id }, businessReimbursementSchema, () => t('paid'))
+          }
         >
           {t('approvePay')}
         </Button>

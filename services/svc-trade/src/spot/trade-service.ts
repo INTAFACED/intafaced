@@ -1335,11 +1335,11 @@ export class TradeService {
 
   // ── Applying what the engine said ─────────────────────────────────────────
 
-  private async applySubmitResult(market: Market, orderId: string, result: EngineSubmitResult): Promise<void> {
+  protected async applySubmitResult(market: Market, orderId: string, result: EngineSubmitResult): Promise<void> {
     return fillFlow.applySubmitResult(this.internal, market, orderId, result);
   }
 
-  private async settleOutcome(market: Market, fills: readonly EngineFill[], cancellations: readonly EngineCancellation[]): Promise<void> {
+  protected async settleOutcome(market: Market, fills: readonly EngineFill[], cancellations: readonly EngineCancellation[]): Promise<void> {
     return fillFlow.settleOutcome(this.internal, market, fills, cancellations);
   }
 
@@ -1508,14 +1508,14 @@ export class TradeService {
     return holds.remainingHold(this.internal, sql, order);
   }
 
-  private async finalize(orderId: string, status: Extract<OrderStatus, 'filled' | 'rejected'>, reason?: string | null): Promise<void>;
-  private async finalize(
+  protected async finalize(orderId: string, status: Extract<OrderStatus, 'filled' | 'rejected'>, reason?: string | null): Promise<void>;
+  protected async finalize(
     orderId: string,
     status: Extract<OrderStatus, 'cancelled' | 'expired'>,
     reason: string | null | undefined,
     evidence: holds.CancelEvidence,
   ): Promise<void>;
-  private async finalize(
+  protected async finalize(
     orderId: string,
     status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>,
     reason?: string | null,
@@ -2083,7 +2083,7 @@ export class TradeService {
     return best ? parseAmount(best[0]) : null;
   }
 
-  private toEngineRequest(
+  protected toEngineRequest(
     orderId: string,
     userId: string,
     input: PlaceOrderInput,

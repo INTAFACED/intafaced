@@ -13,7 +13,6 @@ import { TradeService } from '../controls/test-admission.js';
  */
 import { describe, expect, it } from 'vitest';
 import { TRADE_CANDLES_FILL_LIMIT_UNSET } from './candles.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => boolean } {
   let sqlCalled = false;
@@ -26,12 +25,6 @@ function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => bo
 }
 
 describe('TradeService.candles limit unset refuse (no invented 500)', () => {
-  it('trade-service.ts does not invent 500 via default param', () => {
-    const src = tradeServiceSource();
-    expect(src).not.toMatch(/async (?:function )?candles\([^)]*limit = 500/);
-    expect(src).toMatch(/async candles\(marketId: string, timeframe: Timeframe, limit: number/);
-  });
-
   it('omitted / undefined / null limit refuses before SQL', async () => {
     for (const limit of [undefined, null] as unknown as number[]) {
       const { trade, sqlCalled } = serviceWithUnreachableSql();

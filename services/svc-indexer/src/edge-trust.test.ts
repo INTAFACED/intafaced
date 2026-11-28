@@ -1,11 +1,8 @@
 /**
  * The edge principal is verified with the shared secret AND, when configured, the edge's public key.
- * The trust settings come from the service's edge env settings through `edgeTrustFromEnv`; index.ts is
- * pinned by source because it boots the whole service.
+ * The trust settings come from the service's edge env settings through `edgeTrustFromEnv`; the last case boots
+ * the real entrypoint (`testing/boot.ts`) and asks the context it hands its /trpc mount.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { edgeEnvSchema, edgeTrustFromEnv, loadEnv } from '@intafaced/config';
 import {
@@ -18,6 +15,7 @@ import {
   signPrincipalHeader,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
+import { BOOT_EDGE_SECRET, bootIndexer } from './testing/boot.js';
 
 type Principal = Parameters<typeof encodeForwardedPrincipal>[0];
 
@@ -75,8 +73,35 @@ describe('edge principal receiver', () => {
     expect(contextWith(withKey)(request(raw, signPrincipalHeader(raw, SECRET, 'DE'))).principal?.userId).toBe(USER);
   });
 
-  it('index.ts hands the edge trust settings to the edge context', () => {
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8');
-    expect(source).toMatch(/createEdgeContext\(\{\s*secret: env\.EDGE_PRINCIPAL_SECRET,\s*\.\.\.edgeTrustFromEnv\(env\),/);
+  it('index.ts hands the edge trust settings to the edge context', async () => {
+    // The context the booted service hands its /trpc mount, given a principal the edge key signed.
+    const principalSeenBy = async (vars: Record<string, string | undefined>) => {
+      const booted = await bootIndexer(vars);
+      try {
+        // Only the request is read; the rest of Fastify's context options are not.
+        const context = await booted.publicHttp.createContext({ req: edgeSigned() } as never);
+        return context.principal?.userId ?? null;
+      } finally {
+        await booted.close();
+      }
+    };
+    expect(await principalSeenBy(withKey)).toBe(USER);
+    expect(await principalSeenBy({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined })).toBeNull();
+  });
+
+  it('index.ts verifies the shared-secret principal with its own EDGE_PRINCIPAL_SECRET', async () => {
+    // The same booted context, given a principal signed with the secret the service started with, and another one.
+    const booted = await bootIndexer();
+    try {
+      const raw = encodePrincipal(principal());
+      const seenWith = async (secret: string) => {
+        const context = await booted.publicHttp.createContext({ req: request(raw, signPrincipalHeader(raw, secret, 'DE')) } as never);
+        return context.principal?.userId ?? null;
+      };
+      expect(await seenWith(BOOT_EDGE_SECRET)).toBe(USER);
+      expect(await seenWith('another-edge-secret-that-is-not-the-boot-one')).toBeNull();
+    } finally {
+      await booted.close();
+    }
   });
 });

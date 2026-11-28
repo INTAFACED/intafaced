@@ -53,9 +53,11 @@ describe('what each tab reads', () => {
       ['tickets.list', 'support', 'listAll', { limit: 200, q: USER }, { key: 'userId', equals: USER }],
     ]);
     expect(tabPlan('tickets', USER).unwired.map((u) => u.id)).toEqual(['tickets.thread']);
-    // Trade: svc-trade's audited read of the account's orders, then its restriction history.
+    // Trade: svc-trade's audited read of the account's orders on our own book, then of its orders on its own venue accounts
+    // (the launch model: the venue's orders, which carry no id of ours), then its restriction history.
     expect(tabPlan('trade', USER).reads.map((r) => [r.id, r.module, r.procedure, r.input, r.rowsKey, r.idKey])).toEqual([
       ['trade.orders', 'trade', 'admin.customerOrders', { userId: USER, limit: 200 }, 'orders', 'orderId'],
+      ['trade.venue-orders', 'trade', 'admin.venueAccounts.orders', { userId: USER, limit: 200 }, 'orders', undefined],
       [
         'trade.controls',
         'trade',
@@ -111,7 +113,25 @@ describe('what each tab reads', () => {
     ]);
   });
   it('reads a trading history row and the allowlist settings as the services send them', () => {
-    const [, history] = tabPlan('trade', USER).reads;
+    const [, venueOrders, history] = tabPlan('trade', USER).reads;
+    const venueOrder = {
+      owner: '0x00000000000000000000000000000000000000aa',
+      subAccount: null,
+      venueClientOrderId: null,
+      venueOrderId: '7',
+      symbol: 'TEST-USDC',
+      side: 'buy',
+      type: 'limit',
+      status: 'open',
+      amount: '1',
+      filled: '0',
+      price: '10',
+      averagePrice: null,
+      placedAt: '2026-10-22T23:00:00.000Z',
+    };
+    // A venue order the customer placed on the venue directly has no client id: it is listed by position, never dropped.
+    expect(readData(venueOrders!, { orders: [venueOrder] })).toMatchObject({ shape: 'list', rows: [{}] });
+    expect(readData(venueOrders!, { orders: [] })).toMatchObject({ shape: 'list', rows: [] });
     const row = {
       auditId: USER,
       requestId: USER,

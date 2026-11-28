@@ -11,8 +11,6 @@ import type { Market } from './types.js';
  * are not a self-trade. No owner STP mode.
  */
 
-const FLAG = Symbol.for('intafaced.trade.selfTradePlace');
-
 export const SELF_TRADE = 'self_trade' as const;
 
 const SELF_TRADE_MESSAGE = 'incoming order would match the same account; trade does not invent a self-fill';
@@ -76,34 +74,26 @@ function selfTradeRejectResult(): EngineSubmitResult {
   };
 }
 
-export function installSelfTradePlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string | null }>;
-    applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withSelfTradePlace(Base: typeof TradeService): typeof TradeService {
+  return class SelfTradePlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const order = await super.placeOrder(principal, input);
+      const refuse = matchingSelfTradeRefuse(order.rejectCode ? { code: order.rejectCode } : null);
+      if (refuse) throw refuse;
+      return order;
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const order = await origPlace.call(this, principal, input);
-    const refuse = matchingSelfTradeRefuse(order.rejectCode ? { code: order.rejectCode } : null);
-    if (refuse) throw refuse;
-    return order;
-  };
-
-  if (typeof proto.applySubmitResult === 'function') {
-    const origApply = proto.applySubmitResult;
-    proto.applySubmitResult = async function (this: TradeService, market: Market, orderId: string, result: EngineSubmitResult) {
+    override async applySubmitResult(
+      market: Market,
+      orderId: string,
+      result: EngineSubmitResult,
+    ): ReturnType<TradeService['applySubmitResult']> {
       const fillRefuse = matchingSelfFillRefuse(result.fills) ?? matchingSelfFillRefuse(fillsFromTriggers(result.triggered));
       if (fillRefuse) {
-        await origApply.call(this, market, orderId, selfTradeRejectResult());
+        await super.applySubmitResult(market, orderId, selfTradeRejectResult());
         throw fillRefuse;
       }
-      return origApply.call(this, market, orderId, result);
-    };
-  }
+      return super.applySubmitResult(market, orderId, result);
+    }
+  };
 }
-
-installSelfTradePlace(TradeService);

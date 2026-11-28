@@ -22,10 +22,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { tradeEnvOf } from './__tests__/entry.js';
 import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ENV_TS = resolve(import.meta.dirname, './env.ts');
 
 function tradeServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-trade');
@@ -40,11 +40,12 @@ const TOKEN_URL = /^\s+TOKEN_URL:\s*http:\/\/svc-token:4003\s*$/gm;
 
 describe('compose TOKEN_URL for svc-trade OTC stake-gate', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envTs = readFileSync(ENV_TS, 'utf8');
   const block = tradeServiceBlock(compose);
 
   it('env.ts still defaults TOKEN_URL to localhost:4003 (compose must override)', () => {
-    expect(envTs).toMatch(/TOKEN_URL:\s*z\.string\(\)\.url\(\)\.default\('http:\/\/localhost:4003'\)/);
+    expect(tradeEnvOf().TOKEN_URL).toBe('http://localhost:4003');
+    expect(tradeEnvOf({ TOKEN_URL: 'http://svc-token:4003' }).TOKEN_URL).toBe('http://svc-token:4003');
+    expect(() => tradeEnvOf({ TOKEN_URL: 'not a url' })).toThrow();
   });
 
   it('wires TOKEN_URL once in the trade block to the fleet svc-token', () => {

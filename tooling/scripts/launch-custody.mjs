@@ -68,6 +68,14 @@ export const LAUNCH_ORDER = 1;
  * J-charts-desk-14 left it once #8's check of today's engine queue read, whose other person is the TEST market maker's
  * taker account (made only with our own book on), moved to J-charts-desk-14-custodial.pw.mjs; every step reads the
  * person's own venue account.
+ * J-ops-console-02-customer-record left it once #3's customer held their bank money at the TEST partner bank and traded
+ * from their own venue account, and the customer record read both: the partner's balances on the money tab
+ * (ops.customerPartnerBalances) and the venue's orders on the trade tab (admin.venueAccounts.orders).
+ * J-derivatives-02 left it once J-derivatives-02.pw.mjs, four custodial Later tests on our own futures book with a trader
+ * funded through our ledger, became J-derivatives-02-custodial.pw.mjs; all eight steps are proven in J-derivatives-02-venue.pw.mjs.
+ * J-portfolio-01 left it once its custodial branch's tests, on our own ledger with a trader funded through it, became
+ * J-portfolio-01-custodial.pw.mjs, and #8 moved to J-portfolio-01-venue.pw.mjs: with the published prices unreadable
+ * (svc-ops stopped), Assets refuses in words with its reference and values nothing.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -76,12 +84,9 @@ export const NOT_YET_OFF = new Set([
   'J-cex-spot-10',
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
-  'J-derivatives-02',
   'J-derivatives-06',
   'J-home-ia-01',
-  'J-ops-console-02-customer-record',
   'J-p2p-21',
-  'J-portfolio-01',
   'J-portfolio-03',
   'J-support-public-20',
 ]);

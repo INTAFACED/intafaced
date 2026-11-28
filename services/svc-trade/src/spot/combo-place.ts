@@ -2,7 +2,7 @@ import type { Principal } from '@intafaced/auth';
 import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineComboLeg, EngineSubmitRequest, EngineSubmitResult } from './matching-client.js';
+import type { EngineComboLeg, EngineSubmitResult } from './matching-client.js';
 import type { Market } from './types.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
@@ -32,8 +32,6 @@ type PlaceWithCombo = PlaceOrderInput & {
   combo?: boolean | null;
   legs?: readonly ComboLegInput[] | null;
 };
-
-const FLAG = Symbol.for('intafaced.trade.comboPlace');
 
 export const COMBO_LEGS_MISSING = 'missing_combo_legs' as const;
 export const RATIO_MISSING = 'missing_ratio' as const;
@@ -275,54 +273,44 @@ export function bindCombo(input: PlaceOrderInput): PlaceWithCombo {
   };
 }
 
-export function installComboPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string | null }>;
-    applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withComboPlace(Base: typeof TradeService): typeof TradeService {
+  return class ComboPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindCombo(input);
+      const local = comboIntentRefuse(bound);
+      if (local) throw local;
+      const order = await super.placeOrder(principal, bound);
+      const refuse = matchingComboRefuse(order.rejectCode ? { code: order.rejectCode } : null);
+      if (refuse) throw refuse;
+      return order;
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindCombo(input);
-    const local = comboIntentRefuse(bound);
-    if (local) throw local;
-    const order = await origPlace.call(this, principal, bound);
-    const refuse = matchingComboRefuse(order.rejectCode ? { code: order.rejectCode } : null);
-    if (refuse) throw refuse;
-    return order;
-  };
-
-  if (typeof proto.applySubmitResult === 'function') {
-    const origApply = proto.applySubmitResult;
-    proto.applySubmitResult = async function (this: TradeService, market: Market, orderId: string, result: EngineSubmitResult) {
+    override async applySubmitResult(
+      market: Market,
+      orderId: string,
+      result: EngineSubmitResult,
+    ): ReturnType<TradeService['applySubmitResult']> {
       const refuse = matchingSubmitComboRefuse(result);
       if (refuse) {
         const code = result.rejected?.code ?? COMBO_DISAGREES;
-        await origApply.call(this, market, orderId, comboRejectResult(code, refuse.message));
+        await super.applySubmitResult(market, orderId, comboRejectResult(code, refuse.message));
         throw refuse;
       }
-      return origApply.call(this, market, orderId, result);
-    };
-  }
+      return super.applySubmitResult(market, orderId, result);
+    }
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithCombo | undefined;
-    if (!input || !wantsCombo(input)) return req;
-    // An explicit combo:false is the caller's no; legs alone must not turn it into a combo order.
-    if (input.combo === false) return req;
-    const legs = readLegs(input);
-    return {
-      ...req,
-      combo: true,
-      ...(legs !== null ? { legs: wireLegs(legs) } : {}),
-    };
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithCombo | undefined;
+      if (!input || !wantsCombo(input)) return req;
+      // An explicit combo:false is the caller's no; legs alone must not turn it into a combo order.
+      if (input.combo === false) return req;
+      const legs = readLegs(input);
+      return {
+        ...req,
+        combo: true,
+        ...(legs !== null ? { legs: wireLegs(legs) } : {}),
+      };
+    }
   };
 }
-
-installComboPlace(TradeService);

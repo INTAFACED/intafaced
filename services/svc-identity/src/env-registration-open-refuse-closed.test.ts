@@ -9,12 +9,8 @@
  * 5. Paths: env.ts via loadEnv at import (same as boot)
  * 6. RED: unset parses as true, or .default(true) returns on REGISTRATION_OPEN
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 const BASE_ENV = {
@@ -43,12 +39,6 @@ afterEach(() => {
 });
 
 describe('REGISTRATION_OPEN refuse-closed', () => {
-  it('env.ts does not git-default true', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/REGISTRATION_OPEN:[\s\S]{0,80}boolish/);
-    expect(envTs).not.toMatch(/REGISTRATION_OPEN:[\s\S]{0,200}\.default\(true\)/);
-  });
-
   it('unset is unpublished (not true)', async () => {
     const parsed = await loadWith({});
     expect(parsed.REGISTRATION_OPEN).toBeUndefined();

@@ -19,9 +19,6 @@
  *   (Phase A S-ID / D-S-11 — wire existing doors, do not rebuild).
  */
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -41,6 +38,7 @@ import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, rewardsEng
 import { MemoryAccrualStore } from './affiliates/accrual-store.js';
 import type { FreezeService } from './affiliates/freeze-service.js';
 import type { CommissionRow } from './affiliates/commission.js';
+import { BOOT_TIMEOUT_MS, BOOT_INTERNAL_SECRET, bootIdentity, type SqlCall } from './boot.testkit.js';
 import { createIdentityRouter } from './router.js';
 import type { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { stubActionApprovals } from './auth/privileged-dual-control.js';
@@ -63,7 +61,6 @@ const publishedLaw = {
   tiers: [{ hop: 0, rate: '0.130' }],
 };
 
-const here = dirname(fileURLToPath(import.meta.url));
 const edgeContext = createEdgeContext({ secret: EDGE_SECRET, serviceName: 'svc-identity' });
 
 type Book = {
@@ -356,29 +353,49 @@ async function get(
 }
 
 describe('D26-P2-12 refuse-closed identity money doors (no invent balances)', () => {
-  it('tRPC list/assertOwned/assertTransferDoor output schemas have no balance columns', () => {
-    const src = readFileSync(join(here, 'router.ts'), 'utf8');
-    const start = src.indexOf('subAccounts: router({');
-    expect(start).toBeGreaterThanOrEqual(0);
-    const block = src.slice(start, src.indexOf('affiliates: router({', start));
-    expect(block).toMatch(/assertOwned:\s*scopedProcedure/);
-    expect(block).toMatch(/assertTransferDoor:\s*scopedProcedure/);
-    expect(block.toLowerCase()).not.toMatch(/\bbalance\b/);
-    expect(block.toLowerCase()).not.toMatch(/\bavailable\b/);
-    expect(block.toLowerCase()).not.toMatch(/\bhold\b/);
+  it('tRPC list/assertOwned/assertTransferDoor answers carry no balance field', async () => {
+    const a = await books.createSubAccount(OWNER, 'from');
+    const b = await books.createSubAccount(OWNER, 'to');
+    const listInput = encodeURIComponent(JSON.stringify({ limit: 200 }));
+    const listed = await get(app, `subAccounts.list?input=${listInput}`);
+    const owned = await post(app, 'subAccounts.assertOwned', { subAccountId: a.id });
+    const transfer = await post(app, 'subAccounts.assertTransferDoor', { fromSubAccountId: a.id, toSubAccountId: b.id });
+    for (const answer of [listed, owned, transfer]) {
+      expect(answer.statusCode).toBe(200);
+      assertNoInventedBalance(unwrapData(answer.body));
+    }
+    expect(unwrapData(owned.body)).toEqual({ id: a.id, parentUserId: OWNER });
+    expect(unwrapData(transfer.body)).toEqual({ fromId: a.id, toId: b.id });
   });
 
-  it('S2S ownership snapshot in index.ts stays fail-closed (401 / 404, no balance body)', () => {
-    const src = readFileSync(join(here, 'index.ts'), 'utf8');
-    const start = src.indexOf('/internal/sub-accounts/:subAccountId');
-    expect(start).toBeGreaterThanOrEqual(0);
-    const block = src.slice(start, start + 900);
-    expect(block).toMatch(/serviceOfRequest/);
-    expect(block).toMatch(/identity\.unauthenticated/);
-    expect(block).toMatch(/identity\.sub_account_not_found/);
-    expect(block).toMatch(/getSubAccountOwnership/);
-    expect(block.toLowerCase()).not.toMatch(/\bbalance\b/);
-  });
+  it(
+    'S2S ownership snapshot in index.ts stays fail-closed (401 / 404, no balance body)',
+    async () => {
+      // The door index.ts mounts, on the booted service: a known partition answers its snapshot, nothing more.
+      const KNOWN = '77777777-7777-4777-8777-777777777777';
+      const answer = ({ text, values }: SqlCall) =>
+        /FROM sub_accounts WHERE id = /.test(text) && values[0] === KNOWN
+          ? [{ id: KNOWN, parent_user_id: OWNER, revoked: false, frozen: 0 }]
+          : undefined;
+      const booted = (await bootIdentity({}, answer)).app;
+      const url = (id: string) => `/internal/sub-accounts/${id}`;
+      const signed = (id: string) =>
+        booted.inject({ method: 'GET', url: url(id), headers: serviceAuthHeadersForBody('svc-trade', BOOT_INTERNAL_SECRET, '') });
+
+      const unsigned = await booted.inject({ method: 'GET', url: url(KNOWN) });
+      expect(unsigned.statusCode).toBe(401);
+      expect(unsigned.json()).toMatchObject({ code: 'identity.unauthenticated' });
+      const ghost = await signed(GHOST);
+      expect(ghost.statusCode).toBe(404);
+      expect(ghost.json()).toMatchObject({ code: 'identity.sub_account_not_found' });
+      const known = await signed(KNOWN);
+      expect(known.statusCode).toBe(200);
+      expect(known.json()).toEqual({ id: KNOWN, parentUserId: OWNER, revoked: false });
+      assertNoInventedBalance(known.json());
+      await booted.close();
+    },
+    BOOT_TIMEOUT_MS,
+  );
 });
 
 describe('D26-P2-12 public doors — ownership gate over mounted tRPC', () => {

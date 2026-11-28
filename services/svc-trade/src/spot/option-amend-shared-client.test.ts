@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import { installOptionAmend } from './option-place.js';
+import { withOptionAmend } from './option-place.js';
+import { layeredStandIn } from '../layered.testkit.js';
 
 /**
- * #8579: installOptionAmend used to swap `amend` on the service's one MatchingClient for the length of an option amend,
+ * #8579: the option amend (option-place.ts withOptionAmend) used to swap `amend` on the service's one MatchingClient for the length of an option amend,
  * so two option amends in flight at once sent each other's fields, and a later plain amend kept the first one's.
- * The host below is the smallest one the wrapper reads: its own amendOrder (the qty-up amend's flag is set, so the
- * wrapper keeps it) awaits a gate, then sends the order's amend through `this.matching.amend` with the option fields
+ * The host below is the smallest one the wrapper reads: its own amendOrder (standing in for the qty-up amend beneath it)
+ * awaits a gate, then sends the order's amend through `this.matching.amend` with the option fields
  * it was handed, as the native amend (`qty-up-amend.ts`) does.
  */
 type Sent = { orderId: string; qty?: string; strike?: string | null };
@@ -44,9 +45,8 @@ function host() {
       });
     }
   }
-  Reflect.set(Host.prototype, Symbol.for('intafaced.trade.nativeQtyUpAmend'), true);
-  installOptionAmend(Host as never);
-  const svc = new Host();
+  const LayeredHost = layeredStandIn(Host, withOptionAmend);
+  const svc = new LayeredHost();
   const release = async (id: string) => gate(id).open();
   return { svc, sent, release, original };
 }

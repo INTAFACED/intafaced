@@ -9,7 +9,8 @@ import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 // these tests keep guarding the custodial Later engine (calculator, order cap & split, tier confirm, dynamic price range)
 // on the TEST perpetual `local-test-gates.mjs futures` lists with the stack's LOCAL TEST ladder
 // (local-test-stack.mjs TEST_FUTURES_LADDER_POLICY), never an owner table. Every figure is read back through the
-// customer's own API.
+// customer's own API. As a custodial part file it keeps today's custody switch (launch-custody.mjs CUSTODIAL_PART),
+// since it funds its trader through our ledger.
 const J = 'J-derivatives-02';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';

@@ -1,17 +1,28 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PlaceDoor } from './place-door.js';
+import * as keysMod from './revoke-all-api-keys.js';
+import * as sessionsMod from './revoke-all-sessions.js';
 import { panicRevoke, requirePanicUserId, revokeAllAccess } from './panic-revoke.js';
+
+// The two shared revoke paths, watched: each still runs for real.
+vi.mock('./revoke-all-api-keys.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./revoke-all-api-keys.js')>();
+  return { ...real, revokeAllApiKeys: vi.fn(real.revokeAllApiKeys) };
+});
+vi.mock('./revoke-all-sessions.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./revoke-all-sessions.js')>();
+  return { ...real, revokeAllSessions: vi.fn(real.revokeAllSessions) };
+});
 
 type KeyRow = { id: string; user_id: string; revoked: boolean };
 type SessionRow = { id: string; user_id: string; revoked: boolean };
 
 function panicStore(keys: KeyRow[], sessions: SessionRow[]) {
   let writes = 0;
+  const statements: Array<{ text: string; values: unknown[] }> = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push({ text: text.replace(/\s+/g, ' ').trim(), values });
     if (text.includes('update api_keys')) {
       writes += 1;
       const named = values[0];
@@ -49,26 +60,39 @@ function panicStore(keys: KeyRow[], sessions: SessionRow[]) {
     },
     keys,
     sessions,
+    statements,
   }) as Parameters<typeof panicRevoke>[0] & {
     writes: number;
     keys: KeyRow[];
     sessions: SessionRow[];
+    statements: Array<{ text: string; values: unknown[] }>;
   };
 }
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'panic-revoke.ts'), 'utf8');
-const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
 
 describe('panicRevoke', () => {
-  it('is revokeAllAccess — same function, not a fork of the two UPDATE paths', () => {
+  it('is revokeAllAccess — same function, not a fork of the two UPDATE paths', async () => {
     expect(revokeAllAccess).toBe(panicRevoke);
-    expect(src).toMatch(/revokeAllApiKeys\(/);
-    expect(src).toMatch(/revokeAllSessions\(/);
-    expect(src).not.toMatch(/UPDATE api_keys/);
-    expect(src).not.toMatch(/UPDATE sessions/);
+    vi.clearAllMocks();
+    const seats = () => [
+      { id: 'a-session', user_id: A, revoked: false },
+      { id: 'a-other', user_id: A, revoked: false },
+    ];
+    const sql = panicStore([{ id: 'a-key', user_id: A, revoked: false }], seats());
+    await expect(panicRevoke(sql, A, A, 'delegate')).resolves.toEqual({ userId: A, keysRevoked: 1, sessionsRevoked: 2 });
+    // Every write goes through the two shared paths, keys first, with this person and the cause handed on.
+    const keys = vi.mocked(keysMod.revokeAllApiKeys);
+    const sessions = vi.mocked(sessionsMod.revokeAllSessions);
+    expect(keys.mock.calls.map(([s, ...rest]) => [s === sql, ...rest])).toEqual([[true, A, A, 'delegate']]);
+    expect(sessions.mock.calls.map(([s, ...rest]) => [s === sql, ...rest])).toEqual([[true, A, A]]);
+    expect(keys.mock.invocationCallOrder[0]).toBeLessThan(sessions.mock.invocationCallOrder[0] ?? 0);
+    // Its statements are exactly theirs: the same run through revokeAllApiKeys then revokeAllSessions writes the same.
+    const base = panicStore([{ id: 'a-key', user_id: A, revoked: false }], seats());
+    await keysMod.revokeAllApiKeys(base, A, A, 'delegate');
+    await sessionsMod.revokeAllSessions(base, A, A);
+    expect(sql.statements).toEqual(base.statements);
   });
 
   it('refuses a missing userId and does not write', async () => {
@@ -141,12 +165,5 @@ describe('panicRevoke', () => {
     expect(sql.keys.find((k) => k.id === 'b-key')?.revoked).toBe(false);
     expect(sql.sessions.find((s) => s.id === 'a-session')?.revoked).toBe(true);
     expect(sql.sessions.find((s) => s.id === 'b-session')?.revoked).toBe(false);
-  });
-});
-
-describe('panicRevoke is mounted (not helper-only)', () => {
-  it('mergeRouters includes createPanicRevokeRouter', () => {
-    expect(indexSrc).toMatch(/createPanicRevokeRouter\(sql\)/);
-    expect(indexSrc).toMatch(/from ['"]\.\/panic-revoke-router\.js['"]/);
   });
 });

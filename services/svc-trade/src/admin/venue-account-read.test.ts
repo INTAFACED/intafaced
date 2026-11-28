@@ -7,9 +7,16 @@ import type { AsOf, UserVenueAccount, UserVenueAccountSummary, VenueIntent } fro
 import { TEST_VENUE_MARKETS, TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { InMemoryPreparedActionStore } from '../venue/prepared-action-store.js';
 import { sampleOf, type MarginSampleStore, type VenueMarginSample } from '../venue/venue-margin-samples.js';
-import { TRADE_ADMIN_VENUE_ACCOUNTS_GET } from '@intafaced/contracts/trade-admin-procedures';
+import { TRADE_ADMIN_VENUE_ACCOUNTS_GET, TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS } from '@intafaced/contracts/trade-admin-procedures';
 import { TradeOpsError, type AuditWrite } from './common.js';
-import { VENUE_ACCOUNTS_READ_KIND, readVenueAccounts, venueAccountsReadWire } from './venue-account-read.js';
+import {
+  VENUE_ACCOUNTS_READ_KIND,
+  VENUE_ORDERS_LIST_KIND,
+  readVenueAccounts,
+  readVenueOrders,
+  venueAccountsReadWire,
+  venueOrdersReadWire,
+} from './venue-account-read.js';
 
 // J-derivatives-26 #8: a founder reads one person's venue account, its margin now and its ratio history, every figure
 // the venue's own with its as-of time; the read is audited before the venue is asked, and changes nothing. Every figure
@@ -161,5 +168,90 @@ describe('readVenueAccounts (J-derivatives-26 #8)', () => {
     const w = await world();
     await expect(readVenueAccounts(w.deps, FOUNDER, { userId: '0xabc' })).rejects.toBeInstanceOf(TradeOpsError);
     expect(w.audits).toEqual([]);
+  });
+});
+
+describe('readVenueOrders (J-ops-console-02 #3)', () => {
+  it("lists the person's orders on their own venue account as the venue keeps them, newest first, audited first", async () => {
+    const w = await world();
+    const read = await readVenueOrders(w.deps, FOUNDER, { userId: PERSON, limit: 200 });
+    expect(w.audits).toEqual([
+      {
+        row: expect.objectContaining({ kind: VENUE_ORDERS_LIST_KIND, operatorId: 'founder-a', accountId: PERSON, objectId: PERSON }),
+        at: expect.any(Date),
+      },
+    ]);
+    const history = (await w.sim.orderHistory!(w.me.account)).value;
+    expect(history).toHaveLength(1);
+    const [{ order, placedAt }] = history as [(typeof history)[number]];
+    expect(read).toMatchObject({
+      userId: PERSON,
+      venueId: w.sim.venue.id,
+      source: w.sim.venue.displayName,
+      truncated: false,
+      auditId: 'audit-1',
+    });
+    expect(read.orders).toEqual([
+      {
+        owner: w.me.owner,
+        subAccount: null,
+        venueClientOrderId: order.venueClientOrderId,
+        venueOrderId: order.venueOrderId,
+        symbol: 'XCRS-PERP',
+        side: 'buy',
+        type: 'limit',
+        status: order.status,
+        amount: a('50'),
+        filled: order.filled,
+        price: a('100'),
+        averagePrice: order.averagePrice,
+        placedAt,
+      },
+    ]);
+    // The maker's order is on another person's account: never this person's.
+    expect(read.orders.every((o) => o.owner === w.me.owner)).toBe(true);
+    const wire = TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS.output.parse(venueOrdersReadWire(read));
+    expect(wire.orders[0]).toMatchObject({ amount: '50', price: '100', placedAt: placedAt.toISOString() });
+  });
+
+  it('cuts to the limit and says an older order exists', async () => {
+    const w = await world();
+    const sell: VenueIntent = {
+      kind: 'place_order',
+      symbol: 'XCRS-PERP',
+      side: 'sell',
+      type: 'limit',
+      amount: a('1'),
+      price: a('200'),
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: 'order:me:rest',
+      builderFee: null,
+    };
+    w.tick(1000);
+    const { prepared, signature } = await w.me.sign(sell);
+    await w.sim.submit(prepared, signature);
+    const read = await readVenueOrders(w.deps, FOUNDER, { userId: PERSON, limit: 1 });
+    expect(read.truncated).toBe(true);
+    expect(read.orders.map((o) => [o.side, o.price])).toEqual([['sell', a('200')]]);
+  });
+
+  it('refuses without admin:read or with the door off, and lists nothing for a person who signed for no account', async () => {
+    const w = await world();
+    await expect(readVenueOrders(w.deps, CUSTOMER, { userId: PERSON, limit: 10 })).rejects.toBeInstanceOf(Error);
+    expect(w.audits).toEqual([]);
+    await expect(readVenueOrders({ ...w.deps, venue: null }, FOUNDER, { userId: PERSON, limit: 10 })).rejects.toMatchObject({
+      code: 'trade.user_venue_off',
+    });
+    const other = await readVenueOrders(w.deps, FOUNDER, { userId: '33333333-3333-4333-8333-3333333333b2', limit: 10 });
+    expect(other).toMatchObject({ orders: [], truncated: false, asOf: null });
+  });
+
+  it('refuses not_offered on a venue that publishes no order history, never an empty list', async () => {
+    const w = await world();
+    const bare = Object.assign(Object.create(Object.getPrototypeOf(w.sim)), w.sim, { orderHistory: undefined });
+    await expect(readVenueOrders({ ...w.deps, venue: async () => bare }, FOUNDER, { userId: PERSON, limit: 10 })).rejects.toMatchObject({
+      code: 'trade.venue.not_offered',
+    });
   });
 });

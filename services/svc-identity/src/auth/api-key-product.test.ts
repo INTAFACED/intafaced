@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ApiKeyProductError,
@@ -9,9 +6,6 @@ import {
   normalizeProduct,
   scopesWithinProducts,
 } from './api-key-product.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
 
 describe('apiKeyProductAllowed', () => {
   it('allows any / missing product when the list is empty — does not invent a default', () => {
@@ -82,13 +76,5 @@ describe('assertProductsDelegatable / scopesWithinProducts', () => {
     expect(scopesWithinProducts(['trade:read'], ['trade'])).toBe(true);
     expect(scopesWithinProducts(['trade:read', 'p2p:read'], ['trade'])).toBe(false);
     expect(scopesWithinProducts(['trade:read'], ['trade', 'p2p'])).toBe(true);
-  });
-});
-
-describe('product scope mint/bind is mounted (not helper-only)', () => {
-  it('mergeRouters includes createApiKeyProductRouter and the exchange wrap', () => {
-    expect(indexSrc).toMatch(/createApiKeyProductRouter\(sql, auth, auth\)/);
-    expect(indexSrc).toMatch(/from ['"]\.\/api-key-product-router\.js['"]/);
-    expect(indexSrc).toMatch(/installApiKeyProductExchange\(auth, sql\)/);
   });
 });

@@ -105,6 +105,53 @@ export const TRADE_ADMIN_VENUE_ACCOUNTS_GET = defineProcedure({
   ],
 });
 
+/** One order on a person's venue account, as the venue keeps it (J-ops-console-02 #3; svc-trade admin/venue-account-read.ts). */
+const venueCustomerOrder = z.object({
+  owner: z.string(),
+  subAccount: z.string().nullable(),
+  venueClientOrderId: z.string().nullable(),
+  venueOrderId: z.string().nullable(),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  type: z.string(),
+  status: z.string(),
+  amount: z.string(),
+  filled: z.string(),
+  price: z.string(),
+  averagePrice: z.string().nullable(),
+  placedAt: z.string().datetime(),
+});
+
+/**
+ * A founder's read of one person's orders on their own venue accounts (J-ops-console-02 #3, the customer record's trade
+ * tab on the launch model): every order the venue keeps for each account the person's own wallet signed for through our
+ * door, newest first, up to `limit`. Every order is the venue's; INTAFACED holds none of it. Audited
+ * (`venue_orders.list`) before the venue is asked; read-only. With the user-venue door off it refuses
+ * `trade.user_venue_off`.
+ */
+export const TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS = defineProcedure({
+  ...base,
+  name: 'trade.admin.venueAccounts.orders',
+  kind: 'query',
+  path: 'admin.venueAccounts.orders',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }).strict(),
+  output: z.object({
+    userId: z.string(),
+    venueId: z.string(),
+    source: z.string(),
+    asOf: z.string().datetime().nullable(),
+    orders: z.array(venueCustomerOrder),
+    truncated: z.boolean(),
+    auditId: z.string(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 200 } },
+    { verdict: 'refuse', input: { userId: '11111111-1111-4111-8111-111111111111' } },
+  ],
+});
+
 /**
  * One customer's orders for the console's customer record (J-ops-console-02 #3, the trade tab), newest first, in the support
  * trade summary's narrowed order view. Needs the desk read scope at the door and `support:lookup` in the service; audited.

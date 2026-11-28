@@ -2,12 +2,8 @@
  * IDENTITY_ACTION_APPROVAL_TTL_SECONDS refuse-closed.
  * Blank / unset is unpublished. Never git-default 900 or 15 minutes.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 const BASE_ENV = {
@@ -35,9 +31,11 @@ afterEach(() => {
 });
 
 describe('IDENTITY_ACTION_APPROVAL_TTL_SECONDS refuse-closed', () => {
-  it('env.ts does not git-default a lifetime', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/IDENTITY_ACTION_APPROVAL_TTL_SECONDS:[\s\S]{0,400}\.default\(/);
+  it('env.ts publishes no lifetime of its own (unset, blank or spaces stay unpublished)', async () => {
+    for (const value of [undefined, '', '   ']) {
+      const parsed = await loadWith({ IDENTITY_ACTION_APPROVAL_TTL_SECONDS: value });
+      expect(parsed.IDENTITY_ACTION_APPROVAL_TTL_SECONDS, JSON.stringify(value)).toBeUndefined();
+    }
   });
 
   it('unset is unpublished', async () => {

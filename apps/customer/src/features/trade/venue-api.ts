@@ -396,6 +396,12 @@ function walletReaderOf(api: ApiClient): Promise<WalletReader | null> {
   return entry.reader;
 }
 
+/** An order-history read's filters and page marker, without the account it names (the reader reads that by address). */
+function historyArgs(query: Record<string, string | undefined>): Record<string, string | undefined> {
+  const { owner: _owner, subAccount: _subAccount, venueId: _venueId, ...filters } = query;
+  return filters;
+}
+
 // ── The door ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export function venueApi(api: ApiClient) {
@@ -404,7 +410,7 @@ export function venueApi(api: ApiClient) {
   const write = <T>(path: string, schema: z.ZodType<T>, body: unknown): Promise<ApiResult<T>> =>
     api.rest(`/venue${path}`, schema, { method: 'POST', body });
   /**
-   * A main account's fills, balances, positions, account mode, open orders or order by client id on the door's own venue:
+   * A main account's fills, balances, positions, account mode, open orders, order by client id or order history on the door's own venue:
    * from this browser where the door names the venue's read endpoint, else through the door. A sub-account, or another venue, always reads through the door,
    * which checks the sub-account is listed under the owner.
    */
@@ -419,7 +425,12 @@ export function venueApi(api: ApiClient) {
       const reader = await walletReaderOf(api);
       if (signal?.aborted) return authoredRefusal('aborted', { key: 'beforeDispatch' });
       if (reader && (query.venueId === undefined || query.venueId === reader.venueId))
-        return reader.read(which, query.owner, schema, which === 'orderByClientId' ? query.clientOrderId : query.since);
+        return reader.read(
+          which,
+          query.owner,
+          schema,
+          which === 'orderByClientId' ? query.clientOrderId : which === 'orderHistory' ? historyArgs(query) : query.since,
+        );
     }
     return read(path, schema, query, signal);
   };
@@ -444,7 +455,7 @@ export function venueApi(api: ApiClient) {
     agentAccounts: (signal?: AbortSignal) => read('/agent-accounts', agentAccountsReadSchema, {}, signal),
     /** The account's orders in every state as the venue keeps them, filtered and a page at a time (J-cex-spot-06 #1). */
     orderHistory: (owner: string, query: VenueHistoryQuery, signal?: AbortSignal) =>
-      read('/orders/history', venueHistoryPageSchema, { owner, ...query }, signal),
+      ownRead('orderHistory', '/orders/history', venueHistoryPageSchema, { ...query, owner }, signal),
     /** Our record of one order: amendments the venue accepted, and our builder fee on it (J-cex-spot-06 #5 #10). */
     orderRecord: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
       read('/orders/record', venueOrderRecordSchema, { owner, clientOrderId }, signal),

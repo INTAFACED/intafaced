@@ -17,11 +17,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { loadIdentityEnv } from './boot.testkit.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const AUTH_ENV = resolve(import.meta.dirname, '../../../packages/config/src/env.ts');
 
 function identityServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-identity');
@@ -36,11 +36,14 @@ const LINE = /^\s+JWT_ACCESS_TTL_SECONDS:\s*\$\{JWT_ACCESS_TTL_SECONDS:-900\}\s*
 
 describe('compose JWT_ACCESS_TTL_SECONDS for svc-identity', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const authEnv = readFileSync(AUTH_ENV, 'utf8');
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   const block = identityServiceBlock(compose);
 
-  it('authEnvSchema still defaults JWT_ACCESS_TTL_SECONDS to 900', () => {
-    expect(authEnv).toMatch(/JWT_ACCESS_TTL_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(60\)\.max\(3600\)\.default\(900\)/);
+  it('authEnvSchema defaults JWT_ACCESS_TTL_SECONDS to 900 in the env svc-identity loads', async () => {
+    expect((await loadIdentityEnv({ JWT_ACCESS_TTL_SECONDS: undefined })).JWT_ACCESS_TTL_SECONDS).toBe(900);
+    expect((await loadIdentityEnv({ JWT_ACCESS_TTL_SECONDS: '1200' })).JWT_ACCESS_TTL_SECONDS).toBe(1200);
   });
 
   it('wires svc-identity JWT_ACCESS_TTL_SECONDS from the host, unique once, default 900', () => {

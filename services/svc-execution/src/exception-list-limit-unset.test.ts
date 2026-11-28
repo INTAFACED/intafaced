@@ -11,9 +11,6 @@
  * Store.list remains the kill / TCA / /ready work set — not recut here.
  * failedHedges / unconfirmed stay parent-id filtered — not milled.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
@@ -33,7 +30,6 @@ import { InMemoryEmsOrderStore } from './oms-ems-store.js';
 import { InMemoryApprovedAlgoParentStore, type ApprovedAlgoParent, type RetainedAlgoSchedule } from './oms-start.js';
 import { createExecutionRouter } from './router.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const SECRET = 'a-execution-exception-list-limit-test-edge-secret';
 const OP = '33333333-3333-4333-8333-333333333333';
 const ORIGINATOR = '55555555-5555-4555-8555-555555555555';
@@ -95,8 +91,27 @@ function ack(id: string): VenueExecution {
   };
 }
 
-function routerSrc(): string {
-  return readFileSync(join(ROOT, 'services/svc-execution/src/router.ts'), 'utf8');
+/** The router as the desk calls it, with only the stores a list reads. */
+function callerWith(stores: { emsStore?: InMemoryEmsOrderStore; parentStore?: InMemoryApprovedAlgoParentStore }) {
+  return createExecutionRouter(
+    new SealedHouseTenantRegistry(),
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    stores.emsStore,
+    undefined,
+    undefined,
+    stores.parentStore,
+  ).createCaller(hmacSigned());
 }
 
 describe('assertUnattendedListLimit', () => {
@@ -148,18 +163,20 @@ describe('assertOrphanedListLimit', () => {
 });
 
 describe('execution.oms.unattended limit unset refuse', () => {
-  it('router does not dump the parent store when unattended omits limit', () => {
-    const src = routerSrc();
-    const start = src.indexOf('unattended: scopedProcedure');
-    const end = src.indexOf('killUnattended:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertUnattendedListLimit(input.limit)');
-    expect(fn).toContain('limit: z.number().int().min(1).max(200).optional()');
-    expect(fn).toContain('.slice(0, limit)');
-    expect(fn).toContain('execution.unattended_list_limit_unset');
-    expect(fn).not.toMatch(/\?\? 50/);
-    expect(fn).not.toMatch(/\?\? 100/);
-    expect(fn).not.toMatch(/limit = 50/);
+  it('omit refuses with the named code, and a page over 200 is refused at the door', async () => {
+    const parentStore = new InMemoryApprovedAlgoParentStore();
+    parentStore.seed(live({ parentClientOrderId: 'unowned-1', kind: 'twap' }));
+    const caller = callerWith({ parentStore });
+    await expect(caller.execution.oms.unattended({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: EXECUTION_UNATTENDED_LIST_LIMIT_UNSET },
+    });
+    await expect(caller.execution.oms.unattended({ limit: 201 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.execution.oms.unattended({ limit: 0 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    const max = await caller.execution.oms.unattended({ limit: 200 });
+    expect(max).toMatchObject({ ok: true });
+    if (!max.ok) return;
+    expect(max.parents).toHaveLength(1);
   });
 
   it('omit / empty input refuses PRECONDITION_FAILED — never dumps both parents', async () => {
@@ -227,19 +244,20 @@ describe('execution.oms.unattended limit unset refuse', () => {
 });
 
 describe('execution.oms.orphaned limit unset refuse', () => {
-  it('router does not dump the EMS store when orphaned omits limit', () => {
-    const src = routerSrc();
-    const start = src.indexOf('orphaned: scopedProcedure');
-    const end = src.indexOf('assignFill:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertOrphanedListLimit(input.limit)');
-    expect(fn).toContain('limit: z.number().int().min(1).max(200).optional()');
-    expect(fn).toContain('.slice(0, limit)');
-    expect(fn).toContain('execution.orphaned_list_limit_unset');
-    expect(fn).not.toMatch(/\?\? 50/);
-    expect(fn).not.toMatch(/\?\? 100/);
-    expect(fn).not.toMatch(/limit = 50/);
-    expect(fn).not.toMatch(/emsStore\.list\(\)/);
+  it('omit refuses with the named code, and a page over 200 is refused at the door', async () => {
+    const emsStore = new InMemoryEmsOrderStore();
+    emsStore.record({ clientOrderId: 'orphan-1', venueId: 'street', symbol: 'BTC/USDT', side: 'buy', execution: ack('1') });
+    const caller = callerWith({ emsStore, parentStore: new InMemoryApprovedAlgoParentStore() });
+    await expect(caller.execution.oms.orphaned({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: EXECUTION_ORPHANED_LIST_LIMIT_UNSET },
+    });
+    await expect(caller.execution.oms.orphaned({ limit: 201 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.execution.oms.orphaned({ limit: 0 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    const max = await caller.execution.oms.orphaned({ limit: 200 });
+    expect(max).toMatchObject({ ok: true });
+    if (!max.ok) return;
+    expect(max.fills).toHaveLength(1);
   });
 
   it('omit / empty input refuses PRECONDITION_FAILED — never dumps both fills', async () => {

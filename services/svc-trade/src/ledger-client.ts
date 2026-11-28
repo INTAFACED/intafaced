@@ -2,15 +2,11 @@ import { createHttpLedgerClient, type LedgerClient } from '@intafaced/ledger-cli
 import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
 import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { installPreTradeCredit } from './futures/pretrade-credit.js';
-import { installPositionMode } from './futures/position-mode.js';
-import { installCollateralHaircut } from './futures/collateral-haircut.js';
 
 /** CARD F5 — index.ts loads this client at boot; mill wraps place/open before hold/lock. */
 installPreTradeCredit();
 /** CARD F6 — explicit one_way / hedge before futuresMarginLock. */
-installPositionMode();
 /** CARD F8 — owner haircuts; yield/staked refuse; posted margin is not a loan. */
-installCollateralHaircut();
 
 /**
  * HTTP client for svc-ledger: the one shared client (`createHttpLedgerClient`), signed per attempt over the exact

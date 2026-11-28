@@ -1,17 +1,16 @@
-// World: book, restart
+// World: book
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { awayBid, chosePro, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit, signIn } from './desk.mjs';
 
-// J-portfolio-01, in the running app (docs/roadmap/journeys.json): "After I trade, I see what I hold, what is locked and
-// what it is worth". One test per step, titled "J-portfolio-01 #<n>", run in order on one TEST account funded with TEST
-// USDT, holding TEST BTC and ETH bought on the desk and TEST EUR that no market prices. Amounts are checked against the
-// ledger (the customer's own balance read), values against the bank's own valuation read just before and just after the
-// page loads (the TEST market maker keeps moving prices), never against what the page itself computed.
-// On the launch model, where INTAFACED holds none of the customer's money, steps #1 #2 #3 #4 #5 #6 #7 read each place
-// that holds the money and the venue's own spot market prices, not our ledger: those steps are J-portfolio-01-venue.pw.mjs's.
-// The tests here keep the ledger branch (the custodial layer, kept and switched off) as it is, titled for the door off;
-// #8 stays a step of this file.
+// J-portfolio-01's custodial branch (Later: the custodial layer, kept and switched off at launch:
+// docs/adr/2026-11-10-launch-money-model.md), in the running app. Every step of J-portfolio-01 (#1 to #8) is proven on
+// the launch model in J-portfolio-01-venue.pw.mjs, where INTAFACED holds none of the person's money. These tests keep the
+// ledger branch as it is, titled for the door off: one TEST account funded with TEST USDT through our ledger, holding
+// TEST BTC and ETH bought on our own desk and TEST EUR that no market prices. Amounts are checked against the ledger
+// (the customer's own balance read), values against the bank's own valuation read just before and just after the page
+// loads (the TEST market maker keeps moving prices), never against what the page itself computed. As a custodial part
+// file it keeps today's custody switch (launch-custody.mjs CUSTODIAL_PART), since it funds its trader through our ledger.
 const J = 'J-portfolio-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ONE = toUnits('1');
@@ -535,28 +534,3 @@ function usdSigned(units) {
   const text = usd(fromUnits(units < 0n ? -units : units));
   return units < 0n ? `−${text}` : units > 0n ? `+${text}` : text;
 }
-
-test(`${J} #8 opens /money while prices cannot be read: the refusal in plain words with a reference, and no guessed total`, async ({
-  page,
-}) => {
-  test.setTimeout(180_000);
-  const who = account();
-  await signIn(page, who);
-  try {
-    // svc-trade publishes the prices the bank values with; with it stopped, the bank refuses rather than guess.
-    tool('local-test-stack.mjs', 'stop', 'trade');
-    const refused = await (await api(who)).get('/api/bank/trpc/portfolio.summary');
-    expect(JSON.stringify(refused.body)).toContain('bank.prices_unavailable');
-    await page.goto('/money');
-    const block = money(page).locator('[data-slot="state-block"][data-kind="refused"]');
-    await expect(block).toContainText("Prices can't be loaded right now.");
-    await expect(block).not.toContainText('bank.prices_unavailable');
-    await expect(block).toContainText('Ref PRC-1');
-    await expect(money(page).getByTestId('money-total').locator('[data-slot="hero-number"]')).toHaveCount(0);
-    await expect(money(page).locator('tr[data-testid="money-row"]')).toHaveCount(0);
-  } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'trade');
-  }
-  await page.goto('/money');
-  await expect(coinRow(page, 'BTC').locator('[data-col="price"]')).toContainText('$', { timeout: 30_000 });
-});

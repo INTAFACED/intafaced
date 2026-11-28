@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { createTradeRouter } from '../router.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks } from '../spot/testing.js';
 import { presentAlgoCapabilityNote } from './algo-capability.js';
@@ -23,6 +23,11 @@ import {
   ALGO_VOLUME_IMMATURE_CODE,
   describeAlgoPolicy,
 } from './algo-policy.js';
+import { withBracketPlace } from '../spot/bracket-place.js';
+import { withOcoPlace } from '../spot/oco-place.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withBracketPlace, withOcoPlace);
 
 describe('describeAlgoPolicy — trade.algo honesty door', () => {
   it('states TWAP schedule law with jobs default OFF and cancel_incomplete park', () => {
@@ -59,7 +64,7 @@ describe('describeAlgoPolicy — trade.algo honesty door', () => {
 describe('algo.policy route (trade.algo honesty door)', () => {
   const sql = {} as Sql;
   const service = (options: { algoEnabled?: boolean; algoJobsEnabled?: boolean }) =>
-    new TradeService(sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
+    new LayeredTradeService(sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       ...options,

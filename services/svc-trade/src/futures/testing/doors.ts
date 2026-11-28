@@ -111,48 +111,6 @@ export function positionsOver(
   return { service, marks, feed, queries };
 }
 
-/**
- * Fresh stand-ins for the two classes the boot hitches wrap (`installPreTradeCredit*`, `installPositionMode*`,
- * `installCollateralHaircut*`). Each records what reached the original method, and what else was asked of it, so a
- * test installs the real hitch on it and asserts what the hitch let through, refused, or changed.
- */
-export function hitchDoubles(markets: Record<string, { kind: 'spot' | 'futures' }> = {}) {
-  const opened: unknown[] = [];
-  const placed: unknown[] = [];
-  const other: string[] = [];
-  class Positions {
-    async open(input: unknown) {
-      opened.push(input);
-      return { opened: true };
-    }
-    async readAccountMode() {
-      return { mode: null };
-    }
-    async writeAccountMode() {
-      other.push('writeAccountMode');
-    }
-    async closeAll() {
-      other.push('closeAll');
-    }
-  }
-  class Trades {
-    async placeOrder(_principal: unknown, input: unknown) {
-      placed.push(input);
-      return { placed: true };
-    }
-    async marketById(id: string) {
-      return markets[id] ?? null;
-    }
-    async marketBySymbol(symbol: string) {
-      return markets[symbol] ?? null;
-    }
-    async cancelAll() {
-      other.push('cancelAll');
-    }
-  }
-  return { Positions, Trades, opened, placed, other };
-}
-
 /** Signed edge headers for one trading user with read and write scopes. */
 export function doorHeaders(userId: string = DOOR_USER_ID): Record<string, string> {
   const principal = {

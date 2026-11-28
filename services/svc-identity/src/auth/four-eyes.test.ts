@@ -12,12 +12,9 @@ import {
   attributionOnOrder,
   fourEyes,
   installApiKeyAttribution,
-  installFourEyes,
   requireAttribution,
   stampAttribution,
 } from './four-eyes.js';
-
-installFourEyes();
 
 describe('four-eyes / attribution — dual-control refuse, stamp survives', () => {
   it('policy change without a second actor refuses', () => {

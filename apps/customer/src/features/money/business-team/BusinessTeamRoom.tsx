@@ -31,6 +31,33 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { useHeldId, type HeldId } from './held-id';
+import {
+  BANK_BUSINESS_TEAM_OVERVIEW,
+  BANK_BUSINESS_TEAM_ROLES,
+  BANK_BUSINESS_TEAM_MEMBERS,
+  BANK_BUSINESS_TEAM_ADVISORS,
+  BANK_BUSINESS_TEAM_INVITES,
+  BANK_BUSINESS_TEAM_RULES,
+  BANK_BUSINESS_TEAM_PAYMENTS,
+  BANK_BUSINESS_TEAM_SPEND,
+  BANK_BUSINESS_TEAM_PAYMENT,
+  BANK_BUSINESS_TEAM_CREATE_ROLE,
+  BANK_BUSINESS_TEAM_ASSIGN_ROLE,
+  BANK_BUSINESS_TEAM_APPROVE_ADVISOR,
+  BANK_BUSINESS_TEAM_ADD_ADVISOR,
+  BANK_BUSINESS_TEAM_INVITE,
+  BANK_BUSINESS_TEAM_RESEND_INVITE,
+  BANK_BUSINESS_TEAM_REVOKE_INVITE,
+  BANK_BUSINESS_TEAM_ADD_RULE,
+  BANK_BUSINESS_TEAM_PROPOSE,
+  BANK_BUSINESS_TEAM_ADD_DEPARTMENT,
+  BANK_BUSINESS_TEAM_SET_DEPARTMENT,
+  BANK_BUSINESS_TEAM_APPROVE,
+  BANK_BUSINESS_TEAM_REJECT,
+  BANK_BUSINESS_TEAM_RESEND,
+  BANK_BUSINESS_TEAM_ACCEPT_INVITE,
+} from '@intafaced/contracts/bank-business-team-procedures';
+import { callAs, type AppProcedure } from '../../../shared/api';
 
 /**
  * A business bank team and its approval rules (J-bank-19; BK-biz-01 to BK-biz-04), on the flow template.
@@ -214,7 +241,7 @@ function signedOutState(t: T, path: string): RoomState {
  * refusal or link it just showed stays with it.
  */
 function useBank<S>(
-  procedure: string,
+  procedure: AppProcedure,
   input: unknown,
   schema: ZodType<S>,
   base: string,
@@ -224,9 +251,9 @@ function useBank<S>(
   const read = useResource<S>(
     (signal) =>
       userId && input !== null
-        ? api.query('bank', procedure, input, schema, { signal })
+        ? callAs(api, procedure, input, schema, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
-    `team:${procedure}:${userId ?? 'out'}:${base}:${rev}`,
+    `team:${procedure.path}:${userId ?? 'out'}:${base}:${rev}`,
   );
   const kept = useRef<{ base: string; data: S } | null>(null);
   const keyed = `${userId ?? 'out'}:${base}`;
@@ -244,7 +271,7 @@ function useChange(after: () => void) {
   const [failed, setFailed] = useState<Failed | null>(null);
   const [notice, setNotice] = useState('');
   async function run<S>(
-    procedure: string,
+    procedure: AppProcedure,
     body: unknown,
     schema: ZodType<S>,
     done?: (data: S) => string,
@@ -254,7 +281,7 @@ function useChange(after: () => void) {
     setBusy(true);
     setFailed(null);
     setNotice('');
-    const out = await api.mutate('bank', procedure, body, schema);
+    const out = await callAs(api, procedure, body, schema);
     setBusy(false);
     held?.settle(out);
     if (!out.ok) {
@@ -350,7 +377,7 @@ export function BusinessTeamRoom({ part }: { part: 'team' | 'spend' }) {
   const business = profiles.business;
   const accountId = business?.accountId ?? null;
   const input = accountId ? { accountId } : null;
-  const overview = useBank('businessTeam.overview', input, businessTeamOverviewSchema, accountId ?? '-');
+  const overview = useBank(BANK_BUSINESS_TEAM_OVERVIEW, input, businessTeamOverviewSchema, accountId ?? '-');
   const path = part === 'team' ? '/bank/business/team' : '/bank/business/spend';
   let state: RoomState = { kind: 'ready' };
   if (!userId) state = signedOutState(t, path);
@@ -396,13 +423,13 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
   const input = { accountId };
   const [rev, setRev] = useState(0);
   const key = accountId;
-  const roles = useBank('businessTeam.roles', input, z.array(businessTeamRoleSchema), key, rev);
-  const members = useBank('businessTeam.members', input, z.array(businessTeamMemberSchema), key, rev);
-  const advisors = useBank('businessTeam.advisors', input, z.array(businessTeamAdvisorSchema), key, rev);
+  const roles = useBank(BANK_BUSINESS_TEAM_ROLES, input, z.array(businessTeamRoleSchema), key, rev);
+  const members = useBank(BANK_BUSINESS_TEAM_MEMBERS, input, z.array(businessTeamMemberSchema), key, rev);
+  const advisors = useBank(BANK_BUSINESS_TEAM_ADVISORS, input, z.array(businessTeamAdvisorSchema), key, rev);
   const manage = o.me.permissions.includes('manage_team');
-  const invites = useBank('businessTeam.invites', manage ? input : null, z.array(businessTeamInviteSchema), key, rev);
-  const rules = useBank('businessTeam.rules', input, z.array(businessTeamRuleSchema), key, rev);
-  const payments = useBank('businessTeam.payments', input, z.array(businessTeamPaymentSchema), key, rev);
+  const invites = useBank(BANK_BUSINESS_TEAM_INVITES, manage ? input : null, z.array(businessTeamInviteSchema), key, rev);
+  const rules = useBank(BANK_BUSINESS_TEAM_RULES, input, z.array(businessTeamRuleSchema), key, rev);
+  const payments = useBank(BANK_BUSINESS_TEAM_PAYMENTS, input, z.array(businessTeamPaymentSchema), key, rev);
   // Each form keeps its request's id until the bank answers it (useHeldId), so a press after a lost answer is the same request.
   const roleId = useHeldId();
   const inviteId = useHeldId();
@@ -456,7 +483,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
             e.preventDefault();
             void change
               .run(
-                'businessTeam.createRole',
+                BANK_BUSINESS_TEAM_CREATE_ROLE,
                 { accountId, roleId: roleId.id, name: roleName.trim(), permissions: rolePerms },
                 businessTeamRoleSchema,
                 (r) => t('roleCreated', { name: r.name }),
@@ -523,7 +550,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                     disabled={change.busy}
                     onClick={() =>
                       void change.run(
-                        'businessTeam.assignRole',
+                        BANK_BUSINESS_TEAM_ASSIGN_ROLE,
                         { accountId, userId: m.userId, roleId: (memberRole[m.userId] ?? m.customRole?.id ?? '') || null },
                         businessTeamMemberSchema,
                         () => t('roleChanged'),
@@ -555,7 +582,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                     type="button"
                     disabled={change.busy}
                     onClick={() =>
-                      void change.run('businessTeam.approveAdvisor', { accountId, userId: a.userId }, businessTeamAdvisorSchema, () =>
+                      void change.run(BANK_BUSINESS_TEAM_APPROVE_ADVISOR, { accountId, userId: a.userId }, businessTeamAdvisorSchema, () =>
                         t('advisorApproved'),
                       )
                     }
@@ -573,7 +600,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
             onSubmit={(e: FormEvent) => {
               e.preventDefault();
               void change
-                .run('businessTeam.addAdvisor', { accountId, handle: advisorHandle.trim() }, businessTeamAdvisorSchema, (a) =>
+                .run(BANK_BUSINESS_TEAM_ADD_ADVISOR, { accountId, handle: advisorHandle.trim() }, businessTeamAdvisorSchema, (a) =>
                   a.status === 'pending' ? t('advisorWaiting') : t('advisorApproved'),
                 )
                 .then((a) => a && setAdvisorHandle(''));
@@ -602,7 +629,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
               const email = inviteEmail.trim() || null;
               void change
                 .run(
-                  'businessTeam.invite',
+                  BANK_BUSINESS_TEAM_INVITE,
                   { accountId, inviteId: inviteId.id, email, ...roleChoice(inviteRole) },
                   businessTeamInviteMadeSchema,
                   undefined,
@@ -676,7 +703,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                       onClick={() =>
                         void change
                           .run(
-                            'businessTeam.resendInvite',
+                            BANK_BUSINESS_TEAM_RESEND_INVITE,
                             { accountId, inviteId: i.id, newInviteId: newId() },
                             businessTeamInviteMadeSchema,
                           )
@@ -694,7 +721,9 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                       tone="primary"
                       type="button"
                       disabled={change.busy}
-                      onClick={() => void change.run('businessTeam.revokeInvite', { accountId, inviteId: i.id }, businessTeamInviteSchema)}
+                      onClick={() =>
+                        void change.run(BANK_BUSINESS_TEAM_REVOKE_INVITE, { accountId, inviteId: i.id }, businessTeamInviteSchema)
+                      }
                     >
                       {t('revoke')}
                     </Button>
@@ -723,7 +752,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
               e.preventDefault();
               void change
                 .run(
-                  'businessTeam.addRule',
+                  BANK_BUSINESS_TEAM_ADD_RULE,
                   {
                     accountId,
                     ruleId: ruleId.id,
@@ -801,7 +830,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
               e.preventDefault();
               void change
                 .run(
-                  'businessTeam.propose',
+                  BANK_BUSINESS_TEAM_PROPOSE,
                   { accountId, paymentId: paymentId.id, payee: payee.trim(), paymentType: payType, amount: payAmount.trim() },
                   businessTeamPaymentSchema,
                   () => t('proposed'),
@@ -852,7 +881,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
 function SpendPart({ o, t }: { o: BusinessTeamOverview; t: T }) {
   const accountId = o.account.id;
   const [rev, setRev] = useState(0);
-  const spend = useBank('businessTeam.spend', { accountId }, businessTeamSpendSchema, accountId, rev);
+  const spend = useBank(BANK_BUSINESS_TEAM_SPEND, { accountId }, businessTeamSpendSchema, accountId, rev);
   const manage = o.me.permissions.includes('manage_team');
   const departmentId = useHeldId();
   const change = useChange(() => setRev((n) => n + 1));
@@ -922,7 +951,7 @@ function SpendPart({ o, t }: { o: BusinessTeamOverview; t: T }) {
                   e.preventDefault();
                   void change
                     .run(
-                      'businessTeam.addDepartment',
+                      BANK_BUSINESS_TEAM_ADD_DEPARTMENT,
                       { accountId, departmentId: departmentId.id, name: name.trim(), budget: budget.trim() || null },
                       businessTeamDepartmentSchema,
                       undefined,
@@ -972,7 +1001,7 @@ function SpendPart({ o, t }: { o: BusinessTeamOverview; t: T }) {
                       disabled={change.busy}
                       onClick={() =>
                         void change.run(
-                          'businessTeam.setDepartment',
+                          BANK_BUSINESS_TEAM_SET_DEPARTMENT,
                           { accountId, userId: m.userId, departmentId: (picked[m.userId] ?? m.departmentId ?? '') || null },
                           businessTeamMemberSchema,
                         )
@@ -998,9 +1027,14 @@ export function BusinessPaymentRoom({ search }: { search: string }) {
   const paymentId = new URLSearchParams(search).get('id');
   const valid = paymentId !== null && /^[0-9a-f-]{36}$/i.test(paymentId);
   const [rev, setRev] = useState(0);
-  const read = useBank('businessTeam.payment', valid ? { paymentId } : null, businessTeamPaymentSchema, paymentId ?? '-', rev);
+  const read = useBank(BANK_BUSINESS_TEAM_PAYMENT, valid ? { paymentId } : null, businessTeamPaymentSchema, paymentId ?? '-', rev);
   const p = read.resource.status === 'ready' ? read.resource.data : null;
-  const overview = useBank('businessTeam.overview', p ? { accountId: p.accountId } : null, businessTeamOverviewSchema, p?.accountId ?? '-');
+  const overview = useBank(
+    BANK_BUSINESS_TEAM_OVERVIEW,
+    p ? { accountId: p.accountId } : null,
+    businessTeamOverviewSchema,
+    p?.accountId ?? '-',
+  );
   const o = overview.resource.status === 'ready' ? overview.resource.data : null;
   const change = useChange(() => setRev((n) => n + 1));
   let state: RoomState = { kind: 'ready' };
@@ -1065,7 +1099,7 @@ export function BusinessPaymentRoom({ search }: { search: string }) {
                     tone="primary"
                     disabled={change.busy}
                     onClick={() =>
-                      void change.run('businessTeam.approve', { paymentId: p.id }, businessTeamPaymentSchema, () => t('approved'))
+                      void change.run(BANK_BUSINESS_TEAM_APPROVE, { paymentId: p.id }, businessTeamPaymentSchema, () => t('approved'))
                     }
                   >
                     {t('approve')}
@@ -1074,7 +1108,7 @@ export function BusinessPaymentRoom({ search }: { search: string }) {
                     tone="primary"
                     type="button"
                     disabled={change.busy}
-                    onClick={() => void change.run('businessTeam.reject', { paymentId: p.id }, businessTeamPaymentSchema)}
+                    onClick={() => void change.run(BANK_BUSINESS_TEAM_REJECT, { paymentId: p.id }, businessTeamPaymentSchema)}
                   >
                     {t('decline')}
                   </Button>
@@ -1086,7 +1120,11 @@ export function BusinessPaymentRoom({ search }: { search: string }) {
                   type="button"
                   disabled={change.busy}
                   onClick={() =>
-                    void change.run(mine ? 'businessTeam.approve' : 'businessTeam.resend', { paymentId: p.id }, businessTeamPaymentSchema)
+                    void change.run(
+                      mine ? BANK_BUSINESS_TEAM_APPROVE : BANK_BUSINESS_TEAM_RESEND,
+                      { paymentId: p.id },
+                      businessTeamPaymentSchema,
+                    )
                   }
                 >
                   {t('tryAgain')}
@@ -1140,7 +1178,7 @@ export function BusinessJoinRoom() {
               tone="primary"
               disabled={change.busy}
               onClick={() =>
-                void change.run('businessTeam.acceptInvite', { token }, businessTeamJoinedSchema).then((j) => j && setJoined(j.name))
+                void change.run(BANK_BUSINESS_TEAM_ACCEPT_INVITE, { token }, businessTeamJoinedSchema).then((j) => j && setJoined(j.name))
               }
             >
               {t('join')}

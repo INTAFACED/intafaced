@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { MarketError, assertListedVendorsListLimit } from './vendor-service.js';
+import { recordingSql } from './sql-recorder.testkit.js';
+import { MarketError, VendorService, assertListedVendorsListLimit } from './vendor-service.js';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -11,8 +9,6 @@ import { userCopy } from './user-copy.js';
  * listedVendors used `options.limit ?? 20`, so omit invented a 20-vendor page.
  * Blank must refuse. Owner/client may pass 20 explicitly.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('listedVendors limit unset refuse', () => {
   it('assertListedVendorsListLimit refuses blank / NaN / 0 — never invents 20', () => {
@@ -37,21 +33,19 @@ describe('listedVendors limit unset refuse', () => {
     expect(assertListedVendorsListLimit(51)).toBe(50);
   });
 
-  it('listedVendors no longer defaults limit to 20', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-market/src/vendor-service.ts'), 'utf8');
-    const start = src.indexOf('async listedVendors(');
-    const fn = src.slice(start);
-    expect(fn).toContain('assertListedVendorsListLimit');
-    expect(fn).not.toMatch(/\?\? 20/);
-  });
+  it('listedVendors refuses an unset limit before reading, and asks the database for no more than the published page', async () => {
+    const { sql, queries } = recordingSql();
+    const vendors = new VendorService(sql, { entitlementOf: async () => ({ tierName: 'TEST', vendorSlots: 1 }) });
+    await expect(vendors.listedVendors()).rejects.toMatchObject({ code: 'market.listed_vendors_list_limit_unset' });
+    await expect(vendors.listedVendors({})).rejects.toMatchObject({ code: 'market.listed_vendors_list_limit_unset' });
+    expect(queries).toEqual([]);
 
-  it('router does not invent 20 when listed omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-market/src/router.ts'), 'utf8');
-    const start = src.indexOf('listed: mountRecord(');
-    const end = src.indexOf('history:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('listedVendors({ limit: input?.limit, signal })');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 20/);
-    expect(fn).not.toMatch(/\?\? 20/);
+    await expect(vendors.listedVendors({ limit: 20 })).resolves.toEqual([]);
+    const page = queries.find((q) => q.text.includes('FROM market.vendors v'));
+    expect(page?.text).toMatch(/LIMIT \$\d+$/);
+    expect(page?.values.at(-1)).toBe(20);
+    queries.length = 0;
+    await vendors.listedVendors({ limit: 500 });
+    expect(queries.find((q) => q.text.includes('FROM market.vendors v'))?.values.at(-1)).toBe(50);
   });
 });

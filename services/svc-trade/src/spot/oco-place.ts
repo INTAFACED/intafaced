@@ -23,8 +23,6 @@ export type PlaceWithOco = PlaceOrderInput & {
   stopLoss?: Amount | OcoLeg | string | null;
 };
 
-const FLAG = Symbol.for('intafaced.trade.ocoPlace');
-
 function clientKey(rec: Readonly<Record<string, unknown>>): string | null {
   return typeof rec.clientOrderId === 'string' && rec.clientOrderId.length > 0 ? rec.clientOrderId : null;
 }
@@ -133,78 +131,68 @@ export function buyHoldPrice(takeProfit: Amount, stopTrigger: Amount, stopLimit:
   return stopLimit;
 }
 
-export function installOcoPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withOcoPlace(Base: typeof TradeService): typeof TradeService {
+  return class OcoPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindOco(input);
+      if (!wantsOco(bound)) return super.placeOrder(principal, bound);
+      const missingTp = takeProfitRefuse(triggerOf(bound.takeProfit));
+      if (missingTp) throw missingTp;
+      const missingSl = stopLossRefuse(triggerOf(bound.stopLoss));
+      if (missingSl) throw missingSl;
+      const tp = triggerOf(bound.takeProfit)!;
+      const sl = triggerOf(bound.stopLoss)!;
+      // A sell holds base once, whichever leg fills. A buy holds quote once, so it must be sized at the worse of
+      // the two leg prices: the stop leg is a stop-limit and its limit is that worst price.
+      const placed =
+        bound.side === 'buy'
+          ? (() => {
+              // A market buy is held at its protection price, not at the price handed in here.
+              if (bound.type !== 'limit') {
+                throw new TradeError(
+                  'a buy OCO must be a limit order: its hold is sized at the stop-loss limit',
+                  'trade.order_type_unsupported',
+                );
+              }
+              return { ...bound, price: buyHoldPrice(tp, sl, stopLimitOf(bound.stopLoss)) };
+            })()
+          : bound;
+      // Written before the hold: a resubmit from a booked hold_unknown row must send the same legs.
+      const host = this as unknown as { sql: Sql; requireMarket: (input: PlaceOrderInput) => Promise<{ id: string }> };
+      const market = await host.requireMarket(placed);
+      await rememberOcoIntent(
+        host.sql,
+        principal.userId,
+        market.id,
+        placed,
+        tp,
+        sl,
+        bound.side === 'buy' ? stopLimitOf(bound.stopLoss) : null,
+      );
+      try {
+        return await super.placeOrder(principal, placed);
+      } catch (err) {
+        // A refusal before any order row exists leaves no order to resubmit: drop the intent so a retry with
+        // corrected legs is not locked out, and so the id cannot later attach these legs to a plain order.
+        await forgetOcoIntentWithoutOrder(host.sql, principal.userId, market.id, placed).catch(() => undefined);
+        throw err;
+      }
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindOco(input);
-    if (!wantsOco(bound)) return origPlace.call(this, principal, bound);
-    const missingTp = takeProfitRefuse(triggerOf(bound.takeProfit));
-    if (missingTp) throw missingTp;
-    const missingSl = stopLossRefuse(triggerOf(bound.stopLoss));
-    if (missingSl) throw missingSl;
-    const tp = triggerOf(bound.takeProfit)!;
-    const sl = triggerOf(bound.stopLoss)!;
-    // A sell holds base once, whichever leg fills. A buy holds quote once, so it must be sized at the worse of
-    // the two leg prices: the stop leg is a stop-limit and its limit is that worst price.
-    const placed =
-      bound.side === 'buy'
-        ? (() => {
-            // A market buy is held at its protection price, not at the price handed in here.
-            if (bound.type !== 'limit') {
-              throw new TradeError(
-                'a buy OCO must be a limit order: its hold is sized at the stop-loss limit',
-                'trade.order_type_unsupported',
-              );
-            }
-            return { ...bound, price: buyHoldPrice(tp, sl, stopLimitOf(bound.stopLoss)) };
-          })()
-        : bound;
-    // Written before the hold: a resubmit from a booked hold_unknown row must send the same legs.
-    const host = this as unknown as { sql: Sql; requireMarket: (input: PlaceOrderInput) => Promise<{ id: string }> };
-    const market = await host.requireMarket(placed);
-    await rememberOcoIntent(
-      host.sql,
-      principal.userId,
-      market.id,
-      placed,
-      tp,
-      sl,
-      bound.side === 'buy' ? stopLimitOf(bound.stopLoss) : null,
-    );
-    try {
-      return await origPlace.call(this, principal, placed);
-    } catch (err) {
-      // A refusal before any order row exists leaves no order to resubmit: drop the intent so a retry with
-      // corrected legs is not locked out, and so the id cannot later attach these legs to a plain order.
-      await forgetOcoIntentWithoutOrder(host.sql, principal.userId, market.id, placed).catch(() => undefined);
-      throw err;
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const extra = args[2] as PlaceWithOco | undefined;
+      if (!extra || !wantsOco(extra)) return req;
+      const takeProfit = triggerOf(extra.takeProfit);
+      const stopLoss = triggerOf(extra.stopLoss);
+      const stopLossLimit = extra.side === 'buy' ? stopLimitOf(extra.stopLoss) : null;
+      return {
+        ...req,
+        oco: true,
+        takeProfit: takeProfit == null ? null : formatAmount(takeProfit),
+        stopLoss: stopLoss == null ? null : formatAmount(stopLoss),
+        ...(stopLossLimit === null ? {} : { stopLossLimit: formatAmount(stopLossLimit) }),
+      } as EngineSubmitRequest;
     }
   };
-
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const extra = args[2] as PlaceWithOco | undefined;
-    if (!extra || !wantsOco(extra)) return req;
-    const takeProfit = triggerOf(extra.takeProfit);
-    const stopLoss = triggerOf(extra.stopLoss);
-    const stopLossLimit = extra.side === 'buy' ? stopLimitOf(extra.stopLoss) : null;
-    return {
-      ...req,
-      oco: true,
-      takeProfit: takeProfit == null ? null : formatAmount(takeProfit),
-      stopLoss: stopLoss == null ? null : formatAmount(stopLoss),
-      ...(stopLossLimit === null ? {} : { stopLossLimit: formatAmount(stopLossLimit) }),
-    } as EngineSubmitRequest;
-  };
 }
-
-installOcoPlace(TradeService);

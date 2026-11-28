@@ -12,12 +12,8 @@
  * 5. Paths: env.ts via loadEnv at import (same as boot)
  * 6. RED: git-default 60000 returns, or unset/blank parses as 60000
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 /** Minimum boot env so assertions are about the throttle window. */
@@ -55,10 +51,12 @@ afterEach(() => {
 });
 
 describe('svc-edge EDGE_RATE_LIMIT_WINDOW_MS refuse-closed', () => {
-  it('env.ts keeps the refuse-closed shape production loadEnv parses', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).toMatch(/EDGE_RATE_LIMIT_WINDOW_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1000\)\.max\(3_600_000\),/);
-    expect(envTs).not.toMatch(/EDGE_RATE_LIMIT_WINDOW_MS:[^\n]*?\.default\(/);
+  it('the loaded env refuses an out-of-range value and keeps an in-range one', async () => {
+    for (const refused of ['999', '3600001', '60000.5', 'a minute']) {
+      await expect(loadWith({ EDGE_RATE_LIMIT_WINDOW_MS: refused }), refused).rejects.toThrow(/EDGE_RATE_LIMIT_WINDOW_MS/);
+    }
+    expect((await loadWith({ EDGE_RATE_LIMIT_WINDOW_MS: '1000' })).EDGE_RATE_LIMIT_WINDOW_MS).toBe(1000);
+    expect((await loadWith({ EDGE_RATE_LIMIT_WINDOW_MS: '3600000' })).EDGE_RATE_LIMIT_WINDOW_MS).toBe(3_600_000);
   });
 
   it('unset EDGE_RATE_LIMIT_WINDOW_MS refuses (no invent 60000)', async () => {

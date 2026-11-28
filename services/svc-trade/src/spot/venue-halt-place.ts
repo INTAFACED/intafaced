@@ -10,8 +10,6 @@ import type { Market } from './types.js';
  * Trade does not swallow the refuse as a fill.
  */
 
-const FLAG = Symbol.for('intafaced.trade.venueHaltPlace');
-
 export const VENUE_HALTED = 'venue_halted' as const;
 
 const VENUE_HALTED_MESSAGE = 'all markets are halted — new submits are refused; trade does not swallow this as a fill';
@@ -47,34 +45,26 @@ function venueHaltedRejectResult(): EngineSubmitResult {
   };
 }
 
-export function installVenueHaltPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string | null }>;
-    applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withVenueHaltPlace(Base: typeof TradeService): typeof TradeService {
+  return class VenueHaltPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const order = await super.placeOrder(principal, input);
+      const refuse = matchingVenueHaltedRefuse(order.rejectCode ? { code: order.rejectCode } : null);
+      if (refuse) throw refuse;
+      return order;
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const order = await origPlace.call(this, principal, input);
-    const refuse = matchingVenueHaltedRefuse(order.rejectCode ? { code: order.rejectCode } : null);
-    if (refuse) throw refuse;
-    return order;
-  };
-
-  if (typeof proto.applySubmitResult === 'function') {
-    const origApply = proto.applySubmitResult;
-    proto.applySubmitResult = async function (this: TradeService, market: Market, orderId: string, result: EngineSubmitResult) {
+    override async applySubmitResult(
+      market: Market,
+      orderId: string,
+      result: EngineSubmitResult,
+    ): ReturnType<TradeService['applySubmitResult']> {
       const refuse = matchingSubmitVenueHaltedRefuse(result);
       if (refuse) {
-        await origApply.call(this, market, orderId, venueHaltedRejectResult());
+        await super.applySubmitResult(market, orderId, venueHaltedRejectResult());
         throw refuse;
       }
-      return origApply.call(this, market, orderId, result);
-    };
-  }
+      return super.applySubmitResult(market, orderId, result);
+    }
+  };
 }
-
-installVenueHaltPlace(TradeService);

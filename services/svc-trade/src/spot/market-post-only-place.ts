@@ -10,8 +10,6 @@ import type { Market } from './types.js';
  * (existing PO law). Cancel stays. Trade does not swallow the refuse as a fill.
  */
 
-const FLAG = Symbol.for('intafaced.trade.marketPostOnlyPlace');
-
 export const MARKET_POST_ONLY = 'market_post_only' as const;
 
 const MARKET_POST_ONLY_MESSAGE = 'market is post-only — non-post-only submits are refused; trade does not swallow this as a fill';
@@ -50,34 +48,26 @@ function postOnlyRejectResult(): EngineSubmitResult {
   };
 }
 
-export function installMarketPostOnlyPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string | null }>;
-    applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withMarketPostOnlyPlace(Base: typeof TradeService): typeof TradeService {
+  return class MarketPostOnlyPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const order = await super.placeOrder(principal, input);
+      const refuse = matchingMarketPostOnlyRefuse(order.rejectCode ? { code: order.rejectCode } : null);
+      if (refuse) throw refuse;
+      return order;
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const order = await origPlace.call(this, principal, input);
-    const refuse = matchingMarketPostOnlyRefuse(order.rejectCode ? { code: order.rejectCode } : null);
-    if (refuse) throw refuse;
-    return order;
-  };
-
-  if (typeof proto.applySubmitResult === 'function') {
-    const origApply = proto.applySubmitResult;
-    proto.applySubmitResult = async function (this: TradeService, market: Market, orderId: string, result: EngineSubmitResult) {
+    override async applySubmitResult(
+      market: Market,
+      orderId: string,
+      result: EngineSubmitResult,
+    ): ReturnType<TradeService['applySubmitResult']> {
       const refuse = matchingSubmitMarketPostOnlyRefuse(result);
       if (refuse) {
-        await origApply.call(this, market, orderId, postOnlyRejectResult());
+        await super.applySubmitResult(market, orderId, postOnlyRejectResult());
         throw refuse;
       }
-      return origApply.call(this, market, orderId, result);
-    };
-  }
+      return super.applySubmitResult(market, orderId, result);
+    }
+  };
 }
-
-installMarketPostOnlyPlace(TradeService);

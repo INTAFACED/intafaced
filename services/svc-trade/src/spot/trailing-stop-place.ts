@@ -2,10 +2,8 @@ import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import { MatchingNoBookError, type EngineSubmitRequest } from './matching-client.js';
+import { MatchingNoBookError } from './matching-client.js';
 import type { QuotedMarkSource } from '../futures/liquidation-tick.js';
-import './oco-cancel.js';
-import './bracket-place.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
 /**
@@ -19,8 +17,6 @@ type PlaceWithTrail = PlaceOrderInput & {
   trail?: Amount | null;
   mark?: Amount | null;
 };
-
-const FLAG = Symbol.for('intafaced.trade.trailingStopPlace');
 
 export const TRAIL_MISSING = 'missing_trail' as const;
 export const MARK_MISSING = 'missing_mark' as const;
@@ -93,51 +89,41 @@ async function serverMark(service: TradeService, source: QuotedMarkSource, input
   }
 }
 
-export function installTrailingStopPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    let bound = bindTrailingStop(input);
-    if (bound.trail !== undefined) {
-      const missingTrail = trailRefuse(bound.trail ?? null);
-      if (missingTrail) throw missingTrail;
-      const source = (this as unknown as { trailingMarkSource?: QuotedMarkSource }).trailingMarkSource;
-      if (source) {
-        // The mark is ours. Whatever the request carried is dropped, so a caller cannot choose where the stop starts.
-        bound = { ...bound, mark: await serverMark(this, source, bound) };
+export function withTrailingStopPlace(Base: typeof TradeService): typeof TradeService {
+  return class TrailingStopPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      let bound = bindTrailingStop(input);
+      if (bound.trail !== undefined) {
+        const missingTrail = trailRefuse(bound.trail ?? null);
+        if (missingTrail) throw missingTrail;
+        const source = (this as unknown as { trailingMarkSource?: QuotedMarkSource }).trailingMarkSource;
+        if (source) {
+          // The mark is ours. Whatever the request carried is dropped, so a caller cannot choose where the stop starts.
+          bound = { ...bound, mark: await serverMark(this, source, bound) };
+        }
+        const missingMark = markRefuse(bound.mark ?? null);
+        if (missingMark) throw missingMark;
+        if (bound.side === 'buy') {
+          // A buy stop triggers as a market order at a price the hold cannot know yet; funding it is the next slice.
+          throw new TradeError('trailing buy stops are not available yet; the funding hold is not built', 'trade.order_type_unsupported');
+        }
       }
-      const missingMark = markRefuse(bound.mark ?? null);
-      if (missingMark) throw missingMark;
-      if (bound.side === 'buy') {
-        // A buy stop triggers as a market order at a price the hold cannot know yet; funding it is the next slice.
-        throw new TradeError('trailing buy stops are not available yet; the funding hold is not built', 'trade.order_type_unsupported');
-      }
+      return super.placeOrder(principal, bound);
     }
-    return origPlace.call(this, principal, bound);
-  };
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithTrail | undefined;
-    if (input && input.trail !== undefined) {
-      return {
-        ...req,
-        type: 'stop',
-        price: null,
-        trail: input.trail == null ? null : formatAmount(input.trail),
-        mark: input.mark == null ? null : formatAmount(input.mark),
-      };
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithTrail | undefined;
+      if (input && input.trail !== undefined) {
+        return {
+          ...req,
+          type: 'stop',
+          price: null,
+          trail: input.trail == null ? null : formatAmount(input.trail),
+          mark: input.mark == null ? null : formatAmount(input.mark),
+        };
+      }
+      return req;
     }
-    return req;
   };
 }
-
-installTrailingStopPlace(TradeService);

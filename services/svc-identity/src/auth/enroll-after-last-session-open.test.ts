@@ -1,14 +1,40 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
+import { PlaceDoor } from './place-door.js';
 import { newlyEnrolledPasskeyOpensSession, openLiveSessionAfterNewlyEnrolledPasskey } from './enroll-after-last-session-open.js';
+
+// The WebAuthn library, watched: opening a seat after a passkey must never start a ceremony of its own.
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...real, generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions) };
+});
+
+/** The code a synchronous check refuses with, or null when it passes. */
+function refusalOf(check: () => void): unknown {
+  try {
+    check();
+    return null;
+  } catch (err) {
+    return (err as { code?: unknown }).code;
+  }
+}
+
+/** A call's outcome: its answer, or the code it refused with. */
+async function settle<T>(p: Promise<T>): Promise<{ value: T } | { code: unknown }> {
+  try {
+    return { value: await p };
+  } catch (err) {
+    return { code: (err as { code?: unknown }).code };
+  }
+}
 
 function fakeSql(creds: unknown[] | null, session?: { id: string; user_id: string; revoked: boolean }) {
   let sessionReads = 0;
+  const statements: string[] = [];
   const fn = async (strings: TemplateStringsArray, ..._values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push(text.replace(/\s+/g, ' ').trim());
     if (text.includes('select') && text.includes('webauthn_creds')) {
       if (creds === null) return [];
       return [{ webauthn_creds: creds }];
@@ -27,8 +53,9 @@ function fakeSql(creds: unknown[] | null, session?: { id: string; user_id: strin
     }
     throw new Error(`unexpected sql: ${text}`);
   };
-  const sql = fn as Parameters<typeof openLiveSessionAfterNewlyEnrolledPasskey>[0] & {
+  const sql = Object.assign(fn, { statements }) as Parameters<typeof openLiveSessionAfterNewlyEnrolledPasskey>[0] & {
     sessionReads: number;
+    statements: string[];
   };
   Object.defineProperty(sql, 'sessionReads', { get: () => sessionReads });
   return sql;
@@ -108,14 +135,34 @@ describe('newlyEnrolledPasskeyOpensSession — enroll after last unenroll', () =
     expect(sql.sessionReads).toBe(0);
   });
 
-  it('source reuses requireVerifiedPasskey and PlaceDoor; no invented challenge or session', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'enroll-after-last-session-open.ts'), 'utf8');
-    expect(src).toMatch(/requireVerifiedPasskey/);
-    expect(src).toMatch(/PlaceDoor/);
-    expect(src).toMatch(/assertSessionLive/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+sessions/i);
-    expect(src).not.toMatch(/INSERT\s+challenges/i);
+  it("answers exactly as PlaceDoor's assertSessionLive does, after one passkey read; no invented challenge or session", async () => {
+    const seats = [{ id: 'live-1', user_id: A, revoked: false }, { id: 'live-1', user_id: A, revoked: true }, undefined];
+    for (const seat of seats) {
+      const own = fakeSql([enrolledAgain], seat);
+      const ownOut = await settle(openLiveSessionAfterNewlyEnrolledPasskey(own, { userId: A, sessionId: 'live-1' }));
+      const base = fakeSql([enrolledAgain], seat);
+      const baseOut = await settle(new PlaceDoor(base).assertSessionLive('live-1'));
+      expect(ownOut).toEqual(baseOut);
+      // One read of the stored passkeys (the gate), then the door's own read of the seat, and nothing written.
+      expect(own.statements[0]).toBe('select webauthn_creds from users where id = ? limit 1');
+      expect(own.statements.slice(1)).toEqual(base.statements);
+      expect(own.statements.filter((s) => /insert\s+(into\s+)?(challenges|sessions)/.test(s))).toEqual([]);
+    }
+    // A live seat of someone else is denied, never opened for this person.
+    await expect(
+      openLiveSessionAfterNewlyEnrolledPasskey(fakeSql([enrolledAgain], { id: 'live-1', user_id: 'someone-else', revoked: false }), {
+        userId: A,
+        sessionId: 'live-1',
+      }),
+    ).rejects.toMatchObject({ code: 'auth.session_denied' });
+    // Refused at the gate, the door never runs: only the passkey read.
+    for (const creds of [[enrolledUnverified], []]) {
+      const refused = fakeSql(creds, { id: 'live-1', user_id: A, revoked: false });
+      await expect(openLiveSessionAfterNewlyEnrolledPasskey(refused, { userId: A, sessionId: 'live-1' })).rejects.toMatchObject({
+        code: refusalOf(() => requireVerifiedPasskey(creds)),
+      });
+      expect(refused.statements).toHaveLength(1);
+    }
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 });

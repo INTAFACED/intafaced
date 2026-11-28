@@ -6,7 +6,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { formatAmount, MemoryLedger, merchantProceeds, parseAmount as amt, type LedgerClient } from '@intafaced/ledger-client';
 import { PayService, type PaymentView } from './payment-service.js';
-import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
+import { installPayoutDestinationShim } from './payout-destination.testkit.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
 import { memoryPayoutDestinations } from './merchant-payout-destination.js';
 import { RailRegistry } from './rails/registry.js';

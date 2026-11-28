@@ -9,25 +9,19 @@
  * 7. Collision: #1903 planner MM; #1881 D3 skip
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const routerSource = readFileSync(join(here, 'router.ts'), 'utf8');
+import { tradeRouterPaths } from './__tests__/entry.js';
 
 describe('tRPC does not grow a second futures money door', () => {
   it('does not mount positions, setLeverage, or a funding-rate procedure', () => {
-    expect(routerSource).not.toMatch(/\bpositions\s*:/);
-    expect(routerSource).not.toMatch(/\bsetLeverage\s*:/);
-    expect(routerSource).not.toMatch(/\bfundingRate\s*:/);
-    expect(routerSource).not.toMatch(/\bopenPosition\s*:/);
-    expect(routerSource).not.toMatch(/\bclosePosition\s*:/);
+    const futuresShaped = tradeRouterPaths().filter((path) =>
+      path.split('.').some((part) => /^(positions|setLeverage|fundingRate|openPosition|closePosition)$/.test(part)),
+    );
+    // The only ones are reads that move nothing: the console's position list and the options positions view.
+    expect(futuresShaped).toEqual(['admin.positions.get', 'admin.positions.list', 'options.positions']);
   });
 
   it('still mounts the spot order door so the pin is not vacuous', () => {
-    expect(routerSource).toMatch(/orders:\s*router\(/);
-    expect(routerSource).toMatch(/createTradeRouter\(/);
+    expect(tradeRouterPaths()).toEqual(expect.arrayContaining(['orders.create', 'orders.cancel', 'orders.open']));
   });
 });

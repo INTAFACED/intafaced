@@ -45,13 +45,35 @@ const MARKETS_MISS_REFRESH_MS = 10_000;
 const LIGHT_READS = new Set(['l2Book', 'allMids', 'clearinghouseState', 'orderStatus', 'spotClearinghouseState', 'exchangeStatus']);
 const SLOW_READS = new Set(['meta', 'spotMeta', 'perpDexs']);
 /**
+ * An account's order history (`historicalOrders`, 20 a read and more with its orders): what is live on a desk (its open
+ * orders, fills and positions) is read apart, and the account's own order or cancel drops it, so it is kept 45 s. Money's
+ * activity polls it every few seconds on each open page; kept 15 s, five testers' pages were 140 a minute.
+ */
+const HISTORY_READS = new Set(['historicalOrders']);
+/**
  * An account's reads that change only by its own signed action of another kind than an order or a cancel: its fee
  * rates (`userFees`, by its volume over days), its builder approval (`maxBuilderFee`), its session keys (`extraAgents`)
  * a market's leverage (`activeAssetData`, of which only `leverage` is read) and its account mode (`userAbstraction`). Kept for minutes; an order or a cancel
- * keeps them (`ORDER_ACTIONS`), any other signed action of the account drops them.
+ * keeps them (`ORDER_ACTIONS`), an action named in `RARE_CHANGED_BY` drops the ones it changes, and any other signed
+ * action of the account drops them all.
  */
 const RARE_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'activeAssetData', 'userAbstraction']);
-export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000, rare: 300_000 } as const;
+/**
+ * The rare reads each of these actions changes, and no other: a session key changes the agents, a builder approval the
+ * approval, a leverage or isolated-margin change the market's leverage, and a move of USDC none of them. A new tester's
+ * agent, approval and first move each dropped all five, so six testers starting together re-read them three times over.
+ */
+const RARE_CHANGED_BY: Readonly<Record<string, readonly string[]>> = {
+  approveAgent: ['extraAgents'],
+  approveBuilderFee: ['maxBuilderFee'],
+  updateLeverage: ['activeAssetData'],
+  updateIsolatedMargin: ['activeAssetData'],
+  usdClassTransfer: [],
+  usdSend: [],
+  spotSend: [],
+  withdraw3: [],
+};
+export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000, history: 45_000, rare: 300_000 } as const;
 /**
  * The exchange actions that change only an account's orders, positions, balances and fills, never its fee rates,
  * approvals, session keys or leverage: after one, only those reads of the account are read again.
@@ -115,7 +137,9 @@ const freshFor = (type: string) =>
       ? READ_FRESH_MS.rare
       : SLOW_READS.has(type)
         ? READ_FRESH_MS.slow
-        : READ_FRESH_MS.heavy;
+        : HISTORY_READS.has(type)
+          ? READ_FRESH_MS.history
+          : READ_FRESH_MS.heavy;
 /** The venue's documented cap on one `userFillsByTime` answer ("at most 2000 fills per response"). */
 export const FILLS_PAGE_CAP = 2000;
 
@@ -306,7 +330,7 @@ export abstract class HyperliquidCore {
   private readonly kept = new Map<string, { text: string; atMs: number; user: string | null; type: string }>();
   private readonly reading = new Map<string, { read: Promise<string>; user: string | null; type: string }>();
   /** Per account, bumped by every signed action for it, so a read of it that began before the action is not kept after. */
-  private readonly readsEpoch = new Map<string, { orders: number; rare: number }>();
+  private readonly readsEpoch = new Map<string, { orders: number; rare: Map<string, number> }>();
   private readonly onWeightMinute: ((spent: VenueWeightMinute) => void) | null;
   private weightMinute: {
     startMs: number;
@@ -407,16 +431,19 @@ export abstract class HyperliquidCore {
    * A signed action changes what its own accounts read (orders, positions, balances, fees, agents and approvals), not
    * another person's: only reads of `users` kept before it are dropped, and a read of them begun before it is not kept.
    * An order or a cancel (`ORDER_ACTIONS`) changes only the account's orders, positions, balances and fills, so its fee
-   * rates, approvals, session keys and leverage (`RARE_READS`) stay kept; any other action, or none named, drops them all.
+   * rates, approvals, session keys and leverage (`RARE_READS`) stay kept; an action in `RARE_CHANGED_BY` drops the ones it
+   * changes; any other action, or none named, drops them all.
    * Market reads (books, trades, candles, prices) are kept for their few seconds whoever trades.
    */
   protected forgetReads(users: readonly string[], actionType?: string): void {
     const forget = new Set(users.map((u) => u.toLowerCase()));
-    const all = actionType === undefined || !ORDER_ACTIONS.has(actionType);
-    const drops = (type: string) => all || !RARE_READS.has(type);
+    const named = actionType !== undefined && Object.hasOwn(RARE_CHANGED_BY, actionType) ? RARE_CHANGED_BY[actionType] : undefined;
+    const changed: readonly string[] = actionType !== undefined && ORDER_ACTIONS.has(actionType) ? [] : (named ?? [...RARE_READS]);
+    const drops = (type: string) => !RARE_READS.has(type) || changed.includes(type);
     for (const u of forget) {
-      const epoch = this.readsEpoch.get(u) ?? { orders: 0, rare: 0 };
-      this.readsEpoch.set(u, { orders: epoch.orders + 1, rare: epoch.rare + (all ? 1 : 0) });
+      const epoch = this.readsEpoch.get(u) ?? { orders: 0, rare: new Map<string, number>() };
+      for (const type of changed) epoch.rare.set(type, (epoch.rare.get(type) ?? 0) + 1);
+      this.readsEpoch.set(u, { orders: epoch.orders + 1, rare: epoch.rare });
     }
     for (const [k, v] of this.kept) if (v.user !== null && forget.has(v.user) && drops(v.type)) this.kept.delete(k);
     for (const [k, v] of this.reading) if (v.user !== null && forget.has(v.user) && drops(v.type)) this.reading.delete(k);
@@ -425,7 +452,7 @@ export abstract class HyperliquidCore {
   private epochOf(user: string | null, type: string): number {
     if (user === null) return 0;
     const epoch = this.readsEpoch.get(user);
-    return epoch === undefined ? 0 : RARE_READS.has(type) ? epoch.rare : epoch.orders;
+    return epoch === undefined ? 0 : RARE_READS.has(type) ? (epoch.rare.get(type) ?? 0) : epoch.orders;
   }
 
   private keep(key: string, read: { text: string; user: string | null; type: string }): void {

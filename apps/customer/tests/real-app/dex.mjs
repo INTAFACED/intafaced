@@ -136,3 +136,13 @@ export async function acceptRepresentation(page) {
 export async function continueSignIn(page) {
   await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click(UNBUILT);
 }
+
+/** Mines one block on the stack's TEST chain now (`evm_mine`), for a step that waits on its confirmations. */
+export async function mineTestBlock() {
+  const res = await fetch(testChain().gateUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'evm_mine', params: [] }),
+  });
+  if (res.status !== 200) throw new Error(`the TEST chain refused evm_mine: ${res.status}`);
+}

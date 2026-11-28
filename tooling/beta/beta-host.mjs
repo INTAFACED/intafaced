@@ -62,6 +62,7 @@ import { INVITED_RECENT_MS, invitedPaths, readInvited, recordInvited } from './b
 import { limitsLine, limitsReport, readLimits } from './beta-limits.mjs';
 import { liveDeps } from './beta-testnet.mjs';
 import { LAUNCH_CUSTODY_LAYER } from '../scripts/launch-custody.mjs';
+import { BETA_SLOT } from '../scripts/stack-rule.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF = fileURLToPath(import.meta.url);
@@ -69,8 +70,8 @@ const SELF = fileURLToPath(import.meta.url);
 const LAUNCH_CUSTODY_FILE = fileURLToPath(new URL('../scripts/launch-custody.mjs', import.meta.url));
 const selfHash = () => `${fileHash(SELF)}:${fileHash(LAUNCH_CUSTODY_FILE)}`;
 
-/** The beta's fixed slot. Slot n adds 1000 × n to every stack port (local-test-facts.mjs), so the link is stable. */
-export const BETA_SLOT = 3;
+/** The beta's fixed slot, from the one rule (stack-slots.json). Slot n adds 1000 × n to every stack port, so the link is stable. */
+export { BETA_SLOT };
 /** The Customer app on the beta slot. `localhost`, not 127.0.0.1: passkeys and T3's "Open on this device" need a name. */
 export const BETA_LINK = `http://localhost:${3210 + 1000 * BETA_SLOT}/`;
 /** The TEST mailbox page: the codes and links the beta stack "mails" into its LOCAL-TEST outbox file. */
@@ -177,6 +178,8 @@ const PROVIDER_WORDS = { test: 'the TEST provider', turnkey: "the owner's wallet
  * `LOCAL_STACK_PROFILE=launch-desk` starts only the launch desk's services (tooling/scripts/local-stack-profile.mjs), not
  * every service of the stack: each is a failure point while testers are on and takes memory on a box shared with
  * builders. A room whose service is off says it is not connected here (#11075).
+ * `LOCAL_STACK_CHAIN_HISTORY=3600` keeps the TEST chain's last hour of block states (it mines one a second) instead of
+ * every block's: unbounded, the chain held 26 GB of the box's memory after 21 hours (local-test-chain.mjs anvilArgs).
  */
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
@@ -188,6 +191,7 @@ const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: BETA_WALLET_PROVIDER,
   LOCAL_STACK_CUSTODY_LAYER: LAUNCH_CUSTODY_LAYER,
   LOCAL_STACK_PROFILE: 'launch-desk',
+  LOCAL_STACK_CHAIN_HISTORY: '3600',
 });
 /** The custody switch every process of the beta stack runs (BETA_STACK_SETTINGS), as launch does. */
 export const BETA_CUSTODY = BETA_STACK_SETTINGS.LOCAL_STACK_CUSTODY_LAYER;

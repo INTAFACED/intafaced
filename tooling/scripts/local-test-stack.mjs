@@ -110,6 +110,7 @@ import {
   writeStackRecords,
 } from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
+import { agentStart, memoryShort, QUEUE_MINUTES, queueTurn, SHARED_SLOTS, startGate } from './stack-rule.mjs';
 import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
@@ -2035,6 +2036,7 @@ export async function startNewAnvil(
         {
           ...baseEnv(),
           LOCAL_STACK_ANVIL_BIN: bin,
+          ...(process.env.LOCAL_STACK_CHAIN_HISTORY ? { LOCAL_STACK_CHAIN_HISTORY: process.env.LOCAL_STACK_CHAIN_HISTORY } : {}),
         },
         REPO,
       ),
@@ -3081,19 +3083,104 @@ function processParents() {
 
 /**
  * The slot this start runs on, taken before anything is built or written, so a second start sees it at once.
- * LOCAL_STACK_SLOT set (a person's choice, or the run again below): that slot is claimed or the start refuses. Unset:
- * this checkout keeps its slot, or claims the first free one (no live claim and none of its ports held) and runs itself
- * again on it.
+ * An agent's start is asked first whether it may run a stack at all (stack-rule.mjs startGate: a visible change, on the
+ * box, in a shared slot; owner decision A, project-state#4160); a refusal exits 3, "no local stack", and names CI.
+ * LOCAL_STACK_SLOT set (a person's choice, the beta's slot, or the run again below): that slot is claimed or the start
+ * refuses. Unset: this checkout keeps its slot, or claims the first free shared slot (no live claim and none of its
+ * ports held) and runs itself again on it; with every shared slot held it waits its turn in the queue, first come first
+ * served, up to QUEUE_MINUTES. The beta's slot and slot 2 are never handed to a new start.
  */
 async function takeSlot() {
   const holder = ({ slot, claim, live }) =>
     `${slot}: ${claim && live ? `${claim.repo} (pid ${claim.pid})` : 'a process with no claim on its ports'}`;
   const claims = slotClaims();
+  const holds = claims.some((c) => c.claim?.repo === REPO && c.live);
+  const why = startGate({
+    env: process.env,
+    platform: process.platform,
+    files: agentStart(process.env) && !holds ? changedFiles() : [],
+    holdsClaim: holds,
+  });
+  if (why) fail(why, 3);
   if (process.env.LOCAL_STACK_SLOT !== undefined || claims.some((c) => c.claim?.repo === REPO)) {
     if (claimSlot(SLOT, { state: STATE, owner: agentOwner() })) return;
     fail(`refusing: slot ${holder(claims[SLOT])} holds it; leave LOCAL_STACK_SLOT unset and the start takes a free slot`);
   }
-  for (const c of claims) {
+  const ticket = { pid: process.pid, at: Date.now() };
+  const ticketFile = path.join(os.homedir(), '.intafaced', 'slots', 'queue', `${ticket.at}-${ticket.pid}.json`);
+  const leave = () => fs.rmSync(ticketFile, { force: true });
+  process.once('exit', leave); // a refusal exits from inside the wait
+  const deadline = ticket.at + QUEUE_MINUTES * 60_000;
+  let said = false;
+  try {
+    for (;;) {
+      fs.mkdirSync(path.dirname(ticketFile), { recursive: true, mode: 0o700 });
+      if (!fs.existsSync(ticketFile)) fs.writeFileSync(ticketFile, JSON.stringify({ ...ticket, repo: REPO }), { mode: 0o600 });
+      const { ahead, dead } = queueTurn(queueTickets(path.dirname(ticketFile)), ticket, pidAlive);
+      for (const t of dead) fs.rmSync(t.file, { force: true });
+      // CI's runner holds one stack and nothing else: only a machine others share waits for memory.
+      const shared = process.platform === 'linux' && process.env.CI !== 'true';
+      const short = ahead === 0 && shared ? memoryShort(readText('/proc/meminfo') ?? '') : null;
+      if (ahead === 0 && !short && (await claimShared(leave))) return;
+      const held = slotClaims()
+        .filter((c) => SHARED_SLOTS.includes(c.slot))
+        .map(holder)
+        .join('; ');
+      if (Date.now() >= deadline)
+        fail(
+          `refusing: ${short ? `the machine's memory is short (${short})` : `every slot is held (${held})`} after ${QUEUE_MINUTES} min in the queue; prove it on CI (Real-app journeys)`,
+        );
+      if (!said || (short && said !== 'memory'))
+        say(
+          `  queued for a shared slot: ${short ? `next, waiting for memory: ${short}` : `${ahead} ahead; held: ${held}`}; it waits up to ${QUEUE_MINUTES} min`,
+        );
+      said = short ? 'memory' : true;
+      await sleep(5000);
+    }
+  } finally {
+    leave();
+  }
+}
+
+/** The waiting starts' tickets in the queue folder: { pid, at, file }. */
+function queueTickets(dir) {
+  return fs
+    .readdirSync(dir)
+    .map((f) => ({ f, m: f.match(/^(\d+)-(\d+)\.json$/) }))
+    .filter(({ m }) => m)
+    .map(({ f, m }) => ({ at: Number(m[1]), pid: Number(m[2]), file: path.join(dir, f) }));
+}
+const pidAlive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+};
+
+/** What this checkout changes against origin/main, committed or not (tracked and untracked files); null when git can't say. */
+function changedFiles() {
+  const git = (...args) => spawnSync('git', args, { cwd: REPO, encoding: 'utf8' });
+  const base = git('merge-base', 'origin/main', 'HEAD');
+  if (base.status !== 0) return null;
+  const diff = git('diff', '--name-only', base.stdout.trim());
+  const untracked = git('ls-files', '--others', '--exclude-standard');
+  if (diff.status !== 0 || untracked.status !== 0) return null;
+  return `${diff.stdout}\n${untracked.stdout}`.split('\n').filter(Boolean);
+}
+
+/**
+ * Claims a free shared slot, or one whose owner is gone (its stack stopped by this script's own stop for that slot): true
+ * when it is this start's slot; another slot runs this command again on it and exits. A live owner's slot is never touched.
+ */
+async function claimShared(leave) {
+  const take = (c, state) => {
+    leave();
+    if (c.slot === SLOT) return true;
+    runOnSlot(c.slot, state);
+  };
+  for (const c of slotClaims().filter((x) => SHARED_SLOTS.includes(x.slot))) {
     if (c.claim && c.live) continue;
     const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
     const marker = path.join(state, 'LOCAL-TEST-STACK.json');
@@ -3101,22 +3188,16 @@ async function takeSlot() {
     const { postgres, nats, edge, customer } = slotPorts(c.slot).stack;
     if (!oursRunning && (await Promise.all([postgres, nats, edge, customer].map(portOpen))).some(Boolean)) continue;
     if (!claimSlot(c.slot, { state, owner: agentOwner() })) continue;
-    if (c.slot === SLOT) return;
-    runOnSlot(c.slot, state);
+    return take(c, state);
   }
-  // Every slot is held. One whose owner is gone is taken back: its stack is stopped by this script's own stop for
-  // that slot, and the slot claimed. A live owner's slot is never touched.
-  for (const c of slotClaims()) {
+  for (const c of slotClaims().filter((x) => SHARED_SLOTS.includes(x.slot))) {
     if (!c.claim || !c.live || c.claim.repo === REPO || !ownerGone(c.claim)) continue;
     stopGoneOwner(c);
     const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
     if (slotClaims()[c.slot].live || !claimSlot(c.slot, { state, owner: agentOwner() })) continue;
-    if (c.slot === SLOT) return;
-    runOnSlot(c.slot, state);
+    return take(c, state);
   }
-  fail(
-    `refusing: every slot is held (${slotClaims().map(holder).join('; ')}); stop one with \`local-test-stack.mjs stop\` in its checkout`,
-  );
+  return false;
 }
 
 async function cmdStart(flags) {

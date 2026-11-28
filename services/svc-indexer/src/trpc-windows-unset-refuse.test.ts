@@ -13,20 +13,17 @@
  *    trpc-windows.ts, postgres-store LIMIT
  * 6. RED: omit book returns a 50-level view; omit markets dumps the set
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createEdgeContext } from '@intafaced/contracts';
 import { MemoryChainSource } from './chain/memory-source.js';
 import { Indexer } from './indexer.js';
 import { MemoryProjectionStore } from './projection/memory-store.js';
+import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { createIndexerRouter } from './router.js';
 import { CHAIN_ID } from './testing/conformance.js';
 import { INDEXER_BOOK_DEPTH_UNSET, INDEXER_POSITIONS_LIST_LIMIT_UNSET, isPublishedBookDepth } from './trpc-windows.js';
 import { userCopy } from './user-copy.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 'an-indexer-window-test-edge-secret-length';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-indexer' });
 const anonymous = () => edgeContext({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-anon' });
@@ -101,16 +98,6 @@ describe('tRPC window parse', () => {
 });
 
 describe('tRPC book refuses unpublished windows', () => {
-  it('router.ts does not invent 50/100', () => {
-    const src = readFileSync(join(HERE, 'router.ts'), 'utf8');
-    expect(src).not.toMatch(/\.default\(50\)/);
-    expect(src).not.toMatch(/\.default\(100\)/);
-    expect(src).not.toMatch(/depth \?\? 50/);
-    expect(src).not.toMatch(/limit \?\? 100/);
-    expect(src).toMatch(/INDEXER_BOOK_DEPTH_UNSET/);
-    expect(src).toMatch(/INDEXER_POSITIONS_LIST_LIMIT_UNSET/);
-  });
-
   it('omit book depth refuses and does not call store.book', async () => {
     const { store, bookSeen } = spyStore();
     const caller = await wiredCaller(store);
@@ -177,9 +164,19 @@ function emptyWiredCaller() {
 }
 
 describe('tRPC positions refuses an unset list limit', () => {
-  it('postgres-store positionsOf applies SQL LIMIT — no unbounded dump', () => {
-    const src = readFileSync(join(HERE, 'projection/postgres-store.ts'), 'utf8');
-    expect(src).toMatch(/async positionsOf\(account: string, limit: number\)[\s\S]*LIMIT \$\{limit\}/);
+  it('postgres-store positionsOf applies SQL LIMIT — no unbounded dump', async () => {
+    // The query the store sends, through a recording stand-in for the connection.
+    const sent: Array<{ text: string; values: unknown[] }> = [];
+    const sql = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown> => {
+      sent.push({ text: strings.join('$?'), values });
+      return Promise.resolve([]);
+    };
+    const store = new PostgresProjectionStore(sql as ConstructorParameters<typeof PostgresProjectionStore>[0], CHAIN_ID);
+    await expect(store.positionsOf(ACCOUNT, 2)).resolves.toEqual([]);
+    expect(sent).toHaveLength(1);
+    const query = sent[0]!;
+    expect(query.text.replace(/\s+/g, ' ').trim()).toMatch(/LIMIT \$\?$/);
+    expect(query.values.at(-1)).toBe(2);
   });
 
   it('omit positions limit refuses named code and does not call store.positionsOf', async () => {

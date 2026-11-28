@@ -63,7 +63,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/collateral-haircut.money.test.ts#router.ts / margin-mode.ts / position-service.ts not recut"
     },
-    "why": "Builds the trade router (no haircut procedure) and calls checkCollateralClassForMargin with a haircut env set: cash ok with no haircut field, every other class refused. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or in place in matched-liquidation): a money test keeps every protection it has, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/collateral-haircut.money.test.ts",
@@ -74,7 +74,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/collateral-haircut.money.test.ts#collateral-haircut.ts has no default 0/10 and does not lend IM"
     },
-    "why": "Calls checkPostedMarginCollateral unset, blank, 0, 10 and asLoan, and drives the real open hitch on a stand-in class: refused inputs never reach the original, a named haircut passes the same input on. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or in place in matched-liquidation): a money test keeps every protection it has, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/collateral-haircut.money.test.ts",
@@ -85,7 +85,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/collateral-haircut.money.test.ts#router.ts / margin-mode.ts / position-service.ts not recut"
     },
-    "why": "Builds the trade router (no haircut procedure) and calls checkCollateralClassForMargin with a haircut env set: cash ok with no haircut field, every other class refused. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or in place in matched-liquidation): a money test keeps every protection it has, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/collateral-haircut.money.test.ts",
@@ -96,7 +96,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/collateral-haircut.money.test.ts#router.ts / margin-mode.ts / position-service.ts not recut"
     },
-    "why": "Builds the trade router (no haircut procedure) and calls checkCollateralClassForMargin with a haircut env set: cash ok with no haircut field, every other class refused. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or in place in matched-liquidation): a money test keeps every protection it has, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/conditional-orders/conditional-orders.test.ts",
@@ -1075,7 +1075,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut"
     },
-    "why": "Builds the trade router and asserts no procedure names a position mode; the svc-matching file-name walk is kept. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
@@ -1086,7 +1086,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#live boot hitch next to F5; F5 mill not recut"
     },
-    "why": "Imports ledger-client in a fresh module graph and asserts the real classes carry both hitches' install marks. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
@@ -1097,7 +1097,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut"
     },
-    "why": "Builds the trade router and asserts no procedure names a position mode; the svc-matching file-name walk is kept. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
@@ -1108,7 +1108,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#position-mode.ts has no flatten and refuses unset"
     },
-    "why": "Installs the real position-mode hitches on stand-in classes: an unknown mode on open and a futures order with none are refused with nothing reaching the originals or any close/cancel; a named mode and a spot order pass through. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or in place in matched-liquidation): a money test keeps every protection it has, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
@@ -1119,7 +1119,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut"
     },
-    "why": "Builds the trade router and asserts no procedure names a position mode; the svc-matching file-name walk is kept. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/position-mode.money.test.ts",
@@ -1130,7 +1130,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-mode.money.test.ts#live boot hitch next to F5; F5 mill not recut"
     },
-    "why": "Imports ledger-client in a fresh module graph and asserts the real classes carry both hitches' install marks. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/position-service-list-closed-limit-unset-refuse.test.ts",
@@ -1152,7 +1152,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#router.ts / trade-service.ts / position-service.ts / index.ts not recut"
     },
-    "why": "Builds the trade router and asserts no procedure names a cap; the PG suite in the same file holds the real place and open refusing before hold and lock. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
@@ -1163,7 +1163,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#live boot loads mill; jobs/index do not copy owner fixtures"
     },
-    "why": "Imports ledger-client in a fresh module graph and asserts the real PositionService and TradeService carry the hitches' install marks; @ts-expect-error proves FuturesJobsDeps has no cap slot. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
@@ -1174,7 +1174,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#router.ts / trade-service.ts / position-service.ts / index.ts not recut"
     },
-    "why": "Builds the trade router and asserts no procedure names a cap; the PG suite in the same file holds the real place and open refusing before hold and lock. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
@@ -1185,7 +1185,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#live boot loads mill; jobs/index do not copy owner fixtures"
     },
-    "why": "Imports ledger-client in a fresh module graph and asserts the real PositionService and TradeService carry the hitches' install marks; @ts-expect-error proves FuturesJobsDeps has no cap slot. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
@@ -1196,7 +1196,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#router.ts / trade-service.ts / position-service.ts / index.ts not recut"
     },
-    "why": "Builds the trade router and asserts no procedure names a cap; the PG suite in the same file holds the real place and open refusing before hold and lock. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, in the file's 'kept source pins' block (CI review on #11291): a money test keeps every protection, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
@@ -1207,7 +1207,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#pretrade-credit.ts has no default numbers and does not flatten"
     },
-    "why": "Installs the real place and open hitches on stand-in classes and drives them with each cap unset (refused by name, original never runs), reduce-only with caps unset (passes) and all caps 0 (original runs once on the same input, nothing closed). The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or in place in matched-liquidation): a money test keeps every protection it has, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
@@ -1218,7 +1218,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/pretrade-credit.money.test.ts#pretrade-credit.ts has no default numbers and does not flatten"
     },
-    "why": "Installs the real place and open hitches on stand-in classes and drives them with each cap unset (refused by name, original never runs), reduce-only with caps unset (passes) and all caps 0 (original runs once on the same input, nothing closed). The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or in place in matched-liquidation): a money test keeps every protection it has, and index.ts cannot be called from a test until the host assembly is importable."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/pretrade-limits.test.ts",
@@ -1273,7 +1273,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts#a blank haircut and a staked class each refuse before open"
     },
-    "why": "Imports ledger-client in a fresh module graph and asserts the real PositionService carries the haircut hitch's install mark. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
@@ -1284,7 +1284,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts#a posted liquidation leaves the sibling available and hold unchanged, and a sibling leg is refused"
     },
-    "why": "The text read is replaced by liquidation-tick-post-guard.test.ts, which runs the live tick with the gate observed: every post was gated first, and a refused recipe is never posted. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
@@ -1295,7 +1295,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-service.test.ts#a lost successful response replays the stored result without advancing sequence or moving margin twice"
     },
-    "why": "That test replays the same setLeverage input against Postgres and asserts the stored result comes back with no second sequence and no second margin move; the same file's concurrent test holds the race. The original source pin is also kept, verbatim, in its file's 'kept source pins' block: this test guards money, and a test of money keeps every protection it has until a behaviour test holds the same property on every path."
+    "why": "Main rewrote this file to the start-up layer design (#11299) while this part was open, so this part keeps main's version of the file unchanged, every source pin included; its behaviour rewrite here was dropped in the merge. The guard named is main's own test."
   },
   {
     "file": "services/svc-trade/src/futures/venue-mark-stream-env-passthrough.test.ts",
@@ -1307,5 +1307,16 @@
       "ref": "services/svc-trade/src/futures/venue-mark-stream-env-passthrough.test.ts#live host passes TRADE_VENUE_MARK_STREAM into presentVenueLatencyHealth"
     },
     "why": "Loads the service env unset and set, and asserts presentVenueLatencyHealth reports off and on from those values. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
+  },
+  {
+    "file": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The live host applies the collateral-haircut layer (withCollateralHaircutOpen).",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-trade/src/futures/slice-s19.acceptance.test.ts#a blank haircut and a staked class each refuse before open"
+    },
+    "why": "Main's pin (#11299), kept unchanged with the rest of the file: index.ts boots at import, so no test can call it until the host assembly is importable."
   }
 ]

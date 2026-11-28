@@ -35,7 +35,8 @@ const STATE_KEY = { active: 'stateActive', halted: 'stateHalted', retired: 'stat
 export function SupportedAssets() {
   const { resource, reload } = useSupportedAssets();
   const venue = useVenueMode();
-  const sourceRecords = venue.mode === 'on' && venue.status.available;
+  // Until the venue door has answered, which history a link opens is not known yet: the list waits for it.
+  const sourceRecords = venue.mode === 'checking' ? 'checking' : venue.mode === 'on' && venue.status.available;
   return <SupportedAssetsView resource={resource} reload={reload} sourceRecords={sourceRecords} />;
 }
 
@@ -46,8 +47,9 @@ export function SupportedAssetsView({
 }: {
   resource: Resource<SupportedAssetsData>;
   reload: () => void;
-  /** The history links ask for the sources' own records (the launch model) rather than our ledger's entries. */
-  sourceRecords?: boolean;
+  /** The history links ask for the sources' own records (the launch model) rather than our ledger's entries; `checking`
+   * while the venue door has not answered, when the list shows its loading line, never a link that may point elsewhere. */
+  sourceRecords?: boolean | 'checking';
 }) {
   const { t } = supportedAssetsCopy.useCopy();
   const heading = useId();
@@ -69,7 +71,7 @@ export function SupportedAssetsView({
       list={
         <section aria-labelledby={heading}>
           <h3 id={heading}>{t('title')}</h3>
-          {resource.status === 'loading' ? (
+          {resource.status === 'loading' || sourceRecords === 'checking' ? (
             <LoadingLine />
           ) : resource.status === 'failed' ? (
             <FailureBox result={resource.failure} retry={reload} />

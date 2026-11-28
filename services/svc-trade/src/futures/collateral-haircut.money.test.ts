@@ -1,4 +1,4 @@
-import { PositionService } from '../controls/test-admission.js';
+import { PositionService, layeredPositionService } from '../controls/test-admission.js';
 /**
  * CARD F8 money proof — collateral haircuts (PTX-M08-R03 PTX-M08-R11).
  *
@@ -28,11 +28,11 @@ import {
   MARGIN_IS_NOT_A_LOAN,
   UNSUPPORTED_COLLATERAL_CLASS,
   checkPostedMarginCollateral,
-  installCollateralHaircut,
+  withCollateralHaircutOpen,
 } from './collateral-haircut.js';
-import { hitchDoubles, tradeRouterPaths } from './testing/doors.js';
-import { installCollateralHaircutOpen } from './collateral-haircut.js';
-import { checkCollateralClassForMargin } from './margin-mode.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredPositionService = layeredPositionService(withCollateralHaircutOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -86,9 +86,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 }
 
-installCollateralHaircut();
-
-describe('collateral haircut hitch — no invented bps, not a loan', () => {
+describe('collateral haircut hitch (source) — no invented bps, not a loan', () => {
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
     const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
     expect(src).not.toMatch(/\bpostgresAvailable\s*\(/);
@@ -96,52 +94,28 @@ describe('collateral haircut hitch — no invented bps, not a loan', () => {
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('collateral-haircut.ts has no default 0/10 and does not lend IM', async () => {
-    const saved = process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
-    delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
-    try {
-      // Unset is a refusal, not 0 and not 10; a published 0 is the owner's zero.
-      expect(checkPostedMarginCollateral({ collateralClass: 'cash' })).toMatchObject({ ok: false, code: HAIRCUT_UNSET });
-      expect(checkPostedMarginCollateral({ collateralClass: 'cash', haircutBps: '' })).toMatchObject({ ok: false, code: HAIRCUT_UNSET });
-      expect(checkPostedMarginCollateral({ collateralClass: 'cash', haircutBps: '0' })).toEqual({ ok: true, haircutBps: 0 });
-      expect(checkPostedMarginCollateral({ collateralClass: 'cash', haircutBps: '10' })).toEqual({ ok: true, haircutBps: 10 });
-      expect(checkPostedMarginCollateral({ collateralClass: 'cash', haircutBps: '0', asLoan: true })).toMatchObject({
-        ok: false,
-        code: MARGIN_IS_NOT_A_LOAN,
-      });
-      // The open hitch refuses before the original open runs; with an owner haircut it passes the input on untouched.
-      const { Positions, opened } = hitchDoubles();
-      installCollateralHaircutOpen(Positions as never);
-      const positions: { open(i: unknown): Promise<unknown> } = new Positions();
-      const input = { userId: ALICE, clientOpenId: 'f8-hitch', symbol: 'BTC/USDT-PERP', side: 'long', size: amt('1') };
-      await expect(positions.open(input)).rejects.toMatchObject({ code: HAIRCUT_UNSET });
-      await expect(positions.open({ ...input, haircutBps: '0', asLoan: true })).rejects.toMatchObject({ code: MARGIN_IS_NOT_A_LOAN });
-      expect(opened).toEqual([]);
-      const named = { ...input, haircutBps: '0' };
-      await positions.open(named);
-      expect(opened).toEqual([named]);
-      expect(opened[0]).toBe(named);
-    } finally {
-      if (saved === undefined) delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
-      else process.env.TRADE_COLLATERAL_HAIRCUT_BPS = saved;
-    }
+  it('collateral-haircut.ts has no default 0/10 and does not lend IM', () => {
+    const mill = readFileSync(join(here, 'collateral-haircut.ts'), 'utf8');
+    expect(mill).toMatch(/checkPostedMarginCollateral/);
+    expect(mill).toMatch(/checkCollateralClassForMargin/);
+    expect(mill).toMatch(/super\.open\(/);
+    expect(mill).toMatch(/refuse rather than invent a haircut/);
+    expect(mill).toMatch(/posted margin is not a loan/);
+    expect(mill).not.toMatch(/haircutBps\s*=\s*0/);
+    expect(mill).not.toMatch(/haircutBps\s*=\s*10/);
+    expect(mill).not.toMatch(/\?\?\s*0/);
+    expect(mill).not.toMatch(/\?\?\s*10/);
   });
 
   it('router.ts / margin-mode.ts / position-service.ts not recut', () => {
-    // No tRPC procedure reads or sets a haircut; the class check in margin-mode.ts refuses non-cash classes and
-    // reads no haircut of its own, whatever the env says.
-    expect(tradeRouterPaths().filter((p) => /haircut|collateralClass/i.test(p))).toEqual([]);
-    const saved = process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
-    process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '500';
-    try {
-      expect(checkCollateralClassForMargin('cash')).toEqual({ ok: true });
-      for (const cls of ['yield_bearing', 'staked', 'lending_idle', '', null]) {
-        expect(checkCollateralClassForMargin(cls), String(cls)).toMatchObject({ ok: false, code: UNSUPPORTED_COLLATERAL_CLASS });
-      }
-    } finally {
-      if (saved === undefined) delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
-      else process.env.TRADE_COLLATERAL_HAIRCUT_BPS = saved;
-    }
+    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const marginSrc = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
+    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    expect(routerSrc).not.toMatch(/collateral-haircut/);
+    expect(routerSrc).not.toMatch(/haircut_unset/);
+    expect(posSrc).not.toMatch(/collateral-haircut/);
+    expect(marginSrc).toMatch(/unsupported_collateral_class/);
+    expect(marginSrc).not.toMatch(/TRADE_COLLATERAL_HAIRCUT_BPS/);
   });
 });
 
@@ -219,7 +193,7 @@ describe('svc-trade collateral haircut F8 money', () => {
     ledger = new MemoryLedger();
     bus = new MemoryEventBus('svc-trade');
     marks = memoryMarkBook();
-    positions = new PositionService(sql, ledger, {
+    positions = new LayeredPositionService(sql, ledger, {
       marks: marks.source(),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
@@ -338,33 +312,5 @@ describe('svc-trade collateral haircut F8 money', () => {
       await open({ clientOpenId: 'mirror-3', symbol: 'ETH/USDT-PERP', size: amt('17') });
       expect(lockPosts()).toHaveLength(2);
     });
-  });
-});
-
-// Kept source pins: index.ts boots at import, so what it wires cannot be called from a test yet.
-// Each pin below stays until an importable host assembly holds the same property by behaviour.
-describe('kept source pins', () => {
-  it('collateral-haircut.ts has no default 0/10 and does not lend IM (kept source pin)', () => {
-    const mill = readFileSync(join(here, 'collateral-haircut.ts'), 'utf8');
-    expect(mill).toMatch(/checkPostedMarginCollateral/);
-    expect(mill).toMatch(/checkCollateralClassForMargin/);
-    expect(mill).toMatch(/origOpen\.call/);
-    expect(mill).toMatch(/refuse rather than invent a haircut/);
-    expect(mill).toMatch(/posted margin is not a loan/);
-    expect(mill).not.toMatch(/haircutBps\s*=\s*0/);
-    expect(mill).not.toMatch(/haircutBps\s*=\s*10/);
-    expect(mill).not.toMatch(/\?\?\s*0/);
-    expect(mill).not.toMatch(/\?\?\s*10/);
-  });
-
-  it('router.ts / margin-mode.ts / position-service.ts not recut (kept source pin)', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    const marginSrc = readFileSync(join(here, 'margin-mode.ts'), 'utf8');
-    const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/collateral-haircut/);
-    expect(routerSrc).not.toMatch(/haircut_unset/);
-    expect(posSrc).not.toMatch(/collateral-haircut/);
-    expect(marginSrc).toMatch(/unsupported_collateral_class/);
-    expect(marginSrc).not.toMatch(/TRADE_COLLATERAL_HAIRCUT_BPS/);
   });
 });

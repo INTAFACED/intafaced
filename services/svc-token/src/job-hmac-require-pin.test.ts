@@ -26,59 +26,10 @@ import { registerInternalEmissions } from './internal-emissions.js';
 import { registerInternalYield } from './internal-yield.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const INDEX = join(HERE, 'index.ts');
 const COMPOSE = join(HERE, '../../../docker-compose.apps.yml');
 const SECRET = 'a'.repeat(32);
 
-const MUTATE = ['registerInternalEmissions', 'registerInternalYield', 'registerInternalBuyback'] as const;
-
-function indexSource(): string {
-  return readFileSync(INDEX, 'utf8');
-}
-
-/** Executable lines — not `//` or block-comment `*` prefixes. */
-function liveLines(src: string): string {
-  return src
-    .split(/\r?\n/)
-    .filter((line) => {
-      const t = line.trimStart();
-      return !(t.startsWith('//') || t.startsWith('*') || t.startsWith('/*'));
-    })
-    .join('\n');
-}
-
-function objectCall(src: string, name: string): string {
-  const needle = `${name}(app,`;
-  const start = src.indexOf(needle);
-  expect(start, `${name} missing`).toBeGreaterThan(-1);
-  const end = src.indexOf('});', start);
-  expect(end, `${name} unclosed`).toBeGreaterThan(start);
-  return src.slice(start, end + 3);
-}
-
 describe('the deployed svc-token job mutate mounts require body-bound HMAC', () => {
-  it('calls the three mutate registers with bodyBind: require on live lines before listen', () => {
-    const src = indexSource();
-    const live = liveLines(src);
-    const listen = live.indexOf('app.listen(');
-    expect(listen).toBeGreaterThan(-1);
-
-    for (const name of MUTATE) {
-      const block = objectCall(live, name);
-      expect(live.indexOf(`${name}(app,`), name).toBeLessThan(listen);
-      expect(block, name).toMatch(/bodyBind:\s*'require'/);
-      expect(block, name).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
-      expect(block, name).not.toMatch(/^\s*bodyBind,\s*$/m);
-    }
-  });
-
-  it('GET stake may still follow compose env; mutate jobs must not', () => {
-    const live = liveLines(indexSource());
-    const stake = objectCall(live, 'registerInternalStake');
-    expect(stake).toMatch(/^\s*bodyBind,\s*$/m);
-    expect(stake).not.toMatch(/bodyBind:\s*'require'/);
-  });
-
   it('does not flip the compose INTERNAL_SERVICE_BODY_BIND default', () => {
     const compose = readFileSync(COMPOSE, 'utf8');
     expect(compose).toMatch(/INTERNAL_SERVICE_BODY_BIND:\s*\$\{INTERNAL_SERVICE_BODY_BIND:-accept-both\}/);

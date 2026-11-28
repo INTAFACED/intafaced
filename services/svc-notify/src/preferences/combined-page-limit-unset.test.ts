@@ -11,9 +11,6 @@
  * 4. Class N
  * 5. Paths: services/svc-notify/src/preferences/combined.ts
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_COMBINED_PREFS,
@@ -24,8 +21,6 @@ import {
   pagePlanSendChannels,
   planFanoutDelivery,
 } from './combined.js';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('assertCombinedPageLimit', () => {
   it('refuses blank / NaN / 0 — never invents all.length', () => {
@@ -73,18 +68,5 @@ describe('pagePlanDecisions / pagePlanSendChannels limit unset refuse', () => {
     expect(pagePlanDecisions(plan, { offset: 0, limit: 2 })).toHaveLength(2);
     expect(pagePlanDecisions(plan, { limit: 1 })).toHaveLength(1);
     expect(pagePlanSendChannels(plan, { limit: 1 })).toHaveLength(1);
-  });
-});
-
-describe('combined page limit unset refuse — source pin', () => {
-  it('combined.ts does not invent all.length / plan.length when limit is omitted', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-notify/src/preferences/combined.ts'), 'utf8');
-    expect(src).toContain('assertCombinedPageLimit(options.limit)');
-    expect(src).not.toMatch(/options\.limit \?\? plan\.length/);
-    expect(src).not.toMatch(/options\.limit \?\? all\.length/);
-    expect(src).not.toMatch(/\?\? plan\.length/);
-    expect(src).not.toMatch(/\?\? all\.length/);
-    expect(src).toContain('NotifyCombinedPageLimitUnsetError');
-    expect(src).toContain('PRECONDITION_FAILED');
   });
 });

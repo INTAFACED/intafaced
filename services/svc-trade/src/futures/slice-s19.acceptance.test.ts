@@ -4,8 +4,11 @@
  * Money moves only through ledger recipes. A blank haircut, cap, or mode
  * stays a refusal. TRADE_FUTURES_ENABLED is not turned on by these tests.
  */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import {
@@ -23,25 +26,22 @@ import {
   type AccountRef,
 } from '@intafaced/ledger-client';
 import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
-import { TradeService, type PlaceOrderInput } from '../spot/trade-service.js';
-import { installCollateralHaircutOpen } from './collateral-haircut.js';
+import { type PlaceOrderInput } from '../spot/trade-service.js';
 import { checkInsuranceBound } from './insurance-bound.js';
 import { LIQUIDATION_NOT_SCHEDULED, presentFuturesJobsHealth } from './futures-jobs-health.js';
 import { startFuturesJobs } from './futures-jobs.js';
 import { decideOpenCredit } from './haircut-credit.js';
 import { planLiquidation } from './liquidation-planner.js';
 import { memoryMarginModeSwitchAudit } from './margin-mode.js';
-import { installPositionModePlace } from './position-mode.js';
-import { FuturesError, PositionService } from './position-service.js';
-import { installPreTradeCreditPlace } from './pretrade-credit.js';
+import { FuturesError } from './position-service.js';
 import { checkMaxOrder } from './pretrade-limits.js';
 import { gateLiquidationRecipe } from './sub-account-loss.js';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { layeredStandIn } from '../layered.testkit.js';
+import { withCollateralHaircutOpen } from './collateral-haircut.js';
+import { withPositionModePlace } from './position-mode.js';
+import { withPreTradeCreditPlace } from './pretrade-credit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-
 const SECRET = 's19-futures-slice-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
 const FEE_PAYER = '33333333-3333-4333-8333-333333333333';
@@ -324,6 +324,9 @@ describe('TRD-0218 leverage idempotency key', () => {
     expect(first.statusCode).toBe(200);
     expect(second.json()).toEqual(first.json());
     expect(seen).toEqual(['lev-same', 'lev-same']);
+    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+    const setAt = src.indexOf('async setLeverage');
+    expect(src.slice(setAt, setAt + 4000)).toMatch(/claimMarginAdjustment/);
     await app.close();
   });
 
@@ -421,7 +424,9 @@ describe('TRD-0289 a sibling sub-account is not the loss pot', () => {
     if (!refused.ok) expect(refused.code).toBe('trade.sub_account_loss_isolated');
     expect(await bal(ledger, subAccountAvailable(SIBLING, ASSET))).toBe('7');
 
-    // The live tick posts only recipes this gate passed: liquidation-tick-post-guard.test.ts drives it.
+    const tick = readFileSync(join(here, 'liquidation-tick.ts'), 'utf8');
+    expect(tick).toMatch(/postGuarded/);
+    expect(tick).not.toMatch(/deps\.ledger\.post/);
   });
 });
 
@@ -504,8 +509,8 @@ describe('TRD-0326 reduce-only ignores a blank max-order', () => {
         return { id: 'o' };
       }
     }
-    installPreTradeCreditPlace(Door as unknown as typeof TradeService);
-    const doorInstance = new Door();
+    const LayeredDoor = layeredStandIn(Door, withPreTradeCreditPlace);
+    const doorInstance = new LayeredDoor();
     const principal = { userId: USER } as Principal;
     const prevOrder = process.env.TRADE_MAX_ORDER;
     const prevPos = process.env.TRADE_MAX_POSITION;
@@ -542,8 +547,8 @@ describe('TRD-0429 TRD-0510 TRD-0517 blank haircut locks nothing', () => {
         return { id: POSITION };
       }
     }
-    installCollateralHaircutOpen(Door as unknown as typeof PositionService);
-    const doorInstance = new Door();
+    const LayeredDoor = layeredStandIn(Door, withCollateralHaircutOpen);
+    const doorInstance = new LayeredDoor();
     const prev = process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
     try {
       delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
@@ -558,12 +563,8 @@ describe('TRD-0429 TRD-0510 TRD-0517 blank haircut locks nothing', () => {
       if (prev === undefined) delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
       else process.env.TRADE_COLLATERAL_HAIRCUT_BPS = prev;
     }
-    // Loading the ledger client (what the host does at boot) installs the haircut on the real open, in a fresh module graph.
-    vi.resetModules();
-    await import('../ledger-client.js');
-    const { PositionService: BootPositions } = await import('./position-service.js');
-    expect(Object.getOwnPropertySymbols(BootPositions.prototype)).toContain(Symbol.for('intafaced.trade.collateralHaircutOpen'));
-    vi.resetModules();
+    const boot = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(boot).toMatch(/withCollateralHaircutOpen/);
   });
 });
 
@@ -616,8 +617,8 @@ describe('TRD-0519 a futures place without a position mode', () => {
         return { id: 'o' };
       }
     }
-    installPositionModePlace(Door as unknown as typeof TradeService);
-    const doorInstance = new Door();
+    const LayeredDoor = layeredStandIn(Door, withPositionModePlace);
+    const doorInstance = new LayeredDoor();
     const ledger = new MemoryLedger();
     await fundUser(ledger, USER, '3', 'spot-bal');
     const principal = { userId: USER } as Principal;
@@ -649,8 +650,8 @@ describe('TRD-0524 staked plus a blank haircut refuses; a published haircut does
         return { id: POSITION };
       }
     }
-    installCollateralHaircutOpen(Door as unknown as typeof PositionService);
-    const doorInstance = new Door();
+    const LayeredDoor = layeredStandIn(Door, withCollateralHaircutOpen);
+    const doorInstance = new LayeredDoor();
     const prev = process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
     try {
       delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
@@ -672,108 +673,5 @@ describe('TRD-0524 staked plus a blank haircut refuses; a published haircut does
     });
     expect(covered.ok).toBe(true);
     if (covered.ok) expect(covered.lockAmount).toBe(parseAmount('90'));
-  });
-});
-
-// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
-// Each pin stays until a behaviour test holds the same property on every path.
-describe('kept source pins', () => {
-  it('the same clientAdjustmentId is the key the service replays (kept source pin)', async () => {
-    const seen: string[] = [];
-    const movement = { id: POSITION, margin: '4' };
-    const app = door({
-      setLeverage: async (_principal: Principal, input: { clientAdjustmentId: string }) => {
-        seen.push(input.clientAdjustmentId);
-        return movement;
-      },
-    });
-    await app.ready();
-    const body = {
-      symbol: 'BTC/USDT-PERP',
-      leverage: '4',
-      positionId: POSITION,
-      clientAdjustmentId: 'lev-same',
-    };
-    const first = await app.inject({ method: 'POST', url: '/api/v1/futures/leverage', headers: headers(), payload: body });
-    const second = await app.inject({ method: 'POST', url: '/api/v1/futures/leverage', headers: headers(), payload: body });
-    expect(first.statusCode).toBe(200);
-    expect(second.json()).toEqual(first.json());
-    expect(seen).toEqual(['lev-same', 'lev-same']);
-    const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const setAt = src.indexOf('async setLeverage');
-    expect(src.slice(setAt, setAt + 4000)).toMatch(/claimMarginAdjustment/);
-    await app.close();
-  });
-
-  it('a posted liquidation leaves the sibling available and hold unchanged, and a sibling leg is refused (kept source pin)', async () => {
-    const ledger = new MemoryLedger();
-    await seedSub(ledger, SIBLING, '9', 'seed-sib');
-    await seedSub(ledger, LOSER_SUB, '9', 'seed-loser');
-    await ledger.post({
-      idempotencyKey: 'seed-sib-hold',
-      module: 'ledger',
-      reason: 'subaccount.hold',
-      entries: [
-        { account: subAccountAvailable(SIBLING, ASSET), direction: 'credit' as const, amount: parseAmount('2') },
-        { account: subAccountHold(SIBLING, ASSET, 'strategy'), direction: 'debit' as const, amount: parseAmount('2') },
-      ],
-    });
-    await seedMargin(ledger, '5000');
-    await seedInsurance(ledger, '5000', 'ins-0289');
-    const plan = workedLoss();
-    expect(plan.liquidate).toBe(true);
-    if (!plan.liquidate) return;
-    const gate = gateLiquidationRecipe({ userId: USER, subAccountId: LOSER_SUB }, plan.recipes[0]!);
-    expect(gate.ok).toBe(true);
-    await ledger.post(plan.recipes[0]!);
-    expect(await bal(ledger, subAccountAvailable(SIBLING, ASSET))).toBe('7');
-    expect(await bal(ledger, subAccountHold(SIBLING, ASSET, 'strategy'))).toBe('2');
-    expect(await bal(ledger, subAccountAvailable(LOSER_SUB, ASSET))).toBe('9');
-
-    const aimed = {
-      idempotencyKey: 'sibling-loss',
-      module: 'trade',
-      reason: 'futures.loss.realized',
-      entries: [
-        { account: subAccountAvailable(SIBLING, ASSET), direction: 'credit' as const, amount: parseAmount('1') },
-        { account: subAccountAvailable(LOSER_SUB, ASSET), direction: 'debit' as const, amount: parseAmount('1') },
-      ],
-    };
-    const refused = gateLiquidationRecipe({ userId: USER, subAccountId: LOSER_SUB }, aimed);
-    expect(refused.ok).toBe(false);
-    if (!refused.ok) expect(refused.code).toBe('trade.sub_account_loss_isolated');
-    expect(await bal(ledger, subAccountAvailable(SIBLING, ASSET))).toBe('7');
-
-    const tick = readFileSync(join(here, 'liquidation-tick.ts'), 'utf8');
-    expect(tick).toMatch(/postGuarded/);
-    expect(tick).not.toMatch(/deps\.ledger\.post/);
-  });
-
-  it('a blank haircut and a staked class each refuse before open (kept source pin)', async () => {
-    class Door {
-      locks = 0;
-      async open(_input: unknown, _principal?: Principal) {
-        this.locks += 1;
-        return { id: POSITION };
-      }
-    }
-    installCollateralHaircutOpen(Door as never);
-    const doorInstance = new Door();
-    const prev = process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
-    try {
-      delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
-      await expect(doorInstance.open({} as never)).rejects.toMatchObject({ code: 'trade.haircut_unset' });
-      await expect(doorInstance.open({} as never)).rejects.toMatchObject({ code: 'trade.haircut_unset' });
-      await expect(doorInstance.open({ collateralClass: 'staked' } as never)).rejects.toMatchObject({
-        code: 'trade.unsupported_collateral_class',
-      });
-      await expect(doorInstance.open({ haircutBps: 'nope' } as never)).rejects.toMatchObject({ code: 'trade.haircut_unset' });
-      expect(doorInstance.locks).toBe(0);
-    } finally {
-      if (prev === undefined) delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
-      else process.env.TRADE_COLLATERAL_HAIRCUT_BPS = prev;
-    }
-    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
-    expect(boot).toMatch(/installCollateralHaircut\(\)/);
   });
 });

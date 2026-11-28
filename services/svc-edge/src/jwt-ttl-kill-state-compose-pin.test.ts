@@ -22,9 +22,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { loadEdgeEnv } from './testing/env-load-fixture.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ENV_TS = resolve(import.meta.dirname, './env.ts');
 
 function edgeServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-edge');
@@ -35,12 +35,19 @@ const KILL_PATH = /^\s+EDGE_KILL_STATE_PATH:\s*\$\{EDGE_KILL_STATE_PATH:-\.data\
 
 describe('compose access-token TTL and kill-state path for svc-edge', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envTs = readFileSync(ENV_TS, 'utf8');
   const block = edgeServiceBlock(compose);
 
-  it('env.ts still declares the flags this pin tracks, matching compose defaults', () => {
-    expect(envTs).toMatch(/JWT_ACCESS_TTL_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(60\)\.max\(3600\)\.default\(900\)/);
-    expect(envTs).toMatch(/EDGE_KILL_STATE_PATH:\s*z\.string\(\)\.default\('\.data\/edge-kill-state\.json'\)/);
+  it('env.ts still declares the flags this pin tracks, matching compose defaults', async () => {
+    const unset = await loadEdgeEnv();
+    expect(unset.JWT_ACCESS_TTL_SECONDS).toBe(900);
+    expect(unset.EDGE_KILL_STATE_PATH).toBe('.data/edge-kill-state.json');
+    const pinned = await loadEdgeEnv({ JWT_ACCESS_TTL_SECONDS: '60', EDGE_KILL_STATE_PATH: '/var/lib/edge/kill.json' });
+    expect(pinned.JWT_ACCESS_TTL_SECONDS).toBe(60);
+    expect(pinned.EDGE_KILL_STATE_PATH).toBe('/var/lib/edge/kill.json');
+    expect((await loadEdgeEnv({ JWT_ACCESS_TTL_SECONDS: '3600' })).JWT_ACCESS_TTL_SECONDS).toBe(3600);
+    for (const refused of ['59', '3601']) {
+      await expect(loadEdgeEnv({ JWT_ACCESS_TTL_SECONDS: refused }), refused).rejects.toThrow(/JWT_ACCESS_TTL_SECONDS/);
+    }
   });
 
   it('compose svc-edge block passes unique keys once; defaults 900 and that path', () => {

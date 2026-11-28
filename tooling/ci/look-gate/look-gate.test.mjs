@@ -5,7 +5,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decodePng } from './png.mjs';
-import { CLIPPED_COPY, GENERATED_ID, HIDE_TEXT_CSS, contrastFindings, fitToPage, focusState, fontFindings, measure } from './look-gate.mjs';
+import {
+  CLIPPED_COPY,
+  GENERATED_ID,
+  HIDE_TEXT_CSS,
+  LOADING,
+  contrastFindings,
+  fitToPage,
+  focusState,
+  fontFindings,
+  measure,
+} from './look-gate.mjs';
 
 let browser = null;
 let why = '';
@@ -215,4 +225,22 @@ test('font: text whose first family is no loaded web font fails; the same in a c
   assert.equal(found.length, 1, 'in plain view');
   assert.match(found[0], /^p "Drawn in a fallback": first family "NoSuchWebFont" is not a web font/);
   assert.deepEqual(await fonts(`<details><summary></summary>${text}</details>`), [], 'in a closed <details>');
+});
+
+test('loading: the gate waits out the app\'s "Opening room…" panel, not only a lazy room\'s loading line', { skip }, async () => {
+  // The panel the app draws while the session restores or a room's code loads (#11271: /reg shot as it, under a
+  // signed-in bar), as apps/customer/src/app/RoomLoading.tsx draws it.
+  const panel = '<div class="lt-room room-loading" role="status"><span class="room-loading__words">Opening room…</span></div>';
+  const stillLoading = async (html) => {
+    const { page, close } = await pageOf(html);
+    try {
+      return await page.evaluate((s) => !!document.querySelector(s), LOADING);
+    } finally {
+      await close();
+    }
+  };
+  assert.equal(await stillLoading(`<header>Home</header>${panel}`), true, 'the panel');
+  assert.equal(await stillLoading('<p class="loading">Loading…</p>'), true, "a lazy room's loading line");
+  assert.equal(await stillLoading('<section aria-busy="true"></section>'), true, 'a busy region');
+  assert.equal(await stillLoading('<main><h1>Open your account</h1><form></form></main>'), false, 'a settled room');
 });

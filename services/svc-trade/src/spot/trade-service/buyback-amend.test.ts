@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { BUYBACK_INVALID, HOUSE_BUYBACK_USER_UUID } from '../buyback-order.js';
-import { installNativeQtyUpAmend } from '../qty-up-amend.js';
 import { principalFor } from '../testing.js';
 import type { TradeService, TradeServiceInternal } from '../trade-service.js';
 import type { Market, OrderRecord } from '../types.js';
 import { amendOrder, applyNativeAmendHold } from './order-change.js';
+import { layeredStandIn } from '../../layered.testkit.js';
+import { withNativeQtyUpAmend } from '../qty-up-amend.js';
 
 const order = {
   id: 'buyback-order-1',
@@ -43,8 +44,8 @@ describe('a buyback order is never amended', () => {
 
   it('the installed qty-up amend door refuses it the same way', async () => {
     class Fake {}
-    installNativeQtyUpAmend(Fake as unknown as typeof TradeService);
-    const amend = (Fake.prototype as { amendOrder: TradeService['amendOrder'] }).amendOrder;
+    const LayeredFake = layeredStandIn(Fake, withNativeQtyUpAmend);
+    const amend = (LayeredFake.prototype as { amendOrder: TradeService['amendOrder'] }).amendOrder;
     const { svc, read } = onlyFindAndOutcome();
     const outcome = await amend.call(svc as TradeService, principalFor(HOUSE_BUYBACK_USER_UUID), order.id, { qty: 1n } as never);
     expect(outcome).toMatchObject({ code: 'NOT_AMENDABLE', reasonCode: BUYBACK_INVALID });

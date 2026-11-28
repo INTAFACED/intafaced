@@ -1,7 +1,10 @@
 import { HyperliquidWalletReads } from '@intafaced/venue-hyperliquid/wallet-reads';
 import {
+  VenueHistoryQueryError,
   VenueRefusalError,
   encodeVenueWire,
+  historyPage,
+  parseHistoryQuery,
   withOwnOrderLabel,
   type UserVenueAccount,
   type UserVenueOrder,
@@ -10,8 +13,8 @@ import type { ZodType } from 'zod';
 import type { ApiResult } from '../../../shared/api';
 
 /**
- * A person's own fills, balances, positions, account mode, open orders and orders by client id on the venue, read from
- * their own browser.
+ * A person's own fills, balances, positions, account mode, open orders, orders by client id and order history on the
+ * venue, read from their own browser.
  *
  * The test network limits each IP by the weight of its reads a minute. Through svc-trade's door, every desk's own-wallet
  * reads left from the box's one IP, and one trading tester spent more than all of it. Where the door names the venue's
@@ -30,12 +33,18 @@ export interface WalletReadsTarget {
 }
 
 /** The reads made from the browser: the ones each open desk polls. */
-export type WalletRead = 'fills' | 'balances' | 'positions' | 'accountMode' | 'openOrders' | 'orderByClientId';
+export type WalletRead = 'fills' | 'balances' | 'positions' | 'accountMode' | 'openOrders' | 'orderByClientId' | 'orderHistory';
+
+/** An order-history read's filters and page marker, as the door's `/orders/history` takes them (`parseHistoryQuery`). */
+export type WalletHistoryQuery = Readonly<Record<string, string | undefined>>;
 
 export interface WalletReader {
   readonly venueId: string;
-  /** `arg` is the start time of a fills read (`since`) and the client order id of an `orderByClientId` read. */
-  read<T>(read: WalletRead, owner: string, schema: ZodType<T>, arg?: string): Promise<ApiResult<T>>;
+  /**
+   * `arg` is the start time of a fills read (`since`), the client order id of an `orderByClientId` read, and the filters
+   * and page marker of an `orderHistory` read.
+   */
+  read<T>(read: WalletRead, owner: string, schema: ZodType<T>, arg?: string | WalletHistoryQuery): Promise<ApiResult<T>>;
   /** After the person's own signed action: what this page kept of their reads is read again. */
   forgetOwnReads(): void;
 }
@@ -80,12 +89,23 @@ export function walletReader(
       reads.forgetOwnReads();
       keptLabels.clear();
     },
-    async read<T>(read: WalletRead, owner: string, schema: ZodType<T>, arg?: string): Promise<ApiResult<T>> {
+    async read<T>(read: WalletRead, owner: string, schema: ZodType<T>, arg?: string | WalletHistoryQuery): Promise<ApiResult<T>> {
       const account: UserVenueAccount = { venueId: target.venueId, owner: owner.trim().toLowerCase(), subAccount: null };
       let value: unknown;
       try {
-        if (read === 'fills') {
-          const from = new Date(arg ?? '');
+        if (read === 'orderHistory') {
+          // The door's own paging, filters and refusals (venue-contracts order-history.ts), over the venue's whole history.
+          const query = parseHistoryQuery(typeof arg === 'object' ? arg : {});
+          const history = await reads.orderHistory(account);
+          const shown = await labelled(
+            account.owner,
+            history.value.map((r) => r.order),
+          );
+          if (!shown.ok) return shown;
+          const records = history.value.map((r, i) => ({ ...r, order: shown.data[i]! }));
+          value = historyPage({ ...history, value: records }, query, reads.venue.displayName);
+        } else if (read === 'fills') {
+          const from = new Date(typeof arg === 'string' ? arg : '');
           if (Number.isNaN(from.getTime())) return refused('error', 'trade.venue.invalid_since', 'since is required (an ISO time)', 400);
           value = await reads.fills(account, from);
         } else if (read === 'balances') value = await reads.balances(account);
@@ -96,7 +116,7 @@ export function walletReader(
           if (!shown.ok) return shown;
           value = { ...open, value: shown.data };
         } else if (read === 'orderByClientId') {
-          const one = await reads.orderByClientId(account, arg ?? '');
+          const one = await reads.orderByClientId(account, typeof arg === 'string' ? arg : '');
           if (one.value === null) value = one;
           else {
             const shown = await labelled(account.owner, [one.value]);
@@ -105,6 +125,8 @@ export function walletReader(
           }
         } else value = await reads.positions(account);
       } catch (err) {
+        // The door answers an unusable filter or page marker 400 in the same words (user-venue-door.ts `orderHistory`).
+        if (err instanceof VenueHistoryQueryError) return refused('error', err.code, err.message, 400);
         if (err instanceof VenueRefusalError) {
           const down = err.refusal.code === 'venue_down';
           return refused(down ? 'unreachable' : 'error', `trade.venue.${err.refusal.code}`, err.refusal.detail, down ? 503 : 422);

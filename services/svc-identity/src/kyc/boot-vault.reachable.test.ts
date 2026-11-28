@@ -7,8 +7,9 @@
  * still ran with vault null.
  *
  * This file is the gate. It:
- *   1. Source-scans index.ts for `bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY)`
- *      and `...(vault ?? {})` (fails if the composition root omits the wire).
+ *   1. Boots index.ts (boot.testkit.ts) with and without IDENTITY_KYC_DOC_KEY and
+ *      calls the vault doors on the router it serves (fails if the composition
+ *      root omits the wire).
  *   2. Builds the router the same way index.ts does: `bootKycVault` then spread.
  *      Key set → store / list / bind / get are not the unwired refuse.
  *      Key missing → named PRECONDITION_FAILED as today.
@@ -18,9 +19,6 @@
  * Class X vendor webhooks stay unwired.
  */
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
@@ -29,12 +27,9 @@ import { createIdentityRouter } from '../router.js';
 import { stubActionApprovals } from '../auth/privileged-dual-control.js';
 import type { AuthService, KycRecordView } from '../auth/auth-service.js';
 import type { RankService } from '../rank/rank-service.js';
-import { bootKycVault } from './boot-vault.js';
+import { BOOT_TIMEOUT_MS, bootIdentity, contextWith } from '../boot.testkit.js';
+import { KYC_VAULT_UNWIRED, bootKycVault } from './boot-vault.js';
 import { IDENTITY_KYC_GET_DOCUMENT, IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
-const routerSrc = readFileSync(join(here, '../router.ts'), 'utf8');
 
 const authConfig = {
   secret: 'identity-kyc-vault-boot-reachability-secret',
@@ -111,14 +106,24 @@ function productionRouter(keyMaterial: string | undefined, sql: Sql = fakeSql())
 }
 
 describe('index.ts production-wires bootKycVault (fails if the spread is omitted)', () => {
-  it('calls bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY) and spreads vault into createIdentityRouter', () => {
-    expect(indexSrc).toMatch(/bootKycVault\(\s*sql\s*,\s*env\.IDENTITY_KYC_DOC_KEY\s*\)/);
-    const routerCall = indexSrc.slice(indexSrc.indexOf('createIdentityRouter('));
-    const optsBlock = routerCall.slice(0, routerCall.indexOf('});') + 2);
-    expect(optsBlock).toMatch(/\.\.\.\s*\(vault\s*\?\?\s*\{\}\)/);
-    expect(indexSrc).not.toMatch(/IDENTITY_KYC_DOC_KEY\s*\|\|/);
-    expect(indexSrc).not.toMatch(/randomBytes\(32\)/);
-  });
+  it(
+    'the booted service opens the vault from IDENTITY_KYC_DOC_KEY and refuses unwired without it',
+    async () => {
+      const list = async (env: Record<string, string | undefined>) => {
+        const { appRouter } = await bootIdentity(env);
+        const op = appRouter.createCaller(await contextWith(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+        return op.kyc.listDocuments({ userId: USER, limit: 200 }).catch((e: unknown) => e);
+      };
+      // With the key the router has the vault: the list is not the unwired refusal.
+      const keyed = await list({ IDENTITY_KYC_DOC_KEY: randomBytes(32).toString('base64') });
+      expect(String((keyed as Error).message ?? '')).not.toContain(KYC_VAULT_UNWIRED);
+      // Without it nothing invents a key: the same door refuses named.
+      const unkeyed = await list({ IDENTITY_KYC_DOC_KEY: undefined });
+      expect(codeOf(unkeyed)).toBe('PRECONDITION_FAILED');
+      expect(String((unkeyed as Error).message)).toContain(KYC_VAULT_UNWIRED);
+    },
+    BOOT_TIMEOUT_MS,
+  );
 });
 
 describe('production boot shape — missing key refuses named, never invents a vault', () => {
@@ -190,17 +195,21 @@ describe('kyc.status never returns document bytes or provider_ref', () => {
     expect(wire).not.toMatch(/"bytes"|"ciphertext"|"bytesBase64"/);
   });
 
-  it('bytes read is compliance getDocument only — kyc.status stays meta', () => {
-    expect(routerSrc).toMatch(/getDocument:\s*mountRecord\(\s*IDENTITY_KYC_GET_DOCUMENT,/);
+  it('bytes read is compliance getDocument only — kyc.status stays meta', async () => {
     expect(IDENTITY_KYC_GET_DOCUMENT.access).toEqual({ caller: 'scope', scope: 'admin:compliance' });
     // kyc.status's answer is meta: no field of a record it returns carries bytes or the provider pointer.
     for (const field of Object.keys(IDENTITY_KYC_STATUS.output.shape.records.element.shape)) {
       expect(field).not.toMatch(/bytes|ciphertext|providerRef/i);
     }
-    expect(routerSrc).toContain('vault.getFor');
-    expect(routerSrc).toContain('storeDocument');
-    expect(routerSrc).toContain('listDocuments');
-    expect(routerSrc).toContain('bindDocument');
-    expect(routerSrc).not.toMatch(/readDocument|downloadDocument/);
+    // The vault doors are store, list, bind and get; no other door reads or downloads a document.
+    const r = productionRouter(randomBytes(32).toString('base64'));
+    const kycDoors = Object.keys(r._def.procedures).filter((p) => p.startsWith('kyc.') && /Documents?$/.test(p.split('.').pop() ?? ''));
+    expect(kycDoors.sort()).toEqual(['kyc.bindDocument', 'kyc.getDocument', 'kyc.listDocuments', 'kyc.storeDocument']);
+    // getDocument is the compliance door: a reader or support operator is refused before the vault is opened.
+    for (const scopes of [['identity:read'], ['admin:read'], ['support:ops']]) {
+      const caller = r.createCaller(await ctx(scopes, { mfa: true }));
+      const err = await caller.kyc.getDocument({ documentId: DOC_ID, ...bindDual }).catch((e: unknown) => e);
+      expect(codeOf(err), scopes.join()).toBe('FORBIDDEN');
+    }
   });
 });

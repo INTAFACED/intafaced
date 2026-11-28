@@ -37,9 +37,9 @@ What fails the other way: `garden/no-effect-in-product` (an effect in product co
 
 ## 5. A service is put together in one place
 
-A service builds its parts and passes them in once, at start-up, in `services/<service>/src/index.ts` (copy `services/svc-quant/src/index.ts`: each store and client is made there and handed to the service's constructor; a Rust service does the same in `crates/<service>/src/service.rs`, as `crates/svc-tax/src/service.rs` does). No module replaces another's function after start-up (`proto.placeOrder = ...`) or installs itself by being imported.
+A service builds its parts and passes them in once, at start-up, in `services/<service>/src/index.ts` (copy `services/svc-quant/src/index.ts`: each store and client is made there and handed to the service's constructor; a Rust service does the same in `crates/<service>/src/service.rs`, as `crates/svc-tax/src/service.rs` does). No module replaces another's function after start-up (`proto.placeOrder = ...`) or installs itself by being imported: behaviour added to another module's class is a layer, a function from the class to a subclass (copy `withFokPlace` in `services/svc-trade/src/spot/fok-place.ts`), applied in `index.ts` with `layered()` (`services/svc-trade/src/layered.ts`).
 
-What fails the other way: nothing yet.
+What fails the other way: `garden/no-runtime-swap` (a method replaced on another module's class; none are left, so any new one fails the lint ratchet). A module that installs itself by being imported some other way fails nothing yet.
 
 ## 6. A list is made by code
 

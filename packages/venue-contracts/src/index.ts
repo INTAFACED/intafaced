@@ -51,3 +51,4 @@ export * from './agent-cap.js';
 export * from './held-figure.js';
 export * from './venue-figure.js';
 export * from './position-net.js';
+export * from './order-history.js';

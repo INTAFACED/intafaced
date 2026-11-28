@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { P2pError, assertDisputeListLimit } from './p2p-service.js';
+import { P2pError, P2pService, assertDisputeListLimit } from './p2p-service.js';
+import { limitsOf, recordingSql } from './testing/sql-recorder-fixture.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 
 /**
@@ -12,7 +10,7 @@ import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
  * Blank must refuse. Owner/client may pass 50 explicitly.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
+const MODERATOR = '44444444-4444-4444-8444-444444444444';
 
 describe('disputes.list limit unset refuse', () => {
   it('assertDisputeListLimit refuses blank / NaN / 0 — never invents 50', () => {
@@ -37,13 +35,14 @@ describe('disputes.list limit unset refuse', () => {
     expect(assertDisputeListLimit(201)).toBe(200);
   });
 
-  it('listDisputes no longer defaults limit to 50', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/p2p-service.ts'), 'utf8');
-    const start = src.indexOf('async listDisputes(');
-    const end = src.indexOf('async getDisputeAsModerator(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertDisputeListLimit');
-    expect(fn).not.toMatch(/input\.limit \?\? 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
+  it('listDisputes refuses an omitted limit before any query, and pages by the limit it was given', async () => {
+    const { sql, calls } = recordingSql();
+    const p2p = new P2pService(sql, {} as never, {} as never, {} as never);
+    await expect(p2p.listDisputes({ moderatorId: MODERATOR })).rejects.toMatchObject({ code: 'p2p.dispute_list_limit_unset' });
+    expect(calls).toHaveLength(0);
+    await expect(p2p.listDisputes({ moderatorId: MODERATOR, limit: 50 })).resolves.toMatchObject({ disputes: [] });
+    expect(limitsOf(calls)).toEqual([50]);
+    await p2p.listDisputes({ moderatorId: MODERATOR, limit: 201 });
+    expect(limitsOf(calls)).toEqual([50, 200]);
   });
 });

@@ -1,0 +1,739 @@
+[
+  {
+    "file": "services/svc-execution/src/edge-trust.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted entrypoint trusts an edge-signed principal only with the edge public key and both limits it was given.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/edge-trust.test.ts#index.ts hands the edge trust settings to the edge context"
+    },
+    "why": "Boots index.ts in-process (testing/boot.ts) and asks the tRPC createContext it registered for the principal, with and without the key."
+  },
+  {
+    "file": "services/svc-execution/src/ems-list-limit-unset.test.ts",
+    "target": "../../../services/svc-execution/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "An EMS ack list with no limit refuses by name and never invents a 50-row page.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/ems-list-limit-unset.test.ts#omit refuses with the named code, and a page over 200 is refused at the door"
+    },
+    "why": "Calls the router with the limit omitted and over the cap and asserts the named refusal and that no store read happens."
+  },
+  {
+    "file": "services/svc-execution/src/exception-list-limit-unset.test.ts",
+    "target": "../../../services/svc-execution/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The exception lists with no limit refuse by name and never invent a 50-row page.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/exception-list-limit-unset.test.ts#omit refuses with the named code, and a page over 200 is refused at the door"
+    },
+    "why": "Calls each list procedure on the router with the limit omitted and over the cap and asserts the named refusal."
+  },
+  {
+    "file": "services/svc-execution/src/execution-ready-cred-board.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint builds the venue maps, the credential board, the EMS store and the router, and serves them on /health and /ready.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/execution-ready-cred-board.test.ts#index wires registry, venue maps, ems store, trpc, health, ready, and listen"
+    },
+    "why": "Boots index.ts in-process and asserts the router arguments it captured, the /ready body over inject, the EMS store path and the listen call; a blank EMS path stops the boot with its refusal."
+  },
+  {
+    "file": "services/svc-execution/src/execution-venue-ids-compose-pin.test.ts",
+    "target": "../../../services/svc-execution/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset EXECUTION_VENUE_IDS loads as an empty list, never an invented venue.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/execution-venue-ids-compose-pin.test.ts#env.ts still defaults empty — no invented venue list"
+    },
+    "why": "Loads the env module fresh with the variable unset and blank and asserts the parsed value."
+  },
+  {
+    "file": "services/svc-execution/src/file-algo-store.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint keeps algo parents and pauses in file journals beside the EMS journal and refuses a blank path.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/file-algo-store.test.ts#index wires file parent/pause stores and fail-closed path"
+    },
+    "why": "Boots index.ts and asserts the router got FileAlgoParentStore and FileAlgoPauseStore at the sibling paths, and a blank path stops the boot."
+  },
+  {
+    "file": "services/svc-execution/src/file-fill-store.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint keeps fill confirmations, manual fills and assignments in file journals and refuses a blank path.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/file-fill-store.test.ts#index wires file fill stores and fail-closed path"
+    },
+    "why": "Boots index.ts and asserts the fill stores the router received and their paths, and a blank path stops the boot."
+  },
+  {
+    "file": "services/svc-execution/src/oms-kill-http.test.ts",
+    "target": "oms-kill-http.ts",
+    "verdict": "rewrite",
+    "asserts": "The kill, drain and halt doors never call matching POST /halt-all and never match withdrawHold.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-kill-http.test.ts#HTTP door never POSTs matching halt-all"
+    },
+    "why": "Registers the kill door on a Fastify and asserts its four routes (no halt-all), and drives the venue-halt door with a recording fetch that sees only GET /markets."
+  },
+  {
+    "file": "services/svc-execution/src/oms-kill-http.test.ts",
+    "target": "oms-matching-venue-halt.ts",
+    "verdict": "rewrite",
+    "asserts": "The kill, drain and halt doors never call matching POST /halt-all and never match withdrawHold.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-kill-http.test.ts#HTTP door never POSTs matching halt-all"
+    },
+    "why": "Registers the kill door on a Fastify and asserts its four routes (no halt-all), and drives the venue-halt door with a recording fetch that sees only GET /markets."
+  },
+  {
+    "file": "services/svc-execution/src/oms-kill-http.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The router mounts the HTTP kill door and kill-parent, and kill-live stays an extra module.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-kill-http.test.ts#router uses oms-kill + kill-parent HTTP door; kill-live stays extra"
+    },
+    "why": "Loads the router fresh with the kill modules recorded and oms-kill-live set to throw, and asserts the modules it loads and the procedures it mounts."
+  },
+  {
+    "file": "services/svc-execution/src/oms-matching-venue-halt.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "MATCHING_URL is optional and a blank value is absent, never a localhost default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-matching-venue-halt.test.ts#env declares MATCHING_URL optional; blank is absent"
+    },
+    "why": "Loads the env fresh with MATCHING_URL unset, blank and set and asserts the parsed value."
+  },
+  {
+    "file": "services/svc-execution/src/oms-matching-venue-halt.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint reads venue halt from matching GET /markets and never posts halt-all.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-matching-venue-halt.test.ts#index loads GET /markets from MATCHING_URL, never POST /halt-all"
+    },
+    "why": "Boots index.ts with a recording fetch and asserts every request it sends is GET <MATCHING_URL>/markets."
+  },
+  {
+    "file": "services/svc-execution/src/oms-spine.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "execution.policy answers describeExecutionSpine.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-spine.test.ts#router mounts describeExecutionSpine on execution.policy"
+    },
+    "why": "Calls execution.policy through createCaller and compares it with describeExecutionSpine()."
+  },
+  {
+    "file": "services/svc-execution/src/oms-start-jobs-off-pin.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset EXECUTION_ALGO_JOBS_ENABLED starts no algo parent.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-start-jobs-off-pin.test.ts#env schema defaults the jobs flag false (unset deploy starts no parent)"
+    },
+    "why": "Loads the env fresh with the flag unset and with each off spelling and asserts false."
+  },
+  {
+    "file": "services/svc-execution/src/oms-start-jobs-off-pin.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint hands the router the jobs flag from its env, not a literal true.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-start-jobs-off-pin.test.ts#live host wires createExecutionRouter from the env flag, not a literal true"
+    },
+    "why": "Boots index.ts with the flag unset and set and asserts the algoJobs.enabled the router received."
+  },
+  {
+    "file": "services/svc-execution/src/oms-start-jobs-off-pin.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The router starts no algo job when the caller gives no flag.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-start-jobs-off-pin.test.ts#createExecutionRouter default algoJobs.enabled is false"
+    },
+    "why": "Builds the router with no algoJobs option and asserts execution.oms.start answers jobs_off."
+  },
+  {
+    "file": "services/svc-execution/src/oms-tca.test.ts",
+    "target": "oms-tca.ts",
+    "verdict": "rewrite",
+    "asserts": "A TCA run never writes the ledger.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-tca.test.ts#does not write ledger — a run posts nothing, calls no recipe and sends no request"
+    },
+    "why": "Protected (money): the ledger root and recipes subpath are both recorded and MemoryLedger.prototype.post is spied for the whole file, which asserts after every test (each runTcaRun outcome and the mounted door) that nothing posted or called a recipe; one test drives every runTcaRun outcome with fetch spied, and one loads oms-tca with the ledger client cut to its money arithmetic and the recipes refusing to load."
+  },
+  {
+    "file": "services/svc-execution/src/oms-write-hmac-rest.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The leftover OMS writes refuse a session admin:write and accept only the svc-execution HMAC.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/oms-write-hmac-rest.test.ts#session-only admin:write cannot start / slice / drain"
+    },
+    "why": "Protected (permissions): calls every OMS mutation on the router with a session admin:write, svc-trade HMAC and svc-execution HMAC and asserts each refusal."
+  },
+  {
+    "file": "services/svc-execution/src/ready-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "/ready reports constructed adapters as constructed and unprobed, never wired or live.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/ready-honesty.test.ts#ready-response.ts and /ready boot never stamp wired/live"
+    },
+    "why": "Boots index.ts, reads /ready over inject and calls buildExecutionReadyResponse, asserting no field says wired or live."
+  },
+  {
+    "file": "services/svc-execution/src/ready-honesty.test.ts",
+    "target": "ready-response.ts",
+    "verdict": "rewrite",
+    "asserts": "/ready reports constructed adapters as constructed and unprobed, never wired or live.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/ready-honesty.test.ts#ready-response.ts and /ready boot never stamp wired/live"
+    },
+    "why": "Boots index.ts, reads /ready over inject and calls buildExecutionReadyResponse, asserting no field says wired or live."
+  },
+  {
+    "file": "services/svc-execution/src/sor-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker marks execution.sor done only once its gaps are closed.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/sor-tracker-status-pin.test.ts#features.mjs marks execution.sor done when product gaps are closed"
+    },
+    "why": "Imports FEATURES from the tracker and asserts the execution.sor row."
+  },
+  {
+    "file": "services/svc-execution/src/trade-url-ready-pin.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "With TRADE_URL set, /ready says the trade book snapshot is configured and unprobed; unset, it is absent.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/trade-url-ready-pin.test.ts#/ready reports tradeBookSnapshotVenue as configured + unprobed when TRADE_URL set"
+    },
+    "why": "Boots index.ts with TRADE_URL set and unset and asserts the /ready body over inject."
+  },
+  {
+    "file": "services/svc-execution/src/trade-url-ready-pin.test.ts",
+    "target": "ready-response.ts",
+    "verdict": "rewrite",
+    "asserts": "With TRADE_URL set, /ready says the trade book snapshot is configured and unprobed; unset, it is absent.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-execution/src/trade-url-ready-pin.test.ts#/ready reports tradeBookSnapshotVenue as configured + unprobed when TRADE_URL set"
+    },
+    "why": "Boots index.ts with TRADE_URL set and unset and asserts the /ready body over inject."
+  },
+  {
+    "file": "services/svc-indexer/src/edge-trust.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted indexer trusts an edge-signed principal only with the edge public key and limits it was given.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/edge-trust.test.ts#index.ts hands the edge trust settings to the edge context"
+    },
+    "why": "Boots index.ts (testing/boot.ts) and asks its createContext for the principal, with and without the key."
+  },
+  {
+    "file": "services/svc-indexer/src/env-batch-size-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset or blank INDEXER_BATCH_SIZE refuses with its typed message and never takes a git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/env-batch-size-refuse-closed.test.ts#unset INDEXER_BATCH_SIZE refuses (no silent blocks-per-pass 200)"
+    },
+    "why": "The source pin became a load: the exported env schema is parsed with the variable unset and blank and the exact refusal is asserted."
+  },
+  {
+    "file": "services/svc-indexer/src/env-chainid-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset or blank INDEXER_CHAIN_ID refuses with its typed message and never takes a git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/env-chainid-refuse-closed.test.ts#unset INDEXER_CHAIN_ID refuses (no silent Anvil)"
+    },
+    "why": "The source pin became a load: the exported env schema is parsed with the variable unset and blank and the exact refusal is asserted."
+  },
+  {
+    "file": "services/svc-indexer/src/env-finality-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset or blank INDEXER_FINALITY_DEPTH refuses with its typed message and never takes a git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/env-finality-refuse-closed.test.ts#unset INDEXER_FINALITY_DEPTH refuses (no silent prune 64)"
+    },
+    "why": "The source pin became a load: the exported env schema is parsed with the variable unset and blank and the exact refusal is asserted."
+  },
+  {
+    "file": "services/svc-indexer/src/env-rpc-url-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset or blank INDEXER_RPC_URL refuses with its typed message and never takes a git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/env-rpc-url-refuse-closed.test.ts#unset INDEXER_RPC_URL refuses (no silent evm:8545)"
+    },
+    "why": "The source pin became a load: the exported env schema is parsed with the variable unset and blank and the exact refusal is asserted."
+  },
+  {
+    "file": "services/svc-indexer/src/env-start-height-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset or blank INDEXER_START_HEIGHT refuses with its typed message and never takes a git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/env-start-height-refuse-closed.test.ts#unset INDEXER_START_HEIGHT refuses (no silent genesis-0)"
+    },
+    "why": "The source pin became a load: the exported env schema is parsed with the variable unset and blank and the exact refusal is asserted."
+  },
+  {
+    "file": "services/svc-indexer/src/env-venue-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "An unset or blank INDEXER_VENUE_ADDRESS refuses with its typed message and never takes a git default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/env-venue-refuse-closed.test.ts#unset INDEXER_VENUE_ADDRESS refuses (no silent fixture CLOB)"
+    },
+    "why": "The source pin became a load: the exported env schema is parsed with the variable unset and blank and the exact refusal is asserted."
+  },
+  {
+    "file": "services/svc-indexer/src/explorer/env-list-limit.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "The explorer list limit has no default: unset boots, and the list refuses.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/explorer/env-list-limit.test.ts#blank/unset %j boots but the list refuses"
+    },
+    "why": "Parses the env schema with the value unset and blank and asserts it stays absent and the list call refuses."
+  },
+  {
+    "file": "services/svc-indexer/src/explorer/env-tx-window.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "The explorer tx window has no default: unset boots, and the decision refuses.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/explorer/env-tx-window.test.ts#blank/unset %j boots but the decision refuses"
+    },
+    "why": "Parses the env schema with the value unset and blank and asserts it stays absent and the decision refuses."
+  },
+  {
+    "file": "services/svc-indexer/src/health-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "/health is served from indexerHealthHonesty and never echoes the configured chain id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/health-honesty.test.ts#index.ts and public-http.ts serve health via indexerHealthHonesty, not INDEXER_CHAIN_ID"
+    },
+    "why": "Boots index.ts and the public-http app and reads /health over inject, asserting the honest payload and no chain id."
+  },
+  {
+    "file": "services/svc-indexer/src/health-honesty.test.ts",
+    "target": "public-http.ts",
+    "verdict": "rewrite",
+    "asserts": "/health is served from indexerHealthHonesty and never echoes the configured chain id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/health-honesty.test.ts#index.ts and public-http.ts serve health via indexerHealthHonesty, not INDEXER_CHAIN_ID"
+    },
+    "why": "Boots index.ts and the public-http app and reads /health over inject, asserting the honest payload and no chain id."
+  },
+  {
+    "file": "services/svc-indexer/src/health-honesty.test.ts",
+    "target": "health-honesty.ts",
+    "verdict": "rewrite",
+    "asserts": "The health payload takes its custody stance from the module registry, never a literal.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/health-honesty.test.ts#health-honesty.ts does not literal-stamp custodial:false"
+    },
+    "why": "Protected (custody): calls indexerHealthHonesty and compares its custody field with the registered module record."
+  },
+  {
+    "file": "services/svc-indexer/src/ingest-poll-batch-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "The poll interval defaults to 2000 and the batch size has no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/ingest-poll-batch-compose-pin.test.ts#env.ts still defaults INDEXER_POLL_INTERVAL_MS 2000; INDEXER_BATCH_SIZE has no git-default 200"
+    },
+    "why": "Loads the env fresh with both unset and asserts the poll value and the batch refusal."
+  },
+  {
+    "file": "services/svc-indexer/src/shutdown.test.ts",
+    "target": "./indexer.ts",
+    "verdict": "rewrite",
+    "asserts": "SIGTERM and SIGINT drain once through shutdownIndexer with one 30 s bound, and nothing adds a second timer.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/shutdown.test.ts#index.ts calls shutdownIndexer and does not add a second timeout"
+    },
+    "why": "Boots index.ts, raises each signal and asserts stopAndDrain is called with no arguments, the 30 s default under fake timers, and that shutdownIndexer sets no timer."
+  },
+  {
+    "file": "services/svc-indexer/src/shutdown.test.ts",
+    "target": "./index.ts",
+    "verdict": "rewrite",
+    "asserts": "SIGTERM and SIGINT drain once through shutdownIndexer with one 30 s bound, and nothing adds a second timer.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/shutdown.test.ts#index.ts calls shutdownIndexer and does not add a second timeout"
+    },
+    "why": "Boots index.ts, raises each signal and asserts stopAndDrain is called with no arguments, the 30 s default under fake timers, and that shutdownIndexer sets no timer."
+  },
+  {
+    "file": "services/svc-indexer/src/shutdown.test.ts",
+    "target": "./shutdown.ts",
+    "verdict": "rewrite",
+    "asserts": "SIGTERM and SIGINT drain once through shutdownIndexer with one 30 s bound, and nothing adds a second timer.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/shutdown.test.ts#index.ts calls shutdownIndexer and does not add a second timeout"
+    },
+    "why": "Boots index.ts, raises each signal and asserts stopAndDrain is called with no arguments, the 30 s default under fake timers, and that shutdownIndexer sets no timer."
+  },
+  {
+    "file": "services/svc-indexer/src/sovereignty.test.ts",
+    "target": "../src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The indexer environment has no ledger URL and no signing key.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/sovereignty.test.ts#declares no ledger URL and no signing key in its environment"
+    },
+    "why": "Protected (money): asserts on the exported env schema's shape keys instead of the file text."
+  },
+  {
+    "file": "services/svc-indexer/src/sovereignty.test.ts",
+    "target": "../src/chain/evm/source.ts",
+    "verdict": "rewrite",
+    "asserts": "The EVM source only reads the chain.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/sovereignty.test.ts#EVM adapter constructs a PublicClient and never a WalletClient"
+    },
+    "why": "Loads the source with viem mocked and asserts it creates a public client and never a wallet client."
+  },
+  {
+    "file": "services/svc-indexer/src/sovereignty.test.ts",
+    "target": "../src/projection/postgres-store.ts",
+    "verdict": "rewrite",
+    "asserts": "The indexer writes no table outside its own schema.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/sovereignty.test.ts#writes to no schema but its own"
+    },
+    "why": "Protected (custody): drives every PostgresProjectionStore method against a recording SQL stand-in and asserts every INSERT, UPDATE and DELETE names one of its 15 own tables, unqualified, that nothing moves the search_path, and that every own table is written by some path; a store method with no row in the test fails it."
+  },
+  {
+    "file": "services/svc-indexer/src/trpc-windows-unset-refuse.test.ts",
+    "target": "projection/postgres-store.ts",
+    "verdict": "rewrite",
+    "asserts": "positionsOf bounds its query with the published limit.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/trpc-windows-unset-refuse.test.ts#postgres-store positionsOf applies SQL LIMIT — no unbounded dump"
+    },
+    "why": "Calls positionsOf on a recording sql and asserts the query ends with a LIMIT bound to 2."
+  },
+  {
+    "file": "services/svc-indexer/src/trpc-windows-unset-refuse.test.ts",
+    "target": "router.ts",
+    "verdict": "delete",
+    "asserts": "The router never invents a 50 or 100 window when book depth or the positions limit is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-indexer/src/trpc-windows-unset-refuse.test.ts#omit positions limit refuses named code and does not call store.positionsOf"
+    },
+    "why": "That test and \"omit book depth refuses and does not call store.book\" in the same file call the router with each window omitted and assert the named refusal and no store call."
+  },
+  {
+    "file": "services/svc-notify/src/alerts-policy.test.ts",
+    "target": "router.ts",
+    "verdict": "delete",
+    "asserts": "notify.alertsPolicy answers describeAlertsPolicy.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/alerts-policy.test.ts#public query mirrors describeAlertsPolicy"
+    },
+    "why": "The same file calls notify.alertsPolicy through createCaller and compares it with describeAlertsPolicy()."
+  },
+  {
+    "file": "services/svc-notify/src/alerts/alerts-list-limit-unset.test.ts",
+    "target": "../../../../services/svc-notify/src/router.ts",
+    "verdict": "delete",
+    "asserts": "notify.alerts with no limit refuses and never dumps every watch.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/router.mount.test.ts#notify.alerts omit is PRECONDITION_FAILED"
+    },
+    "why": "router.mount.test.ts calls the mounted router with the limit omitted and asserts PRECONDITION_FAILED; notices-alerts.public.test.ts \"refuses when the limit is omitted and does not invent a page size\" holds it at the service."
+  },
+  {
+    "file": "services/svc-notify/src/alerts-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker marks v22.alerts done only once its backend bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/alerts-tracker-status-pin.test.ts#features.mjs marks v22.alerts done when backend done bar met"
+    },
+    "why": "Imports FEATURES from the tracker and asserts the v22.alerts row."
+  },
+  {
+    "file": "services/svc-notify/src/alerts/sweep-mounted-pin.test.ts",
+    "target": "..",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint runs the alert sweep at boot and on an interval, clears it on shutdown, and reports its last pass on /ready.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/alerts/sweep-mounted-pin.test.ts#index.ts drives the mounted sweep driver on an interval"
+    },
+    "why": "Boots index.ts (testing/boot.ts) and asserts the interval it starts, the boot pass, the cleared handle on SIGTERM and the /ready body."
+  },
+  {
+    "file": "services/svc-notify/src/boot-refusal.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "The env runs the one parseRequiredChannels the registry defines.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/boot-refusal.test.ts#has one definition of parseRequiredChannels in src/, and it is the one env.ts imports"
+    },
+    "why": "Loads the env fresh with the registry mocked to record calls and asserts it asked parseRequiredChannels for the declared posture."
+  },
+  {
+    "file": "services/svc-notify/src/channels-policy.test.ts",
+    "target": "router.ts",
+    "verdict": "delete",
+    "asserts": "notify.channelsPolicy answers describeChannelsPolicy.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/channels-policy.test.ts#public query mirrors describeChannelsPolicy"
+    },
+    "why": "The same file calls notify.channelsPolicy through createCaller and compares it with describeChannelsPolicy()."
+  },
+  {
+    "file": "services/svc-notify/src/event-wiring-matrix.test.ts",
+    "target": "events.ts",
+    "verdict": "rewrite",
+    "asserts": "Every durable on the matrix is attached, and nothing else is.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/event-wiring-matrix.test.ts#every matrix durable is attached in events.ts"
+    },
+    "why": "Runs subscribeNotificationEvents on a recording bus and compares the durables it attached with the matrix."
+  },
+  {
+    "file": "services/svc-notify/src/guests/edge-trust.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service trusts an edge-signed principal only with the edge key and limits it was given.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/guests/edge-trust.test.ts#index.ts hands the edge trust settings to the guest ingress context"
+    },
+    "why": "Boots index.ts and asks the createContext it handed /trpc for the principal, with and without the key."
+  },
+  {
+    "file": "services/svc-notify/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-notify/src/router.ts",
+    "verdict": "delete",
+    "asserts": "notify.list with no limit refuses and never invents a 20-row page.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/router.mount.test.ts#notify.list omit is PRECONDITION_FAILED"
+    },
+    "why": "router.mount.test.ts calls the mounted router with the limit omitted and asserts PRECONDITION_FAILED."
+  },
+  {
+    "file": "services/svc-notify/src/max-attempts-compose-pin.test.ts",
+    "target": "../../../services/svc-notify/src/env.ts",
+    "verdict": "delete",
+    "asserts": "An unset or blank NOTIFY_MAX_DELIVERY_ATTEMPTS stays unpublished and only 1..5 is accepted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/max-attempts-pin.test.ts#unset is unpublished — never 3"
+    },
+    "why": "max-attempts-pin.test.ts parses the env schema unset, blank and at 0 and 6 (\"refuses a default outside 1–5\")."
+  },
+  {
+    "file": "services/svc-notify/src/max-attempts-compose-pin.test.ts",
+    "target": "max-delivery-attempts.ts",
+    "verdict": "rewrite",
+    "asserts": "The boot helper refuses an unset retry ceiling with its code and holds no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/max-attempts-compose-pin.test.ts#the boot helper refuses an unset ceiling with its code and keeps no default to fall back on"
+    },
+    "why": "Calls publishedMaxDeliveryAttempts with undefined and null and asserts the code, and that the module exports no DEFAULT_MAX_DELIVERY_ATTEMPTS."
+  },
+  {
+    "file": "services/svc-notify/src/mount.reachable.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The mount this file proves is the one index.ts ships: same prefix and the signed edge context.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/mount.reachable.test.ts#registers the same tRPC plugin at the same prefix this file requested"
+    },
+    "why": "Boots index.ts and asserts the plugin prefix, /health over inject, and that signed, unsigned and forged callers get 200, 401 and 401."
+  },
+  {
+    "file": "services/svc-notify/src/operator-deliveries-limit-unset.test.ts",
+    "target": "../../../services/svc-notify/src/router.ts",
+    "verdict": "delete",
+    "asserts": "The operator deliveries list with no limit refuses and never invents a 50-row page.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/router.mount.test.ts#notify.ops.deliveries omit is PRECONDITION_FAILED"
+    },
+    "why": "router.mount.test.ts calls the mounted router with the limit omitted and asserts PRECONDITION_FAILED."
+  },
+  {
+    "file": "services/svc-notify/src/operator-deliveries-limit-unset.test.ts",
+    "target": "../../../services/svc-notify/src/notify-service.ts",
+    "verdict": "delete",
+    "asserts": "NotifyService.operatorDeliveryOutcomes has no 50 default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/operator-deliveries.test.ts#admin omit of limit is PRECONDITION_FAILED"
+    },
+    "why": "operator-deliveries.test.ts calls notify.operatorDeliveryOutcomes() with no limit and asserts the refusal."
+  },
+  {
+    "file": "services/svc-notify/src/preferences/combined-page-limit-unset.test.ts",
+    "target": "../../../../services/svc-notify/src/preferences/combined.ts",
+    "verdict": "delete",
+    "asserts": "Paging a combined plan with no limit refuses and never returns the whole plan.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/preferences/combined-page-limit-unset.test.ts#omit / NaN / 0 throws — does not dump the plan"
+    },
+    "why": "The same file calls pagePlanDecisions and pagePlanSendChannels with the limit omitted, NaN and 0 and asserts NotifyCombinedPageLimitUnsetError; \"refuses blank / NaN / 0\" asserts its code."
+  },
+  {
+    "file": "services/svc-notify/src/preferences/combined-page-offset-unset.test.ts",
+    "target": "../../../../services/svc-notify/src/preferences/combined.ts",
+    "verdict": "rewrite",
+    "asserts": "Both planners refuse a non-finite offset by name and never invent a page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/preferences/combined-page-offset-unset.test.ts#both planners refuse a non-finite offset and do not invent a page size"
+    },
+    "why": "Calls assertCombinedPageOffset, pagePlanDecisions, pagePlanSendChannels and safePagePlanDecisions with non-finite offsets and asserts the refusals and pages."
+  },
+  {
+    "file": "services/svc-notify/src/preferences/digest-not-wired.test.ts",
+    "target": "..",
+    "verdict": "rewrite",
+    "asserts": "The router mounts the preference and notice procedures, dispatch skips the gate for critical, and the entrypoint builds the preference stores and notice board.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/preferences/digest-not-wired.test.ts#index constructs the preference stores and the notice board"
+    },
+    "why": "Reads the router's procedure list, calls the planOutOfApp the booted dispatcher received (critical sends with no store read, other severities read the digest holds), and asserts the booted NotifyService got PostgresHoldStore, NoticeBoard and AccountPrefs over the topic store."
+  },
+  {
+    "file": "services/svc-notify/src/venue-incident-passthrough.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "/health and /ready both carry the venue incident matching reports, read from GET /markets only.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/venue-incident-passthrough.test.ts#live host mounts loadVenueIncident on both probes"
+    },
+    "why": "Boots index.ts with a recording fetch and asserts both probe bodies and that the only request is GET <MATCHING_URL>/markets."
+  },
+  {
+    "file": "services/svc-notify/src/verify-code-pepper.test.ts",
+    "target": "../../../services/svc-notify/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The pepper has no default and a blank value is unpublished.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/verify-code-pepper.test.ts#NOTIFY_VERIFY_CODE_PEPPER is required in env, blank is unpublished, no default"
+    },
+    "why": "Parses the env with the pepper unset and blank and asserts it is absent; the README half stays."
+  },
+  {
+    "file": "services/svc-notify/src/verify-code-pepper.test.ts",
+    "target": "../../../services/svc-notify/src/index.ts",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint hands NotifyService the pepper, and the service hashes codes with it, never a bare SHA-256.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/verify-code-pepper.test.ts#wires the pepper into the hash call and does not keep a bare SHA-256 of the code"
+    },
+    "why": "Boots index.ts and asserts the verifyCodePepper NotifyService received for a set, unset and blank pepper; the hash itself is proven by the HMAC tests above."
+  },
+  {
+    "file": "services/svc-notify/src/verify-code-pepper.test.ts",
+    "target": "../../../services/svc-notify/src/notify-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The entrypoint hands NotifyService the pepper, and the service hashes codes with it, never a bare SHA-256.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/verify-code-pepper.test.ts#wires the pepper into the hash call and does not keep a bare SHA-256 of the code"
+    },
+    "why": "Boots index.ts and asserts the verifyCodePepper NotifyService received for a set, unset and blank pepper; the hash itself is proven by the HMAC tests above."
+  },
+  {
+    "file": "services/svc-notify/src/verify-ttl-compose-pin.test.ts",
+    "target": "../../../services/svc-notify/src/env.ts",
+    "verdict": "delete",
+    "asserts": "An unset or blank NOTIFY_VERIFY_TTL_MINUTES stays unpublished and only 1..120 is accepted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/env-defaults-pin.test.ts#unset is unpublished — never 15"
+    },
+    "why": "env-defaults-pin.test.ts parses the env schema unset, blank and at 0 and 121 (\"refuses outside 1–120\")."
+  },
+  {
+    "file": "services/svc-notify/src/verify-ttl-compose-pin.test.ts",
+    "target": "notify-service.ts",
+    "verdict": "rewrite",
+    "asserts": "registerTarget refuses an unset TTL with its code and the service holds no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-notify/src/verify-ttl-compose-pin.test.ts#registerTarget refuses an unset TTL with its code and the service keeps no default to fall back on"
+    },
+    "why": "Calls publishedVerifyTtlMinutes with undefined and null and asserts the code, and that the module exports no DEFAULT_VERIFY_TTL_MINUTES."
+  }
+]

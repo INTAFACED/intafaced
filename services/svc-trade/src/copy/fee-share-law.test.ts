@@ -12,6 +12,7 @@ import {
   UNPUBLISHED_COPY_FEE_SHARE_LAW,
   UNPUBLISHED_COPY_JURISDICTION_LAW,
 } from './fee-share-law.js';
+import { refusePnlLinkedCopyFee } from './fee-share.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, COPY_LAW_RESIDUAL, CopyError } from './errors.js';
 
 const COPY_DIR = dirname(fileURLToPath(import.meta.url));
@@ -217,9 +218,14 @@ describe('blank leader_share_bps pin — never invent a default', () => {
   });
 
   it('profit-share / P&L-linked copy fees stay banned', () => {
-    const src = readFileSync(join(COPY_DIR, 'fee-share.ts'), 'utf8');
-    expect(src).toContain('export function refusePnlLinkedCopyFee');
-    expect(src).toContain('trade.copy_pnl_fee_forbidden');
-    expect(src).toMatch(/does not charge a fee on profit/);
+    let refused: unknown;
+    try {
+      refusePnlLinkedCopyFee();
+    } catch (err) {
+      refused = err;
+    }
+    expect(refused).toBeInstanceOf(CopyError);
+    expect((refused as CopyError).code).toBe('trade.copy_pnl_fee_forbidden');
+    expect((refused as Error).message).toMatch(/does not charge a fee on profit/);
   });
 });

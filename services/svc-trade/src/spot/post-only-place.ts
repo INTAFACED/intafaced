@@ -1,7 +1,6 @@
 import type { Principal } from '@intafaced/auth';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest } from './matching-client.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
 /**
@@ -22,8 +21,6 @@ import { carriedPlacementBody } from './placement-extras.js';
 
 type PlaceWithPo = PlaceOrderInput & { postOnly?: boolean; price?: unknown };
 
-const FLAG = Symbol.for('intafaced.trade.postOnlyPlace');
-
 /** True when this request's own body asks for it. */
 function stashedFor(body: Readonly<Record<string, unknown>> | null): boolean {
   return body !== null && (body.postOnly === true || body.timeInForce === 'PO' || body.tif === 'PO');
@@ -38,33 +35,23 @@ export function bindPostOnly(input: PlaceOrderInput): PlaceWithPo {
   return { ...extra, tif: 'PO' };
 }
 
-export function installPostOnlyPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<unknown>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindPostOnly(input);
-    if (bound.tif === 'PO' && (bound.type === 'market' || bound.price == null)) {
-      throw new TradeError('post-only requires a limit price; trade does not invent one', 'trade.invalid_tif');
+export function withPostOnlyPlace(Base: typeof TradeService): typeof TradeService {
+  return class PostOnlyPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindPostOnly(input);
+      if (bound.tif === 'PO' && (bound.type === 'market' || bound.price == null)) {
+        throw new TradeError('post-only requires a limit price; trade does not invent one', 'trade.invalid_tif');
+      }
+      return super.placeOrder(principal, bound);
     }
-    return origPlace.call(this, principal, bound);
-  };
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithPo | undefined;
-    if (req.tif === 'PO' || input?.tif === 'PO' || input?.postOnly === true) {
-      return { ...req, tif: 'PO' };
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithPo | undefined;
+      if (req.tif === 'PO' || input?.tif === 'PO' || input?.postOnly === true) {
+        return { ...req, tif: 'PO' };
+      }
+      return req;
     }
-    return req;
   };
 }
-
-installPostOnlyPlace(TradeService);

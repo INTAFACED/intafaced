@@ -19,8 +19,12 @@ import {
   principalFor,
 } from '../spot/testing.js';
 import { TradingControls } from './trading-controls.js';
-import '../spot/qty-up-amend.js';
 import { CopyService } from '../copy/copy-service.js';
+import { withNativeQtyUpAmend } from '../spot/qty-up-amend.js';
+import { layered } from '../layered.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layered(TradeService, withNativeQtyUpAmend);
 
 // #4494: scopes are explicit now - trade:write no longer implies trade:read.
 const TRADE_READ = ['trade:read'] as const;
@@ -60,7 +64,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     },
   };
   function build(admission = controls) {
-    return new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+    return new LayeredTradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       emailProof: new StubEmailProof(),
       allowUnpublishedPairRules: true,
       accountAdmission: admission,
@@ -194,7 +198,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     await expect(trade.placeOrder(principalFor(user), { ...input, qty: amt('2') })).rejects.toThrow();
   });
   it('production class without an admission port refuses before any new order hold', async () => {
-    const absent = new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+    const absent = new LayeredTradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       emailProof: new StubEmailProof(),
       allowUnpublishedPairRules: true,
       marketLifecycle: READY_MARKET_LIFECYCLE,

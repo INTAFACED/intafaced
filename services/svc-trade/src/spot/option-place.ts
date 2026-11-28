@@ -2,11 +2,10 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError, type AmendOrderOutcome, type OrderRecord } from './types.js';
 import { TradeService, type AmendOrderInput, type PlaceOrderInput } from './trade-service.js';
-import { installNativeQtyUpAmend, type OptionEngineFields } from './qty-up-amend.js';
+import { type OptionEngineFields } from './qty-up-amend.js';
 import type { EngineAmendRequest, EngineCancellation, EngineFill, EngineSubmitRequest, MatchingClient } from './matching-client.js';
 import type { Market } from './types.js';
 import { carriedPlacementBody } from './placement-extras.js';
-import type { CancelEvidence } from './trade-service/holds.js';
 
 /**
  * Place an option through the matching door that landed in #3484.
@@ -40,9 +39,6 @@ type AmendWithOption = AmendOrderInput & {
   amend?: boolean;
   replace?: boolean;
 };
-
-const FLAG = Symbol.for('intafaced.trade.optionPlace');
-const AMEND_FLAG = Symbol.for('intafaced.trade.optionAmend');
 
 export const STRIKE_MISSING = 'missing_strike' as const;
 export const EXPIRY_MISSING = 'missing_expiry' as const;
@@ -210,265 +206,240 @@ function isOptionAmend(extra: AmendWithOption): boolean {
   return extra.amend === true || extra.replace === true || extra.strike !== undefined || extra.expiry !== undefined;
 }
 
-export function installOptionPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    settleOutcome: (market: Market, fills: readonly EngineFill[], cancellations: readonly EngineCancellation[]) => Promise<void>;
-    finalize: (
-      orderId: string,
-      status: 'cancelled' | 'expired',
-      reason: string | null | undefined,
-      evidence: CancelEvidence,
-    ) => Promise<void>;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindOption(input);
-    const assigning = bound.assign === true || (input as PlaceWithOption).assign === true;
-    if (assigning) {
-      const missingStrike = strikeRefuse(bound.strike ?? null);
-      if (missingStrike) throw missingStrike;
-      const missingExpiry = expiryRefuse(bound.expiry ?? null);
-      if (missingExpiry) throw missingExpiry;
-      const priced =
-        bound.price == null && bound.strike != null && bound.strike > (0n as Amount)
-          ? { ...bound, assign: true as const, exercise: true as const, price: bound.strike }
-          : { ...bound, assign: true as const, exercise: true as const };
-      return origPlace.call(this, principal, priced);
-    }
-    const covering = bound.cover === true || (input as PlaceWithOption).cover === true;
-    if (covering) {
-      const missingStrike = strikeRefuse(bound.strike ?? null);
-      if (missingStrike) throw missingStrike;
-      const missingExpiry = expiryRefuse(bound.expiry ?? null);
-      if (missingExpiry) throw missingExpiry;
-      const priced =
-        bound.price == null && bound.strike != null && bound.strike > (0n as Amount)
-          ? { ...bound, cover: true as const, price: bound.strike }
-          : { ...bound, cover: true as const };
-      return origPlace.call(this, principal, priced);
-    }
-    const exercising = bound.exercise === true || (input as PlaceWithOption).exercise === true;
-    if (exercising) {
-      const missingStrike = strikeRefuse(bound.strike ?? null);
-      if (missingStrike) throw missingStrike;
-      const missingExpiry = expiryRefuse(bound.expiry ?? null);
-      if (missingExpiry) throw missingExpiry;
-      const priced =
-        bound.price == null && bound.strike != null && bound.strike > (0n as Amount)
-          ? { ...bound, exercise: true as const, assign: true as const, price: bound.strike }
-          : { ...bound, exercise: true as const, assign: true as const };
-      return origPlace.call(this, principal, priced);
-    }
-    const cancelling = bound.cancel === true || (input as PlaceWithOption).cancel === true;
-    if (cancelling) {
-      const missingStrike = strikeRefuse(bound.strike ?? null);
-      if (missingStrike) throw missingStrike;
-      const missingExpiry = expiryRefuse(bound.expiry ?? null);
-      if (missingExpiry) throw missingExpiry;
-      const priced =
-        bound.price == null && bound.strike != null && bound.strike > (0n as Amount)
-          ? { ...bound, cancel: true as const, price: bound.strike }
-          : { ...bound, cancel: true as const };
-      return origPlace.call(this, principal, priced);
-    }
-    if (bound.strike !== undefined || bound.expiry !== undefined || (input as PlaceWithOption).type === 'option') {
-      const missingStrike = strikeRefuse(bound.strike ?? null);
-      if (missingStrike) throw missingStrike;
-      const missingExpiry = expiryRefuse(bound.expiry ?? null);
-      if (missingExpiry) throw missingExpiry;
-      if (bound.price == null) {
-        throw new TradeError('an option rests as a limit; trade does not invent a mark', 'trade.missing_price');
+export function withOptionPlace(Base: typeof TradeService): typeof TradeService {
+  return class OptionPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindOption(input);
+      const assigning = bound.assign === true || (input as PlaceWithOption).assign === true;
+      if (assigning) {
+        const missingStrike = strikeRefuse(bound.strike ?? null);
+        if (missingStrike) throw missingStrike;
+        const missingExpiry = expiryRefuse(bound.expiry ?? null);
+        if (missingExpiry) throw missingExpiry;
+        const priced =
+          bound.price == null && bound.strike != null && bound.strike > (0n as Amount)
+            ? { ...bound, assign: true as const, exercise: true as const, price: bound.strike }
+            : { ...bound, assign: true as const, exercise: true as const };
+        return super.placeOrder(principal, priced);
       }
+      const covering = bound.cover === true || (input as PlaceWithOption).cover === true;
+      if (covering) {
+        const missingStrike = strikeRefuse(bound.strike ?? null);
+        if (missingStrike) throw missingStrike;
+        const missingExpiry = expiryRefuse(bound.expiry ?? null);
+        if (missingExpiry) throw missingExpiry;
+        const priced =
+          bound.price == null && bound.strike != null && bound.strike > (0n as Amount)
+            ? { ...bound, cover: true as const, price: bound.strike }
+            : { ...bound, cover: true as const };
+        return super.placeOrder(principal, priced);
+      }
+      const exercising = bound.exercise === true || (input as PlaceWithOption).exercise === true;
+      if (exercising) {
+        const missingStrike = strikeRefuse(bound.strike ?? null);
+        if (missingStrike) throw missingStrike;
+        const missingExpiry = expiryRefuse(bound.expiry ?? null);
+        if (missingExpiry) throw missingExpiry;
+        const priced =
+          bound.price == null && bound.strike != null && bound.strike > (0n as Amount)
+            ? { ...bound, exercise: true as const, assign: true as const, price: bound.strike }
+            : { ...bound, exercise: true as const, assign: true as const };
+        return super.placeOrder(principal, priced);
+      }
+      const cancelling = bound.cancel === true || (input as PlaceWithOption).cancel === true;
+      if (cancelling) {
+        const missingStrike = strikeRefuse(bound.strike ?? null);
+        if (missingStrike) throw missingStrike;
+        const missingExpiry = expiryRefuse(bound.expiry ?? null);
+        if (missingExpiry) throw missingExpiry;
+        const priced =
+          bound.price == null && bound.strike != null && bound.strike > (0n as Amount)
+            ? { ...bound, cancel: true as const, price: bound.strike }
+            : { ...bound, cancel: true as const };
+        return super.placeOrder(principal, priced);
+      }
+      if (bound.strike !== undefined || bound.expiry !== undefined || (input as PlaceWithOption).type === 'option') {
+        const missingStrike = strikeRefuse(bound.strike ?? null);
+        if (missingStrike) throw missingStrike;
+        const missingExpiry = expiryRefuse(bound.expiry ?? null);
+        if (missingExpiry) throw missingExpiry;
+        if (bound.price == null) {
+          throw new TradeError('an option rests as a limit; trade does not invent a mark', 'trade.missing_price');
+        }
+      }
+      return super.placeOrder(principal, bound);
     }
-    return origPlace.call(this, principal, bound);
-  };
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithOption | undefined;
-    const now = input ? readNow(input) : null;
-    if (input && input.cover === true) {
-      const { mark: _mark, ...rest } = req as EngineSubmitRequest & { mark?: string | null };
-      return withNow(
-        {
-          ...rest,
-          cover: true,
-          strike: input.strike == null ? null : formatAmount(input.strike),
-          expiry: input.expiry ?? null,
-        } as EngineSubmitRequest,
-        now,
-      );
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithOption | undefined;
+      const now = input ? readNow(input) : null;
+      if (input && input.cover === true) {
+        const { mark: _mark, ...rest } = req as EngineSubmitRequest & { mark?: string | null };
+        return withNow(
+          {
+            ...rest,
+            cover: true,
+            strike: input.strike == null ? null : formatAmount(input.strike),
+            expiry: input.expiry ?? null,
+          } as EngineSubmitRequest,
+          now,
+        );
+      }
+      if (input && (input.exercise === true || input.assign === true)) {
+        const { mark: _mark, ...rest } = req as EngineSubmitRequest & { mark?: string | null };
+        return withNow(
+          {
+            ...rest,
+            exercise: true,
+            assign: true,
+            strike: input.strike == null ? null : formatAmount(input.strike),
+            expiry: input.expiry ?? null,
+          },
+          now,
+        );
+      }
+      if (input && input.cancel === true) {
+        const { mark: _mark, ...rest } = req as EngineSubmitRequest & { mark?: string | null };
+        return withNow(
+          {
+            ...rest,
+            cancel: true,
+            strike: input.strike == null ? null : formatAmount(input.strike),
+            expiry: input.expiry ?? null,
+          } as EngineSubmitRequest,
+          now,
+        );
+      }
+      if (input && (input.strike !== undefined || input.expiry !== undefined || input.type === 'option')) {
+        const { mark: _mark, ...rest } = req as EngineSubmitRequest & { mark?: string | null };
+        return withNow(
+          {
+            ...rest,
+            type: 'option',
+            strike: input.strike == null ? null : formatAmount(input.strike),
+            expiry: input.expiry ?? null,
+          },
+          now,
+        );
+      }
+      return withNow(req, now);
     }
-    if (input && (input.exercise === true || input.assign === true)) {
-      const { mark: _mark, ...rest } = req as EngineSubmitRequest & { mark?: string | null };
-      return withNow(
-        {
-          ...rest,
-          exercise: true,
-          assign: true,
-          strike: input.strike == null ? null : formatAmount(input.strike),
-          expiry: input.expiry ?? null,
-        },
-        now,
-      );
-    }
-    if (input && input.cancel === true) {
-      const { mark: _mark, ...rest } = req as EngineSubmitRequest & { mark?: string | null };
-      return withNow(
-        {
-          ...rest,
-          cancel: true,
-          strike: input.strike == null ? null : formatAmount(input.strike),
-          expiry: input.expiry ?? null,
-        } as EngineSubmitRequest,
-        now,
-      );
-    }
-    if (input && (input.strike !== undefined || input.expiry !== undefined || input.type === 'option')) {
-      const { mark: _mark, ...rest } = req as EngineSubmitRequest & { mark?: string | null };
-      return withNow(
-        {
-          ...rest,
-          type: 'option',
-          strike: input.strike == null ? null : formatAmount(input.strike),
-          expiry: input.expiry ?? null,
-        },
-        now,
-      );
-    }
-    return withNow(req, now);
-  };
 
-  const origSettle = proto.settleOutcome;
-  proto.settleOutcome = async function (
-    this: TradeService,
-    market: Market,
-    fills: readonly EngineFill[],
-    cancellations: readonly EngineCancellation[],
-  ) {
-    const expired: EngineCancellation[] = [];
-    const rest: EngineCancellation[] = [];
-    for (const c of cancellations) {
-      if (c.reason === 'expired') expired.push(c);
-      else rest.push(c);
-    }
-    await origSettle.call(this, market, fills, rest);
-    for (const c of expired) {
-      // The engine's remainder says how much it executed first (#8560): an order another submission partly matched
-      // may still have that fill on its way, and `finalize` then refuses; the engine's cancel event closes it later.
-      try {
-        await proto.finalize.call(this, c.orderId, 'expired', c.reason, { engineLeftQty: parseAmount(c.remainingQty) });
-      } catch (err) {
-        if (!(err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill')) throw err;
+    override async settleOutcome(
+      market: Market,
+      fills: readonly EngineFill[],
+      cancellations: readonly EngineCancellation[],
+    ): ReturnType<TradeService['settleOutcome']> {
+      const expired: EngineCancellation[] = [];
+      const rest: EngineCancellation[] = [];
+      for (const c of cancellations) {
+        if (c.reason === 'expired') expired.push(c);
+        else rest.push(c);
+      }
+      await super.settleOutcome(market, fills, rest);
+      for (const c of expired) {
+        // The engine's remainder says how much it executed first (#8560): an order another submission partly matched
+        // may still have that fill on its way, and `finalize` then refuses; the engine's cancel event closes it later.
+        try {
+          await this.finalize(c.orderId, 'expired', c.reason, { engineLeftQty: parseAmount(c.remainingQty) });
+        } catch (err) {
+          if (!(err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill')) throw err;
+        }
       }
     }
   };
 }
 
-export function installOptionAmend(ctor: typeof TradeService): void {
-  installNativeQtyUpAmend(ctor);
-  const proto = ctor.prototype as unknown as {
-    amendOrder: (
-      principal: Principal,
-      orderId: string,
-      input: AmendOrderInput,
-      option?: OptionEngineFields | null,
-    ) => Promise<AmendOrderOutcome>;
-    [AMEND_FLAG]?: true;
-  };
-  if (proto[AMEND_FLAG]) return;
-  proto[AMEND_FLAG] = true;
+export function withOptionAmend(Base: typeof TradeService): typeof TradeService {
+  return class OptionAmend extends Base {
+    override async amendOrder(principal: Principal, orderId: string, input: AmendOrderInput): ReturnType<TradeService['amendOrder']> {
+      const extra = input as AmendWithOption;
+      if (!isOptionAmend(extra)) {
+        return super.amendOrder(principal, orderId, extra);
+      }
+      const missingStrike = strikeRefuse(readStrike(extra));
+      if (missingStrike) throw missingStrike;
+      const missingExpiry = expiryRefuse(readExpiry(extra));
+      if (missingExpiry) throw missingExpiry;
+      const priceGiven = extra.price !== undefined;
+      const replacing = extra.replace === true || (priceGiven && extra.qty !== undefined);
+      if (replacing || priceGiven) {
+        const missingPrice = priceRefuse(extra.price);
+        if (missingPrice) throw missingPrice;
+      }
+      if (replacing || extra.qty !== undefined || !priceGiven) {
+        const missingQty = qtyRefuse(extra.qty);
+        if (missingQty) throw missingQty;
+      }
 
-  const origAmend = proto.amendOrder;
-  proto.amendOrder = async function (this: TradeService, principal: Principal, orderId: string, input: AmendOrderInput) {
-    const extra = input as AmendWithOption;
-    if (!isOptionAmend(extra)) {
-      return origAmend.call(this, principal, orderId, extra);
-    }
-    const missingStrike = strikeRefuse(readStrike(extra));
-    if (missingStrike) throw missingStrike;
-    const missingExpiry = expiryRefuse(readExpiry(extra));
-    if (missingExpiry) throw missingExpiry;
-    const priceGiven = extra.price !== undefined;
-    const replacing = extra.replace === true || (priceGiven && extra.qty !== undefined);
-    if (replacing || priceGiven) {
-      const missingPrice = priceRefuse(extra.price);
-      if (missingPrice) throw missingPrice;
-    }
-    if (replacing || extra.qty !== undefined || !priceGiven) {
-      const missingQty = qtyRefuse(extra.qty);
-      if (missingQty) throw missingQty;
-    }
-
-    const host = this as unknown as {
-      matching: MatchingClient;
-      findOrder: (id: string) => Promise<OrderRecord | null>;
-      marketById: (id: string) => Promise<Market | null>;
-      assertLifecycleAction: (market: Market, action: 'AMEND') => Promise<EngineAmendRequest['lifecycleProof']>;
-      sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
-      amendOutcome: (
-        order: OrderRecord,
-        code: string,
-        reasonCode: string | null,
-        reconciliationRequired: boolean,
-        idempotent: boolean,
-        priority: string | null,
-      ) => AmendOrderOutcome;
-    };
-    // The option's own fields ride on the one call that sends this order's amend, never on the shared client (#8579).
-    const option: OptionEngineFields = {
-      strike: extra.strike == null ? null : formatAmount(extra.strike),
-      expiry: extra.expiry ?? null,
-    };
-    if (replacing || (priceGiven && extra.qty === undefined)) {
-      requireScope(principal, 'trade:write');
-      const order = await host.findOrder(orderId);
-      if (!order || order.userId !== principal.userId) {
-        throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-      }
-      const market = await host.marketById(order.marketId);
-      if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
-      const lifecycleProof = await host.assertLifecycleAction(market, 'AMEND');
-      const listed = await host.matching.listOrders(order.marketId, order.id);
-      const live = listed.orders.find((candidate) => candidate.orderId === order.id);
-      if (!live) {
-        return host.amendOutcome(order as OrderRecord, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
-      }
-      const result = await host.matching.amend(order.marketId, order.id, {
-        expectedVersion: live.version ?? 1,
-        ...(priceGiven ? { price: formatAmount(extra.price as Amount) } : {}),
-        ...(extra.qty !== undefined && extra.qty != null ? { qty: formatAmount(extra.qty) } : {}),
-        ...(replacing ? { replace: true } : {}),
-        ...option,
-        lifecycleProof,
-      } as EngineAmendRequest);
-      if (!result.accepted) {
-        const code = result.rejected?.code === 'version_mismatch' ? 'VERSION_MISMATCH' : 'ENGINE_REFUSED';
-        return host.amendOutcome(order as OrderRecord, code, result.rejected?.code ?? 'refused', false, false, null);
-      }
-      const nextPrice = priceGiven ? formatAmount(extra.price as Amount) : formatAmount(order.price ?? (0n as Amount));
-      const nextQty = extra.qty !== undefined && extra.qty != null ? formatAmount(extra.qty) : formatAmount(order.qty);
-      await host.sql`
+      const host = this as unknown as {
+        matching: MatchingClient;
+        findOrder: (id: string) => Promise<OrderRecord | null>;
+        marketById: (id: string) => Promise<Market | null>;
+        assertLifecycleAction: (market: Market, action: 'AMEND') => Promise<EngineAmendRequest['lifecycleProof']>;
+        sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
+        amendOutcome: (
+          order: OrderRecord,
+          code: string,
+          reasonCode: string | null,
+          reconciliationRequired: boolean,
+          idempotent: boolean,
+          priority: string | null,
+        ) => AmendOrderOutcome;
+      };
+      // The option's own fields ride on the one call that sends this order's amend, never on the shared client (#8579).
+      const option: OptionEngineFields = {
+        strike: extra.strike == null ? null : formatAmount(extra.strike),
+        expiry: extra.expiry ?? null,
+      };
+      if (replacing || (priceGiven && extra.qty === undefined)) {
+        requireScope(principal, 'trade:write');
+        const order = await host.findOrder(orderId);
+        if (!order || order.userId !== principal.userId) {
+          throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
+        }
+        const market = await host.marketById(order.marketId);
+        if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
+        const lifecycleProof = await host.assertLifecycleAction(market, 'AMEND');
+        const listed = await host.matching.listOrders(order.marketId, order.id);
+        const live = listed.orders.find((candidate) => candidate.orderId === order.id);
+        if (!live) {
+          return host.amendOutcome(order as OrderRecord, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
+        }
+        const result = await host.matching.amend(order.marketId, order.id, {
+          expectedVersion: live.version ?? 1,
+          ...(priceGiven ? { price: formatAmount(extra.price as Amount) } : {}),
+          ...(extra.qty !== undefined && extra.qty != null ? { qty: formatAmount(extra.qty) } : {}),
+          ...(replacing ? { replace: true } : {}),
+          ...option,
+          lifecycleProof,
+        } as EngineAmendRequest);
+        if (!result.accepted) {
+          const code = result.rejected?.code === 'version_mismatch' ? 'VERSION_MISMATCH' : 'ENGINE_REFUSED';
+          return host.amendOutcome(order as OrderRecord, code, result.rejected?.code ?? 'refused', false, false, null);
+        }
+        const nextPrice = priceGiven ? formatAmount(extra.price as Amount) : formatAmount(order.price ?? (0n as Amount));
+        const nextQty = extra.qty !== undefined && extra.qty != null ? formatAmount(extra.qty) : formatAmount(order.qty);
+        await host.sql`
         UPDATE trade.orders
            SET price = ${nextPrice}::numeric,
                qty = ${nextQty}::numeric,
                updated_at = now()
          WHERE id = ${order.id}
       `;
-      const settled = (await host.findOrder(orderId)) ?? order;
-      return host.amendOutcome(settled as OrderRecord, 'AMENDED', null, false, false, result.priority);
+        const settled = (await host.findOrder(orderId)) ?? order;
+        return host.amendOutcome(settled as OrderRecord, 'AMENDED', null, false, false, result.priority);
+      }
+      const { price: _droppedPrice, ...withoutPrice } = extra;
+      // The layer beneath (qty-up-amend.ts withNativeQtyUpAmend) takes the option's engine fields as a fourth argument.
+      const amendBelow = super.amendOrder as (
+        principal: Principal,
+        orderId: string,
+        input: AmendOrderInput,
+        option: OptionEngineFields | null,
+      ) => Promise<AmendOrderOutcome>;
+      return await amendBelow.call(this, principal, orderId, withoutPrice as AmendOrderInput, option);
     }
-    const { price: _droppedPrice, ...withoutPrice } = extra;
-    return await origAmend.call(this, principal, orderId, withoutPrice as AmendOrderInput, option);
   };
 }
-
-installOptionPlace(TradeService);
-installOptionAmend(TradeService);

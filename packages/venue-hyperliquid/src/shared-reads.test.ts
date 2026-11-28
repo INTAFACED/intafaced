@@ -46,13 +46,15 @@ describe('shared venue reads', () => {
     expect(s.calls).toEqual(['openOrders', 'openOrders']);
   });
 
-  it('keeps an answer by its weight: a light read 2 s, a heavy one 15 s, the listing 30 s, fee rates, approvals, agents and leverage 5 minutes', async () => {
+  it('keeps an answer by its weight: a light read 2 s, a heavy one 15 s, the listing 30 s, order history 45 s, fee rates, approvals, agents and leverage 5 minutes', async () => {
     const s = setup(true);
     expect(READ_FRESH_MS.rare).toBe(300_000);
+    expect(READ_FRESH_MS.history).toBe(45_000);
     for (const [type, fresh] of [
       ['clearinghouseState', READ_FRESH_MS.light],
       ['openOrders', READ_FRESH_MS.heavy],
       ['meta', READ_FRESH_MS.slow],
+      ['historicalOrders', READ_FRESH_MS.history],
       ['userFees', READ_FRESH_MS.rare],
       ['maxBuilderFee', READ_FRESH_MS.rare],
       ['extraAgents', READ_FRESH_MS.rare],
@@ -68,6 +70,16 @@ describe('shared venue reads', () => {
       await s.venue.read({ type, user: '0xa' });
       expect(s.calls).toEqual([type, type, type]);
     }
+  });
+
+  it("the account's own order or cancel drops its kept order history, so the desk shows its own action at once", async () => {
+    const s = setup(true);
+    await s.venue.read({ type: 'historicalOrders', user: '0xa' });
+    await s.venue.read({ type: 'historicalOrders', user: '0xb' });
+    s.venue.forget(['0xa'], 'order');
+    await s.venue.read({ type: 'historicalOrders', user: '0xa' });
+    await s.venue.read({ type: 'historicalOrders', user: '0xb' });
+    expect(s.calls).toEqual(['historicalOrders', 'historicalOrders', 'historicalOrders']);
   });
 
   it('one read is in flight per request, however many desks ask', async () => {
@@ -127,7 +139,7 @@ describe('shared venue reads', () => {
     expect(s.calls.filter((c) => c === 'openOrders')).toHaveLength(4);
   });
 
-  it("an order or a cancel re-reads only the account's orders, positions, balances and fills; any other action re-reads all of it (#11041)", async () => {
+  it("an order or a cancel re-reads only the account's orders, positions, balances and fills; any other action also re-reads the rare read it changes", async () => {
     const s = setup(true);
     const rare = ['userFees', 'maxBuilderFee', 'extraAgents', 'activeAssetData'];
     const often = ['frontendOpenOrders', 'clearinghouseState', 'spotClearinghouseState', 'userFillsByTime', 'historicalOrders'];
@@ -141,11 +153,25 @@ describe('shared venue reads', () => {
       await readAll();
       expect(s.calls, action).toEqual(often);
     }
-    for (const action of ['approveAgent', 'approveBuilderFee', 'updateLeverage', 'updateIsolatedMargin', 'withdraw3', undefined]) {
+    // Any other action re-reads the rare read it changes, and only that: a new tester's agent, approval and USDC move each
+    // re-read all five, a fifth of the box's minute with six testers starting together.
+    for (const [action, changes] of [
+      ['approveAgent', ['extraAgents']],
+      ['approveBuilderFee', ['maxBuilderFee']],
+      ['updateLeverage', ['activeAssetData']],
+      ['updateIsolatedMargin', ['activeAssetData']],
+      ['usdClassTransfer', []],
+      ['usdSend', []],
+      ['spotSend', []],
+      ['withdraw3', []],
+      // An action this list doesn't name, or none named, re-reads every one.
+      ['tokenDelegate', rare],
+      [undefined, rare],
+    ] as const) {
       s.calls.length = 0;
       s.venue.forget(['0xa'], action);
       await readAll();
-      expect(s.calls, String(action)).toEqual([...rare, ...often]);
+      expect(s.calls, String(action)).toEqual([...rare.filter((t) => (changes as readonly string[]).includes(t)), ...often]);
     }
   });
 

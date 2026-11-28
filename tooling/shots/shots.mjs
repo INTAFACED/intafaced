@@ -19,7 +19,7 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { DEMO_NOW } from '../../apps/customer/tests/demo-world/index.mjs';
-import { DEMO_ROOMS, connectDemoWallet, prepareDemoPage, startDemoNode } from '../../apps/customer/tests/demo-world/page.mjs';
+import { DEMO_ROOMS, LOADING, connectDemoWallet, prepareDemoPage, startDemoNode } from '../../apps/customer/tests/demo-world/page.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const DIST = join(ROOT, 'apps/customer/dist');
@@ -138,7 +138,7 @@ async function main() {
         await connectDemoWallet(page, { signedIn: room.signedIn });
         await page.addStyleTag({ content: FREEZE_CSS });
         // A lazy room shows its loading line first; draw what it settles on, as the look gate does.
-        await page.waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 }).catch(() => {});
+        await page.waitForFunction((loading) => !document.querySelector(loading), LOADING, { timeout: 8_000 }).catch(() => {});
         // From the top with nothing focused, so a sticky header is drawn once and no focus ring shows.
         await page.evaluate(() => {
           document.activeElement?.blur?.();

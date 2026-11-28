@@ -1,14 +1,31 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
+import { revokeSession } from './revoke-session.js';
 import { newlyEnrolledPasskeyRevokesSession, revokeSessionAfterNewlyEnrolledPasskey } from './enroll-after-last-session-revoke.js';
+
+// The WebAuthn library, watched: revoking after a passkey must never start a ceremony of its own.
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...real, generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions) };
+});
+
+/** The code a synchronous check refuses with, or null when it passes. */
+function refusalOf(check: () => void): unknown {
+  try {
+    check();
+    return null;
+  } catch (err) {
+    return (err as { code?: unknown }).code;
+  }
+}
 
 function fakeSql(creds: unknown[], liveSessionId?: string) {
   let sessionWrites = 0;
+  const statements: Array<{ text: string; values: unknown[] }> = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push({ text: text.replace(/\s+/g, ' ').trim(), values });
     if (text.includes('select') && text.includes('webauthn_creds')) {
       return [{ webauthn_creds: creds }];
     }
@@ -20,8 +37,9 @@ function fakeSql(creds: unknown[], liveSessionId?: string) {
     }
     throw new Error(`unexpected sql: ${text}`);
   };
-  const sql = fn as Parameters<typeof revokeSessionAfterNewlyEnrolledPasskey>[0] & {
+  const sql = Object.assign(fn, { statements }) as Parameters<typeof revokeSessionAfterNewlyEnrolledPasskey>[0] & {
     sessionWrites: number;
+    statements: Array<{ text: string; values: unknown[] }>;
   };
   Object.defineProperty(sql, 'sessionWrites', { get: () => sessionWrites });
   return sql;
@@ -83,13 +101,27 @@ describe('newlyEnrolledPasskeyRevokesSession — enroll after last unenroll', ()
     expect(sql.sessionWrites).toBe(0);
   });
 
-  it('source reuses requireVerifiedPasskey and revokeSession; no invented challenge', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'enroll-after-last-session-revoke.ts'), 'utf8');
-    expect(src).toMatch(/requireVerifiedPasskey/);
-    expect(src).toMatch(/revokeSession/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+sessions/i);
-    expect(src).not.toMatch(/INSERT\s+challenges/i);
+  it('revokes exactly as revokeSession does, after one passkey read; no invented challenge or session', async () => {
+    for (const liveId of ['live-1', undefined]) {
+      const own = fakeSql([enrolledAgain], liveId);
+      const ownOut = revokeSessionAfterNewlyEnrolledPasskey(own, revokeInput);
+      const base = fakeSql([enrolledAgain], liveId);
+      const baseRevoked = await revokeSession(base, A, 'live-1');
+      if (baseRevoked) await expect(ownOut).resolves.toEqual({ revokedSessionId: 'live-1' });
+      else await expect(ownOut).rejects.toMatchObject({ code: 'auth.not_found' });
+      // One read of the stored passkeys (the gate), then revokeSession's own statement with its own values.
+      expect(own.statements[0]).toEqual({ text: 'select webauthn_creds from users where id = ? limit 1', values: [A] });
+      expect(own.statements.slice(1)).toEqual(base.statements);
+      expect(own.statements.filter((s) => /insert\s+(into\s+)?(challenges|sessions)/.test(s.text))).toEqual([]);
+    }
+    // Refused at the gate, revokeSession never runs: only the passkey read.
+    for (const creds of [[enrolledUnverified], []]) {
+      const refused = fakeSql(creds, 'live-1');
+      await expect(revokeSessionAfterNewlyEnrolledPasskey(refused, revokeInput)).rejects.toMatchObject({
+        code: refusalOf(() => requireVerifiedPasskey(creds)),
+      });
+      expect(refused.statements).toHaveLength(1);
+    }
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 });

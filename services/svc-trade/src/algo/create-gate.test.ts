@@ -36,6 +36,12 @@ import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { chaseChildState } from '../spot/trade-service/algo.js';
 import { ALGO_IMMATURE_KINDS, ALGO_VOLUME_IMMATURE_CODE, describeAlgoPolicy } from './algo-policy.js';
 import { withinPriceBand } from './mark-gate.js';
+import { withBracketPlace } from '../spot/bracket-place.js';
+import { withOcoPlace } from '../spot/oco-place.js';
+import { layered } from '../layered.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layered(TradeService, withBracketPlace, withOcoPlace);
 
 const ALICE = 'a1111111-1111-4111-8111-111111111111';
 const BOB = 'b2222222-2222-4222-8222-222222222222';
@@ -76,7 +82,7 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
       },
     };
     const controls = new TradingControls(db.sql, { check: async () => 'enabled' }, identity);
-    return new TradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
+    return new LayeredTradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
       emailProof: new StubEmailProof(),
       accountAdmission: controls,
       marketLifecycle: READY_MARKET_LIFECYCLE,

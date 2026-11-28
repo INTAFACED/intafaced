@@ -5,9 +5,6 @@
  * Doors: public kyc.submit, order-like subAccounts.assertOwned + rank perks
  * S2S (trade place/accept), admin kyc.approve.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -24,6 +21,7 @@ import {
   verifyServiceHeaders,
 } from '@intafaced/contracts';
 import type { AuthService } from './auth/auth-service.js';
+import { BOOT_TIMEOUT_MS, bootIdentity } from './boot.testkit.js';
 import type { RankService } from './rank/rank-service.js';
 import { createIdentityRouter } from './router.js';
 
@@ -32,7 +30,6 @@ const INTERNAL_SECRET = 'identity-401-vs-403-public-doors-internal-32';
 const USER = '11111111-1111-4111-8111-111111111111';
 const RECORD = '33333333-3333-4333-8333-333333333333';
 const SUB = '55555555-5555-4555-8555-555555555555';
-const here = dirname(fileURLToPath(import.meta.url));
 
 type WireBody = {
   error?: { message?: string; data?: { code?: string; httpStatus?: number } };
@@ -149,18 +146,21 @@ const trpcDoors = [
 ] as const;
 
 describe('401 vs 403 on public / order-like / admin doors', () => {
-  it('index.ts S2S order-like doors refuse missing HMAC as 401, not a scope miss', () => {
-    const src = readFileSync(join(here, 'index.ts'), 'utf8');
-    for (const path of ['/internal/rank/:userId/perks', '/internal/sub-accounts/:subAccountId']) {
-      const start = src.indexOf(path);
-      expect(start, path).toBeGreaterThanOrEqual(0);
-      const block = src.slice(start, start + 700);
-      expect(block).toMatch(/serviceOfRequest/);
-      expect(block).toMatch(/reply\.code\(401\)/);
-      expect(block).toMatch(/identity\.unauthenticated/);
-      expect(block).not.toMatch(/reply\.code\(403\)/);
-    }
-  });
+  it(
+    'the booted S2S order-like doors refuse missing and blank HMAC as 401, not a scope miss',
+    async () => {
+      const booted = await bootIdentity();
+      for (const url of [`/internal/rank/${USER}/perks`, `/internal/sub-accounts/${SUB}`]) {
+        for (const headers of [undefined, blankServiceHmac()]) {
+          const res = await booted.app.inject({ method: 'GET', url, ...(headers ? { headers } : {}) });
+          expect(res.statusCode, url).toBe(401);
+          expect(res.json(), url).toMatchObject({ code: 'identity.unauthenticated' });
+        }
+      }
+      await booted.app.close();
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
   it.each(trpcDoors)('$name $path: missing creds → 401 UNAUTHORIZED', async ({ path, payload }) => {
     const { statusCode, body } = await post(path, payload);

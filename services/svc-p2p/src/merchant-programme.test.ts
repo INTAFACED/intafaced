@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   canTransition,
@@ -17,6 +14,7 @@ import {
   TRANSITIONS,
   type MerchantStatus,
 } from './merchant-programme.js';
+import { MerchantService } from './merchant-service.js';
 import { snapshotOf, type ReputationCounters } from './reputation.js';
 
 /**
@@ -223,16 +221,16 @@ describe('the state machine', () => {
 });
 
 describe('Stage 3 merchant API-key plane stays cut', () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const programmeSource = readFileSync(join(here, 'merchant-programme.ts'), 'utf8');
-
   it('names identity.apikeys as the only key plane — no dual mint in svc-p2p', () => {
     expect(MERCHANT_API_KEY_PLANE).toBe('identity.apikeys');
   });
 
-  it('does not grow a second key table, mint, or revoke API in this module', () => {
-    expect(programmeSource).not.toMatch(/p2p_merchant_api_keys/i);
-    expect(programmeSource).not.toMatch(/createApiKey|mintApiKey|revokeApiKey|issueApiKey/);
-    expect(programmeSource).not.toMatch(/api_secret|hashedSecret|key_prefix/);
+  it('does not grow a second key table, mint, or revoke API in this module', async () => {
+    const keyish = /api.?key|mint|revoke|issue|secret|key.?prefix/i;
+    const programme = await import('./merchant-programme.js');
+    expect(Object.keys(programme).filter((name) => keyish.test(name))).toEqual(['MERCHANT_API_KEY_PLANE']);
+    const service = Object.getOwnPropertyNames(MerchantService.prototype);
+    expect(service.length).toBeGreaterThan(1);
+    expect(service.filter((name) => keyish.test(name))).toEqual([]);
   });
 });

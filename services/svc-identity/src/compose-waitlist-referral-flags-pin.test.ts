@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loadIdentityEnv } from './boot.testkit.js';
 
 /**
  * Unit card — compose stack passes waitlist/referral flags into svc-identity
@@ -41,12 +42,18 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes waitlist and referral flags into svc-identity', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-identity/src/env.ts'), 'utf8');
   const block = identityComposeBlock();
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
 
-  it('env.ts still names both flags optional (unset → drop clock)', () => {
-    expect(envTs).toMatch(/INTAFACED_FLAG_WAITLIST_ENABLED:\s*z\.string\(\)\.optional\(\)/);
-    expect(envTs).toMatch(/INTAFACED_FLAG_REFERRAL_QUEUE:\s*z\.string\(\)\.optional\(\)/);
+  it('env.ts reads both flags as given and leaves them unset when the host passes none (unset → drop clock)', async () => {
+    const unset = await loadIdentityEnv({ [WAITLIST]: undefined, [REFERRAL]: undefined });
+    expect(unset[WAITLIST]).toBeUndefined();
+    expect(unset[REFERRAL]).toBeUndefined();
+    const pinned = await loadIdentityEnv({ [WAITLIST]: 'on', [REFERRAL]: 'off' });
+    expect(pinned[WAITLIST]).toBe('on');
+    expect(pinned[REFERRAL]).toBe('off');
   });
 
   it('compose svc-identity block passes both flags from the host with empty defaults', () => {

@@ -2,12 +2,8 @@
  * OAUTH_CODE_TTL_SECONDS and OAUTH_ACCESS_TOKEN_TTL_SECONDS refuse-closed.
  * Blank / unset is unpublished. Never git-default a lifetime.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 const NAMES = ['OAUTH_CODE_TTL_SECONDS', 'OAUTH_ACCESS_TOKEN_TTL_SECONDS'] as const;
 
@@ -33,11 +29,6 @@ afterEach(() => {
 });
 
 describe.each(NAMES)('%s refuse-closed', (name) => {
-  it('env.ts does not git-default the lifetime', () => {
-    const envTs = readFileSync(join(HERE, '..', 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(new RegExp(`${name}:[\\s\\S]{0,400}\\.default\\(`));
-  });
-
   it('unset and blank are unpublished', async () => {
     expect((await loadWith({}))[name]).toBeUndefined();
     expect((await loadWith({ [name]: '' }))[name]).toBeUndefined();
