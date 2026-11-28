@@ -108,6 +108,7 @@ describe('TEST venue simulator: the TEST gold perpetual (J-derivatives-21)', () 
       'XBIL-PERP',
       'XCRS-PERP',
       'XDEV-PERP',
+      'XJRN-PERP',
       'XEXA-PERP',
       'XEXB-PERP',
     ]);

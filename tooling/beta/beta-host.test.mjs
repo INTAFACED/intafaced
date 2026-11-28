@@ -512,6 +512,17 @@ test("the beta's balance watch reads the test network every 15 s, inside its 120
     assert.equal(tradeEnv(venue).TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE, undefined, venue);
     assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE, undefined, venue);
   }
+  // #11041: on the beta, the own-funds sweep (one balance read of our builder account each pass), the builder-mode check
+  // and the claim collect ran at the TEST venue's seconds: 20 balance reads, 30 mode reads and 60 claim reads a minute
+  // with no desk open (trade.venue_reads_minute, 01:25 UTC 28 Nov 2026). There each runs once a minute.
+  for (const key of ['TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS', 'TRADE_BUILDER_MODE_CHECK_INTERVAL_MS', 'TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS'])
+    assert.equal(beta[key], '60000', key);
+  // The TEST venue keeps its seconds, so a journey sees a sweep, a mode alert and a claim inside its run.
+  for (const venue of ['on', 'hl-recorded']) {
+    assert.equal(tradeEnv(venue).TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS, '3000', venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_MODE_CHECK_INTERVAL_MS, '2000', venue);
+    assert.equal(tradeEnv(venue).TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS, '2000', venue);
+  }
 });
 
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {
@@ -688,4 +699,18 @@ test('while the TEST provider is on, a new invitee is refused at the mailbox and
   } finally {
     opened.close();
   }
+});
+
+// #11217: a viewer opening the mailbox is first told the address to sign up with, can copy it, and can go back to the app.
+test("the mailbox leads with the viewer's sign-up address, a copy control and a link back to the beta", () => {
+  const viewer = 'alice-gmail-com-0123456789';
+  const page = mailboxPage([], { viewer });
+  const address = `${viewer}.1@local-test.invalid`;
+  const lead = page.indexOf(`Sign up with <code id="signup-address">${address}</code>`);
+  assert.ok(lead > 0, 'names the address to sign up with');
+  assert.ok(lead < page.indexOf('<h1>'), 'before anything else but the TEST label');
+  assert.match(page, /<button type="button" id="copy-address"[^>]*>Copy<\/button>/);
+  assert.ok(page.includes(`navigator.clipboard.writeText(${JSON.stringify(address)})`), 'the button copies that address');
+  assert.ok(page.includes(`<a href="${BETA_LINK}">Back to the beta</a>`), 'a link back to the beta app');
+  assert.ok(!mailboxPage([]).includes('Sign up with'), 'the box loopback, with no viewer, names no address');
 });

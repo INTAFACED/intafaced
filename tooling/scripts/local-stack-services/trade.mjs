@@ -312,6 +312,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
           // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
           // J-derivatives-14's TEST perpetual XDEV-PERP (the one a developer reads and trades through our API).
+          // J-portfolio-19's TEST perpetual XJRN-PERP (the one its journal's "keeping my rules" trades are made on).
           // J-derivatives-32's TEST perpetuals XEXA-PERP and XEXB-PERP (a long's and a short's stops and targets on the chart).
           // PURR-USDC: the one spot pair Hyperliquid's test network trades every day, so the beta's spot desk shows a live book, tape and chart; the TEST venue lists no
           // PURR-USDC, so the seed skips it there.
@@ -322,7 +323,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // database (svc-trade seedTestListings). A replay of the test network (`hl-recorded`) lists what the live run did.
           TRADE_USER_VENUE_TEST_LISTINGS: [
             ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE)?.startsWith('hl-') ? [] : ['BTC-USDC']),
-            'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,XEXA-PERP,XEXB-PERP',
+            'PURR-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP,XDEV-PERP,XJRN-PERP,XEXA-PERP,XEXB-PERP',
             'xyz:TSLA-PERP,xyz:NVDA-PERP,xyz:AAPL-PERP,xyz:XYZ100-PERP,xyz:GOLD-PERP,xyz:SILVER-PERP',
           ].join(','),
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
@@ -391,6 +392,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: testValue('TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS'),
           TRADE_OWN_FUNDS_WALLET: testValue('TRADE_OWN_FUNDS_WALLET'),
           TRADE_BUILDER_KEY_SEED: testValue('TRADE_BUILDER_KEY_SEED'),
+          // On the test network those seconds were the box's weight with no desk open (#11041): the sweep's one balance read
+          // 20 times a minute, the mode check 30 and the claim read 60. There each runs once a minute; the TEST venue keeps
+          // its seconds, so a journey sees a sweep, a mode alert and a claim inside its run.
+          ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'hl-testnet'
+            ? {
+                TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '60000',
+                TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: '60000',
+                TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: '60000',
+              }
+            : {}),
         }
       : {}),
   }),

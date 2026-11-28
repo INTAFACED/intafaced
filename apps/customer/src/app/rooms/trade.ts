@@ -7,6 +7,9 @@ import { areaCopy, areaRooms } from './room';
 export const tradeCopy = areaCopy({
   en: {
     'Trading account': 'Trading account',
+    Journal: 'Journal',
+    'Your closed futures trades from the venue, and what you made beside keeping your own rules':
+      'Your closed futures trades from the venue, and what you made beside keeping your own rules',
     Vaults: 'Vaults',
     Staking: 'Staking',
     'Stake the venue’s coin with a validator, see your fee discount, and unstake through the venue’s queue':
@@ -19,6 +22,9 @@ export const tradeCopy = areaCopy({
     'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts':
       'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts',
     'Risk control': 'Risk control',
+    'Risk rules': 'Risk rules',
+    'A daily loss limit on your venue account that warns you or stops new trades, and never stops an exit':
+      'A daily loss limit on your venue account that warns you or stops new trades, and never stops an exit',
     'Cancel every open order, close positions and see platform incidents':
       'Cancel every open order, close positions and see platform incidents',
     News: 'News',
@@ -277,6 +283,20 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     path: '/trade/risk',
     title: 'Risk control',
     description: 'Cancel every open order, close positions and see platform incidents',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/journal',
+    title: 'Journal',
+    description: 'Your closed futures trades from the venue, and what you made beside keeping your own rules',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/risk/rules',
+    title: 'Risk rules',
+    description: 'A daily loss limit on your venue account that warns you or stops new trades, and never stops an exit',
     door: 'Trade',
     area: 'trade',
   },

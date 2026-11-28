@@ -17,6 +17,11 @@ const world = vi.hoisted(() => ({
   connect: vi.fn(),
 }));
 
+// The daily loss limit's read (J-derivatives-35) needs a session, which this desk has none of: the limit reads as off.
+vi.mock('../../../features/trade/risk/daily-loss-source', async (original) => ({
+  ...(await original<typeof import('../../../features/trade/risk/daily-loss-source')>()),
+  useDailyLoss: () => ({ status: 'empty' }),
+}));
 vi.mock('../../../features/protocol/wallet/use-polled', () => ({
   usePolled: (_fn: unknown, key: string) => {
     if (key === 'venue-markets') return { data: { asOf: '2026-11-27T00:00:00Z', value: world.markets }, failure: null, reload: vi.fn() };
