@@ -4,13 +4,14 @@
  * its source text says.
  */
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
+import type { AnyRouter } from '@trpc/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED } from './codes.js';
 import { OPS_IDENTITY_UNPROBED, opsReadyUrlHonesty } from './ready-honesty.js';
 
 /** The tRPC router index.ts mounts, and where: read to ask every query it serves. */
-type ServedTrpc = { prefix: string; router: { _def: { procedures: Record<string, { _def: { type: string } }> } } };
+type ServedTrpc = { prefix: string; router: AnyRouter };
 
 const booted = vi.hoisted(() => ({
   apps: [] as FastifyInstance[],
@@ -21,7 +22,7 @@ const booted = vi.hoisted(() => ({
 vi.mock('@trpc/server/adapters/fastify', async (importOriginal) => {
   const real = await importOriginal<typeof import('@trpc/server/adapters/fastify')>();
   const plugin = ((fastify, opts, done) => {
-    booted.trpc.push({ prefix: opts.prefix ?? '', router: opts.trpcOptions.router as unknown as ServedTrpc['router'] });
+    booted.trpc.push({ prefix: opts.prefix ?? '', router: opts.trpcOptions.router });
     return real.fastifyTRPCPlugin(fastify, opts, done);
   }) as typeof real.fastifyTRPCPlugin;
   Object.defineProperties(plugin, Object.getOwnPropertyDescriptors(real.fastifyTRPCPlugin));
@@ -92,13 +93,20 @@ async function contactsAs(app: FastifyInstance, secret: string) {
   return { code: (res.json() as { error?: { data?: { code?: string } } }).error?.data?.code, text: res.body };
 }
 
+/** A tRPC procedure that answers a GET: a query. */
+function isQuery(procedure: unknown): boolean {
+  if (typeof procedure !== 'function' || !('_def' in procedure)) return false;
+  const def: unknown = procedure._def;
+  return typeof def === 'object' && def !== null && 'type' in def && def.type === 'query';
+}
+
 /** What the booted process can answer: every plain GET route it registers and every query of its router, asked anonymously. */
 async function everyAnswer(app: FastifyInstance): Promise<Array<{ url: string; status: number; text: string }>> {
   const served = booted.trpc.at(-1);
   if (!served) throw new Error('index.ts mounted no tRPC router');
   const urls = booted.routes.filter((route) => [route.method].flat().includes('GET') && !/[:*]/.test(route.url)).map((route) => route.url);
   for (const [name, procedure] of Object.entries(served.router._def.procedures)) {
-    if (procedure._def.type === 'query') urls.push(`${served.prefix}/${name}`);
+    if (isQuery(procedure)) urls.push(`${served.prefix}/${name}`);
   }
   const answers: Array<{ url: string; status: number; text: string }> = [];
   for (const url of [...new Set(urls)].sort()) {
