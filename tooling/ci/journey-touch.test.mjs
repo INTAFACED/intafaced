@@ -1720,9 +1720,9 @@ test('20 Nov: a run by hand given a bare journey id runs every file of that jour
   assert.equal(dispatchTarget('J-home-ia-01', head), 'J-home-ia-01-venue.pw.mjs', 'an id whose only file is a part file');
   assert.equal(dispatchTarget('J-nope-01', head), 'J-nope-01', 'an id with no file at the head stays, so the run refuses it');
   assert.equal(dispatchTarget('J-cex-spot-10', null), 'J-cex-spot-10', 'the head unknown: the input as given');
-  // At this checkout: the real cex-spot-10 pair.
+  // At this checkout: the real cex-spot-10 files, its custodial part file included.
   const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
-  assert.equal(dispatchTarget('J-cex-spot-10', real), 'J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
+  assert.equal(dispatchTarget('J-cex-spot-10', real), 'J-cex-spot-10-custodial.pw.mjs J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
 });
 
 // The named rule's reach (17 Nov 2026): four real pull requests that each named one journey, ran only it and the

@@ -54,7 +54,8 @@ test('the comment names the head, each note as written, and the answer the build
   assert.ok(body.includes(HEAD));
   assert.ok(body.includes(`- ${NOTE}`));
   assert.match(body, /PR body/);
-  assert.match(body, /fixed, or why not/);
+  assert.match(body, /Answer each in the PR body before merge/);
+  assert.match(body, /Push a fix only for a defect in this change/);
   assert.ok(body.includes('https://example.test/run/1'));
   // A note's mention notifies nobody.
   const quiet = notesComment({ head: HEAD, notes: ['note: ask @someone about it'], run: '' });
