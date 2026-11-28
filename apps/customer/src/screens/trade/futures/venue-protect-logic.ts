@@ -47,6 +47,12 @@ export function coverage(quantity: string, positionSize: string): Coverage | nul
   return { whole: false, covers: formatAmount(q), of: formatAmount(size), rest: formatAmount(size - q) };
 }
 
+/**
+ * The size an exit order closes, as its field shows it: what the person typed, else the whole position (the venue's size
+ * now), else blank while no position is read.
+ */
+export const sizeToClose = (typed: string | null, positionSize: string | null): string => typed ?? positionSize ?? '';
+
 /** The side that closes a position: a sell closes a long, a buy a short. */
 export const closingSide = (side: 'long' | 'short'): 'buy' | 'sell' => (side === 'long' ? 'sell' : 'buy');
 
