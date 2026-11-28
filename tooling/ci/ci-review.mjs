@@ -1935,7 +1935,7 @@ export function notesComment({ head, notes, run }) {
       .replace(/@(?=[A-Za-z0-9])/g, '@\u200b');
   return [
     NOTES_MARK,
-    `**CI review notes on ${head}**: not blocking, and not read by any check. Answer each in the PR body before merge, fixed, or why not, as you answer findings (AGENTS.md, How work flows 5). A real product problem a note names that this PR doesn't fix gets its own \`bug\` issue.`,
+    `**CI review notes on ${head}**: not blocking, and not read by any check. Answer each in the PR body before merge (AGENTS.md, How work flows 5). Push a fix only for a defect in this change: each push runs the journeys again, about 40 minutes. Anything else a note names, product or polish, gets its own \`bug\` issue.`,
     '',
     ...notes.map((n) => `- ${quiet(n)}`),
     ...(run ? ['', `From the CI review run ${run}.`] : []),
