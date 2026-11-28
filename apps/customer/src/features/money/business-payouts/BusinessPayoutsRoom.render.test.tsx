@@ -117,8 +117,13 @@ beforeEach(() => {
   world.holdRuns = null;
   // The newest run on the list is a draft whose only line was refused: it has a Confirm of its own.
   world.runs = [run(EMPTY, { issues: [{ line: 1, code: 'asset_mismatch', detail: 'EUR', raw: 'TEST Cy' }] })];
-  world.answer = (procedure, body) =>
-    procedure === 'businessPayouts.importRun' ? { ...fresh, id: (body as { runId: string }).runId } : null;
+  // Each change answers the run the router declares: the room reads it through the record, which checks it whole.
+  world.answer = (procedure, body) => {
+    const id = (body as { runId: string }).runId;
+    if (procedure === 'businessPayouts.importRun') return { ...fresh, id };
+    if (procedure === 'businessPayouts.confirmRun') return { ...fresh, id, status: 'awaiting_approval', confirmedBy: 'owner' };
+    return null;
+  };
 });
 afterEach(() => {
   act(() => root?.unmount());
