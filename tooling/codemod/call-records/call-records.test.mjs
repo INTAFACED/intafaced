@@ -30,7 +30,7 @@ import { answerFromCallers } from './answer.mjs';
 import { applyEdits, forget, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
-import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
+import { CALL_METHOD, callMethodFor, callsByRecord, doublesIn } from './doubles.mjs';
 import { accessText, armsOf, callsOf } from './door.mjs';
 import { canon, doorTree, knowRefines, recordsToHold, treeOf } from './door-check.mjs';
 import { bankAccepted, doorAccepts, samplesFor } from './samples.mjs';
@@ -743,6 +743,17 @@ test('a useApi mock with only mutate (or only query) gets a call to it, and the 
   const reads = new Function(`return { query: () => 'q', ${strip(callMethodFor(['query']))} };`)();
   assert.equal(reads.call({ ...record, kind: 'query' }), 'q');
   assert.throws(() => reads.call(record), /no mutate/);
+});
+
+test("a call kept on its caller's own schema (callAs) is a record call, so the doubles reaching it get a call", () => {
+  // svc-identity's run (part 9): language-sync.ts and view-sync.ts were left as `callAs(options.api(), RECORD, ...)`, the
+  // doubles step saw no record caller, and their tests' doubles failed on `api.call is not a function`.
+  assert.ok(callsByRecord('const r = await callAs(options.api(), IDENTITY_PREFERENCES_GET, { namespace }, displaySchema);'));
+  assert.ok(callsByRecord('return callAs(api, IDENTITY_LIST_ORGS, undefined, orgsOut, { signal });'));
+  assert.ok(callsByRecord('return api.call(NOTIFY_ALERTS, { limit: 100 });'));
+  // callAs's own declaration and a call by name are not.
+  assert.ok(!callsByRecord('export async function callAs<R extends AppProcedure, T>(\n  api: Pick<ApiClient, "call">,\n  record: R,'));
+  assert.ok(!callsByRecord("api.query('identity', 'preferences.get', input, schema)"));
 });
 
 test("a schema the caller's own function builds is an answer check, so its call stays", () => {

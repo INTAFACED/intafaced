@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { startedPasskeysSchema } from '@intafaced/contracts/started-checklist-reads';
 import { IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
+import { IDENTITY_WEBAUTHN_LIST } from '@intafaced/contracts/identity-webauthn-procedures';
 import type { ZodType } from 'zod';
 import { NOTIFY_ALERTS } from '@intafaced/contracts/notify-notify-procedures';
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { PROTOCOL_VENUE_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
 import { useSession } from '../../features/session/session';
 import { venueApi } from '../../features/trade';
-import { authoredRefusal, isVerifyFirst, type ApiResult, type AppProcedure } from '../../shared/api';
+import { authoredRefusal, callAs, isVerifyFirst, type ApiResult, type AppProcedure } from '../../shared/api';
 import type { UiMessage } from '../../shared/ui-copy';
 import { useResource, type Resource } from '../../shared/resource';
 import {
@@ -47,13 +48,19 @@ const notVerified = (failure: { code?: string; status?: number; message?: string
  */
 const EVER_PAGES = 10;
 
-/** One read of a service answer, only while the list is on screen. */
-function useProbe<T>(enabled: boolean, name: string, module: string, procedure: string, input: unknown, schema: ZodType<T>): Resource<T> {
+/** One read of a service answer through its record, only while the list is on screen, parsed with this list's own schema. */
+function useProbe<R extends AppProcedure, T>(
+  enabled: boolean,
+  name: string,
+  record: R,
+  input: ProcedureInput<R>,
+  schema: ZodType<T>,
+): Resource<T> {
   const { api, userId } = useSession();
   return useResource(
     (signal) =>
       enabled && userId
-        ? api.query(module, procedure, input, schema, { signal })
+        ? callAs(api, record, input, schema, { signal })
         : Promise.resolve(authoredRefusal('aborted', { key: 'beforeDispatch' })),
     `started-${name}:${userId}:${enabled}`,
   ).resource;
@@ -151,7 +158,7 @@ function ever(resource: Resource<{ found: boolean }>, verify: StepStatus): EverR
  */
 export function useGetStarted(enabled: boolean): Step[] {
   const kyc = useRecordProbe(enabled, 'kyc', IDENTITY_KYC_STATUS, { limit: 10 });
-  const passkeys = useProbe(enabled, 'passkeys', 'identity', 'webauthn.list', { limit: 10 }, startedPasskeysSchema);
+  const passkeys = useProbe(enabled, 'passkeys', IDENTITY_WEBAUTHN_LIST, { limit: 10 }, startedPasskeysSchema);
   const alerts = useRecordProbe(enabled, 'alerts', NOTIFY_ALERTS, { limit: 100 });
   const venueAccounts = useVenueAccounts(enabled);
   // A conversion is a first trade too; Activity only names it apart (svc-bank `convert`).

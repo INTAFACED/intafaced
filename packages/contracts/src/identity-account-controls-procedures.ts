@@ -32,6 +32,7 @@ import {
   accountClosureHistoryInputSchema,
   accountTierHistoryInputSchema,
   accountOperatorEntitlementSchema,
+  accountLimitOverrideSetInputSchema,
 } from './account-controls.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -522,5 +523,87 @@ export const IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS = defineProcedure({
   samples: [
     { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_ACCOUNT_CONTROLS_LIMITS_SET = defineProcedure({
+  ...base,
+  name: 'identity.accountControls.limitsSet',
+  kind: 'mutation',
+  path: 'accountControls.limitsSet',
+  access: { caller: 'signedIn' },
+  refusals: {},
+  input: accountLimitOverrideSetInputSchema,
+  checks: {
+    account_limit_override_set_input_holds: { at: 'input', says: 'An override sets at least one figure' },
+    account_limit_amount_holds: { at: ['input.perTx', 'input.rolling24h'], says: 'A limit figure is above zero' },
+  },
+  output: accountLimitResultSchema,
+  outputChecks: {
+    account_limit_result_holds: {
+      at: 'output',
+      says: 'Unauthorized attempts cannot disclose target state; Override belongs to another account, rail or asset; The ceiling comes with limit_requires_approver only; Outcome, action and versions disagree',
+    },
+    account_limit_amount_holds: {
+      at: [
+        'output|0.before.perTx',
+        'output|0.before.rolling24h',
+        'output|0.after.perTx',
+        'output|0.after.rolling24h',
+        'output|1.current.perTx',
+        'output|1.current.rolling24h',
+        'output|1.ceiling',
+        'output|2.current.perTx',
+        'output|2.current.rolling24h',
+      ],
+      says: 'A limit figure is above zero',
+    },
+  },
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        userId: '11111111-1111-4111-8111-111111111111',
+        rail: 'withdrawal',
+        assetId: 'A',
+        perTx: '1',
+        rolling24h: '1',
+        expiresAt: '2026-01-01T00:00:00.000Z',
+        reason: '11111111-1111-4111-8111-111111111111',
+        expectedVersion: '1',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'account_limit_override_set_input_holds',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        userId: '11111111-1111-4111-8111-111111111111',
+        rail: 'withdrawal',
+        assetId: 'A',
+        perTx: null,
+        rolling24h: null,
+        expiresAt: '2026-01-01T00:00:00.000Z',
+        reason: '11111111-1111-4111-8111-111111111111',
+        expectedVersion: '1',
+      },
+    },
+    {
+      verdict: 'refuse',
+      by: 'account_limit_amount_holds',
+      input: {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        userId: '11111111-1111-4111-8111-111111111111',
+        rail: 'withdrawal',
+        assetId: 'A',
+        perTx: '0',
+        rolling24h: '1',
+        expiresAt: '2026-01-01T00:00:00.000Z',
+        reason: '11111111-1111-4111-8111-111111111111',
+        expectedVersion: '1',
+      },
+    },
   ],
 });

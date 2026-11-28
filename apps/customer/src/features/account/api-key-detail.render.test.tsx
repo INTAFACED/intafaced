@@ -33,9 +33,9 @@ const api = {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());
   },
-  // A developer key door's record: answered as the query or mutation it is, by its path.
+  // An identity record: answered as the query or mutation it is, by its path; the API version panel's read has its own answer.
   call: (record: { name: string; path: string; kind: 'query' | 'mutation' }, input: unknown) => {
-    if (record.path.startsWith('developerKeys.'))
+    if (!record.path.startsWith('developer.apiVersion.'))
       return record.kind === 'query' ? api.query('identity', record.path, input) : api.mutate('identity', record.path, input);
     // The API version panel's read (J-developer-16 #5): no account default yet.
     world.asked.push({ kind: 'call', procedure: record.name, input: undefined });

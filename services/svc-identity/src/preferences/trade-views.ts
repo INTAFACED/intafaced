@@ -3,8 +3,8 @@
  * Unknown keys and anything over 16 KiB are refused. No other user's id.
  */
 import { z } from 'zod';
+import { TRADE_VIEWS_NAMESPACE } from '@intafaced/contracts/identity-preferences-procedures';
 
-export const TRADE_VIEWS_NAMESPACE = 'trade.views' as const;
 export const PREFERENCES_VALUE_MAX_BYTES = 16 * 1024;
 export const PREFERENCES_NAMESPACE_UNKNOWN = 'identity.preferences_namespace_unknown' as const;
 export const PREFERENCES_VALUE_INVALID = 'identity.preferences_value_invalid' as const;
@@ -31,7 +31,7 @@ const tradeViewSchema = z
   })
   .strict();
 
-export const tradeViewsValueSchema = z.array(tradeViewSchema).max(50);
+const tradeViewsValueSchema = z.array(tradeViewSchema).max(50);
 export type TradeViewsValue = z.infer<typeof tradeViewsValueSchema>;
 
 export function stableJson(value: unknown): string {
@@ -58,3 +58,4 @@ export function parseTradeViews(value: unknown): TradeViewsValue {
   }
   return parsed.data;
 }
+export { TRADE_VIEWS_NAMESPACE };

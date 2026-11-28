@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { createApiClient, type ApiResult, callAs } from '../../shared/api';
 import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
-import { IDENTITY_AUTH_SUB_ACCOUNT_SESSION, IDENTITY_AUTH_REFRESH } from '@intafaced/contracts/identity-auth-procedures';
+import {
+  IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_REFRESH,
+  IDENTITY_AUTH_LOGOUT,
+} from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -190,9 +194,9 @@ export async function requestSubAccountSession(
 
 /** Ask the server to end this browser's session. The cookie rides along (credentials included) and the reply clears it. */
 export function requestLogout(options: { fetch?: typeof fetch } = {}) {
-  return createApiClient({ credentials: 'include', ...(options.fetch ? { fetch: options.fetch } : {}) }).mutate(
-    'identity',
-    'auth.logout',
+  return callAs(
+    createApiClient({ credentials: 'include', ...(options.fetch ? { fetch: options.fetch } : {}) }),
+    IDENTITY_AUTH_LOGOUT,
     {},
     z.object({ ok: z.literal(true) }),
   );

@@ -27,14 +27,7 @@ import { SecurityLockError } from './auth/security-lock.js';
 import { toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
 import { SocialError, type SocialSignin } from './social/social-signin.js';
 import { userCopy } from './user-copy.js';
-import {
-  methodsOutput,
-  clientRequestId,
-  stepUpApprovalId,
-  walletAnswerFields,
-  walletChallengeInput,
-  walletChallengeOutput,
-} from '@intafaced/contracts/identity-call-schemas';
+import { methodsOutput, clientRequestId, stepUpApprovalId } from '@intafaced/contracts/identity-call-schemas';
 import { IDENTITY_SIGNIN_METHODS } from '@intafaced/contracts/identity-signin-methods-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from './record-refusal.js';
@@ -244,4 +237,3 @@ export function createSigninMethodsRouter(
       }),
   });
 }
-export { walletAnswerFields, walletChallengeInput, walletChallengeOutput };

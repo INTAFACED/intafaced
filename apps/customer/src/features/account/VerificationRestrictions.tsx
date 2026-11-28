@@ -4,6 +4,8 @@ import { useResource } from '../../shared/resource';
 import { Failure, Loading } from './kit-parts';
 import { RestrictionList } from './AccountStatus';
 import { accountStatusCopy as copy } from './account-status-copy';
+import { callAs } from '../../shared/api';
+import { IDENTITY_ACCOUNT_STATUS_MINE } from '@intafaced/contracts/identity-account-status-procedures';
 
 /**
  * I-kyc-compliance-17 (J-identity-08 #7): "Restrictions on your account" on /verification. Every restriction from
@@ -17,7 +19,7 @@ export function VerificationRestrictions({ recordsKey }: { recordsKey: string })
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal })
+        ? callAs(api, IDENTITY_ACCOUNT_STATUS_MINE, undefined, accountStatusSchema, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `verification-restrictions:${userId}:${recordsKey}`,
   );
@@ -82,7 +84,7 @@ export function VerificationCapabilityRefused({ recordsKey }: { recordsKey: stri
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal })
+        ? callAs(api, IDENTITY_ACCOUNT_STATUS_MINE, undefined, accountStatusSchema, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `verification-capability-refused:${userId}:${recordsKey}`,
   );

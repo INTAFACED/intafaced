@@ -12,6 +12,8 @@ import { z } from 'zod';
 import type { ApiClient, ApiResult } from './api';
 import { canonicalUiLocale, type UiLocale } from './locale';
 import type { ViewSyncStatus } from './view-sync';
+import { callAs } from './api';
+import { IDENTITY_PREFERENCES_GET } from '@intafaced/contracts/identity-preferences-procedures';
 
 export const ACCOUNT_DISPLAY_NAMESPACE = 'account.display' as const;
 
@@ -57,9 +59,9 @@ export function createLanguageSync(options: {
   let agreed: UiLocale = local();
 
   async function read(signal?: AbortSignal): Promise<boolean> {
-    const result = await options
-      .api()
-      .query('identity', 'preferences.get', { namespace: ACCOUNT_DISPLAY_NAMESPACE }, displaySchema, { signal });
+    const result = await callAs(options.api(), IDENTITY_PREFERENCES_GET, { namespace: ACCOUNT_DISPLAY_NAMESPACE }, displaySchema, {
+      signal,
+    });
     if (!result.ok) return false;
     version = result.data.version;
     record = result.data.value;

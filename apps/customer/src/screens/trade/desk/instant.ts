@@ -18,6 +18,8 @@ import {
   type TradeInstantValue,
 } from '@intafaced/contracts/trade-instant-preferences';
 import { useSession } from '../../../features/session/session';
+import { callAs } from '../../../shared/api';
+import { IDENTITY_PREFERENCES_GET } from '@intafaced/contracts/identity-preferences-procedures';
 
 export type InstantState =
   { status: 'signed-out' } | { status: 'loading' } | { status: 'failed' } | { status: 'ready'; value: TradeInstantValue };
@@ -38,7 +40,7 @@ export function useInstantPlacement() {
 
   const read = useCallback(
     async (signal?: AbortSignal) => {
-      const result = await api.query('identity', 'preferences.get', { namespace: TRADE_INSTANT_NAMESPACE }, tradeInstantPreferenceSchema, {
+      const result = await callAs(api, IDENTITY_PREFERENCES_GET, { namespace: TRADE_INSTANT_NAMESPACE }, tradeInstantPreferenceSchema, {
         signal,
       });
       if (signal?.aborted) return;

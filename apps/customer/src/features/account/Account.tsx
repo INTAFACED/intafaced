@@ -39,7 +39,12 @@ import { useIdentity } from '../../screens/pay/identity-state';
 import { featureById } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
-import { IDENTITY_SUB_ACCOUNTS_CREATE, IDENTITY_SUB_ACCOUNTS_REVOKE } from '@intafaced/contracts/identity-sub-accounts-procedures';
+import {
+  IDENTITY_SUB_ACCOUNTS_CREATE,
+  IDENTITY_SUB_ACCOUNTS_REVOKE,
+  IDENTITY_SUB_ACCOUNTS_LIST,
+} from '@intafaced/contracts/identity-sub-accounts-procedures';
+import { callAs } from '../../shared/api';
 
 type Original = {
   owner: string;
@@ -131,7 +136,7 @@ export function Account() {
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'subAccounts.list', { limit }, subaccountsIn(limit), { signal })
+        ? callAs(api, IDENTITY_SUB_ACCOUNTS_LIST, { limit }, subaccountsIn(limit), { signal })
         : Promise.resolve({ ok: true as const, data: [] }),
     `account-subaccounts:${userId}:${clientVersion.current.value}:${limit}`,
   );
@@ -242,7 +247,7 @@ export function Account() {
           if (latest.failed) setProblem('storage');
           return;
         }
-        const fresh = await intent.client.query('identity', 'subAccounts.list', { limit: intent.limit }, subaccountsIn(intent.limit), {
+        const fresh = await callAs(intent.client, IDENTITY_SUB_ACCOUNTS_LIST, { limit: intent.limit }, subaccountsIn(intent.limit), {
           signal: controller.signal,
         });
         if (!same(intent)) return;

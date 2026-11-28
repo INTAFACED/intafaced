@@ -50,6 +50,21 @@ function accountServer(initial?: { version: number; value: Value }) {
       receipts.set(input.clientRequestId, { fingerprint, version, value });
       return { ok: true as const, data: { namespace: input.namespace, version, value, outcome: 'stored' } };
     },
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
   } as unknown as ApiClient;
   return { api, writes, refusals, offline, hooks, record: () => ({ version, value }) };
 }

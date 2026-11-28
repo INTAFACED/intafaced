@@ -15,7 +15,7 @@ import { recoveryCodeCopy } from './recovery-code-copy';
 import { MfaReset } from './MfaReset';
 import { mfaResetCopy } from './mfa-reset-copy';
 import { supportRecoveryCopy } from './support-recovery-copy';
-import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep } from '../../shared/api';
+import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep, callAs } from '../../shared/api';
 import { FailureNote } from '../../shared/failure-note';
 import { uiCopy } from '../../shared/ui-copy';
 import { LanguageMenu } from '../../shared/LanguageMenu';
@@ -50,7 +50,13 @@ import {
   type AuthKind,
   type AuthRecord,
 } from './public-auth-guards';
-import { IDENTITY_AUTH_LOGIN, IDENTITY_AUTH_REGISTER } from '@intafaced/contracts/identity-auth-procedures';
+import {
+  IDENTITY_AUTH_LOGIN,
+  IDENTITY_AUTH_REGISTER,
+  IDENTITY_AUTH_WALLET_CHALLENGE,
+  IDENTITY_AUTH_WALLET_SIGN_IN,
+} from '@intafaced/contracts/identity-auth-procedures';
+import { IDENTITY_ACCOUNT_STATUS_MINE } from '@intafaced/contracts/identity-account-status-procedures';
 
 type Original = {
   api: ApiClient;
@@ -240,7 +246,7 @@ export function AuthForm({ register }: { register: boolean }) {
       return;
     }
     const controller = new AbortController();
-    void api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal: controller.signal }).then((status) => {
+    void callAs(api, IDENTITY_ACCOUNT_STATUS_MINE, undefined, accountStatusSchema, { signal: controller.signal }).then((status) => {
       if (controller.signal.aborted) return;
       if (location.href !== landing.url) {
         setLanding(null);
@@ -379,15 +385,9 @@ export function AuthForm({ register }: { register: boolean }) {
           // The wallet signs the service's message first; a declined or failed signature sends nothing that signs in.
           const signed = await signWithBrowserWallet(
             (address, chainId) =>
-              original.api.mutate(
-                'identity',
-                'auth.walletChallenge',
-                { address, chainId, origin: location.origin },
-                walletChallengeSchema,
-                {
-                  signal: controller.signal,
-                },
-              ),
+              callAs(original.api, IDENTITY_AUTH_WALLET_CHALLENGE, { address, chainId, origin: location.origin }, walletChallengeSchema, {
+                signal: controller.signal,
+              }),
             wallet,
           );
           if (!same(original)) return;
@@ -398,9 +398,9 @@ export function AuthForm({ register }: { register: boolean }) {
           }
           if (!save('wallet')) return;
           const { flowId, message, signature } = signed.answer;
-          answer = await original.api.mutate(
-            'identity',
-            'auth.walletSignIn',
+          answer = await callAs(
+            original.api,
+            IDENTITY_AUTH_WALLET_SIGN_IN,
             { flowId, message, signature, ...(totp ? { totpCode: totp } : {}) },
             signInAnswerSchema,
             { signal: controller.signal },

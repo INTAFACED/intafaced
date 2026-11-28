@@ -20,6 +20,10 @@ import {
   type PasskeyPurpose,
 } from './passkey-names';
 import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from './security-step-up';
+import { callAs } from '../../shared/api';
+import { IDENTITY_LIST_PASSKEYS } from '@intafaced/contracts/identity-list-passkeys-procedures';
+import { IDENTITY_SET_PASSKEY_PURPOSES } from '@intafaced/contracts/identity-set-passkey-purposes-procedures';
+import { IDENTITY_SET_PASSKEY_SECOND_STEP } from '@intafaced/contracts/identity-set-passkey-second-step-procedures';
 
 type Editing = { kind: 'rename' | 'purposes'; credentialId: string } | { kind: 'secondStep' } | null;
 
@@ -50,7 +54,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'listPasskeys', { limit: 200 }, passkeyList, { signal })
+        ? callAs(api, IDENTITY_LIST_PASSKEYS, { limit: 200 }, passkeyList, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     // A passkey added or removed in Security's own list reloads these names.
     `passkey-names:${userId}:${revision}`,
@@ -110,7 +114,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
       method,
       (requestId) => purposesStepUp(credentialId, purposes, requestId),
       (requestId, stepUpApprovalId) =>
-        api.mutate('identity', 'setPasskeyPurposes', { credentialId, purposes, clientRequestId: requestId, stepUpApprovalId }, renamed),
+        callAs(api, IDENTITY_SET_PASSKEY_PURPOSES, { credentialId, purposes, clientRequestId: requestId, stepUpApprovalId }, renamed),
       t('purposesSaved'),
     );
   }
@@ -121,9 +125,9 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
       method,
       (requestId) => secondStepStepUp(on, requestId),
       (requestId, stepUpApprovalId) =>
-        api.mutate(
-          'identity',
-          'setPasskeySecondStep',
+        callAs(
+          api,
+          IDENTITY_SET_PASSKEY_SECOND_STEP,
           { on, clientRequestId: requestId, stepUpApprovalId },
           z.object({ secondStep: z.boolean() }),
         ),

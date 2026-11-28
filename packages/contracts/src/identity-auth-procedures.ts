@@ -10,6 +10,9 @@ import {
   signUpAccepted,
   socialProviderName,
   authenticationOptions,
+  walletChallengeInput,
+  walletChallengeOutput,
+  walletAnswerFields,
 } from './identity-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -557,6 +560,65 @@ export const IDENTITY_AUTH_REFRESH = defineProcedure({
   output: sessionOutput,
   samples: [
     { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_AUTH_LOGOUT = defineProcedure({
+  ...base,
+  name: 'identity.auth.logout',
+  kind: 'mutation',
+  path: 'auth.logout',
+  access: { caller: 'public' },
+  refusals: {},
+  input: z.object({ refreshToken: z.string().min(1).optional() }).optional(),
+  output: z.object({ ok: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Wallet sign-in, step 1 (I-account-lifecycle-07): the EIP-4361 message a wallet signs, single use. The same answer
+ * for every wallet, linked or not.
+ */
+export const IDENTITY_AUTH_WALLET_CHALLENGE = defineProcedure({
+  ...base,
+  name: 'identity.auth.walletChallenge',
+  kind: 'mutation',
+  path: 'auth.walletChallenge',
+  access: { caller: 'public' },
+  refusals: {},
+  input: walletChallengeInput,
+  output: walletChallengeOutput,
+  samples: [
+    { verdict: 'accept', input: { address: 'USDC', chainId: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Wallet sign-in, step 2: the signature from a wallet an account linked signs that account in, and its second step
+ * still follows. An unlinked wallet answers `auth.invalid_credentials`; the challenge is spent either way.
+ */
+export const IDENTITY_AUTH_WALLET_SIGN_IN = defineProcedure({
+  ...base,
+  name: 'identity.auth.walletSignIn',
+  kind: 'mutation',
+  path: 'auth.walletSignIn',
+  access: { caller: 'public' },
+  refusals: {},
+  input: z
+    .object({
+      ...walletAnswerFields,
+      totpCode: z.string().trim().min(1).max(64).optional(),
+      deviceKey: z.string().min(16).max(128).optional(),
+    })
+    .strict(),
+  output: sessionOutput,
+  samples: [
+    { verdict: 'accept', input: { flowId: '11111111-1111-4111-8111-111111111111', message: 'USDC', signature: 'USDC' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

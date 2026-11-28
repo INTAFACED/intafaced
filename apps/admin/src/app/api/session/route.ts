@@ -10,9 +10,11 @@ import {
   founderEdgeCall,
   founderSignedIn,
   openFounderSession,
+  founderEdgeRecordCall,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
 import { signInChallengeProofSchema } from '@intafaced/contracts/identity-signin-challenge';
+import { IDENTITY_AUTH_LOGOUT } from '@intafaced/contracts/identity-auth-procedures';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,7 +72,7 @@ export async function DELETE(request: Request) {
     assertAdminCsrf(request, session);
     let serverRevocation: 'confirmed' | 'unconfirmed' = 'confirmed';
     try {
-      await founderEdgeCall(config, 'identity', 'auth.logout', 'POST', { refreshToken: session.refreshToken });
+      await founderEdgeRecordCall(config, IDENTITY_AUTH_LOGOUT, { refreshToken: session.refreshToken });
     } catch {
       serverRevocation = 'unconfirmed';
     }

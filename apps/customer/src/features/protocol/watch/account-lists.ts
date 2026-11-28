@@ -12,6 +12,8 @@ import {
 import { useSession } from '../../session';
 import type { ApiResult } from '../../../shared/api';
 import { CONFLICT, rebaseAndWrite, type RecordIo } from '../../watchlists';
+import { callAs } from '../../../shared/api';
+import { IDENTITY_PREFERENCES_GET } from '@intafaced/contracts/identity-preferences-procedures';
 
 type Namespace = typeof TOKEN_WATCHLIST_NAMESPACE | typeof ADDRESS_WATCHES_NAMESPACE;
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
@@ -49,7 +51,7 @@ function useAccountList<T>(
   const record = useRef<{ version: number; value: T[] } | null>(null);
 
   const read = useCallback(
-    async (signal?: AbortSignal) => api.query('identity', 'preferences.get', { namespace }, schema, { signal }),
+    async (signal?: AbortSignal) => callAs(api, IDENTITY_PREFERENCES_GET, { namespace }, schema, { signal }),
     [api, namespace, schema],
   );
   const adopt = useCallback((version: number, value: T[] | null) => {
