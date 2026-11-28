@@ -662,7 +662,7 @@ test(`${J} #12 opens the trading account statement: every move, fill and fee wit
   stepPicture,
 }) => {
   test.setTimeout(300_000);
-  const { owner, ledger, moveId, closeFills, outWithdrawalTx, outSendTx, outCreditKey, outAt } = state();
+  const { owner, ledger, moveId, closeFills, outNonce, outWithdrawalTx, outSendTx, outCreditKey, outAt } = state();
   const venueName = (await venueInfo()).displayName;
   // A statement that ends today ends at the last whole minute that has been over for a minute: wait until that end is
   // past #11's move, so every move is inside the range.
@@ -684,43 +684,58 @@ test(`${J} #12 opens the trading account statement: every move, fill and fee wit
   expect(job).toMatchObject({ status: 'finished', owner });
   const entries = statement.getByTestId('statement-entries');
   await expect(entries).toBeVisible({ timeout: 30_000 });
-  const row = (record, ref) => entries.locator(`tr[data-record="${record}"][data-ref="${ref}"]`);
+  const row = (record, ref) => entries.locator(`li[data-record="${record}"][data-ref="${ref}"]`);
 
   // Every fill, with the venue's fill id and its fee, from the venue.
   for (const f of fills) {
     const r = row('trade', f.fillId);
     await expect(r).toHaveCount(1);
     await expect(r.locator('[data-cell="source"]')).toHaveText(venueName);
-    const shownFee = (await r.locator('[data-cell="fee"]').innerText()).split(' ');
-    expect(sameDecimal(shownFee[0], fromUnits(toUnits(f.venueFee) + toUnits(f.builderFee ?? '0')))).toBe(true);
-    expect(shownFee[1]).toBe(f.feeAsset);
+    await expect(r.locator('[data-cell="fee"]')).toHaveText(new RegExp(` ${f.feeAsset}$`));
+    await expect
+      .poll(async () =>
+        sameDecimal(
+          (await r.locator('[data-cell="fee"]').innerText()).split(' ')[0],
+          fromUnits(toUnits(f.venueFee) + toUnits(f.builderFee ?? '0')),
+        ),
+      )
+      .toBe(true);
   }
   // The move in: the partner's send to the wallet with the partner's reference and its chain transaction, and the
   // venue's credit of the wallet's deposit with the venue's reference.
-  const partnerLeg = entries.locator(`tr[data-record="partner_to_wallet"]`);
+  const partnerLeg = entries.locator(`li[data-record="partner_to_wallet"]`);
   await expect(partnerLeg).toHaveCount(1);
   await expect(partnerLeg).toHaveAttribute('data-ref', moveIn.partnerRef ?? moveIn.id);
-  await expect(partnerLeg.locator('[data-cell="chain"]')).toHaveText(moveIn.deliveryTx);
+  await expect(partnerLeg.locator('[data-cell="chain"]')).toHaveAttribute('data-tx', moveIn.deliveryTx);
   await expect(partnerLeg.locator('[data-cell="source"]')).toHaveText(PARTNER_BANK);
   await expect(partnerLeg.locator('[data-cell="fee"]')).toHaveText(moveIn.partnerFee === null ? 'not known' : `${moveIn.partnerFee} USDC`);
-  const deposits = entries.locator('tr[data-record="deposit"]');
+  const deposits = entries.locator('li[data-record="deposit"]');
   await expect(deposits).toHaveCount(1);
   await expect
     .poll(async () => sameDecimal((await deposits.locator('[data-cell="amount"]').innerText()).split(' ')[0], MOVE_IN))
     .toBe(true);
   await expect(deposits.locator('[data-cell="source"]')).toHaveText(venueName);
   await expect(deposits).toHaveAttribute('data-ref', /.+/);
+  // The venue reports no fee on a deposit it credited: "not known", never 0.
+  await expect(deposits.locator('[data-cell="fee"]')).toHaveText('not known');
   // The move out: the venue's withdrawal by the chain transaction that paid it, with its fee or "not known", and the
   // wallet's send to the partner with the partner's credit key and its chain transaction.
   const out = row('withdrawal', outWithdrawalTx);
   await expect(out).toHaveCount(1);
-  await expect(out.locator('[data-cell="chain"]')).toHaveText(outWithdrawalTx);
+  await expect(out.locator('[data-cell="chain"]')).toHaveAttribute('data-tx', outWithdrawalTx);
   await expect(out.locator('[data-cell="source"]')).toHaveText(venueName);
-  await expect(out.locator('[data-cell="fee"]')).not.toHaveText('');
+  // Its fee as the venue's own withdrawal record reports it: the TEST venue publishes its TEST fee.
+  const w = (await venueRecord(owner, '/withdrawal', { nonce: outNonce })).value;
+  expect(w.fee.known).toBe(true);
+  await expect(out.locator('[data-cell="fee"]')).toHaveText(/ USDC$/);
+  await expect.poll(async () => sameDecimal((await out.locator('[data-cell="fee"]').innerText()).split(' ')[0], w.fee.value)).toBe(true);
   const payIn = row('wallet_to_partner', outCreditKey);
   await expect(payIn).toHaveCount(1);
-  await expect(payIn.locator('[data-cell="chain"]')).toHaveText(outSendTx);
+  await expect(payIn.locator('[data-cell="chain"]')).toHaveAttribute('data-tx', outSendTx);
   await expect(payIn.locator('[data-cell="source"]')).toHaveText(PARTNER_BANK);
+  // Its fee as the partner reports it, or "not known".
+  const partnerFee = (await bankGet('payYourself.summary')).partnerFee;
+  await expect(payIn.locator('[data-cell="fee"]')).toHaveText(partnerFee === null ? 'not known' : `${partnerFee} USDC`);
   // Nothing labelled as an INTAFACED balance.
   await expect(statement).not.toContainText('INTAFACED');
   await expect(statement).not.toContainText(/balance/i);

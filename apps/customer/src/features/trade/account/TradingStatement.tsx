@@ -50,6 +50,9 @@ function fileRows(csv: string): Record<string, string>[] {
   return lines.map((line) => Object.fromEntries(line.split(',').map((v, i) => [cols[i] ?? '', v])));
 }
 
+/** The most own moves svc-bank lists in one read (`ownMoves.list`'s limit). */
+const MOVES_READ = 100;
+
 const utcToday = (at: Date) => at.toISOString().slice(0, 10);
 
 /** The file's every move, fill and fee, with the venue's reference: orders are not moves, so they stay in the file only. */
@@ -108,11 +111,16 @@ export function TradingStatement({ status, owner }: { status: VenueUp; owner: st
     // partner send to the wallet, and the move out's pay-in the partner credited. Unread, the statement is refused
     // rather than shown with a gap.
     const [moves, payIns] = await Promise.all([
-      api.call(BANK_OWN_MOVES_LIST, { limit: 100 }),
+      api.call(BANK_OWN_MOVES_LIST, { limit: MOVES_READ }),
       api.call(BANK_PAY_YOURSELF_SUMMARY, undefined),
     ]);
     if (!moves.ok || !payIns.ok) return setMade({ at: 'refused', text: t('statementPartnerUnread') });
     const { from: jobFrom, to: jobTo } = job.data;
+    // The list holds the newest moves only: when it is full and its oldest is inside the range, older moves in the range
+    // may be missing, so the statement is refused rather than shown with a gap.
+    const oldest = moves.data.at(-1);
+    if (moves.data.length >= MOVES_READ && oldest && Date.parse(oldest.createdAt) > Date.parse(jobFrom))
+      return setMade({ at: 'refused', text: t('statementTooManyMoves', { count: MOVES_READ }) });
     const partnerEntries: StatementEntry[] = [
       ...moves.data
         .filter((m) => m.deliveryTx && inRange(m.sentAt ?? m.createdAt, jobFrom, jobTo))
@@ -204,27 +212,49 @@ export function TradingStatement({ status, owner }: { status: VenueUp; owner: st
       {made.at === 'made' && made.csv !== null ? (
         <div data-testid="statement-entries">
           <p>{t('statementEntries', { count: made.entries.length })}</p>
-          <ScrollTable
-            label={t('statementEntriesLabel')}
-            headers={[t('hWhen'), t('hRecord'), t('hWhat'), t('hAmount'), t('hFee'), t('hSource'), t('hReference'), t('hChainTx')]}
-          >
+          {/* One entry a row of short lines, so it reads in the trading column; each long id is shortened, whole on hover. */}
+          <ul className="lt-stack" aria-label={t('statementEntriesLabel')}>
             {made.entries.map((e) => (
-              <tr key={e.key} data-record={e.record} data-ref={e.ref}>
-                <td data-cell="time">{e.time ? new Date(e.time).toLocaleString() : ''}</td>
-                <td data-cell="record">{t(recordWord(e.record))}</td>
-                <td data-cell="what">{e.what}</td>
-                <td className="lt-mono" data-cell="amount">
-                  {e.amount}
-                </td>
-                <td className="lt-mono" data-cell="fee">
-                  {e.fee ?? t('statementFeeUnknown')}
-                </td>
-                <td data-cell="source">{e.source}</td>
-                <td data-cell="ref">{e.ref}</td>
-                <td data-cell="chain">{e.chainTx ?? ''}</td>
-              </tr>
+              <li key={e.key} data-record={e.record} data-ref={e.ref}>
+                <p>
+                  <strong data-cell="record">{t(recordWord(e.record))}</strong> · <span data-cell="what">{e.what}</span> ·{' '}
+                  <span data-cell="time">{e.time ? new Date(e.time).toLocaleString() : ''}</span>
+                </p>
+                <dl className="lt-kv">
+                  <div>
+                    <dt>{t('hAmount')}</dt>
+                    <dd className="lt-mono" data-cell="amount">
+                      {e.amount}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('hFee')}</dt>
+                    <dd className="lt-mono" data-cell="fee">
+                      {e.fee ?? t('statementFeeUnknown')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('hSource')}</dt>
+                    <dd data-cell="source">{e.source}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('hReference')}</dt>
+                    <dd className="lt-mono" data-cell="ref" title={e.ref}>
+                      {shortId(e.ref)}
+                    </dd>
+                  </div>
+                  {e.chainTx ? (
+                    <div>
+                      <dt>{t('hChainTx')}</dt>
+                      <dd className="lt-mono" data-cell="chain" data-tx={e.chainTx} title={e.chainTx}>
+                        {shortId(e.chainTx)}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </li>
             ))}
-          </ScrollTable>
+          </ul>
         </div>
       ) : null}
       {made.at === 'made' && made.liquidations.length > 0 ? (
@@ -292,4 +322,9 @@ function recordWord(record: string): RecordWord {
     default:
       return 'recOther';
   }
+}
+
+/** A long id the way a person reads it: its first and last characters, the whole id on hover. */
+function shortId(id: string): string {
+  return id.length > 24 ? `${id.slice(0, 12)}…${id.slice(-8)}` : id;
 }

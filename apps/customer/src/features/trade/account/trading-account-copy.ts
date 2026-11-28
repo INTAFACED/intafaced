@@ -109,9 +109,8 @@ export const tradingAccountCopy = defineCopy('trade.account', {
   statementFeeUnknown: 'not known',
   statementPartner: 'your partner bank',
   statementPartnerUnread: 'Your partner bank’s records of these moves couldn’t be read just now, so the statement is not shown. Ask again.',
-  hWhen: 'When',
-  hRecord: 'What happened',
-  hWhat: 'Market or asset',
+  statementTooManyMoves:
+    'Your partner bank lists only your newest {count} moves, and the days you picked go back further, so the statement is not shown with a gap. Pick fewer days.',
   hAmount: 'Amount',
   hSource: 'Recorded by',
   hReference: 'Reference',
