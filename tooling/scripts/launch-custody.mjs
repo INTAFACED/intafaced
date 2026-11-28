@@ -68,6 +68,9 @@ export const LAUNCH_ORDER = 1;
  * J-charts-desk-14 left it once #8's check of today's engine queue read, whose other person is the TEST market maker's
  * taker account (made only with our own book on), moved to J-charts-desk-14-custodial.pw.mjs; every step reads the
  * person's own venue account.
+ * J-ops-console-02-customer-record left it once #3's customer held their bank money at the TEST partner bank and traded
+ * from their own venue account, and the customer record read both: the partner's balances on the money tab
+ * (ops.customerPartnerBalances) and the venue's orders on the trade tab (admin.venueAccounts.orders).
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -79,7 +82,6 @@ export const NOT_YET_OFF = new Set([
   'J-derivatives-02',
   'J-derivatives-06',
   'J-home-ia-01',
-  'J-ops-console-02-customer-record',
   'J-p2p-21',
   'J-portfolio-01',
   'J-portfolio-03',

@@ -1,9 +1,15 @@
 import { router, TRPCError } from '@intafaced/contracts/trpc';
-import { TRADE_ADMIN_VENUE_ACCOUNTS_GET } from '@intafaced/contracts/trade-admin-procedures';
+import { TRADE_ADMIN_VENUE_ACCOUNTS_GET, TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS } from '@intafaced/contracts/trade-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { tradeRefusal } from '../record-refusal.js';
 import { TradeOpsError } from './common.js';
-import { readVenueAccounts, venueAccountsReadWire, type VenueAccountReadDeps } from './venue-account-read.js';
+import {
+  readVenueAccounts,
+  readVenueOrders,
+  venueAccountsReadWire,
+  venueOrdersReadWire,
+  type VenueAccountReadDeps,
+} from './venue-account-read.js';
 
 /** A read refusal keeps its typed code in the message's last bracket, where the console reads it. */
 function fail(error: unknown): never {
@@ -17,7 +23,9 @@ function fail(error: unknown): never {
 /**
  * `admin.venueAccounts.get` (J-derivatives-26 #8, venue-account-read.ts): a founder's read-only view of one person's venue
  * accounts, their margin now and ratio history as the venue reported them; `admin:read`, audited before the venue is asked.
- * With the user-venue door off it refuses `trade.user_venue_off`.
+ * `admin.venueAccounts.orders` (J-ops-console-02 #3): the same person's orders on those accounts, as the venue keeps them,
+ * newest first; `admin:read`, audited before the venue is asked. With the user-venue door off each refuses
+ * `trade.user_venue_off`.
  */
 export function venueAccountAdminRouter(deps?: VenueAccountReadDeps | null) {
   return router({
@@ -28,6 +36,16 @@ export function venueAccountAdminRouter(deps?: VenueAccountReadDeps | null) {
           if (!deps) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'venue accounts are not wired [trade.user_venue_off]' });
           return TRADE_ADMIN_VENUE_ACCOUNTS_GET.output.parse(
             venueAccountsReadWire(await readVenueAccounts(deps, ctx.principal, input).catch(fail)),
+          );
+        },
+        tradeRefusal,
+      ),
+      orders: mountRecord(
+        TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS,
+        async ({ ctx, input }) => {
+          if (!deps) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'venue accounts are not wired [trade.user_venue_off]' });
+          return TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS.output.parse(
+            venueOrdersReadWire(await readVenueOrders(deps, ctx.principal, input).catch(fail)),
           );
         },
         tradeRefusal,
