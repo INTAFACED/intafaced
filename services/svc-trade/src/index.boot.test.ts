@@ -67,21 +67,22 @@ const OFF = {
 };
 
 /**
- * Every variable this process inherited (a CI runner's local chain URL, its dev database) that the dev-material guard
- * refuses on its own in production posture, removed for the production boot.
+ * Variables this runner's own environment carries that the dev-material guard refuses in production (CI points
+ * PROTOCOL_RPC_URL at a local chain): unset for the production boots, so the guard sees only what the test sets.
  */
-const INHERITED_DEV_MATERIAL = Object.fromEntries(
+const RUNNER_DEV_MATERIAL = Object.fromEntries(
   Object.entries(process.env)
-    .filter(([key, value]) => value !== undefined && productionPostureIssues({ APP_ENV: 'prod', [key]: value }).length > 0)
+    .filter(([key, value]) => typeof value === 'string' && productionPostureIssues({ APP_ENV: 'prod', [key]: value }).length > 0)
     .map(([key]) => [key, undefined]),
 );
 
 /** A production posture the dev-material guard accepts, so the only refusal left is the TEST flag's own. */
 const PRODUCTION = {
-  ...INHERITED_DEV_MATERIAL,
+  ...RUNNER_DEV_MATERIAL,
   APP_ENV: 'prod',
   INTAFACED_SCREENING_FAIL_CLOSED: undefined,
-  DATABASE_URL: 'postgres://127.0.0.1:5432/intafaced_trade',
+  // A client certificate instead of a password: the pool is a fake and nothing connects.
+  DATABASE_URL: 'postgres://svc_trade@127.0.0.1:5432/intafaced_trade?sslcert=boot-refusal-client.crt',
   EDGE_PRINCIPAL_SECRET: 'boot-refusal-edge-value-not-a-real-key-0123456789',
   INTERNAL_SERVICE_SECRET: 'boot-refusal-service-value-not-a-real-key-0123456789',
 };

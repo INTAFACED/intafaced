@@ -3,26 +3,27 @@
  * one classic fill (Bob rests a sell, Alice takes it) and one fill against the house market maker. Each step is
  * recorded as it happens: `post:<reason>` when the ledger accepted a post, `accrue:<feeEventId>` and
  * `payout:<feeEventId>` when identity was told. The accrue and payout test files read the same run.
+ *
+ * The house market maker's funds and its resting order's hold are posted by the calling test (`seedHouse`), so the
+ * market-maker seed recipe keeps no caller outside a test file (ledger-client's live-path inventory).
  */
 import type { TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount as amt, recipes, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
-
+import { MemoryLedger, parseAmount as amt, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
 import type { AffiliateFeeLeg } from '../affiliate-accrue.js';
 import { mmSeedOrderIdFor } from '../ids.js';
 import { MM_MATCHING_ACCOUNT_ID } from '../../mm/fill-account.js';
 import { principalFor, StubMatching } from '../testing.js';
 import { ALICE, BOB, fund, resetAndListMarket, tradeOver } from './saga-trade-fixture.js';
 
-/** The house market maker's seed post. A test file passes it in: this helper is not a `.test.ts`, so the ledger's
- * production-caller scan would count a socket recipe named here as a production caller. */
-export type SeedMarketMaker = (ledger: MemoryLedger) => Promise<unknown>;
-
 export interface AffiliateRun {
   readonly classic: readonly string[];
   readonly marketMaker: readonly string[];
 }
 
-export async function affiliateOrderAfterFills(db: TestDatabase, seedMarketMaker: SeedMarketMaker): Promise<AffiliateRun> {
+export async function affiliateOrderAfterFills(
+  db: TestDatabase,
+  seedHouse: (ledger: MemoryLedger, mmOrderId: string) => Promise<void>,
+): Promise<AffiliateRun> {
   const steps: string[] = [];
   class RecordingLedger extends MemoryLedger {
     override async post(request: PostRequest): Promise<LedgerTx> {
@@ -36,9 +37,8 @@ export async function affiliateOrderAfterFills(db: TestDatabase, seedMarketMaker
   const market = await resetAndListMarket(db, ledger, matching);
   await fund(ledger, BOB, 'BTC', '5');
   await fund(ledger, ALICE, 'USDT', '1000');
-  await seedMarketMaker(ledger);
   const mmOrderId = mmSeedOrderIdFor('affiliate-order', market.id, 'sell', 1);
-  await ledger.post(recipes.marketMakerOrderHold({ orderId: mmOrderId, assetId: 'BTC', amount: amt('1') }));
+  await seedHouse(ledger, mmOrderId);
 
   const trade = tradeOver(db, ledger, matching, undefined, {
     affiliateAccrue: { accrueTradeFee: async (leg: AffiliateFeeLeg) => void steps.push(`accrue:${leg.feeEventId}`) },

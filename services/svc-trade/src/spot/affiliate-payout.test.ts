@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterAll, afterEach, beforeAll } from 'vitest';
-import { parseAmount, recipes } from '@intafaced/ledger-client';
+import { parseAmount, recipes, type MemoryLedger } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PRODUCER_PAYOUT_PATH,
   createAffiliatePayoutClient,
@@ -10,6 +10,12 @@ import { affiliateLegsAfterFill } from './affiliate-accrue.js';
 import type { TestDatabase } from '@intafaced/db';
 import { openTradeDatabase } from './__tests__/saga-trade-fixture.js';
 import { affiliateOrderAfterFills, firstIndex, lastIndex } from './__tests__/affiliate-order.fixture.js';
+
+/** The house market maker holds 10 BTC and has one resting 1 BTC sell, held. */
+const seedHouse = async (ledger: MemoryLedger, mmOrderId: string) => {
+  await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: parseAmount('10'), seedId: 'affiliate-order-mm' }));
+  await ledger.post(recipes.marketMakerOrderHold({ orderId: mmOrderId, assetId: 'BTC', amount: parseAmount('1') }));
+};
 
 const HOUSE = '11111111-1111-4111-8111-111111111111';
 const MAKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -98,9 +104,7 @@ describe('settleFill wires payout after accrue after ledger post', () => {
   }, 30_000);
 
   it('fires payout after accrue, after tradeFill and marketMakerMakerFill', async () => {
-    const run = await affiliateOrderAfterFills(database(), (ledger) =>
-      ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: parseAmount('10'), seedId: 'affiliate-order-mm' })),
-    );
+    const run = await affiliateOrderAfterFills(database(), seedHouse);
     for (const [steps, fillPost] of [
       [run.classic, 'post:trade.fill'],
       [run.marketMaker, 'post:trade.fill.mm_maker'],
