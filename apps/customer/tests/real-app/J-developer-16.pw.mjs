@@ -159,6 +159,7 @@ const undated = { title: `TEST ${RUN}: order replies change shape`, body: `TEST 
 
 test(`${J} #3 the developer changelog shows dated entries by area with a breaking flag; an entry with no date reads "date not set" and is not upcoming`, async ({
   browser,
+  stepPicture,
 }) => {
   for (const [key, text, changelog] of [
     [
@@ -191,6 +192,8 @@ test(`${J} #3 the developer changelog shows dated entries by area with a breakin
   await expect(undatedEntry).toHaveAttribute('data-breaking', 'true');
   await expect(undatedEntry).toContainText('WebSocket · Breaking');
   await expect(undatedEntry).toContainText('In effect date not set');
+  // The changelog with both entries, before the area filter and the upcoming page.
+  await stepPicture(page);
 
   // By area: only the trading entry under Trading.
   await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption('trading');
@@ -204,7 +207,10 @@ test(`${J} #3 the developer changelog shows dated entries by area with a breakin
   await page.context().close();
 });
 
-test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dates and the retired list`, async ({ browser }) => {
+test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dates and the retired list`, async ({
+  browser,
+  stepPicture,
+}) => {
   const page = await signedOutVisitor(browser);
   await page.goto('/notice');
   const main = page.locator('main');
@@ -222,6 +228,7 @@ test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dat
   const row = notice.locator('tr').filter({ has: page.getByRole('rowheader', { name: retiredEndpoint }) });
   await expect(row).toContainText(`Retired by ${dated.title}`);
   await expect(row).toContainText(releaseOn);
+  await stepPicture(page);
   await page.context().close();
 });
 
