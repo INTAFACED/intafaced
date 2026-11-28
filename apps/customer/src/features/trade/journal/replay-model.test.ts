@@ -27,21 +27,55 @@ const replay: TradeReplay = tradeReplaySchema.parse({
     entryPrice: '100',
     exitPrice: '102',
     size: '1',
-    fees: '0.08',
+    fills: [
+      {
+        fillId: 'x1',
+        filledAt: '2026-11-20T10:02:10.000Z',
+        side: 'buy',
+        price: '100',
+        amount: '1',
+        venueFee: '0.04',
+        builderFee: '0',
+        feeAsset: 'USDC',
+        opening: true,
+        split: false,
+      },
+      {
+        fillId: 'x2',
+        filledAt: '2026-11-20T10:04:40.000Z',
+        side: 'sell',
+        price: '102',
+        amount: '1',
+        venueFee: '0.04',
+        builderFee: '0',
+        feeAsset: 'USDC',
+        opening: false,
+        split: false,
+      },
+    ],
     feeAsset: 'USDC',
-    grossPnl: '2',
+    realisedPnl: '2',
+    venueFees: '0.08',
+    builderFees: '0',
+    funding: '0',
+    fundingPayments: 0,
     netPnl: '1.92',
     plannedStop: '95',
     plannedTarget: null,
+    risk: '5',
     rMultiple: '0.384',
-    maePrice: '99',
-    mae: '1',
-    mfePrice: '102',
-    mfe: '2',
-    candleInterval: '1m',
+    rMissing: null,
+    excursion: {
+      interval: '1m',
+      complete: true,
+      mae: { price: '99', perUnit: '1', usd: '1', pct: '1' },
+      mfe: { price: '102', perUnit: '2', usd: '2', pct: '2' },
+    },
     disciplined: { exit: 'unresolved', exitPrice: null, netPnl: null },
     rules: { verdict: 'kept', netPnl: '1.92', oneR: '5', widenedStop: null, dailyLoss: null },
     fillIds: ['x1', 'x2'],
+    storedAt: '2026-11-20T10:05:00.000Z',
+    source: 'venue',
   },
   tickSize: '0.01',
   stops: [
@@ -108,7 +142,12 @@ describe('replayPlan', () => {
     const early: TradeReplay = { ...replay, stops: [{ price: '95', placedAt: '2026-11-20T10:01:59.000Z' }] };
     expect(replayPlan(early)!.marks[1]).toEqual({ kind: 'stop', price: '95', bar: min('10:02') });
   });
-  it('has no plan when the venue no longer returns the bars', () => {
+  it("plans the bars the journal kept as it plans the venue's, and has none when no bars were kept", () => {
+    if (replay.bars.source !== 'venue') throw new Error('expected venue bars');
+    const { asOf: _asOf, source: _source, ...bars } = replay.bars;
+    const kept = replayPlan({ ...replay, bars: { source: 'record', storedAt: '2026-11-20T10:05:00.000Z', ...bars } })!;
+    expect(kept.marks).toEqual(plan.marks);
+    expect([kept.start, kept.entryIndex, kept.bars.length]).toEqual([0, 10, 15]);
     expect(replayPlan({ ...replay, bars: { source: 'none' } })).toBeNull();
   });
 });

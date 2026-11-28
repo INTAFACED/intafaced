@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Button, ButtonLink, Select } from '@intafaced/ui/lit';
-import { TRADE_JOURNAL_REPLAY, type TradeReplay as Replay } from '@intafaced/contracts/trade-journal-procedures';
+import { TRADE_JOURNAL_MAX_DAYS, TRADE_JOURNAL_REPLAY, type TradeReplay as Replay } from '@intafaced/contracts/trade-journal-procedures';
 import { WorkbenchChart } from '../../../screens/charts/WorkbenchChart';
 import type { ChartHost } from '../../../screens/charts/chart-host';
 import { REPLAY_SPEEDS, replayBars, useReplay } from '../../../screens/charts/replay';
@@ -17,6 +17,7 @@ import { marksShown, replayPlan, stopLine, stopOn, type ReplayMark, type ReplayP
 import type { Candle } from '../../../data/types';
 
 const when = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+const DAY_MS = 86_400_000;
 
 /**
  * The replay of one closed journal trade (`/trade/journal?replay=<trade>`; J-charts-desk-20): its market's bars from the
@@ -24,9 +25,11 @@ const when = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(
  * and the exit drawn only once the replay reaches their bars. Leaving replay opens the market's live chart. Read only:
  * the journal trade is not changed.
  */
-export function TradeReplay({ owner, since, tradeId }: { owner: string; since: string; tradeId: string }) {
+export function TradeReplay({ owner, tradeId }: { owner: string; tradeId: string }) {
   const { t } = journalCopy.useCopy();
   const api = useApi();
+  // The journal's own window (JournalRoom), so the trade is found where the journal lists it.
+  const [since] = useState(() => new Date(Date.now() - (TRADE_JOURNAL_MAX_DAYS - 1) * DAY_MS).toISOString());
   const read = useResource(
     (signal) => api.call(TRADE_JOURNAL_REPLAY, { owner, since, tradeId }, { signal }),
     `journal-replay:${owner}:${tradeId}`,
@@ -57,7 +60,7 @@ export function TradeReplay({ owner, since, tradeId }: { owner: string; since: s
           entry: displayAmount(trade.entryPrice),
           exit: displayAmount(trade.exitPrice),
           size: displayAmount(trade.size),
-          net: `${displayAmount(trade.netPnl)} ${trade.feeAsset}`,
+          net: trade.netPnl === null ? t('replayNetUnknown') : `${displayAmount(trade.netPnl)} ${trade.feeAsset}`,
         })}
       </p>
       {plan ? (
@@ -160,9 +163,14 @@ function ReplayChart({ replay, plan }: { replay: Replay; plan: ReplayPlan }) {
         ))}
       </ol>
       {replay.bars.source === 'venue' ? (
-        <p className="lt-hint" data-testid="replay-source">
+        <p className="lt-hint" data-testid="replay-source" data-source="venue">
           <TestMark test={replay.venue.test} />{' '}
           {t('replaySource', { venue: replay.venue.name, interval: replay.interval, asOf: asOfText(replay.bars.asOf) })}
+        </p>
+      ) : replay.bars.source === 'record' ? (
+        <p className="lt-hint" data-testid="replay-source" data-source="record" data-stored-at={replay.bars.storedAt}>
+          <TestMark test={replay.venue.test} />{' '}
+          {t('replaySourceRecord', { interval: replay.interval, stored: when(Date.parse(replay.bars.storedAt)) })}
         </p>
       ) : null}
     </div>

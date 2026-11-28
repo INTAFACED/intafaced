@@ -9,7 +9,8 @@ const trade = (id: string, closedAt: string, net: string, rules: string, verdict
     tradeId: id,
     closedAt,
     netPnl: net,
-    fees: '0.2',
+    venueFees: '0.2',
+    builderFees: '0',
     feeAsset: 'USDC',
     rules: { verdict, netPnl: rules, oneR: '5', widenedStop: null, dailyLoss: null },
   }) as JournalTrade;
@@ -24,7 +25,7 @@ describe('the journal equity lines', () => {
     totals: { netPnl: '2.6', rulesNetPnl: '-10.4' },
   } as TradeJournal;
 
-  it('runs both totals oldest first and gives the gap from the totals', () => {
+  it('runs both totals oldest first and gives the gap from the same trades', () => {
     const e = equityOf(journal);
     expect(e.points.map((p) => [p.trade.tradeId, p.made, p.rules])).toEqual([
       ['a', '-8.2', '-5.2'],

@@ -1,6 +1,6 @@
 // volt-room: /trade/journal
 import { useMemo, useState, type ReactNode } from 'react';
-import { Button, ButtonLink } from '@intafaced/ui/lit';
+import { Button } from '@intafaced/ui/lit';
 import { MonitorTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   TRADE_JOURNAL_CLOSED_TRADES,
@@ -18,19 +18,19 @@ import { VENUE_POLL_MS } from '../venue/poll';
 import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { useAsOfText, useOwner } from '../venue/VenueKit';
 import { journalCopy } from './journal-copy';
+import { equityOf, equityPlaces, feesOf, minusOneRLessFees, type EquityPoint } from './journal-model';
+import { JournalTrades, tradeFromPath } from './JournalTrades';
 import { TradeReplay } from './TradeReplay';
-import { equityOf, equityPlaces, minusOneRLessFees, type EquityPoint } from './journal-model';
 
 type View = 'trades' | 'equity';
 const DAY_MS = 86_400_000;
-/** The record reads at most 90 days back; a day short of it, so a clock a little ahead of the service's still reads. */
-const journalSince = () => new Date(Date.now() - (TRADE_JOURNAL_MAX_DAYS - 1) * DAY_MS).toISOString();
 
 /**
  * The trade journal (`/trade/journal`; `?view=equity` opens Equity): the person's closed perpetual trades on their own
  * venue account, read from the venue by svc-trade (record `@intafaced/contracts/trade-journal-procedures`), and on
  * Equity two lines over the same trades, what they made and what they would have made keeping their own stops and
- * daily loss limit, with the gap at the end; any point opens how it was worked out (J-portfolio-19). Read only: nothing is
+ * daily loss limit, with the gap at the end; any point opens how it was worked out (J-portfolio-19). `?replay=<trade>`
+ * replays one closed trade in bar replay (J-charts-desk-20, TradeReplay.tsx). Read only: nothing is
  * sent to the venue and the ledger posts nothing.
  */
 export function JournalRoom({ path }: { path: string }) {
@@ -63,10 +63,9 @@ export function JournalRoom({ path }: { path: string }) {
   if (mode.mode === 'off' || !mode.status.available)
     return off({ kind: 'refused', refusal: { variant: 'parked', title: t('title'), body: t('venueOff') } }, true);
   const status = mode.status;
-  const query = new URL(path, location.origin).searchParams;
-  const first: View = query.get('view') === 'equity' ? 'equity' : 'trades';
-  // `?replay=<trade>`: the bar replay of one closed trade (J-charts-desk-20).
-  const replay = query.get('replay');
+  const params = new URL(path, location.origin).searchParams;
+  const first: View = params.get('view') === 'equity' ? 'equity' : 'trades';
+  const replay = params.get('replay');
   return (
     <VenueFrame mode={mode}>
       <MonitorTemplate
@@ -86,7 +85,11 @@ export function JournalRoom({ path }: { path: string }) {
           <div className="lt-stack">
             <Owned>
               {(owner) =>
-                replay ? <TradeReplay owner={owner} since={journalSince()} tradeId={replay} /> : <Journal owner={owner} first={first} />
+                replay ? (
+                  <TradeReplay owner={owner} tradeId={replay} />
+                ) : (
+                  <Journal owner={owner} first={first} picked={tradeFromPath(path)} />
+                )
               }
             </Owned>
           </div>
@@ -104,12 +107,13 @@ function Owned({ children }: { children: (owner: string) => ReactNode }) {
   return <>{children(owner)}</>;
 }
 
-function Journal({ owner, first }: { owner: string; first: View }) {
+function Journal({ owner, first, picked }: { owner: string; first: View; picked: string | null }) {
   const { t } = journalCopy.useCopy();
   const api = useApi();
   const asOfText = useAsOfText();
   const [view, setView] = useState<View>(first);
-  const [since] = useState(journalSince);
+  // The record reads at most 90 days back; a day short of it, so a clock a little ahead of the service's still reads.
+  const [since] = useState(() => new Date(Date.now() - (TRADE_JOURNAL_MAX_DAYS - 1) * DAY_MS).toISOString());
   const read = usePolled<TradeJournal>(
     (signal) => api.call(TRADE_JOURNAL_CLOSED_TRADES, { owner, since, limit: TRADE_JOURNAL_MAX_TRADES }, { signal }),
     `journal:${owner}:${since}`,
@@ -147,7 +151,7 @@ function Journal({ owner, first }: { owner: string; first: View }) {
           {t('none')}
         </p>
       ) : view === 'trades' ? (
-        <Trades journal={journal} />
+        <JournalTrades journal={journal} picked={picked} />
       ) : (
         <Equity journal={journal} />
       )}
@@ -164,36 +168,6 @@ const when = (iso: string) => new Date(iso).toISOString().replace('T', ' ').slic
 
 function money(value: string, asset: string) {
   return `${displayAmount(value)} ${asset}`;
-}
-
-function Trades({ journal }: { journal: TradeJournal }) {
-  const { t } = journalCopy.useCopy();
-  return (
-    <section className="lt-stack" aria-labelledby="journal-trades" data-testid="journal-trades">
-      <h2 id="journal-trades">{t('tradesTitle')}</h2>
-      <ScrollTable
-        label={t('tradesTitle')}
-        headers={[t('hClosed'), t('hMarket'), t('hSide'), t('hEntry'), t('hExit'), t('hSize'), t('hNet'), t('hReplay')]}
-      >
-        {journal.trades.map((trade) => (
-          <tr key={trade.tradeId} data-trade={trade.tradeId}>
-            <td>{when(trade.closedAt)}</td>
-            <td>{trade.symbol}</td>
-            <td>{trade.side === 'long' ? t('long') : t('short')}</td>
-            <td>{displayAmount(trade.entryPrice)}</td>
-            <td>{displayAmount(trade.exitPrice)}</td>
-            <td>{displayAmount(trade.size)}</td>
-            <td data-net={trade.netPnl}>{money(trade.netPnl, trade.feeAsset)}</td>
-            <td>
-              <ButtonLink size="sm" tone="quiet" href={`/trade/journal?replay=${encodeURIComponent(trade.tradeId)}`}>
-                {t('replayThis')}
-              </ButtonLink>
-            </td>
-          </tr>
-        ))}
-      </ScrollTable>
-    </section>
-  );
 }
 
 function Equity({ journal }: { journal: TradeJournal }) {
@@ -261,6 +235,11 @@ function Equity({ journal }: { journal: TradeJournal }) {
         <div data-testid="equity-gap" data-amount={equity.gap}>
           <strong>{t('gap', { amount: usd(equity.gap) })}</strong>
           <p className="lt-hint">{t('gapExplain', { count: String(equity.points.length) })}</p>
+          {equity.left > 0 ? (
+            <p className="lt-hint" data-testid="equity-left">
+              {t('equityLeft', { count: String(equity.left) })}
+            </p>
+          ) : null}
         </div>
       </dl>
       <ScrollTable label={t('pointsTitle')} headers={[t('hClosed'), t('hMarket'), t('hMade'), t('hRules'), t('hCounts'), '']}>
@@ -294,7 +273,7 @@ function PointDetail({ point, onClose }: { point: EquityPoint; onClose: () => vo
     net: a(trade.netPnl),
     rules: a(r.netPnl),
     oneR: r.oneR === null ? t('none_') : displayAmount(r.oneR),
-    fees: displayAmount(trade.fees),
+    fees: displayAmount(feesOf(trade)),
     stop: price(trade.plannedStop),
     widened: price(r.widenedStop),
     loss: r.dailyLoss ? money(r.dailyLoss.loss, r.dailyLoss.asset) : t('none_'),
@@ -308,7 +287,7 @@ function PointDetail({ point, onClose }: { point: EquityPoint; onClose: () => vo
     ['first-stop', t('fFirstStop'), price(trade.plannedStop)],
     ...(r.widenedStop !== null ? ([['widened', t('fWidened'), price(r.widenedStop)]] as [string, string, string][]) : []),
     ['one-r', t('fOneR'), r.oneR === null ? t('none_') : a(r.oneR)],
-    ['fees', t('fFees'), a(trade.fees)],
+    ['fees', t('fFees'), a(feesOf(trade))],
     ['net', t('fNet'), a(trade.netPnl)],
     ['rules', t('fRules'), a(r.netPnl)],
     ...(r.dailyLoss

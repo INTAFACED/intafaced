@@ -11,7 +11,16 @@ import { signIn } from './desk.mjs';
 import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { openVenueDesk, sameDecimal, shownBalance, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
+import {
+  openVenueDesk,
+  openVenuePage,
+  sameDecimal,
+  shownBalance,
+  testDeposit,
+  venueBalance,
+  venueForThisFile,
+  venueRecord,
+} from './venue.mjs';
 
 // J-cex-spot-15, the steps a developer's bot takes through our API on the venue (docs/roadmap/journeys.json): one test
 // per step, titled "J-cex-spot-15 #<n>". The journey's start is made once, as TEST setup: a verified TEST account with
@@ -81,6 +90,15 @@ const lookUp = (s, clientOrderKey) =>
   withKey(s.key, {
     path: `/api/v1/venue/orders/by-client-id?owner=${s.owner}&clientOrderKey=${encodeURIComponent(clientOrderKey)}`,
   });
+
+/** The order page's heading (side, market, status) and one of its labelled facts. */
+const orderHeading = (page) => page.getByTestId('venue-order-heading');
+const orderFact = (page, label) =>
+  page
+    .getByTestId('venue-order-facts')
+    .getByTestId('venue-order-row')
+    .filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) })
+    .locator('dd');
 
 /**
  * TEST setup, not a journey step (the journey's Starts): a verified passkey account, one live Trade key made through
@@ -184,8 +202,11 @@ test(`${J} #4 reads which order types the API accepts: the same list the ticket 
   await stepPicture();
 });
 
-test(`${J} #5 places an order with a client id through our API, looks it up by client id, cancels by client id: the venue order, then its state, then its cancel; a repeat returns the first outcome; the API signs with the user's agent permission only`, async () => {
-  test.setTimeout(180_000);
+test(`${J} #5 places an order with a client id through our API, looks it up by client id, cancels by client id: the venue order, then its state, then its cancel; a repeat returns the first outcome; the API signs with the user's agent permission only`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
   const s = state();
   // The agent permission is on the venue's own record of the account: the bot's key, named, approved by the wallet.
   const agents = (await venueRecord(s.owner, '/agents')).value;
@@ -212,6 +233,11 @@ test(`${J} #5 places an order with a client id through our API, looks it up by c
   expect(found.body.value).toMatchObject({ venueOrderId, venueClientOrderId: cloid, status: 'open', symbol: SYMBOL, side: 'buy' });
   expect(Number(found.body.value.amount)).toBe(Number(BUY.amount));
   expect(Number(found.body.value.price)).toBe(Number(BUY.price));
+  // The same order as the person sees it in the app: its own page, under the bot's venue client order id, open.
+  await openVenuePage(page, s.who, `/trade/orders/${cloid}`, s.walletKey);
+  await expect(orderHeading(page)).toContainText(`Buy ${SYMBOL}`);
+  await expect(orderHeading(page).locator('[data-cell="status"]')).toHaveText('Open');
+  await expect(orderFact(page, 'Venue client order ID')).toHaveText(cloid);
 
   // ── A repeat of the same client id returns the first outcome, and the venue still has one order ────────────────
   const again = await send(s, buy(clientId));
@@ -232,6 +258,11 @@ test(`${J} #5 places an order with a client id through our API, looks it up by c
   expect(after.status, JSON.stringify(after.body)).toBe(200);
   expect(after.body.value).toMatchObject({ venueOrderId, status: 'canceled' });
   expect((await venueRecord(s.owner, '/open-orders')).value.filter((o) => o.venueClientOrderId === cloid)).toHaveLength(0);
+  // Its page now reads the venue's cancel: Cancelled, nothing filled.
+  await page.reload();
+  await expect(orderHeading(page).locator('[data-cell="status"]')).toHaveText('Cancelled', { timeout: 30_000 });
+  await expect(orderFact(page, 'Venue client order ID')).toHaveText(cloid);
+  await expect(page.getByText('Nothing has filled.', { exact: true })).toBeVisible();
   // A repeat of the cancel returns the first cancel's outcome; nothing more is sent.
   const cancelAgain = await send(s, cancel);
   expect(cancelAgain.prepared.body).toMatchObject({ reused: true, signed: true });
@@ -259,6 +290,9 @@ test(`${J} #5 places an order with a client id through our API, looks it up by c
   expect(withdraw.prepared.body.intafacedCode).toBe('scope.interactive_only');
   expect(withdraw.sent).toBeNull();
   expect((await venueRecord(s.owner, '/balances')).value.find((b) => b.asset === 'USDC')).toEqual(usdcBefore);
+  // The step ends on the bot's order as the person sees it: the venue's cancel of it.
+  await expect(orderHeading(page).locator('[data-cell="status"]')).toHaveText('Cancelled');
+  await stepPicture();
 });
 
 /** A chain-transfer-shaped TEST deposit reference of its own (`<chainId>:<txHash>:<logIndex>`). */

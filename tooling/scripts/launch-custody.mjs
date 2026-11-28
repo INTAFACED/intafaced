@@ -56,6 +56,8 @@ export const LAUNCH_ORDER = 1;
  * identity holds the account's trading restriction (svc-trade venue/trading-restriction.ts).
  * J-home-ia-11 left it once the stack's status table named the TEST market maker off by design on a custody-off stack
  * (local-test-market.mjs MARKET_OFF_CUSTODY_OFF) and #1 read that row exactly, where it read "not started" as a fault.
+ * J-identity-01 left it once #8's trade room became the launch desk, the person's own venue account, and svc-trade's
+ * user-venue door held a new order until the email is proved (`trade.email_proof_required`), as our own book does.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -69,7 +71,6 @@ export const NOT_YET_OFF = new Set([
   'J-derivatives-02',
   'J-derivatives-06',
   'J-home-ia-01',
-  'J-identity-01',
   'J-ops-console-02-customer-record',
   'J-p2p-21',
   'J-portfolio-01',

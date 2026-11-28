@@ -61,3 +61,13 @@ export async function fromTop(page, waitMs = 5000) {
     return 'not readied';
   }
 }
+
+/**
+ * Takes the step picture: the whole page, with every animation that ends drawn at its end. The top bar's dropdown fades in
+ * from opacity 0 (shell.css tb-pop), and Chromium's whole-page capture drew it part-way, the page's text through its rows,
+ * while the window showed it whole (J-home-ia-02 #1, issue 11232, run 46084497896). One that runs for ever (a loading
+ * shimmer) is drawn at its start.
+ */
+export function takePicture(page, options = {}) {
+  return page.screenshot({ ...options, fullPage: true, animations: 'disabled' });
+}

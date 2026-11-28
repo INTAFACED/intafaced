@@ -12,6 +12,7 @@ import type {
   VenueCandle,
 } from '@intafaced/venue-contracts';
 import { readTradeJournal, type JournalVenue } from './trade-journal.js';
+import { InMemoryTradeJournalStore } from './trade-journal-store.js';
 import { readTradeReplay, replayCut, replayIntervalFor, TradeReplayError } from './trade-replay.js';
 
 const at = (hhmmss: string) => new Date(`2026-11-20T${hhmmss}.000Z`);
@@ -45,25 +46,28 @@ function stop(price: string, placedAt: Date): UserVenueOrderRecord {
   };
 }
 
-/** One 1m bar a minute from 09:50 to 10:09, each at 100 but the ones the trade's own fills printed. */
+/** One 1m bar a minute from 09:50 to 10:09, ranging 99 to 101, but the 10:04 bar, where the exit at 102 printed. */
 const bars: VenueCandle[] = Array.from({ length: 20 }, (_, i) => {
   const openAt = new Date(at('09:50:00').getTime() + i * 60_000);
-  return { openAt, openPrice: a('100'), highPrice: a('101'), lowPrice: a('99'), closePrice: a('100'), baseVolume: a('1') };
+  const high = i === 14 ? a('103') : a('101');
+  return { openAt, openPrice: a('100'), highPrice: high, lowPrice: a('99'), closePrice: a('100'), baseVolume: a('1') };
 });
+/** The bars as the wire writes them. */
+const wire = (c: VenueCandle) => ({ openAt: c.openAt.toISOString() });
 
 /*
  * HAND-WORKED EXAMPLE: a long on XRBR-PERP. 10:02:10 buy 1 @ 100 (fee 0.04), its stop 95 placed at 10:02:20, moved to
- * 90 at 10:03:30, 10:04:40 sell 1 @ 102 (fee 0.04). The entry falls in the 10:02 bar, index 12 of the bars from 09:50;
+ * 90 at 10:03:30, 10:04:40 sell 1 @ 102 (fee 0.04, the venue's realised 2). The entry falls in the 10:02 bar, index 12 of the bars from 09:50;
  * the replay starts 10 bars before it, at 09:52, index 2. The trade's figures are the journal's: net 2 − 0.08 = 1.92.
  */
 const fills = [
   fill({ fillId: 'x1', side: 'buy', price: a('100'), filledAt: at('10:02:10') }),
-  fill({ fillId: 'x2', side: 'sell', price: a('102'), filledAt: at('10:04:40') }),
+  fill({ fillId: 'x2', side: 'sell', price: a('102'), filledAt: at('10:04:40'), realisedPnl: a('2') }),
 ];
 const orders = [stop('95', at('10:02:20')), stop('90', at('10:03:30'))];
 const account: UserVenueAccount = { venueId: 'hl-test', owner: '0xabc', subAccount: null };
 
-function venue(candles: readonly VenueCandle[] = bars): JournalVenue {
+function venue(candles: readonly VenueCandle[] = bars, venueFills: readonly UserVenueFill[] = fills): JournalVenue {
   const asOf = at('10:10:00');
   const venueId = 'hl-test';
   return partial<JournalVenue>({
@@ -73,7 +77,8 @@ function venue(candles: readonly VenueCandle[] = bars): JournalVenue {
       asOf,
       value: [partial<UserVenueMarket>({ symbol: 'XRBR-PERP', kind: 'perpetual', tickSize: a('0.01') })],
     }),
-    fills: async () => ({ venueId, asOf, value: fills }),
+    fills: async () => ({ venueId, asOf, value: venueFills }),
+    fundingPayments: async () => ({ venueId, asOf, value: [] }),
     positions: async () => ({ venueId, asOf, value: [] }),
     orderHistory: async () => ({ venueId, asOf, value: orders }),
     candles: async (_symbol: string, _interval: string, query: number | { limit: number; since?: Date }) => {
@@ -82,7 +87,13 @@ function venue(candles: readonly VenueCandle[] = bars): JournalVenue {
     },
   });
 }
-const deps = (v: JournalVenue) => ({ venue: async () => v, account: async () => account, now: () => at('10:10:00') });
+let clock = at('10:10:00');
+const deps = (v: JournalVenue, store = new InMemoryTradeJournalStore()) => ({
+  venue: async () => v,
+  account: async () => account,
+  store,
+  now: () => clock,
+});
 const input = { owner: '0xabc', since: '2026-11-20T09:00:00.000Z', tradeId: 'x1' };
 
 describe('replayIntervalFor', () => {
@@ -96,11 +107,11 @@ describe('replayIntervalFor', () => {
 
 describe('replayCut', () => {
   it('starts 10 bars before the bar the entry falls in, or at the first bar when fewer were kept', () => {
-    expect(replayCut(bars, at('10:02:10'), '1m')).toEqual({ entryIndex: 12, startIndex: 2 });
-    expect(replayCut(bars, at('09:53:59'), '1m')).toEqual({ entryIndex: 3, startIndex: 0 });
+    expect(replayCut(bars.map(wire), at('10:02:10'), '1m')).toEqual({ entryIndex: 12, startIndex: 2 });
+    expect(replayCut(bars.map(wire), at('09:53:59'), '1m')).toEqual({ entryIndex: 3, startIndex: 0 });
   });
-  it('is null when no bar holds the entry: the venue no longer returns its bars', () => {
-    expect(replayCut(bars.slice(13), at('10:02:10'), '1m')).toBeNull();
+  it('is null when no bar holds the entry', () => {
+    expect(replayCut(bars.slice(13).map(wire), at('10:02:10'), '1m')).toBeNull();
     expect(replayCut([], at('10:02:10'), '1m')).toBeNull();
   });
 });
@@ -126,7 +137,53 @@ describe('readTradeReplay', () => {
     expect(replay.venue).toEqual({ id: 'hl-test', name: 'TEST venue', test: true });
   });
 
-  it('says the bars are not there when the venue no longer returns the entry bar, never a made-up chart', async () => {
+  it('replays from the bars the journal kept, named with the time they were stored, once the venue no longer returns the trade', async () => {
+    const store = new InMemoryTradeJournalStore();
+    clock = at('10:10:00');
+    const first = tradeReplaySchema.parse(await readTradeReplay(deps(venue(), store), input));
+    clock = at('10:30:00');
+    // The venue past the history it keeps: none of the trade's fills, no bar from before 10:15.
+    const later = tradeReplaySchema.parse(
+      await readTradeReplay(
+        deps(
+          venue(
+            bars.filter((b) => b.openAt >= at('10:05:00')),
+            [],
+          ),
+          store,
+        ),
+        input,
+      ),
+    );
+    clock = at('10:10:00');
+    if (later.bars.source !== 'record') throw new Error(`expected the record's bars, got ${later.bars.source}`);
+    expect(later.bars.storedAt).toBe('2026-11-20T10:10:00.000Z');
+    // Kept from 10 bars before the entry bar to the close: 09:52 to 10:04.
+    expect(later.bars.candles.map((c) => c.openAt.slice(11, 16))).toEqual([
+      '09:52',
+      '09:53',
+      '09:54',
+      '09:55',
+      '09:56',
+      '09:57',
+      '09:58',
+      '09:59',
+      '10:00',
+      '10:01',
+      '10:02',
+      '10:03',
+      '10:04',
+    ]);
+    expect([later.bars.entryIndex, later.bars.startIndex]).toEqual([10, 0]);
+    expect(later.interval).toBe('1m');
+    expect(later.trade.source).toBe('record');
+    const { source: _a, ...was } = first.trade;
+    const { source: _b, ...now } = later.trade;
+    expect(now).toEqual(was);
+    expect(later.stops).toEqual(first.stops);
+  });
+
+  it('says "none" when the venue no longer returns the entry bar and the journal kept none, never a made-up chart', async () => {
     const replay = await readTradeReplay(deps(venue(bars.slice(14))), input);
     expect(replay.bars).toEqual({ source: 'none' });
     expect(replay.trade.tradeId).toBe('x1');

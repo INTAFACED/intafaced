@@ -72,6 +72,7 @@ import type { FeeSaverSource } from './fee-saver-client.js';
 import type { VenueWalletReads } from './http-user-venue.js';
 import type { DailyLossGuard, DailyLossWarning } from './daily-loss-limit.js';
 import { TradingRestrictionUnavailable, addsExposure, type TradingRestrictionRead } from './trading-restriction.js';
+import type { EmailProofSource } from '../spot/email-proof.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -342,7 +343,10 @@ export type UserVenueDoorCode =
   | 'trade.daily_loss_unreadable'
   // Identity's trading restriction (trading-restriction.ts, J-support-public-20 #7): held, or unreadable.
   | 'trade.account_restricted'
-  | 'trade.account_restriction_unavailable';
+  | 'trade.account_restriction_unavailable'
+  // The person's email proof (spot/email-proof.ts, J-identity-01 #8): never proved, or unreadable.
+  | 'trade.email_proof_required'
+  | 'trade.identity_unavailable';
 
 /**
  * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
@@ -605,6 +609,11 @@ export interface UserVenueDoorDeps {
    * asked to prepare it and again before an order never sent is sent. wire.ts always passes it.
    */
   readonly tradingRestriction?: TradingRestrictionRead;
+  /**
+   * Identity's email proof (RC-identity-01, J-identity-01 #8): a new order that adds exposure waits until the person has
+   * proved they own the account's email, read per order the same way as the trading restriction. wire.ts always passes it.
+   */
+  readonly emailProof?: EmailProofSource;
 }
 
 /**
@@ -2013,6 +2022,34 @@ export class UserVenueDoor {
     }
   }
 
+  /**
+   * A new order that adds exposure waits until the person has proved the account's email (J-identity-01 #8: "a plain gate
+   * saying the email must be proved first"), and while the proof can't be read. Nothing is prepared, stored or sent; a
+   * cancel and a reduce-only order still go, so nobody is trapped in a position.
+   */
+  private async assertEmailProved(userId: string, intent: VenueIntent): Promise<void> {
+    const source = this.deps.emailProof;
+    if (!source || !addsExposure(intent)) return;
+    let proof: Awaited<ReturnType<EmailProofSource['get']>>;
+    try {
+      proof = await source.get(userId);
+    } catch (err) {
+      if (!(err instanceof TradeError)) throw err;
+      throw new UserVenueDoorError(
+        'your email proof could not be read just now, so no new order is placed; nothing was signed or sent',
+        'trade.identity_unavailable',
+        503,
+      );
+    }
+    if (proof !== 'accepted') {
+      throw new UserVenueDoorError(
+        'prove your email before placing an order; nothing was signed or sent',
+        'trade.email_proof_required',
+        403,
+      );
+    }
+  }
+
   async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
     let intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
@@ -2187,6 +2224,7 @@ export class UserVenueDoor {
     if (finalIntent.kind === 'amend_order' || finalIntent.kind === 'replace_order') await this.assertNoRaise(venue, account, finalIntent);
     await this.assertOneWholeClose(venue, account, finalIntent);
     await this.assertNotRestricted(principal.userId, finalIntent);
+    await this.assertEmailProved(principal.userId, finalIntent);
     finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));
     // The person's own daily loss limit, on a fresh opening order of theirs. An agent account's orders keep its own
     // daily-loss cap on its own sub-account (agent-orders.ts #18). Refused here, before the venue prepares anything.
@@ -2463,6 +2501,7 @@ export class UserVenueDoor {
     // An order never sent yet is checked again: a restriction identity set since it was prepared refuses it, and a stop
     // or limit approved since then applies to it.
     if (!row.signature) await this.assertNotRestricted(principal.userId, row.prepared.intent);
+    if (!row.signature) await this.assertEmailProved(principal.userId, row.prepared.intent);
     if (!row.signature) await eachOrder(row.prepared.intent, (order) => this.admitPlace(row.prepared.venueId, order));
     if (!row.signature) {
       assertSignatureMatches(row.prepared, signature);

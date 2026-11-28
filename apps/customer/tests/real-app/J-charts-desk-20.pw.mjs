@@ -39,6 +39,11 @@ const run = journeyState(`${J}-${runId}`);
 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
+// #3 takes the market's history away on the venue (TEST switch); it is put back whatever happens.
+const keepAll = () => testVenue('/test/history-kept', { symbol: SYMBOL, fillsFrom: null, candlesFrom: null });
+test.afterAll(async () => {
+  await keepAll();
+});
 
 const tag = () => randomBytes(4).toString('hex');
 const bucket = minuteStart;
@@ -215,15 +220,22 @@ async function shownMarks(page) {
 
 const chart = (page) => page.getByTestId('trade-replay').getByRole('img', { name: /Price chart of/ });
 
+const rowOf = (page, v) => page.locator(`[data-testid="journal-row"][data-trade="${v.open.fillId}"]`);
+
+/** In Journal, opens the trade from its row and presses "Replay this trade" on it, as the person does. */
 async function openReplay(page, v) {
   const { account, walletKey } = state();
   await openVenuePage(page, account, '/trade/journal', walletKey);
-  const row = page.getByTestId('journal-trades').locator(`tr[data-trade="${v.open.fillId}"]`);
+  const row = rowOf(page, v);
   await expect(row).toBeVisible({ timeout: 30_000 });
   const figures = await row.locator('td').allInnerTexts();
-  await row.getByRole('link', { name: 'Replay this trade', exact: true }).click();
+  const storedAt = await row.getAttribute('data-stored-at');
+  await row.getByRole('link').first().click();
+  const detail = page.locator(`[data-testid="journal-trade"][data-trade="${v.open.fillId}"]`);
+  await expect(detail).toBeVisible({ timeout: 15_000 });
+  await detail.getByRole('link', { name: 'Replay this trade', exact: true }).click();
   await expect(page.getByTestId('trade-replay')).toHaveAttribute('data-trade', v.open.fillId, { timeout: 30_000 });
-  return { row: figures };
+  return { row: figures, storedAt };
 }
 
 test(`${J} #1 presses "Replay this trade" on the closed trade in Journal: the chart of its market in bar replay, its bars from the venue, stopped 10 bars before the entry bar, no marker of the trade yet`, async ({
@@ -287,17 +299,43 @@ test(`${J} #3 replays the older trade whose candles the venue no longer returns:
   page,
   stepPicture,
 }) => {
-  // The Starts line's older trade needs the TEST venue to stop returning a trade's fills and candles, as the venue does
-  // past the history it keeps, and the journal to keep its own record of them (J-portfolio-18). Neither is built: the
-  // control is asked for, and the step fails here until it answers.
-  const forgot = await testVenue('/test/forget-history', { symbol: SYMBOL });
-  expect(forgot.status, `the TEST venue's control to stop returning a trade's candles: ${JSON.stringify(forgot.body)}`).toBe(200);
+  test.setTimeout(240_000);
   const { owner } = state();
+  // The trade and its bars as the venue returned them, read before they go.
   const v = await venueTrade(owner);
-  await openReplay(page, v);
-  // Its bars come from the journal's own record, named with the time they were stored.
-  await expect(page.getByTestId('replay-source')).toContainText('stored');
-  await stepPicture();
+  const kept = v.candles.filter((t) => t <= v.exitBar);
+  // The Starts line's older trade: the venue keeps the market's fills and candles only from now on (TEST switch), as a
+  // venue past the history it keeps.
+  const now = new Date().toISOString();
+  expect((await testVenue('/test/history-kept', { symbol: SYMBOL, fillsFrom: now, candlesFrom: now })).status).toBe(200);
+  try {
+    const since = new Date(v.entryBar - BARS_BEFORE * MINUTE).toISOString();
+    const gone = await testVenue('/candles', { symbol: SYMBOL, interval: '1m', query: { limit: 720, since } });
+    expect(
+      gone.body.value.filter((c) => Date.parse(c.openAt) <= v.exitBar),
+      'the venue no longer returns its candles',
+    ).toEqual([]);
+    const { storedAt } = await openReplay(page, v);
+    // Its bars come from the journal's own record, named with the time they were stored: the trade's own stored time.
+    const source = page.getByTestId('replay-source');
+    await expect(source).toHaveAttribute('data-source', 'record');
+    await expect(source).toHaveAttribute('data-stored-at', storedAt ?? '');
+    await expect(source).toContainText(`stored ${new Date(storedAt ?? '').toISOString().replace('T', ' ').slice(0, 16)} UTC`);
+    await expect(source).toContainText('TEST');
+    // The bars kept are the venue's own 1m bars from 10 before the entry bar to the exit bar, stopped 10 bars before the
+    // entry bar: never a made-up chart.
+    await expect(page.getByTestId('replay-bars-none')).toHaveCount(0);
+    await expect(page.getByTestId('replay-position')).toHaveText(`Replay: bar ${v.start + 1} of ${kept.length}`);
+    await expect(chart(page)).toHaveAttribute('data-first', String(kept[0]));
+    await expect(chart(page)).toHaveAttribute('data-last', String(kept[v.start]));
+    // Stepped to the exit bar, the trade's marks appear on these bars as on the venue's.
+    for (let i = v.start + 1; i < kept.length; i += 1) await page.getByRole('button', { name: 'Step', exact: true }).click();
+    await expect(chart(page)).toHaveAttribute('data-last', String(v.exitBar));
+    await expect.poll(() => shownMarks(page)).toEqual(expectedMarks(v, v.exitBar));
+    await stepPicture();
+  } finally {
+    await keepAll();
+  }
 });
 
 test(`${J} #4 leaves replay: the live chart again; the journal trade and its figures unchanged`, async ({ page, stepPicture }) => {
@@ -315,19 +353,23 @@ test(`${J} #4 leaves replay: the live chart again; the journal trade and its fig
   await expect(page.getByTestId('replay-position')).toHaveCount(0);
   await stepPicture();
   // The journal trade, read again, is the same row with the same figures, and those are the venue's own.
-  // Back the way they came, on the same page and its TEST wallet: the replay, then the Journal.
+  // Back the way they came, on the same page and its TEST wallet: the replay, then the trade in Journal.
   await page.goBack();
   await expect(page).toHaveURL(/\/trade\/journal\?replay=/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/trade\/journal$/);
+  await expect(page).toHaveURL(/\/trade\/journal\?trade=/);
   await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
-  const row = page.getByTestId('journal-trades').locator(`tr[data-trade="${v.open.fillId}"]`);
+  const row = rowOf(page, v);
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => row.locator('td').allInnerTexts()).toEqual(before);
-  await expect.poll(async () => (await row.locator('td').allInnerTexts()).slice(1, 5)).toEqual([SYMBOL, 'Long', v.entry, v.exit]);
+  await expect(row).toHaveAttribute('data-source', 'venue');
+  await expect(row).toHaveAttribute('data-symbol', SYMBOL);
+  await expect(row).toHaveAttribute('data-side', 'long');
+  await expect(row.locator('[data-cell="entry"]')).toHaveText(v.entry);
+  await expect(row.locator('[data-cell="exit"]')).toHaveText(v.exit);
   const fees = toUnits(v.open.venueFee) + toUnits(v.open.builderFee) + toUnits(v.close.venueFee) + toUnits(v.close.builderFee);
   const net = toUnits(v.close.price) - toUnits(v.open.price) - fees;
-  await expect(row.locator('[data-net]')).toHaveAttribute('data-net', fromUnits(net));
+  await expect(row.locator('[data-cell="net"]')).toHaveText(`${fromUnits(net)} ${v.close.feeAsset}`);
   expect(
     (await venueRecord(owner, '/fills', { since: new Date(Date.now() - 86_400_000).toISOString() })).value.filter(
       (f) => f.symbol === SYMBOL,

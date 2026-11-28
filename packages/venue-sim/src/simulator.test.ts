@@ -740,9 +740,34 @@ describe('TEST venue simulator: review regressions', () => {
     expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, perp('sell', '61000', '0.1', 'order:t:r5r', { reduceOnly: true })))).toBe(
       'not_offered',
     );
-    const flip = await w.run(w.wallet, w.trader, perp('sell', '60000', '0.2', 'order:t:r5f'));
-    expect(flip.outcome.definite && !flip.outcome.accepted && flip.outcome.refusal.code).toBe('not_offered');
     expect((await w.sim.positions(w.trader)).value.map((p) => [p.side, p.size])).toEqual([['long', a('0.1')]]);
+  });
+
+  it('an opening order against a position nets through zero: one fill closes it and opens the other side, the fee split by amount', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r8');
+    w.sim.deposit(w.other, 'USDC', a('100000'), 'chain:o:r8');
+    await w.run(w.wallet, w.trader, tenX);
+    await w.run(w.otherWallet, w.other, tenX);
+    await w.run(w.otherWallet, w.other, perp('sell', '60000', '0.1', 'order:o:r8'));
+    await w.run(w.wallet, w.trader, perp('buy', '60000', '0.1', 'order:t:r8'));
+    // Both flip on one fill: the other's resting buy of 0.3 turns its short long, the trader's sell of 0.3 its long short.
+    const makerFlip = await w.run(w.otherWallet, w.other, perp('buy', '61000', '0.3', 'order:o:r8f'));
+    const before = balanceOf((await w.sim.balances(w.trader)).value, 'USDC').total;
+    const takerFlip = await w.run(w.wallet, w.trader, perp('sell', '61000', '0.3', 'order:t:r8f', { timeInForce: 'IOC' }));
+    expect((await w.sim.positions(w.trader)).value.map((p) => [p.side, p.size, p.entryPrice])).toEqual([['short', a('0.2'), a('61000')]]);
+    expect((await w.sim.positions(w.other)).value.map((p) => [p.side, p.size, p.entryPrice])).toEqual([['long', a('0.2'), a('61000')]]);
+    const [fill] = (await w.sim.fills(w.trader, new Date(0))).value.filter(
+      (f) => f.venueClientOrderId === takerFlip.prepared.venueClientOrderId,
+    );
+    expect(fill).toMatchObject({ side: 'sell', amount: a('0.3'), price: a('61000'), realisedPnl: a('100') });
+    const [makerFill] = (await w.sim.fills(w.other, new Date(0))).value.filter(
+      (f) => f.venueClientOrderId === makerFlip.prepared.venueClientOrderId,
+    );
+    expect(makerFill?.realisedPnl).toBe(a('-100'));
+    // The account's total moves by the closed part's result less the whole fill's fee; the new short's margin stays in it.
+    const after = balanceOf((await w.sim.balances(w.trader)).value, 'USDC').total;
+    expect(after).toBe(sub(add(before, a('100')), add(fill!.venueFee, fill!.builderFee)));
   });
 
   it('nonces keep rising when the clock stands still', async () => {

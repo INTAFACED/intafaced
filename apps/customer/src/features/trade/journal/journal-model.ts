@@ -14,20 +14,37 @@ export interface EquityPoint {
 /**
  * The two lines of J-portfolio-19 #1, from the journal's own trades (svc-trade works out each trade's rules result,
  * record `@intafaced/contracts/trade-journal-procedures`): oldest closed first, each point the running totals after that
- * trade. The gap is the rules line's end less what was made, as the service's own totals give it.
+ * trade. Only trades with both results known are drawn (`left` counts the rest: a net the venue did not report, or a
+ * rules result named incomplete), so both lines run over the same trades and the gap is the rules line's end less what
+ * was made.
  */
-export function equityOf(journal: TradeJournal): { points: readonly EquityPoint[]; made: string; rules: string; gap: string } {
+export function equityOf(journal: TradeJournal): {
+  points: readonly EquityPoint[];
+  made: string;
+  rules: string;
+  gap: string;
+  left: number;
+} {
   const ordered = [...journal.trades].sort((a, b) => Date.parse(a.closedAt) - Date.parse(b.closedAt));
   let made = ZERO;
   let rules = ZERO;
-  const points = ordered.map((trade) => {
+  const points = ordered.flatMap((trade) => {
+    if (trade.netPnl === null || trade.rules.netPnl === null) return [];
     made = add(made, parseAmount(trade.netPnl));
     rules = add(rules, parseAmount(trade.rules.netPnl));
-    return { trade, at: trade.closedAt, made: formatAmount(made), rules: formatAmount(rules) };
+    return [{ trade, at: trade.closedAt, made: formatAmount(made), rules: formatAmount(rules) }];
   });
-  const gap = formatAmount(sub(parseAmount(journal.totals.rulesNetPnl), parseAmount(journal.totals.netPnl)));
-  return { points, made: journal.totals.netPnl, rules: journal.totals.rulesNetPnl, gap };
+  return {
+    points,
+    made: formatAmount(made),
+    rules: formatAmount(rules),
+    gap: formatAmount(sub(rules, made)),
+    left: ordered.length - points.length,
+  };
 }
+
+/** A trade's fees: the venue's and our builder fee, each as the venue reports it. */
+export const feesOf = (trade: JournalTrade): string => formatAmount(add(parseAmount(trade.venueFees), parseAmount(trade.builderFees)));
 
 /** Where each line is drawn, in a 1000 by 240 plot: x by the point's place in time order, y on one scale for both lines. */
 export function equityPlaces(points: readonly EquityPoint[]) {
@@ -53,5 +70,5 @@ export function equityPlaces(points: readonly EquityPoint[]) {
 /** The figures the "how it was worked out" view names for one trade on the rules line. */
 export function minusOneRLessFees(trade: JournalTrade): string | null {
   if (trade.rules.oneR === null) return null;
-  return formatAmount(sub(sub(ZERO, parseAmount(trade.rules.oneR)), parseAmount(trade.fees)));
+  return formatAmount(sub(sub(ZERO, parseAmount(trade.rules.oneR)), parseAmount(feesOf(trade))));
 }

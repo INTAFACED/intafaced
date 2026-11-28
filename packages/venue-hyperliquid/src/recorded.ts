@@ -17,7 +17,11 @@ import type { FetchLike } from './core.js';
  *   · the signature is dropped; nonces, action times and read windows (`nonce`, `time`, `startTime`, `endTime`,
  *     `expiresAfter`) are `<volatile>`;
  *   · a client order id (16 bytes of hex) is the recorded one it was paired with at an earlier write, else `<cloid>`; a
- *     replayed write pairs the recorded ids with the current ones, and every later answer carries the current ids.
+ *     replayed write pairs the recorded ids with the current ones, and every later answer carries the current ids;
+ *   · an approved agent (`approveAgent`'s `agentAddress`, a key made fresh each run) is paired the same way, else
+ *     `<agent>`, and the expiry its name carries (`<name> valid_until <ms>`, taken from the run's clock) is `<volatile>`:
+ *     a replayed approval pairs the recorded address and expiry with the current ones, so the agent list answered
+ *     after it names this run's agent, valid until this run's expiry.
  * Writes order time: each read belongs to its epoch, the number of writes recorded before it. A read answers the last
  * recorded answer to its key at the latest epoch not after the current one, so reads may come in any order and number
  * (the service's and a journey's own), and a poll sees the state its epoch settled on. Writes answer in recorded order.
@@ -93,9 +97,12 @@ function answer(call: HlRecordedCall): Awaited<ReturnType<FetchLike>> {
 export const TRADER = '<trader>';
 const VOLATILE = '<volatile>';
 const UNPAIRED_CLOID = '<cloid>';
+const UNPAIRED_AGENT = '<agent>';
 const VOLATILE_KEYS = new Set(['nonce', 'time', 'startTime', 'endTime', 'expiresAfter']);
 const CLOID_RE = /^0x[0-9a-f]{32}$/i;
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
+/** An agent name's expiry, as the venue reads it (venue.ts EXPIRY_IN_NAME). */
+const AGENT_EXPIRY_RE = /^(.*) valid_until (\d+)$/;
 
 /**
  * One request a replay had no answer for: its path, the epoch it came in and its key. `otherAccount` is true only when
@@ -137,6 +144,10 @@ function showTrader(value: unknown, trader: string): unknown {
 export function requestKey(path: HlRecordedPath, request: unknown, pairedAs: (cloid: string) => string | undefined): string {
   const walk = (value: unknown, key: string | null, top: boolean): unknown => {
     if (key !== null && VOLATILE_KEYS.has(key)) return VOLATILE;
+    if (key === 'agentAddress' && typeof value === 'string' && ADDRESS_RE.test(value))
+      return pairedAs(value.toLowerCase()) ?? UNPAIRED_AGENT;
+    if (key === 'agentName' && typeof value === 'string' && AGENT_EXPIRY_RE.test(value))
+      return value.replace(AGENT_EXPIRY_RE, `$1 valid_until ${VOLATILE}`);
     if (typeof value === 'string') return CLOID_RE.test(value) ? (pairedAs(value.toLowerCase()) ?? UNPAIRED_CLOID) : value;
     if (Array.isArray(value)) return value.map((v) => walk(v, null, false));
     if (isRecord(value))
@@ -150,15 +161,36 @@ export function requestKey(path: HlRecordedPath, request: unknown, pairedAs: (cl
   return `${path} ${canonicalJson(walk(request, null, true))}`;
 }
 
-/** Each client order id in `recorded` paired with the one at the same place in `current`. */
-function pairCloids(recorded: unknown, current: unknown, into: Map<string, string>): void {
-  if (typeof recorded === 'string' && typeof current === 'string') {
-    if (CLOID_RE.test(recorded) && CLOID_RE.test(current)) into.set(recorded.toLowerCase(), current.toLowerCase());
-  } else if (Array.isArray(recorded) && Array.isArray(current)) {
-    recorded.forEach((r, i) => pairCloids(r, current[i], into));
-  } else if (isRecord(recorded) && isRecord(current)) {
-    for (const [k, r] of Object.entries(recorded)) pairCloids(r, current[k], into);
-  }
+/** What a replayed write pairs: each recorded id or agent with the current one, and each agent expiry. */
+interface Pairs {
+  readonly ids: Map<string, string>;
+  readonly expiries: Map<number, number>;
+}
+
+/** Each client order id and approved agent in `recorded` paired with the one at the same place in `current`. */
+function pairCloids(recorded: unknown, current: unknown, into: Pairs): void {
+  const walk = (r: unknown, c: unknown, key: string | null): void => {
+    if (typeof r === 'string' && typeof c === 'string') {
+      if (CLOID_RE.test(r) && CLOID_RE.test(c)) into.ids.set(r.toLowerCase(), c.toLowerCase());
+      if (key === 'agentAddress' && ADDRESS_RE.test(r) && ADDRESS_RE.test(c)) into.ids.set(r.toLowerCase(), c.toLowerCase());
+      const re = key === 'agentName' ? AGENT_EXPIRY_RE.exec(r) : null;
+      const ce = key === 'agentName' ? AGENT_EXPIRY_RE.exec(c) : null;
+      if (re && ce) into.expiries.set(Number(re[2]), Number(ce[2]));
+    } else if (Array.isArray(r) && Array.isArray(c)) {
+      r.forEach((v, i) => walk(v, c[i], null));
+    } else if (isRecord(r) && isRecord(c)) {
+      for (const [k, v] of Object.entries(r)) walk(v, c[k], k);
+    }
+  };
+  walk(recorded, current, null);
+}
+
+/** Every number in `value` through `swap`. */
+function swapNumbers(value: unknown, swap: (n: number) => number): unknown {
+  if (typeof value === 'number') return swap(value);
+  if (Array.isArray(value)) return value.map((v) => swapNumbers(v, swap));
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, swapNumbers(v, swap)]));
+  return value;
 }
 
 function addressesIn(value: unknown, into: Set<string>): void {
@@ -167,10 +199,12 @@ function addressesIn(value: unknown, into: Set<string>): void {
   else if (isRecord(value)) Object.values(value).forEach((v) => addressesIn(v, into));
 }
 
-function cloidsIn(value: unknown, into: Set<string>): void {
-  if (typeof value === 'string' && CLOID_RE.test(value)) into.add(value.toLowerCase());
+/** Each client order id and approved agent address in `value`: what a write pairs. */
+function cloidsIn(value: unknown, into: Set<string>, key: string | null = null): void {
+  if (typeof value === 'string' && (CLOID_RE.test(value) || (key === 'agentAddress' && ADDRESS_RE.test(value))))
+    into.add(value.toLowerCase());
   else if (Array.isArray(value)) value.forEach((v) => cloidsIn(v, into));
-  else if (isRecord(value)) Object.values(value).forEach((v) => cloidsIn(v, into));
+  else if (isRecord(value)) Object.entries(value).forEach(([k, v]) => cloidsIn(v, into, k));
 }
 
 /**
@@ -202,6 +236,7 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
   }
   const toCurrent = new Map<string, string>();
   const toRecorded = new Map<string, string>();
+  const expiryNow = new Map<number, number>();
   const misses: ReplayMiss[] = [];
   /** Addresses asked about before the run's trader or any write came in: the stack's, not this run's. */
   const earlier = new Set<string>();
@@ -220,7 +255,7 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
       const next = writes[epoch];
       if (next && next.key === key) {
         const pairs = new Map<string, string>();
-        pairCloids(next.call.request, request, pairs);
+        pairCloids(next.call.request, request, { ids: pairs, expiries: expiryNow });
         for (const [recorded, current] of pairs) {
           toCurrent.set(recorded, current);
           toRecorded.set(current, recorded);
@@ -236,7 +271,10 @@ export function replayRecording(recording: HlRecording, opts: { trader?: string 
       misses.push({ path, epoch, key, otherAccount });
       throw new NotRecordedError(path, request);
     }
-    const swapped = swapStrings(found.answer, (s) => (CLOID_RE.test(s) ? (toCurrent.get(s.toLowerCase()) ?? s) : s));
+    const swapped = swapNumbers(
+      swapStrings(found.answer, (s) => (CLOID_RE.test(s) || ADDRESS_RE.test(s) ? (toCurrent.get(s.toLowerCase()) ?? s) : s)),
+      (n) => expiryNow.get(n) ?? n,
+    );
     return answer({ ...found, answer: show(swapped) });
   };
   const replaying: ReplayFetch = Object.assign(replay, { misses });

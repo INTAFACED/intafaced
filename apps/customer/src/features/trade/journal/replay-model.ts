@@ -46,7 +46,7 @@ const barOf = (at: number, stepMs: number) => Math.floor(at / stepMs) * stepMs;
 
 /** The plan of a replay with venue bars; `null` when the record has none (the venue no longer returns them). */
 export function replayPlan(replay: TradeReplay): ReplayPlan | null {
-  if (replay.bars.source !== 'venue') return null;
+  if (replay.bars.source === 'none') return null;
   const step = STEP_MS[replay.interval];
   if (step === undefined) return null;
   const bars: Candle[] = replay.bars.candles.map((c) => ({
