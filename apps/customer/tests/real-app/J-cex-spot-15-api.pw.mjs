@@ -12,13 +12,15 @@ import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { ledgerView } from './venue-door.mjs';
+import { ownSpotMarket } from './own-market.mjs';
 import {
   openVenueDesk,
   openVenuePage,
   sameDecimal,
   shownBalance,
   testDeposit,
-  testVenue,
+  otherTraderKey,
+  otherTraderRun,
   venueBalance,
   venueInfo,
   venueForThisFile,
@@ -298,11 +300,15 @@ test(`${J} #5 places an order with a client id through our API, looks it up by c
   await stepPicture();
 });
 
+/** The demo trade: a TEST buy of this many TEST coins at this TEST price, against one other TEST trader's resting sell. */
+const DEMO = { amount: '0.1', price: '100' };
+const DEMO_MAKER = 'cs15-demo-maker';
+
 test(`${J} #8 trades in the demo environment: TEST assets only, labelled; no ledger entry for real money`, async ({
   page,
   stepPicture,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const s = state();
   // ── The demo environment, as the bot reads it with its key: the stack's TEST venue, labelled TEST, nothing in our ledger ──
   const venue = await venueInfo();
@@ -317,14 +323,42 @@ test(`${J} #8 trades in the demo environment: TEST assets only, labelled; no led
     ledger: 'none',
   });
   expect(demo.body.proofLevel).not.toBe('live');
+
+  // TEST setup: a TEST market of this step's own (no other file trades it), and one other TEST trader resting a sell on it.
+  const market = await ownSpotMarket(J, 'CSD', 'A');
+  const makerOwner = otherTraderKey(DEMO_MAKER).address.toLowerCase();
+  expect(await testDeposit(makerOwner, market.base, '1', depositRef())).toBe(true);
+  const resting = await otherTraderRun(DEMO_MAKER, {
+    kind: 'place_order',
+    symbol: market.symbol,
+    side: 'sell',
+    type: 'limit',
+    amount: DEMO.amount,
+    price: DEMO.price,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    builderFee: null,
+    clientOrderKey: `${J}:demo-maker:${RUN}:${test.info().retry}:${Date.now().toString(36)}`,
+  });
+  expect(resting.outcome ?? resting, JSON.stringify(resting).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   const ledgerBefore = await ledgerView(s.who);
-  const btcBefore = await venueBalance(s.owner, 'BTC');
+  const baseBefore = await venueBalance(s.owner, market.base);
   const usdcBefore = await venueBalance(s.owner, 'USDC');
 
-  // ── A buy that trades at once: at the TEST venue's best ask, immediate-or-cancel, signed by the agent key in the demo ──
-  const ask = (await testVenue('/best-prices', { symbol: SYMBOL })).body.value.ask;
+  // ── The bot's buy in the demo, immediate-or-cancel at the resting price, signed by the agent key ──
   const clientId = `demo:${RUN}:${test.info().retry}:${Date.now().toString(36)}`;
-  const intent = { ...buy(clientId), price: ask, timeInForce: 'IOC' };
+  const intent = {
+    kind: 'place_order',
+    symbol: market.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: DEMO.amount,
+    price: DEMO.price,
+    timeInForce: 'IOC',
+    reduceOnly: false,
+    builderFee: null,
+    clientOrderKey: clientId,
+  };
   const prepared = await withKey(s.key, {
     method: 'POST',
     path: '/api/v1/venue/prepare',
@@ -344,7 +378,7 @@ test(`${J} #8 trades in the demo environment: TEST assets only, labelled; no led
   expect(sent.body).toMatchObject({ environment: 'demo', test: true, outcome: { definite: true, accepted: true } });
   const cloid = prepared.body.prepared.venueClientOrderId;
   const found = await lookUp(s, clientId);
-  expect(found.body.value).toMatchObject({ venueClientOrderId: cloid, status: 'filled', symbol: SYMBOL, side: 'buy' });
+  expect(found.body.value).toMatchObject({ venueClientOrderId: cloid, status: 'filled', symbol: market.symbol, side: 'buy' });
 
   // ── TEST assets only: the trade moved the account's TEST balances on the TEST venue by exactly its fills ──
   const fills = (await venueRecord(s.owner, '/fills', { since: '2020-01-01T00:00:00.000Z' })).value.filter(
@@ -353,15 +387,15 @@ test(`${J} #8 trades in the demo environment: TEST assets only, labelled; no led
   expect(fills.length).toBeGreaterThan(0);
   const sum = (pick) => fills.reduce((n, f) => n + pick(f), 0n);
   const fee = (asset) => sum((f) => (f.feeAsset === asset ? toUnits(f.venueFee) + toUnits(f.builderFee) : 0n));
-  expect(sum((f) => toUnits(f.amount))).toBe(toUnits(BUY.amount));
-  const btcAfter = await venueBalance(s.owner, 'BTC');
+  expect(sum((f) => toUnits(f.amount))).toBe(toUnits(DEMO.amount));
+  const baseAfter = await venueBalance(s.owner, market.base);
   const usdcAfter = await venueBalance(s.owner, 'USDC');
-  expect(toUnits(btcAfter.total) - toUnits(btcBefore.total)).toBe(toUnits(BUY.amount) - fee('BTC'));
+  expect(toUnits(baseAfter.total) - toUnits(baseBefore.total)).toBe(toUnits(DEMO.amount) - fee(market.base));
   expect(toUnits(usdcBefore.total) - toUnits(usdcAfter.total)).toBe(sum((f) => times(f.price, f.amount)) + fee('USDC'));
   // The bot reads the same TEST balances through our API on the demo venue: the venue's own figures.
   const read = await withKey(s.key, { path: `/api/v1/venue/balances?owner=${s.owner}&venueId=${demo.body.venueId}` });
   expect(read.status, JSON.stringify(read.body)).toBe(200);
-  expect(read.body.value.find((b) => b.asset === 'BTC').total).toBe(btcAfter.total);
+  expect(read.body.value.find((b) => b.asset === market.base).total).toBe(baseAfter.total);
   expect(read.body.value.find((b) => b.asset === 'USDC').total).toBe(usdcAfter.total);
 
   // ── No ledger entry for real money: the person's balances in our ledger are as they were before the demo trade ──
@@ -369,7 +403,7 @@ test(`${J} #8 trades in the demo environment: TEST assets only, labelled; no led
 
   // ── The step ends on the demo trade as the person sees it: its order page, filled, labelled TEST ──
   await openVenuePage(page, s.who, `/trade/orders/${cloid}`, s.walletKey);
-  await expect(orderHeading(page)).toContainText(`Buy ${SYMBOL}`);
+  await expect(orderHeading(page)).toContainText(`Buy ${market.symbol}`);
   await expect(orderHeading(page).locator('[data-cell="status"]')).toHaveText('Filled', { timeout: 30_000 });
   await expect(orderHeading(page).getByTestId('venue-test')).toHaveText('TEST');
   await expect(page.getByTestId('venue-order-fill')).toHaveCount(fills.length);
