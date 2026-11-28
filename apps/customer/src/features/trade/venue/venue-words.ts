@@ -66,6 +66,8 @@ export function outcomeText(t: T, result: ActionResult): string {
     case 'refused':
       // The same client order id with a changed order (J-cex-spot-02 #5): refused at prepare, so nothing was signed.
       if (result.code === 'idempotency.conflict') return t('Outcome id conflict');
+      // Our door holds a new order until the email is proved (J-identity-01 #8): our refusal, never the venue's.
+      if (result.code === 'trade.email_proof_required') return t('Outcome email proof');
       return result.beforeWallet && /step_up/.test(result.code ?? '')
         ? t('Outcome step up', { detail: result.message })
         : t('Outcome refused', { detail: result.message });
