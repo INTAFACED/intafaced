@@ -650,6 +650,7 @@ test(`${J} #8 a verified account with TEST money on its own venue account and an
   // The file's own TEST market on the venue: its book is empty and only this step trades it.
   const { symbol, base } = await ownSpotMarket(J, 'JI', 'E');
   const desk = `/trade/spot/${symbol}`;
+  await doorKnows(who, owner, symbol);
   const wallet = await openVenueDesk(page, who, desk, walletKey);
   const signatures = () => wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').length;
 
@@ -710,27 +711,44 @@ test(`${J} #8 a verified account with TEST money on its own venue account and an
 
 /**
  * A TEST limit buy of 1 `base` at 10 USDC typed, reviewed and confirmed on the venue desk of the file's own market, whose
- * empty book only this step trades, so it rests; the door's prepare answer. A market listed a moment ago may not be in our
- * door's market list yet (user-venue-door.ts MARKET_MISS_REREAD_MS), so the preview is asked again until it answers.
+ * empty book only this step trades, so it rests; the door's prepare answer.
  */
 async function confirmVenueBuy(page, base, { sign = false } = {}) {
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
   const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
   await form.getByRole('textbox', { name: 'Price', exact: true }).fill('10');
-  const amount = form.getByRole('textbox', { name: 'Amount', exact: true });
-  await expect(async () => {
-    await amount.fill('');
-    const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-    await amount.fill('1');
-    const res = await answer;
-    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
-  }).toPass({ timeout: 30_000, intervals: [2_000] });
+  const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+  await form.getByRole('textbox', { name: 'Amount', exact: true }).fill('1');
+  expect((await preview).status()).toBe(200);
   await page.getByRole('button', { name: `Buy ${base}`, exact: true }).click();
   await expect(reviewSheet(page)).toBeVisible();
   const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   if (sign) await continueInWallet(page);
   return prepared;
+}
+
+/**
+ * Waits until our door previews an order on a market listed a moment ago: it re-reads the venue's market list on a miss,
+ * at most every few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS). Asked as the person's own API, so the desk opens
+ * on a market the door already knows. A preview sends nothing and holds nothing.
+ */
+async function doorKnows(who, owner, symbol) {
+  const session = await api(who);
+  const intent = {
+    kind: 'place_order',
+    symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '1',
+    price: '10',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    builderFee: null,
+  };
+  await expect
+    .poll(async () => (await session.post('/api/v1/venue/preview', { owner, intent })).status, { timeout: 30_000, intervals: [2_000] })
+    .toBe(200);
 }
 
 /** Identity restarted with no blocked list at all (no list, no rows, fail-closed on), or back on the stack's own list. */
