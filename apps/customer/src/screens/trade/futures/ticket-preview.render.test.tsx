@@ -62,7 +62,9 @@ vi.mock('../../../features/trade/venue/VenueKit', async (original) => {
 });
 
 vi.mock('../../../features/trade', () => ({ ActionLimitWarning: () => null }));
-vi.mock('../../../features/session', () => ({ useApi: () => ({}), useSession: () => ({ api: {}, userId: 'u1' }) }));
+// The venue header's email notice asks identity once; never answered here, so it stays hidden and nothing else is asked.
+const quietApi = { call: () => new Promise(() => {}) };
+vi.mock('../../../features/session', () => ({ useApi: () => ({}), useSession: () => ({ api: quietApi, userId: 'u1' }) }));
 vi.mock('../../../shared/resource', () => ({ useResource: () => ({ resource: { status: 'loading' }, reload: vi.fn() }) }));
 vi.mock('./VenueAccount', () => ({ VenueAccount: () => null }));
 vi.mock('./VenueFunding', () => ({ VenueFunding: () => null }));
