@@ -811,3 +811,342 @@ export const otcConvertQuoteAnswer = z.object({
   ...otcQuoteFields,
   settleWindowMs: z.number().nullable(),
 });
+
+/**
+ * Closed set for the customer desk and blank-law refusals.
+ * TRD-0722 names no code for an unmounted copy service, so that case is `trade.copy_unavailable`.
+ */
+export const COPY_DESK_BLOCKER_CODES = [
+  'trade.copy_fee_share_blank',
+  'trade.copy_jurisdiction_blank',
+  'trade.copy_place_disabled',
+  'trade.copy_unavailable',
+] as const;
+
+export type CopyDeskBlockerCode = (typeof COPY_DESK_BLOCKER_CODES)[number];
+
+export const blockerCode = z.enum(COPY_DESK_BLOCKER_CODES as unknown as [CopyDeskBlockerCode, ...CopyDeskBlockerCode[]]);
+
+export const copyDeskStatusOutput = z.object({
+  sovereign: z.object({
+    shape: z.literal('sovereign'),
+    custody: z.literal(false),
+    feeModel: z.literal('protocol_fee_share'),
+    pnlFeeForbidden: z.literal(true),
+    rankingForbidden: z.literal(true),
+    killUnfollowReal: z.literal(true),
+  }),
+  feeSharePublished: z.boolean(),
+  leaderShareBps: z.string().nullable(),
+  jurisdictionPublished: z.boolean(),
+  blockers: z.array(z.object({ code: blockerCode })),
+  autoMirrorPlace: z.object({
+    published: z.boolean(),
+    socket: z.string(),
+  }),
+  /** The owner's minimum investment per follow in the quote asset; null when unpublished (every follow refuses). */
+  minInvestment: z.string().nullable(),
+});
+
+export const copyListMyFollowsAnswer = z.array(copyFollowAnswer);
+
+export function wireEnum<T extends string>(values: readonly [T, ...T[]]) {
+  return z.enum(values as [T, ...T[]]);
+}
+
+export const COPY_RELATIONSHIP_STATES = ['ACTIVE', 'PAUSED', 'STOPPING', 'CLOSE_ONLY', 'DETACHED'] as const;
+
+export const relationshipState = wireEnum(COPY_RELATIONSHIP_STATES);
+
+export function controlOutput<T extends string>(disposition: readonly [T, ...T[]]) {
+  return z.object({
+    followId: z.string(),
+    relationshipState,
+    disposition: wireEnum(disposition),
+    newIntentFenced: z.boolean(),
+    flattenInvented: z.literal(false),
+    sessionKeyRevoked: z.boolean(),
+  });
+}
+
+export const COPY_CONTROL_DISPOSITIONS = ['PAUSE_NEW', 'STOP_NEW', 'STOP_CLOSE_ONLY', 'DETACH_KEEP', 'RESUME'] as const;
+
+export const COPY_PAUSE_DISPOSITIONS = ['PAUSE_NEW'] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
+
+export const copyPauseOutput = controlOutput(COPY_PAUSE_DISPOSITIONS);
+
+export const COPY_STOP_DISPOSITIONS = [
+  'STOP_NEW',
+  'STOP_CLOSE_ONLY',
+] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
+
+export const copyStopOutput = controlOutput(COPY_STOP_DISPOSITIONS);
+
+export const COPY_DETACH_DISPOSITIONS = ['DETACH_KEEP'] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
+
+export const copyDetachOutput = controlOutput(COPY_DETACH_DISPOSITIONS);
+
+export const COPY_RESUME_DISPOSITIONS = ['RESUME'] as const satisfies readonly (typeof COPY_CONTROL_DISPOSITIONS)[number][];
+
+export const copyResumeOutput = controlOutput(COPY_RESUME_DISPOSITIONS);
+
+/**
+ * A held figure (leader-listing.ts `Held`): the set form is tried first. Only it has a non-null value, so a figure
+ * with no record (value null) never reads as set and falls to the second form.
+ */
+export const heldText = z.union([
+  z.object({ value: z.string(), reason: z.null() }),
+  z.object({ value: z.null(), reason: z.literal('no_published_record') }),
+]);
+
+export const leaderDirectoryRowAnswer = z.object({
+  leaderRef: z.string(),
+  displayName: z.string(),
+  marketMode: z.enum(['spot', 'futures', 'bot', 'signal']),
+  recordKind: z.enum(['verified_live', 'paper', 'backtest', 'imported', 'self_reported']),
+  tenureStart: z.string().nullable(),
+  assets: z.array(z.string()).readonly(),
+  strategyVersion: z.string().nullable(),
+  publishedReturn: heldText,
+  maximumDrawdown: heldText,
+  windowStart: heldText,
+  windowEnd: heldText,
+  // The set form first, as in heldText: only it has a non-null value.
+  netOfCosts: z.union([
+    z.object({ value: z.boolean(), reason: z.null() }),
+    z.object({ value: z.null(), reason: z.literal('no_published_record') }),
+  ]),
+  copiersCount: z.number(),
+  capacity: z.union([
+    z.object({ value: z.number(), reason: z.null() }),
+    z.object({ value: z.null(), reason: z.literal('capacity_unpublished') }),
+  ]),
+  leaderShareBps: z.union([
+    z.object({ value: z.string(), reason: z.null() }),
+    z.object({ value: z.null(), reason: z.literal('leader_share_unpublished') }),
+  ]),
+});
+
+export const copyListLeadersAnswer = z.object({
+  leaders: z.array(leaderDirectoryRowAnswer).readonly(),
+  nextCursor: z.string().nullable(),
+});
+
+export const copyLeaderProfileAnswer = z.object({
+  leader: leaderDirectoryRowAnswer,
+  status: z.enum(['listed', 'suspended', 'delisted', 'unknown']),
+  definitionsVersion: z.string().nullable(),
+  metrics: z
+    .array(
+      z.object({
+        key: z.enum(['publishedReturn', 'maximumDrawdown', 'winRate', 'sharpeRatio']),
+        value: z.string().nullable(),
+        reason: z.enum(['no_published_record', 'definition_unpublished', 'not_held']).nullable(),
+        definition: z.string().nullable(),
+      }),
+    )
+    .readonly(),
+});
+
+export const copyFollowPositionsAnswer = z.object({
+  positions: z.array(
+    z.object({
+      orderId: z.string(),
+      market: z.string(),
+      side: z.enum(['buy', 'sell']),
+      qty: z.string(),
+      filledQty: z.string(),
+      price: z.string(),
+      status: z.string(),
+      placedAt: z.string(),
+      venue: z
+        .object({
+          venueName: z.string(),
+          test: z.boolean(),
+          asOf: z.string(),
+          placedBy: z.string(),
+          fills: z
+            .array(
+              z.object({
+                fillId: z.string(),
+                amount: z.string(),
+                price: z.string(),
+                venueFee: z.string(),
+                builderFee: z.string(),
+                feeAsset: z.string(),
+                filledAt: z.string(),
+              }),
+            )
+            .readonly(),
+        })
+        .optional(),
+    }),
+  ),
+});
+
+export const copyCopiedPositionsAnswer = z.object({
+  positions: z.array(
+    z.object({
+      positionId: z.string(),
+      market: z.string(),
+      bought: z.string(),
+      open: z.string(),
+      closing: z.string(),
+      status: z.enum(['open', 'closed', 'buying', 'closing']),
+      placedAt: z.string(),
+      reportedBy: z.object({ venue: z.string(), test: z.boolean(), asOf: z.string() }).optional(),
+    }),
+  ),
+  markets: z.array(
+    z.object({
+      market: z.string(),
+      fills: z.number().nullable(),
+      filled: z.string().nullable(),
+      open: z.string(),
+      averageEntry: z.string().nullable(),
+      funding: z.null(),
+    }),
+  ),
+});
+
+export const COPY_FLATTEN_DISPOSITION = 'DETACH_FLATTEN' as const;
+
+export const COPY_FLATTEN_WIRE_DISPOSITIONS = [COPY_FLATTEN_DISPOSITION] as const;
+
+export const copyFlattenOutput = z.object({
+  followId: z.string(),
+  relationshipState: z.literal('DETACHED'),
+  disposition: wireEnum(COPY_FLATTEN_WIRE_DISPOSITIONS),
+  newIntentFenced: z.literal(true),
+  flattenChosen: z.literal(true),
+  flattenInvented: z.literal(false),
+  sessionKeyRevoked: z.literal(true),
+  orderIds: z.array(z.string()).readonly(),
+});
+
+export const midFeedSocket = z.literal('socket.otc-mid-feed');
+
+/**
+ * The desk's mid feed. The wired form is tried first: only it has `wiring`, so a plain status never reads as one, and a
+ * wired status is never stripped of it. The two plain forms differ in their `published` literal.
+ */
+export const otcMidFeedAnswer = z.union([
+  z.object({
+    wiring: z.enum(['flag_off', 'flag_on_venue_unwired', 'flag_on_symbol_map_empty', 'live_observation']),
+    published: z.boolean(),
+    socket: midFeedSocket,
+    residual: z.string().nullable(),
+    bootMapAllowed: z.boolean(),
+    liveObservationFeed: z.boolean(),
+  }),
+  z.object({
+    published: z.literal(true),
+    socket: midFeedSocket,
+    residual: z.null(),
+    bootMapAllowed: z.literal(false),
+    liveObservationFeed: z.literal(true),
+  }),
+  z.object({
+    published: z.literal(false),
+    socket: midFeedSocket,
+    residual: z.string(),
+    bootMapAllowed: z.literal(true),
+    liveObservationFeed: z.literal(false),
+  }),
+]);
+
+export const otcDeskStatusAnswer = z.object({
+  published: z.boolean(),
+  statusLine: z.string(),
+  residual: z.string().nullable(),
+  assets: z.array(z.string()).readonly().nullable(),
+  minTier: z.enum(['basic', 'full', 'institutional']).nullable(),
+  makerRouting: z.object({ published: z.literal(false), socket: z.literal('socket.otc-maker-routing'), residual: z.string() }),
+  midFeed: otcMidFeedAnswer,
+  residuals: z.object({
+    deskLaw: z.string().nullable(),
+    assets: z.string().nullable(),
+    minTier: z.string().nullable(),
+    makerRouting: z.string(),
+    midFeed: z.string().nullable(),
+  }),
+});
+
+export const rfqQuoteAnswer = z.object({
+  ...firmRfqFields,
+  quotes: z.array(z.object({ ...otcQuoteFields, rank: z.number() })),
+});
+
+export const rfqBoardStatus = z.enum(['open', 'accepted', 'settled', 'expired']);
+
+export const rfqBoardAnswer = z.object({
+  groups: z
+    .array(
+      z.object({
+        status: rfqBoardStatus,
+        count: z.number(),
+        requests: z
+          .array(
+            z.object({
+              rfqId: z.string(),
+              status: rfqBoardStatus,
+              side: z.enum(['buy', 'sell']),
+              baseAsset: z.string(),
+              quoteAsset: z.string(),
+              qty: z.string(),
+              createdAt: z.string(),
+              quotes: z
+                .array(
+                  z.object({
+                    quoteId: z.string(),
+                    makerId: z.string().nullable(),
+                    rfqSeq: z.number(),
+                    quotedPrice: z.string(),
+                    userNotional: z.string(),
+                    spreadBps: z.number(),
+                    lifecycle: z.enum(['open', 'bound', 'expired', 'settled']),
+                    test: z.boolean(),
+                    rank: z.number(),
+                    best: z.boolean(),
+                    expiresAt: z.string(),
+                  }),
+                )
+                .readonly(),
+            }),
+          )
+          .readonly(),
+      }),
+    )
+    .readonly(),
+  more: z.boolean(),
+});
+
+export const signalWebhooksAnswer = z.array(z.object(signalWebhookFields));
+
+export const optionsPolicyAnswer = z.object({
+  socket: z.literal('socket.options-settlement-asset-law'),
+  settlementLawUnsetCode: z.literal('trade.options_settlement_law_unset'),
+  fixingUnconfiguredCode: z.literal('trade.options_fixing_unconfigured'),
+  termsIncompleteCode: z.literal('trade.options_terms_incomplete'),
+  settlementAssetLawStamped: z.boolean(),
+  settlementFixingConfigured: z.boolean(),
+  statusLine: z.string(),
+  /** Typed as its one sentence (OPTIONS_SETTLEMENT_RESIDUAL); a string here checks no more than that. */
+  residual: z.string(),
+  blockers: z.tuple([z.literal('settlement_asset_law'), z.literal('settlement_fixing'), z.literal('european_terms')]).readonly(),
+  allowed: z.object({
+    nonOptionsListing: z.literal(true),
+    optionsListing: z.boolean(),
+    optionsOrders: z.boolean(),
+    paperOptionsOrders: z.literal(true),
+    liveOptionsOrders: z.literal(false),
+  }),
+  europeanOnly: z.literal(true),
+  fullCollateralV1: z.literal(true),
+  inventsLiveSet: z.literal(false),
+  inventsSettlementAsset: z.literal(false),
+  inventsIvSurface: z.literal(false),
+  ordersStillRefuseUntilEngine: z.literal(false),
+  liveOrdersStillRefuse: z.literal(true),
+  paperEngine: z.literal(true),
+});

@@ -2451,6 +2451,9 @@ import {
   TRADE_BOTS_GRID_TOP_UP,
   TRADE_BOTS_GRID_MODIFY,
   TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+  TRADE_BOTS_GRID_CREATE,
+  TRADE_BOTS_GRID_GET,
+  TRADE_BOTS_GRID_LIST,
 } from './trade-bots-procedures.js';
 
 import { TRADE_BUILDER_ACCOUNT_MODE } from './trade-builder-mode-procedures.js';
@@ -2487,6 +2490,17 @@ import {
   TRADE_COPY_LEAD_TRADES,
   TRADE_COPY_LEAD_COPIERS,
   TRADE_COPY_PLATFORM_PAUSES,
+  TRADE_COPY_DESK_STATUS,
+  TRADE_COPY_LIST_MY_FOLLOWS,
+  TRADE_COPY_PAUSE,
+  TRADE_COPY_STOP,
+  TRADE_COPY_DETACH,
+  TRADE_COPY_RESUME,
+  TRADE_COPY_LIST_LEADERS,
+  TRADE_COPY_LEADER_PROFILE,
+  TRADE_COPY_FOLLOW_POSITIONS,
+  TRADE_COPY_COPIED_POSITIONS,
+  TRADE_COPY_FLATTEN,
 } from './trade-copy-records.js';
 
 import { DAILY_LOSS_GET, DAILY_LOSS_SET, DAILY_LOSS_OFF } from './trade-daily-loss-procedures.js';
@@ -2497,12 +2511,15 @@ import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './t
 
 import { TRADE_JOURNAL_CLOSED_TRADES, TRADE_JOURNAL_REPLAY } from './trade-journal-procedures.js';
 
+import { TRADE_OPTIONS_POLICY } from './trade-options-procedures.js';
+
 import {
   TRADE_OTC_MAKERS_LIST,
   TRADE_OTC_ACCEPT,
   TRADE_OTC_SETTLE,
   TRADE_OTC_CONVERT_BOUNDS,
   TRADE_OTC_CONVERT_QUOTE,
+  TRADE_OTC_DESK_STATUS,
 } from './trade-otc-procedures.js';
 
 import { PROFIT_LOCK_GET, PROFIT_LOCK_SET, PROFIT_LOCK_DECLINE } from './trade-profit-lock-procedures.js';
@@ -2516,11 +2533,11 @@ import {
   RECURRING_TERMINATE,
 } from './trade-recurring-procedures.js';
 
-import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from './trade-rfq-procedures.js';
+import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE, TRADE_RFQ_QUOTE, TRADE_RFQ_BOARD } from './trade-rfq-procedures.js';
 
 import { RISK_ALERTS_GET, RISK_ALERTS_SET, RISK_ALERTS_OFF, RISK_ALERTS_LIST } from './trade-risk-alerts-procedures.js';
 
-import { TRADE_SIGNALS_WEBHOOKS_CREATE } from './trade-signals-procedures.js';
+import { TRADE_SIGNALS_WEBHOOKS_CREATE, TRADE_SIGNALS_WEBHOOKS_LIST } from './trade-signals-procedures.js';
 
 import { VENUE_ORDER_LABELS_LIST } from './trade-venue-order-labels-procedures.js';
 
@@ -5093,6 +5110,9 @@ const part_trade_bots_procedures: readonly ProcedureRecord[] = [
   TRADE_BOTS_GRID_TOP_UP,
   TRADE_BOTS_GRID_MODIFY,
   TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+  TRADE_BOTS_GRID_CREATE,
+  TRADE_BOTS_GRID_GET,
+  TRADE_BOTS_GRID_LIST,
 ];
 
 const part_trade_builder_mode_procedures: readonly ProcedureRecord[] = [TRADE_BUILDER_ACCOUNT_MODE];
@@ -5129,6 +5149,17 @@ const part_trade_copy_records: readonly ProcedureRecord[] = [
   TRADE_COPY_LEAD_TRADES,
   TRADE_COPY_LEAD_COPIERS,
   TRADE_COPY_PLATFORM_PAUSES,
+  TRADE_COPY_DESK_STATUS,
+  TRADE_COPY_LIST_MY_FOLLOWS,
+  TRADE_COPY_PAUSE,
+  TRADE_COPY_STOP,
+  TRADE_COPY_DETACH,
+  TRADE_COPY_RESUME,
+  TRADE_COPY_LIST_LEADERS,
+  TRADE_COPY_LEADER_PROFILE,
+  TRADE_COPY_FOLLOW_POSITIONS,
+  TRADE_COPY_COPIED_POSITIONS,
+  TRADE_COPY_FLATTEN,
 ];
 
 const part_trade_daily_loss_procedures: readonly ProcedureRecord[] = [DAILY_LOSS_GET, DAILY_LOSS_SET, DAILY_LOSS_OFF];
@@ -5139,12 +5170,15 @@ const part_trade_grid_procedures: readonly ProcedureRecord[] = [GRID_SUBMIT_PERM
 
 const part_trade_journal_procedures: readonly ProcedureRecord[] = [TRADE_JOURNAL_CLOSED_TRADES, TRADE_JOURNAL_REPLAY];
 
+const part_trade_options_procedures: readonly ProcedureRecord[] = [TRADE_OPTIONS_POLICY];
+
 const part_trade_otc_procedures: readonly ProcedureRecord[] = [
   TRADE_OTC_MAKERS_LIST,
   TRADE_OTC_ACCEPT,
   TRADE_OTC_SETTLE,
   TRADE_OTC_CONVERT_BOUNDS,
   TRADE_OTC_CONVERT_QUOTE,
+  TRADE_OTC_DESK_STATUS,
 ];
 
 const part_trade_profit_lock_procedures: readonly ProcedureRecord[] = [PROFIT_LOCK_GET, PROFIT_LOCK_SET, PROFIT_LOCK_DECLINE];
@@ -5158,11 +5192,17 @@ const part_trade_recurring_procedures: readonly ProcedureRecord[] = [
   RECURRING_TERMINATE,
 ];
 
-const part_trade_rfq_procedures: readonly ProcedureRecord[] = [TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE];
+const part_trade_rfq_procedures: readonly ProcedureRecord[] = [
+  TRADE_RFQ_GET,
+  TRADE_RFQ_ACCEPT,
+  TRADE_RFQ_EXPIRE,
+  TRADE_RFQ_QUOTE,
+  TRADE_RFQ_BOARD,
+];
 
 const part_trade_risk_alerts_procedures: readonly ProcedureRecord[] = [RISK_ALERTS_GET, RISK_ALERTS_SET, RISK_ALERTS_OFF, RISK_ALERTS_LIST];
 
-const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE];
+const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE, TRADE_SIGNALS_WEBHOOKS_LIST];
 
 const part_trade_venue_order_labels_procedures: readonly ProcedureRecord[] = [VENUE_ORDER_LABELS_LIST];
 
@@ -5526,6 +5566,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_desk_snapshot,
   ...part_trade_grid_procedures,
   ...part_trade_journal_procedures,
+  ...part_trade_options_procedures,
   ...part_trade_otc_procedures,
   ...part_trade_profit_lock_procedures,
   ...part_trade_recurring_procedures,

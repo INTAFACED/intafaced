@@ -130,3 +130,54 @@ export const TRADE_BOTS_GRID_WITHDRAW_PROFIT = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+export const TRADE_BOTS_GRID_CREATE = defineProcedure({
+  ...base,
+  name: 'trade.bots.grid.create',
+  kind: 'mutation',
+  path: 'bots.grid.create',
+  access: { caller: 'scope', scope: 'trade:write', module: 'trade' },
+  refusals: {},
+  input: z.object({
+    clientRequestId: z.string().min(8).max(120),
+    symbol: z.string().min(3).max(64),
+    lowerPrice: decimalOrBlank,
+    upperPrice: decimalOrBlank,
+    gridCount: z.number().int().optional().nullable(),
+    investment: decimalOrBlank,
+    /** The person's own venue account (their wallet) a venue grid trades on. */
+    owner: z.string().max(64).optional().nullable(),
+  }),
+  output: gridAnswer,
+  samples: [
+    { verdict: 'accept', input: { clientRequestId: 'ethereum', symbol: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const TRADE_BOTS_GRID_GET = defineProcedure({
+  ...base,
+  name: 'trade.bots.grid.get',
+  kind: 'query',
+  path: 'bots.grid.get',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: {},
+  input: z.object({ botId: z.string().min(1).max(64) }),
+  output: gridAnswer,
+  samples: [
+    { verdict: 'accept', input: { botId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const TRADE_BOTS_GRID_LIST = defineProcedure({
+  ...base,
+  name: 'trade.bots.grid.list',
+  kind: 'query',
+  path: 'bots.grid.list',
+  access: { caller: 'scope', scope: 'trade:read', module: 'trade' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.array(gridAnswer),
+  samples: [{ verdict: 'accept' }],
+});
