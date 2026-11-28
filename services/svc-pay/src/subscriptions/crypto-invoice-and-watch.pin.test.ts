@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PayError } from '../payment-service.js';
 import {
@@ -16,12 +13,6 @@ import {
  * pay.subscriptions pin — crypto recurring is invoice-and-watch.
  * Never invent an on-chain pull. Card mandate stays refuse-closed.
  */
-
-const here = dirname(fileURLToPath(import.meta.url));
-
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-}
 
 describe('crypto recurring stays invoice-and-watch', () => {
   it('product posture names invoice-and-watch, not pull', () => {
@@ -62,33 +53,5 @@ describe('card mandate path stays refuse', () => {
       });
       expect(() => assertCardMandateCannotOpenMoney(path)).not.toThrow();
     }
-  });
-});
-
-describe('fire path never invents pull', () => {
-  it('crypto arm calls openInvoice only; no pull / approve / charge-against-mandate', () => {
-    const fire = stripComments(readFileSync(join(here, 'subscription-service.ts'), 'utf8'));
-    const product = stripComments(readFileSync(join(here, 'mandate-product.ts'), 'utf8'));
-
-    expect(fire).toMatch(/mandateChargeDisposition\s*\(\s*sub\.path\s*\)/);
-    expect(fire).toMatch(/this\.openInvoice\s*\(/);
-    expect(fire).toMatch(/recordPreChargeNotifyAttempt/);
-    expect(fire).toMatch(/assertPrechargeNotifyUnpublished\(notify\)/);
-    expect(fire).toMatch(/notifyStatus:\s*notify\.notifyStatus/);
-
-    const assertAt = fire.indexOf('assertPrechargeNotifyUnpublished(notify)');
-    const openCallAt = fire.indexOf('this.openInvoice({');
-    expect(assertAt).toBeGreaterThan(-1);
-    expect(openCallAt).toBeGreaterThan(assertAt);
-
-    for (const src of [fire, product]) {
-      expect(src).not.toMatch(/chargeAgainstMandate|chargeMandate|pullMandate|cryptoPull|onchainPull/);
-      expect(src).not.toMatch(/\bapprove\s*\(/);
-    }
-
-    const openAt = fire.indexOf('this.openInvoice(');
-    const cryptoArm = fire.slice(fire.indexOf("disposition.kind === 'refuse'"), openAt);
-    expect(cryptoArm).not.toMatch(/openInvoice\s*\(/);
-    expect(cryptoArm).toMatch(/disposition\.code/);
   });
 });

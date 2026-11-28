@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { CardSandboxAdapter } from './card-sandbox.js';
@@ -51,15 +51,16 @@ describe('card gateway stays Class X refuse — no invented issuer', () => {
     expect(() => selectPublicCheckoutRail(rails, ['card-sandbox'], 'live-only')).toThrow(PublicCheckoutUnavailable);
   });
 
-  it('rails layer has no invented live card / issuer adapter file', () => {
+  it('rails layer has no invented live card / issuer adapter file', async () => {
     const names = readdirSync(RAILS_DIR).filter((n) => n.endsWith('.ts') && !n.endsWith('.test.ts'));
     expect(names).not.toContain('card-live.ts');
     expect(names).not.toContain('card-issuer.ts');
     expect(names).not.toContain('issuer.ts');
     expect(names.filter((n) => /issuer|card-live|live-acquirer/i.test(n))).toEqual([]);
 
-    const index = readFileSync(join(RAILS_DIR, 'index.ts'), 'utf8');
-    expect(index).toContain("export * from './card-sandbox.js'");
-    expect(index).not.toMatch(/card-live|card-issuer|live-acquirer/);
+    // The rails entry hands out the sandbox card rail and no live card, issuer or acquirer adapter.
+    const rails = await import('./index.js');
+    expect(rails.CardSandboxAdapter).toBe(CardSandboxAdapter);
+    expect(Object.keys(rails).filter((name) => /card-?live|issuer|live-?acquirer/i.test(name))).toEqual([]);
   });
 });

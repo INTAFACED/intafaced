@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PayError, publishedCheckoutSessionTtlSeconds } from './payment-service.js';
+import { payEnv } from './env.testkit.js';
+import { scriptedCheckout, wroteSession } from './checkout-open.testkit.js';
 
 /**
  * Owner hosted-checkout session lifetime is refuse-closed when unset.
@@ -15,10 +17,12 @@ import { PayError, publishedCheckoutSessionTtlSeconds } from './payment-service.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('PAY_CHECKOUT_SESSION_TTL_SECONDS unset refuse', () => {
-  it('env.ts does not default blank to 900', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
-    expect(envTs).toMatch(/PAY_CHECKOUT_SESSION_TTL_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(60\)\.max\(86_400\),/);
-    expect(envTs).not.toMatch(/PAY_CHECKOUT_SESSION_TTL_SECONDS:[\s\S]{0,80}\.default\(900\)/);
+  it('the boot settings refuse a blank lifetime rather than defaulting it to 900', () => {
+    for (const blank of [undefined, '', ' ', '0', '59']) {
+      expect(() => payEnv({ PAY_CHECKOUT_SESSION_TTL_SECONDS: blank })).toThrow(/PAY_CHECKOUT_SESSION_TTL_SECONDS/);
+    }
+    expect(payEnv({ PAY_CHECKOUT_SESSION_TTL_SECONDS: '900' }).PAY_CHECKOUT_SESSION_TTL_SECONDS).toBe(900);
+    expect(payEnv({ PAY_CHECKOUT_SESSION_TTL_SECONDS: '60' }).PAY_CHECKOUT_SESSION_TTL_SECONDS).toBe(60);
   });
 
   it('compose refuses missing — never a baked 900', () => {
@@ -34,11 +38,21 @@ describe('PAY_CHECKOUT_SESSION_TTL_SECONDS unset refuse', () => {
     expect(block).not.toMatch(/PAY_CHECKOUT_SESSION_TTL_SECONDS:\s*['"]?900/);
   });
 
-  it('constructor does not invent 900', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-pay/src/payment-service.ts'), 'utf8');
-    expect(src).not.toMatch(/checkoutSessionTtlSeconds = options\.checkoutSessionTtlSeconds \?\? 900/);
-    expect(src).toMatch(/checkoutSessionTtlSeconds = options\.checkoutSessionTtlSeconds \?\? null/);
-    expect(src).toMatch(/pay\.checkout_session_ttl_unset/);
+  it('a service built without the lifetime refuses to open a checkout and writes no session — never 900', async () => {
+    const { pay, calls } = scriptedCheckout({ maxOpenSessionsPerLink: 25 });
+    await expect(pay.openCheckoutSession({ linkToken: 'pl_test_token', geoCountry: 'DE' })).rejects.toMatchObject({
+      code: 'pay.checkout_session_ttl_unset',
+    });
+    expect(wroteSession(calls)).toBe(false);
+  });
+
+  it('a service built with the owner lifetime gives the session exactly that long', async () => {
+    const now = new Date();
+    const { pay, calls } = scriptedCheckout({ maxOpenSessionsPerLink: 25, checkoutSessionTtlSeconds: 120, now: () => now });
+    await pay.openCheckoutSession({ linkToken: 'pl_test_token', geoCountry: 'DE' }).catch(() => undefined);
+    const insert = calls.find((c) => c.text.includes('INSERT INTO pay.checkout_sessions'));
+    expect(insert, 'a session row was written').toBeDefined();
+    expect(insert!.values).toContainEqual(new Date(now.getTime() + 120_000));
   });
 
   it('publishedCheckoutSessionTtlSeconds refuses null rather than inventing 900', () => {

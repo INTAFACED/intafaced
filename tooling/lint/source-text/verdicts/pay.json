@@ -1,0 +1,1289 @@
+[
+  {
+    "file": "services/svc-pay/src/affiliate-accrue.test.ts",
+    "target": "payment-service/settlement.ts",
+    "verdict": "rewrite",
+    "asserts": "The affiliate book is told of a settlement fee only after the settlement posted to the ledger.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payment-service.test.ts#tells the affiliate book of the fee only after the settlement posted"
+    },
+    "why": "Settles a payment on a real database with recording accrue and payout clients and asserts the ledger post comes first, then one accrue, then one payout."
+  },
+  {
+    "file": "services/svc-pay/src/affiliate-accrue.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service builds the identity accrue client and hands it to the payment service.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#index builds the identity accrue and payout clients for the payment service"
+    },
+    "why": "Boots index.ts in process and asserts createAffiliateAccrueClient was called with the identity URL and secret and its client is the PayService affiliateAccrue option."
+  },
+  {
+    "file": "services/svc-pay/src/affiliate-payout.test.ts",
+    "target": "payment-service/settlement.ts",
+    "verdict": "rewrite",
+    "asserts": "The affiliate payout follows the accrue, after the settlement posted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payment-service.test.ts#tells the affiliate book of the fee only after the settlement posted"
+    },
+    "why": "Same settlement drive: accrue first, then payout, once each, after the ledger post."
+  },
+  {
+    "file": "services/svc-pay/src/affiliate-payout.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service builds the identity payout client and hands it to the payment service.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#index builds the identity accrue and payout clients for the payment service"
+    },
+    "why": "Asserts createAffiliatePayoutClient was called by the boot and its client is the PayService affiliatePayout option."
+  },
+  {
+    "file": "services/svc-pay/src/agents/merchant-watch-metrics-mount.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service mounts the merchant-watch S2S routes behind the internal secret, with raw-body retention for body binding.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#index registers S2S routes at boot"
+    },
+    "why": "Asserts the boot retained raw bodies on its app and registered the routes with its internal secret; an unsigned GET is 401 and a signed one answers."
+  },
+  {
+    "file": "services/svc-pay/src/b2b-ramp/config.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "The service settings default PAY_B2B_RAMP off and do not default an attestation.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/b2b-ramp/config.test.ts#the service settings default the flag off and do not default an attestation"
+    },
+    "why": "Loads the boot settings (loadEnv over env.ts schema) with the keys absent and asserts off and no attestation."
+  },
+  {
+    "file": "services/svc-pay/src/b2b-ramp/router.test.ts",
+    "target": "../namespaces/index.ts",
+    "verdict": "rewrite",
+    "asserts": "The pay namespaces carry the b2bRamp procedures, with founder status guarded.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/b2b-ramp/router.test.ts#is mounted on the pay namespaces, and founder status is guarded ahead of input"
+    },
+    "why": "Builds createPayNamespaces and asserts its b2bRamp.* procedures are exactly credit, founderStatus, get and status."
+  },
+  {
+    "file": "services/svc-pay/src/b2b-ramp/router.test.ts",
+    "target": "money.ts",
+    "verdict": "rewrite",
+    "asserts": "The ramp admits a credit on its own rows, posts nothing to the ledger, and compares amounts as scaled bigint.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/b2b-ramp/router.test.ts#does not post to the ledger from this module"
+    },
+    "why": "Drives recordBankLine and credit on a scripted database with fetch refused: two writes, both its own tables, no outside call, ledgerPosted false, exact match past 2^53."
+  },
+  {
+    "file": "services/svc-pay/src/capture-reconcile.test.ts",
+    "target": "capture-reconcile.ts",
+    "verdict": "delete",
+    "asserts": "The capture reconcile job never posts, reads the ledger by key, and takes a try-lock rather than waiting.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/capture-reconcile.db.test.ts#moves a stuck authorized payment to captured without posting again"
+    },
+    "why": "Drives the job on a real database: the stuck payment is captured with no second post; \"returns busy and 409 when the try-lock is already held\" holds the try-lock half."
+  },
+  {
+    "file": "services/svc-pay/src/capture-reconcile.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service mounts the shared capture-reconcile registrar, off by default, and sets its loggers.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#the job does not post, and index mounts the shared registrar"
+    },
+    "why": "Asserts registerCaptureReconcileRoutes got the app, mode off and the pay service; unsigned is 401 and signed is 409 pay.capture_reconcile_disabled."
+  },
+  {
+    "file": "services/svc-pay/src/capture-reconcile.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "PAY_CAPTURE_RECONCILE defaults off and takes only off or required.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/capture-reconcile.test.ts#the flag defaults off in env and in the svc-pay compose block"
+    },
+    "why": "Loads the boot settings: absent is off, required is required, anything else throws."
+  },
+  {
+    "file": "services/svc-pay/src/chargeback-unwired.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The router dispute door posts through the service or names the refusal; a blank tx id is never posted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/chargeback-unwired.test.ts#the router dispute door posts through the service or names the refusal"
+    },
+    "why": "Calls fraud.openDispute through createCaller with no openChargeback, a blank tx id and a real one."
+  },
+  {
+    "file": "services/svc-pay/src/chargeback-unwired.test.ts",
+    "target": "fraud/chargeback-ledger-socket.ts",
+    "verdict": "rewrite",
+    "asserts": "The named chargeback socket refuses with its codes.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/chargeback-unwired.test.ts#named socket still refuses fixture and uncovered covers"
+    },
+    "why": "Calls refuseChargebackLedgerPost and refuseChargebackUncovered and asserts their codes and socket."
+  },
+  {
+    "file": "services/svc-pay/src/chargeback-unwired.test.ts",
+    "target": "chargeback-ledger.ts",
+    "verdict": "rewrite",
+    "asserts": "Every dispute post is exactly its ledger-client recipe.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/chargeback-unwired.test.ts#each dispute post is exactly its ledger-client recipe"
+    },
+    "why": "Records MemoryLedger.post and asserts each postDispute* sends exactly recipes.chargeback*."
+  },
+  {
+    "file": "services/svc-pay/src/chargeback-unwired.test.ts",
+    "target": "public-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "Merchant REST has no dispute or chargeback door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/chargeback-unwired.test.ts#merchant REST has no reverse-money dispute door"
+    },
+    "why": "Registers the public REST on Fastify and collects every route through onRoute: refund is there, nothing dispute or chargeback."
+  },
+  {
+    "file": "services/svc-pay/src/chargeback-unwired.test.ts",
+    "target": "rails/bank-payout.ts",
+    "verdict": "rewrite",
+    "asserts": "The bank payout rail stays absent and refuses.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/chargeback-unwired.test.ts#bank-payout door stays absent and refuses"
+    },
+    "why": "Calls BankPayoutAbsentAdapter.payout and asserts the named failure."
+  },
+  {
+    "file": "services/svc-pay/src/chargeback-unwired.test.ts",
+    "target": "merchant-pay-grant-path.ts",
+    "verdict": "rewrite",
+    "asserts": "The grant path grants pay scopes only to an approved owner and never invents a grantor.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/chargeback-unwired.test.ts#does not adopt Hyperswitch or invent pay:* grants"
+    },
+    "why": "Calls grantedOwnerPayScopes and issueMerchantPayScopesViaGrantPath for approved, pending and non-owner callers."
+  },
+  {
+    "file": "services/svc-pay/src/checkout-compose-flags-pin.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-pay reads the checkout flags with the same defaults compose has.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/checkout-compose-flags-pin.test.ts#svc-pay reads the flags this pin tracks, with the same defaults compose has"
+    },
+    "why": "Loads the boot settings with each flag absent and given."
+  },
+  {
+    "file": "services/svc-pay/src/checkout-session-cap-compose-pin.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "The session cap has no invented 25 and the risk band no invented low.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/checkout-session-cap-compose-pin.test.ts#svc-pay reads the flags this pin tracks; the cap has no invented 25"
+    },
+    "why": "Loads the boot settings with the cap and band absent and given."
+  },
+  {
+    "file": "services/svc-pay/src/checkout-session-max-open-unset.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank open-session cap refuses at boot rather than becoming 25.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/checkout-session-max-open-unset.test.ts#the boot settings refuse a blank cap rather than defaulting it to 25"
+    },
+    "why": "Loads the boot settings with the cap blank and missing and asserts the refusal."
+  },
+  {
+    "file": "services/svc-pay/src/checkout-session-max-open-unset.test.ts",
+    "target": "../../../services/svc-pay/src/payment-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A service built without the cap refuses to open a checkout before writing anything.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/checkout-session-max-open-unset.test.ts#a service built without the cap refuses to open a checkout"
+    },
+    "why": "Opens a checkout on a scripted database with no cap: the typed refusal, no payment or session row; with the cap, the link is refused at that many open sessions."
+  },
+  {
+    "file": "services/svc-pay/src/checkout-session-ttl-unset.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank session lifetime refuses at boot rather than becoming 900.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/checkout-session-ttl-unset.test.ts#the boot settings refuse a blank lifetime rather than defaulting it to 900"
+    },
+    "why": "Loads the boot settings with the lifetime blank and missing."
+  },
+  {
+    "file": "services/svc-pay/src/checkout-session-ttl-unset.test.ts",
+    "target": "../../../services/svc-pay/src/payment-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A service built without the lifetime refuses to open a checkout and writes no session.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/checkout-session-ttl-unset.test.ts#a service built without the lifetime refuses to open a checkout"
+    },
+    "why": "Opens a checkout on a scripted database without and with the lifetime and asserts the refusal, and the expiry written."
+  },
+  {
+    "file": "services/svc-pay/src/constructor-unset.test.ts",
+    "target": "../../../services/svc-pay/src/rails/crypto-native.ts",
+    "verdict": "delete",
+    "asserts": "The crypto-native rail refuses a blank minConfirmations instead of inventing 6.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/constructor-unset.test.ts#CryptoNativeAdapter refuses blank minConfirmations"
+    },
+    "why": "That test constructs the adapter with minConfirmations unset and asserts the throw, and with 6 that it builds."
+  },
+  {
+    "file": "services/svc-pay/src/constructor-unset.test.ts",
+    "target": "../../../services/svc-pay/src/rails/evm-chain.ts",
+    "verdict": "delete",
+    "asserts": "The live EVM chain refuses a blank minConfirmations instead of inventing 6.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/constructor-unset.test.ts#EvmLiveChain refuses blank minConfirmations"
+    },
+    "why": "That test constructs EvmLiveChain with minConfirmations unset and asserts the throw before any client is built."
+  },
+  {
+    "file": "services/svc-pay/src/constructor-unset.test.ts",
+    "target": "../../../services/svc-pay/src/plugins/reference-client.ts",
+    "verdict": "delete",
+    "asserts": "verifyMerchantWebhook refuses a blank tolerance instead of inventing 300.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/constructor-unset.test.ts#verifyMerchantWebhook refuses blank tolerance"
+    },
+    "why": "That test calls verifyMerchantWebhook with the tolerance unset and asserts the throw, and with 300 that it verifies."
+  },
+  {
+    "file": "services/svc-pay/src/control/mode.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The merchant controls mode is resolved with no off default, and guards built from it refuse an unset mode outside dev or test.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/control/mode.test.ts#the boot settings carry no off default"
+    },
+    "why": "Loads the boot settings without the key, then builds the guard registry in staging and asserts the boot refusal."
+  },
+  {
+    "file": "services/svc-pay/src/control/mode.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts has no off default for PAY_MERCHANT_CONTROLS.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/control/mode.test.ts#the boot settings carry no off default"
+    },
+    "why": "Same test: the loaded setting is absent, not off."
+  },
+  {
+    "file": "services/svc-pay/src/control/over-cap-signal.test.ts",
+    "target": "over-cap-signal.ts",
+    "verdict": "rewrite",
+    "asserts": "An over-cap capture is an event on the active span, with the signal fields.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/control/over-cap-signal.test.ts#the alert event is the active span event, and index wires the log listener"
+    },
+    "why": "Stubs trace.getActiveSpan with a recording span, emits, and asserts the event name and attributes; with no span it does not throw."
+  },
+  {
+    "file": "services/svc-pay/src/control/over-cap-signal.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service logs each over-cap capture as a warning.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#the alert event is the active span event, and index wires the log listener"
+    },
+    "why": "Emits an over-cap signal in the booted process and finds the warning in the boot logger output."
+  },
+  {
+    "file": "services/svc-pay/src/conversion/late-fill-schedule.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service runs the hold sweep on its 5-minute timer with the hold-sweep trigger, the late-fill sweep on its own tick, and stops both on shutdown.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#starts the hold sweep on the 5-minute timer and keeps the founder trigger"
+    },
+    "why": "Records the boot timers, runs them and asserts sweepOrphanHolds(hold-sweep) and sweepLateFills(late-fill-sweep); \"stops both conversion timers on shutdown\" runs the SIGTERM handler and asserts both cleared."
+  },
+  {
+    "file": "services/svc-pay/src/crypto-watcher-compose-pin.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-pay reads the crypto watcher flags with the compose defaults.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/crypto-watcher-compose-pin.test.ts#svc-pay reads the flags this pin tracks, with the same defaults compose has"
+    },
+    "why": "Loads the boot settings with the flags absent and given."
+  },
+  {
+    "file": "services/svc-pay/src/durable-broadcast-boot-pin.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service journals live broadcasts in Postgres and never falls back to a memory store.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#constructs the durable journal and injects it into defaultChainFor"
+    },
+    "why": "Asserts PostgresBroadcastStore was built on the service database and handed to defaultChainFor; \"does not fall back to MemoryBroadcastStore at boot\" asserts the only memory stores are the TEST chain's own."
+  },
+  {
+    "file": "services/svc-pay/src/durable-chain-watcher-boot-pin.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service keeps the watcher cursor in Postgres and starts no watcher without a live EVM chain.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#constructs the durable cursor and does not fall back to MemoryChainWatcherCursorStore at boot"
+    },
+    "why": "Asserts the Postgres cursor store is built on the service database and no memory one; \"starts the watcher only behind EvmLiveChain\" boots with the watcher enabled on the TEST chain and asserts no watcher was built."
+  },
+  {
+    "file": "services/svc-pay/src/edge-trust.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service hands its edge trust settings to the tRPC context and the merchant REST door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#hands the edge trust settings to the tRPC edge context and the merchant REST door"
+    },
+    "why": "Boots with an edge public key: an Ed25519-signed principal is accepted on tRPC and REST, one signed by another key and none are 401."
+  },
+  {
+    "file": "services/svc-pay/src/fee-bps-unset.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank or missing default fee is unset, never 0.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/fee-bps-unset.test.ts#the boot settings read a blank or missing default fee as unset"
+    },
+    "why": "Loads the boot settings with the fee blank and missing."
+  },
+  {
+    "file": "services/svc-pay/src/fraud/dispute-case.test.ts",
+    "target": "dispute-case.ts",
+    "verdict": "rewrite",
+    "asserts": "A dispute case never books an outcome: its ledger fields stay as the opening left them through every path.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/fraud/dispute-case.test.ts#module never imports chargeback ledger recipes (Class M park)"
+    },
+    "why": "Walks contest/won, contest/lost, accept and each rail outcome, with and without an opening tx, and asserts the ledger fields never change."
+  },
+  {
+    "file": "services/svc-pay/src/fraud/evaluate.test.ts",
+    "target": "evaluate.ts",
+    "verdict": "rewrite",
+    "asserts": "The fraud evaluator moves no money: its module takes no ledger and its answer is a synchronous decision.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/fraud/evaluate.test.ts#chargeback ledger recipes stay unwired from fraud module (Class X park)"
+    },
+    "why": "Imports the module and asserts its exports, that each function takes one argument, and that a decision is not a promise and carries no tx id."
+  },
+  {
+    "file": "services/svc-pay/src/fraud/evaluate.test.ts",
+    "target": "evaluate.ts",
+    "verdict": "rewrite",
+    "asserts": "Volume and amount compare as scaled bigint.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/fraud/evaluate.test.ts#compares volume and amount as scaled bigint"
+    },
+    "why": "Evaluates amounts past 2^53 that a Number reading would round and asserts the review and its rule."
+  },
+  {
+    "file": "services/svc-pay/src/fraud/evaluate.test.ts",
+    "target": "evaluate.ts",
+    "verdict": "rewrite",
+    "asserts": "Protected characteristics never change a fraud decision.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/fraud/evaluate.test.ts#does not score protected-characteristic fields"
+    },
+    "why": "Evaluates three inputs with and without race, religion, gender, ethnicity and nationality and asserts equal decisions."
+  },
+  {
+    "file": "services/svc-pay/src/gateway-tracker-status-pin.test.ts",
+    "target": "../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker marks pay.gateway as this pin says.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/gateway-tracker-status-pin.test.ts#features.mjs marks pay.gateway done"
+    },
+    "why": "Imports FEATURES from the tracker and asserts the entry."
+  },
+  {
+    "file": "services/svc-pay/src/link-ttl-compose-pin.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-pay refuses the link lifetimes and webhook tolerance missing, as compose does.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/link-ttl-compose-pin.test.ts#svc-pay refuses each of the three missing"
+    },
+    "why": "Loads the boot settings with each key missing and asserts the refusal."
+  },
+  {
+    "file": "services/svc-pay/src/link-ttl-unset.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank default link lifetime refuses at boot rather than becoming 30.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/link-ttl-unset.test.ts#the boot settings refuse a blank default lifetime"
+    },
+    "why": "Loads the boot settings with it blank and missing."
+  },
+  {
+    "file": "services/svc-pay/src/link-ttl-unset.test.ts",
+    "target": "../../../services/svc-pay/src/payment-service.ts",
+    "verdict": "delete",
+    "asserts": "A service built without the default link lifetime refuses an omitted expiry rather than using 30.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payment-service.test.ts#REFUSES omitted expiry when PAY_LINK_DEFAULT_TTL_DAYS is unset"
+    },
+    "why": "That test creates a link with no expiry on a service built without the setting and asserts the typed refusal."
+  },
+  {
+    "file": "services/svc-pay/src/link-ttl-unset.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank maximum link lifetime refuses at boot rather than becoming 365.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/link-ttl-unset.test.ts#the boot settings refuse a blank maximum lifetime"
+    },
+    "why": "Loads the boot settings with it blank and missing."
+  },
+  {
+    "file": "services/svc-pay/src/link-ttl-unset.test.ts",
+    "target": "../../../services/svc-pay/src/payment-service.ts",
+    "verdict": "delete",
+    "asserts": "A service built without the maximum link lifetime refuses to mint rather than using 365.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payment-service.test.ts#REFUSES mint when PAY_LINK_MAX_TTL_DAYS is unset"
+    },
+    "why": "That test mints a link on a service built without the setting and asserts the typed refusal."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/payment-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/payment-service",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/user-money-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/kyb-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/fraud/review-queue.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/psp-mode.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/merchant-state-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/submerchants.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/merchant-webhooks.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/subscriptions/subscription-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A service refuses an omitted page size before reading, and sends a given one to the query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#services refuse an omitted page size before reading"
+    },
+    "why": "Calls each service list on a scripted database (and the memory stores) without and with a limit: the typed refusal and no query, or the LIMIT value."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "A router passes an omitted page size on as omitted, so the service refuses it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#routers pass an omitted page size on as omitted"
+    },
+    "why": "Calls each router through createCaller with a recording service and asserts the limit reaches it unset and the refusal comes back."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/kyb-router.ts",
+    "verdict": "rewrite",
+    "asserts": "A router passes an omitted page size on as omitted, so the service refuses it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#routers pass an omitted page size on as omitted"
+    },
+    "why": "Calls each router through createCaller with a recording service and asserts the limit reaches it unset and the refusal comes back."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/merchant-state-router.ts",
+    "verdict": "rewrite",
+    "asserts": "A router passes an omitted page size on as omitted, so the service refuses it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#routers pass an omitted page size on as omitted"
+    },
+    "why": "Calls each router through createCaller with a recording service and asserts the limit reaches it unset and the refusal comes back."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/submerchant-router.ts",
+    "verdict": "rewrite",
+    "asserts": "A router passes an omitted page size on as omitted, so the service refuses it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#routers pass an omitted page size on as omitted"
+    },
+    "why": "Calls each router through createCaller with a recording service and asserts the limit reaches it unset and the refusal comes back."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/public-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "A router passes an omitted page size on as omitted, so the service refuses it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#routers pass an omitted page size on as omitted"
+    },
+    "why": "Calls each router through createCaller with a recording service and asserts the limit reaches it unset and the refusal comes back."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/subscription-router.ts",
+    "verdict": "rewrite",
+    "asserts": "A router passes an omitted page size on as omitted, so the service refuses it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#routers pass an omitted page size on as omitted"
+    },
+    "why": "Calls each router through createCaller with a recording service and asserts the limit reaches it unset and the refusal comes back."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/subscriptions/internal-cycle-routes.ts",
+    "verdict": "rewrite",
+    "asserts": "A router passes an omitted page size on as omitted, so the service refuses it.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/list-limit-unset.test.ts#routers pass an omitted page size on as omitted"
+    },
+    "why": "Calls each router through createCaller with a recording service and asserts the limit reaches it unset and the refusal comes back."
+  },
+  {
+    "file": "services/svc-pay/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-pay/src/index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service drains merchant webhooks 25 at a time and says once that no retry policy is set.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#drains merchant webhooks 25 at a time"
+    },
+    "why": "Runs the boot webhook drain timer and asserts processDue(25) and one no-retry-policy warning."
+  },
+  {
+    "file": "services/svc-pay/src/merchant-ops/merchant-ops.db.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "No merchant-facing procedure is an operator-notes door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/merchant-ops/merchant-ops.db.test.ts#no merchant-facing answer ever contains an operator note"
+    },
+    "why": "Beside the answers check, lists the merchantOps router procedures and asserts none is a notes path."
+  },
+  {
+    "file": "services/svc-pay/src/merchant-ops/merchant-portal-gap.test.ts",
+    "target": "invoices.ts",
+    "verdict": "rewrite",
+    "asserts": "The invoice module moves no money: creating and marking an invoice paid writes only invoice rows and calls no other service.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/merchant-ops/merchant-portal-gap.test.ts#does not post a ledger entry from the invoice module"
+    },
+    "why": "Drives create and markPaidByPayment on a scripted database with fetch refused and asserts every write is to its own tables."
+  },
+  {
+    "file": "services/svc-pay/src/merchant-ops/portal-gap.test.ts",
+    "target": "activity.ts",
+    "verdict": "rewrite",
+    "asserts": "Every activity source asks one page, and a narrow page shuts the others; operator ids show as intafaced.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/merchant-ops/portal-gap.test.ts#bounds every activity source and hides an operator id behind the pay scope"
+    },
+    "why": "Lists the feed on a scripted database and asserts eleven LIMIT limit+1 questions, nine shut branches for one type, and nothing asked without a page size; the rows are portal-gap.db.test.ts."
+  },
+  {
+    "file": "services/svc-pay/src/merchant-ops/receipt-branding.test.ts",
+    "target": "receipt-branding.ts",
+    "verdict": "delete",
+    "asserts": "Status email queues nothing from receipt branding.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/merchant-ops/receipt-branding.db.test.ts#queues nothing when email is off, and refuses vendor.email when it is on"
+    },
+    "why": "That test sends through the router with email off and on and counts the queue table: zero."
+  },
+  {
+    "file": "services/svc-pay/src/merchant-ops/receipt-branding.test.ts",
+    "target": "../payment-service.ts",
+    "verdict": "delete",
+    "asserts": "A capture queues no status email.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payment-service.test.ts#a capture queues no status email"
+    },
+    "why": "Captures a payment on a database where the queue table does not exist; the capture books, so nothing was written to it."
+  },
+  {
+    "file": "services/svc-pay/src/merchant-ops/team-email.test.ts",
+    "target": "team.ts",
+    "verdict": "rewrite",
+    "asserts": "An email invite asks nothing about accounts: two mailboxes take the same path.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/merchant-ops/team-email.test.ts#the email invite path does not read an account table"
+    },
+    "why": "Invites two mailboxes on scripted databases with fetch refused and asserts the same questions, none about users or identity."
+  },
+  {
+    "file": "services/svc-pay/src/merchant-reads.test.ts",
+    "target": "control/snapshots.ts",
+    "verdict": "rewrite",
+    "asserts": "A pricing snapshot read returns the stored fee and asks only the snapshot table.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/merchant-reads.test.ts#does not recompute a fee from the pricing engine"
+    },
+    "why": "Reads a stored row whose fee no rule would give and asserts it comes back as recorded from one question."
+  },
+  {
+    "file": "services/svc-pay/src/metrics/metrics.db.test.ts",
+    "target": "rebuild-cli.ts",
+    "verdict": "rewrite",
+    "asserts": "The rebuild CLI rebuilds and reconciles through the projector.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/metrics/metrics.db.test.ts#the rebuild CLI is wired to the same projector"
+    },
+    "why": "Runs the CLI against the test database: it rebuilds an undrained day and reconciles with no diffs; --check only reconciles."
+  },
+  {
+    "file": "services/svc-pay/src/namespaces/founder-merchant-reads.test.ts",
+    "target": "founder-merchant-reads.ts",
+    "verdict": "rewrite",
+    "asserts": "The founder api-keys section answers not configured and asks nothing about keys.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/namespaces/founder-merchant-reads.test.ts#does not read key material from this service"
+    },
+    "why": "Calls the section on a scripted database: the not_configured answer from one merchant-exists question."
+  },
+  {
+    "file": "services/svc-pay/src/namespaces/namespaces.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service merges the namespaces into its live appRouter with one guard registry.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#is merged into the live appRouter in index.ts together with the guard registry"
+    },
+    "why": "Asserts every namespaces procedure is on the live appRouter; \"builds one guard registry and hands it to the payment service\" asserts the one registry."
+  },
+  {
+    "file": "services/svc-pay/src/operator-credit-rails-compose-pin.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-pay has no card-sandbox operator-credit rail of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/operator-credit-rails-compose-pin.test.ts#svc-pay reads the flag this pin tracks with no card-sandbox of its own"
+    },
+    "why": "Loads the boot settings without the key and asserts the refusal."
+  },
+  {
+    "file": "services/svc-pay/src/operator-credit-rails-unset.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank operator-credit allow-list refuses at boot.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/operator-credit-rails-unset.test.ts#the boot settings refuse a blank allow-list"
+    },
+    "why": "Loads the boot settings with it blank and missing."
+  },
+  {
+    "file": "services/svc-pay/src/operator-credit-rails-unset.test.ts",
+    "target": "../../../services/svc-pay/src/operator-credit-rails-env.ts",
+    "verdict": "rewrite",
+    "asserts": "The allow-list parser does not default blank to card-sandbox.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/operator-credit-rails-unset.test.ts#the boot settings refuse a blank allow-list"
+    },
+    "why": "Same test, through the parser the schema uses."
+  },
+  {
+    "file": "services/svc-pay/src/payment-link-create.test.ts",
+    "target": "namespaces/founder-merchant-reads.ts",
+    "verdict": "rewrite",
+    "asserts": "The founder link drilldown carries the list fields and no checkout credential.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payment-link-create.test.ts#founder link drilldown copies the list fields and not the checkout credential"
+    },
+    "why": "Calls the links section with a pay stand-in whose row carries the credential and asserts the exact keys and no secret."
+  },
+  {
+    "file": "services/svc-pay/src/payout-reconciler.db.test.ts",
+    "target": "../src/index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service starts the payout reconciler with the two settings, off with the blocker named when unset.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#index.ts starts the job and env.ts has no default for either setting"
+    },
+    "why": "Asserts startPayoutReconciler got the service database, the pay service and both settings unset, returned null, and the boot logged pay.payout_reconcile_interval_unset."
+  },
+  {
+    "file": "services/svc-pay/src/payout-reconciler.db.test.ts",
+    "target": "../src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "Neither payout reconcile setting has a default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payout-reconciler.db.test.ts#index.ts starts the job and env.ts has no default for either setting"
+    },
+    "why": "Loads the boot settings unset, blank and given."
+  },
+  {
+    "file": "services/svc-pay/src/plugins/reference-client.test.ts",
+    "target": "../merchant-webhooks.ts",
+    "verdict": "rewrite",
+    "asserts": "The reference client signs with the header names the service sends.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/plugins/reference-client.test.ts#documents header names merchants must verify"
+    },
+    "why": "Calls buildSignedHeaders and compares its names to MERCHANT_WEBHOOK_HEADERS."
+  },
+  {
+    "file": "services/svc-pay/src/plugins/reference-client.test.ts",
+    "target": "reference-client.ts",
+    "verdict": "rewrite",
+    "asserts": "No PHP CMS plugin tree ships.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/plugins/reference-client.test.ts#does not ship PHP CMS plugin trees"
+    },
+    "why": "Lists the plugins folder and asserts no CMS tree."
+  },
+  {
+    "file": "services/svc-pay/src/precharge-notify-absent.test.ts",
+    "target": "subscriptions/subscription-service.ts",
+    "verdict": "delete",
+    "asserts": "A cycle records its pre-charge notify attempt before it opens the invoice, and never claims notified.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/charge-cycle.db.test.ts#unwired port writes skipped_unwired and still opens the invoice"
+    },
+    "why": "That test runs a cycle on a real database and asserts the skipped_unwired notify record and the invoice; \"wired port records attempted before the invoice\" holds the order."
+  },
+  {
+    "file": "services/svc-pay/src/precharge-notify-absent.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "A captured payment settles its subscription execution, and nothing pre-notifies.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#a captured payment settles its subscription execution, and nothing pre-notifies"
+    },
+    "why": "Calls the boot's afterPaymentEvent with captured and created events and asserts markExecutionSettledForPayment ran once, for the capture."
+  },
+  {
+    "file": "services/svc-pay/src/promise-falsify-public-doors.test.ts",
+    "target": "../../../packages/ledger-client/src/recipes/chargeback.ts",
+    "verdict": "rewrite",
+    "asserts": "The chargeback recipes refuse an empty chargeback and a shortfall the house fund cannot pay.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/promise-falsify-public-doors.test.ts#chargeback recipes never invent reverse-money"
+    },
+    "why": "Calls the recipes with zero amounts and asserts InvalidEntryError; MemoryLedger refuses the unfunded shortfall."
+  },
+  {
+    "file": "services/svc-pay/src/promise-falsify-public-doors.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The dispute case doors exist and merchant REST has no chargeback door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/promise-falsify-public-doors.test.ts#dispute case doors exist; merchant REST has no reverse-money chargeback door"
+    },
+    "why": "Asserts the router procedures and collects the REST routes through onRoute."
+  },
+  {
+    "file": "services/svc-pay/src/promise-falsify-public-doors.test.ts",
+    "target": "public-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "Merchant REST has no chargeback door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/promise-falsify-public-doors.test.ts#dispute case doors exist; merchant REST has no reverse-money chargeback door"
+    },
+    "why": "Same test: the mounted REST routes."
+  },
+  {
+    "file": "services/svc-pay/src/promise-falsify-public-doors.test.ts",
+    "target": "db/schema.ts",
+    "verdict": "rewrite",
+    "asserts": "disputed is a payment status.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/promise-falsify-public-doors.test.ts#payment status disputed is case-reachable"
+    },
+    "why": "Asserts paymentStatusEnum.enumValues contains disputed."
+  },
+  {
+    "file": "services/svc-pay/src/promise-falsify-public-doors.test.ts",
+    "target": "public-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "Merchant REST has no dispute door.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/promise-falsify-public-doors.test.ts#payment status disputed is case-reachable"
+    },
+    "why": "Same test: the mounted REST routes."
+  },
+  {
+    "file": "services/svc-pay/src/rails/card-gateway-class-x-refuse.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The rails entry hands out the sandbox card rail and no live card, issuer or acquirer adapter.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/rails/card-gateway-class-x-refuse.test.ts#rails layer has no invented live card / issuer adapter file"
+    },
+    "why": "Imports the rails entry and asserts CardSandboxAdapter is its export and no export is a live card, issuer or acquirer."
+  },
+  {
+    "file": "services/svc-pay/src/ready-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service answers /ready with payChainReadyHonesty, not the chain description.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#index.ts serves /ready via payChainReadyHonesty, not chain.description"
+    },
+    "why": "GETs /ready on the booted app and compares chain with payChainReadyHonesty of the boot's chain posture; the description is absent."
+  },
+  {
+    "file": "services/svc-pay/src/ready-honesty.test.ts",
+    "target": "rails/chain-port.ts",
+    "verdict": "rewrite",
+    "asserts": "The absent chain refuses with pay.chain_not_configured, the code /ready names.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/ready-honesty.test.ts#the absent chain refuses with the code /ready names"
+    },
+    "why": "Calls UnconfiguredChain and asserts ChainNotConfiguredError with that code."
+  },
+  {
+    "file": "services/svc-pay/src/register-card-sandbox-compose-pin.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-pay reads the card-sandbox and live-crypto keys as optional, refusing an empty string.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/register-card-sandbox-compose-pin.test.ts#svc-pay reads PAY_REGISTER_CARD_SANDBOX as optional true|false"
+    },
+    "why": "Loads the boot settings absent, given and empty; \"svc-pay reads the live-crypto keys as optional\" does the same for those keys."
+  },
+  {
+    "file": "services/svc-pay/src/registries/guards.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service gives the namespaces their registries on its database and approvals.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#src/index.ts still composes the routers this fixture mirrors"
+    },
+    "why": "Asserts createPayNamespaces got registries with the service database and an approvals consumer."
+  },
+  {
+    "file": "services/svc-pay/src/registries/registries.db.test.ts",
+    "target": "../../../../packages/venue-adapter/src/fabric/venues/factory.ts",
+    "verdict": "rewrite",
+    "asserts": "The known venue keys are the venue-adapter factory list.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/registries/registries.db.test.ts#the known venue keys mirror the venue-adapter factory list"
+    },
+    "why": "Imports describeVenueAggregationPolicy from the package entry and compares its list with KNOWN_VENUE_KEYS."
+  },
+  {
+    "file": "services/svc-pay/src/routing-no-invent.test.ts",
+    "target": "rails/posture.ts",
+    "verdict": "rewrite",
+    "asserts": "No routing answer carries an invented cost or approval rate.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/routing-no-invent.test.ts#the public checkout posture walk carries no score field"
+    },
+    "why": "Walks the posture selector under both policies and the smart route and the record a checkout open writes, and finds no forbidden key at any depth."
+  },
+  {
+    "file": "services/svc-pay/src/routing-policy.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "routing.policy is a public read answering the routing board.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/routing-policy.test.ts#router mounts describeRoutingPolicy on routing.policy"
+    },
+    "why": "Calls routing.policy with no principal and compares the answer with the board the router mounts."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/crypto-invoice-and-watch.pin.test.ts",
+    "target": "subscription-service.ts",
+    "verdict": "delete",
+    "asserts": "A crypto cycle opens an invoice only, after recording its notify attempt, and never pulls.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/charge-cycle.db.test.ts#wired port records attempted before the invoice"
+    },
+    "why": "That test runs a cycle on a real database: notify attempted, then the invoice, and capture still fail-closes."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/crypto-invoice-and-watch.pin.test.ts",
+    "target": "mandate-product.ts",
+    "verdict": "delete",
+    "asserts": "The mandate product invents no pull.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts#no adapter declares mandate or implements charge-against-mandate"
+    },
+    "why": "That test builds every registered rail and asserts none declares a mandate capability or a charge method."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/cycle-reachability.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service mounts the shared cycle registrar and no second handler.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#registers the shared registrar and defines no second handler"
+    },
+    "why": "Asserts the registrar got the app; unsigned is 401 and a signed omitted limit is the registrar's own 400 code."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/cycle-reachability.test.ts",
+    "target": "internal-cycle-routes.ts",
+    "verdict": "rewrite",
+    "asserts": "The due pass always needs a body-bound signature; the journal follows the body-bind setting.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/cycle-reachability.test.ts#due-pass mutate hardcodes HMAC require; journal GET and merchant-watch GET stay env"
+    },
+    "why": "Mounts the registrar under each setting and asserts a v1 signature is refused on the due pass always and on the journal only under require."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/cycle-reachability.test.ts",
+    "target": "../agents/merchant-watch-metrics-routes.ts",
+    "verdict": "rewrite",
+    "asserts": "The merchant-watch read follows the body-bind setting.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/cycle-reachability.test.ts#due-pass mutate hardcodes HMAC require; journal GET and merchant-watch GET stay env"
+    },
+    "why": "Same test: the merchant-watch GET with a v1 signature under each setting."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/cycle-reachability.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service hands its body-bind setting to the merchant-watch routes.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#index registers S2S routes at boot"
+    },
+    "why": "Asserts the routes were registered with the internal secret and answer a v1 signature under the default setting."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts",
+    "target": "subscription-service.ts",
+    "verdict": "delete",
+    "asserts": "A card-mandate cycle is refused before any invoice opens.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/charge-cycle.db.test.ts#refuses a card-mandate subscription with pay.mandate_rail_absent"
+    },
+    "why": "That test runs a card-mandate cycle on a real database and asserts the named refusal and no invoice."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts",
+    "target": "subscription-service.ts",
+    "verdict": "delete",
+    "asserts": "The fire path invents no on-chain pull or charge-against-mandate.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/charge-cycle.db.test.ts#card mandate still refuses pay.mandate_rail_absent with no notify pretence"
+    },
+    "why": "That test runs the card cycle and asserts the refusal with nothing charged."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts",
+    "target": "mandate-product.ts",
+    "verdict": "delete",
+    "asserts": "The mandate product invents no pull helper.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts#no adapter declares mandate or implements charge-against-mandate"
+    },
+    "why": "That test builds every registered rail and asserts no mandate capability or charge method."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts",
+    "target": "../rails",
+    "verdict": "rewrite",
+    "asserts": "No registered rail declares a mandate or charges against one.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts#no adapter declares mandate or implements charge-against-mandate"
+    },
+    "why": "Builds each adapter and asserts its capabilities and methods."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts",
+    "target": "../../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker note still names the rail-absent and parked sockets.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/mandate-rail-absent.test.ts#pay.subscriptions note still names rail-absent and parked sockets"
+    },
+    "why": "Imports FEATURES from the tracker and asserts the note."
+  },
+  {
+    "file": "services/svc-pay/src/subscriptions/precharge-notify-unpublished.test.ts",
+    "target": "subscription-service.ts",
+    "verdict": "delete",
+    "asserts": "A cycle records notify before the invoice and never writes notified true.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/subscriptions/charge-cycle.db.test.ts#wired port records attempted before the invoice"
+    },
+    "why": "That test runs a cycle on a real database and asserts the attempted record precedes the invoice; \"unwired port writes skipped_unwired\" holds the unwired status."
+  },
+  {
+    "file": "services/svc-pay/src/w6-honesty-residuals.test.ts",
+    "target": "payment-service.ts",
+    "verdict": "rewrite",
+    "asserts": "Live acquiring refuses a merchant whose KYB is not approved; a rejected one never transacts; a suspended one is refused first.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/w6-honesty-residuals.test.ts#assertMerchantActive wires Layer B KYB money gate"
+    },
+    "why": "Opens a checkout on a scripted database for each KYB status and policy and asserts pay.kyb_required with nothing written, or the payment written past the gate."
+  },
+  {
+    "file": "services/svc-pay/src/w6-honesty-residuals.test.ts",
+    "target": "payment-service/webhooks.ts",
+    "verdict": "delete",
+    "asserts": "A dispute.opened webhook books the opening or records the named refusal.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payment-service.test.ts#dispute.opened posts chargebackOpen from clearing and marks disputed"
+    },
+    "why": "That test delivers a signed dispute.opened on a real database and asserts the opening post and the case; \"records a refund webhook without acting on it\" holds the refunded branch."
+  },
+  {
+    "file": "services/svc-pay/src/w6-honesty-residuals.test.ts",
+    "target": "rails/rail-adapter.ts",
+    "verdict": "delete",
+    "asserts": "A refund webhook is recorded and not acted on.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/payment-service.test.ts#records a refund webhook without acting on it"
+    },
+    "why": "That test delivers a signed refunded event and asserts it is recorded, not applied, with clearing unchanged; the card rail parses no voided event at all."
+  },
+  {
+    "file": "services/svc-pay/src/webhook-tolerance-unset.test.ts",
+    "target": "../../../services/svc-pay/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank webhook window refuses at boot rather than becoming 300.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/webhook-tolerance-unset.test.ts#the boot settings refuse a blank window"
+    },
+    "why": "Loads the boot settings with it blank and missing."
+  },
+  {
+    "file": "services/svc-pay/src/webhook-tolerance-unset.test.ts",
+    "target": "../../../services/svc-pay/src/rails/card-sandbox.ts",
+    "verdict": "rewrite",
+    "asserts": "The card-sandbox rail takes the window it is given.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/webhook-tolerance-unset.test.ts#inbound rails take the window they are given"
+    },
+    "why": "Signs and verifies on the rail inside and outside the given window."
+  },
+  {
+    "file": "services/svc-pay/src/webhook-tolerance-unset.test.ts",
+    "target": "../../../services/svc-pay/src/rails/crypto-native.ts",
+    "verdict": "rewrite",
+    "asserts": "The crypto-native rail takes the window it is given.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/webhook-tolerance-unset.test.ts#inbound rails take the window they are given"
+    },
+    "why": "Same test on crypto-native."
+  },
+  {
+    "file": "services/svc-pay/src/withdrawals/allowlist/allowlist-wiring.test.ts",
+    "target": "../../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The allowlist rides the withdrawal claim before the approvals, the direct door asks it first, and its routers are mounted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#the allowlist rides the withdrawal claim before the approval gate, and the direct door asks it first"
+    },
+    "why": "Asserts composeGuards(allowlist, approvals) is the claim guard, drives the direct door and sees allowlist then approvals and a refusal stopping it, and the routers got the allowlist."
+  },
+  {
+    "file": "services/svc-pay/test/isolation/founder.isolation.test.ts",
+    "target": "../../src/index.ts",
+    "verdict": "rewrite",
+    "asserts": "The booted service composes the routers the isolation fixture mirrors, with one live founder authority.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-pay/src/index.db.test.ts#src/index.ts still composes the routers this fixture mirrors, with the one live founder authority"
+    },
+    "why": "Asserts each router and service was built with the same pay, rails, money, trees, database and the one founder authority, and the namespaces arguments."
+  }
+]

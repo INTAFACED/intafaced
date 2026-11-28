@@ -4,7 +4,7 @@ import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { parseOwnerIntegerEnv, parsePartnerFeeBpsEnv } from './fee-bps-env.js';
 import { operatorCreditRailsSchema } from './operator-credit-rails-env.js';
 
-const schema = serviceEnvSchema
+export const schema = serviceEnvSchema
   .merge(internalServiceEnvSchema)
   .merge(s2sEnvSchema)
   .merge(edgeEnvSchema)

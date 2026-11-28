@@ -1253,7 +1253,7 @@ describe('W15 merchant operations (Postgres)', () => {
       );
     });
 
-    it('no merchant-facing answer ever contains an operator note (behaviour), and no merchantOps source reads the table (static)', async () => {
+    it('no merchant-facing answer ever contains an operator note (behaviour), and no merchantOps procedure is a notes door', async () => {
       const f = as(founderUser, {}, build());
       await f.founderAdmin.ops.notes.add({
         merchantId: merchantA,
@@ -1275,18 +1275,12 @@ describe('W15 merchant operations (Postgres)', () => {
       const text = JSON.stringify(answers);
       expect(text).not.toContain('SECRET-OPERATOR');
       expect(text).not.toContain('internal-tag');
-      const offenders = readdirSync(here)
-        .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts') && file !== 'notes.ts' && file !== 'router.ts')
-        .filter((file) => readFileSync(join(here, file), 'utf8').includes('operator_merchant_notes'));
-      expect(offenders).toEqual([]);
-      // In the router the table is reached only through OperatorNotes, which is wired under founderAdmin.ops.
-      const routerSrc = readFileSync(join(here, 'router.ts'), 'utf8');
-      expect(routerSrc).not.toContain('operator_merchant_notes');
-      const merchantOpsBlock = routerSrc.slice(
-        routerSrc.indexOf('merchantOps: router({'),
-        routerSrc.indexOf('export type MerchantOpsRouter'),
+      // The notes are reached only through founderAdmin.ops: no merchant-facing procedure is a notes door.
+      const merchantPaths = Object.keys(
+        createMerchantOpsRouter({ sql, founderAuthority, disputes, exportKick: noKick, exports: {} })._def.procedures,
       );
-      expect(merchantOpsBlock).not.toMatch(/\.notes\b/);
+      expect(merchantPaths.length).toBeGreaterThan(0);
+      expect(merchantPaths.filter((path) => /notes/i.test(path))).toEqual([]);
     });
   });
 

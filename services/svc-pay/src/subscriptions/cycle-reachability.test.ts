@@ -13,6 +13,7 @@ import {
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { createSubscriptionRouter } from '../subscription-router.js';
 import { PayError, type PayService } from '../payment-service.js';
+import { MERCHANT_WATCH_METRICS_PATH, registerMerchantWatchMetricsRoutes } from '../agents/merchant-watch-metrics-routes.js';
 import { registerSubscriptionCycleRoutes } from './internal-cycle-routes.js';
 import type { SubscriptionService } from './subscription-service.js';
 
@@ -581,51 +582,63 @@ describe('the cycle runner route is mounted and reachable', () => {
 
 // ── The mount itself ───────────────────────────────────────────────────────
 
-describe('index.ts mounts the runner rather than keeping its own copy', () => {
+describe('the due pass and the journal read their body binding where they should', () => {
   /**
-   * The reason this file can prove reachability at all is that the handler moved
-   * out of `index.ts`. If a second copy grew back inline, this suite would keep
-   * passing while the deployed route diverged — which is the "correct in
-   * isolation, unreachable in place" failure with the sides swapped.
+   * The booted service (boot.db.test.ts) proves index.ts mounts this registrar: its due pass refuses an omitted limit
+   * with the registrar's own code. Here: which door follows the deployment's body-bind setting and which does not.
    */
-  it('registers the shared registrar and defines no second handler', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { dirname, join } = await import('node:path');
-    const { fileURLToPath } = await import('node:url');
-    const here = dirname(fileURLToPath(import.meta.url));
-    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-
-    expect(index).toMatch(/registerSubscriptionCycleRoutes\(app,/);
-    expect(index).toMatch(/retainRawBody\(app\)/);
-    expect(index).toMatch(/INTERNAL_SERVICE_BODY_BIND/);
-    // No inline `app.post('/internal/jobs/run-due-subscriptions'` anywhere.
-    expect(index).not.toMatch(/app\.(post|get)[^\n]*run-due-subscriptions/);
-  });
+  const SUB_ID = '99999999-9999-4999-8999-999999999999';
+  async function mount(bodyBind?: 'accept-both' | 'require') {
+    const runDueSubscriptions = vi.fn(async () => ({ examined: 0, fired: 0, retried: 0, stalled: 0, outcomes: [] }));
+    const listCycles = vi.fn(async () => []);
+    const app = Fastify({ logger: false });
+    registerSubscriptionCycleRoutes(app, {
+      internalSecret: INTERNAL_SECRET,
+      subscriptions: { runDueSubscriptions, listCycles } as never,
+      ...(bodyBind ? { bodyBind } : {}),
+    });
+    await app.ready();
+    return { app, runDueSubscriptions, listCycles };
+  }
+  const v1 = () => serviceAuthHeaders('svc-cron', INTERNAL_SECRET);
 
   it('due-pass mutate hardcodes HMAC require; journal GET and merchant-watch GET stay env', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { dirname, join } = await import('node:path');
-    const { fileURLToPath } = await import('node:url');
-    const here = dirname(fileURLToPath(import.meta.url));
-    const routes = readFileSync(join(here, 'internal-cycle-routes.ts'), 'utf8');
-    const merchant = readFileSync(join(here, '..', 'agents', 'merchant-watch-metrics-routes.ts'), 'utf8');
-    const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-
-    const postAt = routes.indexOf("app.post<{ Body: { limit?: number } }>('/internal/jobs/run-due-subscriptions'");
-    const getAt = routes.indexOf(
-      "app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/internal/subscriptions/:id/cycles'",
-    );
-    expect(postAt).toBeGreaterThan(-1);
-    expect(getAt).toBeGreaterThan(postAt);
-    const postSlice = routes.slice(postAt, getAt);
-    const getSlice = routes.slice(getAt);
-    expect(postSlice).toMatch(/bodyBindMode:\s*'require'/);
-    expect(postSlice).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
-    expect(getSlice).toMatch(/bodyBindMode:\s*journalMode/);
-    expect(routes).toMatch(/const journalMode = deps\.bodyBind \?\? DEFAULT_SERVICE_BODY_BIND_MODE/);
-
-    expect(merchant).toMatch(/const mode = deps\.bodyBind \?\? DEFAULT_SERVICE_BODY_BIND_MODE/);
-    expect(merchant).not.toMatch(/bodyBindMode:\s*'require'/);
-    expect(index).toMatch(/registerMerchantWatchMetricsRoutes\(app, \{[\s\S]*?bodyBind: env\.INTERNAL_SERVICE_BODY_BIND/);
+    const payload = JSON.stringify({ limit: 5 });
+    for (const bodyBind of [undefined, 'accept-both', 'require'] as const) {
+      const { app, runDueSubscriptions } = await mount(bodyBind);
+      const due = await app.inject({
+        method: 'POST',
+        url: '/internal/jobs/run-due-subscriptions',
+        headers: { 'content-type': 'application/json', ...v1() },
+        payload,
+      });
+      expect(due.statusCode, `due pass, bodyBind ${bodyBind ?? 'default'}`).toBe(401);
+      expect(runDueSubscriptions).not.toHaveBeenCalled();
+      await app.close();
+    }
+    // The journal follows the setting: the default (accept-both) takes a v1 signature, require refuses it.
+    for (const [bodyBind, status] of [
+      [undefined, 200],
+      ['accept-both', 200],
+      ['require', 401],
+    ] as const) {
+      const { app } = await mount(bodyBind);
+      const res = await app.inject({ method: 'GET', url: `/internal/subscriptions/${SUB_ID}/cycles?limit=5`, headers: v1() });
+      expect(res.statusCode, `journal, bodyBind ${bodyBind ?? 'default'}`).toBe(status);
+      await app.close();
+    }
+    // So does the merchant-watch read.
+    for (const [bodyBind, refused] of [
+      [undefined, false],
+      ['accept-both', false],
+      ['require', true],
+    ] as const) {
+      const app = Fastify({ logger: false });
+      registerMerchantWatchMetricsRoutes(app, { internalSecret: INTERNAL_SECRET, ...(bodyBind ? { bodyBind } : {}) });
+      await app.ready();
+      const res = await app.inject({ method: 'GET', url: MERCHANT_WATCH_METRICS_PATH, headers: v1() });
+      expect(res.statusCode === 401, `merchant watch, bodyBind ${bodyBind ?? 'default'}`).toBe(refused);
+      await app.close();
+    }
   });
 });

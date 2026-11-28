@@ -24,6 +24,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { payEnv } from './env.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -37,13 +38,16 @@ const RISK_BAND = /^\s+PAY_CHECKOUT_RISK_BAND:\s*\$\{PAY_CHECKOUT_RISK_BAND:-\}\
 
 describe('compose checkout session cap and risk band for svc-pay', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
   const block = payServiceBlock(compose);
 
-  it('env.ts still declares the flags this pin tracks; cap has no invented 25', () => {
-    expect(envTs).toMatch(/PAY_CHECKOUT_MAX_OPEN_SESSIONS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(10_000\),/);
-    expect(envTs).not.toMatch(/PAY_CHECKOUT_MAX_OPEN_SESSIONS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(10_000\)\.default\(25\)/);
-    expect(envTs).toMatch(/PAY_CHECKOUT_RISK_BAND:\s*z\.string\(\)\.optional\(\)\.default\(''\)/);
+  it('svc-pay reads the flags this pin tracks; the cap has no invented 25 and the band no invented low', () => {
+    for (const blank of [undefined, '', '0']) {
+      expect(() => payEnv({ PAY_CHECKOUT_MAX_OPEN_SESSIONS: blank })).toThrow(/PAY_CHECKOUT_MAX_OPEN_SESSIONS/);
+    }
+    expect(() => payEnv({ PAY_CHECKOUT_MAX_OPEN_SESSIONS: '10001' })).toThrow(/PAY_CHECKOUT_MAX_OPEN_SESSIONS/);
+    expect(payEnv({ PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25' }).PAY_CHECKOUT_MAX_OPEN_SESSIONS).toBe(25);
+    expect(payEnv({ PAY_CHECKOUT_RISK_BAND: undefined }).PAY_CHECKOUT_RISK_BAND).toBe('');
+    expect(payEnv({ PAY_CHECKOUT_RISK_BAND: 'low' }).PAY_CHECKOUT_RISK_BAND).toBe('low');
   });
 
   it('compose svc-pay block passes unique keys once; cap missing refuses; risk band empty', () => {

@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   CHARGEBACK_LEDGER_SOCKET_ID,
@@ -9,8 +6,6 @@ import {
   MemoryDisputeCaseStore,
   railOutcomeConflicts,
 } from './dispute-case.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('D26-P1-P5 chargeback dispute case mechanism', () => {
   it('opens a case keyed by disputeId (not payment id) and refuse-closes ledger via named socket', () => {
@@ -144,7 +139,47 @@ describe('D26-P1-P5 chargeback dispute case mechanism', () => {
   });
 
   it('module never imports chargeback ledger recipes (Class M park)', () => {
-    const src = readFileSync(join(here, 'dispute-case.ts'), 'utf8');
-    expect(src).not.toMatch(/recipes\.chargeback|chargebackWon|chargebackShortfall/);
+    // The case records what the ledger answered and never books an outcome itself: through every path a case can take,
+    // its ledger fields stay as the opening left them, and a case opened without a tx id never claims one.
+    const ledgerOf = (c: { ledgerWire: string; ledgerTxId: string | null; ledgerRefuse: unknown }) => ({
+      ledgerWire: c.ledgerWire,
+      ledgerTxId: c.ledgerTxId,
+      ledgerRefuse: c.ledgerRefuse,
+    });
+    const paths: Array<[string, (store: MemoryDisputeCaseStore, id: string) => unknown]> = [
+      ['contest then won', (store, id) => (store.contest(id), store.markWon(id))],
+      ['contest then lost', (store, id) => (store.contest(id), store.markLost(id))],
+      ['accept', (store, id) => store.accept(id)],
+      ['rail won', (store, id) => store.applyRailResolution({ disputeId: id, railEventId: `evt-${id}`, outcome: 'won' })],
+      ['rail lost', (store, id) => store.applyRailResolution({ disputeId: id, railEventId: `evt-${id}`, outcome: 'lost' })],
+      ['rail closed', (store, id) => store.applyRailResolution({ disputeId: id, railEventId: `evt-${id}`, outcome: 'closed' })],
+    ];
+    for (const [name, walk] of paths) {
+      for (const ledgerPost of [undefined, { txId: 'tx-opening-1' }]) {
+        const store = new MemoryDisputeCaseStore();
+        const id = `dsp-${name.replace(/ /g, '-')}`;
+        const opened = store.open({
+          disputeId: id,
+          paymentId: 'p',
+          merchantId: 'm',
+          amount: '10',
+          assetId: 'USDT',
+          ...(ledgerPost ? { ledgerPost } : {}),
+        });
+        expect(ledgerOf(opened), name).toEqual(
+          ledgerPost
+            ? { ledgerWire: 'posted', ledgerTxId: 'tx-opening-1', ledgerRefuse: null }
+            : { ledgerWire: 'refused', ledgerTxId: null, ledgerRefuse: expect.objectContaining({ socket: CHARGEBACK_LEDGER_SOCKET_ID }) },
+        );
+        walk(store, id);
+        const after = store.get(id)!;
+        expect(after.status, name).not.toBe('open');
+        expect(ledgerOf(after), name).toEqual(ledgerOf(opened));
+        expect(
+          Object.keys(after).filter((key) => /tx/i.test(key)),
+          name,
+        ).toEqual(['ledgerTxId']);
+      }
+    }
   });
 });

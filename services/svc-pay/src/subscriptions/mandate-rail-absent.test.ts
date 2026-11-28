@@ -1,9 +1,11 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PayError } from '../payment-service.js';
 import { shouldRegisterCardSandbox } from '../rails/posture.js';
+import { BankPayoutAbsentAdapter } from '../rails/bank-payout.js';
+import { CardSandboxAdapter } from '../rails/card-sandbox.js';
+import { MemoryChain } from '../rails/chain-port.js';
+import { CryptoNativeAdapter } from '../rails/crypto-native.js';
+import { FEATURES } from '../../../../tooling/tracker/features.mjs';
 import { MAX_ATTEMPTS_PER_CYCLE } from './charge-cycle.js';
 import {
   CARD_MANDATE_CHARGE_SOCKET,
@@ -19,13 +21,6 @@ import {
  * #1848 (KYB money-gate) owns payment-service / subscription-service / router.
  * This suite pins the mandate door in mandate-product + source scans only.
  */
-
-const here = dirname(fileURLToPath(import.meta.url));
-const svcPaySrc = join(here, '..');
-
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-}
 
 describe('card mandate cannot open money', () => {
   it('card and card_mandate refuse pay.mandate_rail_absent', () => {
@@ -60,39 +55,21 @@ describe('card mandate cannot open money', () => {
   });
 });
 
-describe('fire path — card refuse is before openInvoice', () => {
-  it('attemptCycle uses mandateChargeDisposition and does not openInvoice on refuse', () => {
-    const fire = stripComments(readFileSync(join(here, 'subscription-service.ts'), 'utf8'));
-    expect(fire).toMatch(/mandateChargeDisposition\s*\(\s*sub\.path\s*\)/);
-    const refuseAt = fire.indexOf("disposition.kind === 'refuse'");
-    const openAt = fire.indexOf('this.openInvoice(');
-    expect(refuseAt).toBeGreaterThan(-1);
-    expect(openAt).toBeGreaterThan(refuseAt);
-    const refuseArm = fire.slice(refuseAt, openAt);
-    expect(refuseArm).toMatch(/disposition\.code/);
-    expect(refuseArm).not.toMatch(/openInvoice\s*\(/);
-    expect(refuseArm).not.toMatch(/chargeAgainstMandate|pullMandate|createPayment\s*\(/);
-  });
-
-  it('does not invent an on-chain pull or charge-against-mandate helper', () => {
-    const fire = stripComments(readFileSync(join(here, 'subscription-service.ts'), 'utf8'));
-    const product = stripComments(readFileSync(join(here, 'mandate-product.ts'), 'utf8'));
-    for (const src of [fire, product]) {
-      expect(src).not.toMatch(/chargeAgainstMandate|chargeMandate|pullMandate|approve\(/);
-    }
-  });
-});
-
 describe('registered rails have no mandate pull', () => {
   it('no adapter declares mandate or implements charge-against-mandate', () => {
-    const railsDir = join(svcPaySrc, 'rails');
-    const adapters = ['card-sandbox.ts', 'crypto-native.ts', 'bank-payout.ts'];
-    for (const file of adapters) {
-      const src = stripComments(readFileSync(join(railsDir, file), 'utf8'));
-      expect(src, file).not.toMatch(/capabilities[^=]*=\s*\[[^\]]*['"]mandate['"]/);
-      expect(src, file).not.toMatch(/chargeAgainstMandate|chargeMandate\s*\(/);
+    const secret = 'mandate-rail-absent-secret-at-least-32-chars';
+    const adapters = [
+      new CardSandboxAdapter({ secret, toleranceSeconds: 300 }),
+      new CryptoNativeAdapter({ chain: new MemoryChain(), secret, minConfirmations: 6, toleranceSeconds: 300 }),
+      new BankPayoutAbsentAdapter(),
+    ];
+    expect(adapters.map((a) => a.id)).toEqual(['card-sandbox', 'crypto-native', 'bank-payout']);
+    for (const adapter of adapters) {
+      expect(adapter.capabilities, adapter.id).not.toContain('mandate');
+      for (const pull of ['chargeAgainstMandate', 'chargeMandate', 'pullMandate']) {
+        expect(Reflect.get(adapter, pull), `${adapter.id}.${pull}`).toBeUndefined();
+      }
     }
-    expect(readdirSync(railsDir).filter((f) => f.endsWith('.ts'))).toEqual(expect.arrayContaining(adapters));
   });
 });
 
@@ -117,13 +94,11 @@ describe('bounded dunning stays parked — no invented magnitudes', () => {
 
 describe('tracker parks card rail and pre-charge (mountain event not this slice)', () => {
   it('pay.subscriptions note still names rail-absent and parked sockets', () => {
-    const tracker = readFileSync(join(here, '../../../../tooling/tracker/features.mjs'), 'utf8');
-    const start = tracker.indexOf("f('pay.subscriptions'");
-    expect(start).toBeGreaterThan(-1);
-    const next = tracker.indexOf('\n  f(', start + 1);
-    const block = tracker.slice(start, next === -1 ? undefined : next);
-    expect(block).toMatch(/pay\.mandate_rail_absent/);
-    expect(block).toMatch(/socket\.psp-partners/);
-    expect(block).toMatch(/pre-charge|precharge/i);
+    const feature = FEATURES.find((f) => f.id === 'pay.subscriptions');
+    expect(feature).toBeDefined();
+    const declared = JSON.stringify(feature);
+    expect(declared).toMatch(/pay\.mandate_rail_absent/);
+    expect(declared).toMatch(/socket\.psp-partners/);
+    expect(declared).toMatch(/pre-charge|precharge/i);
   });
 });

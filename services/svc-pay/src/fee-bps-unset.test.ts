@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseOwnerIntegerEnv } from './fee-bps-env.js';
+import { payEnv } from './env.testkit.js';
 import { PayError, publishedDefaultFeeBps } from './payment-service.js';
 
 /**
@@ -24,10 +25,12 @@ describe('PAY_DEFAULT_FEE_BPS unset refuse', () => {
     expect(parseOwnerIntegerEnv(0)).toBe(0);
   });
 
-  it('env.ts does not coerce blank to 0', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/PAY_DEFAULT_FEE_BPS:\s*z\.coerce\.number/);
-    expect(envTs).toMatch(/parseOwnerIntegerEnv/);
+  it('the boot settings read a blank or missing default fee as unset — never 0', () => {
+    expect(payEnv({ PAY_DEFAULT_FEE_BPS: undefined }).PAY_DEFAULT_FEE_BPS).toBeNull();
+    expect(payEnv({ PAY_DEFAULT_FEE_BPS: '' }).PAY_DEFAULT_FEE_BPS).toBeNull();
+    expect(payEnv({ PAY_DEFAULT_FEE_BPS: '   ' }).PAY_DEFAULT_FEE_BPS).toBeNull();
+    expect(payEnv({ PAY_DEFAULT_FEE_BPS: '250' }).PAY_DEFAULT_FEE_BPS).toBe(250);
+    expect(payEnv({ PAY_DEFAULT_FEE_BPS: '0' }).PAY_DEFAULT_FEE_BPS).toBe(0);
   });
 
   it('compose passes empty — never a baked 0', () => {

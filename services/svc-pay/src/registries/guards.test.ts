@@ -1,7 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { Sql } from 'postgres';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
@@ -117,11 +114,9 @@ describe('registries procedure inventory', () => {
     expect(findUnguardedFounderProcedures(build(vi.fn()), ['founderAdmin.'])).toEqual([]);
   });
 
-  it('is mounted in index.ts, beside the W0 founderAdmin procedures, and absent when no deps are supplied', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(src).toMatch(
-      /createPayNamespaces\(\{\s*founderAuthority,\s*metrics,\s*registries: \{ sql, approvals: actionApprovals \},\s*sql,/,
-    );
+  it('sits beside the W0 founderAdmin procedures, and is absent when no deps are supplied', () => {
+    // That the booted service gives the namespaces its registries (the pay database and the approvals consumer) is
+    // index.db.test.ts ("src/index.ts still composes the routers this fixture mirrors").
     const authority = createFounderAuthority({ ...identity, fetcher: vi.fn() });
     const all = (r: unknown) => Object.keys((r as { _def: { procedures: Record<string, unknown> } })._def.procedures);
     expect(all(build(vi.fn()))).toContain('founderAdmin.merchants.list');

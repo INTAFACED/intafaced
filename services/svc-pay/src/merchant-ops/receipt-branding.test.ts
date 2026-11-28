@@ -1,12 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { formatMoney } from '@intafaced/i18n';
 import { describe, expect, it } from 'vitest';
 import { MerchantOpsError } from './errors.js';
 import { ReceiptPrecisionInvalid, formatReceiptAmount, normalizeReceiptTemplate, type ReceiptTemplateInput } from './receipt-branding.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 function input(over: Partial<ReceiptTemplateInput> = {}): ReceiptTemplateInput {
   return {
@@ -57,14 +52,5 @@ describe('receipt branding (M-adv-payments-core-07)', () => {
     expect(refusal(() => formatReceiptAmount('nope', 6, 'en', 'USDT')).code).toBe('pay.receipt_amount_invalid');
     expect(refusal(() => formatReceiptAmount('1', 2, 'en', 'usdt')).code).toBe('pay.receipt_asset_invalid');
     expect(() => formatReceiptAmount('1', 19, 'en', 'USDT')).toThrow(ReceiptPrecisionInvalid);
-  });
-
-  it('does not queue a status email from capture, and the branding file never inserts the queue', () => {
-    const branding = readFileSync(join(here, 'receipt-branding.ts'), 'utf8');
-    const payments = readFileSync(join(here, '..', 'payment-service.ts'), 'utf8');
-    expect(branding).not.toMatch(/insert into pay\.payment_status_email_queue/i);
-    expect(payments).not.toContain('receipt-branding');
-    expect(payments).not.toContain('payment_status_email_queue');
-    expect(payments).not.toContain('vendor.email');
   });
 });

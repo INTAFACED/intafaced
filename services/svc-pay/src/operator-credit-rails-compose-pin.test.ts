@@ -26,6 +26,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { payEnv } from './env.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -54,12 +55,12 @@ const WEBHOOK_TOLERANCE =
 
 describe('compose operator-credit rails for svc-pay', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
   const block = payServiceBlock(compose);
 
-  it('env.ts still declares the flag this pin tracks; no invented card-sandbox', () => {
-    expect(envTs).toMatch(/PAY_OPERATOR_CREDIT_RAILS:\s*operatorCreditRailsSchema/);
-    expect(envTs).not.toMatch(/PAY_OPERATOR_CREDIT_RAILS:[\s\S]{0,120}\.default\('card-sandbox'\)/);
+  it('svc-pay reads the flag this pin tracks with no card-sandbox of its own', () => {
+    expect(() => payEnv({ PAY_OPERATOR_CREDIT_RAILS: undefined })).toThrow(/PAY_OPERATOR_CREDIT_RAILS/);
+    expect(() => payEnv({ PAY_OPERATOR_CREDIT_RAILS: '' })).toThrow(/PAY_OPERATOR_CREDIT_RAILS/);
+    expect(payEnv({ PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox' }).PAY_OPERATOR_CREDIT_RAILS).toEqual(['card-sandbox']);
   });
 
   it('compose svc-pay block passes unique key once; empty pass-through', () => {

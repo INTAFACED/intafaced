@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { payEnv } from './env.testkit.js';
 import { PayError, publishedLinkDefaultTtlDays, publishedLinkMaxTtlDays } from './payment-service.js';
 
 /**
@@ -16,10 +17,12 @@ import { PayError, publishedLinkDefaultTtlDays, publishedLinkMaxTtlDays } from '
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('PAY_LINK_DEFAULT_TTL_DAYS unset refuse', () => {
-  it('env.ts does not default blank to 30', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
-    expect(envTs).toMatch(/PAY_LINK_DEFAULT_TTL_DAYS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(3_650\),/);
-    expect(envTs).not.toMatch(/PAY_LINK_DEFAULT_TTL_DAYS:[\s\S]{0,80}\.default\(30\)/);
+  it('the boot settings refuse a blank default lifetime rather than defaulting it to 30', () => {
+    for (const blank of [undefined, '', ' ', '0', '3651']) {
+      expect(() => payEnv({ PAY_LINK_DEFAULT_TTL_DAYS: blank })).toThrow(/PAY_LINK_DEFAULT_TTL_DAYS/);
+    }
+    expect(payEnv({ PAY_LINK_DEFAULT_TTL_DAYS: '30' }).PAY_LINK_DEFAULT_TTL_DAYS).toBe(30);
+    expect(payEnv({ PAY_LINK_DEFAULT_TTL_DAYS: '1' }).PAY_LINK_DEFAULT_TTL_DAYS).toBe(1);
   });
 
   it('compose refuses missing — never a baked 30', () => {
@@ -33,13 +36,6 @@ describe('PAY_LINK_DEFAULT_TTL_DAYS unset refuse', () => {
     expect(block).not.toMatch(/PAY_LINK_DEFAULT_TTL_DAYS:\s*['"]?30/);
   });
 
-  it('constructor does not invent 30', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-pay/src/payment-service.ts'), 'utf8');
-    expect(src).not.toMatch(/linkDefaultTtlDays = options\.linkDefaultTtlDays \?\? 30/);
-    expect(src).toMatch(/linkDefaultTtlDays = options\.linkDefaultTtlDays \?\? null/);
-    expect(src).toMatch(/pay\.link_ttl_unset/);
-  });
-
   it('publishedLinkDefaultTtlDays refuses null rather than inventing 30', () => {
     expect(() => publishedLinkDefaultTtlDays(null)).toThrow(PayError);
     expect(() => publishedLinkDefaultTtlDays(undefined)).toThrow(expect.objectContaining({ code: 'pay.link_ttl_unset' }));
@@ -49,10 +45,12 @@ describe('PAY_LINK_DEFAULT_TTL_DAYS unset refuse', () => {
 });
 
 describe('PAY_LINK_MAX_TTL_DAYS unset refuse', () => {
-  it('env.ts does not default blank to 365', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-pay/src/env.ts'), 'utf8');
-    expect(envTs).toMatch(/PAY_LINK_MAX_TTL_DAYS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(3_650\),/);
-    expect(envTs).not.toMatch(/PAY_LINK_MAX_TTL_DAYS:[\s\S]{0,80}\.default\(365\)/);
+  it('the boot settings refuse a blank maximum lifetime rather than defaulting it to 365', () => {
+    for (const blank of [undefined, '', ' ', '0', '3651']) {
+      expect(() => payEnv({ PAY_LINK_MAX_TTL_DAYS: blank })).toThrow(/PAY_LINK_MAX_TTL_DAYS/);
+    }
+    expect(payEnv({ PAY_LINK_MAX_TTL_DAYS: '365' }).PAY_LINK_MAX_TTL_DAYS).toBe(365);
+    expect(payEnv({ PAY_LINK_MAX_TTL_DAYS: '3650' }).PAY_LINK_MAX_TTL_DAYS).toBe(3650);
   });
 
   it('compose refuses missing — never a baked 365', () => {
@@ -64,13 +62,6 @@ describe('PAY_LINK_MAX_TTL_DAYS unset refuse', () => {
     expect(block).toMatch(/PAY_LINK_MAX_TTL_DAYS:\s*\$\{PAY_LINK_MAX_TTL_DAYS:\?missing — copy \.env\.example to \.env\}/);
     expect(block).not.toMatch(/PAY_LINK_MAX_TTL_DAYS:\s*\$\{PAY_LINK_MAX_TTL_DAYS:-365\}/);
     expect(block).not.toMatch(/PAY_LINK_MAX_TTL_DAYS:\s*['"]?365/);
-  });
-
-  it('constructor does not invent 365', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-pay/src/payment-service.ts'), 'utf8');
-    expect(src).not.toMatch(/linkMaxTtlDays = options\.linkMaxTtlDays \?\? 365/);
-    expect(src).toMatch(/linkMaxTtlDays = options\.linkMaxTtlDays \?\? null/);
-    expect(src).toMatch(/pay\.link_max_ttl_unset/);
   });
 
   it('publishedLinkMaxTtlDays refuses null rather than inventing 365', () => {

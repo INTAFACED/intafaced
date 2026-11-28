@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -561,12 +562,30 @@ describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
       expect(report.pendingKeys).toBe(1);
     });
 
-    it('computeFromSource on no keys is empty, and the rebuild CLI is wired to the same projector', () => {
-      const cli = readFileSync(join(here, 'rebuild-cli.ts'), 'utf8');
-      expect(cli).toContain('projector.rebuild');
-      expect(cli).toContain('projector.reconcile');
-      return expect(computeFromSource(sql, [])).resolves.toEqual({ days: [], statuses: [], links: [] });
-    });
+    it('computeFromSource on no keys is empty, and the rebuild CLI is wired to the same projector', async () => {
+      await expect(computeFromSource(sql, [])).resolves.toEqual({ days: [], statuses: [], links: [] });
+      // The CLI run against this database rebuilds a day the projector has not drained, then reconciles it clean.
+      const m = await merchant();
+      await projector.drain();
+      await rawPayment(m.id, 'USDT', new Date());
+      const cli = (...args: string[]) =>
+        spawnSync(process.execPath, ['--import', 'tsx', join(here, 'rebuild-cli.ts'), ...args], {
+          cwd: join(here, '..', '..'),
+          env: { ...process.env, DATABASE_URL: db!.url },
+          encoding: 'utf8',
+          timeout: 60_000,
+        });
+      const rebuilt = cli('--merchant', m.id);
+      expect(rebuilt.stderr).toBe('');
+      expect(rebuilt.status).toBe(0);
+      expect(rebuilt.stdout).toMatch(/^rebuilt: marked [1-9]\d* merchant-days, processed [1-9]\d*, remaining 0, failed 0$/m);
+      expect(rebuilt.stdout).toMatch(/^reconcile: checked [1-9]\d*, pending 0, diffs 0$/m);
+      expect((await projector.reconcile({ merchantId: m.id })).pendingKeys).toBe(0);
+      const checked = cli('--check', '--merchant', m.id);
+      expect(checked.status).toBe(0);
+      expect(checked.stdout).not.toMatch(/^rebuilt:/m);
+      expect(checked.stdout).toMatch(/^reconcile: checked [1-9]\d*, pending 0, diffs 0$/m);
+    }, 120_000);
   });
 
   describe('merchant figures', () => {
