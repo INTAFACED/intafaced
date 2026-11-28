@@ -2035,6 +2035,7 @@ export async function startNewAnvil(
         {
           ...baseEnv(),
           LOCAL_STACK_ANVIL_BIN: bin,
+          ...(process.env.LOCAL_STACK_CHAIN_HISTORY ? { LOCAL_STACK_CHAIN_HISTORY: process.env.LOCAL_STACK_CHAIN_HISTORY } : {}),
         },
         REPO,
       ),

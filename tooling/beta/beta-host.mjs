@@ -177,6 +177,8 @@ const PROVIDER_WORDS = { test: 'the TEST provider', turnkey: "the owner's wallet
  * `LOCAL_STACK_PROFILE=launch-desk` starts only the launch desk's services (tooling/scripts/local-stack-profile.mjs), not
  * every service of the stack: each is a failure point while testers are on and takes memory on a box shared with
  * builders. A room whose service is off says it is not connected here (#11075).
+ * `LOCAL_STACK_CHAIN_HISTORY=3600` keeps the TEST chain's last hour of block states (it mines one a second) instead of
+ * every block's: unbounded, the chain held 26 GB of the box's memory after 21 hours (local-test-chain.mjs anvilArgs).
  */
 const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
@@ -188,6 +190,7 @@ const BETA_STACK_SETTINGS = Object.freeze({
   LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: BETA_WALLET_PROVIDER,
   LOCAL_STACK_CUSTODY_LAYER: LAUNCH_CUSTODY_LAYER,
   LOCAL_STACK_PROFILE: 'launch-desk',
+  LOCAL_STACK_CHAIN_HISTORY: '3600',
 });
 /** The custody switch every process of the beta stack runs (BETA_STACK_SETTINGS), as launch does. */
 export const BETA_CUSTODY = BETA_STACK_SETTINGS.LOCAL_STACK_CUSTODY_LAYER;
