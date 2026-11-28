@@ -15,6 +15,7 @@ import type { RankPerksSource } from '../spot/rank-perks.js';
 import { builderFeesAt } from './builder-fee-versions.js';
 import { createFeeSaverClient } from './fee-saver-client.js';
 import { HttpUserVenue } from './http-user-venue.js';
+import { VenueReadCallers } from './venue-read-callers.js';
 import { registerInternalVenueDeposits } from './internal-deposits.js';
 import { registerInternalEquity } from './internal-equity.js';
 import { registerInternalOurFills } from './internal-our-fills.js';
@@ -84,6 +85,11 @@ export function wireUserVenue(deps: {
   // The person's own daily loss limit (daily-loss-limit.ts): one store, checked by every door on a fresh opening order.
   const dailyLossStore = new SqlDailyLossLimitStore(sql);
   const dailyLoss = new DailyLossGuard({ store: dailyLossStore, now: () => new Date() });
+  // Who in svc-trade reads the venue, a minute at a time: the venue's own counter says what left, not who asked.
+  const readCallers = new VenueReadCallers(
+    () => new Date(),
+    (minute) => process.stderr.write(`${JSON.stringify({ level: 'info', msg: 'trade.venue_reads_minute', ...minute })}\n`),
+  );
   // Identity's trading restriction (J-support-public-20 #7): every door reads it per new order, and refuses when unreadable.
   const tradingRestriction = createIdentityTradingRestrictionRead({
     baseUrl: env.IDENTITY_URL,
@@ -94,7 +100,11 @@ export function wireUserVenue(deps: {
     (url, i) =>
       new UserVenueDoor({
         connect: async () => {
-          const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS });
+          const venue = await HttpUserVenue.connect({
+            baseUrl: url,
+            timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS,
+            onRead: readCallers.onRead,
+          });
           testListingSeeds[i]!.connected(venue);
           return venue;
         },

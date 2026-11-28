@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import { SqlDailyLossLimitStore } from './daily-loss-limit-store.js';
+import { SqlDailyLossLimitStore, ageDailyLossLimit } from './daily-loss-limit-store.js';
 import { changed, inForce, LOOSENING_WAIT_MS } from './daily-loss-limit.js';
 
 // trade.user_venue_daily_loss_limits (daily-loss-limit.ts): the terms in force and a waiting loosening round-trip
@@ -84,6 +84,25 @@ describe('SqlDailyLossLimitStore on Postgres (trade.user_venue_daily_loss_limits
     await expect(store.noteWarned(KEY, [{ ...first, venueClientOrderId: 'not-an-id' }])).rejects.toThrow(
       /user_venue_daily_loss_warnings_cloid_ck/,
     );
+  });
+
+  it("the TEST age door moves only a waiting loosening's time back, so its 24 hours pass on a TEST clock", async () => {
+    const key = { ...KEY, userId: '11111111-1111-4111-8111-1111111111d4', owner: '0x00000000000000000000000000000000000000d4' };
+    const store = new SqlDailyLossLimitStore(db!.sql);
+    const age = ageDailyLossLimit(db!.sql);
+    const t0 = new Date();
+    const blank = { ...key, asset: 'USDC', active: null, pending: null, createdAt: t0, updatedAt: t0 };
+    await store.update(key, (r) => changed(r ?? blank, { mode: 'blocking', limit: a('100') }, t0));
+    // Nothing waits: nothing is aged.
+    expect(await age(key.owner, 60_000)).toBeNull();
+    const asked = await store.update(key, (r) => changed(r!, { mode: 'blocking', limit: a('300') }, t0));
+    const due = asked.pending!.effectiveAt.getTime();
+    expect(await age(key.owner.replace('d4', 'D4'), LOOSENING_WAIT_MS)).toEqual({
+      pendingEffectiveAt: new Date(due - LOOSENING_WAIT_MS).toISOString(),
+    });
+    const aged = (await store.get(key))!;
+    expect(aged.active).toEqual({ mode: 'blocking', limit: a('100') });
+    expect(inForce(aged, new Date()).active).toEqual({ mode: 'blocking', limit: a('300') });
   });
 
   it('refuses half-set terms and a limit of zero', async () => {

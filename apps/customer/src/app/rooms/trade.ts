@@ -22,6 +22,9 @@ export const tradeCopy = areaCopy({
     'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts':
       'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts',
     'Risk control': 'Risk control',
+    'Risk rules': 'Risk rules',
+    'A daily loss limit on your venue account that warns you or stops new trades, and never stops an exit':
+      'A daily loss limit on your venue account that warns you or stops new trades, and never stops an exit',
     'Cancel every open order, close positions and see platform incidents':
       'Cancel every open order, close positions and see platform incidents',
     News: 'News',
@@ -287,6 +290,13 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     path: '/trade/journal',
     title: 'Journal',
     description: 'Your closed futures trades from the venue, and what you made beside keeping your own rules',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/risk/rules',
+    title: 'Risk rules',
+    description: 'A daily loss limit on your venue account that warns you or stops new trades, and never stops an exit',
     door: 'Trade',
     area: 'trade',
   },

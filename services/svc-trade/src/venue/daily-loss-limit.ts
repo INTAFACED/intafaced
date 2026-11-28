@@ -10,7 +10,7 @@ import {
   type UserVenueAccount,
   type VenueIntent,
 } from '@intafaced/venue-contracts';
-import { dailyLossOf, startOfUtcDay } from './daily-loss.js';
+import { dailyLossOf, nextUtcDay, startOfUtcDay } from './daily-loss.js';
 import type { DailyLossLimitStore, DailyLossRecord, DailyLossTerms } from './daily-loss-limit-store.js';
 import { UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
 
@@ -143,9 +143,19 @@ export class VenueDailyLossLimits {
     return { account, venue };
   }
 
-  async get(principal: Principal, owner: string): Promise<DailyLossView> {
+  async get(principal: Principal, owner: string, opts: { terms?: boolean } = {}): Promise<DailyLossView> {
     const { account, venue } = await this.read(owner);
     const rec = await this.deps.store.get({ userId: principal.userId, venueId: venue.venue.id, owner: account.owner });
+    // The desk's read of an account that never set a limit: our record says it is off, and the venue is not asked.
+    if (!rec && opts.terms)
+      return {
+        venue: { id: venue.venue.id, name: venue.venue.displayName, test: isTestVenue(venue.venue) },
+        owner: account.owner,
+        asset: null,
+        active: null,
+        pending: null,
+        today: null,
+      };
     const asset = rec?.asset ?? (await this.assetOf(venue, account));
     return this.view({ venue, account, asset, rec: rec ? inForce(rec, this.deps.now()) : null });
   }
@@ -184,8 +194,11 @@ export class VenueDailyLossLimits {
   }): Promise<DailyLossView> {
     const since = startOfUtcDay(this.deps.now());
     let loss: Amount | null = null;
+    let asOf: string | null = null;
     try {
-      loss = dailyLossOf((await venue.fills(account, since)).value, asset);
+      const fills = await venue.fills(account, since);
+      loss = dailyLossOf(fills.value, asset);
+      asOf = fills.asOf.toISOString();
     } catch {
       loss = null;
     }
@@ -199,6 +212,8 @@ export class VenueDailyLossLimits {
       today: {
         loss: loss === null ? null : formatAmount(loss),
         since: since.toISOString(),
+        asOf,
+        resetsAt: nextUtcDay(since).toISOString(),
         reached: active !== null && loss !== null && compare(loss, active.limit) >= 0,
       },
     };
@@ -258,7 +273,7 @@ export class DailyLossGuard {
     const lost = formatAmount(loss);
     if (active.mode === 'blocking') {
       throw new UserVenueDoorError(
-        `this account has lost ${lost} ${rec.asset} today (UTC), reaching your daily loss limit of ${limit} ${rec.asset}, so no new opening order is placed today; reduce-only orders that close a position still go through`,
+        `this account has lost ${lost} ${rec.asset} today (UTC), reaching your daily loss limit of ${limit} ${rec.asset}, so no new opening order is placed until the day resets at ${nextUtcDay(since).toISOString()} (00:00 UTC); nothing was sent, and reduce-only orders that close a position still go through`,
         'trade.daily_loss_limit_reached',
         422,
       );
