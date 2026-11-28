@@ -30,6 +30,8 @@ import { futuresVenueCopy } from './venue-copy';
 import { venueRiskCopy } from './venue-risk-copy';
 import { bpsToPercent, percentOf, type ProjectedVenueTier } from './venue-risk-logic';
 import { VenueTierConfirm } from './VenueTierConfirm';
+import { useChecklistHold } from './PreTradeChecklist';
+import type { Checklist } from './pre-trade-checklist';
 
 export interface SplitReviewData {
   actionKey: string;
@@ -53,6 +55,7 @@ export function VenueSplitReview({
   owner,
   run,
   result,
+  checklist,
   onConfirm,
   onClose,
 }: {
@@ -64,6 +67,8 @@ export function VenueSplitReview({
   owner: string;
   run: RunAction;
   result: ActionResult | null;
+  /** The person's pre-trade checklist: it holds the split's opening orders at Confirm until every item is ticked. */
+  checklist: Checklist;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -75,6 +80,8 @@ export function VenueSplitReview({
   const [approving, setApproving] = useState<ActionResult | null>(null);
   const [approvalDraft] = useState(() => draftId());
   const [busy, setBusy] = useState(false);
+  // Every part of a split shares the ticket's reduce-only choice: the checklist holds all of them or none.
+  const hold = useChecklistHold(checklist, data.orders[0]!);
 
   const first = data.previews[0]!;
   const carries = data.previews.some((p) => carriesBuilderFee(p.value.builderFee));
@@ -215,6 +222,7 @@ export function VenueSplitReview({
             onAccept={setTierAccepted}
           />
         ) : null}
+        {hold.ticks}
         <Button
           tone="primary"
           disabled={
@@ -222,7 +230,9 @@ export function VenueSplitReview({
             (needsTier && !tierAccepted) ||
             (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')
           }
-          onClick={onConfirm}
+          onClick={() => {
+            if (!hold.held()) onConfirm();
+          }}
         >
           {confirmLabel}
         </Button>{' '}

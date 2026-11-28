@@ -30,6 +30,8 @@ import {
 } from '../../../features/trade/venue/VenueKit';
 import { futuresRoutesCopy } from './routes-copy';
 import { approvalAtConfirm, approvalState } from './venue-routes-logic';
+import { useChecklistHold } from './PreTradeChecklist';
+import type { Checklist } from './pre-trade-checklist';
 
 /**
  * ROUTING OVER THE VENUES THE PERSON CAN SIGN FOR (J-derivatives-28). Shown only when the deployment has more than one
@@ -342,6 +344,7 @@ export function RoutedReview({
   run,
   resend,
   confirmLabel,
+  checklist,
   onSent,
   onClose,
 }: {
@@ -353,6 +356,8 @@ export function RoutedReview({
   run: RunAction;
   resend: (intent: OrderIntent, opts: { venueId?: string }) => Promise<ActionResult>;
   confirmLabel: string;
+  /** The person's pre-trade checklist: it holds an opening order at Confirm until every item is ticked. */
+  checklist: Checklist;
   onSent: (result: ActionResult) => void;
   onClose: () => void;
 }) {
@@ -372,6 +377,7 @@ export function RoutedReview({
   // The draft this review's builder approval is asked under: a new review after a revoke asks a new one (J-derivatives-30 #4).
   const [approvalDraft] = useState(() => draftId());
   const [result, setResult] = useState<ActionResult | null>(null);
+  const hold = useChecklistHold(checklist, intent);
   const fee = status.builder?.feeBps ?? null;
   const approvedAmount = approval.data && 'value' in approval.data ? approval.data.value : null;
   const approvalNow = approvalState(carries, fee, { approved: approvedAmount, failed: approval.failure !== null });
@@ -386,6 +392,8 @@ export function RoutedReview({
 
   async function confirm() {
     if (!chosen || busy) return;
+    // The checklist holds an opening order until every item is ticked: Confirm names the first one left, nothing is sent.
+    if (hold.held()) return;
     setBusy(true);
     try {
       // The poll's answer may be a read that failed or is older than an approval just signed: Confirm asks the venue once
@@ -570,6 +578,7 @@ export function RoutedReview({
             {t('Declined words', { venue: chosen.displayName })}
           </p>
         ) : null}
+        {chosen ? hold.ticks : null}
         {chosen ? (
           <Button
             tone="primary"
