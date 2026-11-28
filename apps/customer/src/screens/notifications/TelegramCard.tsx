@@ -29,6 +29,9 @@ export function TelegramCard() {
     setNote(null);
     try {
       setNote(await act());
+    } catch {
+      // A call that throws (the network, not a refusal) is still a failure the person is told about.
+      setNote('failed');
     } finally {
       setBusy(false);
       refresh();
