@@ -2268,6 +2268,38 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
     assert.equal(bankCalls[path].access, null, path);
     assert.match(bankCalls[path].why, /which this reader does not map to a record's/, path);
   }
+  // svc-bank's job twins and its reads open to either of two scopes. Before, both were named "Access::Job" and "Access::AnyScope,
+  // which this reader does not map to a record's", and the run stopped on the records already written for them.
+  const other = (path, access) =>
+    `    Call {\n        path: "${path}",\n        kind: Kind::Mutation,\n        access: ${access},\n        slice: Slice::Ops,\n        has_input: true,\n    },`;
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [
+      other('ops.runDueTransfers', 'Access::Job'),
+      other(
+        'ops.customerBalances',
+        'Access::AnyScope {\n            scopes: &["admin:read", "admin:treasury"],\n            person: false,\n        }',
+      ),
+      other('ops.personal', 'Access::AnyScope {\n            scopes: &["admin:read"],\n            person: true,\n        }'),
+    ].join('\n'),
+  );
+  assert.match(Object.fromEntries(callsOf(dir, 'bank'))['ops.runDueTransfers'].why, /Access::Job/, 'no mod.rs: the job row stays named');
+  writeFileSync(
+    join(dir, 'src/door/mod.rs'),
+    `            Access::Job => match service {\n                None => Err(unauthenticated_service()),\n                Some("svc-bank") => Ok(()),\n                Some(_) => Err(forbidden("ops job is callable only as svc-bank")),\n            },`,
+  );
+  const jobs = Object.fromEntries(callsOf(dir, 'bank'));
+  assert.deepEqual(jobs['ops.runDueTransfers'].access, {
+    caller: 'service',
+    callers: ['svc-bank'],
+    forbidden: 'ops job is callable only as svc-bank',
+  });
+  assert.equal(
+    accessText(jobs['ops.runDueTransfers'].access),
+    "{ caller: 'service', callers: ['svc-bank'], forbidden: 'ops job is callable only as svc-bank' }",
+  );
+  assert.deepEqual(jobs['ops.customerBalances'].access, { caller: 'anyScope', scopes: ['admin:read', 'admin:treasury'] });
+  assert.equal(jobs['ops.personal'].access, null, 'an anyScope a person alone may call has no record form');
   writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, guarded: true, }');
   assert.throws(() => callsOf(dir, 'x'), /can't read/);
 });

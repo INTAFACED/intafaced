@@ -175,9 +175,12 @@ function nested(src, opener) {
  * region, own_session })` is svc-bank's `scopedProcedure(scope, guards)`: `region: Some(Region { .. })` is `guards.module`
  * (its `kyc`, the module's own tier rule, is what `module` checks; `kyc: None` only beside the call's own `tier`), `tier`
  * is `guards.tier`, `own_session` is `ownSession`. `Pre::PersonOnly(code)` is the record's `ownSession`; any other unit
- * `Pre` (`Pre::CoachRun`) is the record's `check` (`coachRun`). Anything else (svc-agents' `Settle`) is named, not guessed.
+ * `Pre` (`Pre::CoachRun`) is the record's `check` (`coachRun`). `Access::AnyScope { scopes, person: false }` is
+ * `anyScopeProcedure(scopes)`; `Access::Job` is the job twin only the crate's own service may call (`job`, read from
+ * `src/door/mod.rs`), a `service` record naming that service and the door's own refusal wording. Anything else (svc-agents'
+ * `Settle`) is named, not guessed.
  */
-function accessOf(body, module) {
+function accessOf(body, module, job) {
   const pre = body.match(/pre: (Pre::[^\n]*?),?\n/)?.[1].trim();
   const ownSession = pre?.match(/^Pre::PersonOnly\("([^"]+)"\)$/)?.[1];
   // Any other unit middleware of the door's own (`Pre::CoachRun`) is the service's own check, named in the record's
@@ -231,8 +234,34 @@ function accessOf(body, module) {
       },
     };
   }
+  const any = nested(body, 'access: Access::AnyScope {');
+  if (any !== undefined) {
+    const m = /^\s*scopes: &\[((?:\s*"[^"]+",?)+)\s*\],\s*person: false,?\s*$/.exec(any);
+    if (!m || ownSession || check)
+      return {
+        why: `access AnyScope { ${any.replace(/\s+/g, ' ').trim()} }${pre ? ` with ${pre}` : ''}, which this reader does not map to a record's`,
+      };
+    return { access: { caller: 'anyScope', scopes: [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) } };
+  }
+  if (/access: Access::Job\b/.test(body) && job && !ownSession && !check)
+    return { access: { caller: 'service', callers: [job.service], forbidden: job.forbidden } };
   const other = body.match(/access: Access::(\w+)/)?.[1];
   return other ? { why: `access Access::${other}, which this reader does not map to a record's` } : undefined;
+}
+
+/**
+ * Who the door's `Access::Job` admits and how it refuses anyone else, as `src/door/mod.rs`'s `admit` writes it
+ * (`Access::Job => match service { None => .., Some("svc-bank") => Ok(()), Some(_) => Err(forbidden("..")) }`), or
+ * undefined: a door written another way keeps its job rows named.
+ */
+function jobOf(crateDir) {
+  const file = join(crateDir, 'src/door/mod.rs');
+  if (!existsSync(file)) return undefined;
+  const m =
+    /Access::Job => match service \{\s*None => [^,]+,\s*Some\("([^"]+)"\) => Ok\(\(\)\),\s*Some\(_\) => Err\(forbidden\("([^"]+)"\)\),?\s*\}/.exec(
+      readFileSync(file, 'utf8'),
+    );
+  return m ? { service: m[1], forbidden: m[2] } : undefined;
 }
 
 /**
@@ -241,11 +270,12 @@ function accessOf(body, module) {
  */
 export function callsOf(crateDir, module) {
   const src = readFileSync(join(crateDir, 'src/door/calls.rs'), 'utf8');
+  const job = jobOf(crateDir);
   const out = new Map();
   for (const body of callBodies(src)) {
     const path = body.match(/path: "([^"]+)"/)?.[1];
     const kind = body.match(/kind: Kind::(Query|Mutation)/)?.[1];
-    const who = accessOf(body, module);
+    const who = accessOf(body, module, job);
     const guarded = body.match(/guarded: (true|false)/)?.[1];
     if (!path || !kind || !who) throw new Error(`calls.rs: a call this reader can't read: ${body.trim()}`);
     out.set(path, {
@@ -260,7 +290,7 @@ export function callsOf(crateDir, module) {
 
 /** A record's `access` as its source writes it, keys in the order the records do. */
 export function accessText(a) {
-  const v = (x) => (typeof x === 'string' ? `'${x}'` : String(x));
+  const v = (x) => (typeof x === 'string' ? `'${x}'` : Array.isArray(x) ? `[${x.map(v).join(', ')}]` : String(x));
   return `{ ${Object.entries(a)
     .map(([k, x]) => `${k}: ${v(x)}`)
     .join(', ')} }`;
