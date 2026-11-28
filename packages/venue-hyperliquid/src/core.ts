@@ -45,13 +45,19 @@ const MARKETS_MISS_REFRESH_MS = 10_000;
 const LIGHT_READS = new Set(['l2Book', 'allMids', 'clearinghouseState', 'orderStatus', 'spotClearinghouseState', 'exchangeStatus']);
 const SLOW_READS = new Set(['meta', 'spotMeta', 'perpDexs']);
 /**
+ * An account's order history (`historicalOrders`, 20 a read and more with its orders): what is live on a desk (its open
+ * orders, fills and positions) is read apart, and the account's own order or cancel drops it, so it is kept 45 s. Money's
+ * activity polls it every few seconds on each open page; kept 15 s, five testers' pages were 140 a minute.
+ */
+const HISTORY_READS = new Set(['historicalOrders']);
+/**
  * An account's reads that change only by its own signed action of another kind than an order or a cancel: its fee
  * rates (`userFees`, by its volume over days), its builder approval (`maxBuilderFee`), its session keys (`extraAgents`)
  * a market's leverage (`activeAssetData`, of which only `leverage` is read) and its account mode (`userAbstraction`). Kept for minutes; an order or a cancel
  * keeps them (`ORDER_ACTIONS`), any other signed action of the account drops them.
  */
 const RARE_READS = new Set(['userFees', 'maxBuilderFee', 'extraAgents', 'activeAssetData', 'userAbstraction']);
-export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000, rare: 300_000 } as const;
+export const READ_FRESH_MS = { light: 2_000, heavy: 15_000, slow: 30_000, history: 45_000, rare: 300_000 } as const;
 /**
  * The exchange actions that change only an account's orders, positions, balances and fills, never its fee rates,
  * approvals, session keys or leverage: after one, only those reads of the account are read again.
@@ -115,7 +121,9 @@ const freshFor = (type: string) =>
       ? READ_FRESH_MS.rare
       : SLOW_READS.has(type)
         ? READ_FRESH_MS.slow
-        : READ_FRESH_MS.heavy;
+        : HISTORY_READS.has(type)
+          ? READ_FRESH_MS.history
+          : READ_FRESH_MS.heavy;
 /** The venue's documented cap on one `userFillsByTime` answer ("at most 2000 fills per response"). */
 export const FILLS_PAGE_CAP = 2000;
 

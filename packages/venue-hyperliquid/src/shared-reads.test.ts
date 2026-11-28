@@ -46,13 +46,15 @@ describe('shared venue reads', () => {
     expect(s.calls).toEqual(['openOrders', 'openOrders']);
   });
 
-  it('keeps an answer by its weight: a light read 2 s, a heavy one 15 s, the listing 30 s, fee rates, approvals, agents and leverage 5 minutes', async () => {
+  it('keeps an answer by its weight: a light read 2 s, a heavy one 15 s, the listing 30 s, order history 45 s, fee rates, approvals, agents and leverage 5 minutes', async () => {
     const s = setup(true);
     expect(READ_FRESH_MS.rare).toBe(300_000);
+    expect(READ_FRESH_MS.history).toBe(45_000);
     for (const [type, fresh] of [
       ['clearinghouseState', READ_FRESH_MS.light],
       ['openOrders', READ_FRESH_MS.heavy],
       ['meta', READ_FRESH_MS.slow],
+      ['historicalOrders', READ_FRESH_MS.history],
       ['userFees', READ_FRESH_MS.rare],
       ['maxBuilderFee', READ_FRESH_MS.rare],
       ['extraAgents', READ_FRESH_MS.rare],
@@ -68,6 +70,16 @@ describe('shared venue reads', () => {
       await s.venue.read({ type, user: '0xa' });
       expect(s.calls).toEqual([type, type, type]);
     }
+  });
+
+  it("the account's own order or cancel drops its kept order history, so the desk shows its own action at once", async () => {
+    const s = setup(true);
+    await s.venue.read({ type: 'historicalOrders', user: '0xa' });
+    await s.venue.read({ type: 'historicalOrders', user: '0xb' });
+    s.venue.forget(['0xa'], 'order');
+    await s.venue.read({ type: 'historicalOrders', user: '0xa' });
+    await s.venue.read({ type: 'historicalOrders', user: '0xb' });
+    expect(s.calls).toEqual(['historicalOrders', 'historicalOrders', 'historicalOrders']);
   });
 
   it('one read is in flight per request, however many desks ask', async () => {
