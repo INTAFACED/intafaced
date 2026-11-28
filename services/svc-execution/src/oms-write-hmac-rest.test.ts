@@ -75,7 +75,11 @@ function principal(): Principal {
 }
 
 function signed() {
-  const raw = encodePrincipal(principal());
+  return signedAs(principal());
+}
+
+function signedAs(p: Principal) {
+  const raw = encodePrincipal(p);
   return edgeContext({
     headers: {
       'x-intafaced-principal': raw,
@@ -120,21 +124,51 @@ async function leftoverApp() {
   return f;
 }
 
+/** A field of an object or a function (a tRPC caller and its procedures are both), or undefined. */
+function field(node: unknown, key: string): unknown {
+  return node !== null && (typeof node === 'object' || typeof node === 'function') ? Reflect.get(node, key) : undefined;
+}
+
 describe('leftover OMS writes require HMAC as svc-execution', () => {
-  it('oms tRPC block has no leftover admin:write — #3967 rest mill', () => {
-    const src = readFileSync(join(DIR, 'router.ts'), 'utf8');
-    const oms = src.slice(src.indexOf('oms: router({'), src.indexOf('policy: publicProcedure'));
-    expect(oms).not.toMatch(/scopedProcedure\('admin:write'/);
-    expect(oms).toMatch(/omsWriteProcedure/);
-    // Founder halt is execution.ops, not an OMS write. Session admin:write stays inside that block.
-    const opsStart = src.indexOf('ops: router({');
-    const opsEnd = src.indexOf('oms: router({');
-    const outsideOps = src.slice(0, opsStart) + src.slice(opsEnd);
-    expect(src.slice(opsStart, opsEnd)).toMatch(/scopedProcedure\('admin:write'/);
-    expect(outsideOps).not.toMatch(/scopedProcedure\('admin:write'/);
-    expect(src).toMatch(/tenant: router\([\s\S]*omsWriteProcedure/);
-    expect(src).toMatch(/arb: router\([\s\S]*omsWriteProcedure/);
-    expect(src).toMatch(/mm: router\([\s\S]*omsWriteProcedure/);
+  it('oms tRPC block has no leftover admin:write — #3967 rest mill', async () => {
+    const router = createExecutionRouter(new SealedHouseTenantRegistry());
+    const caller: object = router.createCaller(signed());
+    const mutations = Object.entries(router._def.procedures)
+      .filter(([, procedure]) => field(field(procedure, '_def'), 'type') === 'mutation')
+      .map(([path]) => path);
+    const outcome = async (path: string, as: object = caller): Promise<string> => {
+      const call = path.split('.').reduce<unknown>((node, key) => field(node, key), as) as (input: unknown) => Promise<unknown>;
+      try {
+        await call({});
+        return 'ok';
+      } catch (err) {
+        return (err as { code?: string }).code ?? 'thrown';
+      }
+    };
+
+    // Every write outside execution.ops is an OMS write: a session holding admin:write, with no service, is refused.
+    const outsideOps = mutations.filter((path) => !path.startsWith('execution.ops.'));
+    for (const prefix of ['execution.oms.', 'execution.tenant.', 'execution.arb.', 'execution.mm.']) {
+      expect(
+        outsideOps.some((path) => path.startsWith(prefix)),
+        prefix,
+      ).toBe(true);
+    }
+    for (const path of outsideOps) expect(await outcome(path), path).toBe('UNAUTHORIZED');
+
+    // Nor does admin:write open any other door outside execution.ops, read or write: a principal holding only
+    // admin:write meets each such door exactly as a principal holding no scope does.
+    const scoped = (scopes: string[]): object => router.createCaller(signedAs({ ...principal(), scopes }));
+    const writeOnly = scoped(['admin:write']);
+    const noScope = scoped([]);
+    for (const path of Object.keys(router._def.procedures).filter((p) => !p.startsWith('execution.ops.'))) {
+      expect(await outcome(path, writeOnly), path).toBe(await outcome(path, noScope));
+    }
+
+    // Founder halt is execution.ops, not an OMS write: session admin:write still reaches it.
+    const ops = mutations.filter((path) => path.startsWith('execution.ops.'));
+    expect(ops.length).toBeGreaterThan(0);
+    for (const path of ops) expect(['UNAUTHORIZED', 'FORBIDDEN'], path).not.toContain(await outcome(path));
   });
 
   it('leftover HTTP mill files HMAC and drop session admin:write', () => {

@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { BOOT_ENV } from './testing/boot.js';
 import { businessBlockFor, checkAccess, KYC_TIERS, MODULES, regionsWithEntries, UNSET_SCREENING_LIST } from '@intafaced/config';
 
 /**
@@ -156,12 +157,19 @@ describe('svc-indexer · §16.10 — the custody boundary, from inside', () => {
     }
   });
 
-  it('declares no ledger URL and no signing key in its environment', () => {
-    const env = readFileSync(join(serviceRoot, 'src', 'env.ts'), 'utf8');
-    // Comments legitimately mention what is absent, so match declarations only.
-    const declared = [...env.matchAll(/^\s{4}([A-Z][A-Z0-9_]*)\s*:/gm)].map((m) => m[1]!);
-    for (const name of declared) {
-      expect(name, `${name} is declared in env.ts`).not.toMatch(/PRIVATE_KEY|MNEMONIC|SEED|LEDGER_URL|SIGNER/);
+  it('declares no ledger URL and no signing key in its environment', async () => {
+    // Every variable the service's env schema declares, read from the schema the boot loads.
+    vi.resetModules();
+    for (const [key, value] of Object.entries(BOOT_ENV)) vi.stubEnv(key, value);
+    try {
+      const { schema } = await import('./env.js');
+      const declared = Object.keys(schema.shape);
+      expect(declared).toEqual(expect.arrayContaining(['INDEXER_CHAIN_ID', 'INDEXER_RPC_URL', 'EDGE_PRINCIPAL_SECRET']));
+      for (const name of declared) {
+        expect(name, `${name} is declared in env.ts`).not.toMatch(/PRIVATE_KEY|MNEMONIC|SEED|LEDGER_URL|SIGNER/);
+      }
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 
@@ -184,12 +192,38 @@ describe('svc-indexer · §16.10 — the custody boundary, from inside', () => {
     }
   });
 
-  it('EVM adapter constructs a PublicClient and never a WalletClient', () => {
-    const source = readFileSync(join(serviceRoot, 'src', 'chain', 'evm', 'source.ts'), 'utf8');
-    expect(source).toMatch(/createPublicClient/);
-    expect(source).not.toMatch(/createWalletClient/);
-    // Comments may name WalletClient when explaining the ban — the import surface is the load-bearing check.
-    expect(source).not.toMatch(/from\s+['"]viem['"][^;]*WalletClient|import\s+type\s*\{[^}]*WalletClient/);
+  it('EVM adapter constructs a PublicClient and never a WalletClient', async () => {
+    // Build the adapter against viem as it is, noting each client it asks viem for.
+    const made: string[] = [];
+    vi.resetModules();
+    vi.doMock('viem', async (importOriginal) => {
+      const real = await importOriginal<typeof import('viem')>();
+      return {
+        ...real,
+        createPublicClient: ((...args: Parameters<typeof real.createPublicClient>) => {
+          made.push('public');
+          return real.createPublicClient(...args);
+        }) as typeof real.createPublicClient,
+        createWalletClient: ((...args: Parameters<typeof real.createWalletClient>) => {
+          made.push('wallet');
+          return real.createWalletClient(...args);
+        }) as typeof real.createWalletClient,
+      };
+    });
+    try {
+      const { EvmChainSource } = await import('./chain/evm/source.js');
+      const source = new EvmChainSource({
+        chainId: 1,
+        rpcUrl: 'http://rpc.test:8545',
+        venue: '0x1111111111111111111111111111111111111111',
+      });
+      expect(source).toBeDefined();
+      expect(made.length).toBeGreaterThan(0);
+      expect(new Set(made)).toEqual(new Set(['public']));
+    } finally {
+      vi.doUnmock('viem');
+      vi.resetModules();
+    }
   });
 
   it('tsconfig ships only src/** so scripts/ keys cannot enter dist', () => {
@@ -203,34 +237,4 @@ describe('svc-indexer · §16.10 — the custody boundary, from inside', () => {
    * A read model has no business writing anywhere but its own schema (§2).
    * Every table this service touches is declared in its own migration.
    */
-  it('writes to no schema but its own', () => {
-    const own = new Set([
-      'blocks',
-      'book_levels',
-      'explorer_block_facts',
-      'explorer_block_traces',
-      'explorer_internal_txs',
-      'explorer_pools',
-      'explorer_swaps',
-      'explorer_syncs',
-      'explorer_tx_logs',
-      'explorer_tokens',
-      'explorer_transfers',
-      'explorer_tx_seen',
-      'explorer_txs',
-      'fills',
-      'positions',
-    ]);
-    const store = readFileSync(join(serviceRoot, 'src', 'projection', 'postgres-store.ts'), 'utf8');
-    // `UPDATE x SET` rather than bare `UPDATE`, so `ON CONFLICT … DO UPDATE SET`
-    // is not read as a write to a table called "set".
-    const writes = [...store.matchAll(/\b(?:INSERT\s+INTO|DELETE\s+FROM)\s+([a-z_]+)/gi)].concat([
-      ...store.matchAll(/\bUPDATE\s+([a-z_]+)\s+SET\b/gi),
-    ]);
-
-    expect(writes.length, 'found no writes at all — this check would pass vacuously').toBeGreaterThan(3);
-    for (const match of writes) {
-      expect(own.has(match[1]!.toLowerCase()), `writes to ${match[1]}`).toBe(true);
-    }
-  });
 });

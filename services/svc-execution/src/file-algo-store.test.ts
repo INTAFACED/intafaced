@@ -1,7 +1,6 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   EXECUTION_ALGO_STORE_PATH_UNSET,
@@ -12,11 +11,10 @@ import {
   algoPauseJournalPath,
   requireExecutionEmsStorePath,
 } from './file-algo-store.js';
+import { bootExecution } from './testing/boot.js';
 import { startApprovedAlgoParent, type ApprovedAlgoParent, type RetainedAlgoSchedule } from './oms-start.js';
 
 const dirs: string[] = [];
-const here = dirname(fileURLToPath(import.meta.url));
-const indexSrc = () => readFileSync(join(here, 'index.ts'), 'utf8');
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -247,14 +245,29 @@ describe('algo journal paths', () => {
 });
 
 describe('execution boot durable algo stores', () => {
-  it('index wires file parent/pause stores and fail-closed path', () => {
-    const src = indexSrc();
-    expect(src).toContain('requireExecutionEmsStorePath');
-    expect(src).toContain('FileApprovedAlgoParentStore');
-    expect(src).toContain('FileAlgoPauseStore');
-    expect(src).toContain('algoParentJournalPath');
-    expect(src).toContain('algoPauseJournalPath');
-    expect(src).not.toContain('new InMemoryApprovedAlgoParentStore()');
-    expect(src).not.toContain('new InMemoryAlgoPauseStore()');
+  it('index wires file parent/pause stores and fail-closed path', async () => {
+    const booted = await bootExecution();
+    try {
+      // createExecutionRouter's pauseStore and parentStore (parameters 16 and 17).
+      const pauseStore = booted.routerArgs[15] as FileAlgoPauseStore;
+      const parentStore = booted.routerArgs[16] as FileApprovedAlgoParentStore;
+      parentStore.approve(approved('boot-parent'));
+      expect(pauseStore.pause({ kind: 'parent', id: 'boot-parent' })).toBe(true);
+      // What the booted stores wrote is on the journals beside the EMS path: a restart reads it back.
+      expect(new FileApprovedAlgoParentStore(algoParentJournalPath(booted.emsStorePath)).get('boot-parent')).toMatchObject({
+        parentClientOrderId: 'boot-parent',
+        status: 'approved',
+      });
+      expect(new FileAlgoPauseStore(algoPauseJournalPath(booted.emsStorePath)).isPaused({ parentClientOrderId: 'boot-parent' })).toBe(true);
+    } finally {
+      await booted.close();
+    }
+    // A blank EMS path stops the boot before any store exists.
+    const refused = await bootExecution({ EXECUTION_EMS_STORE_PATH: '' }).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    const booting = await import('./file-algo-store.js');
+    expect(refused).toBeInstanceOf(booting.ExecutionAlgoStorePathUnsetError);
   });
 });

@@ -31,15 +31,13 @@
  * should be the request the operating system delivered.
  */
 
-import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { retainRawBody, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { BOOT_EDGE_SECRET, bootNotify } from './testing/boot.js';
 import { createGuestIngressContext } from './guests/context.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { NotifyService } from './notify-service.js';
@@ -52,8 +50,6 @@ import { MemoryAlertStore } from './alerts/store.js';
 import type { MarkSource } from './alerts/types.js';
 import { createDarkWhaleMarkSource } from './alerts/whale-mark.js';
 import { TEST_ALERT_LIMITS } from './alerts/test-limits.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 /** The prefix this file proves. `index.ts` must ship the same one — see below. */
 const PREFIX = '/trpc';
@@ -266,25 +262,51 @@ describe('svc-notify serves its router over a real socket', () => {
  * defect shape D-S-13's second correction counts five times, and writing a
  * reachability test without this block would be the sixth.
  *
- * `index.ts` connects to Postgres and NATS at module scope and cannot be
- * imported, so the tie is made by reading it: same plugin, same prefix, same
- * context factory. Change either side and one of these fails.
+ * `index.ts` connects to Postgres and NATS at module scope; `testing/boot.ts`
+ * boots it in this process with both stood in, and these cases ask the mount it
+ * ships: same prefix, the same signed edge context, over its own HTTP routes.
  */
 describe('the mount proven above is the mount index.ts ships', () => {
-  const index = readFileSync(join(here, 'index.ts'), 'utf8');
-
-  it('registers the same tRPC plugin at the same prefix this file requested', () => {
-    expect(index).toMatch(/fastifyTRPCPlugin/);
-    expect(index).toMatch(new RegExp(`prefix: '${PREFIX}'`));
+  it('registers the same tRPC plugin at the same prefix this file requested', async () => {
+    const booted = await bootNotify();
+    try {
+      expect(booted.trpc.prefix).toBe(PREFIX);
+      const res = await booted.app.inject({ method: 'GET', url: `${PREFIX}/health` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().result.data).toMatchObject({ ok: true, service: 'svc-notify' });
+    } finally {
+      await booted.close();
+    }
   });
 
-  it('passes the original request to the signed edge and exact-body ops context', () => {
-    // A mount that served the router without this would answer every caller as
-    // whoever they claimed to be.
-    expect(index).toMatch(/createContext:/);
-    expect(index).toMatch(/createGuestIngressContext/);
-    expect(index).toMatch(/createContext: \(\{ req \}\) => edgeContext\(req\)/);
-    expect(index).toMatch(/EDGE_PRINCIPAL_SECRET/);
+  it('passes the original request to the signed edge and exact-body ops context', async () => {
+    // A mount that served the router without this would answer every caller as whoever they claimed to be.
+    const booted = await bootNotify();
+    try {
+      const url = `${PREFIX}/notify.unreadCount`;
+      const raw = encodePrincipal(principal());
+      const signedByEdge = {
+        'x-intafaced-principal': raw,
+        'x-intafaced-principal-sig': signPrincipalHeader(raw, BOOT_EDGE_SECRET, 'DE'),
+        'x-intafaced-region': 'DE',
+      };
+      const signed = await booted.app.inject({ method: 'GET', url, headers: signedByEdge });
+      expect(signed.statusCode).toBe(200);
+      const unsigned = await booted.app.inject({ method: 'GET', url, headers: { 'x-intafaced-region': 'DE' } });
+      expect(unsigned.statusCode).toBe(401);
+      // A principal signed with another secret is not the edge's.
+      const forged = await booted.app.inject({
+        method: 'GET',
+        url,
+        headers: {
+          ...signedByEdge,
+          'x-intafaced-principal-sig': signPrincipalHeader(raw, 'another-secret-that-is-not-the-edge-one', 'DE'),
+        },
+      });
+      expect(forged.statusCode).toBe(401);
+    } finally {
+      await booted.close();
+    }
   });
 });
 

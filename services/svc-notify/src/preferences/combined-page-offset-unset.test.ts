@@ -12,20 +12,19 @@
  * 4. Class N
  * 5. Paths: services/svc-notify/src/preferences/combined.ts
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_COMBINED_PREFS,
+  NOTIFY_COMBINED_PAGE_OFFSET_UNSET,
   NotifyCombinedPageLimitUnsetError,
+  NotifyCombinedPageOffsetUnsetError,
+  assertCombinedPageOffset,
   channelsToSendNow,
   pagePlanDecisions,
   pagePlanSendChannels,
   planFanoutDelivery,
+  safePagePlanDecisions,
 } from './combined.js';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 const NON_FINITE_OFFSETS = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY] as const;
 
@@ -73,16 +72,22 @@ describe('pagePlanDecisions / pagePlanSendChannels non-finite offset', () => {
   });
 });
 
-describe('combined page offset unset refuse — source pin', () => {
+describe('combined page offset unset refuse', () => {
   it('both planners refuse a non-finite offset and do not invent a page size', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-notify/src/preferences/combined.ts'), 'utf8');
-    expect(src).toContain('assertCombinedPageOffset(options.offset)');
-    expect(src).toContain('NotifyCombinedPageOffsetUnsetError');
-    expect(src).toContain('notify.combined_page_offset_unset');
-    expect(src).not.toMatch(/Math\.max\(0, Math\.floor\(options\.offset \?\? 0\)\)/);
-    expect(src).not.toMatch(/options\.offset \?\? plan\.length/);
-    expect(src).not.toMatch(/options\.offset \?\? all\.length/);
-    const safe = src.slice(src.indexOf('export function safePagePlanDecisions'));
-    expect(safe).toContain('if (!Number.isFinite(offset) || !Number.isFinite(limit)) return [];');
+    const plan = planFanoutDelivery(DEFAULT_COMBINED_PREFS, ['inapp', 'email', 'sms'], 'critical');
+    // The offset is checked on its own: a non-finite one with a good limit refuses by the offset's name.
+    for (const offset of NON_FINITE_OFFSETS) {
+      expect(() => assertCombinedPageOffset(offset)).toThrow(NotifyCombinedPageOffsetUnsetError);
+      expect(refusedOffset(() => pagePlanDecisions(plan, { offset, limit: plan.length }))).toBeInstanceOf(
+        NotifyCombinedPageOffsetUnsetError,
+      );
+      expect(refusedOffset(() => pagePlanSendChannels(plan, { offset, limit: plan.length })).code).toBe(NOTIFY_COMBINED_PAGE_OFFSET_UNSET);
+      // The clamped reader answers an empty page, never the whole plan.
+      expect(safePagePlanDecisions(plan, offset, 2)).toEqual([]);
+    }
+    expect(safePagePlanDecisions(plan, 0, Number.POSITIVE_INFINITY)).toEqual([]);
+    expect(safePagePlanDecisions(plan, 0, 2)).toEqual(plan.slice(0, 2));
+    // An omitted offset is the first page (0), not a guessed size: the limit still decides the page.
+    expect(pagePlanDecisions(plan, { limit: 1 })).toEqual(plan.slice(0, 1));
   });
 });

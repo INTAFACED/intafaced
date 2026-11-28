@@ -23,10 +23,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import * as serviceModule from './notify-service.js';
+import { publishedVerifyTtlMinutes } from './notify-service.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ROOT = resolve(import.meta.dirname, '../../..');
-
 function notifyServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-notify');
 }
@@ -39,16 +39,7 @@ const FANOUT = /^\s+NOTIFY_FANOUT_ENABLED:\s*\$\{NOTIFY_FANOUT_ENABLED:-true\}\s
 
 describe('compose NOTIFY_VERIFY_TTL_MINUTES for svc-notify', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envTs = readFileSync(resolve(ROOT, 'services/svc-notify/src/env.ts'), 'utf8');
-  const serviceTs = readFileSync(resolve(import.meta.dirname, 'notify-service.ts'), 'utf8');
   const block = notifyServiceBlock(compose);
-
-  it('env.ts refuses blank TTL — no 15 default', () => {
-    expect(envTs).not.toMatch(/NOTIFY_VERIFY_TTL_MINUTES:[\s\S]{0,400}\.default\(15\)/);
-    expect(envTs).toMatch(
-      /NOTIFY_VERIFY_TTL_MINUTES:\s*blankAsAbsent\(z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(120\)\.optional\(\)\)/,
-    );
-  });
 
   it('compose svc-notify block is the unique home; TTL is empty pass-through', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-notify/);
@@ -63,7 +54,13 @@ describe('compose NOTIFY_VERIFY_TTL_MINUTES for svc-notify', () => {
     expect(block.match(SMS_CHARS)).toHaveLength(1);
     expect(block.match(MAX_ATTEMPTS)).toHaveLength(1);
     expect(block.match(FANOUT)).toHaveLength(1);
-    expect(serviceTs).toMatch(/notify\.verify_ttl_unset/);
-    expect(serviceTs).not.toMatch(/DEFAULT_VERIFY_TTL_MINUTES/);
+  });
+
+  it('registerTarget refuses an unset TTL with its code and the service keeps no default to fall back on', () => {
+    for (const unset of [undefined, null]) {
+      expect(() => publishedVerifyTtlMinutes(unset)).toThrow(expect.objectContaining({ code: 'notify.verify_ttl_unset' }));
+    }
+    expect(publishedVerifyTtlMinutes(30)).toBe(30);
+    expect(Object.keys(serviceModule)).not.toContain('DEFAULT_VERIFY_TTL_MINUTES');
   });
 });

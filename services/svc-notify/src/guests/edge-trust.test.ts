@@ -1,10 +1,7 @@
 /**
  * The guest ingress door verifies the edge principal with the shared secret AND, when configured, the
- * edge's public key. The tRPC mount in index.ts is pinned by source (it boots the whole service).
+ * edge's public key. The last case boots the real entrypoint (`testing/boot.ts`) and asks the context it hands its /trpc mount.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   EDGE_PRINCIPAL_HEADER,
@@ -15,6 +12,7 @@ import {
   signPrincipalHeader,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
+import { bootNotify } from '../testing/boot.js';
 import { createGuestIngressContext } from './context.js';
 
 type Principal = Parameters<typeof encodeForwardedPrincipal>[0];
@@ -72,8 +70,24 @@ describe('guest ingress: edge principal', () => {
     expect(ctx(request(raw, signPrincipalHeader(raw, SECRET, 'DE'))).principal?.userId).toBe(USER);
   });
 
-  it('index.ts hands the edge trust settings to the guest ingress context', () => {
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../index.ts'), 'utf8');
-    expect(source).toMatch(/edgeSecret: env\.EDGE_PRINCIPAL_SECRET,\s*edgeTrust: edgeTrustFromEnv\(env\),/);
+  it('index.ts hands the edge trust settings to the guest ingress context', async () => {
+    // The context the booted service hands its /trpc mount, given a principal the edge key signed.
+    const principalSeenBy = async (vars: Record<string, string | undefined>) => {
+      const booted = await bootNotify(vars);
+      try {
+        const context = booted.trpc.createContext({ req: edgeSigned(), res: {} }) as { principal: { userId: string } | null };
+        return context.principal?.userId ?? null;
+      } finally {
+        await booted.close();
+      }
+    };
+    expect(
+      await principalSeenBy({
+        EDGE_PRINCIPAL_PUBLIC_KEY: edge.publicKey,
+        EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: String(LIMITS.maxLifetimeSeconds),
+        EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS: String(LIMITS.clockSkewSeconds),
+      }),
+    ).toBe(USER);
+    expect(await principalSeenBy({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined })).toBeNull();
   });
 });

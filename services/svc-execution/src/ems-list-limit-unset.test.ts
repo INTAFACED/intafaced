@@ -10,9 +10,6 @@
  *
  * Store.list remains the kill / TCA work set — not recut here.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
@@ -23,7 +20,6 @@ import { assertEmsListLimit, EMS_LIST_LIMIT_CAP, EmsListLimitUnsetError, EXECUTI
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
 import { createExecutionRouter } from './router.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const SECRET = 'a-execution-ems-list-limit-test-edge-secret';
 const OP = '33333333-3333-4333-8333-333333333333';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-execution' });
@@ -96,18 +92,33 @@ describe('assertEmsListLimit', () => {
 });
 
 describe('execution.oms.ems.list limit unset refuse', () => {
-  it('router does not dump the journal when ems.list omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-execution/src/router.ts'), 'utf8');
-    const start = src.indexOf('ems: router({');
-    const end = src.indexOf('get: scopedProcedure', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertEmsListLimit(input.limit)');
-    expect(fn).toContain('limit: z.number().int().min(1).max(200).optional()');
-    expect(fn).toContain('.slice(0, limit)');
-    expect(fn).not.toMatch(/\?\? 50/);
-    expect(fn).not.toMatch(/\?\? 100/);
-    expect(fn).not.toMatch(/limit = 50/);
-    expect(fn).not.toMatch(/emsStore\.list\(\)/);
+  it('omit refuses with the named code, and a page over 200 is refused at the door', async () => {
+    const emsStore = new InMemoryEmsOrderStore();
+    emsStore.record({ clientOrderId: 'ems-1', venueId: 'street', symbol: 'BTC/USDT', side: 'buy', execution: ack('1') });
+    const caller = createExecutionRouter(
+      new SealedHouseTenantRegistry(),
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      emsStore,
+    ).createCaller(hmacSigned());
+
+    await expect(caller.execution.oms.ems.list({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: EXECUTION_EMS_LIST_LIMIT_UNSET },
+    });
+    await expect(caller.execution.oms.ems.list({ limit: 201 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.execution.oms.ems.list({ limit: 0 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.execution.oms.ems.list({ limit: 200 })).resolves.toHaveLength(1);
   });
 
   it('omit / empty input refuses PRECONDITION_FAILED — never dumps both acks', async () => {

@@ -23,10 +23,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import * as attemptsModule from './max-delivery-attempts.js';
+import { publishedMaxDeliveryAttempts } from './max-delivery-attempts.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ROOT = resolve(import.meta.dirname, '../../..');
-
 function notifyServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-notify');
 }
@@ -39,16 +39,7 @@ const FANOUT = /^\s+NOTIFY_FANOUT_ENABLED:\s*\$\{NOTIFY_FANOUT_ENABLED:-true\}\s
 
 describe('compose NOTIFY_MAX_DELIVERY_ATTEMPTS for svc-notify', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envTs = readFileSync(resolve(ROOT, 'services/svc-notify/src/env.ts'), 'utf8');
-  const helperTs = readFileSync(resolve(import.meta.dirname, 'max-delivery-attempts.ts'), 'utf8');
   const block = notifyServiceBlock(compose);
-
-  it('env.ts refuses blank attempts — no 3 default', () => {
-    expect(envTs).not.toMatch(/NOTIFY_MAX_DELIVERY_ATTEMPTS:[\s\S]{0,400}\.default\(3\)/);
-    expect(envTs).toMatch(
-      /NOTIFY_MAX_DELIVERY_ATTEMPTS:\s*blankAsAbsent\(z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(5\)\.optional\(\)\)/,
-    );
-  });
 
   it('compose svc-notify block is the unique home; attempts is empty pass-through', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-notify/);
@@ -63,8 +54,14 @@ describe('compose NOTIFY_MAX_DELIVERY_ATTEMPTS for svc-notify', () => {
     expect(block.match(SMS_CHARS)).toHaveLength(1);
     expect(block.match(VERIFY_TTL)).toHaveLength(1);
     expect(block.match(FANOUT)).toHaveLength(1);
-    expect(helperTs).toMatch(/notify\.max_delivery_attempts_unset/);
-    expect(helperTs).not.toMatch(/DEFAULT_MAX_DELIVERY_ATTEMPTS/);
+  });
+
+  it('the boot helper refuses an unset ceiling with its code and keeps no default to fall back on', () => {
+    for (const unset of [undefined, null]) {
+      expect(() => publishedMaxDeliveryAttempts(unset)).toThrow(expect.objectContaining({ code: 'notify.max_delivery_attempts_unset' }));
+    }
+    expect(publishedMaxDeliveryAttempts(4)).toBe(4);
+    expect(Object.keys(attemptsModule)).not.toContain('DEFAULT_MAX_DELIVERY_ATTEMPTS');
   });
 });
 

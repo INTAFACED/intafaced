@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
  * THE SERVICE REFUSES TO START. Not "the parser returned false".
@@ -253,7 +253,7 @@ describe('exactly one function decides whether svc-notify may start', () => {
    */
   it(
     'has one definition of parseRequiredChannels in src/, and it is the one env.ts imports',
-    () => {
+    async () => {
       const files: string[] = [];
       const walk = (dir: string) => {
         for (const entry of readdirSync(dir)) {
@@ -270,7 +270,38 @@ describe('exactly one function decides whether svc-notify may start', () => {
       );
 
       expect(definitions.map((f) => f.slice(HERE.length + 1).replace(/\\/g, '/'))).toEqual(['channels/registry.ts']);
-      expect(readFileSync(join(HERE, 'env.ts'), 'utf8')).toMatch(/parseRequiredChannels[\s\S]{0,120}from '\.\/channels\/registry\.js'/);
+
+      // And it is the one env.ts runs: loading the env fresh asks registry's parseRequiredChannels for the posture.
+      const asked: unknown[] = [];
+      vi.resetModules();
+      vi.doMock('./channels/registry.js', async (importOriginal) => {
+        const real = await importOriginal<typeof import('./channels/registry.js')>();
+        return {
+          ...real,
+          parseRequiredChannels: (raw: Parameters<typeof real.parseRequiredChannels>[0]) => {
+            asked.push(raw);
+            return real.parseRequiredChannels(raw);
+          },
+        };
+      });
+      for (const [key, value] of Object.entries({
+        SERVICE_NAME: 'svc-notify',
+        DATABASE_URL: UNREACHABLE_DB,
+        DATABASE_POOL_MAX: '10',
+        EDGE_PRINCIPAL_SECRET: 'e'.repeat(40),
+        NOTIFY_REQUIRED_CHANNELS: 'sms',
+        ...SMS_CREDS,
+      })) {
+        vi.stubEnv(key, value);
+      }
+      try {
+        await import('./env.js');
+        expect(asked).toEqual(['sms']);
+      } finally {
+        vi.doUnmock('./channels/registry.js');
+        vi.unstubAllEnvs();
+        vi.resetModules();
+      }
     },
     BOOT_TIMEOUT_MS,
   );

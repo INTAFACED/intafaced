@@ -1,11 +1,8 @@
 /**
  * The edge principal is verified with the shared secret AND, when configured, the edge's public key.
- * The trust settings come from the service's edge env settings through `edgeTrustFromEnv`; index.ts is
- * pinned by source because it boots the whole service.
+ * The trust settings come from the service's edge env settings through `edgeTrustFromEnv`; the last case boots
+ * the real entrypoint (`testing/boot.ts`) and asks it over /trpc.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { edgeEnvSchema, edgeTrustFromEnv, loadEnv } from '@intafaced/config';
 import {
@@ -18,6 +15,7 @@ import {
   signPrincipalHeader,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
+import { bootExecution } from './testing/boot.js';
 
 type Principal = Parameters<typeof encodeForwardedPrincipal>[0];
 
@@ -75,8 +73,24 @@ describe('edge principal receiver', () => {
     expect(contextWith(withKey)(request(raw, signPrincipalHeader(raw, SECRET, 'DE'))).principal?.userId).toBe(USER);
   });
 
-  it('index.ts hands the edge trust settings to the edge context', () => {
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8');
-    expect(source).toMatch(/createEdgeContext\(\{\s*secret: env\.EDGE_PRINCIPAL_SECRET,\s*\.\.\.edgeTrustFromEnv\(env\),/);
+  it('index.ts hands the edge trust settings to the edge context', async () => {
+    // The booted service, asked over /trpc with a trade:read principal the edge key signed.
+    const statusOf = async (vars: Record<string, string>) => {
+      const booted = await bootExecution({ ...vars });
+      try {
+        const input = encodeURIComponent(JSON.stringify({ symbol: 'BTC/USDT', amount: '1' }));
+        const signed = edgeSigned();
+        const res = await booted.app.inject({
+          method: 'GET',
+          url: `/trpc/execution.arb.opportunities?input=${input}`,
+          headers: signed.headers,
+        });
+        return res.statusCode;
+      } finally {
+        await booted.close();
+      }
+    };
+    expect(await statusOf(withKey)).not.toBe(401);
+    expect(await statusOf({})).toBe(401);
   });
 });

@@ -7,7 +7,7 @@
  * 3. Done bar: the tests below.
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { INDEXER_TX_DROP_WINDOW_UNSET, parseTxDropWindow } from './tx.js';
@@ -47,8 +47,8 @@ describe('INDEXER_TX_DROP_WINDOW_SECONDS plumbing', () => {
     const env = await loadWith({ INDEXER_TX_DROP_WINDOW_SECONDS: raw });
     expect(parseTxDropWindow(env.INDEXER_TX_DROP_WINDOW_SECONDS)).toEqual({ ok: false, code: INDEXER_TX_DROP_WINDOW_UNSET });
   });
-  it('env.ts has no default and compose interpolates empty', () => {
-    expect(readFileSync(join(HERE, '..', 'env.ts'), 'utf8')).not.toMatch(/INDEXER_TX_DROP_WINDOW_SECONDS:[^\n]*\.default\(/);
+  it('env.ts has no default and compose interpolates empty', async () => {
+    expect((await loadWith({ INDEXER_TX_DROP_WINDOW_SECONDS: undefined })).INDEXER_TX_DROP_WINDOW_SECONDS).toBeUndefined();
     const compose = readFileSync(COMPOSE, 'utf8');
     expect(compose).toMatch(/INDEXER_TX_DROP_WINDOW_SECONDS:\s*\$\{INDEXER_TX_DROP_WINDOW_SECONDS:-\}/);
   });

@@ -1,15 +1,200 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { parseAmount } from '@intafaced/ledger-client';
+import { bootExecution } from './testing/boot.js';
+import type { FileEmsOrderStore } from './file-ems-order-store.js';
 import { InMemoryEmsOrderStore } from './oms-ems-store.js';
+import { describeExecutionSpine } from './oms-spine.js';
 import { buildExecutionReadyResponse } from './ready-response.js';
-import { describeExecutionVenueCredentialBoard, unionExecutionVenueIds } from './venue-adapters.js';
+import { buildTradeBookSnapshotMap } from './trade-book-snapshot.js';
+import { buildExecutionVenueAccountMapsWithOperatorSupplement } from './venue-account-adapters.js';
+import {
+  buildExecutionVenueTradeMapsWithOperatorSupplement,
+  describeExecutionVenueCredentialBoard,
+  parseExecutionVenueIds,
+  unionExecutionVenueIds,
+} from './venue-adapters.js';
+import { buildExecutionVenueMarketMapsWithPublicMdSupplement } from './venue-market-adapters.js';
 import { executionSorMountVsTrackerBoardCard, executionSorTrackerBackendDoneBarMet } from './mount-vs-tracker.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const indexSrc = () => readFileSync(join(here, 'index.ts'), 'utf8');
+/**
+ * The boot this file checks: one execution venue with its own keys, one operator-only supplement venue, a trade URL
+ * and a port. Fixture values only.
+ */
+const BOOT_ENV = {
+  EXECUTION_VENUE_IDS: 'binance-spot',
+  EXECUTION_VENUE_BINANCE_SPOT_API_KEY: 'fixture-key',
+  EXECUTION_VENUE_BINANCE_SPOT_API_SECRET: 'fixture-secret',
+  VENUE_AGGREGATION_OKX_SPOT_API_KEY: 'k',
+  VENUE_AGGREGATION_OKX_SPOT_API_SECRET: 's',
+  VENUE_AGGREGATION_OKX_SPOT_PASSPHRASE: 'p',
+  TRADE_URL: 'http://trade.test:4004',
+  HTTP_HOST: '127.0.0.1',
+  HTTP_PORT: '4919',
+};
+
+/** `createExecutionRouter`'s parameters, in its order. */
+const ROUTER_PARAMS = [
+  'registry',
+  'submitByVenue',
+  'cancelByVenue',
+  'fetchByVenue',
+  'openOrdersByVenue',
+  'balancesByVenue',
+  'positionsByVenue',
+  'railsByVenue',
+  'fundingByVenue',
+  'borrowByVenue',
+  'latencyByVenue',
+  'marketsByVenue',
+  'snapshotByVenue',
+  'emsStore',
+  'captureLake',
+] as const;
+
+type BootFacts = Awaited<ReturnType<typeof readBoot>>;
+
+/** Boot the real entrypoint once with BOOT_ENV, and what the same builders make of the same environment. */
+async function readBoot() {
+  const booted = await bootExecution(BOOT_ENV);
+  try {
+    // The classes as the booted module graph holds them (the boot loads its own copy of every module).
+    const { SealedHouseTenantRegistry } = await import('@intafaced/execution-house-tenant');
+    const { CaptureLake } = await import('@intafaced/venue-adapter');
+    const { FileEmsOrderStore: BootedFileEmsOrderStore } = await import('./file-ems-order-store.js');
+    const ids = parseExecutionVenueIds(BOOT_ENV.EXECUTION_VENUE_IDS);
+    const trade = buildExecutionVenueTradeMapsWithOperatorSupplement(ids);
+    const account = buildExecutionVenueAccountMapsWithOperatorSupplement(ids);
+    const market = buildExecutionVenueMarketMapsWithPublicMdSupplement(ids);
+    const expectedReady = (emsAckCount: number) =>
+      buildExecutionReadyResponse({
+        emsStorePath: booted.emsStorePath,
+        tradeUrl: BOOT_ENV.TRADE_URL,
+        venueTradeConstructedVenueIds: trade.wiredVenueIds,
+        operatorSupplementVenueIds: trade.operatorSupplementVenueIds,
+        operatorAccountSupplementVenueIds: account.operatorSupplementVenueIds,
+        publicMdSupplementVenueIds: market.publicMdSupplementVenueIds,
+        venueCredentialBoard: describeExecutionVenueCredentialBoard(
+          unionExecutionVenueIds(ids, trade.operatorSupplementVenueIds, account.operatorSupplementVenueIds),
+        ),
+        venueAccountConstructedVenueIds: account.wiredVenueIds,
+        venueMarketConstructedVenueIds: market.wiredVenueIds,
+        emsAckCount,
+      });
+    const args = Object.fromEntries(ROUTER_PARAMS.map((name, i) => [name, booted.routerArgs[i]])) as Record<
+      (typeof ROUTER_PARAMS)[number],
+      unknown
+    >;
+    const keys = (map: unknown) => Object.keys(map as object).sort();
+    const health = await booted.app.inject({ method: 'GET', url: '/health' });
+    const readyAtBoot = await booted.app.inject({ method: 'GET', url: '/ready' });
+    const policy = await booted.app.inject({ method: 'GET', url: '/trpc/execution.policy' });
+    // One acknowledgement through the store the router was handed: /ready counts it.
+    (args.emsStore as FileEmsOrderStore).record({
+      clientOrderId: 'boot-ack-1',
+      venueId: 'binance-spot',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: {
+        venueId: 'binance-spot',
+        venueOrderId: 'v-1',
+        filledAmount: parseAmount('1'),
+        averagePrice: parseAmount('100'),
+        feeAmount: parseAmount('0'),
+        feeAsset: 'USDT',
+        status: 'filled',
+        executedAt: new Date('2026-08-22T00:00:00.000Z'),
+      },
+    });
+    const readyAfterAck = await booted.app.inject({ method: 'GET', url: '/ready' });
+    return {
+      health: { status: health.statusCode, body: health.json() },
+      readyAtBoot: { status: readyAtBoot.statusCode, body: readyAtBoot.json() },
+      readyAfterAck: readyAfterAck.json(),
+      expectedReadyAtBoot: expectedReady(0),
+      expectedReadyAfterAck: expectedReady(1),
+      policy: { status: policy.statusCode, body: policy.json() },
+      args,
+      argKeys: {
+        submitByVenue: keys(args.submitByVenue),
+        cancelByVenue: keys(args.cancelByVenue),
+        fetchByVenue: keys(args.fetchByVenue),
+        openOrdersByVenue: keys(args.openOrdersByVenue),
+        balancesByVenue: keys(args.balancesByVenue),
+        positionsByVenue: keys(args.positionsByVenue),
+        railsByVenue: keys(args.railsByVenue),
+        fundingByVenue: keys(args.fundingByVenue),
+        borrowByVenue: keys(args.borrowByVenue),
+        latencyByVenue: keys(args.latencyByVenue),
+        marketsByVenue: keys(args.marketsByVenue),
+        snapshotByVenue: keys(args.snapshotByVenue),
+      },
+      expectedKeys: {
+        submitByVenue: keys(trade.submitByVenue),
+        cancelByVenue: keys(trade.cancelByVenue),
+        fetchByVenue: keys(trade.fetchByVenue),
+        openOrdersByVenue: keys(trade.openOrdersByVenue),
+        balancesByVenue: keys(account.balancesByVenue),
+        positionsByVenue: keys(account.positionsByVenue),
+        railsByVenue: keys(account.railsByVenue),
+        fundingByVenue: keys(market.fundingByVenue),
+        borrowByVenue: keys(market.borrowByVenue),
+        latencyByVenue: keys(market.latencyByVenue),
+        marketsByVenue: keys(market.marketsByVenue),
+        snapshotByVenue: keys({ ...market.snapshotByVenue, ...buildTradeBookSnapshotMap(BOOT_ENV.TRADE_URL) }),
+      },
+      kinds: {
+        registry: args.registry instanceof SealedHouseTenantRegistry,
+        emsStore: args.emsStore instanceof BootedFileEmsOrderStore,
+        captureLake: args.captureLake instanceof CaptureLake,
+      },
+      listenArgs: booted.listenArgs,
+      signalCounts: { SIGTERM: booted.signalHandlers.SIGTERM.length, SIGINT: booted.signalHandlers.SIGINT.length },
+    };
+  } finally {
+    await booted.close();
+  }
+}
+
+let bootFacts: Promise<BootFacts> | undefined;
+
+/**
+ * What the booted entrypoint serves and wires, checked against what the same builders make of the same environment:
+ * /health, /ready (every field, the credential board over the supplement union, the EMS count from the store it
+ * handed the router), the tRPC mount, the router's registry, venue maps, EMS store and capture lake, the listen
+ * address and the shutdown signals. A blank EMS path refuses to boot.
+ */
+async function expectBootWired(): Promise<void> {
+  bootFacts ??= readBoot();
+  const facts = await bootFacts;
+  expect(facts.health).toEqual({ status: 200, body: { ok: true, service: 'svc-execution' } });
+  expect(facts.readyAtBoot.status).toBe(200);
+  expect(facts.readyAtBoot.body).toEqual(JSON.parse(JSON.stringify(facts.expectedReadyAtBoot)));
+  expect(facts.readyAfterAck).toEqual(JSON.parse(JSON.stringify(facts.expectedReadyAfterAck)));
+  expect(facts.readyAtBoot.body.venueCredentialBoard.configuredVenueIds).toEqual(['binance-spot', 'okx-spot']);
+  expect(facts.readyAtBoot.body.tradeBookSnapshotVenue).toMatchObject({ status: 'configured', probe: 'unprobed' });
+  expect(facts.policy).toEqual({
+    status: 200,
+    body: { result: { data: JSON.parse(JSON.stringify(describeExecutionSpine())) } },
+  });
+  expect(facts.kinds).toEqual({ registry: true, emsStore: true, captureLake: true });
+  expect(facts.argKeys).toEqual(facts.expectedKeys);
+  expect(facts.argKeys.submitByVenue).toContain('binance-spot');
+  expect(facts.argKeys.snapshotByVenue).toContain('intafaced-spot');
+  expect(facts.listenArgs).toEqual({ host: BOOT_ENV.HTTP_HOST, port: Number(BOOT_ENV.HTTP_PORT) });
+  expect(facts.signalCounts).toEqual({ SIGTERM: 1, SIGINT: 1 });
+}
+
+describe('execution boot refuses a blank EMS store path', () => {
+  it('blank EXECUTION_EMS_STORE_PATH stops the boot with the named refusal', async () => {
+    const refused = await bootExecution({ ...BOOT_ENV, EXECUTION_EMS_STORE_PATH: '' }).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    const { ExecutionAlgoStorePathUnsetError } = await import('./file-algo-store.js');
+    expect(refused).toBeInstanceOf(ExecutionAlgoStorePathUnsetError);
+  });
+});
 
 const apps: FastifyInstance[] = [];
 
@@ -21,11 +206,8 @@ afterEach(async () => {
 });
 
 describe('execution ready venue credential board (D33)', () => {
-  it('/ready exposes venueCredentialBoard from describeExecutionVenueCredentialBoard', () => {
-    const src = indexSrc();
-    expect(src).toContain('describeExecutionVenueCredentialBoard(');
-    expect(src).toContain('unionExecutionVenueIds(');
-    expect(src).toContain('venueCredentialBoard');
+  it('/ready exposes venueCredentialBoard from describeExecutionVenueCredentialBoard', async () => {
+    await expectBootWired();
   });
 
   it('describeExecutionVenueCredentialBoard never invents configured venues', () => {
@@ -76,197 +258,104 @@ describe('execution credential board supplement union (D36)', () => {
 });
 
 describe('execution /ready boot supplement fields (D43)', () => {
-  it('index wires account and public MD supplement venue ids on /ready', () => {
-    const src = indexSrc();
-    expect(src).toContain('buildExecutionVenueAccountMapsWithOperatorSupplement');
-    expect(src).toContain('buildExecutionVenueMarketMapsWithPublicMdSupplement');
-    expect(src).toContain('operatorAccountSupplementVenueIds: venueAccountMaps.operatorSupplementVenueIds');
-    expect(src).toContain('publicMdSupplementVenueIds: venueMarketMaps.publicMdSupplementVenueIds');
+  it('index wires account and public MD supplement venue ids on /ready', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution /ready boot trade supplement fields (D45)', () => {
-  it('index wires trade supplement venue ids on /ready', () => {
-    const src = indexSrc();
-    expect(src).toContain('buildExecutionVenueTradeMapsWithOperatorSupplement');
-    expect(src).toContain('operatorSupplementVenueIds: venueTradeMaps.operatorSupplementVenueIds');
+  it('index wires trade supplement venue ids on /ready', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution /ready boot credential board union (D47)', () => {
-  it('index wires supplement union into describeExecutionVenueCredentialBoard', () => {
-    const src = indexSrc();
-    expect(src).toContain(
-      'unionExecutionVenueIds(executionVenueIds, venueTradeMaps.operatorSupplementVenueIds, venueAccountMaps.operatorSupplementVenueIds)',
-    );
-    expect(src).toContain('venueCredentialBoard');
+  it('index wires supplement union into describeExecutionVenueCredentialBoard', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution /ready boot credential board on ready (D48)', () => {
-  it('index passes venueCredentialBoard into buildExecutionReadyResponse on /ready', () => {
-    const src = indexSrc();
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('venueCredentialBoard,');
+  it('index passes venueCredentialBoard into buildExecutionReadyResponse on /ready', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution /ready boot constructed venue ids (D49)', () => {
-  it('index wires trade, account, and market constructed venue ids on /ready', () => {
-    const src = indexSrc();
-    expect(src).toContain('venueTradeConstructedVenueIds: venueTradeMaps.wiredVenueIds');
-    expect(src).toContain('venueAccountConstructedVenueIds: venueAccountMaps.wiredVenueIds');
-    expect(src).toContain('venueMarketConstructedVenueIds: venueMarketMaps.wiredVenueIds');
+  it('index wires trade, account, and market constructed venue ids on /ready', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution /ready boot ems and trade url (D50)', () => {
-  it('index passes emsAckCount and tradeUrl into buildExecutionReadyResponse on /ready', () => {
-    const src = indexSrc();
-    expect(src).toContain('emsStorePath,');
-    expect(src).toContain('tradeUrl: env.TRADE_URL');
-    expect(src).toContain('emsAckCount: emsStore.list().length');
+  it('index passes emsAckCount and tradeUrl into buildExecutionReadyResponse on /ready', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution /ready boot venue map builders (D51)', () => {
-  it('index wires parseExecutionVenueIds and supplement map builders on boot', () => {
-    const src = indexSrc();
-    expect(src).toContain('parseExecutionVenueIds(env.EXECUTION_VENUE_IDS)');
-    expect(src).toContain('buildExecutionVenueTradeMapsWithOperatorSupplement(executionVenueIds)');
-    expect(src).toContain('buildExecutionVenueAccountMapsWithOperatorSupplement(executionVenueIds)');
-    expect(src).toContain('buildExecutionVenueMarketMapsWithPublicMdSupplement(executionVenueIds)');
+  it('index wires parseExecutionVenueIds and supplement map builders on boot', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot trade book snapshot wiring (D52)', () => {
-  it('index wires buildTradeBookSnapshotMap into createExecutionRouter snapshotByVenue', () => {
-    const src = indexSrc();
-    expect(src).toContain('buildTradeBookSnapshotMap(env.TRADE_URL)');
-    expect(src).toContain('snapshotByVenue = captureLakeRuntime.wrapSnapshotMap({');
-    expect(src).toContain('...venueMarketMaps.snapshotByVenue,');
-    expect(src).toContain('...tradeBookSnapshot,');
-    expect(src).toContain('createExecutionRouter(');
-    expect(src).toContain('snapshotByVenue,');
+  it('index wires buildTradeBookSnapshotMap into createExecutionRouter snapshotByVenue', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot ems store wiring (D53)', () => {
-  it('index wires FileEmsOrderStore into createExecutionRouter — blank path fail-closed', () => {
-    const src = indexSrc();
-    expect(src).toContain('EXECUTION_EMS_STORE_PATH');
-    expect(src).toContain('requireExecutionEmsStorePath');
-    expect(src).toContain('new FileEmsOrderStore(emsStorePath)');
-    expect(src).not.toContain('new InMemoryEmsOrderStore()');
-    expect(src).toContain('emsStore,');
-    expect(src).toContain('emsAckCount: emsStore.list().length');
+  it('index wires FileEmsOrderStore into createExecutionRouter — blank path fail-closed', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot sealed registry wiring (D54)', () => {
-  it('index wires SealedHouseTenantRegistry and public MD supplement into boot', () => {
-    const src = indexSrc();
-    expect(src).toContain('new SealedHouseTenantRegistry()');
-    expect(src).toContain('createExecutionRouter(');
-    expect(src).toContain('registry,');
-    expect(src).toContain('buildExecutionVenueMarketMapsWithPublicMdSupplement(executionVenueIds)');
-    expect(src).toContain('publicMdSupplementVenueIds: venueMarketMaps.publicMdSupplementVenueIds');
+  it('index wires SealedHouseTenantRegistry and public MD supplement into boot', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot router venue maps wiring (D55)', () => {
-  it('index passes trade, account, and market maps into createExecutionRouter', () => {
-    const src = indexSrc();
-    expect(src).toContain('venueTradeMaps.submitByVenue');
-    expect(src).toContain('venueTradeMaps.cancelByVenue');
-    expect(src).toContain('venueTradeMaps.fetchByVenue');
-    expect(src).toContain('venueAccountMaps.balancesByVenue');
-    expect(src).toContain('venueAccountMaps.positionsByVenue');
-    expect(src).toContain('venueMarketMaps.fundingByVenue');
-    expect(src).toContain('operatorAccountSupplementVenueIds: venueAccountMaps.operatorSupplementVenueIds');
+  it('index passes trade, account, and market maps into createExecutionRouter', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot trpc and edge context wiring (D57)', () => {
-  it('index registers fastifyTRPCPlugin with appRouter, market maps, and createEdgeContext', () => {
-    const src = indexSrc();
-    expect(src).toContain('fastifyTRPCPlugin');
-    expect(src).toContain('router: appRouter');
-    expect(src).toContain('createEdgeContext(');
-    expect(src).toContain('EDGE_PRINCIPAL_SECRET');
-    expect(src).toContain('venueMarketMaps.borrowByVenue');
-    expect(src).toContain('venueMarketMaps.latencyByVenue');
-    expect(src).toContain('venueMarketMaps.marketsByVenue');
+  it('index registers fastifyTRPCPlugin with appRouter, market maps, and createEdgeContext', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot health and credential union (D59)', () => {
-  it('index exposes /health and /ready and wires unionExecutionVenueIds into credential board', () => {
-    const src = indexSrc();
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('SERVICE_NAME');
-    expect(src).toContain('unionExecutionVenueIds(executionVenueIds');
-    expect(src).toContain('describeExecutionVenueCredentialBoard(');
-    expect(src).toContain('venueCredentialBoard,');
+  it('index exposes /health and /ready and wires unionExecutionVenueIds into credential board', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot open orders and rails wiring (D61)', () => {
-  it('index passes openOrdersByVenue and railsByVenue into createExecutionRouter', () => {
-    const src = indexSrc();
-    expect(src).toContain('venueTradeMaps.openOrdersByVenue');
-    expect(src).toContain('venueAccountMaps.railsByVenue');
-    expect(src).toContain('venueTradeConstructedVenueIds: venueTradeMaps.wiredVenueIds');
-    expect(src).toContain('venueMarketConstructedVenueIds: venueMarketMaps.wiredVenueIds');
-    expect(src).toContain('operatorSupplementVenueIds: venueTradeMaps.operatorSupplementVenueIds');
+  it('index passes openOrdersByVenue and railsByVenue into createExecutionRouter', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot listen and venue ids parsing (D63)', () => {
-  it('index parses execution venue ids and listens on HTTP_PORT', () => {
-    const src = indexSrc();
-    expect(src).toContain('parseExecutionVenueIds(env.EXECUTION_VENUE_IDS)');
-    expect(src).toContain('app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT })');
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('tradeUrl: env.TRADE_URL');
-    expect(src).toContain('svc-execution ready');
+  it('index parses execution venue ids and listens on HTTP_PORT', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot index wiring complete (D65)', () => {
-  it('index wires registry, venue maps, ems store, trpc, health, ready, and listen', () => {
-    const src = indexSrc();
-    expect(src).toContain('parseExecutionVenueIds(env.EXECUTION_VENUE_IDS)');
-    expect(src).toContain('SealedHouseTenantRegistry');
-    expect(src).toContain('buildExecutionVenueTradeMapsWithOperatorSupplement');
-    expect(src).toContain('buildExecutionVenueAccountMapsWithOperatorSupplement');
-    expect(src).toContain('buildExecutionVenueMarketMapsWithPublicMdSupplement');
-    expect(src).toContain('buildTradeBookSnapshotMap(env.TRADE_URL)');
-    expect(src).toContain('createExecutionRouter(');
-    expect(src).toContain('fastifyTRPCPlugin');
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT })');
-    expect(src).toContain('venueTradeMaps.openOrdersByVenue');
-    expect(src).toContain('venueAccountMaps.railsByVenue');
-    expect(src).toContain('describeExecutionVenueCredentialBoard(');
-    expect(src).toContain('createEdgeContext(');
+  it('index wires registry, venue maps, ems store, trpc, health, ready, and listen', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution ready response fields complete (D67)', () => {
-  it('buildExecutionReadyResponse exposes venue trade, account, market, and ems ack fields', () => {
-    const src = indexSrc();
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('venueTradeConstructedVenueIds:');
-    expect(src).toContain('operatorSupplementVenueIds:');
-    expect(src).toContain('operatorAccountSupplementVenueIds:');
-    expect(src).toContain('publicMdSupplementVenueIds:');
-    expect(src).toContain('venueAccountConstructedVenueIds:');
-    expect(src).toContain('venueMarketConstructedVenueIds:');
-    expect(src).toContain('emsAckCount:');
-    expect(src).toContain('tradeUrl: env.TRADE_URL');
+  it('buildExecutionReadyResponse exposes venue trade, account, market, and ems ack fields', async () => {
+    await expectBootWired();
     const venueCredentialBoard = describeExecutionVenueCredentialBoard(['binance-spot']);
     const payload = buildExecutionReadyResponse({
       emsStorePath: '/tmp/ems',
@@ -298,54 +387,27 @@ describe('execution ready response fields complete (D67)', () => {
 });
 
 describe('execution boot createExecutionRouter wiring complete (D69)', () => {
-  it('index passes funding, borrow, latency, markets, and snapshot maps into createExecutionRouter', () => {
-    const src = indexSrc();
-    expect(src).toContain('venueMarketMaps.fundingByVenue');
-    expect(src).toContain('venueMarketMaps.borrowByVenue');
-    expect(src).toContain('venueMarketMaps.latencyByVenue');
-    expect(src).toContain('venueMarketMaps.marketsByVenue');
-    expect(src).toContain('snapshotByVenue');
-    expect(src).toContain('tradeBookSnapshot');
-    expect(src).toContain('venueTradeMaps.submitByVenue');
-    expect(src).toContain('venueAccountMaps.balancesByVenue');
-    expect(src).toContain('emsStore');
-    expect(src).toContain('createExecutionRouter(');
+  it('index passes funding, borrow, latency, markets, and snapshot maps into createExecutionRouter', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot trpc mount complete (D70)', () => {
-  it('index registers trpc with edge context and graceful shutdown on boot', () => {
-    const src = indexSrc();
-    expect(src).toContain("prefix: '/trpc'");
-    expect(src).toContain('fastifyTRPCPlugin');
-    expect(src).toContain('createEdgeContext({');
+  it('index registers trpc with edge context and graceful shutdown on boot', async () => {
+    await expectBootWired();
     // Whole request, not `{ headers, id }`: the S2S body-bind needs req.body.
-    expect(src).toContain('edgeContext(req)');
-    expect(src).toContain('EDGE_PRINCIPAL_SECRET');
-    expect(src).toContain('SIGTERM');
-    expect(src).toContain('SIGINT');
-    expect(src).toContain('app.close()');
   });
 });
 
 describe('execution boot ready and health complete (D72)', () => {
-  it('index wires health, ready, credential board union, and ems store path on boot', () => {
-    const src = indexSrc();
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds(executionVenueIds');
-    expect(src).toContain('describeExecutionVenueCredentialBoard(');
-    expect(src).toContain('emsStorePath');
-    expect(src).toContain('EXECUTION_EMS_STORE_PATH');
-    expect(src).toContain('emsAckCount: emsStore.list().length');
-    expect(src).toContain('tradeUrl: env.TRADE_URL');
+  it('index wires health, ready, credential board union, and ems store path on boot', async () => {
+    await expectBootWired();
   });
 });
 
 describe('execution boot ready and mount cert complete (D74)', () => {
-  it('boot wiring and execution.sor mount-vs-tracker cert both green on tip', () => {
-    const src = indexSrc();
+  it('boot wiring and execution.sor mount-vs-tracker cert both green on tip', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard()).toMatchObject({
       tracker: 'execution.sor',
@@ -353,16 +415,12 @@ describe('execution boot ready and mount cert complete (D74)', () => {
       mountComplete: true,
       gaps: 0,
     });
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('createExecutionRouter(');
-    expect(src).toContain('emsStore');
-    expect(src).toContain('describeExecutionVenueCredentialBoard(');
   });
 });
 
 describe('execution boot and sor mount — D75 denon complete', () => {
-  it('health/ready boot, credential board, EMS store, and mount cert board all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, credential board, EMS store, and mount cert board all green', async () => {
+    await expectBootWired();
     const card = executionSorMountVsTrackerBoardCard();
     expect(card).toMatchObject({
       tracker: 'execution.sor',
@@ -373,19 +431,13 @@ describe('execution boot and sor mount — D75 denon complete', () => {
       gaps: 0,
     });
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('FileEmsOrderStore');
-    expect(src).toContain('FileApprovedAlgoParentStore');
-    expect(src).toContain('FileAlgoPauseStore');
     expect(describeExecutionVenueCredentialBoard(['okx-spot'], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D77 denon complete', () => {
-  it('boot source wiring and execution.sor mount cert full board green', () => {
-    const src = indexSrc();
+  it('boot source wiring and execution.sor mount cert full board green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard()).toMatchObject({
       tracker: 'execution.sor',
@@ -395,16 +447,12 @@ describe('execution boot and sor mount — D77 denon complete', () => {
       backendDoneBarMet: true,
       mountComplete: true,
     });
-    expect(src).toContain('createExecutionRouter(');
-    expect(src).toContain('describeExecutionVenueCredentialBoard(');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
   });
 });
 
 describe('execution boot and sor mount — D79 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard()).toMatchObject({
       tracker: 'execution.sor',
@@ -412,31 +460,22 @@ describe('execution boot and sor mount — D79 denon complete', () => {
       mountComplete: true,
       gaps: 0,
     });
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('EXECUTION_EMS_STORE_PATH');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D82 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D84 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard()).toMatchObject({
       tracker: 'execution.sor',
@@ -444,31 +483,22 @@ describe('execution boot and sor mount — D84 denon complete', () => {
       mountComplete: true,
       gaps: 0,
     });
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('EXECUTION_EMS_STORE_PATH');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D86 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D88 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard()).toMatchObject({
       tracker: 'execution.sor',
@@ -476,234 +506,150 @@ describe('execution boot and sor mount — D88 denon complete', () => {
       mountComplete: true,
       gaps: 0,
     });
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('EXECUTION_EMS_STORE_PATH');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D90 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D92 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D94 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D96 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D98 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D100 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D102 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D104 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D106 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D108 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D110 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D112 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D114 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D116 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D118 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });
 
 describe('execution boot and sor mount — D120 denon complete', () => {
-  it('health/ready boot, EMS stores, credential board, and mount cert all green', () => {
-    const src = indexSrc();
+  it('health/ready boot, EMS stores, credential board, and mount cert all green', async () => {
+    await expectBootWired();
     expect(executionSorTrackerBackendDoneBarMet()).toBe(true);
     expect(executionSorMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
-    expect(src).toContain("app.get('/health'");
-    expect(src).toContain("app.get('/ready'");
-    expect(src).toContain('buildExecutionReadyResponse({');
-    expect(src).toContain('unionExecutionVenueIds');
-    expect(src).toContain('emsStore');
     expect(describeExecutionVenueCredentialBoard([], {}).inventsCredentials).toBe(false);
   });
 });

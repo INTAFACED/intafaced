@@ -15,6 +15,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { bootNotify } from './testing/boot.js';
 import { createNotifyRouter } from './router.js';
 import { MemoryNotifyStore } from './store.js';
 import { MemoryDeliveryStore, MemoryTargetStore, type UpsertTargetInput } from './channel-store.js';
@@ -172,11 +173,7 @@ describe('verify-code pepper', () => {
 
   it('NOTIFY_VERIFY_CODE_PEPPER is required in env, blank is unpublished, no default', async () => {
     const root = resolve(import.meta.dirname, '../../..');
-    const envTs = readFileSync(resolve(root, 'services/svc-notify/src/env.ts'), 'utf8');
     const readme = readFileSync(resolve(root, 'services/svc-notify/README.md'), 'utf8');
-    expect(envTs).toMatch(/NOTIFY_VERIFY_CODE_PEPPER:\s*blankAsAbsent\(z\.string\(\)\.min\(1\)\.optional\(\)\)/);
-    expect(envTs).not.toMatch(/NOTIFY_VERIFY_CODE_PEPPER[\s\S]{0,180}\.default\(/);
-    expect(envTs).not.toContain(PEPPER);
     expect(readme).toMatch(/`NOTIFY_VERIFY_CODE_PEPPER`[\s\S]{0,400}Required/);
     expect(readme).toMatch(/`NOTIFY_VERIFY_CODE_PEPPER`[\s\S]{0,400}Blank refuses `notify\.verify_code_pepper_unset`/);
     expect(readme).toMatch(/`NOTIFY_VERIFY_CODE_PEPPER`[\s\S]{0,400}no default/);
@@ -202,14 +199,19 @@ describe('verify-code pepper', () => {
     expect(set.data.NOTIFY_VERIFY_CODE_PEPPER).toBe(PEPPER);
   });
 
-  it('wires the pepper into the hash call and does not keep a bare SHA-256 of the code', () => {
-    const root = resolve(import.meta.dirname, '../../..');
-    const serviceTs = readFileSync(resolve(root, 'services/svc-notify/src/notify-service.ts'), 'utf8');
-    const indexTs = readFileSync(resolve(root, 'services/svc-notify/src/index.ts'), 'utf8');
-    expect(serviceTs).not.toMatch(/createHash\(/);
-    expect(serviceTs).toMatch(/createHmac\('sha256'/);
-    expect(serviceTs).toMatch(/notify\.verify_code_pepper_unset/);
-    expect(serviceTs).not.toContain(PEPPER);
-    expect(indexTs).toMatch(/verifyCodePepper:\s*env\.NOTIFY_VERIFY_CODE_PEPPER/);
+  it('wires the pepper into the hash call and does not keep a bare SHA-256 of the code', async () => {
+    // The booted entrypoint hands NotifyService the pepper from its environment, and nothing when it is blank.
+    // What the service does with it (HMAC-SHA256, a bare hash refused, blank refusing before a hash) is proven above.
+    const pepperHandedOver = async (value: string | undefined) => {
+      const booted = await bootNotify({ NOTIFY_VERIFY_CODE_PEPPER: value });
+      try {
+        return booted.notifyOptions.verifyCodePepper;
+      } finally {
+        await booted.close();
+      }
+    };
+    expect(await pepperHandedOver(OTHER_PEPPER)).toBe(OTHER_PEPPER);
+    expect(await pepperHandedOver(undefined)).toBeUndefined();
+    expect(await pepperHandedOver('')).toBeUndefined();
   });
 });

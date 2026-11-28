@@ -2,10 +2,8 @@
  * GET /ready must not sell constructed adapters / env keys / nonempty TRADE_URL as wired live venues.
  * createAdapter + keys is constructed. Env keys are configured. This process does not ping venues.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { bootExecution } from './testing/boot.js';
 import {
   EXECUTION_TRADE_BOOK_UNPROBED,
   EXECUTION_VENUE_UNPROBED,
@@ -14,8 +12,6 @@ import {
   tradeBookSnapshotHonesty,
 } from './ready-response.js';
 import { describeExecutionVenueCredentialBoard } from './venue-adapters.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 function readyPayload(over: Partial<Parameters<typeof buildExecutionReadyResponse>[0]> = {}) {
   return buildExecutionReadyResponse({
@@ -97,15 +93,35 @@ describe('execution /ready honesty — constructed is not wired', () => {
     expect(JSON.stringify(board)).not.toMatch(/wired/);
   });
 
-  it('ready-response.ts and /ready boot never stamp wired/live', () => {
-    const readySrc = readFileSync(join(here, 'ready-response.ts'), 'utf8');
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(readySrc).not.toMatch(/wired|live/i);
-    expect(readySrc).toContain('constructedVenueHonesty');
-    expect(readySrc).toContain("probe: 'unprobed'");
-    expect(indexSrc).toContain('venueTradeConstructedVenueIds: venueTradeMaps.wiredVenueIds');
-    expect(indexSrc).toContain('venueAccountConstructedVenueIds: venueAccountMaps.wiredVenueIds');
-    expect(indexSrc).toContain('venueMarketConstructedVenueIds: venueMarketMaps.wiredVenueIds');
-    expect(indexSrc).not.toMatch(/venueTradeWiredVenueIds|venueAccountWiredVenueIds|venueMarketWiredVenueIds/);
+  it('ready-response.ts and /ready boot never stamp wired/live', async () => {
+    // Every adapter the booted host can construct: a trade venue with its own keys, operator keys, a trade URL.
+    const booted = await bootExecution({
+      EXECUTION_VENUE_IDS: 'binance-spot,okx-spot',
+      EXECUTION_VENUE_BINANCE_SPOT_API_KEY: 'fixture-key',
+      EXECUTION_VENUE_BINANCE_SPOT_API_SECRET: 'fixture-secret',
+      VENUE_AGGREGATION_OKX_SPOT_API_KEY: 'k',
+      VENUE_AGGREGATION_OKX_SPOT_API_SECRET: 's',
+      VENUE_AGGREGATION_OKX_SPOT_PASSPHRASE: 'p',
+      TRADE_URL: 'http://trade.test:4004',
+    });
+    let body: Record<string, unknown>;
+    try {
+      body = (await booted.app.inject({ method: 'GET', url: '/ready' })).json();
+    } finally {
+      await booted.close();
+    }
+    expect(JSON.stringify(body)).not.toMatch(/wired|live/i);
+    for (const key of ['externalVenueTrade', 'externalVenueAccount', 'externalVenueMarketData'] as const) {
+      const honesty = body[key] as { status: string; venueIds: string[] };
+      expect(honesty, key).toEqual(constructedVenueHonesty(honesty.venueIds));
+      expect(honesty.status, key).not.toBe('absent');
+    }
+    expect(body.tradeBookSnapshotVenue).toEqual(tradeBookSnapshotHonesty('http://trade.test:4004'));
+    const board = body.venueCredentialBoard as { venues: Array<{ probe: string }> };
+    expect(board.venues.length).toBeGreaterThan(0);
+    expect(board.venues.every((venue) => venue.probe === 'unprobed')).toBe(true);
+    for (const legacy of ['venueTradeWiredVenueIds', 'venueAccountWiredVenueIds', 'venueMarketWiredVenueIds']) {
+      expect(body).not.toHaveProperty(legacy);
+    }
   });
 });
