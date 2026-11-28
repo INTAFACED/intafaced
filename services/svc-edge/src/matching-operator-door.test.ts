@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
@@ -51,9 +50,7 @@ describe('edge founder matching door', () => {
     await app.close();
   });
 
-  it('refuses in-flight when EDGE_PRINCIPAL_SECRET is unset', async () => {
-    const indexSrc = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    expect(indexSrc).toMatch(/env\.MATCHING_URL && env\.EDGE_PRINCIPAL_SECRET/);
+  it('refuses in-flight when no matching operator is wired (the booted edge: index-wiring.boot.e2e.test.ts)', async () => {
     const app = Fastify({ logger: false });
     registerAdminRoutes(app, admin(), null);
     await app.ready();

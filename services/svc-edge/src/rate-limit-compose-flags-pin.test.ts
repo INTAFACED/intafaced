@@ -25,6 +25,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { loadEdgeEnv } from './testing/env-load-fixture.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -42,15 +43,16 @@ const JWT_AUDIENCE = /^\s+JWT_AUDIENCE:\s*\$\{JWT_AUDIENCE:-intafaced\.api\}\s*$
 
 describe('compose rate-limit flags for svc-edge', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-edge/src/env.ts'), 'utf8');
   const block = edgeServiceBlock(compose);
 
-  it('env.ts still declares the flags this pin tracks; MAX/WINDOW have no git-default', () => {
-    expect(envTs).toMatch(/EDGE_RATE_LIMIT_ENABLED:\s*z[\s\S]*?\.default\(true\)/);
-    expect(envTs).toMatch(/EDGE_RATE_LIMIT_MAX:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\),/);
-    expect(envTs).not.toMatch(/EDGE_RATE_LIMIT_MAX:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.default\(300\)/);
-    expect(envTs).toMatch(/EDGE_RATE_LIMIT_WINDOW_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1000\)\.max\(3_600_000\),/);
-    expect(envTs).not.toMatch(/EDGE_RATE_LIMIT_WINDOW_MS:[^\n]*?\.default\(/);
+  it('env.ts still declares the flags this pin tracks; MAX/WINDOW have no git-default', async () => {
+    expect((await loadEdgeEnv()).EDGE_RATE_LIMIT_ENABLED).toBe(true);
+    expect((await loadEdgeEnv({ EDGE_RATE_LIMIT_ENABLED: 'false' })).EDGE_RATE_LIMIT_ENABLED).toBe(false);
+    for (const key of ['EDGE_RATE_LIMIT_MAX', 'EDGE_RATE_LIMIT_WINDOW_MS']) {
+      await expect(loadEdgeEnv({ [key]: undefined }), key).rejects.toThrow(new RegExp(key));
+    }
+    const published = await loadEdgeEnv({ EDGE_RATE_LIMIT_MAX: '300', EDGE_RATE_LIMIT_WINDOW_MS: '60000' });
+    expect([published.EDGE_RATE_LIMIT_MAX, published.EDGE_RATE_LIMIT_WINDOW_MS]).toEqual([300, 60_000]);
   });
 
   it('compose svc-edge block passes unique keys once; MAX/WINDOW have no git-default', () => {

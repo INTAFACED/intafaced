@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { loadP2pEnv } from './testing/env-load-fixture.js';
 
 /**
  * Unit card — compose stack passes dispute SLA clocks into svc-p2p
@@ -43,12 +44,17 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes p2p.disputes SLA clocks into svc-p2p', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-p2p/src/env.ts'), 'utf8');
   const block = p2pComposeBlock();
 
-  it('env.ts still declares the clocks this pin tracks', () => {
-    expect(envTs).not.toMatch(/P2P_DISPUTE_SLA_SECONDS:[\s\S]{0,200}?\.default\(\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\)/);
-    expect(envTs).not.toMatch(/P2P_DISPUTE_ESCALATION_RECHECK_SECONDS:[\s\S]{0,200}?\.default\(\s*60\s*\*\s*60\s*\)/);
+  it('env.ts leaves both clocks unset when the host gives none, and reads a published value', async () => {
+    for (const host of [{}, { P2P_DISPUTE_SLA_SECONDS: '', P2P_DISPUTE_ESCALATION_RECHECK_SECONDS: '' }]) {
+      const env = await loadP2pEnv(host);
+      expect(env.P2P_DISPUTE_SLA_SECONDS).toBeNull();
+      expect(env.P2P_DISPUTE_ESCALATION_RECHECK_SECONDS).toBeNull();
+    }
+    const published = await loadP2pEnv({ P2P_DISPUTE_SLA_SECONDS: '604800', P2P_DISPUTE_ESCALATION_RECHECK_SECONDS: '3600' });
+    expect(published.P2P_DISPUTE_SLA_SECONDS).toBe(604_800);
+    expect(published.P2P_DISPUTE_ESCALATION_RECHECK_SECONDS).toBe(3_600);
   });
 
   it('compose svc-p2p block passes each clock from the host empty — never baked hours', () => {

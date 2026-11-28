@@ -1,11 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { loadP2pEnv } from './testing/env-load-fixture.js';
 import { P2pError } from './p2p-service.js';
 import { P2P_INSTRUMENT_KMS_REQUIRED, refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('live offers refuse until OWNER KMS', () => {
   it('named-refuses — no key invented', () => {
@@ -20,10 +16,8 @@ describe('live offers refuse until OWNER KMS', () => {
     }
   });
 
-  it('does not ship an env that pretends KMS is wired', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-p2p/src/env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/P2P_KMS/);
-    expect(envTs).not.toMatch(/INSTRUMENT_KMS/);
-    expect(envTs).not.toMatch(/LOCAL_TEST_KMS/);
+  it('does not ship an env that pretends KMS is wired', async () => {
+    const env = await loadP2pEnv({ P2P_KMS_KEY_ID: 'kms-1', P2P_INSTRUMENT_KMS_URL: 'https://kms.example', LOCAL_TEST_KMS: 'on' });
+    expect(Object.keys(env).filter((key) => /KMS/.test(key))).toEqual([]);
   });
 });

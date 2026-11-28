@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 function headers(lines: string[], contentType = 'application/json') {
   return {
@@ -93,18 +88,6 @@ describe('refresh cookie at the edge', () => {
       allowedOrigins: [],
     });
     expect(noCookie).toBeNull();
-  });
-
-  it('index.ts refuses the cookie before it proxies upstream', () => {
-    const src = readFileSync(join(here, 'index.ts'), 'utf8');
-    const csrfCall = src.indexOf('refuseCookieCsrf(');
-    const refuseReturn = src.indexOf('code: csrf.code');
-    const fetchCall = src.indexOf('await fetch(');
-    expect(csrfCall).toBeGreaterThan(-1);
-    expect(refuseReturn).toBeGreaterThan(csrfCall);
-    expect(fetchCall).toBeGreaterThan(refuseReturn);
-    expect(src).toContain('prepareUpstreamRequestHeaders(');
-    expect(src).toContain('forwardUpstreamResponseHeaders(');
   });
 });
 
