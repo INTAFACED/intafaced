@@ -35,6 +35,11 @@ type LineKind = 'stop' | 'target' | 'entry';
 type Drag = { kind: LineKind; y: number; from: number };
 type Note = { tone: 'good' | 'bad'; text: string; code?: string | null };
 
+/**
+ * How far below the entry line its actions (Breakeven) start: the menu hangs from its top, so at the line itself it would
+ * cover the lower half of the entry handle, and a press there would reach Breakeven instead of the line.
+ */
+const ENTRY_ACTIONS_BELOW_PX = 14;
 /** A pointer that moves less than this many pixels between down and up is a press on the line, not a drag. */
 const DRAG_MIN_PX = 4;
 const NOTE_CLASS = { good: 'lt-note lt-note-good', bad: 'lt-note lt-note-bad' } as const;
@@ -105,9 +110,11 @@ export function ExitLines({
 
   // The entry, stop, target and liquidation price stay on the chart however far they sit from the bars, so each line can
   // be read and dragged, and a new stop can be dragged out anywhere between the entry and liquidation.
-  const inView = [position?.entryPrice, stop?.trigger?.price, target?.trigger?.price, position?.liquidationPrice].filter(
-    (p): p is string => !!p,
-  );
+  const liquidation = position?.liquidationPrice.known ? position.liquidationPrice.value : null;
+  const inView: string[] = [];
+  for (const price of [position?.entryPrice, stop?.trigger?.price, target?.trigger?.price, liquidation]) {
+    if (price) inView.push(price);
+  }
   useChartPricesInView(host, inView.map(chartValue), inView.join(','));
 
   if (!host || !position) return null;
@@ -297,7 +304,7 @@ export function ExitLines({
               </ChartMark>
             )}
             {entryY !== null && drag === null && (
-              <ChartMark kind="menu" y={entryY} data-testid="exit-line-entry-actions">
+              <ChartMark kind="menu" y={entryY + ENTRY_ACTIONS_BELOW_PX} data-testid="exit-line-entry-actions">
                 <Button
                   tone="secondary"
                   size="sm"

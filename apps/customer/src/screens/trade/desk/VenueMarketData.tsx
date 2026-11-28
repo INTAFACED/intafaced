@@ -246,7 +246,9 @@ export function VenueMarketPanel({
                   fills={[]}
                   timeZone={zoneName(timeZone)}
                   labels={labels}
-                  onHost={chartOrders ? setHost : undefined}
+                  // Always taken: the chart hands its host over once, when it is drawn, and a wallet that connects after
+                  // that (which is when `chartOrders` arrives) must still find it.
+                  onHost={setHost}
                 />
               )}
             </div>
