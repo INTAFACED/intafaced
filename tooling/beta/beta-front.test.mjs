@@ -168,3 +168,80 @@ test("two callers through the front get two of Edge's rate-limit buckets; a spoo
     await edge.close();
   }
 });
+
+// #11217: on the beta, a sign-up only works with the viewer's own TEST address, the only one whose code the mailbox
+// shows them; any other address is refused before it reaches the stack, with the address to use and the mailbox.
+test("a sign-up with any address but the viewer's TEST address is refused at the front, naming the address and the mailbox", async () => {
+  const http = await import('node:http');
+  const { frontApp, MAILBOX_URL } = await import('./beta-front.mjs');
+  const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+  const jwt = (claims) => `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`;
+  const seen = [];
+  const upstream = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      seen.push({ url: req.url, body: Buffer.concat(chunks).toString('utf8') });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"result":{"data":{"accepted":true}}}');
+    });
+  });
+  const upPort = await listen(upstream);
+  const front = frontApp({ upstream: upPort, statusFile: '/nonexistent/status.json' });
+  const frontPort = await listen(front);
+  const token = viewerToken('alice@gmail.com');
+  const signUp = (input, headers = {}) =>
+    new Promise((resolve, reject) => {
+      const body = JSON.stringify(input);
+      const r = http.request(
+        {
+          host: '127.0.0.1',
+          port: frontPort,
+          method: 'POST',
+          path: '/api/identity/trpc/auth.signUpStart',
+          headers: {
+            host: 'beta.intafaced.com',
+            'content-type': 'application/json',
+            'content-length': Buffer.byteLength(body),
+            ...headers,
+          },
+        },
+        (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
+        },
+      );
+      r.on('error', reject);
+      r.end(body);
+    });
+  const alice = { cookie: `CF_Authorization=${jwt({ email: 'alice@gmail.com' })}` };
+  const form = { channel: 'email', handle: 'alice1', password: 'x', country: 'DE', dateOfBirth: '1990-01-01', accountType: 'individual' };
+  try {
+    for (const email of [
+      'alice@gmail.com',
+      `${viewerToken('bob@x.io')}.1@local-test.invalid`,
+      `${token}.1@example.com`,
+      `${token}x@local-test.invalid`,
+    ]) {
+      const answer = await signUp({ ...form, email }, alice);
+      assert.equal(answer.status, 400, email);
+      const error = JSON.parse(answer.text).error;
+      assert.equal(error.data.code, 'beta.signup_address_not_yours', email);
+      assert.ok(error.message.includes(`${token}.1@local-test.invalid`), `names the address to use: ${error.message}`);
+      assert.ok(error.message.includes(MAILBOX_URL), `names the mailbox: ${error.message}`);
+    }
+    assert.equal(seen.length, 0, 'a refused sign-up never reaches the stack');
+    for (const email of [`${token}.1@local-test.invalid`, `${token}@local-test.invalid`, `${token.toUpperCase()}.Two@Local-Test.Invalid`]) {
+      const answer = await signUp({ ...form, email }, alice);
+      assert.equal(answer.status, 200, email);
+      assert.equal(JSON.parse(seen.at(-1).body).email, email, 'the body reaches the stack unchanged');
+    }
+    // No Access token (the box's own loopback): the front names no viewer and leaves the stack to answer.
+    assert.equal((await signUp({ ...form, email: 'alice@gmail.com' })).status, 200);
+    assert.equal(seen.length, 4);
+  } finally {
+    front.close();
+    upstream.close();
+  }
+});
