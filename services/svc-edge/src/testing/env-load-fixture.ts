@@ -7,7 +7,7 @@ import { vi } from 'vitest';
  */
 const SECRET = 's'.repeat(32);
 
-export const EDGE_BOOT_ENV: Record<string, string> = {
+const EDGE_BOOT_ENV: Record<string, string> = {
   NODE_ENV: 'test',
   JWT_ACCESS_SECRET: SECRET,
   EDGE_PRINCIPAL_SECRET: SECRET,
