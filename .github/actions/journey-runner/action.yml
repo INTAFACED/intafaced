@@ -1,0 +1,61 @@
+name: Journeys runner
+description: >-
+  The one way a job readies a runner for a Real-app journeys stack, after checkout, pnpm and node: the runner's paths,
+  disk, pnpm next to node, nats-server and the anvil launcher. A Real-app journeys shard and every journeys revert probe,
+  control and settle run (main-bisect.yml) take it from here, and then run the stack with tooling/ci/journey-shard.sh,
+  so the bisect never keeps a copy of main's setup that drifts from it (project-state#4151).
+
+runs:
+  using: composite
+  steps:
+    # The runner context is not allowed in a job's env, so the paths under the runner's temp folder are set here.
+    - name: Paths
+      shell: bash
+      run: |
+        {
+          echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
+          echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
+          echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
+          echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
+          echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
+        } >> "$GITHUB_ENV"
+
+    # The stack refuses to start under 14 GB free; the runner image ships toolchains a journeys job never uses. Removing
+    # them took 2m20s of every shard (run 1138) on runners that already had far more free than the stack needs (101 GB
+    # after, 44 GB used of 145), so they go only when the disk is short.
+    - name: Free disk space (only when short)
+      shell: bash
+      run: |
+        df -h /
+        avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+        if [ "$avail" -lt 30 ]; then
+          echo "only ${avail} GB free: removing the toolchains this job never uses"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          df -h /
+        else
+          echo "${avail} GB free: nothing to remove"
+        fi
+
+    # The stack runs its builds with a clean PATH that holds node's own folder, not the folder pnpm/action-setup uses.
+    - name: Put pnpm next to node
+      shell: bash
+      run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+
+    - name: Get a nats-server binary
+      uses: ./.github/actions/nats-server
+      with:
+        path: ${{ runner.temp }}/nats-server
+
+    # The stack's LOCAL TEST chain (tooling/scripts/local-test-chain.mjs): the same pinned foundry image and the same
+    # `docker run <image> "anvil ..."` form .github/actions/test-infra runs its dev chain with, behind a small launcher,
+    # since the stack starts its chain as a process. Host network, so anvil binds the loopback port the stack names.
+    # Dev only and ephemeral: TEST chain id 84532 on loopback, no fork, destroyed with the runner.
+    - name: Get an anvil launcher
+      shell: bash
+      run: |
+        docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+        cat > "$RUNNER_TEMP/anvil" <<'LAUNCHER'
+        #!/bin/sh
+        exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+        LAUNCHER
+        chmod +x "$RUNNER_TEMP/anvil"

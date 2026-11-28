@@ -862,15 +862,6 @@ jobs:
             echo "::error::the journeys input has no shard plan; see the What this run runs job for the file it refused"
             exit 1
           fi
-      # The runner context is not allowed in a job's env, so the paths under the runner's temp folder are set here.
-      - name: Paths
-        run: |
-          echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
-          echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
-          echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil" >> "$GITHUB_ENV"
-          echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
-          echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob" >> "$GITHUB_ENV"
-
       # Edge refuses every money read without a screening list (edge.screening_unset), and the stack never invents one.
       # The runner takes the owner's labelled TEST placeholder from two repository secrets, never from this file.
       - name: Screening placeholder is set
@@ -891,24 +882,9 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
 
-      # The stack refuses to start under 14 GB free; the runner image ships toolchains this job never uses. Removing them
-      # took 2m20s of every shard (run 1138) on runners that already had far more free than the stack needs (101 GB after,
-      # 44 GB used of 145), so they go only when the disk is short.
-      - name: Free disk space (only when short)
-        run: |
-          df -h /
-          avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
-          if [ "$avail" -lt 30 ]; then
-            echo "only ${avail} GB free: removing the toolchains this job never uses"
-            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
-            df -h /
-          else
-            echo "${avail} GB free: nothing to remove"
-          fi
-
-      # The stack runs its builds with a clean PATH that holds node's own folder, not the folder pnpm/action-setup uses.
-      - name: Put pnpm next to node
-        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      # The runner's paths, disk, pnpm next to node, nats-server and the anvil launcher: the same action every journeys
+      # revert probe readies its runner with (main-bisect.yml).
+      - uses: ./.github/actions/journey-runner
 
       - name: Install
         run: pnpm install --frozen-lockfile
@@ -918,6 +894,7 @@ jobs:
       # frozen journeys keeps today's default. The planner never mixes the two in one shard (journey-shards.mjs
       # planByCustody), and this step fails a plan that does. Without a plan, Playwright's own split mixes them, and a
       # launch-desk step that passed there would be proof on a setting launch won't run, so the shard stops red here.
+      # The journeys revert's probes set it the same way (journey-shard.sh custody, journeys-revert-probe.sh).
       - name: This shard's custody switch
         env:
           SHARDS: ${{ needs.touch.outputs.shards }}
@@ -927,27 +904,9 @@ jobs:
             echo "::error::no shard plan, so this shard can't run the launch-desk journeys apart on launch's custody switch (tooling/scripts/launch-custody.mjs); see the What this run runs job for why planning failed"
             exit 1
           fi
-          custody=$(node tooling/scripts/launch-custody.mjs --files "$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")")
+          custody=$(bash tooling/ci/journey-shard.sh custody "$(jq -r --argjson n "$SHARD" '.[$n - 1]' <<<"$SHARDS")")
           echo "custody $custody (tooling/scripts/launch-custody.mjs)"
           echo "LOCAL_STACK_CUSTODY_LAYER=$custody" >> "$GITHUB_ENV"
-
-      - name: Get a nats-server binary
-        uses: ./.github/actions/nats-server
-        with:
-          path: ${{ env.LOCAL_STACK_NATS_BIN }}
-
-      # The stack's LOCAL TEST chain (tooling/scripts/local-test-chain.mjs): the same pinned foundry image and the same
-      # `docker run <image> "anvil ..."` form .github/actions/test-infra runs its dev chain with, behind a small launcher,
-      # since the stack starts its chain as a process. Host network, so anvil binds the loopback port the stack names.
-      # Dev only and ephemeral: TEST chain id 84532 on loopback, no fork, destroyed with the runner.
-      - name: Get an anvil launcher
-        run: |
-          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
-          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
-          #!/bin/sh
-          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
-          EOF
-          chmod +x "$LOCAL_STACK_ANVIL_BIN"
 
       # The browser and its system packages come from GitHub's cache, so an outage of Ubuntu's mirror or the browser host
       # does not stop the shard (.github/actions/browser says why and how). Every outside call there is time-boxed and
@@ -1024,98 +983,32 @@ jobs:
           rm -rf "$RUNNER_TEMP/seed-state" "$RUNNER_TEMP/stack-seed"
           echo "seeded stack from the build job: $(du -sh "$LOCAL_STACK_STATE" | cut -f1)"
 
+      # The stack from here to the journeys is tooling/ci/journey-shard.sh, the one setup the journeys revert's probes run
+      # too (project-state#4151), so a red that depends on how this run sets up its stack reproduces there.
       - name: Start the local test stack (TEST funds only)
-        run: |
-          df -h /
-          node tooling/scripts/local-test-stack.mjs start
+        run: bash tooling/ci/journey-shard.sh start
 
-      # A fresh stack trades only after the TEST gates open the markets and verify the market maker's two TEST accounts
-      # (docs/LOCAL-TEST-STACK.md, "A fresh stack"). Matching reads its operator seats when it starts, so it restarts
-      # after the founders enrolled. The market maker refuses to start on closed markets and creates its accounts when it
-      # starts, so `verify` runs after it. It stops again before `verify`, so no market trades before `history`: that
-      # writes the TEST tape history the chart journeys read (real TEST trades whose times svc-trade moves into the past,
-      # docs/LOCAL-TEST-STACK.md, "Chart history"), and it only writes on a market with no trades yet. It exits non-zero
-      # when any market comes up short, and that fails this step on purpose: chart journeys on a partial history would
-      # fail later for a reason the log no longer shows.
-      # With the stack's custody switch off (the launch build's, OWNER 288), our own order book is off, so its TEST market
-      # maker and its chart history are not started (local-test-market.mjs, CUSTODY_ON_ONLY): the gates still open and
-      # verify, and launch journeys trade at the TEST venue.
-      # The history goes only on the markets journeys read the past of (`--markets journeys`, HISTORY_SYMBOLS in
-      # local-test-market.mjs, which local-test-market-history.test.mjs keeps whole): four of six markets, 149 s against 193 s
-      # measured on one shard on 13 Nov, a saving every shard makes (project-state #2065 row d37).
-      # A shard whose journey files provably read no market's past writes none (tooling/scripts/
-      # journey-market-past.mjs: no chart, candle, tape or backtest word in the file or the helpers it imports): the
-      # history was 208 s of this step's 297 on run 43668181917. Every planned shard asks, a full run's (main's, a pull
-      # request's) as a targeted run's: 43 of a full plan's 90 shards read none (project-state#3329: full runs held all
-      # 500 hosted runners). Any doubt writes it, and a run without a plan always does. A journey that reads the past
-      # without it sees an empty chart and fails; it never passes on one.
-      # A shard on the build job's seeded stack skips it: the gates, the accounts and the history are already there,
-      # and `Start the TEST market maker` below starts the maker alone.
+      # The TEST gates, the market maker's accounts and, unless this shard's files read no market's past, the chart
+      # history (journey-shard.sh markets says why each). A shard on the build job's seeded stack skips it: the gates,
+      # the accounts and the history are already there, and `Start the TEST market maker` below starts the maker alone.
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         if: steps.seed-take.outcome != 'success'
         env:
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
-        run: |
-          history=journeys
-          if [ -n "$SHARDS" ]; then
-            history=$(node tooling/scripts/journey-market-past.mjs --shard "$SHARD") || history=journeys
-          fi
-          node tooling/scripts/local-test-stack.mjs restart matching
-          node tooling/scripts/local-test-gates.mjs apply
-          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
-            node tooling/scripts/local-test-market.mjs
-            node tooling/scripts/local-test-gates.mjs verify
-            exit 0
-          fi
-          node tooling/scripts/local-test-market.mjs
-          # The market maker registers its accounts in the background; verify only once both exist.
-          for _ in $(seq 1 30); do
-            grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
-            sleep 2
-          done
-          node tooling/scripts/local-test-market.mjs stop
-          node tooling/scripts/local-test-gates.mjs verify
-          if [ "$history" = none ]; then
-            echo "::notice::no TEST chart history: this shard's journeys read no market's past (tooling/scripts/journey-market-past.mjs)"
-          else
-            node tooling/scripts/local-test-market.mjs history --markets journeys
-          fi
-          node tooling/scripts/local-test-market.mjs
+        run: bash tooling/ci/journey-shard.sh markets
 
-      # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates
-      # published the limits they need (docs/LOCAL-TEST-STACK.md, "Local test content"). Production stays blank.
       - name: Load the TEST content
-        run: LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
+        run: bash tooling/ci/journey-shard.sh content
 
-      # On the seeded stack the market maker was stopped before the copy, so it starts here, as the last line of
-      # `Open the TEST markets` does on a stack the shard seeds itself.
       - name: Start the TEST market maker (seeded stack)
         if: steps.seed-take.outcome == 'success'
-        run: |
-          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
-            echo "custody off: no TEST market maker on our own order book"
-            exit 0
-          fi
-          node tooling/scripts/local-test-market.mjs
+        run: bash tooling/ci/journey-shard.sh maker
 
       - name: Wait for the first BTC/USDT trade
-        run: |
-          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
-            echo "custody off: no TEST market maker on our own order book, so no trade to wait for"
-            exit 0
-          fi
-          for _ in $(seq 1 60); do
-            grep -q 'BTC/USDT crossing trade by test_taker: .* -> HTTP 201' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && exit 0
-            sleep 5
-          done
-          echo "::error::no BTC/USDT trade from the TEST market maker within 5 minutes"
-          tail -40 "$LOCAL_STACK_STATE/logs/market.log"
-          exit 1
+        run: bash tooling/ci/journey-shard.sh first-trade
 
-      # No traces: they would carry the run's TEST session and password into a public artifact. Pictures stay: every test
-      # that opens a page leaves one as it ends, passed or failed (the config's `screenshot: 'on'`, project-state d88).
-      # The plan's files for this shard, or Playwright's own split when the plan is missing.
+      # No traces and every end picture (journey-shard.sh journeys). The plan's files for this shard, or Playwright's own split when the plan is missing.
       - name: Journeys in the running app (this shard)
         env:
           # A full run on a push or by hand fails fast on the plan: the baseline's unbuilt steps, less each of their
@@ -1133,7 +1026,6 @@ jobs:
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}
         run: |
-          config=apps/customer/tests/real-app/real-app.playwright.config.mjs
           split=()
           if [ -z "$SHARDS" ]; then
             echo "::warning::no shard plan (see the What this run runs job), so Playwright splits the journeys by count"
@@ -1154,7 +1046,7 @@ jobs:
             echo "leaves out $(grep -c . "$RUNNER_TEMP/leave-out.txt") unbuilt tests (tooling/scripts/journey-leave-out.mjs)"
           fi
           code=0
-          pnpm exec playwright test --config "$config" --trace off "${split[@]}" "${leave[@]}" || code=$?
+          bash tooling/ci/journey-shard.sh journeys "${split[@]}" "${leave[@]}" || code=$?
           # Playwright's own limit ended the journeys: name it the way Main trust's post-merge job finds a time limit, so
           # it opens the time-limit issue that says to split the shards further. The shard stays red (Main trust reads
           # the limit from a red job's annotations).
