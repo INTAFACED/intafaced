@@ -22,7 +22,9 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
-import { BANK_BUSINESS_CARDS_RECEIPTS_ZIP } from '@intafaced/contracts/bank-business-cards-procedures';
+import { BANK_BUSINESS_CARDS_RECEIPTS_ZIP, BANK_BUSINESS_CARDS_OVERVIEW } from '@intafaced/contracts/bank-business-cards-procedures';
+import { BANK_BUSINESS_TEAM_OVERVIEW, BANK_BUSINESS_TEAM_MEMBERS } from '@intafaced/contracts/bank-business-team-procedures';
+import { callAs, type AppProcedure } from '../../../shared/api';
 
 /**
  * A business gives its team cards and handles their expenses (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02), on the
@@ -125,14 +127,14 @@ function Section({ id, title, children }: { id: string; title: string; children:
 }
 
 /** One read of the bank; while a reload of the same read is on its way the last answer stays on screen. */
-function useBank<S>(procedure: string, input: unknown, schema: ZodType<S>, base: string, rev = 0) {
+function useBank<S>(procedure: AppProcedure, input: unknown, schema: ZodType<S>, base: string, rev = 0) {
   const { api, userId } = useSession();
   const read = useResource<S>(
     (signal) =>
       userId && input !== null
-        ? api.query('bank', procedure, input, schema, { signal })
+        ? callAs(api, procedure, input, schema, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
-    `cards:${procedure}:${userId ?? 'out'}:${base}:${rev}`,
+    `cards:${procedure.path}:${userId ?? 'out'}:${base}:${rev}`,
   );
   const kept = useRef<{ base: string; data: S } | null>(null);
   const keyed = `${userId ?? 'out'}:${base}`;
@@ -187,7 +189,7 @@ export function BusinessCardsRoom() {
   const { userId, profiles } = useSession();
   const business = profiles.business;
   const accountId = business?.accountId ?? null;
-  const overview = useBank('businessTeam.overview', accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
+  const overview = useBank(BANK_BUSINESS_TEAM_OVERVIEW, accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
   let state: RoomState = { kind: 'ready' };
   if (!userId)
     state = {
@@ -254,12 +256,18 @@ function Parts({
   const { userId, api } = useSession();
   const [rev, setRev] = useState(0);
   const input = { accountId };
-  const data = useBank('businessCards.overview', input, businessExpensesOverviewSchema, accountId, rev);
+  const data = useBank(BANK_BUSINESS_CARDS_OVERVIEW, input, businessExpensesOverviewSchema, accountId, rev);
   const o = ready(data.resource);
   const admin = o?.permissions.includes('manage_team') ?? false;
   const approver = o?.permissions.includes('approve') ?? false;
   const exporter = o?.permissions.includes('export') ?? false;
-  const members = useBank('businessTeam.members', admin ? input : null, z.array(businessTeamMemberSchema), `${accountId}:${admin}`, rev);
+  const members = useBank(
+    BANK_BUSINESS_TEAM_MEMBERS,
+    admin ? input : null,
+    z.array(businessTeamMemberSchema),
+    `${accountId}:${admin}`,
+    rev,
+  );
   const change = useChange(() => {
     setRev((n) => n + 1);
     reloadTop();

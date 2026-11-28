@@ -23,7 +23,10 @@ import {
   BANK_BUSINESS_BOOKS_SAVE_RULE,
   BANK_BUSINESS_BOOKS_TEST_RULE,
   BANK_BUSINESS_BOOKS_CODE_LINES,
+  BANK_BUSINESS_BOOKS_OVERVIEW,
+  BANK_BUSINESS_BOOKS_LINES,
 } from '@intafaced/contracts/bank-business-books-procedures';
+import { callAs, type AppProcedure } from '../../../shared/api';
 
 /**
  * A business keeps its books in order (J-bank-23; BK-bexp-03, BK-bexp-04, BK-bexp-05), on the flow template.
@@ -106,14 +109,14 @@ function Section({ id, title, children }: { id: string; title: string; children:
 }
 
 /** One read of the bank; while a reload of the same read is on its way the last answer stays on screen. */
-function useBank<S>(procedure: string, input: unknown, schema: ZodType<S>, base: string, rev = 0) {
+function useBank<S>(procedure: AppProcedure, input: unknown, schema: ZodType<S>, base: string, rev = 0) {
   const { api, userId } = useSession();
   const read = useResource<S>(
     (signal) =>
       userId && input !== null
-        ? api.query('bank', procedure, input, schema, { signal })
+        ? callAs(api, procedure, input, schema, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
-    `books:${procedure}:${userId ?? 'out'}:${base}:${rev}`,
+    `books:${procedure.path}:${userId ?? 'out'}:${base}:${rev}`,
   );
   const kept = useRef<{ base: string; data: S } | null>(null);
   const keyed = `${userId ?? 'out'}:${base}`;
@@ -151,7 +154,13 @@ export function BusinessBooksRoom() {
   const business = profiles.business;
   const accountId = business?.accountId ?? null;
   const [rev, setRev] = useState(0);
-  const overview = useBank('businessBooks.overview', accountId ? { accountId } : null, businessBooksOverviewSchema, accountId ?? '-', rev);
+  const overview = useBank(
+    BANK_BUSINESS_BOOKS_OVERVIEW,
+    accountId ? { accountId } : null,
+    businessBooksOverviewSchema,
+    accountId ?? '-',
+    rev,
+  );
   let state: RoomState = { kind: 'ready' };
   if (!userId)
     state = {
@@ -196,7 +205,7 @@ function Books({ overview: o, reloadTop, t }: { overview: z.infer<typeof busines
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const p = monthPeriod(month);
-  const lines = useBank('businessBooks.lines', { accountId, ...p }, businessBookLinesSchema, `${accountId}:${month}`, rev);
+  const lines = useBank(BANK_BUSINESS_BOOKS_LINES, { accountId, ...p }, businessBookLinesSchema, `${accountId}:${month}`, rev);
   const items = ready(lines.resource)?.items ?? [];
   const admin = o.permissions.includes('manage_team');
   const bookkeeper = o.permissions.includes('export');

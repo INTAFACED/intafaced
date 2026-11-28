@@ -746,3 +746,48 @@ export const wallet = z.string().regex(/^0x[0-9a-f]{40}$/, 'a lower-case EVM add
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
 export const stepUpApprovalField = z.string().min(1).max(128).optional();
+
+export const billInput = z.object({ billId: z.string().guid() }).strict();
+
+export const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const MAX_SPLIT_LINES = 10;
+
+/**
+ * A BUSINESS PAYS ITS TEAM AND CONTRACTORS IN BULK (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05).
+ *
+ * The business's money is the partner bank's (OWNER 226; docs/adr/2026-11-10-launch-money-model.md), in its own account
+ * at the partner, `business:<account id>`. INTAFACED's ledger posts nothing for any of this.
+ *
+ *   bulk run     A CSV (`name,iban,amount,currency,reference`) is imported under the run's own id. Every line is checked;
+ *                a line that fails is in the validation report with its code and sends nothing, and nothing is held at
+ *                import. Confirming the run is the funding step: the business's partner balance must cover the total
+ *                (`bank.bulk_run_unfunded`, nothing changes). At or above the business's own threshold the run waits for
+ *                an approver who is not the person who confirmed it. Then one instruction to the partner carrying every line,
+ *                `bank.business.bulk-pay:<run id>`, stored before it is sent and sent once; a lost answer is read back by
+ *                its key, never sent again blind. A second run cannot reuse the key: the same id on another file is
+ *                `bank.business_request_conflict`, and the key is the id's, so it is never blank.
+ *   contractors  A contractor (payout IBAN, and a wallet for crypto payroll) and their invoices. A contractor may add
+ *                themselves through a one-use onboarding link. Paying a batch of open invoices writes the intent row first;
+ *                the business's approval rules (J-bank-19) say how many approvers it needs. Then one instruction to the
+ *                partner's payout rail, `bank.business.contractor-batch:<batch id>`; with no partner payout rail the
+ *                intent is kept, refused with `rail.bank`, and nothing moves.
+ *   crypto       The business's own wallet is connected by signing an offered message. A recurring payroll pays its members
+ *                monthly; each month's run is one message under `bank.business.crypto-payroll:<payroll>:<YYYY-MM>`, with a
+ *                payslip per member, signed by the business's own wallet. INTAFACED holds no key and no vault, and sends
+ *                nothing on chain: the signed run is the wallet's to broadcast (`rail.crypto`, no chain rail here).
+ */
+export const MAX_BULK_FILE_BYTES = 262_144;
+
+export const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+
+export const contractorFields = {
+  name: z.string().min(1).max(140),
+  email: z.string().max(254).nullable(),
+  iban: z.string().max(42).nullable(),
+  walletAddress: address.nullable(),
+};
+
+export const MAX_BATCH_INVOICES = 50;
+
+export const MAX_PAYROLL_MEMBERS = 50;

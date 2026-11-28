@@ -26,6 +26,16 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
+import { BANK_BUSINESS_TEAM_OVERVIEW } from '@intafaced/contracts/bank-business-team-procedures';
+import {
+  BANK_BUSINESS_PAYOUTS_RUNS,
+  BANK_BUSINESS_PAYOUTS_CONTRACTORS,
+  BANK_BUSINESS_PAYOUTS_BATCHES,
+  BANK_BUSINESS_PAYOUTS_WALLET,
+  BANK_BUSINESS_PAYOUTS_PAYROLLS,
+  BANK_BUSINESS_PAYOUTS_INVITE_INFO,
+} from '@intafaced/contracts/bank-business-payouts-procedures';
+import { callAs, type AppProcedure } from '../../../shared/api';
 
 /**
  * A business pays its team and contractors in bulk (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05), on the flow template.
@@ -198,7 +208,7 @@ function signedOutState(t: T, path: string): RoomState {
 
 /** One read of the bank; while a reload of the same read is on its way the last answer stays on screen. */
 function useBank<S>(
-  procedure: string,
+  procedure: AppProcedure,
   input: unknown,
   schema: ZodType<S>,
   base: string,
@@ -208,9 +218,9 @@ function useBank<S>(
   const read = useResource<S>(
     (signal) =>
       userId && input !== null
-        ? api.query('bank', procedure, input, schema, { signal })
+        ? callAs(api, procedure, input, schema, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
-    `payouts:${procedure}:${userId ?? 'out'}:${base}:${rev}`,
+    `payouts:${procedure.path}:${userId ?? 'out'}:${base}:${rev}`,
   );
   const kept = useRef<{ base: string; data: S } | null>(null);
   const keyed = `${userId ?? 'out'}:${base}`;
@@ -269,7 +279,7 @@ export function BusinessPayoutsRoom() {
   const { userId, profiles } = useSession();
   const business = profiles.business;
   const accountId = business?.accountId ?? null;
-  const overview = useBank('businessTeam.overview', accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
+  const overview = useBank(BANK_BUSINESS_TEAM_OVERVIEW, accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
   let state: RoomState = { kind: 'ready' };
   if (!userId) state = signedOutState(t, '/bank/business/payouts');
   else if (!business) state = { kind: 'refused', refusal: { variant: 'refused', title: t('personalTitle'), body: t('personalBody') } };
@@ -330,11 +340,11 @@ function Parts({
   const { userId } = useSession();
   const [rev, setRev] = useState(0);
   const input = { accountId };
-  const runs = useBank('businessPayouts.runs', input, z.array(businessBulkRunSchema), accountId, rev);
-  const contractors = useBank('businessPayouts.contractors', input, z.array(businessContractorSchema), accountId, rev);
-  const batches = useBank('businessPayouts.batches', input, z.array(businessContractorBatchSchema), accountId, rev);
-  const wallet = useBank('businessPayouts.wallet', input, businessPayrollWalletSchema.nullable(), accountId, rev);
-  const payrolls = useBank('businessPayouts.payrolls', input, z.array(businessCryptoPayrollSchema), accountId, rev);
+  const runs = useBank(BANK_BUSINESS_PAYOUTS_RUNS, input, z.array(businessBulkRunSchema), accountId, rev);
+  const contractors = useBank(BANK_BUSINESS_PAYOUTS_CONTRACTORS, input, z.array(businessContractorSchema), accountId, rev);
+  const batches = useBank(BANK_BUSINESS_PAYOUTS_BATCHES, input, z.array(businessContractorBatchSchema), accountId, rev);
+  const wallet = useBank(BANK_BUSINESS_PAYOUTS_WALLET, input, businessPayrollWalletSchema.nullable(), accountId, rev);
+  const payrolls = useBank(BANK_BUSINESS_PAYOUTS_PAYROLLS, input, z.array(businessCryptoPayrollSchema), accountId, rev);
   const change = useChange(() => {
     setRev((n) => n + 1);
     reloadTop();
@@ -961,7 +971,7 @@ export function ContractorJoinRoom({ search }: { search: string }) {
   const token = new URLSearchParams(search).get('token');
   const path = `/bank/business/contractor-join${search}`;
   const [rev, setRev] = useState(0);
-  const info = useBank('businessPayouts.inviteInfo', token ? { token } : null, businessContractorInviteInfoSchema, token ?? '-', rev);
+  const info = useBank(BANK_BUSINESS_PAYOUTS_INVITE_INFO, token ? { token } : null, businessContractorInviteInfoSchema, token ?? '-', rev);
   const change = useChange(() => setRev((n) => n + 1));
   const [form, setForm] = useState({ name: '', email: '', iban: '', wallet: '' });
   const [joined, setJoined] = useState<string | null>(null);
