@@ -32,6 +32,9 @@ export const moveOutCopy = defineCopy('trade.account.moveOut', {
   forwarding: 'Confirm the send to {partner} in your wallet.',
   crediting: 'Waiting for {partner} to credit it…',
   done: 'Done: {partner} reports the money in your account, available to spend.',
+  unconfirmed:
+    '{partner} hasn’t reported your send {tx} as available to spend in the time the room waited. It was sent once; nothing more will be sent.',
+  followAgain: 'Ask {partner} again',
   refusedTitle: 'Not moved',
   walletRejected: 'Your wallet didn’t sign, so nothing was sent.',
   walletFailed: 'Your wallet couldn’t sign: {detail}. Nothing was sent.',

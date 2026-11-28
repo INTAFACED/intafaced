@@ -50,7 +50,7 @@ type Stage =
   | { at: 'review'; amount: string; withdrawalKey: string }
   | { at: 'signing' | 'paying'; amount: string; withdrawalKey: string }
   | { at: 'forwarding'; w: VenueWithdrawal }
-  | { at: 'crediting' | 'done'; w: VenueWithdrawal; tx: string };
+  | { at: 'crediting' | 'unconfirmed' | 'done'; w: VenueWithdrawal; tx: string };
 
 function feeText(t: T, fee: { known: true; value: string } | { known: false }, asset: string) {
   return fee.known ? t('fee', { fee: `${displayAmount(fee.value, 2)} ${asset}` }) : t('feeUnknown');
@@ -132,19 +132,24 @@ export function MoveOut({
     await follow(w, sent.hash);
   };
 
-  /** The partner's credit of the send, followed until it reads available, as the partner reports it. */
+  /**
+   * The partner's credit of the send, followed until the partner reports it available. Done only then: with no such read
+   * in the time the room waits (or no read at all), the move reads unconfirmed, naming the send, and can be followed again.
+   */
   const follow = async (w: VenueWithdrawal, tx: string) => {
+    setRefusal(null);
     setStage({ at: 'crediting', w, tx });
     const until = Date.now() + FOLLOW_MS;
-    while (Date.now() < until) {
+    let available = false;
+    while (!available && Date.now() < until) {
       const read = await api.call(BANK_PAY_YOURSELF_SUMMARY, undefined);
       const credit = read.ok ? read.data.credits.find((c) => c.txHash.toLowerCase() === tx.toLowerCase()) : undefined;
-      if (credit?.status === 'available') break;
-      await pause(FOLLOW_EVERY_MS);
+      available = credit?.status === 'available';
+      if (!available) await pause(FOLLOW_EVERY_MS);
     }
     payYourself.reload();
     onMoved();
-    setStage({ at: 'done', w, tx });
+    setStage({ at: available ? 'done' : 'unconfirmed', w, tx });
   };
 
   /** Leg one, after the fresh second factor: the wallet signs the venue withdrawal to itself; the venue's payout is followed. */
@@ -187,7 +192,7 @@ export function MoveOut({
   const legs: Leg | null =
     stage.at === 'forwarding'
       ? { at: 'withdrawal', w: stage.w }
-      : stage.at === 'crediting' || stage.at === 'done'
+      : stage.at === 'crediting' || stage.at === 'unconfirmed' || stage.at === 'done'
         ? { at: 'send', w: stage.w, tx: stage.tx }
         : null;
   return (
@@ -246,6 +251,14 @@ export function MoveOut({
       {stage.at === 'paying' ? <p role="status">{t('paying', { venue: venue.name })}</p> : null}
       {stage.at === 'forwarding' ? <p role="status">{t('forwarding', { partner: partnerName })}</p> : null}
       {stage.at === 'crediting' ? <p role="status">{t('crediting', { partner: partnerName })}</p> : null}
+      {stage.at === 'unconfirmed' ? (
+        <div role="status" className="lt-stack" data-testid="move-out-unconfirmed">
+          <p>{t('unconfirmed', { partner: partnerName, tx: stage.tx })}</p>
+          <Button tone="secondary" onClick={() => void follow(stage.w, stage.tx)}>
+            {t('followAgain', { partner: partnerName })}
+          </Button>
+        </div>
+      ) : null}
       {stage.at === 'done' ? (
         <p role="status" data-testid="move-out-done">
           {t('done', { partner: partnerName })}
