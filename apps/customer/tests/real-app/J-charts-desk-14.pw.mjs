@@ -2,8 +2,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, otherTrader, toUnits } from './stack.mjs';
-import { awayBid as engineAwayBid, reviewSheet, signUp, verify } from './desk.mjs';
+import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
+import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
 import {
@@ -30,6 +30,7 @@ import {
 // is read only to show it posts nothing. Money line: an order from the ladder or the chart is the desk's own signed venue
 // order (J-cex-spot-02): one venue order per client order id and one signature; nothing is signed or sent from a click
 // without the review unless instant placement is on. The user-venue door is on for this file only.
+// Today's engine queue read's privacy (#8 on our own book, custody on) is J-charts-desk-14-custodial.pw.mjs.
 const J = 'J-charts-desk-14';
 const SYMBOL = 'BTC-USDC';
 const DESK = `/trade/spot/${SYMBOL}`;
@@ -51,8 +52,6 @@ const ownerOf = (s) => privateKeyToAccount(s.walletKey).address.toLowerCase();
 
 // ── the TEST venue's own record ──
 
-/** Today's engine market, read only for the engine queue read's privacy checks in #8. */
-const ENGINE_SYMBOL = 'BTC/USDT';
 const venueOpen = async (owner) => (await venueRecord(owner, '/open-orders')).value;
 const venueByClientId = async (owner, venueClientOrderId) =>
   (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId })).value;
@@ -1346,39 +1345,4 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
   ).get(`/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderId=${encodeURIComponent(mine.venueClientOrderId)}`);
   expect(gone.status, JSON.stringify(gone.body).slice(0, 300)).toBe(200);
   expect(gone.body.value?.status).toBe('canceled');
-
-  // Today's engine queue read keeps its privacy: another person's order id refuses exactly as an order that does not
-  // exist (no existence leak), its owner reads it, and once cancelled it is not open.
-  const other = await api(otherTrader());
-  const engine = await api(s.account);
-  const away = await engineAwayBid(85, ENGINE_SYMBOL);
-  const rested = await other.post('/api/v1/orders', {
-    symbol: ENGINE_SYMBOL,
-    type: 'limit',
-    side: 'buy',
-    price: away,
-    amount: SMALL,
-    timeInForce: 'GTC',
-    clientOrderId: `jcd14-q8-other-${randomBytes(4).toString('hex')}`,
-  });
-  expect(rested.status, JSON.stringify(rested.body).slice(0, 300)).toBeLessThan(300);
-  const theirId = rested.body.id;
-  let cancelled = false;
-  try {
-    const own = await other.get(`/api/v1/orders/${theirId}/queue`);
-    expect(own.status, JSON.stringify(own.body).slice(0, 300)).toBe(200);
-    const foreign = await engine.get(`/api/v1/orders/${theirId}/queue`);
-    const missing = await engine.get(`/api/v1/orders/${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}/queue`);
-    expect(foreign.status).toBe(404);
-    expect(foreign.body.intafacedCode).toBe('trade.order_not_found');
-    expect([missing.status, missing.body.intafacedCode]).toEqual([foreign.status, foreign.body.intafacedCode]);
-    const del = await other.delete(`/api/v1/orders/${theirId}?symbol=${encodeURIComponent(ENGINE_SYMBOL)}`);
-    expect(del.status, JSON.stringify(del.body).slice(0, 300)).toBeLessThan(300);
-    cancelled = true;
-    const closed = await other.get(`/api/v1/orders/${theirId}/queue`);
-    expect(closed.status).toBe(409);
-    expect(closed.body.intafacedCode).toBe('trade.order_not_open');
-  } finally {
-    if (!cancelled) await other.delete(`/api/v1/orders/${theirId}?symbol=${encodeURIComponent(ENGINE_SYMBOL)}`).catch(() => undefined);
-  }
 });
