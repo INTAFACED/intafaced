@@ -563,6 +563,8 @@ export function venueApi(api: ApiClient) {
       venueId?: string;
       /** Who signs it: the owner's wallet (the default), or a trading session's agent key (session-signer.ts). */
       signer?: { role: 'owner' | 'agent'; address: string };
+      /** An order the venue definitely refused, sent again under the same client order id (J-derivatives-33 #5). */
+      retryRefused?: boolean;
     }) =>
       write('/prepare', preparedAnswerSchema, {
         ...(input.venueId ? { venueId: input.venueId } : {}),
@@ -572,6 +574,7 @@ export function venueApi(api: ApiClient) {
         intent: input.intent,
         actionKey: input.actionKey ?? null,
         stepUpApprovalId: input.stepUpApprovalId ?? null,
+        ...(input.retryRefused ? { retryRefused: true } : {}),
       }),
     submit: async (actionKey: string, signature: { digest: string; signature: string; signedBy: string }) => {
       const answer = await write('/submit', submitAnswerSchema, { actionKey, signature });

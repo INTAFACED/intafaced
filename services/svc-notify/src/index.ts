@@ -52,8 +52,9 @@ import { PostgresContactPolicyStore } from './ops-config/contact-policy.pg.js';
 import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
 import { TELEGRAM_SWEEP_INTERVAL_MS, TelegramDesk } from './telegram/desk.js';
-import { PostgresTelegramStore } from './telegram/store.js';
-import { createTradeDeskClient, telegramTransportFromToken, webhookSecretMatches } from './telegram/wire.js';
+import { PostgresTelegramStore, ageTelegramLinkCode } from './telegram/store.js';
+import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
+import { createTradeDeskClient, telegramTestBotTransport, telegramTransportFromToken, webhookSecretMatches } from './telegram/wire.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { subscribeNotificationEvents } from './events.js';
 import { SqlReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
@@ -408,6 +409,10 @@ const watchRules = new WatchRuleService(
   createIdentityWatchlistsClient({ identityUrl: process.env.IDENTITY_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
   async () => (alertMarks.marketIdsBySymbol ? alertMarks.marketIdsBySymbol() : null),
 );
+/** Telegram desk sweeps completed since start, and when the last one finished: a test proves "nothing more is sent" across real passes. */
+let telegramSweepPasses = 0;
+let lastTelegramSweepAt: string | null = null;
+
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
 let lastAlertSweepAt: string | null = null;
@@ -458,12 +463,16 @@ let reconAlertFeedAttached = false;
  * is set, and with `notify.out_of_app_off` while the operator's out-of-app switch is off. The desk reads svc-trade's
  * `venue.deskSnapshot` and nothing else: it holds no way to trade, cancel or move money.
  */
+// The owner's bot when its token is set; else, on a test stack only, the TEST bot that writes each message to a file.
+const telegramBot = telegramTransportFromToken(env.NOTIFY_TELEGRAM_BOT_TOKEN, { timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS });
+const telegramTestBot = telegramBot ? null : telegramTestBotTransport(env.NOTIFY_TELEGRAM_TEST_OUTBOX, env.APP_ENV);
 const telegramDesk = new TelegramDesk({
   store: new PostgresTelegramStore(sql),
-  transport: telegramTransportFromToken(env.NOTIFY_TELEGRAM_BOT_TOKEN, { timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS }),
+  transport: telegramBot ?? telegramTestBot,
+  testBot: telegramTestBot !== null,
+  bot: env.NOTIFY_TELEGRAM_BOT_NAME ?? null,
   outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
   reader: createTradeDeskClient({ tradeUrl: env.TRADE_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
-  linkCodeTtlMinutes: env.NOTIFY_VERIFY_TTL_MINUTES,
 });
 export const appRouter = createNotifyRouter(
   notify,
@@ -583,7 +592,18 @@ app.get('/ready', async () => ({
     unpublishedCode: ALERT_KIND_UNPUBLISHED,
     sweep: { lastAt: lastAlertSweepAt, ...(lastAlertSweep ?? { markets: 0, fired: 0, held: 0, refused: 0, refusals: {} }) },
   },
+  telegram: { on: telegramDesk.on, sweep: { passes: telegramSweepPasses, lastAt: lastTelegramSweepAt } },
 }));
+
+// The TEST age door (J-charts-desk-21 #1): on a TEST stack, a person's Telegram link code is made older, so a step sees its
+// five minutes pass without waiting them out. Closed (the default) it refuses with test_age.door_closed.
+registerTestAgeDoor(app, {
+  open: testAgeDoorOpen(process.env),
+  internalSecret: process.env.INTERNAL_SERVICE_SECRET,
+  s2s: s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined,
+  subjects: { 'telegram-link-code': ageTelegramLinkCode(sql) },
+  installRawBody: false,
+});
 
 /**
  * The bot's webhook: every update carries the shared secret header the bot API was given; anything else is refused before
@@ -731,6 +751,10 @@ const telegramSweep = setInterval(() => {
   telegramSweepRunning = true;
   void telegramDesk
     .sweep()
+    .then(() => {
+      telegramSweepPasses += 1;
+      lastTelegramSweepAt = new Date().toISOString();
+    })
     .catch((err) => app.log.error({ err }, 'svc-notify telegram desk sweep failed — alerts wait for the next tick'))
     .finally(() => {
       telegramSweepRunning = false;

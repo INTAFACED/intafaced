@@ -202,7 +202,13 @@ export type ActionResult =
 export type RunAction = (
   intent: VenueIntent,
   /** `venueId`: the venue to prepare on (J-derivatives-28 routing); none is the primary venue. Submit follows the stored action. */
-  opts?: { actionKey?: string; stepUpApprovalId?: string | null; venueId?: string },
+  opts?: {
+    actionKey?: string;
+    stepUpApprovalId?: string | null;
+    venueId?: string;
+    /** An order the venue definitely refused is sent again under its own client order id (J-derivatives-33 #5). */
+    retryRefused?: boolean;
+  },
 ) => Promise<ActionResult>;
 
 /** The business key the door stores an intent under (user-venue-door.ts `businessKey`). */
@@ -310,6 +316,7 @@ export function useVenueActions(owner: string | null, given?: SessionSigning | n
           actionKey: opts.actionKey,
           stepUpApprovalId: opts.stepUpApprovalId,
           ...(opts.venueId ? { venueId: opts.venueId } : {}),
+          ...(opts.retryRefused ? { retryRefused: true } : {}),
         });
         if (!prepared.ok) return { kind: 'refused', code: prepared.code, message: prepared.message, beforeWallet: true };
         const answer = prepared.data;

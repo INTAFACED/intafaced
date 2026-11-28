@@ -72,7 +72,7 @@ export function ProductSwitch({ product }: { product: 'spot' | 'futures' | 'venu
       ]}
       value={product}
       label={t('productLabel')}
-      onChange={(next) => navigate(next === 'spot' ? '/trade/orders' : `/trade/orders?product=${next}`, true)}
+      onChange={(next) => navigate(`/trade/orders?product=${next}`, true)}
     />
   );
 }

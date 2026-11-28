@@ -1631,6 +1631,34 @@ export const venueRiskAlerted = defineEvent(
   'One crossing of a margin or liquidation-risk level on a venue position. svc-trade writes the alert row first and publishes after commit, republishing until it is sent; consumers dedupe on (alertKey), so the person gets one alert per crossing.',
 );
 
+/**
+ * The person's weekly Profit lock on their own venue account reached its target (J-wallet-26 #2): the week's realised
+ * profit as the venue reports it, the share to lock and the cold wallet it would go to. Nothing moves: the withdrawal is
+ * the person's own, signed later in their wallet, or never.
+ */
+export const venueProfitLockReady = defineEvent(
+  'trade',
+  'venue_profit_lock',
+  'crossed',
+  1,
+  z.object({
+    /** The business key the one message is filed under: `profit-lock:<user>:<venue>:<owner>:<week start>`. */
+    offerKey: z.string().min(1).max(256),
+    userId: userIdSchema,
+    asset: z.string().min(1).max(32),
+    /** Decimal strings, never numbers. */
+    profit: z.string().regex(/^\d{1,40}(\.\d{1,18})?$/),
+    target: z.string().regex(/^\d{1,40}(\.\d{1,18})?$/),
+    /** In percent. */
+    share: z.string().regex(/^\d{1,3}(\.\d{1,18})?$/),
+    amount: z.string().regex(/^\d{1,40}(\.\d{1,18})?$/),
+    coldWallet: z.string().regex(/^0x[0-9a-f]{40}$/),
+    weekFrom: z.string().datetime({ offset: true }),
+    raisedAt: z.string().datetime({ offset: true }),
+  }),
+  'A weekly Profit lock reached its target. svc-trade writes the offer row first and publishes after commit, republishing until it is sent; consumers dedupe on (offerKey), so the person gets one message per week.',
+);
+
 export const projectionUpdated = defineEvent(
   'indexer',
   'projection',
@@ -2414,6 +2442,7 @@ export const EVENT_CATALOG = {
   recurringBuySuspended,
   venueDelistingScheduled,
   venueRiskAlerted,
+  venueProfitLockReady,
   projectionUpdated,
 } as const;
 

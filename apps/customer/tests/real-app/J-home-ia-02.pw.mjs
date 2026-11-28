@@ -120,7 +120,7 @@ test(`${J} #1 the top bar has five doors with full dropdowns, the same five on t
       ['/execution', true],
       ['/quant', true],
       ['/quant/editor', true],
-      ['/money/activity?tab=orders', true],
+      ['/trade/orders', true],
     ],
     Pay: [['/pay/send'], ['/pay/receive'], ['/pay/request'], ['/pay/bills'], ['/pay/global'], ['/p2p'], ['/pay/merchant']],
     More: [['/academy'], ['/more'], ['/support'], ['/view']],
@@ -179,7 +179,7 @@ test(`${J} #1 the top bar has five doors with full dropdowns, the same five on t
   const BUSINESS_ONLY = new Set(['/bank/business']);
   // Search lists a room by its name in the route table (apps/customer/src/app/navigation.ts). Two rows carry a menu label of
   // their own: the room they open is named here.
-  const ROOM_NAME = { '/quant/editor': 'Code editor', '/money/activity?tab=orders': 'Activity' };
+  const ROOM_NAME = { '/quant/editor': 'Code editor', '/trade/orders': 'Order history' };
   const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const { href, title } of advanced) {
     expect(title, `${href} has a title in its row`).not.toBe('');

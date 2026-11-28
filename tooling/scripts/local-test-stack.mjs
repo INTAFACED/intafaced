@@ -391,6 +391,7 @@ const SECRET_NAMES = [
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
   'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email or push stand-in (LOCAL_STACK_NOTIFY_EMAIL=on, LOCAL_STACK_NOTIFY_PUSH=on)
   'notifySupportService', // svc-support's own secret for svc-notify's guest verification door (NOTIFY_SUPPORT_SERVICE_SECRET on both)
+  'notifyTelegramWebhook', // the TEST bot's webhook header for svc-notify (NOTIFY_TELEGRAM_WEBHOOK_SECRET); a journey sends the TEST chat's messages with it
   'supportGuestAddress', // svc-support's key that seals a guest's email address (SUPPORT_GUEST_ADDRESS_KEY, 32 bytes as hex)
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
   'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)
@@ -910,13 +911,36 @@ const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml']
 /** What the running Node services are built from: a Customer-only change rebuilds no service process. */
 const BACKEND_SOURCE_PATHS = ['services', 'packages', 'pnpm-lock.yaml'];
 
+/**
+ * Each service's start settings (its env: paces, switches, test values). They are no build input, but a running service
+ * keeps the env it started with, so a move here restarts the services as a new build does (#11041: #11230 paced the
+ * beta's own-funds sweep there, and the long-lived beta kept svc-trade on the old 3 s for as long as no service source moved).
+ */
+const SERVICE_SETTINGS_PATHS = ['tooling/scripts/local-stack-services'];
+
 /** True when no service, package or Customer source changed between two commits (tooling and docs do not count). */
-function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
+function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS, repo = REPO) {
   if (!oldHead) return false;
   if (oldHead === head) return true;
-  const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...paths], { cwd: REPO });
+  const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...paths], { cwd: repo });
   return r.status === 0;
 }
+
+/**
+ * Whether the services' start settings moved since the stamp's head (a commit, or other uncommitted edits there): then
+ * the services get a new build id, and each restarts onto the settings (stopForNewBuild). A stamp from before settings
+ * counted vouches for nothing, so it restarts them once.
+ */
+export function serviceSettingsMoved(stamp, { repo, head, edits }) {
+  return !buildStillFresh(
+    { stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.settingsEdits },
+    { repo, head, edits },
+    (a, b) => sourceUnchangedSince(a, b, SERVICE_SETTINGS_PATHS, repo),
+  );
+}
+
+/** The uncommitted edits to the services' start settings, '' when there are none (worktreeEdits). */
+const settingsEditsNow = () => worktreeEdits(SERVICE_SETTINGS_PATHS);
 
 /**
  * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
@@ -982,6 +1006,38 @@ export function backendDecision({ rebuild = false, stamp, repo, head, edits, cus
   return fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
 }
 
+/**
+ * A fingerprint of the settings a service is started with. A running process keeps the settings it started with, so a
+ * new launch setting with no new build (a tooling-only commit) never reached it: the beta's svc-trade kept the TEST venue's
+ * 3 s own-funds sweep after #11230 set a minute on the test network (#11041). Kept in the service's record, never shown.
+ */
+export function settingsMark(env) {
+  const entries = Object.entries(env ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex');
+}
+
+/** Whether a running process was started with `settings`; one recorded before settings were kept counts as other settings. */
+export function onCurrentSettings(rec, settings) {
+  return rec?.settings === settings;
+}
+
+/**
+ * Whether a start restarts a running service onto changed settings: only with `LOCAL_STACK_RESTART_ON_SETTINGS=on`, which
+ * the beta sets (tooling/beta/beta-host.mjs stackEnv). A journey's stack keeps a service on the one-off settings a
+ * `restart <service>` gave it (the venue door, a switch turned off) through every later start, as journeys expect.
+ */
+export const restartsOnSettings = (env = process.env) => env.LOCAL_STACK_RESTART_ON_SETTINGS === 'on';
+
+/**
+ * Why a running process restarts, or null when it keeps running: another build, or (for a part that passes the settings it
+ * starts with) other settings.
+ */
+export function restartReason(rec, build, settings) {
+  if (!onCurrentBuild(rec, build)) return 'the new build';
+  if (settings !== undefined && !onCurrentSettings(rec, settings)) return 'new settings';
+  return null;
+}
+
 export function onCurrentBuild(rec, wanted) {
   return !wanted || rec?.build === wanted;
 }
@@ -995,9 +1051,11 @@ function currentBuild(part) {
  * Stops `name` when it runs on another build than `build`: a running process keeps serving what it loaded, so it would
  * hide the new build. Waits for its port to close, so the start that follows does not mistake it for a stranger.
  */
-async function stopForNewBuild(name, rec, build, port) {
-  if (!ownedAlive(rec) || onCurrentBuild(rec, build)) return;
-  say(`  ${name}: restarting onto the new build`);
+async function stopForNewBuild(name, rec, build, port, settings) {
+  if (!ownedAlive(rec)) return;
+  const why = restartReason(rec, build, settings);
+  if (!why) return;
+  say(`  ${name}: restarting onto ${why}`);
   await stopProc(name, rec);
   for (let i = 0; i < 50 && (await portOpen(port)); i++) await sleep(200);
 }
@@ -1362,9 +1420,14 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
   ensureRustBinaries(rebuild);
   const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
+  // Read against the stamp before any branch below rewrites it.
+  const settingsEdits = settingsEditsNow();
+  const settingsMoved = serviceSettingsMoved(stamp, { repo: REPO, head, edits: settingsEdits });
+  const settingsStamp = settingsMoved ? { settingsEdits, backendBuild: newBuildId() } : {};
+  if (settingsMoved && backend !== 'full') say("  build: the services' start settings moved: they restart onto them");
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
-    if (stamp.head !== head) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head }, null, 2));
+    if (stamp.head !== head || settingsMoved) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head, ...settingsStamp }, null, 2));
     if (admin) ensureAdminBuilt(rebuild);
     return;
   }
@@ -1376,7 +1439,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     // Only services that were never built: nothing running was built from them, so the running build id stands.
     writePrivate(
       P.buildStamp,
-      JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2),
+      JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString(), ...settingsStamp }, null, 2),
     );
     if (admin) ensureAdminBuilt(rebuild);
     return;
@@ -1417,7 +1480,8 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
         builtAt: new Date().toISOString(),
         customerBuilt: !override,
         backendEdits,
-        backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
+        settingsEdits,
+        backendBuild: backendChanged || settingsMoved ? newBuildId() : stamp.backendBuild,
         customerBuild: override ? stamp.customerBuild : newBuildId(),
         customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
         customerPositions: override ? stamp.customerPositions : true,
@@ -2073,7 +2137,8 @@ export async function startNodeService(def, { stop = stopForNewBuild } = {}) {
   const procs = readProcs();
   const url = `http://${HOST}:${port}/health`;
   const build = currentBuild('backendBuild');
-  await stop(def.name, procs[def.name], build, port);
+  const settings = settingsMark(env);
+  await stop(def.name, procs[def.name], build, port, restartsOnSettings() ? settings : undefined);
   const rec = readProcs()[def.name];
   const owned = ownedAlive(rec);
   const healthy = owned && (await httpGet(url, 2000)).status === 200;
@@ -2102,7 +2167,7 @@ export async function startNodeService(def, { stop = stopForNewBuild } = {}) {
       ? [rustBin(def.name)]
       : [process.execPath, ...node.flags, entry];
   const cwd = def.rust ? rustCrate(def.name) : path.join(REPO, 'services', `svc-${def.name}`);
-  const pid = startProc(def.name, argv, node ? node.env : env, cwd, { build });
+  const pid = startProc(def.name, argv, node ? node.env : env, cwd, { build, settings });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
     const procs = readProcs();

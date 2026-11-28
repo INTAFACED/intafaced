@@ -9995,8 +9995,7 @@
       },
       "refusals": {
         "notify.telegram_token_unset": "PRECONDITION_FAILED",
-        "notify.out_of_app_off": "PRECONDITION_FAILED",
-        "notify.verify_ttl_unset": "PRECONDITION_FAILED"
+        "notify.out_of_app_off": "PRECONDITION_FAILED"
       },
       "input": null,
       "output": {
@@ -10136,6 +10135,20 @@
                 "type": "string",
                 "const": "unlinked"
               },
+              "bot": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "test": {
+                "type": "boolean"
+              },
               "profitTarget": {
                 "anyOf": [
                   {
@@ -10148,7 +10161,7 @@
                 ]
               }
             },
-            "required": ["state", "profitTarget"],
+            "required": ["state", "bot", "test", "profitTarget"],
             "additionalProperties": false
           },
           {
@@ -10158,10 +10171,35 @@
                 "type": "string",
                 "const": "linked"
               },
+              "bot": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "test": {
+                "type": "boolean"
+              },
               "linkedAt": {
                 "type": "string",
                 "format": "date-time",
                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "handle": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "profitTarget": {
                 "anyOf": [
@@ -10175,7 +10213,7 @@
                 ]
               }
             },
-            "required": ["state", "linkedAt", "profitTarget"],
+            "required": ["state", "bot", "test", "linkedAt", "handle", "profitTarget"],
             "additionalProperties": false
           }
         ]

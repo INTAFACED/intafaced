@@ -16,6 +16,12 @@ import { defineProcedure } from './procedure.js';
  * it, in percent. Where the venue names no perpetual account value, `accountValue` and `marginUse` are `null`: never read
  * as zero.
  *
+ * TODAY runs from 00:00 UTC, counted the same way as the week: the venue's realised result on today's closing perpetual
+ * fills, less today's fees on perpetual fills.
+ *
+ * THE VENUE UNREADABLE answers `unreadable` with the venue's name, so the person is told which venue could not be read,
+ * never shown no positions.
+ *
  * THE WEEK runs from Monday 00:00 UTC. Its realised profit is the realised result the venue reports on the week's closing
  * perpetual fills, less every fee charged on the week's perpetual fills, in the perpetual account's collateral asset.
  *
@@ -24,6 +30,17 @@ import { defineProcedure } from './procedure.js';
 
 /** A decimal string, never a JSON number. */
 const decimal = z.string().regex(/^-?\d+(\.\d+)?$/);
+
+/** Realised result less fees over a span, in the perpetual account's collateral asset. */
+const pnlSpan = z
+  .object({
+    asset: z.string(),
+    realisedPnl: decimal,
+    fees: decimal,
+    /** `realisedPnl` less `fees`. */
+    profit: decimal,
+  })
+  .strict();
 
 export const tradeDeskSnapshotInputSchema = z
   .object({
@@ -45,6 +62,8 @@ export const tradeDeskPositionSchema = z
     unrealisedPnl: decimal,
     /** The margin the venue holds for this position. */
     margin: decimal,
+    /** The venue's liquidation price for this position; `null` where the venue publishes none, never read as far away. */
+    liquidationPrice: decimal.nullable(),
   })
   .strict();
 
@@ -95,17 +114,14 @@ export const tradeDeskSnapshotSchema = z.discriminatedUnion('state', [
       accounts: z.array(tradeDeskAccountSchema),
       /** Perpetual fills at or after `since`, oldest first. */
       fills: z.array(tradeDeskFillSchema),
-      week: z
-        .object({
-          asset: z.string(),
-          realisedPnl: decimal,
-          fees: decimal,
-          /** `realisedPnl` less `fees`. */
-          profit: decimal,
-        })
-        .strict(),
+      week: pnlSpan,
+      /** 00:00 UTC of the day `today` counts. */
+      dayStart: z.string().datetime(),
+      today: pnlSpan,
     })
     .strict(),
+  /** The venue is connected but could not be read just now: `venue` names it. Never read as no positions. */
+  z.object({ state: z.literal('unreadable'), venue: z.string().min(1), test: z.boolean() }).strict(),
 ]);
 export type TradeDeskSnapshot = Extract<z.infer<typeof tradeDeskSnapshotSchema>, { state: 'read' }>;
 
@@ -117,7 +133,10 @@ export interface TradeDeskSnapshotPort {
   read(input: TradeDeskSnapshotInput): Promise<TradeDeskSnapshotResult>;
 }
 
-/** `venue.deskSnapshot` on svc-trade: svc-notify only. The venue down answers 503, never an empty list. */
+/**
+ * `venue.deskSnapshot` on svc-trade: svc-notify only. The venue down answers `unreadable` with its name, never an empty
+ * list; 503 only when not even the connected venue can be named.
+ */
 export const TRADE_DESK_SNAPSHOT = defineProcedure({
   name: 'trade.venue.deskSnapshot',
   service: 'svc-trade',

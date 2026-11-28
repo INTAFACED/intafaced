@@ -19,7 +19,7 @@ import { TradingAccountRoom } from './account/TradingAccountRoom';
 import { VaultsRoom } from './vaults/VaultsRoom';
 import { StakingRoom } from './staking/StakingRoom';
 import { OrderDetailRoom } from './orders/OrderDetailRoom';
-import { OrderHistoryRoom } from './orders/OrderHistoryRoom';
+import { OrderHistoryRoom, OrdersRoom } from './orders/OrderHistoryRoom';
 import { LeadApplyRoom } from './lead-apply/LeadApplyRoom';
 import { MarketAnalyticsRoom } from './market-analytics/MarketAnalyticsRoom';
 import { DataDownloadsRoom } from './data-downloads/DataDownloadsRoom';
@@ -75,11 +75,14 @@ export function TradeRoutes({ path }: { path: string }) {
   if (analytics) return <MarketAnalyticsRoom pair={decodedSegment(analytics[1]!)} />;
   // Spot and futures orders are two halves of one room; `?product=futures` picks the futures half and its order pages.
   // `?product=venue` is the person's own venue account (J-cex-spot-06); a venue order's page is its venue client order id.
+  // The plain address is the venue half when venue trading is on (the menus' Orders and Order history), else spot.
   const product = new URL(path, location.origin).searchParams.get('product');
   const futures = product === 'futures';
   if (pathname === '/trade/orders') {
     if (product === 'venue') return <VenueOrdersRoom path={path} />;
-    return futures ? <FuturesOrdersRoom path={path} /> : <OrderHistoryRoom path={path} />;
+    if (futures) return <FuturesOrdersRoom path={path} />;
+    if (product === 'spot') return <OrderHistoryRoom path={path} />;
+    return <OrdersRoom path={path} />;
   }
   const orderMatch = /^\/trade\/orders\/([^/]+)$/.exec(pathname);
   if (orderMatch) {

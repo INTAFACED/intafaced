@@ -238,6 +238,9 @@ function builderFeeRates(row: StoredVenueAction): readonly [string, Amount][] {
 /** Whether a signed action placed the order under `venueClientOrderId`. */
 const placesOrder = (row: StoredVenueAction, venueClientOrderId: string) =>
   !!row.signature && ordersOf(row).some((o) => o.venueClientOrderId === venueClientOrderId);
+/** The venue took this row's order under the client id. */
+const tookOrder = (row: StoredVenueAction, venueClientOrderId: string) =>
+  ordersOf(row).some((o) => o.venueClientOrderId === venueClientOrderId && o.accepted);
 
 /** One venue address, whatever its letter case: a hex address names the same account in upper or lower case. */
 const sameAddress = (a: string | null, b: string | null) => (a === null || b === null ? a === b : a.toLowerCase() === b.toLowerCase());
@@ -397,7 +400,9 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     const rows = [...this.rows.values()]
       .filter((r) => r.userId === userId && placesOrder(r, id))
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.businessKey.localeCompare(b.businessKey));
-    return rows[0] ?? null;
+    // A close retried under its own client id after the venue refused it (J-derivatives-33 #5) is one order: the send the
+    // venue took, else the first.
+    return rows.find((r) => tookOrder(r, id)) ?? rows[0] ?? null;
   }
 
   async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {
@@ -596,7 +601,8 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       WHERE user_id = ${userId} AND signature IS NOT NULL
         AND ((kind = 'place_order' AND prepared->>'venueClientOrderId' = ${id}) OR kind IN ('place_orders', 'replace_order'))
       ORDER BY created_at, business_key`;
-    return rows.map(fromRow).find((r) => placesOrder(r, id)) ?? null;
+    const placed = rows.map(fromRow).filter((r) => placesOrder(r, id));
+    return placed.find((r) => tookOrder(r, id)) ?? placed[0] ?? null;
   }
 
   async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {

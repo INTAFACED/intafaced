@@ -114,6 +114,8 @@ describe('linkFor', () => {
       ['/uc/recharge?asset=BTC&network=btc', '/uc/recharge?asset=BTC&network=btc'],
       ['/bank/transfers', '/bank/transfers'],
       ['/support', '/support'],
+      // A week's Profit lock offer, in the venue account room (a Web3 room; J-wallet-26 #3).
+      ['/wallet/venue', '/wallet/venue'],
       // A merchant's portal notices (merchant-email.ts portalPath).
       ['/pay/payments/p1', '/pay/payments/p1'],
       ['/pay/payouts/s1', '/pay/payouts/s1'],

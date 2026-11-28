@@ -259,6 +259,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
       'One inbox row for the person per margin alert, margin call or liquidation alert on a venue position, once per alert key, sent out of app',
   },
   {
+    event: 'venueProfitLockReady',
+    durable: 'notify-venue-profit-lock',
+    subject: 'intafaced.trade.venue_profit_lock.crossed',
+    effect: 'One inbox row for the person when their weekly Profit lock reaches its target, once per offer key (one per week)',
+  },
+  {
     event: 'coreOpsReconciliationAlertOpened',
     durable: 'notify-recon-alert-opened',
     subject: 'intafaced.core-ops.reconciliation_alert.opened',

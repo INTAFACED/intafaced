@@ -515,6 +515,8 @@ test("the beta's balance watch reads the test network every 15 s, inside its 120
   // #11041: on the beta, the own-funds sweep (one balance read of our builder account each pass), the builder-mode check
   // and the claim collect ran at the TEST venue's seconds: 20 balance reads, 30 mode reads and 60 claim reads a minute
   // with no desk open (trade.venue_reads_minute, 01:25 UTC 28 Nov 2026). There each runs once a minute.
+  // And the beta restarts a running service onto changed launch settings, so a change like this reaches svc-trade.
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).LOCAL_STACK_RESTART_ON_SETTINGS, 'on');
   for (const key of ['TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS', 'TRADE_BUILDER_MODE_CHECK_INTERVAL_MS', 'TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS'])
     assert.equal(beta[key], '60000', key);
   // The TEST venue keeps its seconds, so a journey sees a sweep, a mode alert and a claim inside its run.
