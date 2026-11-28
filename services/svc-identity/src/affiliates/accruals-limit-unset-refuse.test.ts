@@ -10,12 +10,15 @@
  * 5. Paths: router.ts affiliates.myAccruals; accrual-store.ts listByBeneficiary
  * 6. RED: omitting limit returns a 100-row accrual page
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
+import type { AuthService } from '../auth/auth-service.js';
+import { contextWith } from '../boot.testkit.js';
+import type { RankService } from '../rank/rank-service.js';
+import { createIdentityRouter } from '../router.js';
 import {
   ACCRUALS_LIMIT_MAX,
+  type AccrualStore,
   AccrualsLimitUnsetError,
   IDENTITY_ACCRUALS_LIMIT_UNSET,
   MemoryAccrualStore,
@@ -23,7 +26,6 @@ import {
   SqlAccrualStore,
 } from './accrual-store.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const REF = '22222222-2222-4222-8222-222222222222';
 
 function sqlStoreUnreachable(): { store: SqlAccrualStore; sqlCalled: () => boolean } {
@@ -36,19 +38,22 @@ function sqlStoreUnreachable(): { store: SqlAccrualStore; sqlCalled: () => boole
 }
 
 describe('myAccruals / listByBeneficiary limit unset refuse (no invented 100)', () => {
-  it('router.ts does not invent 100 via optional input or input?.limit', () => {
-    const src = readFileSync(join(HERE, '../router.ts'), 'utf8');
-    expect(src).not.toMatch(/listByBeneficiary\(ctx\.principal\.userId, input\?\.limit\)/);
-    expect(src).toMatch(/listByBeneficiary\(ctx\.principal\.userId, input\.limit\)/);
-    expect(src).not.toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(500\)\.optional\(\)/);
-    expect(src).toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(500\)/);
-  });
-
-  it('accrual-store.ts does not invent 100 via default param', () => {
-    const src = readFileSync(join(HERE, 'accrual-store.ts'), 'utf8');
-    expect(src).not.toMatch(/listByBeneficiary\(beneficiaryId: string, limit = 100\)/);
-    expect(src).toMatch(/listByBeneficiary\(beneficiaryId: string, limit: number\)/);
-    expect(src).toMatch(/publishedAccrualsLimit\(limit\)/);
+  it('affiliates.myAccruals refuses an omitted limit before the store and passes an explicit 100', async () => {
+    const asked: Array<[string, number]> = [];
+    const accruals = partial<AccrualStore>({
+      listByBeneficiary: async (beneficiaryId: string, limit: number) => {
+        asked.push([beneficiaryId, limit]);
+        return [];
+      },
+    });
+    const router = createIdentityRouter(partial<AuthService>({}), partial<RankService>({}), { accruals });
+    const api = router.createCaller(await contextWith(['identity:read'], { userId: REF }));
+    for (const input of [{}, { limit: undefined }, { limit: 0 }, { limit: 501 }, { limit: 1.5 }]) {
+      await expect(api.affiliates.myAccruals(input as never), JSON.stringify(input)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    }
+    expect(asked).toEqual([]);
+    await expect(api.affiliates.myAccruals({ limit: 100 })).resolves.toEqual({ rows: [] });
+    expect(asked).toEqual([[REF, 100]]);
   });
 
   it('blank / non-integer / out of 1..500 throws identity.accruals_limit_unset', () => {

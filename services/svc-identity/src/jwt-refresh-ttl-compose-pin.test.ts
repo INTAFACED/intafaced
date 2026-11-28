@@ -18,11 +18,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { loadIdentityEnv } from './boot.testkit.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const AUTH_ENV = resolve(import.meta.dirname, '../../../packages/config/src/env.ts');
 
 function identityServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-identity');
@@ -37,11 +37,14 @@ const LINE = /^\s+JWT_REFRESH_TTL_SECONDS:\s*\$\{JWT_REFRESH_TTL_SECONDS:-259200
 
 describe('compose JWT_REFRESH_TTL_SECONDS for svc-identity', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const authEnv = readFileSync(AUTH_ENV, 'utf8');
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   const block = identityServiceBlock(compose);
 
-  it('authEnvSchema still defaults JWT_REFRESH_TTL_SECONDS to 60*60*24*30', () => {
-    expect(authEnv).toMatch(/JWT_REFRESH_TTL_SECONDS:\s*z\.coerce[\s\S]*?\.default\(60 \* 60 \* 24 \* 30\)/);
+  it('authEnvSchema defaults JWT_REFRESH_TTL_SECONDS to 60*60*24*30 in the env svc-identity loads', async () => {
+    expect((await loadIdentityEnv({ JWT_REFRESH_TTL_SECONDS: undefined })).JWT_REFRESH_TTL_SECONDS).toBe(60 * 60 * 24 * 30);
+    expect((await loadIdentityEnv({ JWT_REFRESH_TTL_SECONDS: '86400' })).JWT_REFRESH_TTL_SECONDS).toBe(86400);
   });
 
   it('wires svc-identity JWT_REFRESH_TTL_SECONDS from the host, unique once, default 2592000', () => {

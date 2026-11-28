@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { loadIdentityEnv } from '../boot.testkit.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -169,9 +170,14 @@ describe('DMA hierarchy products (M01/M20)', () => {
     expect(sql.writes).toBe(0);
   });
 
-  it('env.ts sockets IDENTITY_DMA_HIERARCHY_LAW_JSON with blank default (unpublished)', () => {
-    const envTs = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'env.ts'), 'utf8');
-    expect(envTs).toMatch(/IDENTITY_DMA_HIERARCHY_LAW_JSON:\s*z\.string\(\)\.optional\(\)\.default\(''\)/);
+  it('env.ts reads IDENTITY_DMA_HIERARCHY_LAW_JSON as blank (unpublished) when unset', async () => {
+    try {
+      expect((await loadIdentityEnv({ IDENTITY_DMA_HIERARCHY_LAW_JSON: undefined })).IDENTITY_DMA_HIERARCHY_LAW_JSON).toBe('');
+      const law = JSON.stringify({ published: false });
+      expect((await loadIdentityEnv({ IDENTITY_DMA_HIERARCHY_LAW_JSON: law })).IDENTITY_DMA_HIERARCHY_LAW_JSON).toBe(law);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('compose pass-through has no default tree', () => {

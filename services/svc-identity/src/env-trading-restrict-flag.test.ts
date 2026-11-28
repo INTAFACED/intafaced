@@ -2,12 +2,7 @@
  * IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL ships off.
  * Unset or blank is off. true/on/1 is on. Any other string refuses boot.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 const SECRET = 's'.repeat(32);
 const BASE_ENV = {
@@ -35,11 +30,6 @@ afterEach(() => {
 });
 
 describe('IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL', () => {
-  it('does not default the flag on', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL:[\s\S]{0,500}\.default\(true\)/);
-  });
-
   it('is off when unset or blank', async () => {
     expect((await loadWith()).IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL).toBeUndefined();
     expect(
