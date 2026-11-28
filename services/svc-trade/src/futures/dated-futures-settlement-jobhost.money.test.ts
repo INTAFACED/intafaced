@@ -27,6 +27,7 @@ import {
 } from '@intafaced/ledger-client';
 import { DATED_FUTURES_SETTLEMENT_PRICE_UNSET } from './dated-futures-settlement.js';
 import { startFuturesJobs } from './futures-jobs.js';
+import { futuresJobsHostDeps } from './futures-jobs-host.js';
 import { tradeEnvWith, tradeRouterPaths } from './testing/doors.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -123,6 +124,26 @@ describe('H6 JobHost money hitch (source)', () => {
     expect(tradeRouterPaths().filter((path) => /dated.?settle|datedFuturesSettlement|settlementJob/i.test(path))).toEqual([]);
     // The fixing stamp the host hands the jobs is the service env's, blank unless the owner names it.
     expect(tradeEnvWith({}, ['TRADE_FUTURES_SETTLEMENT_FIXING']).TRADE_FUTURES_SETTLEMENT_FIXING).toBe('');
+    // What index.ts hands startFuturesJobs is futuresJobsHostDeps's answer: the env's stamp, and no owner price,
+    // last trade, mark or loader override, so a dated market settles only at an owner decimal.
+    const parts = {
+      sql: {} as never,
+      ledger: new MemoryLedger(),
+      matching: {} as never,
+      bus: null,
+      liquidationFeeFraction: null,
+      fundingMarketIds: [],
+      fundingMaxAbsRate: null,
+    };
+    for (const stamp of ['', 'owner-stamp']) {
+      const live = futuresJobsHostDeps(tradeEnvWith({ TRADE_FUTURES_SETTLEMENT_FIXING: stamp }), parts);
+      expect(live.config.settlementFixing).toBe(stamp);
+      for (const slot of ['ownerSettlementPriceFor', 'lastTradePrice', 'markPrice', 'datedSettlement']) {
+        expect(Object.hasOwn(live, slot)).toBe(false);
+      }
+      // @ts-expect-error the live deps have no owner settlement price slot
+      expect(live.ownerSettlementPriceFor).toBeUndefined();
+    }
   });
 });
 

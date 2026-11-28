@@ -124,12 +124,12 @@
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts",
     "target": "../index.ts",
     "verdict": "rewrite",
-    "asserts": "The fixing stamp the host passes is the service env's, blank unless the owner names it; the PG suite in the same file holds the refusal.",
+    "asserts": "The host passes the env's fixing stamp and no owner price source, last trade, mark or loader override, so production refuses until an owner decimal exists.",
     "guard": {
       "kind": "test",
       "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts#router.ts not recut; live host does not invent a fixing price"
     },
-    "why": "Parses the service env with TRADE_FUTURES_SETTLEMENT_FIXING unset and asserts it is blank. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "index.ts boots at import, so its futures-jobs wiring moved into futuresJobsHostDeps (futures-jobs-host.ts), which index.ts calls. The test builds it from the parsed env with the stamp blank and set, and asserts that config.settlementFixing is the env's and that none of the test-only slots is present. Its return type omits them, so the host cannot fill one without a type error."
   },
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts",
@@ -157,12 +157,12 @@
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
     "target": "../index.ts",
     "verdict": "rewrite",
-    "asserts": "The host passes the env's fixing stamp and no owner price source, so production refuses until an owner decimal exists.",
+    "asserts": "The host passes the env's fixing stamp and no owner price source, last trade, mark or loader override, so production refuses until an owner decimal exists.",
     "guard": {
       "kind": "test",
-      "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts#TRADE_FUTURES_SETTLEMENT_FIXING defaults blank in the service env, never a number"
+      "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts#router.ts not recut; live host does not invent a fixing price"
     },
-    "why": "The env default is asserted here; the same file's 'stamp set but no owner decimal (production) refuses' runs the live jobs with no ownerSettlementPriceFor and asserts nothing is posted. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "index.ts boots at import, so its futures-jobs wiring moved into futuresJobsHostDeps (futures-jobs-host.ts), which index.ts calls. The test builds it from the parsed env with the stamp blank and set, and asserts that config.settlementFixing is the env's and that none of the test-only slots is present. Its return type omits them, so the host cannot fill one without a type error."
   },
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
