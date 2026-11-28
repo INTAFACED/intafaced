@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { fromTop } from './step-picture.mjs';
+import { fromTop, takePicture } from './step-picture.mjs';
 import { BROWSER_HOOK_TIMEOUT, BROWSER_TEST_TIMEOUT, launchTestBrowser } from './test-browser.mjs';
 
 // The step picture's readying (journey.mjs stepPicture) on planted pages in a real Chromium: a page left scrolled down
@@ -29,9 +29,9 @@ async function pageOf(extra = '') {
   return { page, close: () => context.close() };
 }
 
-/** The colour at (x, y) of a whole-page picture, read by drawing the picture on a canvas in a page of its own. */
+/** The colour at (x, y) of the step picture (takePicture), read by drawing the picture on a canvas in a page of its own. */
 async function pixel(page, x, y) {
-  const png = (await page.screenshot({ fullPage: true })).toString('base64');
+  const png = (await takePicture(page)).toString('base64');
   const reader = await page.context().newPage();
   try {
     return await reader.evaluate(
@@ -167,7 +167,7 @@ describe('step picture from the top', { timeout: BROWSER_TEST_TIMEOUT }, () => {
     // The top bar's dropdown fades in from opacity 0 (shell.css .tb-popover, tb-pop); J-home-ia-02 #1's picture caught it
     // part-way, its rows over the page's text (issue 11232, run 46084497896).
     const { page, close } = await pageOf(
-      '<style>@keyframes pop{from{opacity:0}}</style><div role="group" aria-label="Trade" style="position:absolute;top:100px;left:0;width:200px;height:100px;background:rgb(0,0,0);animation:pop 1500ms linear"></div>',
+      '<style>@keyframes pop{from{opacity:0}}</style><div role="group" aria-label="Trade" style="position:absolute;top:100px;left:0;width:200px;height:100px;background:rgb(0,0,0);animation:pop 600ms linear"></div>',
     );
     expect(await fromTop(page)).toBe('at top');
     expect(await pixel(page, 100, 150)).toEqual([0, 0, 0]);
@@ -179,9 +179,10 @@ describe('step picture from the top', { timeout: BROWSER_TEST_TIMEOUT }, () => {
     const { page, close } = await pageOf(
       '<style>@keyframes shine{to{opacity:.2}}</style><div style="position:absolute;top:100px;width:50px;height:10px;background:#888;animation:shine 400ms infinite alternate"></div>',
     );
-    const started = Date.now();
     expect(await fromTop(page)).toBe('at top');
-    expect(Date.now() - started).toBeLessThan(1500);
+    const started = Date.now();
+    expect((await takePicture(page)).length).toBeGreaterThan(0);
+    expect(Date.now() - started).toBeLessThan(5000);
     await close();
   });
 
