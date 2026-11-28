@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { canon, doorTree, knowRefines, treeOf } from './door-check.mjs';
 import { doorRefines, quietRefineAt, squash, wordsOf } from './door-refine.mjs';
-import { samplesFor } from './samples.mjs';
+import { committedRecords, samplesFor } from './samples.mjs';
 
 /** The zod the records use: the one @intafaced/contracts resolves. */
 const contractsZod = () =>
@@ -165,4 +165,91 @@ test('a block-bodied refine the door names is held to the door whether or not it
     ],
   ]);
   assert.equal(canon(treeOf(input)), canon(doorTree(nodes, 0)));
+});
+
+// svc-bank's last calls by name (weed project-state#3724): each shape below left a record by hand until the step read it.
+
+test('portable: a refine on the schema a .pipe starts from is named, and a shape built from a closed list of keys is followed', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-pipe-'));
+  const record = join(dir, 'bank-procedures.ts');
+  const placeholder = "samples: [{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]";
+  writeFileSync(
+    record,
+    [
+      "import { z } from 'zod';",
+      "const plainWords = z.string().refine((value) => !/[\\u0000-\\u001F]/.test(value), 'text has a control character');",
+      "const KEYS = ['programme', 'fees'] as const;",
+      'const setting = z.object({ value: z.unknown(), version: z.number() }).nullable();',
+      'const settings = z.object(Object.fromEntries(KEYS.map((k) => [k, setting])) as Record<(typeof KEYS)[number], typeof setting>);',
+      `export const N = defineProcedure({ name: 'bank.note', input: z.object({ text: plainWords.pipe(z.string().max(500)).optional() }), output: NO_INPUT, ${placeholder} });`,
+      `export const D = defineProcedure({ name: 'bank.desk', input: NO_INPUT, output: z.object({ settings }), ${placeholder} });`,
+      // What it pipes into carries its own refine: which one the export means is not known, so it is left.
+      `export const P = defineProcedure({ name: 'bank.both', input: z.object({ text: plainWords.pipe(z.string().refine((v) => v !== 'no', 'not no')) }), output: NO_INPUT, ${placeholder} });`,
+      '',
+    ].join('\n'),
+  );
+  const skipped = {
+    note: `bank.note.input cannot be exported without losing meaning: input.text ${REFINE}`,
+    desk: 'bank.desk.output cannot be exported without losing meaning: bank.desk.output.settings.fees.value (z.unknown (no shape: accepts anything))',
+    both: `bank.both.input cannot be exported without losing meaning: input.text ${REFINE}`,
+  };
+  const { edits, left } = plan(skipped, [record], { door: true, doorNames: new Map() });
+  const texts = [...edits.get(record).edits.values()].map((e) => e.text);
+  assert.ok(
+    texts.includes(', checks: { plain_words_holds: { at: "input.text", says: "text has a control character" } }'),
+    texts.join('\n'),
+  );
+  assert.ok(texts.includes('jsonValueSchema'), texts.join('\n'));
+  assert.deepEqual(left, [{ record: 'bank.both', at: 'input.text', why: "its refinement is not a .refine written in the schema's chain" }]);
+});
+
+test("samples: a check is found in a union's option, a rule across keys by taking keys out, and plain words by a control character", async () => {
+  const { z } = await contractsZod();
+  const recipient = z.record(z.string().max(64), z.string().max(254)).refine((value) => Object.keys(value).length <= 8);
+  const from = { fromSpaceId: z.string(), amount: z.string() };
+  const send = z.union([z.object({ ...from, rail: z.string(), recipient }).strict(), z.object({ ...from, payeeId: z.string() }).strict()]);
+  assert.equal(quietRefineAt(send, ['recipient']), true);
+  const typed = { fromSpaceId: 'a', amount: '1.50', rail: 'ach', recipient: { holderName: 'Ada TEST' } };
+  const checks = { at_most_eight_keys: { at: 'input|0.recipient', says: 'at most eight keys' } };
+  const sent = Function(`return ${samplesFor({ name: 'bank.send', path: 'p', input: send, checks }, new Map([['p', typed]]))}`)();
+  assert.equal(Object.keys(sent.find((s) => s.by === 'at_most_eight_keys').input.recipient).length, 9);
+
+  const plainWords = z.string().refine((value) => !/[\u0000-\u001F]/.test(value), 'text has a control character');
+  const note = z
+    .object({
+      id: z.string(),
+      text: plainWords.pipe(z.string().min(1)).optional(),
+      reportDescription: plainWords.pipe(z.string()).optional(),
+    })
+    .strict()
+    .refine((v) => v.text !== undefined || v.reportDescription !== undefined, { message: 'send a note or a report description' });
+  const noteChecks = {
+    note_or_report: { at: 'input', says: 'send a note or a report description' },
+    plain_words_holds: { at: ['input.text', 'input.reportDescription'], says: 'text has a control character' },
+  };
+  const out = Function(
+    `return ${samplesFor({ name: 'bank.note', path: 'p', input: note, checks: noteChecks }, new Map([['p', { id: 'x', reportDescription: 'TEST rent' }]]))}`,
+  )();
+  assert.deepEqual(out.find((s) => s.by === 'note_or_report').input, { id: 'x' });
+  assert.equal(out.find((s) => s.by === 'plain_words_holds').input.text, 'x\ny');
+});
+
+test("door-check: a pipe is held as the door's recorder writes one, and refines compare in one printing", async () => {
+  const { z } = await contractsZod();
+  const plain = z.string().refine((value) => value.text !== undefined, 'words');
+  knowRefines(new Map([['value=>value.text!==void 0', 'planted_has_text']]));
+  const nodes = [
+    { t: 'pipe', in: 1, out: 2 },
+    { t: 'string', checks: [{ k: 'refine', id: 'planted_has_text', msg: 'words' }] },
+    { t: 'string', checks: [{ k: 'max_length', n: 5 }] },
+  ];
+  assert.equal(canon(treeOf(plain.pipe(z.string().max(5)))), canon(doorTree(nodes, 0)));
+  assert.equal(squash('(day) => {\n  return day;\n}'), squash('day=>{return day}'));
+});
+
+test('samples: the records a file held before the run are not this run’s, even ones whose samples read like the placeholder', () => {
+  const held = committedRecords('packages/contracts/src/bank-ops-2-procedures.ts');
+  assert.ok(held.has('BANK_OPS_CARD_PROGRAMME'), [...held].join(', '));
+  assert.equal(committedRecords('packages/contracts/src/no-such-procedures.ts').size, 0);
 });
