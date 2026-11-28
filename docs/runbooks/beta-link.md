@@ -87,16 +87,21 @@ Blank prices and limits refuse, as on every test stack. Every rail is a TEST sta
 
 1. Open `https://beta.intafaced.com/`. Cloudflare asks for your email. Enter an invited one, then type the 6-digit code
    Cloudflare mails you. You stay signed in for a week on that browser.
-2. Open `https://beta-mail.intafaced.com/` in a second tab. The TEST mailbox names your token (your login email, with
-   every other character a dash, then a short code of it) and shows only mail to TEST addresses that start with it, so each person sees only the
-   codes for the accounts they created. Back in the app, tap **Sign up**. Enter an email that is your token, or your
-   token, a dot and anything (for example `alice-gmail-com-1a2b3c4d5e.1@local-test.invalid`), a handle, a password of your choice,
-   a country, "No, I am not a US person", and a birth date. Tap **Create account**.
+2. Open `https://beta-mail.intafaced.com/` in a second tab. The TEST mailbox leads with **Sign up with
+   `<your address>`**, a **Copy** button and **Back to the beta**. That address is your token (your login email, with
+   every other character a dash, then a short code of it), a dot and `1`, at `local-test.invalid`; the mailbox shows
+   only mail to TEST addresses that start with your token, so each person sees only the codes for the accounts they
+   created. Back in the app, tap **Sign up**. Enter that address (or your token, a dot and anything else, for example
+   `alice-gmail-com-1a2b3c4d5e.2@local-test.invalid`), a handle, a password of your choice, a country, "No, I am not a
+   US person", and a birth date. Tap **Create account**. Any other address, your own email included, is refused by the
+   beta's front with the address to use and the mailbox's link (`tooling/beta/beta-front.mjs`, #11217): its code
+   could never reach you, and it would never be approved or funded.
 3. The app asks for the code from the email. The mailbox tab shows the newest code for your address. Type it in and tap **Confirm and open my account**. A new browser signing in
    later is asked for a device code: it is in the same mailbox.
 4. You are on Home, in Volt, dark. To unlock the rooms that need a verified person, open **Verification**, request
    **Full**, enter any country code, and submit. Within a minute the stack's TEST approvers approve it and 1000 TEST
-   USDT reach the account, with nobody in the loop (below). Sign out and in once so the app sees it, then trade.
+   USDT reach the account, with nobody in the loop (below). The open app reloads by itself once it is approved and
+   once the funds land, so it shows Full and the balance with no sign-out (#11217); then trade.
 
 Everything you see is TEST: prices, balances and limits carry the TEST label, and nothing can move real money.
 

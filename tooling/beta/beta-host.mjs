@@ -577,6 +577,18 @@ export function viewerRows(rows, token) {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+/**
+ * What a viewer's mailbox leads with (#11217): the address to sign up with, a control that copies it, and the way back to
+ * the app. Only that address's mail reaches this page, and the front refuses a sign-up with any other.
+ */
+function signUpLead(viewer, link) {
+  const address = `${String(viewer).replace(/[^a-z0-9-]/g, '')}.1@local-test.invalid`;
+  return `<section class="lead"><p class="big">Sign up with <code id="signup-address">${esc(address)}</code></p>
+<p><button type="button" id="copy-address">Copy</button> <a href="${esc(link)}">Back to the beta</a></p>
+<p>Use it, not your own email, on the beta's Sign up page; its code appears below.</p></section>
+<script>document.getElementById('copy-address').onclick=function(){navigator.clipboard.writeText(${JSON.stringify(address)}).then(()=>{this.textContent='Copied'})}</script>`;
+}
+
 export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = null } = {}) {
   const body = rows.length
     ? rows
@@ -593,9 +605,10 @@ export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = nu
 <meta http-equiv="refresh" content="10"><title>TEST mailbox</title>
 <style>body{background:#0b0b0b;color:#eee;font:16px/1.4 system-ui,sans-serif;margin:0;padding:1rem}h1{font-size:1.2rem}
 .test{background:#F5A915;color:#0b0b0b;font-weight:600;padding:.3rem .6rem;display:inline-block}table{border-collapse:collapse;width:100%}
-td,th{border-bottom:1px solid #333;padding:.4rem;text-align:start;word-break:break-all}.code{font:600 1.3rem ui-monospace,monospace}a{color:#9cf}</style></head>
-<body><p class="test">TEST MAILBOX: test accounts only, not real mail</p><h1>Codes and links the beta app sent</h1>${state}
-${viewer ? `<p>You see only mail to TEST addresses that start with <b>${esc(viewer)}</b>. Sign up with one, for example <b>${esc(viewer)}.1@local-test.invalid</b>.</p>` : ''}
+td,th{border-bottom:1px solid #333;padding:.4rem;text-align:start;word-break:break-all}.code{font:600 1.3rem ui-monospace,monospace}a{color:#9cf}.lead{border:1px solid #F5A915;padding:.6rem 1rem;margin:1rem 0}.big{font-size:1.2rem}.lead code{font:600 1.1rem ui-monospace,monospace;word-break:break-all}button{font:inherit;padding:.3rem .9rem;margin-inline-end:1rem}</style></head>
+<body><p class="test">TEST MAILBOX: test accounts only, not real mail</p>
+${viewer ? signUpLead(viewer, link) : ''}<h1>Codes and links the beta app sent</h1>${state}
+${viewer ? `<p>You see only mail to TEST addresses that start with <b>${esc(viewer)}</b>: that one, or it, a dot and anything, at local-test.invalid. Mail to any other address, your own email included, never arrives here.</p>` : ''}
 <p><a href="${esc(link)}">Open the beta app</a>. This page reloads every 10 seconds.</p>
 <table><thead><tr><th>What</th><th>To</th><th>Code</th><th>Expires</th></tr></thead><tbody>
 ${body}
