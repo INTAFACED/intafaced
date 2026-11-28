@@ -51,6 +51,9 @@ export const LAUNCH_ORDER = 1;
  * through our ledger, became J-derivatives-01-custodial.pw.mjs; every live step is proven in J-derivatives-01-venue.pw.mjs.
  * J-charts-desk-01 left it the same way: J-charts-desk-01.pw.mjs, every test on our own engine's chart, which has no TEST
  * trades custody off, became J-charts-desk-01-custodial.pw.mjs; all eight steps are proven in J-charts-desk-01-venue.pw.mjs.
+ * J-support-public-20-venue left it once #7 stopped funding the customer through our ledger and trading on our own book:
+ * their resting order and the refused new one are venue orders through our door, which now refuses a new order while
+ * identity holds the account's trading restriction (svc-trade venue/trading-restriction.ts).
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -71,7 +74,6 @@ export const NOT_YET_OFF = new Set([
   'J-portfolio-01',
   'J-portfolio-03',
   'J-support-public-20',
-  'J-support-public-20-venue',
 ]);
 
 /** A launch-desk part file of custodial checks (custody on by design): `<journey>-custodial.pw.mjs` keeps today's switch. */
