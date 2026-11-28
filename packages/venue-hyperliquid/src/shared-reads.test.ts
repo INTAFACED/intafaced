@@ -139,7 +139,7 @@ describe('shared venue reads', () => {
     expect(s.calls.filter((c) => c === 'openOrders')).toHaveLength(4);
   });
 
-  it("an order or a cancel re-reads only the account's orders, positions, balances and fills; any other action re-reads all of it (#11041)", async () => {
+  it("an order or a cancel re-reads only the account's orders, positions, balances and fills; any other action also re-reads the rare read it changes", async () => {
     const s = setup(true);
     const rare = ['userFees', 'maxBuilderFee', 'extraAgents', 'activeAssetData'];
     const often = ['frontendOpenOrders', 'clearinghouseState', 'spotClearinghouseState', 'userFillsByTime', 'historicalOrders'];
@@ -153,11 +153,25 @@ describe('shared venue reads', () => {
       await readAll();
       expect(s.calls, action).toEqual(often);
     }
-    for (const action of ['approveAgent', 'approveBuilderFee', 'updateLeverage', 'updateIsolatedMargin', 'withdraw3', undefined]) {
+    // Any other action re-reads the rare read it changes, and only that: a new tester's agent, approval and USDC move each
+    // re-read all five, a fifth of the box's minute with six testers starting together.
+    for (const [action, changes] of [
+      ['approveAgent', ['extraAgents']],
+      ['approveBuilderFee', ['maxBuilderFee']],
+      ['updateLeverage', ['activeAssetData']],
+      ['updateIsolatedMargin', ['activeAssetData']],
+      ['usdClassTransfer', []],
+      ['usdSend', []],
+      ['spotSend', []],
+      ['withdraw3', []],
+      // An action this list doesn't name, or none named, re-reads every one.
+      ['tokenDelegate', rare],
+      [undefined, rare],
+    ] as const) {
       s.calls.length = 0;
       s.venue.forget(['0xa'], action);
       await readAll();
-      expect(s.calls, String(action)).toEqual([...rare, ...often]);
+      expect(s.calls, String(action)).toEqual([...rare.filter((t) => (changes as readonly string[]).includes(t)), ...often]);
     }
   });
 
