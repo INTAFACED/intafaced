@@ -1,0 +1,893 @@
+[
+  {
+    "file": "services/svc-market/src/action-approval-consume.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/action-approval-consume.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/affiliate-accrue.test.ts",
+    "target": "commerce/commerce-service.ts",
+    "verdict": "rewrite",
+    "asserts": "a purchase posts to the ledger before affiliate accrue, and accrue before payout",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/affiliate-accrue.test.ts#purchase wires"
+    },
+    "why": "the test runs a real purchase on Postgres and the in-memory ledger and records that the ledger tx existed when each port was called, in order"
+  },
+  {
+    "file": "services/svc-market/src/affiliate-accrue.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market start-up hands the affiliate clients, edge trust and ready report to their parts",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/index-wiring.test.ts#svc-market start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts and asserts the clients and options each part received and the /ready answer"
+  },
+  {
+    "file": "services/svc-market/src/affiliate-payout.test.ts",
+    "target": "commerce/commerce-service.ts",
+    "verdict": "rewrite",
+    "asserts": "a purchase posts to the ledger before affiliate accrue, and accrue before payout",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/affiliate-payout.test.ts#purchase wires"
+    },
+    "why": "the test runs a real purchase on Postgres and the in-memory ledger and records that the ledger tx existed when each port was called, in order"
+  },
+  {
+    "file": "services/svc-market/src/affiliate-payout.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market start-up hands the affiliate clients, edge trust and ready report to their parts",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/index-wiring.test.ts#svc-market start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts and asserts the clients and options each part received and the /ready answer"
+  },
+  {
+    "file": "services/svc-market/src/applications-list-limit-unset.test.ts",
+    "target": "../../../services/svc-market/src/vendor-service.ts",
+    "verdict": "delete",
+    "asserts": "the vendor service refuses a missing list limit rather than inventing 50",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/vendor-service.test.ts#refuses a missing limit rather than inventing 50"
+    },
+    "why": "that test calls the vendor service with no limit and asserts the typed refusal"
+  },
+  {
+    "file": "services/svc-market/src/applications-list-limit-unset.test.ts",
+    "target": "../../../services/svc-market/src/router.ts",
+    "verdict": "delete",
+    "asserts": "the market router passes an omitted limit through and refuses it rather than inventing a page size",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/router.mount.test.ts#listApplications omit is PRECONDITION_FAILED"
+    },
+    "why": "that test calls the procedure through createCaller with no limit and asserts PRECONDITION_FAILED with the service never inventing a default"
+  },
+  {
+    "file": "services/svc-market/src/commerce/commerce-price-string.test.ts",
+    "target": "commerce-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/commerce/commerce-price-string.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/commerce/listing-categories.test.ts",
+    "target": "../../src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/commerce/listing-categories.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/commerce/my-listings-list-limit-unset.test.ts",
+    "target": "../../../../services/svc-market/src/commerce/commerce-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/commerce/my-listings-list-limit-unset.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/commerce/my-listings-list-limit-unset.test.ts",
+    "target": "../../../../services/svc-market/src/router.ts",
+    "verdict": "delete",
+    "asserts": "the market router passes an omitted limit through and refuses it rather than inventing a page size",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/router.mount.test.ts#myListings omit is PRECONDITION_FAILED"
+    },
+    "why": "that test calls the procedure through createCaller with no limit and asserts PRECONDITION_FAILED with the service never inventing a default"
+  },
+  {
+    "file": "services/svc-market/src/commerce/my-purchases-list-limit-unset.test.ts",
+    "target": "../../../../services/svc-market/src/commerce/commerce-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/commerce/my-purchases-list-limit-unset.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/commerce/my-purchases-list-limit-unset.test.ts",
+    "target": "../../../../services/svc-market/src/router.ts",
+    "verdict": "delete",
+    "asserts": "the market router passes an omitted limit through and refuses it rather than inventing a page size",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/router.mount.test.ts#myPurchases omit is PRECONDITION_FAILED"
+    },
+    "why": "that test calls the procedure through createCaller with no limit and asserts PRECONDITION_FAILED with the service never inventing a default"
+  },
+  {
+    "file": "services/svc-market/src/commerce/public-listings-list-limit-unset.test.ts",
+    "target": "../../../../services/svc-market/src/commerce/commerce-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/commerce/public-listings-list-limit-unset.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/commerce/public-listings-list-limit-unset.test.ts",
+    "target": "../../../../services/svc-market/src/router.ts",
+    "verdict": "delete",
+    "asserts": "the market router passes an omitted limit through and refuses it rather than inventing a page size",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/router.mount.test.ts#listings omit is PRECONDITION_FAILED"
+    },
+    "why": "that test calls the procedure through createCaller with no limit and asserts PRECONDITION_FAILED with the service never inventing a default"
+  },
+  {
+    "file": "services/svc-market/src/commerce/purchase-access-window.test.ts",
+    "target": "commerce-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/commerce/purchase-access-window.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/edge-trust.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market start-up hands the affiliate clients, edge trust and ready report to their parts",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/index-wiring.test.ts#svc-market start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts and asserts the clients and options each part received and the /ready answer"
+  },
+  {
+    "file": "services/svc-market/src/history-limit-unset.test.ts",
+    "target": "../../../services/svc-market/src/vendor-service.ts",
+    "verdict": "delete",
+    "asserts": "the vendor service refuses a missing list limit rather than inventing 50",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/vendor-service.test.ts#refuses a missing limit rather than inventing 50"
+    },
+    "why": "that test calls the vendor service with no limit and asserts the typed refusal"
+  },
+  {
+    "file": "services/svc-market/src/history-limit-unset.test.ts",
+    "target": "../../../services/svc-market/src/router.ts",
+    "verdict": "delete",
+    "asserts": "the market router passes an omitted limit through and refuses it rather than inventing a page size",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/router.mount.test.ts#history omit is PRECONDITION_FAILED"
+    },
+    "why": "that test calls the procedure through createCaller with no limit and asserts PRECONDITION_FAILED with the service never inventing a default"
+  },
+  {
+    "file": "services/svc-market/src/listed-vendors-list-limit-unset.test.ts",
+    "target": "../../../services/svc-market/src/vendor-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/listed-vendors-list-limit-unset.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/listed-vendors-list-limit-unset.test.ts",
+    "target": "../../../services/svc-market/src/router.ts",
+    "verdict": "delete",
+    "asserts": "the market router passes an omitted limit through and refuses it rather than inventing a page size",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/router.mount.test.ts#listed omit is PRECONDITION_FAILED"
+    },
+    "why": "that test calls the procedure through createCaller with no limit and asserts PRECONDITION_FAILED with the service never inventing a default"
+  },
+  {
+    "file": "services/svc-market/src/market-data-honesty.test.ts",
+    "target": "market-data-honesty.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/market-data-honesty.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/market-data-honesty.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/market-data-honesty.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-market/src/ready-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market start-up hands the affiliate clients, edge trust and ready report to their parts",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/index-wiring.test.ts#svc-market start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts and asserts the clients and options each part received and the /ready answer"
+  },
+  {
+    "file": "services/svc-market/src/ready-honesty.test.ts",
+    "target": "stake-source.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-market answers this call with the checked refusal, query or record",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-market/src/ready-honesty.test.ts"
+    },
+    "why": "the test now calls the service, router, env loader or stake source and asserts the refusal, the bound query values or the stored row"
+  },
+  {
+    "file": "services/svc-token/src/buyback-trade-client.test.ts",
+    "target": "./buyback-trade-client.ts",
+    "verdict": "delete",
+    "asserts": "the buyback trade client never posts a user order and never invents a fill",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/buyback-trade-client.test.ts#non-empty book refuses unpublished \u2014 never POSTs USER REST /api/v1/orders, never invents a fill"
+    },
+    "why": "that test calls the client against a non-empty book with fetch recorded and asserts the typed refusal and that no order request was sent"
+  },
+  {
+    "file": "services/svc-token/src/close-proposal-eligible.pin.test.ts",
+    "target": "token-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/close-proposal-eligible.pin.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/delegation-treasury.test.ts",
+    "target": "../../../services/svc-token/src/token-service.ts",
+    "verdict": "delete",
+    "asserts": "castVote counts the voting power fixed at proposal creation and reads no delegation",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/governance-vote.test.ts#fixes voting power when the proposal is created"
+    },
+    "why": "that test casts votes after later stake and unstake and asserts the counted power is the snapshot, which a delegation read would change; the delegation copy is held by userCopy(DELEGATION_UNAVAILABLE) asserted exactly in this file"
+  },
+  {
+    "file": "services/svc-token/src/delegation-treasury.test.ts",
+    "target": "../../../services/svc-token/src/delegation.ts",
+    "verdict": "delete",
+    "asserts": "delegation refuses every member id with no_chain_service and stores nothing",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/delegation-treasury.test.ts#refuses a member id, including the caller, and two calls still store nothing"
+    },
+    "why": "that test calls refuseDelegation on three ids and asserts the typed refusal, its blocker and the exact user copy"
+  },
+  {
+    "file": "services/svc-token/src/delegation-treasury.test.ts",
+    "target": "../../../services/svc-token/src/treasury-view.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/delegation-treasury.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/emissions-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token env loads this setting with its default and bounds",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/emissions-compose-pin.test.ts#env"
+    },
+    "why": "the test loads env.ts with the value unset and set and asserts the loaded value or refusal"
+  },
+  {
+    "file": "services/svc-token/src/governance-close.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token env loads this setting with its default and bounds",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/governance-close.test.ts#env"
+    },
+    "why": "the test loads env.ts with the value unset and set and asserts the loaded value or refusal"
+  },
+  {
+    "file": "services/svc-token/src/governance-home.test.ts",
+    "target": "governance-home.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/governance-home.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/governance-home.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/governance-home.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/governance-home.test.ts",
+    "target": "token-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/governance-home.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/job-hmac-require-pin.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token mounts its job doors and stake gate before listen and refuses v1 HMAC on mutate jobs",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/index-wiring.test.ts#svc-token start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts and injects signed and unsigned requests, asserting 401 or success"
+  },
+  {
+    "file": "services/svc-token/src/job-hmac-rest.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/job-hmac-rest.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/job-hmac-rest.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token mounts its job doors and stake gate before listen and refuses v1 HMAC on mutate jobs",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/index-wiring.test.ts#svc-token start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts and injects signed and unsigned requests, asserting 401 or success"
+  },
+  {
+    "file": "services/svc-token/src/jwt-access-compose-pin.test.ts",
+    "target": "../../../packages/config/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token env loads this setting with its default and bounds",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/jwt-access-compose-pin.test.ts#env"
+    },
+    "why": "the test loads env.ts with the value unset and set and asserts the loaded value or refusal"
+  },
+  {
+    "file": "services/svc-token/src/jwt-access-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token env loads this setting with its default and bounds",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/jwt-access-compose-pin.test.ts#env"
+    },
+    "why": "the test loads env.ts with the value unset and set and asserts the loaded value or refusal"
+  },
+  {
+    "file": "services/svc-token/src/proposals-list-limit-unset.test.ts",
+    "target": "../../../services/svc-token/src/token-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/proposals-list-limit-unset.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/proposals-list-limit-unset.test.ts",
+    "target": "../../../services/svc-token/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/proposals-list-limit-unset.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/stake-id-required.pin.test.ts",
+    "target": "token-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/stake-id-required.pin.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/stake-id-required.pin.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/stake-id-required.pin.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/stake-of-ledger.pin.test.ts",
+    "target": "token-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/stake-of-ledger.pin.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/stakes-list-limit-unset.test.ts",
+    "target": "../../../services/svc-token/src/token-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/stakes-list-limit-unset.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/stakes-list-limit-unset.test.ts",
+    "target": "../../../services/svc-token/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/stakes-list-limit-unset.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/token-service.test.ts",
+    "target": "token-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/token-service.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-token/src/yield-payout-user-id.test.ts",
+    "target": "token-service.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-token answers this call with the checked refusal, query or ledger read",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-token/src/yield-payout-user-id.test.ts"
+    },
+    "why": "the test now calls the service or router with recorded SQL or the in-memory ledger and asserts the refusal, the bound query values or the posted money"
+  },
+  {
+    "file": "services/svc-ws/src/bus-session-close.test.ts",
+    "target": "./index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws start-up hands the identity authority, the mux idle setting and the bus close to the right doors",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/index-wiring.test.ts#svc-ws start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts with its doors mocked and asserts what each door received and what the bus close does"
+  },
+  {
+    "file": "services/svc-ws/src/compose-heartbeat-backpressure-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/compose-heartbeat-backpressure-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/compose-refresh-cap-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/compose-refresh-cap-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/compose-sbe-java-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/compose-sbe-java-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/compose-trade-tape-durable-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/compose-trade-tape-durable-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/depth-limit-compose-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/depth-limit-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/depth-limit-compose-pin.test.ts",
+    "target": "depth-limit.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/depth-limit-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/drop-copy-recent-limit-compose-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/drop-copy-recent-limit-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/drop-copy-recent-limit-compose-pin.test.ts",
+    "target": "drop-copy-recent-limit.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/drop-copy-recent-limit-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/drop-copy/recovery-drop-other-streams.test.ts",
+    "target": "recovery-drop-other-streams.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/drop-copy/recovery-drop-other-streams.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/drop-copy/recovery-mint-key-revoke-stream.test.ts",
+    "target": "recovery-mint-key-revoke-stream.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/drop-copy/recovery-mint-key-revoke-stream.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/drop-copy/recovery-open-recovered-stream.test.ts",
+    "target": "recovery-open-recovered-stream.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/drop-copy/recovery-open-recovered-stream.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/high-water-bytes-compose-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/high-water-bytes-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/high-water-bytes-compose-pin.test.ts",
+    "target": "high-water-bytes.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/high-water-bytes-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/max-connections-compose-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/max-connections-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/max-connections-compose-pin.test.ts",
+    "target": "max-connections.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/max-connections-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/max-lag-ticks-compose-pin.test.ts",
+    "target": "../../../services/svc-ws/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/max-lag-ticks-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/max-lag-ticks-compose-pin.test.ts",
+    "target": "max-lag-ticks.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws env loads this setting unset as undefined, holds its bounds and refuses a bad value with its code",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/max-lag-ticks-compose-pin.test.ts#the env loader"
+    },
+    "why": "the test loads env.ts with the value unset, at each bound and malformed, and asserts the loaded value or the refusal; the helper code is asserted as the exported constant"
+  },
+  {
+    "file": "services/svc-ws/src/mux/idle.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws start-up hands the identity authority, the mux idle setting and the bus close to the right doors",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/index-wiring.test.ts#svc-ws start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts with its doors mocked and asserts what each door received and what the bus close does"
+  },
+  {
+    "file": "services/svc-ws/src/mux/idle.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "a blank WS_MUX_IDLE_MS keeps the mux door down and the env loader reads it as unset",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/mux/idle.test.ts#env"
+    },
+    "why": "the env half now loads env.ts; the start-up half is asserted in index-wiring.test.ts by booting index.ts"
+  },
+  {
+    "file": "services/svc-ws/src/private/enroll-after-last-drop-all-streams.test.ts",
+    "target": "enroll-after-last-drop-all-streams.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/enroll-after-last-drop-all-streams.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/private/enroll-after-last-open-all-streams.test.ts",
+    "target": "enroll-after-last-open-all-streams.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/enroll-after-last-open-all-streams.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/private/enroll-after-last-stream-open.test.ts",
+    "target": "enroll-after-last-stream-open.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/enroll-after-last-stream-open.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/private/enroll-after-last-stream.test.ts",
+    "target": "enroll-after-last-stream.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/enroll-after-last-stream.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/private/last-passkey-stream.test.ts",
+    "target": "last-passkey-stream.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/last-passkey-stream.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/private/live-credential-passkey.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws start-up hands the identity authority, the mux idle setting and the bus close to the right doors",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/index-wiring.test.ts#svc-ws start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts with its doors mocked and asserts what each door received and what the bus close does"
+  },
+  {
+    "file": "services/svc-ws/src/private/live-credential.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ws start-up hands the identity authority, the mux idle setting and the bus close to the right doors",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/index-wiring.test.ts#svc-ws start-up"
+    },
+    "why": "index-wiring.test.ts boots index.ts with its doors mocked and asserts what each door received and what the bus close does"
+  },
+  {
+    "file": "services/svc-ws/src/private/no-invented-futures-publisher.test.ts",
+    "target": "../private/gateway.ts",
+    "verdict": "delete",
+    "asserts": "the private door does not claim a futures publisher it does not have",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/gateway.test.ts#ready frames say bus:false when private consumers are not attached"
+    },
+    "why": "that test opens the private door with no consumers attached and asserts the ready frame says bus:false, so an invented publisher would fail it"
+  },
+  {
+    "file": "services/svc-ws/src/private/recovery-drop-other-streams.test.ts",
+    "target": "recovery-drop-other-streams.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/recovery-drop-other-streams.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/private/recovery-mint-key-revoke-stream.test.ts",
+    "target": "recovery-mint-key-revoke-stream.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/recovery-mint-key-revoke-stream.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/private/recovery-open-recovered-stream.test.ts",
+    "target": "recovery-open-recovered-stream.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/recovery-open-recovered-stream.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  },
+  {
+    "file": "services/svc-ws/src/private/remaining-passkey-stream.test.ts",
+    "target": "remaining-passkey-stream.ts",
+    "verdict": "rewrite",
+    "asserts": "the stream sign-in helper refuses and delegates exactly as the credential check it wraps",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ws/src/private/remaining-passkey-stream.test.ts"
+    },
+    "why": "the test now calls the helper and compares its outcomes, refusals and port calls with the function it delegates to; it never reads the source"
+  }
+]

@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { attachBusHalf, closeBusSession } from './bus-session-close.js';
 import { DropCopyHub } from './drop-copy/hub.js';
@@ -83,13 +82,6 @@ describe('bus session close', () => {
     expect(latestReadyBus(seat.sent, 'orders')).toBe(true);
     expect(latestReadyBus(seat.sent, 'fills')).toBe(true);
     expect(latestReadyBus(seat.sent, 'positions')).toBe(true);
-
-    const indexSrc = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const closeAt = indexSrc.lastIndexOf('close: async () => {');
-    expect(closeAt).toBeGreaterThan(-1);
-    const closeBody = indexSrc.slice(closeAt, indexSrc.indexOf('},', closeAt));
-    expect(closeBody).toContain('closeBusSession');
-    expect(closeBody).toContain('privateHub: privateOrderHub');
   });
 });
 

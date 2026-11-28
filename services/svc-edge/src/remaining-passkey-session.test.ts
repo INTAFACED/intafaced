@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { remainingPasskeyOpensSession } from './remaining-passkey-session.js';
+import { PASSKEY_BODIES, VERIFIED_PASSKEY_BODY, outcomeOf } from './testing/session-door-cases-fixture.js';
 import { SessionPasskeyError, assertIdentitySessionPasskey, assertSessionPasskey } from './session-passkey.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -71,12 +69,24 @@ describe('remainingPasskeyOpensSession — unenroll first of two', () => {
     }
   });
 
-  it('source reuses assertSessionPasskey; no invented challenge or session', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'remaining-passkey-session.ts'), 'utf8');
-    expect(src).toMatch(/assertSessionPasskey/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+sessions/i);
-    expect(src).not.toMatch(/INSERT INTO sessions/);
+  it('answers every passkey body as assertSessionPasskey does; no invented challenge or session', async () => {
+    // The module is this one door and nothing else: no challenge, no session, no second door beside it.
+    const module = await import('./remaining-passkey-session.js');
+    expect(Object.keys(module)).toEqual(['remainingPasskeyOpensSession']);
+    // It answers every body identity can send exactly as assertSessionPasskey does, synchronously, asking nobody.
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    try {
+      for (const body of PASSKEY_BODIES) {
+        expect(
+          outcomeOf(() => remainingPasskeyOpensSession(body)),
+          JSON.stringify(body),
+        ).toEqual(outcomeOf(() => assertSessionPasskey(body)));
+      }
+      expect(outcomeOf(() => remainingPasskeyOpensSession(VERIFIED_PASSKEY_BODY))).toEqual({ returned: undefined });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

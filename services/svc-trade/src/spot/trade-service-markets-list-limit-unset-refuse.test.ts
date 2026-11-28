@@ -12,13 +12,8 @@ import { TradeService } from '../controls/test-admission.js';
  * 5. Paths: trade-service.ts TradeService.markets
  * 6. RED: omitting limit returns every trade.markets row
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MARKETS_LIMIT_MAX, MarketsLimitUnsetError, publishedMarketsLimit, TRADE_MARKETS_LIMIT_UNSET } from './trade-service.js';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => boolean } {
   let sqlCalled = false;
@@ -31,14 +26,6 @@ function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => bo
 }
 
 describe('TradeService.markets list limit unset refuse (no invented 50)', () => {
-  it('trade-service.ts does not invent 50/100 via default or clamp', () => {
-    const src = readFileSync(join(HERE, 'trade-service.ts'), 'utf8');
-    expect(src).not.toMatch(/async markets\(\): Promise<Market\[\]>/);
-    expect(src).toMatch(/async markets\(limit: number\)/);
-    expect(src).toMatch(/publishedMarketsLimit\(limit\)/);
-    expect(src).not.toMatch(/async markets[\s\S]{0,400}Math\.min\(Math\.max\(/);
-  });
-
   it('blank / non-integer / out of 1..500 throws trade.markets_limit_unset', () => {
     for (const limit of [undefined, null, 0, -1, 501, 1.5, Number.NaN]) {
       try {

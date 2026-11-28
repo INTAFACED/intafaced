@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { InstrumentError } from './instruments.js';
 import { InstrumentService, assertMethodSchemaListLimit } from './instrument-service.js';
+import { limitsOf, recordingSql } from './testing/sql-recorder-fixture.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 
 /**
@@ -13,8 +11,6 @@ import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
  * page size was omitted. Blank must refuse. Caller may pass 50 explicitly.
  * Never invent 50.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('instruments.methods.list limit unset refuse', () => {
   it('assertMethodSchemaListLimit refuses blank / NaN / 0 — never invents 50', () => {
@@ -53,14 +49,17 @@ describe('instruments.methods.list limit unset refuse', () => {
     expect(assertMethodSchemaListLimit(201)).toBe(200);
   });
 
-  it('listMethodSchemas no longer dumps the registry without LIMIT', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/instrument-service.ts'), 'utf8');
-    const start = src.indexOf('async listMethodSchemas(');
-    const end = src.indexOf('async setMethodSchemaEnabled(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertMethodSchemaListLimit');
-    expect(fn).toContain('LIMIT ${lim}');
-    expect(fn).not.toMatch(/limit = 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
+  it('listMethodSchemas reads the registry by the limit it was given, capped at 200', async () => {
+    const { sql, calls } = recordingSql();
+    const instruments = new InstrumentService(sql);
+    await expect(instruments.listMethodSchemas({ includeDisabled: true })).rejects.toMatchObject({
+      code: 'p2p.method_schema_list_limit_unset',
+    });
+    expect(calls).toHaveLength(0);
+    // The operator listing (disabled rows too) returns an empty registry as rows; the public listing refuses it.
+    await expect(instruments.listMethodSchemas({ includeDisabled: true, limit: 50 })).resolves.toEqual([]);
+    await instruments.listMethodSchemas({ includeDisabled: true, country: 'DE', limit: 7 });
+    await instruments.listMethodSchemas({ includeDisabled: true, limit: 201 });
+    expect(limitsOf(calls)).toEqual([50, 7, 200]);
   });
 });

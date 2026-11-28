@@ -12,12 +12,8 @@
  * 5. Paths: env.ts via loadEnv at import (same as boot)
  * 6. RED: git-default 300 returns, or unset/blank parses as 300
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 /** Minimum boot env so assertions are about the throttle budget. */
@@ -55,10 +51,11 @@ afterEach(() => {
 });
 
 describe('svc-edge EDGE_RATE_LIMIT_MAX refuse-closed', () => {
-  it('env.ts keeps the refuse-closed shape production loadEnv parses', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).toMatch(/EDGE_RATE_LIMIT_MAX:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\),/);
-    expect(envTs).not.toMatch(/EDGE_RATE_LIMIT_MAX:\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.default\(300\)/);
+  it('the loaded env refuses an out-of-range value and keeps an in-range one', async () => {
+    for (const refused of ['0', '-1', '2.5', 'many']) {
+      await expect(loadWith({ EDGE_RATE_LIMIT_MAX: refused }), refused).rejects.toThrow(/EDGE_RATE_LIMIT_MAX/);
+    }
+    expect((await loadWith({ EDGE_RATE_LIMIT_MAX: '1' })).EDGE_RATE_LIMIT_MAX).toBe(1);
   });
 
   it('unset EDGE_RATE_LIMIT_MAX refuses (no invent 300)', async () => {

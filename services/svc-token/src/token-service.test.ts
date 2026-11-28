@@ -23,6 +23,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { TokenService, TokenError, foldTally, assertProposalListLimit, assertStakesListLimit } from './token-service.js';
 import { DEFAULT_EMISSION_PARAMS } from './economics/emission.js';
 import { DEFAULT_BUYBACK_PARAMS } from './economics/buyback.js';
+import { recordingSql } from './sql-recorder.testkit.js';
 import { TEST_VOTE_SIGNATURE, testVoteSignatures } from './vote-signature.testkit.js';
 
 /**
@@ -90,18 +91,53 @@ describe('svc-token money (source)', () => {
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('compares balances as scaled bigint — never parseFloat / Number()', () => {
+  it('compares balances as scaled bigint — never parseFloat / Number()', async () => {
     const testSrc = readFileSync(fileURLToPath(import.meta.url), 'utf8');
-    const prodSrc = readFileSync(join(here, 'token-service.ts'), 'utf8');
     expect(testSrc).not.toMatch(/\bparseFloat\s*\(/);
-    expect(prodSrc).not.toMatch(/\bparseFloat\s*\(/);
-    expect(prodSrc).not.toMatch(/function parseDecimal/);
-    expect(prodSrc).not.toMatch(/const n = Number\(/);
 
     const pastSafe = '9007199254740993';
     const justSafe = '9007199254740992';
     expect(amt(pastSafe) > amt(justSafe)).toBe(true);
     expect(Number(pastSafe)).toBe(Number(justSafe));
+
+    // The service keeps every digit past 2^53 and every wei: a float on the way would fold these together.
+    const USER = '11111111-1111-4111-8111-111111111111';
+    const huge = `${pastSafe}.000000000000000001`;
+    const pots: Record<string, string> = {
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa': huge,
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb': '0.000000000000000001',
+    };
+    const ledger = new MemoryLedger();
+    for (const [stakeId, amount] of Object.entries(pots)) {
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'IFC', amount: amt(amount), rail: 'test', railRef: `${stakeId}:${amount}` }),
+      );
+      await ledger.post(recipes.stake({ stakeId, userId: USER, assetId: 'IFC', amount: amt(amount), tier: 'flex' }));
+    }
+    const { sql: recorder } = recordingSql((q) =>
+      q.text.includes('FROM token.stakes') ? Object.entries(pots).map(([id, amount]) => ({ id, amount })) : [],
+    );
+    const token = new TokenService(recorder, ledger, new MemoryEventBus('svc-token'), {
+      assetId: 'IFC',
+      emission: DEFAULT_EMISSION_PARAMS,
+      buyback: DEFAULT_BUYBACK_PARAMS,
+      loadParamsFromDb: false,
+    });
+    expect(formatAmount(await token.stakeOf(USER))).toBe(`${pastSafe}.000000000000000002`);
+
+    // A claim one wei off its pot is drift, not rounding.
+    const { sql: drifted } = recordingSql((q) =>
+      q.text.includes('FROM token.stakes')
+        ? [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', amount: `${pastSafe}.000000000000000002` }]
+        : [],
+    );
+    const drift = new TokenService(drifted, ledger, new MemoryEventBus('svc-token'), {
+      assetId: 'IFC',
+      emission: DEFAULT_EMISSION_PARAMS,
+      buyback: DEFAULT_BUYBACK_PARAMS,
+      loadParamsFromDb: false,
+    });
+    await expect(drift.stakeOf(USER)).rejects.toMatchObject({ code: 'token.stake_ledger_mismatch' });
   });
 });
 

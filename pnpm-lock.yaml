@@ -1484,6 +1484,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@intafaced/service-kit':
+        specifier: workspace:*
+        version: link:../../packages/service-kit
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -2018,6 +2021,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@intafaced/service-kit':
+        specifier: workspace:*
+        version: link:../../packages/service-kit
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -2161,6 +2167,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@intafaced/service-kit':
+        specifier: workspace:*
+        version: link:../../packages/service-kit
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5

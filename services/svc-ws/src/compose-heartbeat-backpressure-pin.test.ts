@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Unit card — compose stack passes heartbeat cap into svc-ws
@@ -28,6 +28,21 @@ const HEARTBEAT = 'WS_HEARTBEAT_MS';
 
 const KEYS = [{ name: HEARTBEAT, fallback: '30000', envDefault: '30_000' }] as const;
 
+async function loadEnv(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  vi.stubEnv('NODE_ENV', 'test');
+  for (const [key, value] of Object.entries(overrides)) {
+    vi.stubEnv(key, value);
+  }
+  const module = await import('./env.js');
+  return module.env;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 function wsComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
   const start = compose.indexOf('\n  svc-ws:');
@@ -44,12 +59,14 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes heartbeat and backpressure caps into svc-ws', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-ws/src/env.ts'), 'utf8');
   const block = wsComposeBlock();
 
-  it('env.ts still declares the flags this pin tracks (default 30000)', () => {
+  it('the env loader defaults each flag this pin tracks to the compose fallback (30000)', async () => {
+    const unset = await loadEnv(Object.fromEntries(KEYS.map((key) => [key.name, undefined])));
     for (const key of KEYS) {
-      expect(envTs).toMatch(new RegExp(`${key.name}:[\\s\\S]{0,200}?\\.default\\(\\s*${key.envDefault}\\s*\\)`));
+      expect(unset[key.name]).toBe(Number(key.fallback));
+      expect((await loadEnv({ [key.name]: '1000' }))[key.name]).toBe(1_000);
+      await expect(loadEnv({ [key.name]: '999' })).rejects.toThrow(new RegExp(key.name));
     }
   });
 

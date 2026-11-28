@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,7 +5,6 @@ import { LocalTestTapeError, localTestTapeRetimeEnabled } from './local-test-tap
 import { LOCAL_TEST_TAPE_RETIME_PATH, registerLocalTestTapeRoutes } from './local-test-tape-routes.js';
 
 const SECRET = 'tape-retime-route-secret-32-chars';
-const here = dirname(fileURLToPath(import.meta.url));
 
 /** [label, APP_ENV, allowed?]. Unset and empty count as NOT dev. */
 const ENV_MATRIX: ReadonlyArray<readonly [string, string | undefined, boolean]> = [
@@ -83,17 +79,5 @@ describe('tape retime route', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toBe('trade.local_test_tape_invalid');
     expect(sql.begin).not.toHaveBeenCalled();
-  });
-});
-
-describe('index.ts wiring', () => {
-  const source = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-
-  it('checks the flag before opening the database, and registers the route only when it is on', () => {
-    const check = source.indexOf('const localTestTapeRetime = localTestTapeRetimeEnabled(process.env);');
-    expect(check).toBeGreaterThan(-1);
-    expect(check).toBeLessThan(source.indexOf('postgres(env.DATABASE_URL'));
-    expect(source.match(/registerLocalTestTapeRoutes\(/g)).toHaveLength(1);
-    expect(source).toMatch(/if \(localTestTapeRetime\) \{\n\s+registerLocalTestTapeRoutes\(/);
   });
 });

@@ -8,21 +8,16 @@ import { CopyService } from './controls/test-admission.js';
  * 3. Done bar: optional tRPC limit; omit/undefined hits trade.list_my_follows_limit_unset;
  *    explicit 50 reaches CopyService.listMyFollows.
  * 4. Class N
- * 5. Paths: router.ts copy.listMyFollows, its record TRADE_COPY_LIST_MY_FOLLOWS
+ * 5. Paths: router.ts copy.listMyFollows
  * 6. RED: omitting limit returns every follow for the caller
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { TRADE_COPY_LIST_MY_FOLLOWS } from '@intafaced/contracts/trade-copy-records';
 import { createTradeRouter } from './router.js';
 import { TRADE_LIST_MY_FOLLOWS_LIMIT_UNSET } from './copy/copy-service.js';
 import type { TradeService } from './spot/trade-service.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 'a-trade-list-my-follows-limit-test-edge-secret';
 const FOLLOWER = '00000000-0000-4000-8000-000000000001';
 const SESSION = '22222222-2222-4222-8222-222222222222';
@@ -50,20 +45,6 @@ function signed() {
 }
 
 describe('tRPC copy.listMyFollows limit unset refuse (no invented 50)', () => {
-  it('router.ts does not invent 50 when listMyFollows omits limit', () => {
-    const src = readFileSync(join(HERE, 'router.ts'), 'utf8');
-    const start = src.indexOf('listMyFollows: mountRecord(');
-    expect(start).toBeGreaterThan(-1);
-    const fn = src.slice(start, src.indexOf('closeFollowsInClosedRegions:', start));
-    expect(fn).toContain('TRADE_COPY_LIST_MY_FOLLOWS');
-    expect(fn).toContain('publishedListMyFollowsLimit(input?.limit)');
-    // The input lives in the call's record: the limit stays optional there, with no default for the router to inherit.
-    expect(TRADE_COPY_LIST_MY_FOLLOWS.input.safeParse({}).success).toBe(true);
-    expect(TRADE_COPY_LIST_MY_FOLLOWS.input.parse({})).toEqual({});
-    expect(fn).not.toMatch(/\?\? 50/);
-    expect(fn).not.toMatch(/\?\? 100/);
-  });
-
   it('omit / undefined limit is named refuse; owner-explicit 50 reaches CopyService', async () => {
     const seen: Array<number | undefined> = [];
     const copy = {

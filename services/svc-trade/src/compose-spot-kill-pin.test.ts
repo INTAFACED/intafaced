@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { tradeEnvOf } from './__tests__/entry.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -40,13 +41,18 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes spot kill-switch into svc-trade', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-trade/src/env.ts'), 'utf8');
   const block = tradeComposeBlock();
 
   it('env.ts leaves an unset TRADE_SPOT_ENABLED to the custody switch (no default of its own)', () => {
-    expect(envTs).toMatch(/TRADE_SPOT_ENABLED:\s*z/);
-    expect(envTs).not.toMatch(/TRADE_SPOT_ENABLED:[\s\S]{0,120}?\.default\(/);
-    expect(envTs).toMatch(/resolveOwnOrderBook\('TRADE_SPOT_ENABLED'/);
+    // Unset: our own book follows the custodial layer, off by default.
+    expect(tradeEnvOf().TRADE_SPOT_ENABLED).toBe(false);
+    expect(tradeEnvOf({ LEDGER_CUSTODY_LAYER: 'off' }).TRADE_SPOT_ENABLED).toBe(false);
+    expect(tradeEnvOf({ LEDGER_CUSTODY_LAYER: 'on' }).TRADE_SPOT_ENABLED).toBe(true);
+    // Set: the operator's word, but never our book on with the custodial layer off.
+    expect(tradeEnvOf({ TRADE_SPOT_ENABLED: 'false', LEDGER_CUSTODY_LAYER: 'on' }).TRADE_SPOT_ENABLED).toBe(false);
+    expect(tradeEnvOf({ TRADE_SPOT_ENABLED: 'true', LEDGER_CUSTODY_LAYER: 'on' }).TRADE_SPOT_ENABLED).toBe(true);
+    expect(() => tradeEnvOf({ TRADE_SPOT_ENABLED: 'true', LEDGER_CUSTODY_LAYER: 'off' })).toThrow(/LEDGER_CUSTODY_LAYER is off/);
+    expect(() => tradeEnvOf({ TRADE_SPOT_ENABLED: 'true' })).toThrow(/LEDGER_CUSTODY_LAYER is off/);
   });
 
   it('compose svc-trade block passes the kill from the host with default false, and the custody switch default off', () => {

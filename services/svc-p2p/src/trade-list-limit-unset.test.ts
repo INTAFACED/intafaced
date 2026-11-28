@@ -1,9 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { P2P_TRADES_LIST } from '@intafaced/contracts/p2p-procedures';
 import { describe, expect, it } from 'vitest';
-import { P2pError, assertTradeListLimit } from './p2p-service.js';
+import { P2pError, P2pService, assertTradeListLimit } from './p2p-service.js';
+import { limitsOf, recordingSql } from './testing/sql-recorder-fixture.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 
 /**
@@ -13,7 +10,7 @@ import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
  * Blank must refuse. Owner/client may pass 50 explicitly.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
+const USER = '11111111-1111-4111-8111-111111111111';
 
 describe('trades.list limit unset refuse', () => {
   it('assertTradeListLimit refuses blank / NaN / 0 — never invents 50', () => {
@@ -38,23 +35,14 @@ describe('trades.list limit unset refuse', () => {
     expect(assertTradeListLimit(201)).toBe(200);
   });
 
-  it('listTrades no longer defaults limit to 50', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/p2p-service.ts'), 'utf8');
-    const start = src.indexOf('async listTrades(');
-    const end = src.indexOf('async getDispute(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertTradeListLimit');
-    expect(fn).not.toMatch(/limit = 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
-  });
-
-  it('the list record lets an omitted limit reach the named refusal, and the handler does not invent 50', () => {
-    expect(P2P_TRADES_LIST.input.safeParse(undefined).success).toBe(true);
-    expect(P2P_TRADES_LIST.input.safeParse({}).success).toBe(true);
-    expect(P2P_TRADES_LIST.refusals['p2p.trade_list_limit_unset']).toBe('PRECONDITION_FAILED');
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/router.ts'), 'utf8');
-    const handler = src.slice(src.indexOf("'p2p.trades.list':"), src.indexOf("'p2p.trades.page':"));
-    expect(handler).toContain('listTrades(userOf(ctx), input?.limit)');
-    expect(handler).not.toMatch(/\?\? 50/);
+  it('listTrades refuses an omitted limit before any query, and reads by the limit it was given', async () => {
+    const { sql, calls } = recordingSql();
+    const p2p = new P2pService(sql, {} as never, {} as never, {} as never);
+    await expect(p2p.listTrades(USER)).rejects.toMatchObject({ code: 'p2p.trade_list_limit_unset' });
+    expect(calls).toHaveLength(0);
+    await expect(p2p.listTrades(USER, 50)).resolves.toEqual([]);
+    expect(limitsOf(calls)).toEqual([50]);
+    await p2p.listTrades(USER, 201);
+    expect(limitsOf(calls)).toEqual([50, 200]);
   });
 });

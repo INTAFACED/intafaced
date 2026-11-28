@@ -9,13 +9,9 @@
  * 5. Paths: matching-client.ts publishedMatchingDepthLimit + createMatchingClient.depth
  * 6. RED: omitting limit fetches matching with limit=1
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMatchingClient, MatchingNoBookError, publishedMatchingDepthLimit } from './matching-client.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 'matching-client-test-secret-at-least-32-chars';
 const MARKET = '00000000-0000-4000-8000-000000000001';
 
@@ -24,13 +20,6 @@ afterEach(() => {
 });
 
 describe('MatchingClient depth limit refuse-closed', () => {
-  it('matching-client.ts does not invent 1', () => {
-    const src = readFileSync(join(HERE, 'matching-client.ts'), 'utf8');
-    expect(src).not.toMatch(/async depth\(marketId, limit = 1\)/);
-    expect(src).not.toMatch(/limit = 1\)/);
-    expect(src).toMatch(/publishedMatchingDepthLimit/);
-  });
-
   it('unset / null refuse — never invent 1', () => {
     expect(() => publishedMatchingDepthLimit(undefined)).toThrow(/refuse to invent 1/);
     expect(() => publishedMatchingDepthLimit(null)).toThrow(/refuse to invent 1/);

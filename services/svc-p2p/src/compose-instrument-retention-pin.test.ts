@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { loadP2pEnv } from './testing/env-load-fixture.js';
 
 /**
  * Unit card — compose stack passes instrument retention into svc-p2p
@@ -41,12 +42,13 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes p2p.payment-instruments retention into svc-p2p', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-p2p/src/env.ts'), 'utf8');
   const block = p2pComposeBlock();
 
-  it('env.ts still declares the retention this pin tracks — no git-default 90', () => {
-    expect(envTs).not.toMatch(/P2P_INSTRUMENT_RETENTION_DAYS:[\s\S]{0,200}?\.default\(\s*90\s*\)/);
-    expect(envTs).toMatch(/parseOwnerIntegerEnv/);
+  it('env.ts leaves the retention unset when the host gives none — no git-default 90', async () => {
+    expect((await loadP2pEnv()).P2P_INSTRUMENT_RETENTION_DAYS).toBeNull();
+    expect((await loadP2pEnv({ [KEY]: '' })).P2P_INSTRUMENT_RETENTION_DAYS).toBeNull();
+    expect((await loadP2pEnv({ [KEY]: '90' })).P2P_INSTRUMENT_RETENTION_DAYS).toBe(90);
+    await expect(loadP2pEnv({ [KEY]: '29' })).rejects.toThrow(/P2P_INSTRUMENT_RETENTION_DAYS/);
   });
 
   it('compose svc-p2p block passes retention from the host empty — never a baked 90', () => {

@@ -23,10 +23,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { authEnvSchema } from '@intafaced/config';
 import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const AUTH_ENV = resolve(import.meta.dirname, '../../../packages/config/src/env.ts');
 
 function tradeServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-trade');
@@ -43,13 +43,20 @@ const AUDIENCE = /^\s+JWT_AUDIENCE:\s*\$\{JWT_AUDIENCE:-intafaced\.api\}\s*$/gm;
 
 describe('compose JWT access TTL issuer audience for svc-trade', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const authEnv = readFileSync(AUTH_ENV, 'utf8');
   const block = tradeServiceBlock(compose);
 
   it('authEnvSchema still defaults TTL 900 issuer intafaced audience intafaced.api', () => {
-    expect(authEnv).toMatch(/JWT_ACCESS_TTL_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(60\)\.max\(3600\)\.default\(900\)/);
-    expect(authEnv).toMatch(/JWT_ISSUER:\s*z\.string\(\)\.default\('intafaced'\)/);
-    expect(authEnv).toMatch(/JWT_AUDIENCE:\s*z\.string\(\)\.default\('intafaced\.api'\)/);
+    const unset = authEnvSchema.parse({ JWT_ACCESS_SECRET: 'test-only-jwt-access-secret-0123456789' });
+    expect(unset.JWT_ACCESS_TTL_SECONDS).toBe(900);
+    expect(unset.JWT_ISSUER).toBe('intafaced');
+    expect(unset.JWT_AUDIENCE).toBe('intafaced.api');
+    // The TTL stays bounded: a minute to an hour.
+    expect(() =>
+      authEnvSchema.parse({ JWT_ACCESS_SECRET: 'test-only-jwt-access-secret-0123456789', JWT_ACCESS_TTL_SECONDS: '59' }),
+    ).toThrow();
+    expect(() =>
+      authEnvSchema.parse({ JWT_ACCESS_SECRET: 'test-only-jwt-access-secret-0123456789', JWT_ACCESS_TTL_SECONDS: '3601' }),
+    ).toThrow();
   });
 
   it('wires each JWT key from the host once in the trade block with identity defaults', () => {

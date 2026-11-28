@@ -1,7 +1,4 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import {
   createServiceSigner,
@@ -15,7 +12,6 @@ import { describe, expect, it } from 'vitest';
 import { TEST_AGE_PATH, registerTestAgeDoor } from './test-age-door.js';
 
 const SECRET = 'test-age-door-route-secret-32-chars';
-const here = dirname(fileURLToPath(import.meta.url));
 
 function app(open: boolean) {
   const calls: Array<[string, number]> = [];
@@ -130,17 +126,5 @@ describe('the TEST age door with service keys', () => {
     const ops = await keyed('svc-ops');
     expect(ops.status).toBe(200);
     expect(ops.calls).toEqual(['q1']);
-  });
-});
-
-describe('index.ts wiring', () => {
-  const source = readFileSync(join(here, 'index.ts'), 'utf8');
-
-  it('reads the flag before opening the database, mounts the door once, and opens it only from that read', () => {
-    const check = source.indexOf('const testAgeDoor = testAgeDoorOpen(process.env);');
-    expect(check).toBeGreaterThan(-1);
-    expect(check).toBeLessThan(source.indexOf('postgres(env.DATABASE_URL'));
-    expect(source.match(/registerTestAgeDoor\(/g)).toHaveLength(1);
-    expect(source).toMatch(/registerTestAgeDoor\(app, \{\n\s+open: testAgeDoor,/);
   });
 });

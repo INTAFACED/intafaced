@@ -16,9 +16,6 @@ import { READY_MARKET_LIFECYCLE, READY_MARKET_NOW, readyMarket } from './testing
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { registerSpotOrderPreviewRest, SPOT_ORDER_PREVIEW_PATH, type SpotOrderPreviewRestDeps } from './order-preview-rest.js';
 import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { TradeError, type Market } from './types.js';
 
 // This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
@@ -39,9 +36,6 @@ const MARKET = readyMarket('fixture-spot', {
   makerBps: 1,
   takerBps: 2,
 });
-
-const here = dirname(fileURLToPath(import.meta.url));
-const previewSource = readFileSync(join(here, 'order-preview-rest.ts'), 'utf8');
 
 function headers(scopes: string[] = ['trade:read'], region = 'DE'): Record<string, string> {
   const principal = {
@@ -610,10 +604,27 @@ describe('POST /api/v1/orders/preview', () => {
     await app.close();
   });
 
-  it('never imports a ledger port or matching submit', () => {
-    expect(previewSource).not.toMatch(/LedgerClient|orderHold|recipes/);
-    expect(previewSource).not.toMatch(/matching\.submit|\.submit\(/);
-    expect(previewSource).toContain('never receives a ledger port');
+  it('never imports a ledger port or matching submit', async () => {
+    // The preview calls no other service at all: no ledger post, no hold, no matching submit, over any client.
+    const realFetch = globalThis.fetch;
+    const called: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      called.push(String(url));
+      throw new Error('the order preview must not call another service');
+    }) as typeof fetch;
+    try {
+      const { app, submit, ledgerPost } = appWith({});
+      for (const payload of [limitBuy, { ...limitBuy, side: 'sell' }]) {
+        const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload });
+        expect(response.statusCode, response.body).toBe(200);
+      }
+      expect(submit).not.toHaveBeenCalled();
+      expect(ledgerPost).not.toHaveBeenCalled();
+      expect(called).toEqual([]);
+      await app.close();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   it('with the fail-closed switch unset (the production default), an unset sanctions list still refuses', async () => {
