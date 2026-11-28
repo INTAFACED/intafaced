@@ -12,7 +12,17 @@ import { ageRecord } from './test-age.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 import { connectedNow } from './venue-wallet-room.mjs';
-import { testDeposit, testVenue, venueBalance, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
+import {
+  TEST_VENUE,
+  testDeposit,
+  testVenue,
+  testVenueAt,
+  venueAccount,
+  venueBalance,
+  venueForThisFile,
+  venueInfo,
+  venueRecord,
+} from './venue.mjs';
 
 // J-wallet-26, in the running app (docs/roadmap/journeys.json): when my week's profit hits my target, I'm offered a
 // withdrawal to my own cold wallet, ready to sign. One test per step, titled "J-wallet-26 #<n>", run in order by one
@@ -468,12 +478,19 @@ test(`${J} #6 opens Profit lock while the venue can't be read (TEST switch): "Ca
   stepPicture,
 }) => {
   test.setTimeout(240_000);
-  const { who } = state();
+  const { who, owner } = state();
   const lastRead = (await lockRecord()).week.lastReadAt;
   expect(lastRead).toEqual(expect.any(String));
+  // The venue's own record before the switch: what must still stand when it can be read again.
+  const balanceBefore = await venueBalance(owner, 'USDC');
+  const account = await venueAccount(owner);
   const switched = await testVenue('/test/switches', { venueDown: true });
   expect(switched.status).toBe(200);
   try {
+    // The venue itself can't be read: a straight read of its own record is refused `venue_down`.
+    const down = await testVenueAt(TEST_VENUE, '/balances', { account });
+    expect(down.status, JSON.stringify(down.body).slice(0, 300)).toBe(422);
+    expect(down.body.refusal.code).toBe('venue_down');
     await signInNow(page, who);
     const rowsBefore = await (await readyRows(page)).count();
     await openRoom(page);
@@ -492,6 +509,8 @@ test(`${J} #6 opens Profit lock while the venue can't be read (TEST switch): "Ca
   } finally {
     await testVenue('/test/switches', { venueDown: false });
   }
+  // No offer is made, so nothing moved on the venue: its own balance is the one it held before the switch.
+  expect(await venueBalance(owner, 'USDC')).toEqual(balanceBefore);
 });
 
 /** The lock's record while the venue is down: its last good read is the one it names. */

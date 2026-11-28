@@ -1053,6 +1053,8 @@ export const appRouter = createTradeRouter(
     ? {
         venue: () => userVenue.venue(),
         account: (owner: string, subAccount: string | null) => userVenue.readableAccount(owner, subAccount),
+        // Only a wallet whose owner signature this person gave through the door.
+        ownWallets: (userId: string, venueId: string) => userVenueStore.ownerSignedAccounts(userId, venueId),
         store: new SqlTradeJournalStore(sql),
         now: () => new Date(),
         // The warnings the daily loss limit gave, for the "keeping my rules" line (J-portfolio-19 #4).

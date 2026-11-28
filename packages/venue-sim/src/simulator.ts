@@ -1468,6 +1468,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       priceBandBps: this.marketState.get(m.symbol)?.dynamicBand?.widthBps ?? this.marketState.get(m.symbol)?.priceBandBps ?? null,
       priceBand: this.priceBandOf(m),
       maxOpenOrders: this.marketState.get(m.symbol)!.maxOpenOrders,
+      // The simulator links an exit to its entry (simulator.ts `placeTrigger`: it arms on what the entry filled).
+      attachedExits: true,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
       listedBy: published(m.listedBy),
       oracleRule: published(m.oracleRule),
