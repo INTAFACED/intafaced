@@ -1,7 +1,6 @@
 import type { Principal } from '@intafaced/auth';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest } from './matching-client.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
 /**
@@ -14,8 +13,6 @@ type PlaceWithAuction = PlaceOrderInput & {
   auction?: boolean | null;
   benchmark?: boolean | null;
 };
-
-const FLAG = Symbol.for('intafaced.trade.auctionPlace');
 
 export const AUCTION_UNSUPPORTED = 'auction_unsupported' as const;
 export const BENCHMARK_UNSUPPORTED = 'benchmark_unsupported' as const;
@@ -77,37 +74,27 @@ export function bindAuction(input: PlaceOrderInput): PlaceWithAuction {
   return { ...extra, auction: hit.auction, benchmark: hit.benchmark };
 }
 
-export function installAuctionPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
+export function withAuctionPlace(Base: typeof TradeService): typeof TradeService {
+  return class AuctionPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindAuction(input);
+      const refuse = auctionIntentRefuse(bound);
+      if (refuse) throw refuse;
+      return super.placeOrder(principal, bound);
+    }
 
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindAuction(input);
-    const refuse = auctionIntentRefuse(bound);
-    if (refuse) throw refuse;
-    return origPlace.call(this, principal, bound);
-  };
-
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithAuction | undefined;
-    if (!input) return req;
-    const auction = readAuction(input);
-    const benchmark = readBenchmark(input);
-    if (!auction && !benchmark) return req;
-    return {
-      ...req,
-      ...(auction ? { auction: true } : {}),
-      ...(benchmark ? { benchmark: true } : {}),
-    };
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithAuction | undefined;
+      if (!input) return req;
+      const auction = readAuction(input);
+      const benchmark = readBenchmark(input);
+      if (!auction && !benchmark) return req;
+      return {
+        ...req,
+        ...(auction ? { auction: true } : {}),
+        ...(benchmark ? { benchmark: true } : {}),
+      };
+    }
   };
 }
-
-installAuctionPlace(TradeService);

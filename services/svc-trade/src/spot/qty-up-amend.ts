@@ -48,8 +48,6 @@ type AmendHost = {
   ) => AmendOrderOutcome;
 };
 
-const FLAG = Symbol.for('intafaced.trade.nativeQtyUpAmend');
-
 /**
  * An option amend's own engine fields, passed with the one call that sends them (#8579). Never put them on the shared
  * MatchingClient: one service has one client, so a swapped `amend` leaks one order's fields into every other amend.
@@ -241,11 +239,10 @@ async function amendOrderWithQtyUp(
   });
 }
 
-export function installNativeQtyUpAmend(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as { amendOrder: unknown; [FLAG]?: true };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-  proto.amendOrder = amendOrderWithQtyUp;
+export function withNativeQtyUpAmend(Base: typeof TradeService): typeof TradeService {
+  return class NativeQtyUpAmend extends Base {
+    override amendOrder(principal: Principal, orderId: string, input: AmendOrderInput, option: OptionEngineFields | null = null) {
+      return amendOrderWithQtyUp.call(this, principal, orderId, input, option);
+    }
+  };
 }
-
-installNativeQtyUpAmend(TradeService);

@@ -1,4 +1,4 @@
-import { PositionService } from '../controls/test-admission.js';
+import { PositionService, layeredPositionService } from '../controls/test-admission.js';
 /**
  * CARD F6 money proof — hedge / one-way position mode (PTX-M10-R07).
  *
@@ -26,9 +26,12 @@ import {
   checkOrderSideForPositionMode,
   checkPositionMode,
   checkPositionModeMigration,
-  installPositionMode,
+  withPositionModeOpen,
 } from './position-mode.js';
 import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredPositionService = layeredPositionService(withPositionModeOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -81,30 +84,28 @@ function setCreditEnv(): void {
   process.env.TRADE_MAX_LOSS = OWNER_PUBLISHED_F5.maxLoss;
 }
 
-installPositionMode();
-
 describe('position-mode hitch (source) — no flatten, matching not recut', () => {
   it('position-mode.ts has no flatten and refuses unset', () => {
     const mill = readFileSync(join(here, 'position-mode.ts'), 'utf8');
     expect(mill).toMatch(/checkPositionMode/);
     expect(mill).toMatch(/checkPositionModeMigration/);
     expect(mill).toMatch(/checkOrderSideForPositionMode/);
-    expect(mill).toMatch(/origOpen\.call/);
-    expect(mill).toMatch(/origPlace\.call/);
+    expect(mill).toMatch(/super\.open\(/);
+    expect(mill).toMatch(/super\.placeOrder\(/);
     expect(mill).toMatch(/will not invent a flatten/);
     expect(mill).not.toMatch(/planClose/);
     expect(mill).not.toMatch(/closeAll/);
     expect(mill).not.toMatch(/cancelAll/);
-    const openStart = mill.indexOf('export function installPositionModeOpen');
-    const placeStart = mill.indexOf('export function installPositionModePlace');
+    const openStart = mill.indexOf('export function withPositionModeOpen');
+    const placeStart = mill.indexOf('export function withPositionModePlace');
     expect(openStart).toBeGreaterThan(-1);
     expect(placeStart).toBeGreaterThan(openStart);
     const openFn = mill.slice(openStart, placeStart);
     expect(openFn.indexOf('parsePositionMode')).toBeGreaterThan(-1);
-    expect(openFn.indexOf('parsePositionMode')).toBeLessThan(openFn.indexOf('origOpen.call'));
+    expect(openFn.indexOf('parsePositionMode')).toBeLessThan(openFn.indexOf('super.open('));
   });
 
-  it('router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut', () => {
+  it('router.ts / matching / position-service.ts / trade-service.ts not recut; index.ts applies the layers', () => {
     const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
     const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
     const tradeSrc = tradeServiceSource();
@@ -115,22 +116,24 @@ describe('position-mode hitch (source) — no flatten, matching not recut', () =
     expect(posSrc).not.toMatch(/position_mode_unset/);
     expect(tradeSrc).not.toMatch(/position-mode/);
     expect(tradeSrc).not.toMatch(/position_mode_unset/);
-    expect(indexSrc).not.toMatch(/position-mode/);
-    expect(indexSrc).not.toMatch(/installPositionMode/);
+    // index.ts is where the service is put together (garden/no-runtime-swap): it applies both layers, and the mode
+    // rules stay in the mill.
+    expect(indexSrc).toMatch(/withPositionModeOpen/);
+    expect(indexSrc).toMatch(/withPositionModePlace/);
+    expect(indexSrc).not.toMatch(/position_mode_unset/);
     const matchingSrc = join(matchingRoot, 'src');
     const matchingFiles = readdirSync(matchingSrc, { recursive: true, encoding: 'utf8' }) as string[];
     expect(matchingFiles.length).toBeGreaterThan(0);
     expect(matchingFiles.some((f) => f.includes('position-mode') || f.includes('position_mode'))).toBe(false);
   });
 
-  it('live boot hitch next to F5; F5 mill not recut', () => {
+  it('live boot applies it next to F5; F5 mill not recut', () => {
     const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
     const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
     const f5 = readFileSync(join(here, 'pretrade-credit.ts'), 'utf8');
     expect(indexSrc).toMatch(/ledger-client/);
     expect(boot).toMatch(/installPreTradeCredit/);
-    expect(boot).toMatch(/installPositionMode/);
-    expect(boot).toMatch(/position-mode/);
+    expect(indexSrc.indexOf('withPreTradeCreditPlace')).toBeLessThan(indexSrc.indexOf('withPositionModePlace'));
     expect(f5).not.toMatch(/position-mode/);
   });
 });
@@ -263,7 +266,7 @@ describe('svc-trade position-mode (H8a PG-hard)', () => {
       ledger = new MemoryLedger();
       bus = new MemoryEventBus('svc-trade');
       marks = memoryMarkBook();
-      positions = new PositionService(sql, ledger, {
+      positions = new LayeredPositionService(sql, ledger, {
         marks: marks.source(),
         profitSource: profitSourceFromConfig(PROFIT_SOURCE),
         maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

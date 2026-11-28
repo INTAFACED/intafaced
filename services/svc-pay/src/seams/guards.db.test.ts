@@ -8,7 +8,7 @@ import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
-import { installPayoutDestinationShim } from '../payout-destination-test-shim.js';
+import { installPayoutDestinationShim } from '../payout-destination.testkit.js';
 import { RailRegistry } from '../rails/registry.js';
 import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { CryptoNativeAdapter } from '../rails/crypto-native.js';

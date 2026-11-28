@@ -1,7 +1,5 @@
-import { PositionService, TradeService } from '../controls/test-admission.js';
+import { PositionService, TradeService, layeredTradeService, layeredPositionService } from '../controls/test-admission.js';
 import { toCcxtError } from '../ccxt-errors.js';
-import { PositionService as ProductionPositionService } from './position-service.js';
-import { TradeService as ProductionTradeService } from '../spot/trade-service.js';
 /**
  * Owner pre-trade limits (#4725) — PG-hard money proof.
  *
@@ -26,11 +24,15 @@ import { memoryMarkBook } from './mark-source.js';
 import { FuturesError, type OpenPositionInput } from './position-service.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { LIMIT_MAX_LOSS, LIMIT_MAX_ORDER, LIMIT_MAX_POSITION, MAX_ORDER_UNSET } from './pretrade-limits.js';
-import { installPreTradeCredit } from './pretrade-credit.js';
-import { installNativeQtyUpAmend } from '../spot/qty-up-amend.js';
+import { installPreTradeCredit, withPreTradeCreditPlace, withPreTradeCreditOpen } from './pretrade-credit.js';
 import type { Market } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
+import { withNativeQtyUpAmend } from '../spot/qty-up-amend.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withPreTradeCreditPlace, withNativeQtyUpAmend);
+const LayeredPositionService = layeredPositionService(withPreTradeCreditOpen);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -79,7 +81,6 @@ const onlyPosition = (n: string) => setLimits({ order: BIG, position: n, loss: B
 const onlyLoss = (n: string) => setLimits({ order: BIG, position: BIG, loss: n });
 
 installPreTradeCredit();
-installNativeQtyUpAmend(TradeService);
 
 describe('owner pre-trade limits (#4725, PG-hard)', () => {
   let adminStop: () => Promise<void> = async () => undefined;
@@ -154,7 +155,7 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
     bus = new MemoryEventBus('svc-trade');
     matching = new StubMatching();
     marks = memoryMarkBook();
-    trade = new TradeService(sql, ledger, matching, new StubPerks(), bus, {
+    trade = new LayeredTradeService(sql, ledger, matching, new StubPerks(), bus, {
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       marketSlippageCapBps: 150,
@@ -163,7 +164,7 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
       convertQuoteTtlMs: 60_000,
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
     });
-    positions = new PositionService(sql, ledger, {
+    positions = new LayeredPositionService(sql, ledger, {
       marks: marks.source(),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
@@ -196,28 +197,20 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
 
   describe('TRADE_MAX_ORDER on spot placeOrder', () => {
     it('boot wrappers: a spot limit above TRADE_MAX_ORDER is trade.limit_max_order (422) with no hold, and the exact cap is allowed', async () => {
-      const place = ProductionTradeService.prototype.placeOrder;
-      const open = ProductionPositionService.prototype.open;
-      await import('../ledger-client.js');
+      onlyOrder('3');
+      const holdsBefore = holdPosts().length;
+      let caught: unknown;
       try {
-        onlyOrder('3');
-        const holdsBefore = holdPosts().length;
-        let caught: unknown;
-        try {
-          await limitBuy('2', '2', 'boot-over');
-        } catch (err) {
-          caught = err;
-        }
-        expect(caught).toMatchObject({ name: 'TradeError', code: LIMIT_MAX_ORDER });
-        expect(toCcxtError(caught)?.status).toBe(422);
-        expect(holdPosts()).toHaveLength(holdsBefore);
-        const exact = await limitBuy('1', '3', 'boot-exact');
-        expect(exact.clientOrderId).toBe('boot-exact');
-        expect(holdPosts().length).toBeGreaterThan(holdsBefore);
-      } finally {
-        ProductionTradeService.prototype.placeOrder = place;
-        ProductionPositionService.prototype.open = open;
+        await limitBuy('2', '2', 'boot-over');
+      } catch (err) {
+        caught = err;
       }
+      expect(caught).toMatchObject({ name: 'TradeError', code: LIMIT_MAX_ORDER });
+      expect(toCcxtError(caught)?.status).toBe(422);
+      expect(holdPosts()).toHaveLength(holdsBefore);
+      const exact = await limitBuy('1', '3', 'boot-exact');
+      expect(exact.clientOrderId).toBe('boot-exact');
+      expect(holdPosts().length).toBeGreaterThan(holdsBefore);
     });
 
     it('limit order: limit-1 tick and exactly the limit pass, limit+1 tick refuses before any hold', async () => {
@@ -406,7 +399,7 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
       setLimits({ order: BIG, position: BIG, loss: BIG });
       // TEST fixture values: 10 BTC of open interest, 10% (1 BTC) per account.
       let oi: { limit: bigint; shareBps: number } | null = { limit: amt('10'), shareBps: 1_000 };
-      positions = new PositionService(sql, ledger, {
+      positions = new LayeredPositionService(sql, ledger, {
         marks: marks.source(),
         profitSource: profitSourceFromConfig(PROFIT_SOURCE),
         maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

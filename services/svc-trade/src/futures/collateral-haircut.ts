@@ -90,32 +90,19 @@ function refuseOpen(check: { readonly code: HaircutRefuseCode; readonly reason: 
   throw new FuturesError(check.reason, check.code, 400);
 }
 
-const OPEN_FLAG = Symbol.for('intafaced.trade.collateralHaircutOpen');
-
-export function installCollateralHaircutOpen(ctor: typeof PositionService): void {
-  const proto = ctor.prototype as unknown as {
-    open: PositionService['open'];
-    [OPEN_FLAG]?: true;
-  };
-  if (proto[OPEN_FLAG]) return;
-  proto[OPEN_FLAG] = true;
-  const origOpen = proto.open;
-  proto.open = async function (this: PositionService, input: OpenPositionInput, principal?: Principal) {
-    const tagged = input as OpenWithCollateral;
-    const check = checkPostedMarginCollateral({
-      collateralClass: tagged.collateralClass,
-      haircutBps: tagged.haircutBps,
-      asLoan: tagged.asLoan,
-    });
-    if (!check.ok) refuseOpen(check);
-    return origOpen.call(this, input, principal);
+export function withCollateralHaircutOpen(Base: typeof PositionService): typeof PositionService {
+  return class CollateralHaircutOpen extends Base {
+    override async open(input: OpenPositionInput, principal?: Principal): ReturnType<PositionService['open']> {
+      const tagged = input as OpenWithCollateral;
+      const check = checkPostedMarginCollateral({
+        collateralClass: tagged.collateralClass,
+        haircutBps: tagged.haircutBps,
+        asLoan: tagged.asLoan,
+      });
+      if (!check.ok) refuseOpen(check);
+      return super.open(input, principal);
+    }
   };
 }
-
-export function installCollateralHaircut(): void {
-  installCollateralHaircutOpen(PositionService);
-}
-
-installCollateralHaircut();
 
 export { UNSUPPORTED_COLLATERAL_CLASS };

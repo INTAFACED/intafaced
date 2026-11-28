@@ -2,7 +2,6 @@ import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest } from './matching-client.js';
 import { carriedPlacementBody } from './placement-extras.js';
 
 /**
@@ -14,8 +13,6 @@ import { carriedPlacementBody } from './placement-extras.js';
 type PlaceWithMinQty = PlaceOrderInput & {
   minQty?: Amount | null;
 };
-
-const FLAG = Symbol.for('intafaced.trade.minQtyPlace');
 
 export const MIN_QTY_EXCEEDS = 'min_qty_exceeds_qty' as const;
 
@@ -56,36 +53,26 @@ export function bindMinQty(input: PlaceOrderInput): PlaceWithMinQty {
   };
 }
 
-export function installMinQtyPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-
-  const origPlace = proto.placeOrder;
-  proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindMinQty(input);
-    if (bound.minQty !== undefined) {
-      const refuse = minQtyRefuse(bound.qty, readMinQty(bound));
-      if (refuse) throw refuse;
+export function withMinQtyPlace(Base: typeof TradeService): typeof TradeService {
+  return class MinQtyPlace extends Base {
+    override async placeOrder(principal: Principal, input: PlaceOrderInput): ReturnType<TradeService['placeOrder']> {
+      const bound = bindMinQty(input);
+      if (bound.minQty !== undefined) {
+        const refuse = minQtyRefuse(bound.qty, readMinQty(bound));
+        if (refuse) throw refuse;
+      }
+      return super.placeOrder(principal, bound);
     }
-    return origPlace.call(this, principal, bound);
-  };
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const input = args[2] as PlaceWithMinQty | undefined;
-    if (input && input.minQty !== undefined) {
-      const floor = readMinQty(input);
-      if (floor === null) return req;
-      return { ...req, minQty: formatAmount(floor) };
+    override toEngineRequest(...args: unknown[]): ReturnType<TradeService['toEngineRequest']> {
+      const req = super.toEngineRequest(...(args as Parameters<TradeService['toEngineRequest']>));
+      const input = args[2] as PlaceWithMinQty | undefined;
+      if (input && input.minQty !== undefined) {
+        const floor = readMinQty(input);
+        if (floor === null) return req;
+        return { ...req, minQty: formatAmount(floor) };
+      }
+      return req;
     }
-    return req;
   };
 }
-
-installMinQtyPlace(TradeService);

@@ -1,4 +1,4 @@
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,6 @@ import {
   COLLAR_OUTSIDE,
   bindCollar,
   collarIntentRefuse,
-  installCollarPlace,
   matchingCollarRefuse,
   matchingSubmitCollarRefuse,
   missingCollarRefuse,
@@ -21,6 +20,7 @@ import {
   readCollar,
   readMax,
   readMin,
+  withCollarPlace,
 } from './collar-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { EngineSubmitRequest, EngineSubmitResult } from './matching-client.js';
@@ -28,8 +28,10 @@ import type { Market } from './types.js';
 import type { Principal } from '@intafaced/auth';
 import { toCcxtError } from '../ccxt-errors.js';
 import { TradeError } from './types.js';
+import { layeredStandIn } from '../layered.testkit.js';
 
-installCollarPlace(TradeService);
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withCollarPlace);
 
 type CollarInput = PlaceOrderInput & { collar?: boolean | null; min?: ReturnType<typeof amt> | null; max?: ReturnType<typeof amt> | null };
 
@@ -95,8 +97,8 @@ describe('price collar place — caller min/max, never last or mid', () => {
         return { id: 'take', status: 'rejected', rejectCode: 'missing_collar' };
       }
     }
-    installCollarPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
+    const LayeredDoor = layeredStandIn(Door, withCollarPlace);
+    const door = new LayeredDoor();
     await expect(door.placeOrder({} as Principal, {})).rejects.toMatchObject({ code: 'trade.missing_collar' });
 
     class Outside {
@@ -104,8 +106,8 @@ describe('price collar place — caller min/max, never last or mid', () => {
         return { id: 'take', status: 'rejected', rejectCode: 'outside_collar' };
       }
     }
-    installCollarPlace(Outside as unknown as typeof TradeService);
-    await expect(new Outside().placeOrder({} as Principal, {})).rejects.toMatchObject({ code: 'trade.outside_collar' });
+    const LayeredOutside = layeredStandIn(Outside, withCollarPlace);
+    await expect(new LayeredOutside().placeOrder({} as Principal, {})).rejects.toMatchObject({ code: 'trade.outside_collar' });
   });
 
   it('collar submit with fills is refused — not swallowed as a fill', async () => {
@@ -121,8 +123,8 @@ describe('price collar place — caller min/max, never last or mid', () => {
         expect(result.rejected?.code).toBe('outside_collar');
       }
     }
-    installCollarPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
+    const LayeredDoor = layeredStandIn(Door, withCollarPlace);
+    const door = new LayeredDoor();
     const fill = {
       sequence: 1,
       makerOrderId: 'rest',
@@ -168,11 +170,11 @@ describe('price collar place — caller min/max, never last or mid', () => {
         return { orderId: 'order', accountId: 'alice', type: 'limit', side: 'buy', qty: formatAmount(input.qty), tif: 'GTC' };
       }
     }
-    installCollarPlace(Door as unknown as typeof TradeService);
-    const door = new Door();
-    const origPlace = Door.prototype.placeOrder;
+    const LayeredDoor = layeredStandIn(Door, withCollarPlace);
+    const door = new LayeredDoor();
+    const origPlace = LayeredDoor.prototype.placeOrder;
     let placed: PlaceOrderInput | null = null;
-    Door.prototype.placeOrder = async function (this: Door, principal: Principal, input: PlaceOrderInput) {
+    LayeredDoor.prototype.placeOrder = async function (this: Door, principal: Principal, input: PlaceOrderInput) {
       placed = input;
       return origPlace.call(this, principal, input);
     };
@@ -324,7 +326,7 @@ describe('svc-trade collar-place (H8a PG-hard)', () => {
       await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
       matching = new StubMatching();
-      trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      trade = new LayeredTradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
         feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,

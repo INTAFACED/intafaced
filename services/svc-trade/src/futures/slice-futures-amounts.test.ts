@@ -18,8 +18,8 @@ import {
   checkPostedMarginCollateral,
   collateralCredit,
   decideOpenCredit,
-  installCollateralHaircutOpen,
   requireOwnerHaircutBps,
+  withCollateralHaircutOpen,
 } from './collateral-haircut.js';
 import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
 import {
@@ -45,6 +45,11 @@ import { memoryMarkBook } from './mark-source.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { LIQUIDATION_NOT_SCHEDULED, presentFuturesJobsHealth } from './futures-jobs-health.js';
 import { startFuturesJobs } from './futures-jobs.js';
+import { layeredStandIn } from '../layered.testkit.js';
+import { layered } from '../layered.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredPositionService = layered(PositionService, withCollateralHaircutOpen);
 
 const PUBLISHED_TIMEOUTS = [0, 10, 120] as const;
 
@@ -94,11 +99,11 @@ describe('S07 haircut credit', () => {
         return { id: 'pos' };
       }
     }
-    installCollateralHaircutOpen(Book as unknown as typeof PositionService);
+    const LayeredBook = layeredStandIn(Book, withCollateralHaircutOpen);
     const previous = process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
     delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
     try {
-      await expect(new Book().open({ haircutBps: '' } as unknown as OpenPositionInput)).rejects.toBeInstanceOf(FuturesError);
+      await expect(new LayeredBook().open({ haircutBps: '' } as unknown as OpenPositionInput)).rejects.toBeInstanceOf(FuturesError);
       expect(locks).toEqual([]);
     } finally {
       if (previous === undefined) delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
@@ -362,7 +367,7 @@ function creditBook(options?: { balanceThrows?: boolean; ladder?: { depth: Depth
   process.env.TRADE_FUTURES_JOBS_ENABLED = 'true';
   process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
 
-  const service = new PositionService(tag as unknown as Sql, client, {
+  const service = new LayeredPositionService(tag as unknown as Sql, client, {
     marks: marks.source(),
     profitSource: profitSourceFromConfig(formatAccountRef(recipeProfitFundingAccount('USDT'))),
     maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

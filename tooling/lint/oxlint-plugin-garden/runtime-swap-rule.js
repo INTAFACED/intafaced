@@ -1,7 +1,9 @@
 // garden/no-runtime-swap: a service is put together in one place at start-up; a module never replaces a function on another
-// module's class at run time. Today installers swap methods in import order (`proto.placeOrder = async function …` on
-// TradeService's prototype from services/svc-trade/src/spot/gtd-gtt-place.ts), so which body runs depends on which file
-// was imported last. Counted, outside tests, by syntax:
+// module's class at run time. Installers used to swap methods in import order (`proto.placeOrder = async function …` on
+// TradeService's prototype), so which body ran depended on which file was imported last; each is now a layer, a function
+// from the class to a subclass (services/svc-trade/src/spot/fok-place.ts `withFokPlace`), applied in index.ts with
+// `layered()` (services/svc-trade/src/layered.ts; tooling/codemod/runtime-swap/rewrite.mjs moved them). Counted, outside
+// tests, by syntax:
 //   - `Imported.prototype.m = …` (also `??=`, `||=`, `Imported.prototype['m'] = …`), where `Imported` is an imported binding,
 //     a function parameter (`ctor: typeof TradeService`) or an alias of either;
 //   - the same through an alias of the prototype: `const proto = ctor.prototype as unknown as {…}; const p = proto;
@@ -9,13 +11,14 @@
 //   - `Object.assign(<prototype>, { m: … })` (one per member) and `Object.defineProperty(<prototype>, 'm', …)`.
 // Not counted: a flag (`proto[FLAG] = true`, a computed key or a literal value), a class declared in the same file, a
 // browser global's prototype (a polyfill), and plain helpers that touch no prototype.
-// The pattern is common, so the rule fails only when a change adds one: judged by the lint ratchet, the copies on main are
-// each file's ceiling and a file the change adds starts at zero (tooling/ci/lint-ratchet.mjs, tooling/lint/ratchet.json
+// Judged by the lint ratchet: the copies on main (none left) are each file's ceiling and a file the change adds starts at
+// zero (tooling/ci/lint-ratchet.mjs, tooling/lint/ratchet.json
 // failInAddedFiles). `node tooling/lint/count-rule.mjs garden/no-runtime-swap` prints how many are left and where.
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
 const FIX =
   'put the behaviour in the class itself, or compose it where the service is assembled at start-up (pass the part in, ' +
-  "or wrap it in a new object), instead of replacing another module's method at run time";
+  'wrap it in a new object, or write a layer `withX(Base) { return class extends Base {…} }` and apply it in index.ts ' +
+  "with layered(), as services/svc-trade/src/spot/fok-place.ts does), instead of replacing another module's method at run time";
 
 const isFn = (n) => n?.type === 'ArrowFunctionExpression' || n?.type === 'FunctionExpression';
 /** Strip `as T`, `satisfies T`, `x!` and parentheses. */

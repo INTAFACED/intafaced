@@ -26,7 +26,7 @@ import { loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { REFERENCE_RAIL_ROUTING_PROFILES, type RailRoutingProfile } from './routing/decide.js';
 import { memoryPayoutDestinations, MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
-import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
+import { installPayoutDestinationShim } from './payout-destination.testkit.js';
 import { RailRegistry } from './rails/registry.js';
 import { railFailure } from './rails/rail-adapter.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './rails/card-sandbox.js';

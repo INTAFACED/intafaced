@@ -12,7 +12,6 @@ import type { MatchingClient } from './matching-client.js';
 import { classifyHoldPostError } from './hold-outcome.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 // The close is reduce-only at the engine; that door forwards the flag, so it is installed wherever the close is.
-import './reduce-only-place.js';
 import { TradeError, type Market, type OrderRecord, type OrderSide } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 import { POSTING_FROZEN, POSTING_FROZEN_MESSAGE, publicLedgerCode, SETTLEMENT_PENDING } from '../ledger-public-code.js';
@@ -41,8 +40,6 @@ export type CloseSpotPositionInput = {
   symbol?: string;
   clientOrderId: string;
 };
-
-const FLAG = Symbol.for('intafaced.trade.closeSpotPosition');
 
 let boundTrade: TradeService | null = null;
 
@@ -139,15 +136,11 @@ export class CloseNotFundedError extends Error {
   }
 }
 
-export function installClosePosition(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    closeSpotPosition?: (principal: Principal, input: CloseSpotPositionInput) => Promise<OrderRecord>;
-    [FLAG]?: true;
-  };
-  if (proto[FLAG]) return;
-  proto[FLAG] = true;
-  proto.closeSpotPosition = function (this: TradeService, principal: Principal, input: CloseSpotPositionInput) {
-    return closeSpotPosition(this, principal, input);
+export function withClosePosition(Base: typeof TradeService): typeof TradeService {
+  return class ClosePosition extends Base {
+    closeSpotPosition(principal: Principal, input: CloseSpotPositionInput) {
+      return closeSpotPosition(this, principal, input);
+    }
   };
 }
 
@@ -258,5 +251,3 @@ export function attachBoundClosePosition(app: FastifyInstance): void {
     closeSpotPosition: (principal, input) => closeSpotPosition(trade, principal, input),
   });
 }
-
-installClosePosition(TradeService);

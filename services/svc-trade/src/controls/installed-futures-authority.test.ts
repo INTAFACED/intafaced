@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import type { OpenPositionInput, PositionService } from '../futures/position-service.js';
-import { installCollateralHaircutOpen } from '../futures/collateral-haircut.js';
-import { installPositionModeOpen } from '../futures/position-mode.js';
-import { installPreTradeCreditOpen } from '../futures/pretrade-credit.js';
+import type { OpenPositionInput } from '../futures/position-service.js';
 import { principalFor } from '../spot/testing.js';
+import { layeredStandIn } from '../layered.testkit.js';
+import { withCollateralHaircutOpen } from '../futures/collateral-haircut.js';
+import { withPositionModeOpen } from '../futures/position-mode.js';
+import { withPreTradeCreditOpen } from '../futures/pretrade-credit.js';
 
 describe('Installed futures policies preserve live admission authority', () => {
   afterEach(() => vi.unstubAllEnvs());
@@ -23,10 +24,7 @@ describe('Installed futures policies preserve live admission authority', () => {
         return input;
       }
     }
-    const ctor = Owner as unknown as typeof PositionService;
-    installCollateralHaircutOpen(ctor);
-    installPositionModeOpen(ctor);
-    installPreTradeCreditOpen(ctor);
+    const LayeredOwner = layeredStandIn(Owner, withCollateralHaircutOpen, withPositionModeOpen, withPreTradeCreditOpen);
     const principal = principalFor('a1111111-1111-4111-8111-111111111111');
     const input = {
       userId: principal.userId,
@@ -34,10 +32,10 @@ describe('Installed futures policies preserve live admission authority', () => {
       positionMode: 'one_way',
       collateralClass: 'cash',
     } as OpenPositionInput;
-    expect(await new Owner().open(input, principal)).toBe(input);
+    expect(await new LayeredOwner().open(input, principal)).toBe(input);
     expect(received).toHaveLength(1);
     expect(received[0]).toBe(principal);
-    await new Owner().open(input);
+    await new LayeredOwner().open(input);
     expect(received[1]).toBeUndefined();
   });
 });

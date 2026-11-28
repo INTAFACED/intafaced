@@ -12,13 +12,18 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { AuthError } from '@intafaced/auth';
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, layeredTradeService } from '../controls/test-admission.js';
 import { TradeError } from '../spot/types.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from '../spot/testing.js';
 import { presentCcxtMarket, registerPublicRest, type PublicRestDeps } from '../public-rest.js';
 import { MemoryApprovalBook, payloadHash } from './common.js';
 import { TradeOpsAdmin } from './service.js';
 import { tradeOpsAdminRouter } from './router.js';
+import { withBracketPlace } from '../spot/bracket-place.js';
+import { withOcoPlace } from '../spot/oco-place.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withBracketPlace, withOcoPlace);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -122,7 +127,7 @@ describe('futures contract families, expiry schedule and pre-market', () => {
   }, 60_000);
 
   function tradeService(extra: { futuresSettleAssets?: readonly string[] } = {}): TradeService {
-    return new TradeService(db.sql, ledger, new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
+    return new LayeredTradeService(db.sql, ledger, new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       marketSlippageCapBps: 150,
@@ -460,7 +465,7 @@ describe('futures contract families, expiry schedule and pre-market', () => {
       expect(await marketCount()).toBe(0);
 
       // Blank fixing config refuses on the existing listing path; the approval is spent but nothing is listed.
-      const noFixing = new TradeService(db.sql, ledger, new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
+      const noFixing = new LayeredTradeService(db.sql, ledger, new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
         marketLifecycle: READY_MARKET_LIFECYCLE,
       });
       const bare = new TradeOpsAdmin({

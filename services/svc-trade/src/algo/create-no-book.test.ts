@@ -33,6 +33,12 @@ import {
 import { TradeError } from '../spot/types.js';
 import { MatchingNoBookError, MatchingUnavailableError, type EngineDepth } from '../spot/matching-client.js';
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
+import { withBracketPlace } from '../spot/bracket-place.js';
+import { withOcoPlace } from '../spot/oco-place.js';
+import { layered } from '../layered.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layered(TradeService, withBracketPlace, withOcoPlace);
 
 const ALICE = 'a1111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-08-24T16:00:00.000Z');
@@ -74,7 +80,7 @@ describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
       },
     };
     const controls = new TradingControls(db.sql, { check: async () => 'enabled' }, identity);
-    return new TradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
+    return new LayeredTradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
       emailProof: new StubEmailProof(),
       accountAdmission: controls,
       marketLifecycle: READY_MARKET_LIFECYCLE,

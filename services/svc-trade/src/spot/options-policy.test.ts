@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
-import { TradeService } from '../controls/test-admission.js';
+import { layeredTradeService } from '../controls/test-admission.js';
 import { createTradeRouter } from '../router.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks } from './testing.js';
 import {
@@ -22,6 +22,11 @@ import {
   OPTIONS_TERMS_INCOMPLETE,
   describeOptionsPolicy,
 } from './options-policy.js';
+import { withBracketPlace } from './bracket-place.js';
+import { withOcoPlace } from './oco-place.js';
+
+// The layers this file used to get installed on import, applied here in the same order (garden/no-runtime-swap).
+const LayeredTradeService = layeredTradeService(withBracketPlace, withOcoPlace);
 
 describe('describeOptionsPolicy — trade.options honesty door', () => {
   it('states settlement law gate without inventing assets', () => {
@@ -72,10 +77,17 @@ describe('describeOptionsPolicy — trade.options honesty door', () => {
 
 describe('options.policy route (trade.options honesty door)', () => {
   it('router mounts describeOptionsPolicy on options.policy', async () => {
-    const trade = new TradeService({} as Sql, new MemoryLedger(), new StubMatching(), new StubPerks(), new MemoryEventBus('svc-trade'), {
-      feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
-      marketLifecycle: READY_MARKET_LIFECYCLE,
-    });
+    const trade = new LayeredTradeService(
+      {} as Sql,
+      new MemoryLedger(),
+      new StubMatching(),
+      new StubPerks(),
+      new MemoryEventBus('svc-trade'),
+      {
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+      },
+    );
     const answer = await createTradeRouter(trade)
       .createCaller({ principal: null } as never)
       .options.policy();
