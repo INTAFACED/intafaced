@@ -18,7 +18,7 @@
  *    or compose interpolates :-64
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -57,10 +57,14 @@ afterEach(() => {
 });
 
 describe('svc-indexer INDEXER_FINALITY_DEPTH refuse-closed', () => {
-  it('env.ts has no git-default 64 prune bound', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/INDEXER_FINALITY_DEPTH:[\s\S]*?\.default\(64\)/);
-    expect(envTs).toMatch(/INDEXER_FINALITY_DEPTH is unset — will not publish prune bound 64 as live/);
+  it('env.ts has no git-default 64 prune bound', async () => {
+    // Unset and blank both refuse with the typed words: no default stands in for the operator's value.
+    await expect(loadWith({ INDEXER_FINALITY_DEPTH: undefined })).rejects.toThrow(
+      'INDEXER_FINALITY_DEPTH is unset — will not publish prune bound 64 as live',
+    );
+    await expect(loadWith({ INDEXER_FINALITY_DEPTH: '' })).rejects.toThrow(
+      'INDEXER_FINALITY_DEPTH is unset — will not publish prune bound 64 as live',
+    );
   });
 
   it('compose does not interpolate :-64', () => {

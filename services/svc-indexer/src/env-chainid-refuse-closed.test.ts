@@ -16,7 +16,7 @@
  *    or compose interpolates :-31337
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -54,10 +54,12 @@ afterEach(() => {
 });
 
 describe('svc-indexer INDEXER_CHAIN_ID refuse-closed', () => {
-  it('env.ts has no Anvil 31337 default', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/INDEXER_CHAIN_ID:[\s\S]*?\.default\(31337\)/);
-    expect(envTs).toMatch(/INDEXER_CHAIN_ID is unset — will not echo Anvil 31337 as live/);
+  it('env.ts has no Anvil 31337 default', async () => {
+    // Unset and blank both refuse with the typed words: no default stands in for the operator's value.
+    await expect(loadWith({ INDEXER_CHAIN_ID: undefined })).rejects.toThrow(
+      'INDEXER_CHAIN_ID is unset — will not echo Anvil 31337 as live',
+    );
+    await expect(loadWith({ INDEXER_CHAIN_ID: '' })).rejects.toThrow('INDEXER_CHAIN_ID is unset — will not echo Anvil 31337 as live');
   });
 
   it('compose does not interpolate :-31337', () => {

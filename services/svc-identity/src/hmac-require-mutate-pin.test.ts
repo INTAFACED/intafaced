@@ -32,45 +32,51 @@ import {
   registerNavigatorSessionRoutes,
 } from './agents/navigator-session-routes.js';
 import type { NavigatorSessionStore } from './agents/navigator-session-store.js';
+import { AFFILIATE_PRODUCER_PATH } from './affiliates/producer-accrue.js';
+import { AFFILIATE_PRODUCER_PAYOUT_PATH } from './affiliates/producer-payout.js';
+import { API_KEY_OWNERSHIP_PATH } from './auth/api-key-ownership-route.js';
+import { BOOT_TIMEOUT_MS, BOOT_INTERNAL_SECRET, bootIdentity, type IdentityBoot } from './boot.testkit.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const INDEX = join(HERE, 'index.ts');
 const COMPOSE = join(HERE, '../../../docker-compose.apps.yml');
 const SECRET = 'a'.repeat(32);
+const ID = '11111111-1111-4111-8111-111111111111';
 
-function indexSource(): string {
-  return readFileSync(INDEX, 'utf8');
-}
+/** The unbound v1 signature: names the service, binds no body. */
+const v1 = () => serviceAuthHeaders('svc-trade', BOOT_INTERNAL_SECRET);
+/** The body-bound signature over `body`. */
+const bound = (body: string, service = 'svc-trade') => serviceAuthHeadersForBody(service, BOOT_INTERNAL_SECRET, body);
 
-/** Executable lines — not `//` or block-comment `*` prefixes. */
-function liveLines(src: string): string {
-  return src
-    .split(/\r?\n/)
-    .filter((line) => {
-      const t = line.trimStart();
-      return !(t.startsWith('//') || t.startsWith('*') || t.startsWith('/*'));
-    })
-    .join('\n');
-}
+const bootUnder = (mode: 'accept-both' | 'require') => bootIdentity({ INTERNAL_SERVICE_BODY_BIND: mode });
 
-function objectCall(src: string, name: string): string {
-  const needle = `${name}(app,`;
-  const start = src.indexOf(needle);
-  expect(start, `${name} missing`).toBeGreaterThan(-1);
-  const end = src.indexOf('});', start);
-  expect(end, `${name} unclosed`).toBeGreaterThan(start);
-  return src.slice(start, end + 3);
-}
+/** The GET snapshots whose bind follows INTERNAL_SERVICE_BODY_BIND. */
+const GET_SNAPSHOTS = [
+  `/internal/rank/${ID}/perks`,
+  `/internal/sub-accounts/${ID}`,
+  `${API_KEY_OWNERSHIP_PATH}/${ID}`,
+  `/internal/sessions/${ID}`,
+  `/internal/account/${ID}`,
+  `/internal/email-proof/${ID}`,
+  `/internal/campaign-participant/${ID}`,
+  `/internal/security-lock/${ID}`,
+  `/internal/self-freeze/${ID}`,
+];
 
-function getRouteBlock(src: string, path: string): string {
-  const needle = `app.get<{ Params:`;
-  const pathAt = src.indexOf(path);
-  expect(pathAt, path).toBeGreaterThan(-1);
-  const start = src.lastIndexOf(needle, pathAt);
-  expect(start, `get ${path}`).toBeGreaterThan(-1);
-  const end = src.indexOf('});', pathAt);
-  expect(end, `unclosed ${path}`).toBeGreaterThan(pathAt);
-  return src.slice(start, end + 3);
+const AWARD = JSON.stringify({
+  userId: ID,
+  sourceModule: 'svc-p2p',
+  action: 'trade.completed.seller',
+  xpDelta: 5,
+  idempotencyKey: 'idem-award-hmac-pin',
+});
+
+async function award(boot: IdentityBoot, headers: Record<string, string>) {
+  return boot.app.inject({
+    method: 'POST',
+    url: '/trpc/rank.awardXp',
+    headers: { 'content-type': 'application/json', ...headers },
+    payload: AWARD,
+  });
 }
 
 function memoryStore(): NavigatorSessionStore {
@@ -89,61 +95,96 @@ function memoryStore(): NavigatorSessionStore {
 }
 
 describe('the deployed svc-identity mutate mounts require body-bound HMAC', () => {
-  it('pins navigator mutate register to bodyBind require on live lines before listen', () => {
-    const live = liveLines(indexSource());
-    const listen = live.indexOf('app.listen(');
-    expect(listen).toBeGreaterThan(-1);
-    const block = objectCall(live, 'registerNavigatorSessionRoutes');
-    expect(live.indexOf('registerNavigatorSessionRoutes(app,')).toBeLessThan(listen);
-    expect(block).toMatch(/bodyBind:\s*'require'/);
-    expect(block).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
-  });
+  it(
+    'the booted navigator mutate POSTs refuse unbound v1 HMAC under accept-both',
+    async () => {
+      const boot = await bootUnder('accept-both');
+      const publishBody = JSON.stringify({ sessionId: 'sess-1', userId: ID, status: 'open' });
+      const publish = await boot.app.inject({
+        method: 'POST',
+        url: NAVIGATOR_SESSION_PUBLISH_PATH,
+        headers: { 'content-type': 'application/json', ...v1() },
+        payload: publishBody,
+      });
+      expect(publish.statusCode).toBe(401);
+      const refresh = await boot.app.inject({ method: 'POST', url: NAVIGATOR_SESSION_REFRESH_PATH, headers: v1() });
+      expect(refresh.statusCode).toBe(401);
+
+      // The same caller, body-bound, gets past the door to the session store.
+      const signed = await boot.app.inject({
+        method: 'POST',
+        url: NAVIGATOR_SESSION_PUBLISH_PATH,
+        headers: { 'content-type': 'application/json', ...bound(publishBody, 'svc-agents') },
+        payload: publishBody,
+      });
+      expect(signed.statusCode).not.toBe(401);
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
   // Was: "preserves the default tRPC service mode" and asserted `bodyBindMode:
   // 'require'` was ABSENT, on the belief that require would 401 bound callers
   // because the tRPC adapter bypasses retainRawBody. That belief was the bug:
   // the context read the empty marker, so it 401'd honest callers and admitted a
   // replayed empty-body signature. The context now binds req.body.
-  it('pins the tRPC service mode to require (not env) while handing the full request to the context', () => {
-    const live = liveLines(indexSource());
-    const start = live.indexOf('createIdentityRequestContext(');
-    expect(start).toBeGreaterThan(-1);
-    const edge = live.slice(start, live.indexOf('});', start) + 3);
-    expect(edge).toMatch(/bodyBindMode:\s*'require'/);
-    expect(edge).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
-    expect(live).toMatch(/identityRequestContext\(req\)/);
-    const factory = liveLines(readFileSync(join(HERE, 'controls/founder-context.ts'), 'utf8'));
-    expect(factory).toMatch(/const regular = createEdgeContext\(options\)/);
-    expect(factory).toMatch(/if \(!requiresBody\) return context/);
-  });
+  it(
+    'the booted tRPC service door requires a body-bound caller under accept-both',
+    async () => {
+      const boot = await bootUnder('accept-both');
+      const unbound = await award(boot, v1());
+      expect(unbound.statusCode).toBe(401);
+      expect(boot.queries.some((q) => /rank_state|xp_events/i.test(q.text) && q.values.includes(ID))).toBe(false);
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
-  it('GET ownership/session/rank/account may still follow compose env', () => {
-    const live = liveLines(indexSource());
-    const ownership = objectCall(live, 'registerApiKeyOwnershipRoute');
-    expect(ownership).toMatch(/bodyBind:\s*env\.INTERNAL_SERVICE_BODY_BIND/);
-    expect(ownership).not.toMatch(/bodyBind:\s*'require'/);
+  it(
+    'the booted tRPC service door takes a body-bound caller and refuses a replayed empty-body signature',
+    async () => {
+      const boot = await bootUnder('accept-both');
+      const replayed = await award(boot, bound(''));
+      expect(replayed.statusCode).toBe(401);
+      const before = boot.queries.length;
+      const honest = await award(boot, bound(AWARD));
+      expect(honest.statusCode).not.toBe(401);
+      // It reached rank.awardXp: the award read or wrote the person's rank.
+      expect(boot.queries.slice(before).some((q) => q.values.includes(ID))).toBe(true);
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
-    for (const path of [
-      '/internal/rank/:userId/perks',
-      '/internal/sub-accounts/:subAccountId',
-      '/internal/sessions/:sessionId',
-      '/internal/account/:userId',
-      '/internal/email-proof/:userId',
-      '/internal/campaign-participant/:userId',
-      '/internal/security-lock/:userId',
-      '/internal/self-freeze/:userId',
-    ]) {
-      const block = getRouteBlock(live, path);
-      expect(block, path).toMatch(/serviceOfRequest\([^)]*env\.INTERNAL_SERVICE_BODY_BIND/);
-      expect(block, path).not.toMatch(/serviceOfRequest\([^)]*'require'/);
-    }
-  });
+  it(
+    'GET ownership/session/rank/account may still follow compose env',
+    async () => {
+      const loose = await bootUnder('accept-both');
+      for (const url of GET_SNAPSHOTS) {
+        const res = await loose.app.inject({ method: 'GET', url, headers: v1() });
+        expect(res.statusCode, `${url} under accept-both`).not.toBe(401);
+      }
+      const strict = await bootUnder('require');
+      for (const url of GET_SNAPSHOTS) {
+        const res = await strict.app.inject({ method: 'GET', url, headers: v1() });
+        expect(res.statusCode, `${url} under require`).toBe(401);
+        const signed = await strict.app.inject({ method: 'GET', url, headers: bound('') });
+        expect(signed.statusCode, `${url} body-bound under require`).not.toBe(401);
+      }
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
-  it('does not recook affiliate accrue/payout mounts (already require in-module)', () => {
-    const live = liveLines(indexSource());
-    expect(objectCall(live, 'registerAffiliateProducerAccrue')).not.toMatch(/bodyBind/);
-    expect(objectCall(live, 'registerAffiliateProducerPayout')).not.toMatch(/bodyBind/);
-  });
+  it(
+    'affiliate accrue/payout require body-bound HMAC whatever the env says',
+    async () => {
+      const boot = await bootUnder('accept-both');
+      const body = JSON.stringify({ feeEventId: 'fee-evt-hmac-pin' });
+      for (const url of [AFFILIATE_PRODUCER_PATH, AFFILIATE_PRODUCER_PAYOUT_PATH]) {
+        const res = await boot.app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json', ...v1() }, payload: body });
+        expect(res.statusCode, url).toBe(401);
+        expect(res.json(), url).toMatchObject({ code: 'identity.unauthenticated' });
+      }
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
   it('does not flip the compose INTERNAL_SERVICE_BODY_BIND default', () => {
     const compose = readFileSync(COMPOSE, 'utf8');

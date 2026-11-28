@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { loadP2pEnv } from './testing/env-load-fixture.js';
 import { parseOwnerIntegerEnv } from './fee-bps-env.js';
 import {
   P2pError,
@@ -42,13 +43,18 @@ describe('P2P payment/release/sweep/dispute SLA unset refuse', () => {
     expect(parseOwnerIntegerEnv('30')).toBe(30);
   });
 
-  it('env.ts does not git-default payment/release/sweep/dispute SLA hours', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-p2p/src/env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/P2P_PAYMENT_DEADLINE_SECONDS:[\s\S]{0,200}\.default\(\s*15\s*\*\s*60\s*\)/);
-    expect(envTs).not.toMatch(/P2P_RELEASE_DEADLINE_SECONDS:[\s\S]{0,200}\.default\(\s*30\s*\*\s*60\s*\)/);
-    expect(envTs).not.toMatch(/P2P_SWEEP_INTERVAL_SECONDS:[\s\S]{0,200}\.default\(\s*30\s*\)/);
-    expect(envTs).not.toMatch(/P2P_DISPUTE_SLA_SECONDS:[\s\S]{0,200}\.default\(\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\)/);
-    expect(envTs).not.toMatch(/P2P_DISPUTE_ESCALATION_RECHECK_SECONDS:[\s\S]{0,200}\.default\(\s*60\s*\*\s*60\s*\)/);
+  it('env.ts leaves payment/release/sweep/dispute clocks unset when the host gives none', async () => {
+    const names = [
+      'P2P_PAYMENT_DEADLINE_SECONDS',
+      'P2P_RELEASE_DEADLINE_SECONDS',
+      'P2P_SWEEP_INTERVAL_SECONDS',
+      'P2P_DISPUTE_SLA_SECONDS',
+      'P2P_DISPUTE_ESCALATION_RECHECK_SECONDS',
+    ] as const;
+    for (const host of [{}, Object.fromEntries(names.map((name) => [name, '   ']))]) {
+      const env = await loadP2pEnv(host);
+      for (const name of names) expect(env[name], name).toBeNull();
+    }
   });
 
   it('compose passes empty — never baked 900 / 1800 / 30 / 604800 / 3600', () => {

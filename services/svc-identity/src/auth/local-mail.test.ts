@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LOCAL_MAIL_TRANSPORT, MAIL_TRANSPORT_REFUSED, localMailLine, openIdentityMail } from './local-mail.js';
 
 describe('openIdentityMail', () => {
@@ -55,9 +55,49 @@ describe('openIdentityMail', () => {
     expect(text).toContain('purpose=email-confirm');
     expect(text).toContain(`link=confirm-email?token=${encodeURIComponent(token)}`);
     expect(written.join('')).not.toContain(token);
-    expect(readFileSync(new URL('./local-mail.ts', import.meta.url), 'utf8')).not.toMatch(
-      /nodemailer|resend|sendgrid|mailgun|postmark|amazonaws/i,
-    );
+  });
+
+  it('the local outbox sends through no mail vendor and makes no request: the line goes to the file alone', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'mail-outbox-'));
+    const outbox = path.join(dir, 'email-outbox.log');
+    const savedFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requests.push(String(input));
+      throw new Error('the local outbox made a request');
+    }) as typeof fetch;
+    try {
+      // The fetch handed in is the one a gateway would use: the local outbox never calls it either.
+      const mail = openIdentityMail({ appEnv: 'test', transport: LOCAL_MAIL_TRANSPORT, outboxPath: outbox }, globalThis.fetch);
+      const message = {
+        email: 'a@example.com',
+        code: 'tok',
+        expiresAt: new Date('2026-10-17T00:00:00.000Z'),
+        purpose: 'email-confirm' as const,
+      };
+      await mail!.send(message);
+      expect(readFileSync(outbox, 'utf8')).toBe(localMailLine(message));
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
+    expect(requests).toEqual([]);
+    // No vendor SDK or network module is loaded with it: a fresh load of the module with each watched loads none.
+    const loaded: string[] = [];
+    const watched = ['node:http', 'node:https', 'node:net', 'node:tls', 'nodemailer', 'resend', '@sendgrid/mail', 'mailgun.js', 'postmark'];
+    for (const name of watched)
+      vi.doMock(name, () => {
+        loaded.push(name);
+        return {};
+      });
+    vi.resetModules();
+    try {
+      const fresh = await import('./local-mail.js');
+      expect(fresh.openIdentityMail({ appEnv: 'test', transport: LOCAL_MAIL_TRANSPORT, outboxPath: outbox })).toBeDefined();
+    } finally {
+      for (const name of watched) vi.doUnmock(name);
+      vi.resetModules();
+    }
+    expect(loaded).toEqual([]);
   });
 
   it('builds the confirm line without a break in the email field', () => {

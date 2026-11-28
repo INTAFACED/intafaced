@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import type { Context } from '@intafaced/contracts';
 import { IDENTITY_REVOKE_SESSION } from '@intafaced/contracts/identity-revoke-session-procedures';
+import { createSessionRevokeRouter } from '../session-revoke-router.js';
 import { PlaceDoor } from './place-door.js';
 import { listSessions } from './list-sessions.js';
 import { requireRevokeSessionIds, revokeNamedSession } from './revoke-session.js';
@@ -13,8 +13,10 @@ type KeyRow = { id: string; user_id: string; revoked: boolean };
 function sessionStore(sessions: SessionRow[], keys: KeyRow[] = []) {
   let writes = 0;
   let keyWrites = 0;
+  const statements: Array<{ text: string; values: unknown[] }> = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push({ text: text.replace(/\s+/g, ' ').trim(), values });
     if (text.trim() === 'true') return [];
     if (text.includes('select') && text.includes('from sessions') && text.includes('created_at')) {
       const named = values[0];
@@ -64,11 +66,13 @@ function sessionStore(sessions: SessionRow[], keys: KeyRow[] = []) {
     },
     sessions,
     keys,
+    statements,
   }) as Parameters<typeof revokeNamedSession>[0] & {
     writes: number;
     keyWrites: number;
     sessions: SessionRow[];
     keys: KeyRow[];
+    statements: Array<{ text: string; values: unknown[] }>;
   };
 }
 
@@ -82,10 +86,27 @@ const SID_MISSING = '55555555-5555-4555-8555-555555555555';
 const T1 = new Date('2026-01-01T00:00:00.000Z');
 const T2 = new Date('2026-02-01T00:00:00.000Z');
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'revoke-session.ts'), 'utf8');
-const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
-const routerSrc = readFileSync(join(here, '../session-revoke-router.ts'), 'utf8');
+/** The store behind the door: the door's own "is this the calling device?" read answers no; the rest goes to `store`. */
+function doorSql(store: ReturnType<typeof sessionStore>) {
+  const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (strings.join('?').toLowerCase().includes(' as same')) return [{ same: false }];
+    return (store as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
+  };
+  return fn as Parameters<typeof createSessionRevokeRouter>[0];
+}
+
+const edgeAuth = {
+  secret: 'revoke-session-test-secret-long-enough',
+  issuer: 'intafaced',
+  audience: 'intafaced.api',
+  accessTtlSeconds: 900,
+};
+
+/** Person A signed in on seat A2, holding `scopes`. */
+async function seat(scopes: string[]): Promise<Context> {
+  const { token } = await issueAccessToken({ userId: A, sessionId: SID_A2, scopes, tier: 'none', mfa: true }, edgeAuth);
+  return { principal: await verifyAccessToken(token, edgeAuth), service: null, region: 'DE', requestId: 'req-1' };
+}
 
 describe('revokeNamedSession', () => {
   it('refuses a missing userId or sessionId and does not write', async () => {
@@ -181,23 +202,32 @@ describe('revokeNamedSession', () => {
     expect(sql.sessions.find((s) => s.id === SID_B)?.revoked).toBe(false);
   });
 
-  it('write door is identity:write; input is both uuids; helper UPDATE is sessions-only', () => {
-    expect(src).toMatch(/UPDATE sessions/);
-    expect(src).toMatch(/AND user_id = /);
-    expect(src).not.toMatch(/UPDATE api_keys/);
-    expect(src).not.toMatch(/INSERT /);
-    expect(routerSrc).toMatch(/revokeSession: mountRecord\(\s*IDENTITY_REVOKE_SESSION,/);
+  it('write door is identity:write; input is both uuids; helper UPDATE is sessions-only', async () => {
+    // The helper's one statement: an update of sessions scoped to the seat and its owner; no key update, no insert.
+    const sql = sessionStore([{ id: SID_A1, user_id: A, revoked: false, created_at: T1 }]);
+    await revokeNamedSession(sql, A, A, SID_A1);
+    expect(sql.statements).toEqual([
+      { text: 'update sessions set revoked = true where id = ? and user_id = ? and revoked = false returning id', values: [SID_A1, A] },
+    ]);
+    expect(sql.keyWrites).toBe(0);
+    // The door is the record mounted: identity:write to call it, both ids uuids, and it ends the caller's own seat.
+    const door = createSessionRevokeRouter(doorSql(sql));
+    const writer = door.createCaller(await seat(['identity:write']));
+    await expect(writer.revokeSession({ userId: A, sessionId: SID_A1 })).resolves.toEqual({ userId: A, sessionId: SID_A1, revoked: false });
+    const reader = door.createCaller(await seat(['identity:read']));
+    const refused = await reader.revokeSession({ userId: A, sessionId: SID_A1 }).catch((e: unknown) => e);
+    expect((refused as { code?: string }).code).toBe('FORBIDDEN');
+    for (const bad of [
+      { userId: 'x', sessionId: SID_A1 },
+      { userId: A, sessionId: 'x' },
+    ]) {
+      const err = await writer.revokeSession(bad).catch((e: unknown) => e);
+      expect((err as { code?: string }).code).toBe('BAD_REQUEST');
+    }
     expect(IDENTITY_REVOKE_SESSION.access).toEqual({ caller: 'scope', scope: 'identity:write' });
     const id = '11111111-1111-4111-8111-111111111111';
     expect(IDENTITY_REVOKE_SESSION.input.safeParse({ userId: id, sessionId: id }).success).toBe(true);
     expect(IDENTITY_REVOKE_SESSION.input.safeParse({ userId: 'x', sessionId: id }).success).toBe(false);
     expect(IDENTITY_REVOKE_SESSION.input.safeParse({ userId: id, sessionId: 'x' }).success).toBe(false);
-  });
-});
-
-describe('revokeSession is mounted (not helper-only)', () => {
-  it('mergeRouters includes createSessionRevokeRouter', () => {
-    expect(indexSrc).toMatch(/createSessionRevokeRouter\(sql\)/);
-    expect(indexSrc).toMatch(/from ['"]\.\/session-revoke-router\.js['"]/);
   });
 });

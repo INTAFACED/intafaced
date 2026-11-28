@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * H3 — Real Logic SBE 1.39.0 in the svc-ws image.
@@ -21,6 +21,21 @@ const SHA = 'e773b57cac6b';
 const JAR = '/app/sbe-codec.jar';
 const KEY = 'INTAFACED_SBE_JAVA';
 
+async function loadEnv(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  vi.stubEnv('NODE_ENV', 'test');
+  for (const [key, value] of Object.entries(overrides)) {
+    vi.stubEnv(key, value);
+  }
+  const module = await import('./env.js');
+  return module.env;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 function wsComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
   const start = compose.indexOf('\n  svc-ws:');
@@ -39,7 +54,6 @@ describe('compose pins Real Logic SBE Java in the svc-ws image (H3)', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
   const block = wsComposeBlock();
   const dockerfile = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-ws/src/env.ts'), 'utf8');
   const pin = readFileSync(join(ROOT, 'packages/sbe-codec/SBE.pin.json'), 'utf8');
 
   it('SBE.pin.json is Real Logic 1.39.0 SHA e773b57cac6b, not protobuf', () => {
@@ -51,9 +65,10 @@ describe('compose pins Real Logic SBE Java in the svc-ws image (H3)', () => {
     expect(pin.toLowerCase()).not.toMatch(/protobuf-as-sbe.*take/i);
   });
 
-  it('env.ts declares INTAFACED_SBE_JAVA optional with no invented path', () => {
-    expect(envTs).toContain('INTAFACED_SBE_JAVA');
-    expect(envTs).toMatch(/INTAFACED_SBE_JAVA:\s*z\.string\(\)\.min\(1\)\.optional\(\)/);
+  it('the env loader takes INTAFACED_SBE_JAVA as optional with no invented path', async () => {
+    expect((await loadEnv({ [KEY]: undefined })).INTAFACED_SBE_JAVA).toBeUndefined();
+    expect((await loadEnv({ [KEY]: JAR })).INTAFACED_SBE_JAVA).toBe(JAR);
+    await expect(loadEnv({ [KEY]: '' })).rejects.toThrow(/INTAFACED_SBE_JAVA/);
   });
 
   it('compose svc-ws builds sbe-runtime and passes the jar path once', () => {

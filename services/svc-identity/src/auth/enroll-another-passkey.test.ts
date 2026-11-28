@@ -1,9 +1,18 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
 import { beginEnrollAnotherPasskey, enrollAnotherPasskey } from './enroll-another-passkey.js';
-import { beginEnrollPasskey, toRegistrationResponseJSON, type PasskeyCeremony } from './enroll-passkey.js';
+import { beginEnrollPasskey, enrollPasskey, toRegistrationResponseJSON, type PasskeyCeremony } from './enroll-passkey.js';
+
+// The WebAuthn library, watched: enrolling another passkey runs the ceremony it is given, never a copy of its own.
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return {
+    ...real,
+    generateRegistrationOptions: vi.fn(real.generateRegistrationOptions),
+    verifyRegistrationResponse: vi.fn(real.verifyRegistrationResponse),
+    generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions),
+  };
+});
 import { mintApiKeyAfterPasskey, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 import { rotateApiKeyAfterPasskey } from './rotate-api-key-passkey.js';
@@ -157,9 +166,6 @@ const oldRow = {
 
 const rotateInput = { userId: 'user-1', keyId: 'old', grantorScopes: ['identity:read'] as const };
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'enroll-another-passkey.ts'), 'utf8');
-
 function writtenCreds(written: unknown[]): Array<{ credentialId: string; lastVerifiedAt?: string }> {
   const payload = written.find((row) => Array.isArray(row) && row.some((v) => Array.isArray(v)));
   return ((payload as unknown[])?.find((v) => Array.isArray(v)) ?? []) as Array<{
@@ -169,12 +175,45 @@ function writtenCreds(written: unknown[]): Array<{ credentialId: string; lastVer
 }
 
 describe('enrollAnotherPasskey', () => {
-  it('reuses beginEnrollPasskey / enrollPasskey; does not copy the ceremony or invent a challenge', () => {
-    expect(src).toMatch(/beginEnrollPasskey\(/);
-    expect(src).toMatch(/enrollPasskey\(/);
-    expect(src).not.toMatch(/generateRegistrationOptions/);
-    expect(src).not.toMatch(/verifyRegistrationResponse/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
+  it('reuses beginEnrollPasskey / enrollPasskey; does not copy the ceremony or invent a challenge', async () => {
+    vi.useFakeTimers({ now: new Date('2026-09-01T00:00:00.000Z'), toFake: ['Date'] });
+    try {
+      // Begin: the same options as beginEnrollPasskey, from the given ceremony, and the challenge it holds is the ceremony's.
+      const run = async (begin: typeof beginEnrollPasskey, finish: typeof enrollPasskey) => {
+        const sql = persistSql([first]);
+        const generateCalls: unknown[] = [];
+        const ceremony = enrollCeremony('cred-2', generateCalls);
+        const challenges = memChallenges();
+        const started = await begin(sql as never, 'user-1', rp, challenges, ceremony);
+        const out = await finish(
+          sql as never,
+          'user-1',
+          rp,
+          toRegistrationResponseJSON({
+            id: 'cred-2',
+            rawId: 'cred-2',
+            type: 'public-key',
+            response: { clientDataJSON: clientData(started.challenge), attestationObject: 'a' },
+          }),
+          challenges,
+          { mfa: true, privileged: false },
+          ceremony,
+        );
+        return { started, generateCalls, out, written: sql.written, creds: sql.creds };
+      };
+      const own = await run(beginEnrollAnotherPasskey, enrollAnotherPasskey);
+      const base = await run(beginEnrollPasskey, enrollPasskey);
+      expect(own).toEqual(base);
+      expect(own.started.challenge).toBe('lib-challenge');
+      expect(own.generateCalls).toHaveLength(1);
+      expect(own.out).toEqual({ credentialId: 'cred-2' });
+    } finally {
+      vi.useRealTimers();
+    }
+    // The WebAuthn library itself is never called: the ceremony given is the only one.
+    expect(vi.mocked(webauthnLib.generateRegistrationOptions)).not.toHaveBeenCalled();
+    expect(vi.mocked(webauthnLib.verifyRegistrationResponse)).not.toHaveBeenCalled();
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 
   it('enrolls a second cred without dropping the first lastVerifiedAt', async () => {

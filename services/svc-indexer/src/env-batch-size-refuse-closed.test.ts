@@ -17,7 +17,7 @@
  *    or compose interpolates :-200
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -58,10 +58,14 @@ afterEach(() => {
 });
 
 describe('svc-indexer INDEXER_BATCH_SIZE refuse-closed', () => {
-  it('env.ts has no git-default 200 blocks-per-pass', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/INDEXER_BATCH_SIZE:[\s\S]*?\.default\(200\)/);
-    expect(envTs).toMatch(/INDEXER_BATCH_SIZE is unset — will not publish blocks-per-pass 200 as live/);
+  it('env.ts has no git-default 200 blocks-per-pass', async () => {
+    // Unset and blank both refuse with the typed words: no default stands in for the operator's value.
+    await expect(loadWith({ INDEXER_BATCH_SIZE: undefined })).rejects.toThrow(
+      'INDEXER_BATCH_SIZE is unset — will not publish blocks-per-pass 200 as live',
+    );
+    await expect(loadWith({ INDEXER_BATCH_SIZE: '' })).rejects.toThrow(
+      'INDEXER_BATCH_SIZE is unset — will not publish blocks-per-pass 200 as live',
+    );
   });
 
   it('compose does not interpolate :-200', () => {

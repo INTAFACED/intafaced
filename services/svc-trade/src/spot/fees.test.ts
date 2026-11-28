@@ -1,13 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MoneyError, mulBps, parseAmount as amt, formatAmount, recipes } from '@intafaced/ledger-client';
 import { FeeScheduleError, parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from './fee-schedule.js';
 import { effectiveFeeBps, fillPayAmounts, fillReceivablesSurviveFees, ratesForFill } from './fees.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const feesSource = readFileSync(join(here, 'fees.ts'), 'utf8');
 const PUBLISHED = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'fees-test', makerBps: '100', takerBps: '200' }));
 
 /**
@@ -120,8 +115,9 @@ describe('ratesForFill', () => {
   it('uses owner decimal-string bps, not a market-row object', () => {
     const odd = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'odd', makerBps: '3', takerBps: '7' }));
     expect(ratesForFill(odd, 0, 0)).toEqual({ makerFeeBps: 3, takerFeeBps: 7 });
-    expect(feesSource).toContain('requirePublishedFeeSchedule');
-    expect(feesSource).not.toMatch(/market\.makerBps|market\.takerBps/);
+    // An unpublished schedule refuses: there is no market row to fall back on.
+    expect(() => ratesForFill(UNPUBLISHED_FEE_SCHEDULE, 0, 0)).toThrow(expect.objectContaining({ code: 'trade.fee_schedule_blank' }));
+    // A market row's own maker/taker columns cannot be passed at all: ratesForFill takes an OwnerFeeSchedule.
   });
 });
 

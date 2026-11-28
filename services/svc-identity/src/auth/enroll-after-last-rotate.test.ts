@@ -1,11 +1,15 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
 import { rotateApiKeyAfterPasskey } from './rotate-api-key-passkey.js';
 import { newlyEnrolledPasskeyRotates, rotateApiKeyAfterNewlyEnrolledPasskey } from './enroll-after-last-rotate.js';
+
+// The WebAuthn library, watched: rotating after a passkey must never start a ceremony of its own.
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...real, generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions) };
+});
 
 function fakeSql(queue: unknown[][]) {
   let i = 0;
@@ -15,6 +19,39 @@ function fakeSql(queue: unknown[][]) {
     return rows;
   };
   return fn as unknown as Parameters<typeof rotateApiKeyAfterPasskey>[1];
+}
+
+/** A `sql` tag that answers queries from `queue` in turn and records each statement's text. */
+function recordingSql(queue: unknown[][]) {
+  const statements: string[] = [];
+  let i = 0;
+  const fn = async (strings: TemplateStringsArray) => {
+    statements.push(strings.join('?').replace(/\s+/g, ' ').trim());
+    const rows = queue[i] ?? [];
+    i += 1;
+    return rows;
+  };
+  return { sql: fn as Parameters<typeof rotateApiKeyAfterPasskey>[1], statements };
+}
+
+/** A call's outcome: its answer (the old key's end time as "a date"), or the code it refused with. */
+async function settle<T>(p: Promise<T>): Promise<{ value: unknown } | { code: unknown }> {
+  try {
+    const value = await p;
+    return { value: { ...value, endsAt: (value as { endsAt?: unknown }).endsAt instanceof Date } };
+  } catch (err) {
+    return { code: (err as { code?: unknown }).code };
+  }
+}
+
+/** The code a synchronous check refuses with, or null when it passes. */
+function refusalOf(check: () => void): unknown {
+  try {
+    check();
+    return null;
+  } catch (err) {
+    return (err as { code?: unknown }).code;
+  }
 }
 
 function makeMinter() {
@@ -116,12 +153,23 @@ describe('newlyEnrolledPasskeyRotates — enroll after last unenroll', () => {
     expect(revoked).toEqual([]);
   });
 
-  it('source reuses requireVerifiedPasskey and rotateApiKeyAfterPasskey; no invented challenge', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'enroll-after-last-rotate.ts'), 'utf8');
-    expect(src).toMatch(/requireVerifiedPasskey/);
-    expect(src).toMatch(/rotateApiKeyAfterPasskey/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+challenges/i);
+  it('rotates and refuses exactly as rotateApiKeyAfterPasskey does; no invented challenge', async () => {
+    for (const creds of [[enrolledAgain], [enrolledUnverified], []]) {
+      const own = makeMinter();
+      const ownSql = recordingSql([[{ webauthn_creds: creds }], [oldRow]]);
+      const ownOut = await settle(rotateApiKeyAfterNewlyEnrolledPasskey(own.minter, ownSql.sql, rotateInput));
+      const base = makeMinter();
+      const baseSql = recordingSql([[{ webauthn_creds: creds }], [oldRow]]);
+      const baseOut = await settle(rotateApiKeyAfterPasskey(base.minter, baseSql.sql, rotateInput));
+      expect(ownOut).toEqual(baseOut);
+      expect([own.created, own.revoked]).toEqual([base.created, base.revoked]);
+      expect(ownSql.statements).toEqual(baseSql.statements);
+      // The gate is requireVerifiedPasskey's on the stored passkeys: its refusal, or a rotated key.
+      const gate = refusalOf(() => requireVerifiedPasskey(creds));
+      if (gate) expect(ownOut).toEqual({ code: gate });
+      else expect(ownOut).toMatchObject({ value: { id: 'k1', revokedKeyId: 'old' } });
+      expect(ownSql.statements.filter((s) => /INSERT\s+(INTO\s+)?challenges/i.test(s))).toEqual([]);
+    }
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 });

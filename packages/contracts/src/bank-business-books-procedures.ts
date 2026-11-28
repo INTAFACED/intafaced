@@ -6,6 +6,7 @@ import {
   businessBookLineSchema,
   businessBookStatementSchema,
   businessCodingRuleSchema,
+  businessBooksOverviewSchema,
 } from './bank-business-books.js';
 import { accountId, period } from './bank-call-schemas.js';
 import { stepUpApprovalField } from './bank-cards-procedures.js';
@@ -149,6 +150,39 @@ export const BANK_BUSINESS_BOOKS_CODE_LINES = defineProcedure({
         to: '2026-01-01T00:00:00.000Z',
         lineIds: ['USDC'],
       },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_BOOKS_OVERVIEW = defineProcedure({
+  ...base,
+  name: 'bank.businessBooks.overview',
+  kind: 'query',
+  path: 'businessBooks.overview',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z.object({ accountId }).strict(),
+  output: businessBooksOverviewSchema,
+  samples: [
+    { verdict: 'accept', input: { accountId: '22222222-2222-4222-8222-222222222222' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_BOOKS_LINES = defineProcedure({
+  ...base,
+  name: 'bank.businessBooks.lines',
+  kind: 'query',
+  path: 'businessBooks.lines',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z.object({ accountId, ...period }).strict(),
+  output: z.object({ items: z.array(businessBookLineSchema) }),
+  samples: [
+    {
+      verdict: 'accept',
+      input: { accountId: '22222222-2222-4222-8222-222222222222', from: '2026-01-01T00:00:00Z', to: '2026-01-01T00:00:00Z' },
     },
     { verdict: 'refuse', input: 42 },
   ],

@@ -75,6 +75,14 @@ describe('closure diff', () => {
   });
 });
 
+describe('closure operator desk', () => {
+  it('the operator closure desk serves no cancel, finalize or reopen door', () => {
+    // The desk lists closures (paged, admin:compliance only: the Postgres suite below); cancelling, finalizing or
+    // reopening one is never an operator door. Building the router reads nothing, so no database is needed here.
+    expect(Object.keys(createClosureOpsRouter((() => Promise.resolve([])) as never)._def.procedures)).toEqual(['accountClosures.list']);
+  });
+});
+
 const available = await postgresAvailable(DATABASE_URL);
 
 if (!available) {
@@ -533,8 +541,6 @@ if (!available) {
       }
       const requested = await operator.accountClosures.list({ status: 'requested', limit: 10 });
       expect(requested.rows.map((row) => row.userId).sort()).toEqual([b.userId, c.userId].sort());
-      const src = readFileSync(join(here, 'closure-ops-router.ts'), 'utf8');
-      expect(src).not.toMatch(/\b(cancel|finalize|reopen)\s*:/);
     });
   });
 }

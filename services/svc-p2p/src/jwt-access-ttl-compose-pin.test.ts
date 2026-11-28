@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { authEnvSchema } from '@intafaced/config';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -46,13 +47,19 @@ function countAssignments(source: string, name: string): number {
 }
 
 describe('compose passes access-token TTL issuer audience into svc-p2p', () => {
-  const authEnv = readFileSync(join(ROOT, 'packages/config/src/env.ts'), 'utf8');
   const block = p2pComposeBlock();
 
   it('authEnvSchema still defaults TTL / issuer / audience', () => {
-    expect(authEnv).toMatch(/JWT_ACCESS_TTL_SECONDS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(60\)\.max\(3600\)\.default\(900\)/);
-    expect(authEnv).toMatch(/JWT_ISSUER:\s*z\.string\(\)\.default\('intafaced'\)/);
-    expect(authEnv).toMatch(/JWT_AUDIENCE:\s*z\.string\(\)\.default\('intafaced\.api'\)/);
+    const secret = { JWT_ACCESS_SECRET: 's'.repeat(32) };
+    expect(authEnvSchema.parse(secret)).toMatchObject({
+      JWT_ACCESS_TTL_SECONDS: 900,
+      JWT_ISSUER: 'intafaced',
+      JWT_AUDIENCE: 'intafaced.api',
+    });
+    expect(authEnvSchema.parse({ ...secret, JWT_ACCESS_TTL_SECONDS: '60' }).JWT_ACCESS_TTL_SECONDS).toBe(60);
+    expect(authEnvSchema.parse({ ...secret, JWT_ACCESS_TTL_SECONDS: '3600' }).JWT_ACCESS_TTL_SECONDS).toBe(3600);
+    expect(authEnvSchema.safeParse({ ...secret, JWT_ACCESS_TTL_SECONDS: '59' }).success).toBe(false);
+    expect(authEnvSchema.safeParse({ ...secret, JWT_ACCESS_TTL_SECONDS: '3601' }).success).toBe(false);
   });
 
   it('compose svc-p2p block passes each JWT key from the host with identity defaults', () => {

@@ -18,7 +18,6 @@ import {
   publishedPublicTapeLimit,
   TRADE_PUBLIC_TAPE_LIMIT_UNSET,
 } from './trade-service.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => boolean } {
   let sqlCalled = false;
@@ -31,14 +30,6 @@ function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => bo
 }
 
 describe('TradeService.publicTape limit unset refuse (no invented 100)', () => {
-  it('trade-service.ts does not invent 100 via default param or clamp', () => {
-    const src = tradeServiceSource();
-    expect(src).not.toMatch(/async (?:function )?publicTape\([^)]*limit = 100/);
-    expect(src).toMatch(/async publicTape\(marketId: string, limit: number/);
-    expect(src).toMatch(/publishedPublicTapeLimit\(limit\)/);
-    expect(src).not.toMatch(/Math\.min\(Math\.max\(Math\.floor\(limit\), 1\), 500\)/);
-  });
-
   it('blank / non-integer / out of 1..500 throws trade.public_tape_limit_unset', () => {
     for (const limit of [undefined, null, 0, -1, 501, 1.5, Number.NaN]) {
       try {

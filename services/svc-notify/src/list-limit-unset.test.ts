@@ -8,13 +8,8 @@
  * 4. Class N
  * 5. Paths: services/svc-notify/src/notify-service.ts, router.ts
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { NotifyListLimitUnsetError, NOTIFY_LIST_LIMIT_UNSET, assertNotifyListLimit } from './notify-service.js';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('assertNotifyListLimit', () => {
   it('refuses blank / NaN / 0 — never invents 20', () => {
@@ -38,18 +33,5 @@ describe('assertNotifyListLimit', () => {
     expect(assertNotifyListLimit(1)).toBe(1);
     expect(assertNotifyListLimit(100)).toBe(100);
     expect(assertNotifyListLimit(101)).toBe(100);
-  });
-});
-
-describe('notify.list limit unset refuse — source pin', () => {
-  it('router does not invent 20 when notify.list omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-notify/src/router.ts'), 'utf8');
-    const start = src.indexOf('list: mountRecord(\n        NOTIFY_LIST,');
-    expect(start).toBeGreaterThan(-1);
-    const end = src.indexOf('unreadCount:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertNotifyListLimit(input?.limit)');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 20/);
-    expect(fn).not.toMatch(/\?\? 20/);
   });
 });

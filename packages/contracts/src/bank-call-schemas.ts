@@ -3,6 +3,7 @@ import { GLOBAL_HOLD_STATES } from './bank-global-procedures.js';
 import { LINKED_ACCOUNT_STATES, LINKED_ACCOUNT_BLOCKERS } from './bank-cash-out-procedures.js';
 import { assetIdSchema } from './asset-id.js';
 import { bankSpaceSchema } from './bank-spaces-list.js';
+import { BUSINESS_RECEIPT_TYPES } from './bank-business-cards.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-bank's records share, copied from the service's router while its Rust port is in flight (the router keeps its own until the port's switch). */
@@ -746,3 +747,97 @@ export const wallet = z.string().regex(/^0x[0-9a-f]{40}$/, 'a lower-case EVM add
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
 export const stepUpApprovalField = z.string().min(1).max(128).optional();
+
+export const billInput = z.object({ billId: z.string().guid() }).strict();
+
+export const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const MAX_SPLIT_LINES = 10;
+
+/**
+ * A BUSINESS PAYS ITS TEAM AND CONTRACTORS IN BULK (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05).
+ *
+ * The business's money is the partner bank's (docs/adr/2026-11-10-launch-money-model.md), in its own account
+ * at the partner, `business:<account id>`. INTAFACED's ledger posts nothing for any of this.
+ *
+ *   bulk run     A CSV (`name,iban,amount,currency,reference`) is imported under the run's own id. Every line is checked;
+ *                a line that fails is in the validation report with its code and sends nothing, and nothing is held at
+ *                import. Confirming the run is the funding step: the business's partner balance must cover the total
+ *                (`bank.bulk_run_unfunded`, nothing changes). At or above the business's own threshold the run waits for
+ *                an approver who is not the person who confirmed it. Then one instruction to the partner carrying every line,
+ *                `bank.business.bulk-pay:<run id>`, stored before it is sent and sent once; a lost answer is read back by
+ *                its key, never sent again blind. A second run cannot reuse the key: the same id on another file is
+ *                `bank.business_request_conflict`, and the key is the id's, so it is never blank.
+ *   contractors  A contractor (payout IBAN, and a wallet for crypto payroll) and their invoices. A contractor may add
+ *                themselves through a one-use onboarding link. Paying a batch of open invoices writes the intent row first;
+ *                the business's approval rules (J-bank-19) say how many approvers it needs. Then one instruction to the
+ *                partner's payout rail, `bank.business.contractor-batch:<batch id>`; with no partner payout rail the
+ *                intent is kept, refused with `rail.bank`, and nothing moves.
+ *   crypto       The business's own wallet is connected by signing an offered message. A recurring payroll pays its members
+ *                monthly; each month's run is one message under `bank.business.crypto-payroll:<payroll>:<YYYY-MM>`, with a
+ *                payslip per member, signed by the business's own wallet. INTAFACED holds no key and no vault, and sends
+ *                nothing on chain: the signed run is the wallet's to broadcast (`rail.crypto`, no chain rail here).
+ */
+export const MAX_BULK_FILE_BYTES = 262_144;
+
+export const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+
+export const contractorFields = {
+  name: z.string().min(1).max(140),
+  email: z.string().max(254).nullable(),
+  iban: z.string().max(42).nullable(),
+  walletAddress: address.nullable(),
+};
+
+export const MAX_BATCH_INVOICES = 50;
+
+export const MAX_PAYROLL_MEMBERS = 50;
+
+/** The largest bill file kept: 1 MiB. */
+export const MAX_BILL_BYTES = 1_048_576;
+
+/** At most 1 MiB once decoded: base64 of 1 MiB is 1398104 characters. */
+export const fileBase64 = z
+  .string()
+  .min(4)
+  .max(Math.ceil(MAX_BILL_BYTES / 3) * 4)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/);
+
+/**
+ * A BUSINESS GIVES ITS TEAM CARDS AND HANDLES THEIR EXPENSES (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02).
+ *
+ * The business's money is the partner bank's (docs/adr/2026-11-10-launch-money-model.md), in its own account
+ * at the partner, `business:<account id>`. INTAFACED's ledger posts nothing for any of this.
+ *
+ *   cards           A member with `manage_team` issues a card to a member of the business with a per-purchase limit. The
+ *                   card is a TEST card on the TEST card network: `rail.card` is not connected, and no card number, CVC or
+ *                   PIN exists anywhere (the last four digits are derived from the card id).
+ *   purchases       A purchase over the card's limit is declined `over_limit`, moves nothing, and opens one request to the
+ *                   business's admins. One within it is captured as one partner move from the business's account to the
+ *                   TEST merchant, under `bank.business.card-capture:<purchase id>`, stored before it is sent and sent
+ *                   once; a lost answer is read back by its key. The partner's no (not enough money) declines it.
+ *   receipts        The business sets its own receipt rule. A captured purchase over it with no receipt "needs receipt",
+ *                   and exactly one reminder is queued for it, never a second. Giving the receipt clears it. Anyone with
+ *                   `export` downloads every receipt of the business in one ZIP file.
+ *   reimbursements  A member claims back what they paid themselves, with a receipt. Someone else holding `approve`
+ *                   approves and pays it: one partner move from the business's account to the member's own, under
+ *                   `bank.business.reimbursement:<claim id>`. The member's balance at the partner is read just before and
+ *                   just after, as the partner reports it.
+ */
+export const MAX_RECEIPT_BYTES = 524_288;
+
+/** Base64 of at most 512 KiB. */
+export const base64 = z
+  .string()
+  .min(4)
+  .max(Math.ceil(MAX_RECEIPT_BYTES / 3) * 4)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/);
+
+export const receiptFields = {
+  receiptId: z.string().guid(),
+  fileName: z.string().min(1).max(120),
+  contentType: z.enum(BUSINESS_RECEIPT_TYPES),
+  contentBase64: base64,
+};
+
+export const signature = z.string().regex(/^0x[0-9a-fA-F]{130}$/);

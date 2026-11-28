@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { verifyAccessToken } from '@intafaced/auth';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
@@ -38,6 +38,30 @@ const migrations = readdirSync(join(here, '..', '..', 'drizzle'))
   .sort()
   .map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
+/** Only what svc-identity's settings refuse to start without: nothing an owner publishes is set. */
+const BLANK_ENV: NodeJS.ProcessEnv = {
+  APP_ENV: 'test',
+  SERVICE_NAME: 'svc-identity',
+  DATABASE_URL: 'postgres://blank:blank@localhost:5432/intafaced_test',
+  DATABASE_POOL_MAX: '1',
+  EDGE_PRINCIPAL_SECRET: 'a-refresh-recovery-edge-secret-long-enough',
+  INTERNAL_SERVICE_SECRET: 'a-refresh-recovery-internal-secret-long-enough',
+  JWT_ACCESS_SECRET: 'a-refresh-recovery-access-secret-long-enough',
+  JWT_REFRESH_SECRET: 'a-refresh-recovery-refresh-secret-long-enough',
+};
+
+/** `env.ts` parses `process.env` when it is imported: a fresh import over the blank settings plus `extra`. */
+async function envWith(extra: NodeJS.ProcessEnv) {
+  const saved = process.env;
+  process.env = { ...BLANK_ENV, ...extra };
+  vi.resetModules();
+  try {
+    return (await import('../env.js')).env;
+  } finally {
+    process.env = saved;
+  }
+}
+
 describe('REFRESH_RECOVERY_SECONDS', () => {
   it('treats blank and 0 as off, accepts 120, and rejects a value past the ceiling', () => {
     expect(REFRESH_RECOVERY_SECONDS_CEILING).toBe(600);
@@ -55,11 +79,12 @@ describe('REFRESH_RECOVERY_SECONDS', () => {
     expect(() => parseRefreshRecoverySeconds('nope')).toThrow(/integer/);
   });
 
-  it('is not given a default and is not set in compose or the example env', () => {
-    const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
-    const start = envSrc.indexOf('REFRESH_RECOVERY_SECONDS');
-    expect(start).toBeGreaterThan(-1);
-    expect(envSrc.slice(start, start + 900)).not.toContain('.default(');
+  it('is not given a default and is not set in compose or the example env', async () => {
+    // The service's settings, parsed as it starts: unset stays unset (off), a published value is used as given.
+    expect((await envWith({})).REFRESH_RECOVERY_SECONDS).toBeUndefined();
+    expect((await envWith({ REFRESH_RECOVERY_SECONDS: '' })).REFRESH_RECOVERY_SECONDS).toBeUndefined();
+    expect((await envWith({ REFRESH_RECOVERY_SECONDS: '120' })).REFRESH_RECOVERY_SECONDS).toBe(120);
+    await expect(envWith({ REFRESH_RECOVERY_SECONDS: '601' })).rejects.toThrow(/REFRESH_RECOVERY_SECONDS|600/);
     for (const rel of ['docker-compose.apps.yml', 'docker-compose.yml', '.env.example']) {
       const path = join(repoRoot, rel);
       if (!existsSync(path)) continue;

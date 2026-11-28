@@ -14,6 +14,7 @@ import {
   type NativeQuantLib,
 } from '@intafaced/greeks-adapter';
 import { quantLibNativeComposeWired } from './greeks-compose-wiring.js';
+import { tradeRouterPaths } from '../__tests__/entry.js';
 import { GREEK_KEYS, GREEKS_NATIVE_UNLINKED, whatIfVanillaGreeks } from './what-if.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -128,12 +129,11 @@ describe('H7 greeks mill — pin, no JS Black-Scholes, no listing, no settlement
     expect(quantLibNativeComposeWired()).toBe(true);
   });
 
-  it('router.ts / options-listing.ts not recut; index.ts mounts the door', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    const listingSrc = readFileSync(join(here, '..', 'spot', 'options-listing.ts'), 'utf8');
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/greeks\/what-if|whatIfVanillaGreeks/);
-    expect(listingSrc).not.toMatch(/greeks-adapter|whatIfVanillaGreeks/);
-    expect(indexSrc).toContain('registerGreeksWhatIfRest');
+  it('router.ts / options-listing.ts not recut; index.ts mounts the door', async () => {
+    // What-if greeks are their own REST door (index.boot.test.ts: 'mounts the greeks what-if, delta-hedge and promo
+    // doors'): no tRPC procedure and nothing the options listing exports computes them.
+    expect(tradeRouterPaths().filter((path) => /greek|what-?if/i.test(path))).toEqual([]);
+    const listing = await import('../spot/options-listing.js');
+    expect(Object.keys(listing).filter((name) => /greek|what-?if/i.test(name))).toEqual([]);
   });
 });

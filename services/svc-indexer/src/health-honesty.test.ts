@@ -2,14 +2,10 @@
  * GET /health must not sell configured INDEXER_CHAIN_ID as live.
  * status.chain is the probe. Configured / unprobed is not chain ok.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { INDEXER_CHAIN_UNPROBED, indexerHealthHonesty } from './health-honesty.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
+import { BOOT_ENV, bootIndexer } from './testing/boot.js';
 
 describe('indexer health honesty — unprobed is not a live chain', () => {
   const apps: FastifyInstance[] = [];
@@ -52,18 +48,31 @@ describe('indexer health honesty — unprobed is not a live chain', () => {
     expect(JSON.stringify(body)).not.toMatch(/31337/);
   });
 
-  it('index.ts and public-http.ts serve health via indexerHealthHonesty, not INDEXER_CHAIN_ID', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    const publicSrc = readFileSync(join(here, 'public-http.ts'), 'utf8');
-    expect(publicSrc).toContain('indexerHealthHonesty');
-    expect(publicSrc).not.toMatch(/app\.get\('\/health'[\s\S]{0,400}chainId:\s*deps\.chainId/);
-    expect(indexSrc).not.toMatch(/app\.get\('\/health'[\s\S]{0,400}chainId:\s*env\.INDEXER_CHAIN_ID/);
+  it('index.ts and public-http.ts serve health via indexerHealthHonesty, not INDEXER_CHAIN_ID', async () => {
+    // The booted service, on the Anvil chain id an operator may name: /health still names no chain id.
+    const booted = await bootIndexer({ INDEXER_CHAIN_ID: '31337' });
+    try {
+      const res = await booted.app.inject({ method: 'GET', url: '/health' });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as Record<string, unknown>;
+      expect(body).toEqual(
+        JSON.parse(JSON.stringify(indexerHealthHonesty({ ingestEnabled: true, venue: BOOT_ENV.INDEXER_VENUE_ADDRESS ?? null }))),
+      );
+      expect(body).not.toHaveProperty('chainId');
+      expect(JSON.stringify(body)).not.toMatch(/31337/);
+    } finally {
+      await booted.close();
+    }
   });
 
   it('health-honesty.ts does not literal-stamp custodial:false', () => {
-    const src = readFileSync(join(here, 'health-honesty.ts'), 'utf8');
-    expect(src).not.toMatch(/custodial:\s*z\.literal\(false\)/);
-    expect(src).not.toMatch(/custodial:\s*false\s+as const/);
-    expect(src).not.toMatch(/custodial:\s*false/);
+    // No custody claim at all, on any input: the answer never carries a custodial field to be read as "false".
+    for (const ingestEnabled of [true, false]) {
+      for (const venue of [null, BOOT_ENV.INDEXER_VENUE_ADDRESS ?? null, '0x0000000000000000000000000000000000000000']) {
+        const body = indexerHealthHonesty({ ingestEnabled, venue });
+        expect(body, `${ingestEnabled} ${venue}`).not.toHaveProperty('custodial');
+        expect(JSON.stringify(body)).not.toMatch(/custodial/i);
+      }
+    }
   });
 });

@@ -1015,6 +1015,12 @@ export interface UserVenueAccountSummary {
   readonly maintenanceMargin: Amount;
   readonly marginRatio: MaybeKnown<Amount>;
   /**
+   * The most a withdrawal of `asset` may ask for now, as the venue reports it (J-derivatives-25 #10 #11): the amount a
+   * `withdraw` action of exactly this figure is accepted at, the venue's own fee and any loss its cross positions hold
+   * already counted. Absent where the venue reports none: the app then refuses a move out before anything is signed.
+   */
+  readonly withdrawable?: Amount;
+  /**
    * The account's cross margin as the venue judges it (J-derivatives-26), or `null` with no cross position open (and on a
    * venue that reads none). Absent where the venue reports no cross figure at all.
    */

@@ -1,8 +1,8 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { bootExecution } from './testing/boot.js';
 import { ExecutionAlgoStorePathUnsetError } from './file-algo-store.js';
 import {
   FileFillAssignStore,
@@ -14,8 +14,6 @@ import {
 } from './file-fill-store.js';
 
 const dirs: string[] = [];
-const here = dirname(fileURLToPath(import.meta.url));
-const indexSrc = () => readFileSync(join(here, 'index.ts'), 'utf8');
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
@@ -250,20 +248,50 @@ describe('fill journal paths', () => {
 });
 
 describe('execution boot durable fill stores', () => {
-  it('index wires file fill stores and fail-closed path', () => {
-    const src = indexSrc();
-    expect(src).toContain('requireExecutionEmsStorePath');
-    expect(src).toContain('FileFillConfirmStore');
-    expect(src).toContain('FileManualFillStore');
-    expect(src).toContain('FileFillAssignStore');
-    expect(src).toContain('fillConfirmJournalPath');
-    expect(src).toContain('manualFillJournalPath');
-    expect(src).toContain('fillAssignJournalPath');
-    expect(src).not.toContain('undefined, // fillConfirmStore default');
-    expect(src).not.toContain('undefined, // manualFillStore default');
-    expect(src).not.toContain('undefined, // fillAssignStore default');
-    expect(src).not.toContain('new InMemoryFillConfirmStore()');
-    expect(src).not.toContain('new InMemoryManualFillStore()');
-    expect(src).not.toContain('new InMemoryFillAssignStore()');
+  it('index wires file fill stores and fail-closed path', async () => {
+    const booted = await bootExecution();
+    try {
+      // createExecutionRouter's fillConfirmStore, manualFillStore and fillAssignStore (parameters 20 to 22).
+      const confirms = booted.routerArgs[19] as FileFillConfirmStore;
+      const manual = booted.routerArgs[20] as FileManualFillStore;
+      const assigns = booted.routerArgs[21] as FileFillAssignStore;
+      const at = '2026-09-09T00:00:00.000Z';
+      expect(confirms.confirm({ clientOrderId: 'c-1', parentClientOrderId: 'p-1', confirmerId: 'op-1', confirmedAt: at })).not.toBeNull();
+      expect(
+        manual.record({
+          clientOrderId: 'c-2',
+          parentClientOrderId: 'p-1',
+          filledAmount: '1.5',
+          averagePrice: '100.25',
+          confirmerId: 'op-1',
+          confirmedAt: at,
+        }),
+      ).not.toBeNull();
+      expect(
+        assigns.assign({
+          clientOrderId: 'c-3',
+          parentClientOrderId: 'p-1',
+          accountTag: 'acct-a',
+          filledAmount: '1',
+          averagePrice: '100',
+          operatorId: 'op-1',
+          recordedAt: at,
+          kind: 'assign',
+        }),
+      ).not.toBeNull();
+      // What the booted stores wrote is on the journals beside the EMS path: a restart reads it back.
+      expect(new FileFillConfirmStore(fillConfirmJournalPath(booted.emsStorePath)).get('c-1')).toMatchObject({ confirmerId: 'op-1' });
+      expect(new FileManualFillStore(manualFillJournalPath(booted.emsStorePath)).get('c-2')).toMatchObject({ filledAmount: '1.5' });
+      expect(new FileFillAssignStore(fillAssignJournalPath(booted.emsStorePath)).get('c-3')).toMatchObject({ accountTag: 'acct-a' });
+    } finally {
+      await booted.close();
+    }
+    // A blank EMS path stops the boot before any store exists.
+    const refused = await bootExecution({ EXECUTION_EMS_STORE_PATH: '' }).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    const booting = await import('./file-algo-store.js');
+    expect(refused).toBeInstanceOf(booting.ExecutionAlgoStorePathUnsetError);
   });
 });

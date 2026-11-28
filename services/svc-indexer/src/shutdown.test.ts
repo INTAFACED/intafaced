@@ -1,6 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { MemoryChainSource } from './chain/memory-source.js';
+import { Indexer } from './indexer.js';
+import { MemoryProjectionStore } from './projection/memory-store.js';
 import { shutdownIndexer } from './shutdown.js';
+import { bootIndexer } from './testing/boot.js';
+import { CHAIN_ID } from './testing/conformance.js';
 
 const DRAIN_STILL_RUNNING = 'indexer drain timed out on shutdown — leaving the database open';
 const APP_CLOSE_FAILED = 'indexer shutdown: app.close failed';
@@ -142,19 +146,74 @@ describe('shutdownIndexer', () => {
     ]);
   });
 
-  it('index.ts calls shutdownIndexer and does not add a second timeout', () => {
-    const indexSrc = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    const indexerSrc = readFileSync(new URL('./indexer.ts', import.meta.url), 'utf8');
-    const shutdownSrc = readFileSync(new URL('./shutdown.ts', import.meta.url), 'utf8');
-    expect(indexSrc).toMatch(/for \(const signal of \['SIGTERM', 'SIGINT'\] as const\)/);
-    expect(indexSrc).toMatch(/process\.once\(signal,/);
-    expect(indexSrc).toContain('shutdownIndexer(');
-    expect(indexSrc).toContain('shutdownPromise ??=');
-    expect(indexSrc).toMatch(/stopAndDrain:\s*\(\)\s*=>\s*indexer\.stopAndDrain\(\)/);
-    expect(indexSrc).not.toMatch(/await\s+db\.close\(\)/);
-    expect(indexSrc).not.toMatch(/stopAndDrain\(\s*[\d_]/);
-    expect(indexerSrc).toMatch(/async stopAndDrain\(timeoutMs = 30_000\)/);
-    expect(indexerSrc).toMatch(/throw new Error\(`indexer still running after \$\{timeoutMs\}ms drain`\)/);
-    expect(shutdownSrc).not.toMatch(/30_000|setTimeout|timeoutMs/);
+  it('index.ts calls shutdownIndexer and does not add a second timeout', async () => {
+    // The booted service, shut down by its own signal handlers.
+    const booted = await bootIndexer();
+    const { Indexer: BootedIndexer } = await import('./indexer.js');
+    const drain = vi.spyOn(BootedIndexer.prototype, 'stopAndDrain');
+    try {
+      expect(booted.signalHandlers.SIGTERM).toHaveLength(1);
+      expect(booted.signalHandlers.SIGINT).toHaveLength(1);
+      booted.raise('SIGTERM');
+      // SIGINT on top of SIGTERM shares the one drain and close sequence.
+      booted.raise('SIGINT');
+      await booted.exited();
+      // Let every callback already queued run (no clock): a second drain or close started by SIGINT would land here.
+      for (let turn = 0; turn < 20; turn += 1) await new Promise<void>((r) => setImmediate(r));
+      // Drain first with the indexer's own bound (no second timeout passed in), then the app, then the database once.
+      expect(drain).toHaveBeenCalledTimes(1);
+      expect(drain.mock.calls[0]).toEqual([]);
+      expect(booted.record.order).toEqual(['app', 'db', 'exit:0']);
+      expect(booted.record.dbCloses).toBe(1);
+      expect(booted.record.exits).toEqual([0]);
+    } finally {
+      drain.mockRestore();
+      await booted.close();
+    }
+
+    // The bound is the indexer's: a pass that never finishes fails the drain after 30 s, with the bound named.
+    vi.useFakeTimers({ now: new Date('2026-11-28T00:00:00.000Z') });
+    try {
+      const hanging = new Proxy(new MemoryChainSource(CHAIN_ID), {
+        get: (target, key, receiver) => {
+          const value = Reflect.get(target, key, receiver) as unknown;
+          return typeof value === 'function' ? () => new Promise(() => undefined) : value;
+        },
+      });
+      const indexer = new Indexer({
+        source: hanging,
+        store: new MemoryProjectionStore(CHAIN_ID),
+        finalityDepth: 64,
+        ingestEnabled: () => true,
+        startHeight: 0,
+      });
+      indexer.start(60_000);
+      const drained = indexer.stopAndDrain().then(
+        () => null,
+        (err: unknown) => err,
+      );
+      await vi.advanceTimersByTimeAsync(29_990);
+      await vi.advanceTimersByTimeAsync(30);
+      expect(await drained).toEqual(new Error('indexer still running after 30000ms drain'));
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // shutdownIndexer adds no timer of its own.
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      const rec = record();
+      await shutdownIndexer({
+        stopAndDrain: async () => undefined,
+        closeApp: async () => undefined,
+        closeDb: async () => undefined,
+        logError: rec.logError,
+        exit: rec.exit,
+      });
+      expect(timers).not.toHaveBeenCalled();
+      expect(rec.order).toEqual(['exit:0']);
+    } finally {
+      timers.mockRestore();
+    }
   });
 });

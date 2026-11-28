@@ -21,9 +21,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { loadEdgeEnv } from './testing/env-load-fixture.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ENV_TS = resolve(import.meta.dirname, './env.ts');
 
 function edgeServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-edge');
@@ -47,11 +47,12 @@ const DEFAULT_REGION = /^\s+DEFAULT_REGION:\s*\$\{DEFAULT_REGION:-XX\}\s*$/gm;
 
 describe('compose LEDGER_URL for svc-edge operator forward', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envTs = readFileSync(ENV_TS, 'utf8');
   const block = edgeServiceBlock(compose);
 
-  it('env.ts still declares LEDGER_URL optional', () => {
-    expect(envTs).toMatch(/LEDGER_URL:\s*z\.string\(\)\.url\(\)\.optional\(\)/);
+  it('env.ts still declares LEDGER_URL optional', async () => {
+    expect((await loadEdgeEnv()).LEDGER_URL).toBeUndefined();
+    expect((await loadEdgeEnv({ LEDGER_URL: 'http://svc-ledger:4001' })).LEDGER_URL).toBe('http://svc-ledger:4001');
+    await expect(loadEdgeEnv({ LEDGER_URL: 'not a url' })).rejects.toThrow(/LEDGER_URL/);
   });
 
   it('compose svc-edge block passes unique keys once; LEDGER_URL is the ledger operator surface', () => {

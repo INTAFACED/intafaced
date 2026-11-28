@@ -4,8 +4,8 @@ import { VENUE_LISTED, type TestInstrument } from './shared.js';
 const instrument: TestInstrument = {
   market: {
     // J-derivatives-26: a TEST perpetual of its own on cross margin, which the TEST venue liquidates at the account's cross
-    // liquidation level (simulator CROSS_RULE), so moving its mark reaches no other journey. Only J-derivatives-26 trades
-    // it. Priced by its TEST oracle, so a fill never moves its mark; it tracks nothing outside the simulator.
+    // liquidation level (simulator CROSS_RULE), so moving its mark reaches no other journey. Only J-derivatives-26 and
+    // J-derivatives-25 #9 trade it, each setting its mark at the start and putting it back to 100 after. Priced by its TEST oracle, so a fill never moves its mark; it tracks nothing outside the simulator.
     symbol: 'XCRS-PERP',
     kind: 'perpetual',
     baseAsset: 'XCRS',

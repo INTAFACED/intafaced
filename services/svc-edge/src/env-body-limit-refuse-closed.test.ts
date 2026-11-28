@@ -11,12 +11,8 @@
  * 5. Paths: env.ts via loadEnv at import (same as boot)
  * 6. RED: git-default 1048576 returns, or unset/blank parses as 1048576
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 /** Minimum boot env so assertions are about the body budget. */
@@ -54,11 +50,12 @@ afterEach(() => {
 });
 
 describe('svc-edge EDGE_BODY_LIMIT_BYTES refuse-closed', () => {
-  it('env.ts keeps the refuse-closed shape production loadEnv parses', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).toMatch(/EDGE_BODY_LIMIT_BYTES:\s*z\.coerce\s*\.number\(\)\s*\.int\(\)\s*\.min\(1024\)\s*\.max\(32 \* 1024 \* 1024\),/);
-    expect(envTs).not.toMatch(/EDGE_BODY_LIMIT_BYTES:[\s\S]{0,200}\.default\(1_048_576\)/);
-    expect(envTs).not.toMatch(/EDGE_BODY_LIMIT_BYTES:[\s\S]{0,200}\.default\(1048576\)/);
+  it('the loaded env refuses an out-of-range value and keeps an in-range one', async () => {
+    for (const refused of ['1023', '33554433', '1048576.5', '1mb']) {
+      await expect(loadWith({ EDGE_BODY_LIMIT_BYTES: refused }), refused).rejects.toThrow(/EDGE_BODY_LIMIT_BYTES/);
+    }
+    expect((await loadWith({ EDGE_BODY_LIMIT_BYTES: '1024' })).EDGE_BODY_LIMIT_BYTES).toBe(1024);
+    expect((await loadWith({ EDGE_BODY_LIMIT_BYTES: '33554432' })).EDGE_BODY_LIMIT_BYTES).toBe(32 * 1024 * 1024);
   });
 
   it('unset EDGE_BODY_LIMIT_BYTES refuses (no invent 1048576)', async () => {

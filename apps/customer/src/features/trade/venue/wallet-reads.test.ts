@@ -73,6 +73,28 @@ const VENUE: Record<string, unknown> = {
       },
     },
   },
+  /** Three orders as the venue keeps them, oldest first here: the reader lists them newest placed first. */
+  historicalOrders: [
+    { n: 11, side: 'B', status: 'canceled', at: 1795435100000 },
+    { n: 12, side: 'A', status: 'filled', at: 1795435150000 },
+    { n: 13, side: 'B', status: 'filled', at: 1795435180000 },
+  ].map(({ n, side, status, at }) => ({
+    status,
+    statusTimestamp: at + 1000,
+    order: {
+      coin: 'ZZZ',
+      side,
+      limitPx: '2',
+      sz: '0',
+      origSz: '3',
+      oid: n,
+      cloid: `0x0000000000000000000000000000${n === 11 ? '00ab' : `00${n}`}`,
+      orderType: 'Limit',
+      tif: 'Gtc',
+      reduceOnly: false,
+      timestamp: at,
+    },
+  })),
   meta: { universe: [] },
   spotMeta: { universe: [], tokens: [] },
 };
@@ -203,6 +225,52 @@ describe("the desk's own-wallet reads", () => {
     await venueApi(plain.api).openOrders(OWNER);
     await venueApi(plain.api).orderByClientId(OWNER, '0x000000000000000000000000000000ab');
     expect(plain.asked).toEqual(['/venue/orders/open', '/venue/orders/by-client-id']);
+    expect(sent).toEqual([]);
+  });
+
+  it("the order history comes from this browser, paged and filtered as the door pages it, with the door's labels", async () => {
+    const sent = testNetwork();
+    const { api, asked } = door({ ...STATUS, walletReads: NAMED });
+    const venue = venueApi(api);
+    const first = await venue.orderHistory(OWNER, { limit: '20' });
+    expect(sent.map((s) => s.body)).toContainEqual({ type: 'historicalOrders', user: OWNER.toLowerCase() });
+    expect(first.ok && first.data.orders.map((r) => [r.order.venueClientOrderId, r.order.status, r.order.label, r.placedAt])).toEqual([
+      ['0x00000000000000000000000000000013', 'filled', null, new Date(1795435180000).toISOString()],
+      ['0x00000000000000000000000000000012', 'filled', null, new Date(1795435150000).toISOString()],
+      ['0x000000000000000000000000000000ab', 'canceled', 'my-dip-buy', new Date(1795435100000).toISOString()],
+    ]);
+    expect(first.ok && first.data.next).toBeNull();
+    // A filter, and a page marker naming the order the page before ended on.
+    const buys = await venue.orderHistory(OWNER, { side: 'buy', before: '0x00000000000000000000000000000013', limit: '20' });
+    expect(buys.ok && buys.data.orders.map((r) => r.order.venueClientOrderId)).toEqual(['0x000000000000000000000000000000ab']);
+    // Only the labels went through the door: the venue's history was read from this browser.
+    expect(asked).toEqual(['/api/trade/trpc/venueOrderLabels.list']);
+  });
+
+  it("an order-history filter or page marker that can't be used is refused 400 in the door's words, reading nothing", async () => {
+    const sent = testNetwork();
+    const { api, asked } = door({ ...STATUS, walletReads: NAMED });
+    const venue = venueApi(api);
+    expect(await venue.orderHistory(OWNER, { side: 'up' })).toMatchObject({
+      ok: false,
+      code: 'trade.invalid_filter',
+      status: 400,
+      message: 'side “up” isn’t a choice we know: buy or sell',
+    });
+    expect(sent).toEqual([]);
+    expect(await venue.orderHistory(OWNER, { before: '0x000000000000000000000000000000ff' })).toMatchObject({
+      ok: false,
+      code: 'trade.invalid_cursor',
+      status: 400,
+    });
+    expect(asked).toEqual(['/api/trade/trpc/venueOrderLabels.list']);
+  });
+
+  it('the order history reads through the door for a door that names no wallet reads', async () => {
+    const sent = testNetwork();
+    const plain = door(STATUS);
+    await venueApi(plain.api).orderHistory(OWNER, { limit: '20' });
+    expect(plain.asked).toEqual(['/venue/orders/history']);
     expect(sent).toEqual([]);
   });
 

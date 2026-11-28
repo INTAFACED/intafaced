@@ -1,7 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
+import type { ActionApprovalService } from '../auth/action-approval-service.js';
+import { BOOT_TIMEOUT_MS, bootIdentity, contextWith } from '../boot.testkit.js';
+import { createLimitFeeTierRouter } from '../limit-fee-tier-router.js';
+import type { RankService } from './rank-service.js';
 import { DUAL_CONTROL_MISSING } from '../auth/four-eyes.js';
 import { ACTION_APPROVAL_MISSING, stubActionApprovals } from '../auth/privileged-dual-control.js';
 import {
@@ -74,7 +76,6 @@ const ACTOR = '11111111-1111-4111-8111-111111111111';
 const CONFIRM = '22222222-2222-4222-8222-222222222222';
 const dual = { actorId: ACTOR, approvalId: 'appr-1', operationId: 'op-1', targetId: 'identity.change_fee_tier' };
 const approvals = stubActionApprovals(CONFIRM);
-const here = dirname(fileURLToPath(import.meta.url));
 
 function seeded(): PerkRow {
   return {
@@ -159,18 +160,80 @@ describe('limit / fee-tier dual-control (R-onboard)', () => {
     expect(sql.rows).toHaveLength(1);
   });
 
-  it('boot path installs the hitch; mill door names a second actor', () => {
-    const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
-    expect(indexSrc).toMatch(/installLimitFeeTierDualControl\(rank, sql, actionApprovals\)/);
-    expect(indexSrc).toMatch(/createLimitFeeTierRouter\(sql, rank, actionApprovals\)/);
+  it(
+    'boot path installs the hitch; mill door names a second actor',
+    async () => {
+      // The booted service serves both doors on the shared approvals: no approval, or one the service never issued,
+      // refuses before anything is read or written.
+      const boot = await bootIdentity();
+      const op = boot.appRouter.createCaller(await contextWith(['admin:compliance'], { userId: ACTOR, mfa: true }));
+      const before = boot.queries.length;
+      for (const call of [
+        () => op.changeFeeTier({ rank: 3, feeDiscountBps: 150 }),
+        () => op.changeLimit({ rank: 3, p2pLimitMultiplier: 3 }),
+      ]) {
+        const err = await call().catch((e: unknown) => e);
+        expect(err).toMatchObject({ code: 'PRECONDITION_FAILED' });
+        expect((err as { cause?: { code?: string } }).cause?.code).toBe(ACTION_APPROVAL_MISSING);
+      }
+      const unissued = await op
+        .changeFeeTier({ rank: 3, feeDiscountBps: 150, approvalId: 'appr-x', operationId: 'op-x' })
+        .catch((e: unknown) => e);
+      // The approvals are the service's own (its action_approvals table): an approval it never issued is not found.
+      expect(unissued).toMatchObject({ code: 'BAD_REQUEST', message: expect.stringMatching(/approval not found/) });
+      expect(boot.queries.slice(before).some((q) => /rank_thresholds/i.test(q.text))).toBe(false);
+    },
+    BOOT_TIMEOUT_MS,
+  );
 
-    const door = readFileSync(join(here, '../limit-fee-tier-router.ts'), 'utf8');
-    expect(door).toMatch(/approvalId/);
-    expect(door).toMatch(/ctx\.principal\.userId/);
-    expect(door).toMatch(/PRECONDITION_FAILED/);
-    expect(door).toMatch(/ACTION_APPROVAL_MISSING/);
-    expect(door).toMatch(/changeFeeTier/);
-    expect(door).toMatch(/changeLimit/);
-    expect(door).not.toMatch(/:\s*10\b|:\s*20\b/);
+  it('the mill door refuses a change without a spent approval', async () => {
+    const consumed: Array<{ targetId: string; approvalId: string }> = [];
+    const approvals = partial<Pick<ActionApprovalService, 'consume'>>({
+      consume: async (service: string, input: Parameters<ActionApprovalService['consume']>[1]) => {
+        consumed.push({ targetId: input.targetId, approvalId: input.approvalId });
+        return stubActionApprovals(CONFIRM).consume(service, input);
+      },
+    });
+    const sql = store([seeded()]);
+    const door = createLimitFeeTierRouter(sql, partial<RankService>({ loadTiers: async () => undefined }), approvals);
+    const customer = door.createCaller(await contextWith(['identity:read', 'identity:write'], { userId: ACTOR }));
+    await expect(customer.changeFeeTier({ rank: 3, feeDiscountBps: 150, approvalId: 'appr-1', operationId: 'op-1' })).rejects.toMatchObject(
+      {
+        code: 'FORBIDDEN',
+      },
+    );
+    const op = door.createCaller(await contextWith(['admin:compliance'], { userId: ACTOR, mfa: true }));
+    const missing = await op.changeFeeTier({ rank: 3, feeDiscountBps: 150 }).catch((e: unknown) => e);
+    expect(missing).toMatchObject({ code: 'PRECONDITION_FAILED' });
+    expect((missing as { cause?: { code?: string } }).cause?.code).toBe(ACTION_APPROVAL_MISSING);
+    // No invented bps or multiplier: the door needs the value named.
+    await expect(op.changeFeeTier({ rank: 3, approvalId: 'appr-1', operationId: 'op-1' } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(op.changeLimit({ rank: 3, approvalId: 'appr-1', operationId: 'op-1' } as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    expect(sql.writes).toBe(0);
+    expect(consumed).toEqual([]);
+
+    // With a second person's approval, each change spends it for its own target.
+    await expect(op.changeFeeTier({ rank: 3, feeDiscountBps: 150, approvalId: 'appr-1', operationId: 'op-1' })).resolves.toEqual({
+      rank: 3,
+      feeDiscountBps: 150,
+      p2pLimitMultiplier: 2,
+    });
+    await expect(op.changeLimit({ rank: 3, p2pLimitMultiplier: 4, approvalId: 'appr-2', operationId: 'op-2' })).resolves.toEqual({
+      rank: 3,
+      feeDiscountBps: 150,
+      p2pLimitMultiplier: 4,
+    });
+    expect(consumed).toEqual([
+      { targetId: 'identity.change_fee_tier', approvalId: 'appr-1' },
+      { targetId: 'identity.change_limit', approvalId: 'appr-2' },
+    ]);
+    expect(sql.writes).toBe(2);
+    await expect(op.changeFeeTier({ rank: 99, feeDiscountBps: 150, approvalId: 'appr-3', operationId: 'op-3' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
   });
 });

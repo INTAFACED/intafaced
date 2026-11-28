@@ -59,15 +59,13 @@ import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, 
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
 import { requireCloseSlippageBps } from './close-slippage.js';
 import {
-  AMEND_KEY_PREFIX,
   VENUE_ORDER_LABEL_RE,
-  amendTrail,
   historyPage,
   parseHistoryQuery,
   VenueHistoryQueryError,
-  type VenueAmendment,
   type VenueHistoryPage,
-} from './venue-order-history.js';
+} from '@intafaced/venue-contracts';
+import { AMEND_KEY_PREFIX, amendTrail, type VenueAmendment } from './venue-order-history.js';
 import type { FeeSaverSource } from './fee-saver-client.js';
 import type { VenueWalletReads } from './http-user-venue.js';
 import type { DailyLossGuard, DailyLossWarning } from './daily-loss-limit.js';
@@ -910,10 +908,29 @@ async function assertSignatureRecovers(prepared: PreparedVenueAction, signature:
   }
 }
 
+/** An order in one of these states is finished at the venue: nothing it does changes its record again. */
+const FINISHED_ORDER: ReadonlySet<UserVenueOrder['status']> = new Set(['filled', 'canceled', 'rejected', 'expired']);
+/** How many finished orders' answers one door keeps, the oldest dropped first. */
+const FINISHED_ORDERS_KEPT = 20_000;
+
 export class UserVenueDoor {
   private venuePromise: Promise<ConnectedUserVenue> | null = null;
   /** The id of the venue this door last connected to; `null` before the first connect. */
   connectedVenueId: string | null = null;
+
+  /**
+   * The venue's answer about an order sent through this door once it is finished (`FINISHED_ORDER`), by venue, account
+   * and client id: a finished order's record never changes, so it is never asked about again. Open desks list every
+   * order they sent every 2 s (protections, orders by key), and each open order is still read each time.
+   */
+  private readonly finishedOrders = new Map<string, { readonly value: UserVenueOrder; readonly asOf: Date }>();
+
+  private keepFinished(key: string, answer: { readonly value: UserVenueOrder; readonly asOf: Date }): void {
+    this.finishedOrders.delete(key);
+    this.finishedOrders.set(key, answer);
+    const oldest = this.finishedOrders.keys().next().value;
+    if (this.finishedOrders.size > FINISHED_ORDERS_KEPT && oldest !== undefined) this.finishedOrders.delete(oldest);
+  }
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
 
@@ -2771,6 +2788,9 @@ export class UserVenueDoor {
         ? { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf }
         : { ...base, state: 'unknown', reason: 'not_on_venue_yet', order: null, asOf: null };
     }
+    const doneKey = `${p.venueId}|${p.account.owner.toLowerCase()}|${p.account.subAccount ?? ''}|${p.venueClientOrderId.toLowerCase()}`;
+    const done = this.finishedOrders.get(doneKey);
+    if (done) return { ...base, state: 'accepted', order: done.value, asOf: done.asOf };
     let read: Awaited<ReturnType<UserVenue['orderByClientId']>>;
     try {
       read = await (await this.venue()).orderByClientId(p.account, p.venueClientOrderId);
@@ -2790,6 +2810,7 @@ export class UserVenueDoor {
           this.deps.now(),
         );
       }
+      if (FINISHED_ORDER.has(read.value.status)) this.keepFinished(doneKey, { value: read.value, asOf: read.asOf });
       return { ...base, state: 'accepted', order: read.value, asOf: read.asOf };
     }
     if (accepted) return { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf };

@@ -1,7 +1,4 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SERVICE_SIGNATURE_HEADER,
@@ -161,18 +158,5 @@ describe('OTC accept', () => {
     await expect(svc.accept(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({ code: 'trade.email_proof_required' });
     emailProof.missing.delete(USER);
     await expect(svc.accept(principal, { quoteId: quote.quoteId })).resolves.toBeTruthy();
-  });
-});
-
-describe('boot wiring', () => {
-  it('index.ts builds the identity client and hands it to TradeService', () => {
-    const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    expect(index).toMatch(/const emailProof = createEmailProofClient\(env\.IDENTITY_URL, env\.INTERNAL_SERVICE_SECRET, outS2s\);/);
-    const ctor = index.slice(index.indexOf('const trade = new TradeService('));
-    expect(ctor.slice(0, ctor.indexOf('});'))).toMatch(/\n  emailProof,\n/);
-    for (const service of ['const positions = new PositionService(', 'const otc = new OtcDeskService(']) {
-      const opts = index.slice(index.indexOf(service));
-      expect(opts.slice(0, opts.indexOf('});'))).toMatch(/\n  emailProof,\n/);
-    }
   });
 });

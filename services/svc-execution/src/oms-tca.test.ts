@@ -1,8 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
-import { parseAmount } from '@intafaced/ledger-client';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
@@ -12,8 +9,43 @@ import { InMemoryEmsOrderStore } from './oms-ems-store.js';
 import { runTcaRun, TCA_METHODOLOGY_VERSION, type TcaBenchmarkResult } from './oms-tca.js';
 import { createExecutionRouter } from './router.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const tcaSource = readFileSync(join(here, 'oms-tca.ts'), 'utf8');
+/**
+ * Every ledger recipe anything in this file's runs calls, by name: a TCA path must call none. oms-tca.ts imports the
+ * ledger client's ROOT, which re-exports every recipe, so the root's recipe exports are recorded as well as the
+ * recipes subpath's.
+ */
+const recipeCalls = vi.hoisted(() => [] as string[]);
+const recorded = vi.hoisted(
+  () =>
+    (real: Record<string, unknown>, only?: ReadonlySet<string>): Record<string, unknown> =>
+      Object.fromEntries(
+        Object.entries(real).map(([name, value]) => {
+          if (typeof value !== 'function' || (only && !only.has(name))) return [name, value];
+          const fn = value as (...args: unknown[]) => unknown;
+          return [
+            name,
+            function (this: unknown, ...args: unknown[]) {
+              recipeCalls.push(name);
+              return new.target ? Reflect.construct(fn, args, new.target) : fn.apply(this, args);
+            },
+          ];
+        }),
+      ),
+);
+vi.mock('@intafaced/ledger-client/recipes', async (importOriginal) => recorded(await importOriginal<Record<string, unknown>>()));
+vi.mock('@intafaced/ledger-client', async (importOriginal) => {
+  const recipes = await vi.importActual<Record<string, unknown>>('@intafaced/ledger-client/recipes');
+  return recorded(await importOriginal<Record<string, unknown>>(), new Set(Object.keys(recipes)));
+});
+
+/** Every post on the in-memory ledger during this file, across every TCA path its tests drive. */
+const postSpy = vi.spyOn(MemoryLedger.prototype, 'post');
+afterAll(() => {
+  // The every-path ban: no test in this file (each runTcaRun branch and the mounted door) posted or called a recipe.
+  expect(postSpy).not.toHaveBeenCalled();
+  expect(recipeCalls).toEqual([]);
+  postSpy.mockRestore();
+});
 
 const SECRET = 'a-execution-oms-tca-test-edge-secret';
 const OP = '33333333-3333-4333-8333-333333333333';
@@ -349,22 +381,76 @@ describe('runTcaRun', () => {
     expect(result.run.slippage.find((row) => row.versus === 'midpoint')).toMatchObject({ status: 'UNAVAILABLE' });
   });
 
-  it('does not write ledger — source has no post/recipe and MemoryLedger is never constructed', async () => {
-    expect(tcaSource).not.toMatch(/\.post\s*\(/);
-    expect(tcaSource).not.toMatch(/MemoryLedger/);
-    expect(tcaSource).not.toMatch(/ledger-client\/recipes/);
-    const ledger = await import('@intafaced/ledger-client');
-    const postSpy = vi.spyOn(ledger.MemoryLedger.prototype, 'post');
-    const emsStore = new InMemoryEmsOrderStore();
-    recordFill(emsStore);
-    const result = runTcaRun({
-      parentClientOrderId: 'parent-1',
-      emsStore,
-      observations: [{ class: 'arrival', source: 'desk.arrival', licensed: true, price: '100' }],
+  it('does not write ledger — a run posts nothing, calls no recipe and sends no request', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const posts = postSpy.mock.calls.length;
+    const recipes = recipeCalls.length;
+    const unresolved = new InMemoryEmsOrderStore();
+    unresolved.record({
+      clientOrderId: 'unknown-1',
+      parentClientOrderId: 'parent-unk',
+      venueId: 'street',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      execution: null,
+      state: 'SUBMIT_UNKNOWN',
+      recordedAtMs: 1,
     });
-    expect(result.ok).toBe(true);
-    expect(postSpy).not.toHaveBeenCalled();
-    postSpy.mockRestore();
+    const filled = new InMemoryEmsOrderStore();
+    recordFill(filled);
+    // Every outcome runTcaRun has: each refusal, a partial run and a complete one.
+    const outcomes = [
+      runTcaRun({ emsStore: new InMemoryEmsOrderStore() }),
+      runTcaRun({ parentClientOrderId: 'parent-1' }),
+      runTcaRun({ parentClientOrderId: 'ghost', emsStore: new InMemoryEmsOrderStore() }),
+      runTcaRun({ parentClientOrderId: 'parent-unk', emsStore: unresolved }),
+      runTcaRun({
+        parentClientOrderId: 'parent-1',
+        emsStore: filled,
+        observations: [{ class: 'arrival', source: 'desk.arrival', licensed: true, price: '100' }],
+      }),
+    ];
+    expect(outcomes.map((r) => (r.ok ? r.run.completeness : r.reason))).toEqual([
+      'missing_identity',
+      'ems_store_unwired',
+      'no_ems_evidence',
+      'partial',
+      expect.any(String),
+    ]);
+    expect(postSpy.mock.calls.length).toBe(posts);
+    expect(recipeCalls.length).toBe(recipes);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('imports nothing that writes the ledger — only the money arithmetic of the ledger client', async () => {
+    // Load oms-tca afresh with the ledger client cut down to its money arithmetic and the recipes refusing to load.
+    // Any other export it reached for (a ledger, a client, a recipe) is not there, and the run throws.
+    vi.resetModules();
+    const money = await vi.importActual<Record<string, unknown>>('@intafaced/ledger-client/money');
+    const reached: string[] = [];
+    vi.doMock('@intafaced/ledger-client', () => Object.fromEntries(Object.entries(money).map(([name, value]) => [name, value])));
+    vi.doMock('@intafaced/ledger-client/recipes', () => {
+      reached.push('recipes');
+      throw new Error('oms-tca loaded the ledger recipes');
+    });
+    try {
+      const fresh = await import('./oms-tca.js');
+      const emsStore = new InMemoryEmsOrderStore();
+      recordFill(emsStore);
+      const result = fresh.runTcaRun({
+        parentClientOrderId: 'parent-1',
+        emsStore,
+        observations: [{ class: 'arrival', source: 'desk.arrival', licensed: true, price: '100' }],
+      });
+      expect(result.ok).toBe(true);
+      expect(fresh.runTcaRun({ parentClientOrderId: 'ghost', emsStore })).toMatchObject({ ok: false });
+      expect(reached).toEqual([]);
+    } finally {
+      vi.doUnmock('@intafaced/ledger-client');
+      vi.doUnmock('@intafaced/ledger-client/recipes');
+      vi.resetModules();
+    }
   });
 
   it('refuses to invent fills when EMS evidence is missing', () => {

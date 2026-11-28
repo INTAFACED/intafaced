@@ -2,9 +2,6 @@
  * The edge principal is verified with the shared secret AND, when configured, the edge's public key.
  * The context comes from the same `buildIdentityRequestContext` the service boots with, over real headers.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EDGE_PRINCIPAL_HEADER,
@@ -15,6 +12,7 @@ import {
   signPrincipalHeader,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
+import { BOOT_TIMEOUT_MS, BOOT_SECRET, bootIdentity } from './boot.testkit.js';
 
 type Principal = Parameters<typeof encodeForwardedPrincipal>[0];
 
@@ -72,10 +70,24 @@ const edgeSigned = (privateKey = edge.privateKey, maxLifetimeSeconds = 120) => {
   return request(raw, signPrincipalHeaderEd25519(raw, privateKey, 'DE'));
 };
 
-it('index.ts hands the edge trust settings to the identity context', () => {
-  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'index.ts'), 'utf8');
-  expect(source).toMatch(/createIdentityRequestContext\(\{.*?secret: env\.EDGE_PRINCIPAL_SECRET,\s*\.\.\.edgeTrustFromEnv\(env\),/s);
-});
+it(
+  'the booted service hands the edge trust settings to the identity context',
+  async () => {
+    // Over the booted app's /trpc: a known principal short of the scope is refused FORBIDDEN, nobody UNAUTHORIZED.
+    const submit = async (app: Awaited<ReturnType<typeof bootIdentity>>['app'], headers: Record<string, string>) =>
+      (await app.inject({ method: 'POST', url: '/trpc/kyc.submit', headers, payload: { tier: 'basic', jurisdiction: 'DE' } })).statusCode;
+    const keySigned = edgeSigned().headers;
+    const raw = encodePrincipal(principal(60_000));
+    const withKey = (await bootIdentity({ EDGE_PRINCIPAL_PUBLIC_KEY: edge.publicKey, ...LIMITS })).app;
+    expect(await submit(withKey, keySigned)).toBe(403);
+    // The shared secret is EDGE_PRINCIPAL_SECRET's, beside the key.
+    expect(await submit(withKey, request(raw, signPrincipalHeader(raw, BOOT_SECRET, 'DE')).headers)).toBe(403);
+    expect(await submit(withKey, request(raw, signPrincipalHeader(raw, SECRET, 'DE')).headers)).toBe(401);
+    const withoutKey = (await bootIdentity({ EDGE_PRINCIPAL_PUBLIC_KEY: undefined })).app;
+    expect(await submit(withoutKey, keySigned)).toBe(401);
+  },
+  BOOT_TIMEOUT_MS,
+);
 
 afterEach(() => {
   vi.unstubAllEnvs();

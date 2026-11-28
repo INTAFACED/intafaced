@@ -18,7 +18,7 @@
  *    or compose interpolates :-0
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -58,10 +58,14 @@ afterEach(() => {
 });
 
 describe('svc-indexer INDEXER_START_HEIGHT refuse-closed', () => {
-  it('env.ts has no git-default 0 deploy block', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/INDEXER_START_HEIGHT:[\s\S]*?\.default\(0\)/);
-    expect(envTs).toMatch(/INDEXER_START_HEIGHT is unset — will not publish genesis-0 as the venue deployment block/);
+  it('env.ts has no git-default 0 deploy block', async () => {
+    // Unset and blank both refuse with the typed words: no default stands in for the operator's value.
+    await expect(loadWith({ INDEXER_START_HEIGHT: undefined })).rejects.toThrow(
+      'INDEXER_START_HEIGHT is unset — will not publish genesis-0 as the venue deployment block',
+    );
+    await expect(loadWith({ INDEXER_START_HEIGHT: '' })).rejects.toThrow(
+      'INDEXER_START_HEIGHT is unset — will not publish genesis-0 as the venue deployment block',
+    );
   });
 
   it('compose does not interpolate :-0', () => {

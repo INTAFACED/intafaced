@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { newlyEnrolledPasskeyDropsStream } from './enroll-after-last-stream.js';
 import { SessionPasskeyError, assertSessionPasskey } from './session-passkey.js';
@@ -72,12 +69,30 @@ describe('newlyEnrolledPasskeyDropsStream — enroll after last unenroll', () =>
     });
   });
 
-  it('source reuses assertSessionPasskey; no invented challenge or session', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'enroll-after-last-stream.ts'), 'utf8');
-    expect(src).toMatch(/assertSessionPasskey/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+sessions/i);
-    expect(src).not.toMatch(/INSERT INTO sessions/);
+  it('answers exactly as assertSessionPasskey on every account body; no invented challenge or session; no invented challenge or session', () => {
+    const bodies: unknown[] = [
+      { userId: USER, webauthnCreds: [{ credentialId: 'cred-1', lastVerifiedAt: VERIFIED }] },
+      { result: { data: { json: { userId: USER, webauthnCreds: [{ credentialId: 'cred-2', lastVerifiedAt: VERIFIED }] } } } },
+      { userId: USER, webauthnCreds: [] },
+      { userId: USER, webauthnCreds: [{ credentialId: 'cred-unverified' }] },
+      { userId: USER, passkeyVerified: false, webauthnCreds: [{ credentialId: 'cred-4', lastVerifiedAt: VERIFIED }] },
+      { userId: USER },
+      null,
+      'not-an-account',
+    ];
+    const outcome = (check: (body: unknown) => void, body: unknown) => {
+      try {
+        return { ok: check(body) === undefined };
+      } catch (err) {
+        return { error: err instanceof SessionPasskeyError ? err.code : String(err) };
+      }
+    };
+    for (const body of bodies) {
+      expect(outcome(newlyEnrolledPasskeyDropsStream, body)).toEqual(outcome(assertSessionPasskey, body));
+    }
+    expect(outcome(newlyEnrolledPasskeyDropsStream, bodies[0])).toEqual({ ok: true });
+    expect(outcome(newlyEnrolledPasskeyDropsStream, bodies[2])).toEqual({ error: 'auth.passkey_missing' });
+    // It takes only the account body and returns nothing: no port to mint a challenge or write a session.
+    expect(newlyEnrolledPasskeyDropsStream.length).toBe(1);
   });
 });

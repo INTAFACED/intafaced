@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, MARKET_LISTING_CATEGORIES, signPrincipalHeader } from '@intafaced/contracts';
 import { createMarketRouter } from '../router.js';
@@ -85,6 +85,27 @@ const rowAt = {
   updated_at: new Date('2026-10-23T00:00:00.000Z'),
 };
 
+/** svc-market's env exactly as `src/env.ts` loads it at start-up, from the required settings plus `extra`. */
+async function loadMarketEnv(extra: Record<string, string | undefined>) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  const env: Record<string, string | undefined> = {
+    NODE_ENV: 'test',
+    APP_ENV: 'test',
+    DATABASE_URL: 'postgres://u:p@127.0.0.1:5432/market',
+    DATABASE_POOL_MAX: '1',
+    EDGE_PRINCIPAL_SECRET: 'svc-market-categories-edge-secret-0001',
+    INTERNAL_SERVICE_SECRET: 'svc-market-categories-internal-secret-01',
+    ...extra,
+  };
+  for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+  return (await import('../env.js')).env;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('listing category enum — not an owner env list', () => {
   it('serves the product enum and does not keep a caller mutation', () => {
     const svc = service();
@@ -97,11 +118,15 @@ describe('listing category enum — not an owner env list', () => {
   it('drops the owner env wiring', () => {
     const compose = readFileSync(join(REPO, 'docker-compose.apps.yml'), 'utf8');
     const envExample = readFileSync(join(REPO, '.env.example'), 'utf8');
-    const envTs = readFileSync(join(ROOT, 'src/env.ts'), 'utf8');
     expect(compose).not.toContain('MARKET_LISTING_CATEGORIES');
     expect(envExample).not.toContain('MARKET_LISTING_CATEGORIES');
-    expect(envTs).not.toContain('MARKET_LISTING_CATEGORIES');
-    expect(envTs).not.toContain('category_taxonomy_unset');
+  });
+
+  it('the service env loader neither reads a category list nor refuses for want of one', async () => {
+    for (const categories of [undefined, '', 'signals,bots', 'not a list!']) {
+      const loaded = (await loadMarketEnv({ MARKET_LISTING_CATEGORIES: categories })) as Record<string, unknown>;
+      expect(Object.keys(loaded).filter((k) => /CATEGOR/i.test(k))).toEqual([]);
+    }
   });
 
   it('stores the enum in the migration and does not seed rows', () => {

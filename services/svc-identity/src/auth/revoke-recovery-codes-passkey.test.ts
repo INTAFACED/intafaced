@@ -1,14 +1,38 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
+import * as totp from './totp.js';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
 import { revokeAllRecoveryCodesAfterPasskey, verifiedPasskeyRevokesAllRecoveryCodes } from './revoke-recovery-codes-passkey.js';
 
+// The recovery-code generator and the WebAuthn library, watched (each still runs for real if called).
+vi.mock('./totp.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./totp.js')>();
+  return { ...real, generateRecoveryCodes: vi.fn(real.generateRecoveryCodes) };
+});
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return {
+    ...real,
+    generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions),
+    generateRegistrationOptions: vi.fn(real.generateRegistrationOptions),
+  };
+});
+
+/** The code a synchronous check refuses with, or null when it passes. */
+function refusalOf(check: () => void): unknown {
+  try {
+    check();
+    return null;
+  } catch (err) {
+    return (err as { code?: unknown }).code;
+  }
+}
+
 function fakeSql(row: { webauthn_creds: unknown; recovery_code_hashes?: unknown } | null) {
-  const bag = { updates: [] as unknown[] };
+  const bag = { updates: [] as unknown[], statements: [] as string[] };
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    bag.statements.push(text.replace(/\s+/g, ' ').trim());
     if (text.includes('select') && text.includes('webauthn_creds')) {
       if (!row) return [];
       return [row];
@@ -23,7 +47,7 @@ function fakeSql(row: { webauthn_creds: unknown; recovery_code_hashes?: unknown 
     json: (value: unknown) => value,
     bag,
   }) as Parameters<typeof revokeAllRecoveryCodesAfterPasskey>[0] & {
-    bag: { updates: unknown[] };
+    bag: { updates: unknown[]; statements: string[] };
   };
 }
 
@@ -93,13 +117,24 @@ describe('revokeAllRecoveryCodesAfterPasskey', () => {
     expect(sql.bag.updates).toEqual([]);
   });
 
-  it('source reuses requireVerifiedPasskey; no invented challenge', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'revoke-recovery-codes-passkey.ts'), 'utf8');
-    expect(src).toMatch(/requireVerifiedPasskey/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/generateRegistrationOptions/);
-    expect(src).not.toMatch(/generateRecoveryCodes/);
-    expect(src).not.toMatch(/INSERT\s+challenges/i);
+  it('gates on requireVerifiedPasskey; mints no replacement code and starts no ceremony or challenge', async () => {
+    for (const creds of [[verified], [enrolled], []]) {
+      const sql = fakeSql({ webauthn_creds: creds, recovery_code_hashes: hashes });
+      const gate = refusalOf(() => requireVerifiedPasskey(creds));
+      const out = revokeAllRecoveryCodesAfterPasskey(sql, { userId: A });
+      if (gate) {
+        await expect(out).rejects.toMatchObject({ code: gate });
+        expect(sql.bag.statements).toHaveLength(1);
+      } else {
+        await expect(out).resolves.toEqual({ revoked: 2 });
+        // The gate's read and the one update that empties the list: nothing else is written.
+        expect(sql.bag.statements).toHaveLength(2);
+        expect(sql.bag.updates).toEqual([[[], A]]);
+      }
+      expect(sql.bag.statements.filter((s) => /insert\s+(into\s+)?challenges/.test(s))).toEqual([]);
+    }
+    expect(totp.generateRecoveryCodes).not.toHaveBeenCalled();
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
+    expect(vi.mocked(webauthnLib.generateRegistrationOptions)).not.toHaveBeenCalled();
   });
 });

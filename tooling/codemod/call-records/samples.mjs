@@ -302,6 +302,11 @@ function checkRefusals(record, bases, json) {
 export function doorAccepts(crateDir) {
   const dir = join(REPO, crateDir, 'tests/fixtures/wire-replay.golden');
   const out = new Map();
+  // A call the replay never sent past the door's checks (a file, a wallet's signature) takes an input written by hand,
+  // one per path, never a guess from its schema: `<crate>/tests/fixtures/record-samples.json`, `{ "<path>": <input> }`.
+  const hand = join(REPO, crateDir, 'tests/fixtures/record-samples.json');
+  const written = existsSync(hand) ? JSON.parse(readFileSync(hand, 'utf8')) : {};
+  for (const [path, input] of Object.entries(written)) if (!path.startsWith('//')) out.set(path, input);
   if (existsSync(dir)) {
     for (const f of readdirSync(dir)
       .filter((x) => x.endsWith('.json'))
@@ -310,13 +315,13 @@ export function doorAccepts(crateDir) {
       if (part.bodies) {
         for (const [path, byInput] of Object.entries(part.answers ?? {})) {
           const valid = bankAccepted(part.inputs?.[path], byInput);
-          if (valid !== NONE) out.set(path, valid);
+          if (valid !== NONE && !out.has(path)) out.set(path, valid);
         }
         continue;
       }
       for (const [path, valid] of Object.entries(part.inputs ?? {})) {
         const answers = Object.entries(part.answers ?? {}).filter(([k]) => k.startsWith(`${path} valid `));
-        if (answers.some(([, a]) => ![400, 401, 403].includes(a.status))) out.set(path, valid);
+        if (!out.has(path) && answers.some(([, a]) => ![400, 401, 403].includes(a.status))) out.set(path, valid);
       }
     }
     return out;
@@ -326,7 +331,7 @@ export function doorAccepts(crateDir) {
   for (const c of golden.calls) {
     const answer = golden.answers[c.path]?.['store-down valid'];
     const body = answer === undefined ? undefined : golden.bodies[answer[operator]];
-    if (body !== undefined && !body.startsWith('400 ')) out.set(c.path, c.valid);
+    if (!out.has(c.path) && body !== undefined && !body.startsWith('400 ')) out.set(c.path, c.valid);
   }
   return out;
 }

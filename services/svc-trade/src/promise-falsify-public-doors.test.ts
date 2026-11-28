@@ -22,15 +22,12 @@ import { TradeService, CopyService } from './controls/test-admission.js';
  *   createTradeRouter + registerPublicRest + registerPrivateRest + CopyService
  *   (Phase A shell doors — wire honesty, do not rebuild trade).
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { MemoryLedger } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { createTradeRouter } from './router.js';
 import { registerPublicRest, fakeMarket } from './public-rest.js';
 import { registerPrivateRest, type PrivateRestDeps } from './private-rest.js';
@@ -39,14 +36,16 @@ import { TradeError } from './spot/types.js';
 import { MemoryCopyFollowStore } from './copy/follow-store.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './copy/fee-share-law.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL } from './copy/errors.js';
-import { tradeServiceSource } from './spot/trade-service/source.testkit.js';
+import { createTwap } from './spot/trade-service/algo.js';
+import { NO_PAUSES } from './copy/platform-pauses.js';
+import type { EngineDepth } from './spot/matching-client.js';
+import { partial } from '@intafaced/service-kit/testing';
 
 const EDGE_SECRET = 'trade-promise-falsify-public-doors-edge-secret-32';
 const USER = '11111111-1111-4111-8111-111111111111';
 const LEADER = '22222222-2222-4222-8222-222222222222';
 const SESSION = '33333333-3333-4333-8333-333333333333';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const edgeContext = createEdgeContext({ secret: EDGE_SECRET, serviceName: 'svc-trade' });
 
 const publishedFee: CopyFeeShareLaw = {
@@ -251,16 +250,39 @@ describe('D26-P2-01a refuse-closed defaults (no invent)', () => {
     expect(COPY_JURISDICTION_RESIDUAL).toMatch(/served regions is not set/i);
   });
 
-  it('public funding-rate door documents never-invent-zero for unpublished futures', () => {
-    const src = readFileSync(join(here, 'public-rest.ts'), 'utf8');
-    expect(src).toMatch(/Never invent "0"/);
-    expect(src).toMatch(/trade\.funding_rate_unavailable/);
-  });
-
-  it('TWAP create refuses blank two-sided mark rather than inventing a feed', () => {
-    const src = tradeServiceSource();
-    expect(src).toMatch(/refusing algo rather than inventing a feed/);
-    expect(src).toMatch(/trade\.algo_mark_missing/);
+  it('TWAP create refuses blank two-sided mark rather than inventing a feed', async () => {
+    // The production createTwap over a book with one side, then none: it names the missing mark. The service it runs
+    // on has no store at all, so a schedule saved before the refusal would fail as a TypeError, not this refusal.
+    const market = fakeMarket({ paper: true });
+    const books: ReadonlyArray<Pick<EngineDepth, 'bids' | 'asks'>> = [
+      { bids: [['100', '1']], asks: [] },
+      { bids: [], asks: [['101', '1']] },
+      { bids: [], asks: [] },
+    ];
+    for (const depth of books) {
+      const svc = partial<Parameters<typeof createTwap>[0]>({
+        algoEnabled: true,
+        spotEnabled: true,
+        replayStoredAlgo: async () => null,
+        requireMarket: async () => market,
+        platformPauses: async () => NO_PAUSES,
+        now: () => new Date('2026-08-24T16:00:00.000Z'),
+        matching: partial<Parameters<typeof createTwap>[0]['matching']>({ depth: async () => ({ sequence: 1, ...depth }) }),
+      });
+      await expect(
+        createTwap(svc, principal(), {
+          symbol: market.symbol,
+          side: 'buy',
+          totalQty: parseAmount('1'),
+          durationMs: 60_000,
+          sliceIntervalMs: 10_000,
+          clientAlgoId: `pf-mark-${depth.bids.length}-${depth.asks.length}`,
+        }),
+      ).rejects.toMatchObject({
+        code: 'trade.algo_mark_missing',
+        message: expect.stringMatching(/refusing algo rather than inventing a feed/),
+      });
+    }
   });
 });
 

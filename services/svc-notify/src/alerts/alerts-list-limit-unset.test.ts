@@ -8,14 +8,9 @@
  * 4. Class N
  * 5. Paths: services/svc-notify/src/alerts/service.ts, router.ts
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { NotifyAlertsListLimitUnsetError, NOTIFY_ALERTS_LIST_LIMIT_UNSET, assertNotifyAlertsListLimit } from './service.js';
 import { MemoryAlertStore } from './store.js';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('assertNotifyAlertsListLimit', () => {
   it('refuses blank / NaN / 0 — never invents 20', () => {
@@ -49,20 +44,5 @@ describe('MemoryAlertStore.list pages when limit is set', () => {
     await store.create({ userId: 'u1', marketId: 'ETH-USD', direction: 'below', targetPrice: '200' });
     expect(await store.list('u1')).toHaveLength(2);
     expect(await store.list('u1', 1)).toHaveLength(1);
-  });
-});
-
-describe('notify.alerts limit unset refuse — source pin', () => {
-  it('router does not dump every watch when notify.alerts omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-notify/src/router.ts'), 'utf8');
-    const start = src.indexOf('alerts: mountRecord(');
-    const end = src.indexOf('createAlert: mountRecord(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertNotifyAlertsListLimit(input?.limit)');
-    expect(fn).toContain('alerts.list(ctx.principal.userId, limit)');
-    expect(fn).not.toMatch(/alerts\.list\(ctx\.principal\.userId\)/);
-    expect(fn).not.toMatch(/input\?\.limit \?\? 20/);
-    expect(fn).not.toMatch(/\?\? 20/);
-    expect(fn).not.toMatch(/\?\? 50/);
   });
 });

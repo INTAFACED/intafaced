@@ -1,7 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { fakeSql, partial } from '@intafaced/service-kit/testing';
 import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
@@ -2568,16 +2565,32 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
 });
 
 describe('kyc.getDocument is compliance-only bytes, never a public/user read', () => {
-  it('getDocument is mounted behind admin:compliance', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
+  it('getDocument is mounted behind admin:compliance', async () => {
     // Mounted from its record, whose access is the compliance scope alone (mountRecord enforces the record's access).
-    expect(src).toMatch(/getDocument:\s*mountRecord\(\s*IDENTITY_KYC_GET_DOCUMENT,/);
     expect(IDENTITY_KYC_GET_DOCUMENT.access).toEqual({ caller: 'scope', scope: 'admin:compliance' });
-    expect(src).toContain('vault.getFor');
-    expect(src).not.toMatch(/readDocument|downloadDocument/);
-    expect(src).toContain('storeDocument');
-    expect(src).toContain('listDocuments');
-    expect(src).toContain('bindDocument');
+    // The vault doors are store, list, bind and get; no read or download door beside them.
+    const documentDoors = Object.keys(router._def.procedures).filter(
+      (p) => p.startsWith('kyc.') && /Documents?$/.test(p.split('.').pop() ?? ''),
+    );
+    expect(documentDoors.sort()).toEqual(['kyc.bindDocument', 'kyc.getDocument', 'kyc.listDocuments', 'kyc.storeDocument']);
+    // An operator without the compliance scope is refused before any store is asked.
+    const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
+    const meta = await store.put({ userId: USER, contentType: 'image/png', bytes: Buffer.from('secret-scan') });
+    const r = createIdentityRouter(stub.auth, stub.rank, {
+      registrationOpen: true,
+      kycDocs: store,
+      actionApprovals: stubActionApprovals(CONFIRM_KYC, OPERATOR),
+    });
+    for (const scopes of [['admin:read'], ['admin:write'], ['support:ops']]) {
+      const op = r.createCaller(await ctx(scopes, { userId: OPERATOR, mfa: true }));
+      const err = await op.kyc.getDocument({ documentId: meta.id, ...kycDual }).catch((e: unknown) => e);
+      expect(codeOf(err), scopes.join()).toBe('FORBIDDEN');
+    }
+    // The compliance operator opens it through the owner-bound read (getFor): the bytes of that user's document.
+    const compliance = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+    expect((await compliance.kyc.getDocument({ documentId: meta.id, ...kycDual })).bytesBase64).toBe(
+      Buffer.from('secret-scan').toString('base64'),
+    );
   });
 
   it('a user session cannot open document bytes', async () => {

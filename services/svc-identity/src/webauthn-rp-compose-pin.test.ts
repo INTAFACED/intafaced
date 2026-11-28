@@ -18,11 +18,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { loadIdentityEnv } from './boot.testkit.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ENV_TS = resolve(import.meta.dirname, './env.ts');
 
 const RP_ID = 'WEBAUTHN_RP_ID';
 const RP_NAME = 'WEBAUTHN_RP_NAME';
@@ -39,13 +39,24 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose WebAuthn RP id/name/origin for svc-identity', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envTs = readFileSync(ENV_TS, 'utf8');
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   const block = identityServiceBlock(compose);
 
-  it('env.ts still defaults RP id/name/origin to localhost / INTAFACED / http://localhost:3000', () => {
-    expect(envTs).toMatch(/WEBAUTHN_RP_ID:\s*z\.string\(\)\.min\(1\)\.default\('localhost'\)/);
-    expect(envTs).toMatch(/WEBAUTHN_RP_NAME:\s*z\.string\(\)\.min\(1\)\.default\('INTAFACED'\)/);
-    expect(envTs).toMatch(/WEBAUTHN_ORIGIN:\s*z\.string\(\)\.min\(1\)\.default\('http:\/\/localhost:3000'\)/);
+  it('env.ts defaults RP id/name/origin to localhost / INTAFACED / http://localhost:3000, and reads host values', async () => {
+    const unset = await loadIdentityEnv({ [RP_ID]: undefined, [RP_NAME]: undefined, [ORIGIN]: undefined });
+    expect([unset.WEBAUTHN_RP_ID, unset.WEBAUTHN_RP_NAME, unset.WEBAUTHN_ORIGIN]).toEqual([
+      'localhost',
+      'INTAFACED',
+      'http://localhost:3000',
+    ]);
+    const pinned = await loadIdentityEnv({ [RP_ID]: 'desk.test', [RP_NAME]: 'TEST desk', [ORIGIN]: 'https://desk.test' });
+    expect([pinned.WEBAUTHN_RP_ID, pinned.WEBAUTHN_RP_NAME, pinned.WEBAUTHN_ORIGIN]).toEqual([
+      'desk.test',
+      'TEST desk',
+      'https://desk.test',
+    ]);
   });
 
   it('wires svc-identity WEBAUTHN_RP_ID WEBAUTHN_RP_NAME WEBAUTHN_ORIGIN from the host, unique once, env.ts defaults', () => {

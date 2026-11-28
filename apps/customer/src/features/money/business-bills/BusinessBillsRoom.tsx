@@ -18,6 +18,23 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
+import { BANK_BUSINESS_TEAM_OVERVIEW } from '@intafaced/contracts/bank-business-team-procedures';
+import {
+  BANK_BUSINESS_BILLS_LIST,
+  BANK_BUSINESS_BILLS_SETTINGS,
+  BANK_BUSINESS_BILLS_GET,
+  BANK_BUSINESS_BILLS_UPLOAD,
+  BANK_BUSINESS_BILLS_SET_VENDOR,
+  BANK_BUSINESS_BILLS_SET_LIMITS,
+  BANK_BUSINESS_BILLS_CLEAR_DUPLICATE,
+  BANK_BUSINESS_BILLS_REVIEW,
+  BANK_BUSINESS_BILLS_SUBMIT,
+  BANK_BUSINESS_BILLS_APPROVE,
+  BANK_BUSINESS_BILLS_PAY,
+  BANK_BUSINESS_BILLS_CANCEL,
+  BANK_BUSINESS_BILLS_RESEND,
+} from '@intafaced/contracts/bank-business-bills-procedures';
+import { callAs, type AppProcedure } from '../../../shared/api';
 
 /**
  * A business pays its suppliers' bills (J-bank-20; BK-bill-01 to BK-bill-03), on the flow template.
@@ -180,7 +197,7 @@ function signedOutState(t: T, path: string): RoomState {
 
 /** One read of the bank; while a reload of the same read is on its way the last answer stays on screen. */
 function useBank<S>(
-  procedure: string,
+  procedure: AppProcedure,
   input: unknown,
   schema: ZodType<S>,
   base: string,
@@ -190,9 +207,9 @@ function useBank<S>(
   const read = useResource<S>(
     (signal) =>
       userId && input !== null
-        ? api.query('bank', procedure, input, schema, { signal })
+        ? callAs(api, procedure, input, schema, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
-    `bills:${procedure}:${userId ?? 'out'}:${base}:${rev}`,
+    `bills:${procedure.path}:${userId ?? 'out'}:${base}:${rev}`,
   );
   const kept = useRef<{ base: string; data: S } | null>(null);
   const keyed = `${userId ?? 'out'}:${base}`;
@@ -210,7 +227,7 @@ function useChange(after: () => void) {
   const [failed, setFailed] = useState<Failed | null>(null);
   const [notice, setNotice] = useState('');
   async function run<S>(
-    procedure: string,
+    procedure: AppProcedure,
     body: unknown,
     schema: ZodType<S>,
     done?: (data: S) => string,
@@ -220,7 +237,7 @@ function useChange(after: () => void) {
     setBusy(true);
     setFailed(null);
     setNotice('');
-    const out = await api.mutate('bank', procedure, body, schema);
+    const out = await callAs(api, procedure, body, schema);
     setBusy(false);
     held?.settle(out);
     if (!out.ok) {
@@ -252,7 +269,7 @@ function useBusiness(path: string, t: T) {
   const { userId, profiles } = useSession();
   const business = profiles.business;
   const accountId = business?.accountId ?? null;
-  const overview = useBank('businessTeam.overview', accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
+  const overview = useBank(BANK_BUSINESS_TEAM_OVERVIEW, accountId ? { accountId } : null, businessTeamOverviewSchema, accountId ?? '-');
   let state: RoomState = { kind: 'ready' };
   if (!userId) state = signedOutState(t, path);
   else if (!business) state = { kind: 'refused', refusal: { variant: 'refused', title: t('personalTitle'), body: t('personalBody') } };
@@ -313,8 +330,8 @@ export function BusinessBillsRoom() {
 function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; label: string; reloadTop: () => void; t: T }) {
   const [rev, setRev] = useState(0);
   const input = { accountId };
-  const bills = useBank('businessBills.list', input, z.array(businessBillSchema), accountId, rev);
-  const settings = useBank('businessBills.settings', input, businessBillSettingsSchema, accountId, rev);
+  const bills = useBank(BANK_BUSINESS_BILLS_LIST, input, z.array(businessBillSchema), accountId, rev);
+  const settings = useBank(BANK_BUSINESS_BILLS_SETTINGS, input, businessBillSettingsSchema, accountId, rev);
   const billId = useHeldId();
   const change = useChange(() => {
     setRev((n) => n + 1);
@@ -347,7 +364,7 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
             if (!file) return;
             void base64Of(file).then((contentBase64) =>
               change.run(
-                'businessBills.upload',
+                BANK_BUSINESS_BILLS_UPLOAD,
                 { accountId, billId: billId.id, fileName: file.name, contentType: file.type || 'application/octet-stream', contentBase64 },
                 businessBillSchema,
                 () => t('uploaded'),
@@ -412,8 +429,11 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             void change
-              .run('businessBills.setVendor', { accountId, name: vendorName.trim(), cap: vendorCap.trim() }, businessBillVendorSchema, () =>
-                t('vendorSaved'),
+              .run(
+                BANK_BUSINESS_BILLS_SET_VENDOR,
+                { accountId, name: vendorName.trim(), cap: vendorCap.trim() },
+                businessBillVendorSchema,
+                () => t('vendorSaved'),
               )
               .then((v) => {
                 if (v) {
@@ -456,7 +476,7 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
             const v = (x: string) => (x.trim() ? x.trim() : null);
             void change
               .run(
-                'businessBills.setLimits',
+                BANK_BUSINESS_BILLS_SET_LIMITS,
                 { accountId, perPayment: v(shownLimits.perPayment), daily: v(shownLimits.daily), monthly: v(shownLimits.monthly) },
                 businessBillLimitsSchema,
                 () => t('limitsSaved'),
@@ -493,10 +513,10 @@ export function BusinessBillRoom({ search }: { search: string }) {
   const path = `/bank/business/bill${search}`;
   const { userId } = useSession();
   const [rev, setRev] = useState(0);
-  const bill = useBank('businessBills.get', id ? { billId: id } : null, businessBillSchema, id ?? '-', rev);
+  const bill = useBank(BANK_BUSINESS_BILLS_GET, id ? { billId: id } : null, businessBillSchema, id ?? '-', rev);
   const b = bill.resource.status === 'ready' ? bill.resource.data : null;
   const overview = useBank(
-    'businessTeam.overview',
+    BANK_BUSINESS_TEAM_OVERVIEW,
     b ? { accountId: b.accountId } : null,
     businessTeamOverviewSchema,
     b?.accountId ?? '-',
@@ -579,7 +599,7 @@ function BillParts({
               tone="primary"
               type="button"
               disabled={change.busy}
-              onClick={() => void change.run('businessBills.clearDuplicate', { billId: b.id }, businessBillSchema)}
+              onClick={() => void change.run(BANK_BUSINESS_BILLS_CLEAR_DUPLICATE, { billId: b.id }, businessBillSchema)}
             >
               {t('notDuplicate')}
             </Button>
@@ -618,7 +638,7 @@ function BillParts({
             e.preventDefault();
             void change
               .run(
-                'businessBills.review',
+                BANK_BUSINESS_BILLS_REVIEW,
                 {
                   billId: b.id,
                   vendor: v(shown.vendor),
@@ -662,7 +682,7 @@ function BillParts({
             type="button"
             tone="primary"
             disabled={change.busy}
-            onClick={() => void change.run('businessBills.submit', { billId: b.id }, businessBillSchema, () => t('submitted'))}
+            onClick={() => void change.run(BANK_BUSINESS_BILLS_SUBMIT, { billId: b.id }, businessBillSchema, () => t('submitted'))}
           >
             {t('submit')}
           </Button>
@@ -688,7 +708,7 @@ function BillParts({
               type="button"
               tone="primary"
               disabled={change.busy}
-              onClick={() => void change.run('businessBills.approve', { billId: b.id }, businessBillSchema, () => t('approved'))}
+              onClick={() => void change.run(BANK_BUSINESS_BILLS_APPROVE, { billId: b.id }, businessBillSchema, () => t('approved'))}
             >
               {t('approve')}
             </Button>
@@ -706,7 +726,7 @@ function BillParts({
               const scheduledFor = payOn || null;
               void change
                 .run(
-                  'businessBills.pay',
+                  BANK_BUSINESS_BILLS_PAY,
                   {
                     billId: b.id,
                     paymentId: paymentId.id,
@@ -808,7 +828,7 @@ function BillParts({
                   tone="primary"
                   type="button"
                   disabled={change.busy}
-                  onClick={() => void change.run('businessBills.cancel', { paymentId: p.id }, businessBillSchema, () => t('cancelled'))}
+                  onClick={() => void change.run(BANK_BUSINESS_BILLS_CANCEL, { paymentId: p.id }, businessBillSchema, () => t('cancelled'))}
                 >
                   {t('cancel')}
                 </Button>
@@ -821,7 +841,7 @@ function BillParts({
             tone="primary"
             type="button"
             disabled={change.busy}
-            onClick={() => void change.run('businessBills.resend', { paymentId: sending.id }, businessBillSchema)}
+            onClick={() => void change.run(BANK_BUSINESS_BILLS_RESEND, { paymentId: sending.id }, businessBillSchema)}
           >
             {t('tryAgain')}
           </Button>

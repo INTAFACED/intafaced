@@ -1,19 +1,36 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
+import { revokeAllSessions } from './revoke-all-sessions.js';
 import {
   newlyEnrolledPasskeyRevokesAllSessions,
   revokeAllSessionsAfterNewlyEnrolledPasskey,
 } from './enroll-after-last-revoke-all-sessions.js';
 
+// The WebAuthn library, watched: revoking after a passkey must never start a ceremony of its own.
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...real, generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions) };
+});
+
+/** The code a synchronous check refuses with, or null when it passes. */
+function refusalOf(check: () => void): unknown {
+  try {
+    check();
+    return null;
+  } catch (err) {
+    return (err as { code?: unknown }).code;
+  }
+}
+
 type SessionRow = { id: string; user_id: string; revoked: boolean };
 
 function fakeSql(creds: unknown[] | null, sessions: SessionRow[]) {
   let sessionWrites = 0;
+  const statements: string[] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    statements.push(text.replace(/\s+/g, ' ').trim());
     if (text.includes('select') && text.includes('webauthn_creds')) {
       if (creds === null) return [];
       return [{ webauthn_creds: creds }];
@@ -37,9 +54,10 @@ function fakeSql(creds: unknown[] | null, sessions: SessionRow[]) {
     }
     throw new Error(`unexpected sql: ${text}`);
   };
-  const sql = Object.assign(fn, { sessions }) as Parameters<typeof revokeAllSessionsAfterNewlyEnrolledPasskey>[0] & {
+  const sql = Object.assign(fn, { sessions, statements }) as Parameters<typeof revokeAllSessionsAfterNewlyEnrolledPasskey>[0] & {
     sessionWrites: number;
     sessions: SessionRow[];
+    statements: string[];
   };
   Object.defineProperty(sql, 'sessionWrites', { get: () => sessionWrites });
   return sql;
@@ -121,14 +139,27 @@ describe('newlyEnrolledPasskeyRevokesAllSessions — enroll after last unenroll'
     expect(sql.sessions.map((s) => s.revoked)).toEqual([false, false, true]);
   });
 
-  it('source reuses requireVerifiedPasskey and revokeAllSessions; no invented challenge; not one-session revoke', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'enroll-after-last-revoke-all-sessions.ts'), 'utf8');
-    expect(src).toMatch(/requireVerifiedPasskey/);
-    expect(src).toMatch(/revokeAllSessions/);
-    expect(src).not.toMatch(/from '\.\/revoke-session/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+challenges/i);
-    expect(src).not.toMatch(/INSERT\s+sessions/i);
+  it('revokes exactly as revokeAllSessions does, after one passkey read; no invented challenge; not one-session revoke', async () => {
+    const own = fakeSql([enrolledAgain], liveSeats());
+    const ownOut = await revokeAllSessionsAfterNewlyEnrolledPasskey(own, { userId: A });
+    const base = fakeSql([enrolledAgain], liveSeats());
+    const baseOut = await revokeAllSessions(base, A, A);
+    expect(ownOut).toEqual(baseOut);
+    expect(own.sessions).toEqual(base.sessions);
+    // One read of the stored passkeys (the gate), then revokeAllSessions's own statements (it lists the live seats
+    // first, then ends each), and nothing else: no seat is ended on its own and no session or challenge is written.
+    expect(own.statements[0]).toMatch(/^select webauthn_creds from users where id = \? limit 1$/);
+    expect(own.statements.slice(1)).toEqual(base.statements);
+    expect(own.statements[1]).toMatch(/^select id from sessions where user_id = \? and revoked = false$/);
+    expect(own.statements.filter((s) => /insert\s+(into\s+)?(challenges|sessions)/.test(s))).toEqual([]);
+    // Refused at the gate, revokeAllSessions never runs: only the passkey read.
+    for (const creds of [[enrolledUnverified], []]) {
+      const refused = fakeSql(creds, liveSeats());
+      await expect(revokeAllSessionsAfterNewlyEnrolledPasskey(refused, { userId: A })).rejects.toMatchObject({
+        code: refusalOf(() => requireVerifiedPasskey(creds)),
+      });
+      expect(refused.statements).toHaveLength(1);
+    }
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 });
