@@ -42,7 +42,7 @@ const migrations = readdirSync(join(here, '..', '..', 'drizzle'))
 const BLANK_ENV: NodeJS.ProcessEnv = {
   APP_ENV: 'test',
   SERVICE_NAME: 'svc-identity',
-  DATABASE_URL: 'postgres://blank:blank@localhost:5432/blank',
+  DATABASE_URL: 'postgres://blank:blank@localhost:5432/intafaced_test',
   DATABASE_POOL_MAX: '1',
   EDGE_PRINCIPAL_SECRET: 'a-refresh-recovery-edge-secret-long-enough',
   INTERNAL_SERVICE_SECRET: 'a-refresh-recovery-internal-secret-long-enough',
