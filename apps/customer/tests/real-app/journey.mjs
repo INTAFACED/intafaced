@@ -14,7 +14,7 @@ import { makeMoves } from '../../../../tooling/scripts/journey-moves.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
 import { beforeRequest, noteResponse, partnerFile } from './partner-start.mjs';
-import { fromTop } from './step-picture.mjs';
+import { fromTop, takePicture } from './step-picture.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
 // (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does), and so does every helper that asserts, so a
@@ -474,7 +474,7 @@ const extended = base.extend({
           // What readying did, kept on the test, so a picture read BROKEN says whether the page was left scrolled and why.
           testInfo.annotations.push({ type: 'step picture', description: await fromTop(page) });
           const file = testInfo.outputPath('step-picture.png');
-          await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
+          await takePicture(page, { path: file, timeout: 15_000 });
           await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });
           taken = true;
         } catch {
