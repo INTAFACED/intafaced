@@ -26,6 +26,8 @@ const COMPONENTS = [
 /** The labelled TEST owner values this journey runs with. Production has none until the owner sets them. */
 const TEST_VALUES = { componentCap: 5, stalenessSeconds: 600, uptimeDays: 7 };
 let emptyBoard = false;
+/** When #1's TEST reading was observed: #2 finds it on that day's uptime, which is yesterday on a run just after midnight UTC. */
+let readingAt = null;
 
 async function useEmptyBoard(on) {
   await restartService('notify', { LOCAL_STACK_NOTIFY_NOTICES: on ? 'off' : null });
@@ -48,6 +50,7 @@ test(`${J} #1 /status shows each component's state with an as-of time and an emp
   await useEmptyBoard(true);
   await configureStatusPage({ components: COMPONENTS, ...TEST_VALUES }, `TEST journey ${J} #1`);
   const observedAt = new Date(Date.now() - 30_000).toISOString();
+  readingAt = observedAt;
   await recordReading({ componentId: 'rest-api', state: 'operational', observedAt, source: 'TEST probe' });
 
   const page = await signedOutVisitor(browser);
@@ -116,9 +119,12 @@ test(`${J} #2 the machine feed lists components, incidents with impact and updat
     expect(api.basis).toBe('incident');
     expect(api.incidentId).toBe(root.id);
     expect(feed.components.find((c) => c.id === 'webhooks').state).toBe('no_data');
-    // Uptime history: one day per day of the window, oldest first; today's reading counts on today.
+    // Uptime history: one day per day of the window, oldest first, ending on the feed's own day; #1's reading counts on
+    // the day it was observed, which is yesterday on a run just after midnight UTC.
     for (const c of feed.components) expect(c.uptime).toHaveLength(TEST_VALUES.uptimeDays);
-    expect(api.uptime.at(-1)).toMatchObject({ date: utcDay(new Date()), state: 'operational' });
+    expect(api.uptime.at(-1).date).toBe(utcDay(new Date(feed.asOf)));
+    if (!readingAt) throw new Error('#1 recorded no reading of this journey to find');
+    expect(api.uptime.find((day) => day.date === utcDay(new Date(readingAt)))).toMatchObject({ state: 'operational' });
     expect(feed.components.find((c) => c.id === 'webhooks').uptime.every((day) => day.state === null)).toBe(true);
     // The incident with its impact and both updates.
     expect(feed.incidents).toHaveLength(1);
