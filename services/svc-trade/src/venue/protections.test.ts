@@ -11,7 +11,7 @@ import {
   type PreparedVenueAction,
   type UserVenue,
 } from '@intafaced/venue-contracts';
-import { breakevenAnswerSchema } from '@intafaced/contracts/trade-venue-door';
+import { breakevenAnswerSchema, triggerMoveAnswerSchema } from '@intafaced/contracts/trade-venue-door';
 import { seedTestVenue, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
@@ -630,6 +630,58 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     } finally {
       sim.setMarketFees(ETH, { makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
       sim.setMark(ETH, a('3000'));
+      await flat();
+    }
+  });
+
+  it('J-derivatives-32: a dragged take profit and stop move in place on the venue, the same order at the new trigger, one of each', async () => {
+    await flat();
+    await long('1');
+    const account = await door.account(owner);
+    const tp = await p.create(person, base({ kind: 'take_profit', triggerPrice: '3100' }), REGION);
+    const sl = await p.create(person, base({ kind: 'stop_loss', triggerPrice: '2900' }), REGION);
+    if (tp.restsOn !== 'venue' || sl.restsOn !== 'venue') throw new Error('expected the venue');
+    for (const made of [tp, sl]) expect((await send(made)).outcome).toMatchObject({ accepted: true });
+    const tpId = tp.prepared.venueClientOrderId!;
+    try {
+      // A moved order is a changed order: a person below trading moves nothing, as the door refuses a changed order.
+      const below = { ...person, tier: 'none' } as Principal;
+      await expect(p.move(below, { owner, symbol: ETH, venueClientOrderId: tpId, triggerPrice: '3150' })).rejects.toMatchObject({
+        code: 'tier.insufficient',
+      });
+      const moved = await p.move(person, { owner, symbol: ETH, venueClientOrderId: tpId, triggerPrice: '3150' });
+      expect(moved).toMatchObject({ role: 'take_profit', from: '3100', triggerPrice: '3150', price: '2835' });
+      expect(triggerMoveAnswerSchema.safeParse(encodeVenueWire(moved)).success).toBe(true);
+      expect(moved.actionKey).toBe(`trigger-move:${owner}:${tpId.toLowerCase()}:3150`);
+      expect(moved.prepared.intent).toEqual({
+        kind: 'move_trigger',
+        symbol: ETH,
+        venueClientOrderId: tpId,
+        triggerPrice: a('3150'),
+        price: a('2835'),
+      });
+      // The same drag asked again is the same action, never a second one.
+      const again = await p.move(person, { owner, symbol: ETH, venueClientOrderId: tpId, triggerPrice: '3150' });
+      expect(again.actionKey).toBe(moved.actionKey);
+      expect(again.reused).toBe(true);
+      expect((await send(moved)).outcome).toMatchObject({ definite: true, accepted: true });
+      const resting = (await sim.openOrders(account)).value.filter((o) => o.symbol === ETH && o.trigger);
+      expect(resting.filter((o) => o.trigger!.role === 'take_profit').map((o) => [o.venueClientOrderId, o.trigger!.price])).toEqual([
+        [tpId, a('3150')],
+      ]);
+      expect(resting.filter((o) => o.trigger!.role === 'stop_loss')).toHaveLength(1);
+
+      // A stop dragged above the mark would fire at once: refused in words, nothing prepared.
+      const wrong = await refused(
+        p.move(person, { owner, symbol: ETH, venueClientOrderId: sl.prepared.venueClientOrderId!, triggerPrice: '3050' }),
+      );
+      expect(wrong.code).toBe('trade.protection_wrong_side');
+      expect(wrong.message).toMatch(/now 3000\): it must be below it\. Nothing was moved\./);
+      // An order that is not a waiting stop or take profit of this account.
+      expect((await refused(p.move(person, { owner, symbol: ETH, venueClientOrderId: '0xabc', triggerPrice: '2950' }))).code).toBe(
+        'trade.trigger_not_resting',
+      );
+    } finally {
       await flat();
     }
   });

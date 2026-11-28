@@ -3,16 +3,24 @@ import { add, dec, SCALE, str, sub, times, ZERO, type Scaled } from '../../../da
 import type { VenueOrder, VenuePosition } from '../../../features/trade/venue-api';
 
 // Desk A's risk strip: what the open positions make or lose now, and if every stop or every target on them fills at its
-// trigger. Exact decimals from the venue's own positions and resting trigger orders; before fees, and said so. A
-// position with no stop (or no target) resting is counted, never priced as zero.
+// trigger, after the venue's fee and ours in and out (J-derivatives-32 #1). Exact decimals from the venue's own
+// positions, fills and resting trigger orders. A position with no stop resting is named in place of a loss total.
 
 export interface RiskTotals {
+  /** The venue's own open result on every position, as it reports it. */
   readonly open: string;
-  readonly ifStops: string;
-  readonly ifTargets: string;
-  /** Positions with no stop resting, and with no target resting. */
-  readonly noStop: number;
-  readonly noTarget: number;
+  /**
+   * What every stop would make or lose if it filled at its trigger, after the venue's fee and ours in and out; null when
+   * a position has no stop (named in `noStop`) or a figure it rests on is not known (`feesUnknown`).
+   */
+  readonly ifStops: string | null;
+  /** The same for every target resting; null when none rests or a figure is not known. */
+  readonly ifTargets: string | null;
+  /** The markets of the positions with no stop resting, and with no target resting. */
+  readonly noStop: readonly string[];
+  readonly noTarget: readonly string[];
+  /** True when the venue's fee, our fee or a position's opening fees are not known, so no total after fees is shown. */
+  readonly feesUnknown: boolean;
   readonly count: number;
 }
 
@@ -34,30 +42,47 @@ function resultAt(p: VenuePosition, price: Scaled): Scaled {
   return p.side === 'long' ? made : -made;
 }
 
-export function riskOf(positions: readonly VenuePosition[], orders: readonly VenueOrder[]): RiskTotals {
+/** What closing the whole position at a price nets after fees (`exit-figures.ts` netAt); null when not known. */
+export type NetAt = (position: VenuePosition, price: string) => string | null;
+
+export function riskOf(positions: readonly VenuePosition[], orders: readonly VenueOrder[], netAt: NetAt): RiskTotals {
   let open = ZERO;
-  let ifStops = ZERO;
-  let ifTargets = ZERO;
-  let noStop = 0;
-  let noTarget = 0;
+  let ifStops: Scaled | null = ZERO;
+  let ifTargets: Scaled | null = ZERO;
+  let anyTarget = false;
+  let feesUnknown = false;
+  const noStop: string[] = [];
+  const noTarget: string[] = [];
+  const at = (p: VenuePosition, price: string): Scaled | null => {
+    const v = dec(netAt(p, price));
+    if (v === null) feesUnknown = true;
+    return v;
+  };
   for (const p of positions) {
     open = add(open, num(p.unrealisedPnl));
     const mine = orders.filter((o) => closes(o, p));
     const stop = mine.find(isStop);
     const target = mine.find(isTarget);
-    // No stop: the position stays open at its mark, so it adds what it shows now; the count says it is unprotected.
-    if (stop?.trigger) ifStops = add(ifStops, resultAt(p, num(stop.trigger.price)));
-    else {
-      noStop += 1;
-      ifStops = add(ifStops, num(p.unrealisedPnl));
-    }
-    if (target?.trigger) ifTargets = add(ifTargets, resultAt(p, num(target.trigger.price)));
-    else {
-      noTarget += 1;
-      ifTargets = add(ifTargets, num(p.unrealisedPnl));
-    }
+    // No stop: there is no loss total to give, only the position named, so a total never looks safer than it is.
+    if (stop?.trigger) {
+      const v = at(p, stop.trigger.price);
+      ifStops = ifStops === null || v === null ? null : add(ifStops, v);
+    } else noStop.push(p.symbol);
+    if (target?.trigger) {
+      anyTarget = true;
+      const v = at(p, target.trigger.price);
+      ifTargets = ifTargets === null || v === null ? null : add(ifTargets, v);
+    } else noTarget.push(p.symbol);
   }
-  return { open: str(open), ifStops: str(ifStops), ifTargets: str(ifTargets), noStop, noTarget, count: positions.length };
+  return {
+    open: str(open),
+    ifStops: noStop.length > 0 || ifStops === null ? null : str(ifStops),
+    ifTargets: !anyTarget || ifTargets === null ? null : str(ifTargets),
+    noStop,
+    noTarget,
+    feesUnknown,
+    count: positions.length,
+  };
 }
 
 type RiskSizeRefusal =

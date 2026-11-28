@@ -44,6 +44,8 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'maintenanceMarginRate',
   'takerFeeBps',
   'fee',
+  // MoveTriggerIntent's new trigger price (J-derivatives-32)
+  'triggerPrice',
   'withdrawalFee',
   'networkFee',
   // VenueBestPrices: the side a market order meets, null when it is empty

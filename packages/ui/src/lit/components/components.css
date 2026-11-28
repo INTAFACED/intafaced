@@ -962,6 +962,8 @@
   border-style: dashed;
 }
 .lt-chart-mark[data-mark='line'] {
+  /* A handle a finger drags: at least the 24px target WCAG 2.5.8 asks for, however close the next line sits. */
+  min-block-size: 24px;
   pointer-events: auto;
   cursor: ns-resize;
   touch-action: none;

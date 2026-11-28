@@ -76,6 +76,8 @@ export const venueStatusSchema = z.union([
     ordersPerAction: z.number().int().positive().optional(),
     // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).
     amendsInPlace: z.boolean().optional(),
+    // J-derivatives-32: whether a resting stop or target moves in place, so its chart line can be dragged.
+    movesTriggersInPlace: z.boolean().optional(),
     cancelsPerAction: z.number().int().min(0).optional(),
     // Who signs the venue's orders, cancels and changes: the owner's wallet, or a trading session's key the wallet approved
     // once (a venue whose orders name a chain no wallet signs on). Absent from an older door: the owner's wallet.
@@ -1201,6 +1203,32 @@ export interface BreakevenRequest {
   owner: string;
   symbol: string;
   clientOrderId: string;
+  signer?: { role: 'owner' | 'agent'; address: string };
+}
+
+/**
+ * `POST /api/v1/venue/protections/move` (svc-trade src/venue/protections.ts `move`, J-derivatives-32): the one action
+ * that moves a resting stop or take profit in place to `triggerPrice`, to sign and send through `/api/v1/venue/submit`.
+ */
+export const triggerMoveAnswerSchema = z.object({
+  symbol: z.string(),
+  venueClientOrderId: z.string(),
+  role: z.enum(['take_profit', 'stop_loss']),
+  from: decimalSchema,
+  triggerPrice: decimalSchema,
+  price: decimalSchema,
+  actionKey: z.string(),
+  prepared: preparedAnswerSchema.shape.prepared,
+  reused: z.boolean(),
+});
+export type TriggerMoveAnswer = z.infer<typeof triggerMoveAnswerSchema>;
+
+/** One drag of a stop or target line: the resting order by the venue's client id, and the trigger it moves to. */
+export interface TriggerMoveRequest {
+  owner: string;
+  symbol: string;
+  venueClientOrderId: string;
+  triggerPrice: string;
   signer?: { role: 'owner' | 'agent'; address: string };
 }
 

@@ -55,6 +55,10 @@
     scrollbar-width: thin;
   }
 }
+/* The book and tape column collapsed (the futures desk): the chart takes the whole width. */
+.xd-market-split[data-book-tape='closed'] {
+  grid-template-columns: minmax(0, 1fr);
+}
 /* A wide screen: the book and the tape side by side, both always in view. */
 @container room (min-width: 2000px) {
   .xd-market-split {

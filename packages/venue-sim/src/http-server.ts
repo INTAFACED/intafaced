@@ -68,14 +68,16 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         reward paid, withdrawals queued up to the venue's limit)
  *        /test/vault-lockup {account,vault}               the venue's clock passes one account's lock-up in one vault
  *                                                         (J-derivatives-31 #5); every other position keeps its own
- *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?,refuseClose?}   one owner's account only, so a journey can
+ *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?,refuseTriggerMoves?,refuseClose?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down
  *                                                         (and the read of its account mode as a builder);
  *                                                         `loseAnswers` applies the next N submits and answers each
  *                                                         `definite: false` (timeout); `failAfterSend` applies the next N
  *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
- *                                                         that long (at most 10 s) before the venue applies it
+ *                                                         that long (at most 10 s) before the venue applies it;
+ *                                                         `refuseTriggerMoves` (the venue's reason, or null) refuses each
+ *                                                         move of a resting stop or take profit, nothing moved;
  *                                                         `refuseClose` {symbol,reason} refuses every reduce-only order
  *                                                         on that market definitely, in the reason's words, applying
  *                                                         nothing (null: takes them again; J-derivatives-33 #4)
@@ -402,6 +404,11 @@ export interface AccountSwitches {
   loseAnswers: number;
   failAfterSend: number;
   submitDelayMs: number;
+  /**
+   * The venue's reason for refusing every move of a resting stop or take profit on this account (`move_trigger`,
+   * J-derivatives-32 #4), answered as its definite refusal with nothing moved; null (the default) takes each move.
+   */
+  refuseTriggerMoves: string | null;
   /** Every reduce-only order on `symbol` is refused definitely with `reason`, applying nothing; null takes them. */
   refuseClose: { symbol: string; reason: string } | null;
 }
@@ -431,7 +438,15 @@ function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknow
   if (!/^0x[0-9a-f]{40}$/.test(owner)) throw new VenueWireError('owner must be a 0x address');
   const all = ACCOUNT_SWITCHES.get(sim) ?? new Map<string, AccountSwitches>();
   ACCOUNT_SWITCHES.set(sim, all);
-  const s = all.get(owner) ?? { down: false, figures: 'live', loseAnswers: 0, failAfterSend: 0, submitDelayMs: 0, refuseClose: null };
+  const s = all.get(owner) ?? {
+    down: false,
+    figures: 'live',
+    loseAnswers: 0,
+    failAfterSend: 0,
+    submitDelayMs: 0,
+    refuseTriggerMoves: null,
+    refuseClose: null,
+  };
   if (body.figures !== undefined) {
     if (body.figures !== 'live' && body.figures !== 'stale' && body.figures !== 'unknown') {
       throw new VenueWireError("figures is 'live', 'stale' or 'unknown'");
@@ -451,6 +466,12 @@ function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknow
   whole('loseAnswers', 100);
   whole('failAfterSend', 100);
   whole('submitDelayMs', 10_000);
+  if (body.refuseTriggerMoves !== undefined) {
+    const why = body.refuseTriggerMoves;
+    if (why !== null && (typeof why !== 'string' || why.trim() === '' || why.length > 300))
+      throw new VenueWireError('refuseTriggerMoves is the venue reason in words (1 to 300 characters), or null');
+    s.refuseTriggerMoves = why;
+  }
   if (body.refuseClose !== undefined) s.refuseClose = refuseCloseOf(body.refuseClose);
   all.set(owner, s);
   return { owner, ...s };
@@ -534,6 +555,14 @@ export async function answerTestVenue(
       await route({ sim, deposit }, path, body);
       mine.failAfterSend -= 1;
       return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
+    }
+    const prepared = body.prepared;
+    const intent = prepared && typeof prepared === 'object' && 'intent' in prepared ? prepared.intent : null;
+    const moving = !!intent && typeof intent === 'object' && 'kind' in intent && intent.kind === 'move_trigger';
+    if (path === '/submit' && mine?.refuseTriggerMoves && moving) {
+      // The venue's definite no to a move: nothing applied, the order resting as it was.
+      const refusal = { venueId: sim.venue.id, code: 'venue_rejected', detail: mine.refuseTriggerMoves };
+      return [200, encodeVenueWire({ definite: true, accepted: false, refusal, asOf: new Date() })];
     }
     const value = await route({ sim, deposit }, path, body);
     return value === undefined ? [404, { error: `no route ${path}` }] : [200, encodeVenueWire(value)];
