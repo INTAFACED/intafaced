@@ -1,7 +1,9 @@
 import type { Sql } from 'postgres';
-import { describe, expect, it } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
+import { describe, expect, it, vi } from 'vitest';
 import { decodeListCursor, encodeListCursor, ListQueryError, parseListFilters } from './list-page.js';
 import { safeFailure } from './merchant-failure.js';
+import type { PricingQuote } from './control/pricing.js';
 import { readPricingSnapshots } from './control/snapshots.js';
 import { roleHasPermission } from './merchant-ops/roles.js';
 import { scriptedSql } from './scripted-sql.testkit.js';
@@ -103,5 +105,51 @@ describe('pricing snapshot read', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.text).toContain('FROM pay.control_pricing_snapshots');
     expect(calls[0]!.text).not.toMatch(/control_pricing_rules/);
+  });
+
+  it('the whole snapshot module runs with the pricing engine refusing to load', async () => {
+    // Every export of control/snapshots.ts (write, read, fee parts) runs with control/pricing.ts refusing to load, so
+    // nothing in the module can recompute a fee from the engine.
+    vi.resetModules();
+    vi.doMock('./control/pricing.js', () => {
+      throw new Error('the snapshot module loaded the pricing engine');
+    });
+    try {
+      await expect(import('./control/pricing.js')).rejects.toThrow(/error when mocking a module/);
+      const snapshots = await import('./control/snapshots.js');
+      expect(Object.keys(snapshots).sort()).toEqual(['feeParts', 'readPricingSnapshots', 'writePricingSnapshot']);
+      const { sql, calls } = scriptedSql<Sql>(() => []);
+      const quote: PricingQuote = {
+        layer: 'merchant',
+        ruleId: 'rule-1',
+        bandFrom: 0n,
+        feeBps: 100,
+        flatFee: null,
+        spreadBps: null,
+        roundingBeneficiary: 'platform',
+        roundingMode: 'ceil',
+        bpsFee: 1n,
+        feeBeforeClamp: 1n,
+        fee: 1n,
+        spread: null,
+        net: 99n,
+      };
+      await snapshots.writePricingSnapshot(sql, {
+        subjectKind: 'payment',
+        subjectId: ID,
+        merchantId: ID,
+        assetCode: 'USDT',
+        resolved: partial<Parameters<typeof snapshots.writePricingSnapshot>[1]['resolved']>({ chain: [] }),
+        quote,
+        baseAmount: 100n,
+        monthlyVolumeBefore: 0n,
+      });
+      await snapshots.readPricingSnapshots(sql, 'payment', [ID]);
+      expect(snapshots.feeParts({ fee: '1', bpsFee: '1', flatFee: null, feeBeforeClamp: '1' })).not.toBeUndefined();
+      expect(calls.map((c) => c.text.match(/pay\.\w+/g))).toEqual([['pay.control_pricing_snapshots'], ['pay.control_pricing_snapshots']]);
+    } finally {
+      vi.doUnmock('./control/pricing.js');
+      vi.resetModules();
+    }
   });
 });

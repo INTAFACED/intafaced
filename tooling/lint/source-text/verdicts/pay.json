@@ -80,12 +80,12 @@
     "file": "services/svc-pay/src/b2b-ramp/router.test.ts",
     "target": "money.ts",
     "verdict": "rewrite",
-    "asserts": "The ramp admits a credit on its own rows, posts nothing to the ledger, and compares amounts as scaled bigint.",
+    "asserts": "Nothing in the B2B ramp posts to the ledger, and only money.ts may load ledger-client.",
     "guard": {
       "kind": "test",
-      "ref": "services/svc-pay/src/b2b-ramp/router.test.ts#does not post to the ledger from this module"
+      "ref": "services/svc-pay/src/b2b-ramp/ledger-isolation.test.ts#every export and every router procedure, driven once, posts nothing and calls no one"
     },
-    "why": "Drives recordBankLine and credit on a scripted database with fetch refused: two writes, both its own tables, no outside call, ledgerPosted false, exact match past 2^53."
+    "why": "With every ledger-client writer recorded (recipes, HTTP client, transport, recipe poster, MemoryLedger.post) and fetch spied, drives every export of money, config, errors, access and socket and all four router procedures: nothing posted, nothing called. ledger-import.test.ts loads every other module of the folder, listed by name, with ledger-client refused at its root and every subpath. A planted post in router.ts fails both."
   },
   {
     "file": "services/svc-pay/src/capture-reconcile.test.ts",
@@ -369,9 +369,9 @@
     "asserts": "The booted service keeps the watcher cursor in Postgres and starts no watcher without a live EVM chain.",
     "guard": {
       "kind": "test",
-      "ref": "services/svc-pay/src/index.db.test.ts#constructs the durable cursor and does not fall back to MemoryChainWatcherCursorStore at boot"
+      "ref": "services/svc-pay/src/watcher-boot.db.test.ts#the sandbox and the unconfigured chain build no watcher even with the flag on; a live chain only with it on"
     },
-    "why": "Asserts the Postgres cursor store is built on the service database and no memory one; \"starts the watcher only behind EvmLiveChain\" boots with the watcher enabled on the TEST chain and asserts no watcher was built."
+    "why": "Boots the service under all four: the TEST chain, the unconfigured chain, a live EVM chain with PAY_CRYPTO_WATCHER_ENABLED off, and on; only the last builds a watcher, started, on that chain with the Postgres cursor. index.db.test.ts asserts the Postgres cursor store and no memory one. A loosened condition (any chain not the TEST one) fails it."
   },
   {
     "file": "services/svc-pay/src/edge-trust.test.ts",

@@ -73,6 +73,19 @@ describe('registered rails have no mandate pull', () => {
   });
 });
 
+describe('the fire path and the mandate product hold no pull helper', () => {
+  it('neither the subscription service nor the mandate product offers a pull, approve or charge-against-mandate', async () => {
+    // Every export of both modules, and every method of the subscription service, by name: a pull added later is held.
+    const pull = /chargeAgainstMandate|chargeMandate|pullMandate|cryptoPull|onchainPull|^approve$/i;
+    const product: object = await import('./mandate-product.js');
+    const fire: object = await import('./subscription-service.js');
+    const { SubscriptionService } = await import('./subscription-service.js');
+    const names = [...Object.keys(product), ...Object.keys(fire), ...Object.getOwnPropertyNames(SubscriptionService.prototype)];
+    expect(names).toEqual(expect.arrayContaining(['mandateChargeDisposition', 'SubscriptionService', 'runDueSubscriptions']));
+    expect(names.filter((name) => pull.test(name))).toEqual([]);
+  });
+});
+
 describe('PAY_REGISTER_CARD_SANDBOX stays off in ship postures', () => {
   it('defaults off in staging and prod', () => {
     expect(shouldRegisterCardSandbox({ APP_ENV: 'staging' })).toBe(false);

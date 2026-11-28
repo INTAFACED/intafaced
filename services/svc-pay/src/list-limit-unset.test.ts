@@ -5,7 +5,7 @@ import { PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures
 import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/pay-account-controls-procedures';
 import { accountControlHistoryInputSchema } from '@intafaced/contracts/account-controls';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   PayError,
   PayService,
@@ -33,7 +33,7 @@ import {
   assertPermissionListLimit,
   assertSubMerchantListLimit,
 } from './submerchants.js';
-import { FraudReviewError, MemoryFraudReviewQueue, assertFraudReviewListLimit } from './fraud/review-queue.js';
+import { FraudReviewError, MemoryFraudReviewQueue, assertFraudReviewListLimit, defaultFraudReviewQueue } from './fraud/review-queue.js';
 import { UserMoneyService } from './user-money-service.js';
 import { MemoryMerchantWebhookStore, MerchantWebhookService } from './merchant-webhooks.js';
 import { SubscriptionService } from './subscriptions/subscription-service.js';
@@ -254,7 +254,32 @@ describe('svc-pay list/history limit unset refuse', () => {
       pricing: { feeBps: 100 },
       settlement_prefs: {},
     };
-    const db = () => scriptedSql<Sql>((call) => (call.text.includes('FROM pay.merchants') ? [merchantRow] : []));
+    const subscriptionRow = {
+      id: '44444444-4444-4444-8444-444444444444',
+      mandate_id: '55555555-5555-4555-8555-555555555555',
+      merchant_id: MERCHANT,
+      customer_id: 'customer-1',
+      next_run_at: new Date(),
+      status: 'active',
+      cancelled_at: null,
+      path: 'crypto_invoice',
+      created_at: new Date(),
+      anchor_at: new Date(),
+      anchor_occurrence: 0,
+      paused_at: null,
+      resumed_at: null,
+      stalled_at: null,
+      stall_reason: null,
+      price_id: null,
+    };
+    const db = () =>
+      scriptedSql<Sql>((call) =>
+        call.text.includes('FROM pay.merchants')
+          ? [merchantRow]
+          : call.text.includes('FROM pay.subscriptions WHERE id')
+            ? [subscriptionRow]
+            : [],
+      );
     /** The page size the service sent: the value bound right after `LIMIT`. */
     const sentLimit = (calls: readonly SqlCall[]): unknown => {
       for (const call of calls) {
@@ -313,6 +338,8 @@ describe('svc-pay list/history limit unset refuse', () => {
     await given((sql) => subs(sql).listSubscriptions(MERCHANT, { limit: 7 }), 8);
     await omitted((sql) => subs(sql).listCycles(MERCHANT), 'pay.subscription_cycle_list_limit_unset');
     await given((sql) => subs(sql).listCycles(MERCHANT, { limit: 7 }), 7);
+    await omitted((sql) => subs(sql).listExecutions(subscriptionRow.id), 'pay.subscription_execution_list_limit_unset');
+    await given((sql) => subs(sql).listExecutions(subscriptionRow.id, { limit: 7 }), 7);
     await omitted((sql) => subs(sql).runDueSubscriptions(), 'pay.due_subscriptions_batch_limit_unset');
     await given((sql) => subs(sql).runDueSubscriptions({ limit: 7 }), 7);
 
@@ -418,6 +445,32 @@ describe('svc-pay list/history limit unset refuse', () => {
       refusedWith('pay.payment_link_list_limit_unset'),
     );
     expect(pay.argsOf('listPaymentLinks')[1]).not.toHaveProperty('limit');
+    // payment.history, withdrawal.mine and fraud.listOpenReviews hand an omitted page on as omitted too.
+    const PAYMENT = '66666666-6666-4666-8666-666666666666';
+    const reads = recording<PayService>({
+      getMerchant: async () => merchant,
+      getPayment: async () => ({ id: PAYMENT, merchantId: MERCHANT }),
+      history: async (_p: string, limit?: number) => assertPaymentHistoryLimit(limit),
+    });
+    const money = recording<UserMoneyService>({
+      listWithdrawals: async (_u: string, limit?: number) => assertWithdrawalListLimit(limit),
+    });
+    // With no database the router reads the in-process review queue.
+    const listOpen = vi.spyOn(defaultFraudReviewQueue, 'listOpen');
+    const readsRouter = createPayRouter(reads.service, new RailRegistry([]), money.service);
+    await expect(readsRouter.createCaller(ctx(['pay:read'])).payment.history({ paymentId: PAYMENT })).rejects.toSatisfy(
+      refusedWith('pay.payment_history_limit_unset'),
+    );
+    expect(reads.argsOf('history')).toEqual([PAYMENT, undefined]);
+    await expect(readsRouter.createCaller(ctx(['trade:read'])).withdrawal.mine()).rejects.toSatisfy(
+      refusedWith('pay.withdrawal_list_limit_unset'),
+    );
+    expect(money.argsOf('listWithdrawals')).toEqual([USER, undefined]);
+    await expect(readsRouter.createCaller(ctx(['admin:treasury'])).fraud.listOpenReviews({})).rejects.toSatisfy(
+      refusedWith('pay.fraud_review_list_limit_unset'),
+    );
+    expect(listOpen).toHaveBeenCalledWith(undefined, undefined);
+    listOpen.mockRestore();
     // The records' inputs keep limit optional and undefaulted, so an omitted limit reaches the service's refusal.
     const noLimit = PAY_MERCHANT_LIST_LINKS.input.safeParse({ merchantId: MERCHANT });
     expect(noLimit.success && !('limit' in noLimit.data)).toBe(true);

@@ -1276,11 +1276,128 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(text).not.toContain('SECRET-OPERATOR');
       expect(text).not.toContain('internal-tag');
       // The notes are reached only through founderAdmin.ops: no merchant-facing procedure is a notes door.
-      const merchantPaths = Object.keys(
-        createMerchantOpsRouter({ sql, founderAuthority, disputes, exportKick: noKick, exports: {} })._def.procedures,
-      );
+      const merchantRouter = createMerchantOpsRouter({ sql, founderAuthority, disputes, exportKick: noKick, exports: {} });
+      const merchantPaths = Object.keys(merchantRouter._def.procedures);
       expect(merchantPaths.length).toBeGreaterThan(0);
       expect(merchantPaths.filter((path) => /notes/i.test(path))).toEqual([]);
+    });
+
+    it('no merchant-facing procedure, in any merchant-ops module, sends a query that names the notes table', async () => {
+      // Every query the router's database handle is sent (in a transaction too) is recorded, by its text.
+      const queries: Array<{ path: string; text: string }> = [];
+      let current = '';
+      const watch = <T extends object>(target: T): T =>
+        new Proxy(target, {
+          apply(fn, self, args: unknown[]) {
+            const [first] = args;
+            if (Array.isArray(first) && 'raw' in first) queries.push({ path: current, text: first.join('?') });
+            return Reflect.apply(fn as (...a: unknown[]) => unknown, self, args);
+          },
+          get(obj, prop) {
+            const value: unknown = Reflect.get(obj, prop);
+            if (typeof value !== 'function') return value;
+            if (prop === 'unsafe') {
+              return (text: string, ...rest: unknown[]) => {
+                queries.push({ path: current, text });
+                return Reflect.apply(value, obj, [text, ...rest]);
+              };
+            }
+            if (prop === 'begin' || prop === 'savepoint') {
+              return (...args: unknown[]) =>
+                Reflect.apply(
+                  value,
+                  obj,
+                  args.map((arg) => (typeof arg === 'function' ? (tx: object) => (arg as (t: object) => unknown)(watch(tx)) : arg)),
+                );
+            }
+            return value.bind(obj);
+          },
+        });
+      const watched = watch(sql);
+      // The watcher sees the notes table when it is read: the founder's notes door, on the same handle, names it.
+      const founderSide = compose({ sql: watched, founderAuthority, disputes, exportKick: noKick, exports: {} });
+      current = 'founderAdmin.ops.notes.add';
+      await founderSide.createCaller(ctxOf(principalOf(founderUser))).founderAdmin.ops.notes.add({
+        merchantId: merchantA,
+        body: 'TEST note for the watcher',
+        tags: [],
+        flagged: false,
+      });
+      expect(queries.some((q) => q.text.includes('operator_merchant_notes'))).toBe(true);
+      queries.length = 0;
+
+      const merchantRouter = createMerchantOpsRouter({ sql: watched, founderAuthority, disputes, exportKick: noKick, exports: {} });
+      const caller: unknown = merchantRouter.createCaller(ctxOf(principalOf(userA)));
+      const input = { limit: 50, merchantId: merchantA, requestId: id(), kind: 'succeeded', id: id(), email: 'test@example.invalid' };
+      // An input built from the procedure's own schema: each field gets a value of its declared kind.
+      const sample = (schema: unknown): unknown => {
+        const def = (schema as { _zod?: { def?: Record<string, unknown> } })?._zod?.def;
+        if (!def) return undefined;
+        switch (def.type) {
+          case 'object':
+            return Object.fromEntries(Object.entries(def.shape as Record<string, unknown>).map(([k, v]) => [k, sample(v)]));
+          case 'string': {
+            const format = String(def.format ?? '');
+            if (/uid/.test(format)) return format === 'guid' || format === 'uuid' ? merchantA : id();
+            if (format === 'email') return 'test@example.invalid';
+            if (format === 'url') return 'https://example.invalid/TEST';
+            return 'TEST';
+          }
+          case 'number':
+          case 'int':
+            return 50;
+          case 'boolean':
+            return false;
+          case 'enum':
+            return Object.values(def.entries as Record<string, unknown>)[0];
+          case 'literal':
+            return (def.values as unknown[])[0];
+          case 'array':
+            return [];
+          case 'optional':
+          case 'nullable':
+          case 'default':
+          case 'prefault':
+          case 'readonly':
+            return sample(def.innerType);
+          case 'union':
+            return sample((def.options as unknown[])[0]);
+          case 'pipe':
+            return sample(def.in);
+          default:
+            return undefined;
+        }
+      };
+      const inputOf = (path: string): unknown => {
+        const proc = Reflect.get(merchantRouter._def.procedures, path) as { _def?: { inputs?: unknown[] } } | undefined;
+        return sample(proc?._def?.inputs?.[0]);
+      };
+      const reached = new Set<string>();
+      for (const path of Object.keys(merchantRouter._def.procedures)) {
+        const call = path
+          .split('.')
+          .reduce<unknown>((at, key) => (at === null || at === undefined ? at : Reflect.get(Object(at), key)), caller);
+        expect(typeof call, path).toBe('function');
+        current = path;
+        // A strict input refuses keys it does not know: each procedure is tried with the full input, then narrower ones.
+        for (const tried of [inputOf(path), input, { limit: 50 }, {}, undefined]) {
+          const before = queries.length;
+          await Promise.resolve()
+            .then(() => (call as (i: unknown) => Promise<unknown>)(tried))
+            .catch(() => undefined);
+          if (queries.length > before) {
+            reached.add(path);
+            break;
+          }
+        }
+      }
+      // 64 of the 74 procedures reach the database on these inputs; the rest refuse their input before any query.
+      expect(reached.size).toBeGreaterThanOrEqual(64);
+      // The merchant's reads above all reached the database; none of the router's queries named the notes table.
+      for (const path of ['merchantOps.team.list', 'merchantOps.kyb.history', 'merchantOps.disputes.list', 'merchantOps.customers.list']) {
+        expect(reached.has(path), path).toBe(true);
+      }
+      expect(queries.filter((q) => q.text.includes('operator_merchant_notes'))).toEqual([]);
     });
   });
 

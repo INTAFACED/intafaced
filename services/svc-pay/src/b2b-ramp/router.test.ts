@@ -311,7 +311,8 @@ describe('b2b ramp route inventory', () => {
 
   it('does not post to the ledger from this module', async () => {
     // A credit is admitted on its own rows: the only writes are the bank line and the credit, no other service is
-    // called (svc-ledger is reached over HTTP), and the answer says nothing was posted.
+    // called (svc-ledger is reached over HTTP), and the answer says nothing was posted. That nothing in the whole folder
+    // posts is ledger-isolation.test.ts; that only money.ts loads ledger-client is ledger-import.test.ts.
     const line = {
       id: 'line-pk-1',
       merchant_id: merchantId,

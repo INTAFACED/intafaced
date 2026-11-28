@@ -258,7 +258,8 @@ describe('svc-pay boot (index.ts)', { timeout: 60_000 }, () => {
     });
 
     it('starts the watcher only behind EvmLiveChain — no mnemonic, no invented deposit', () => {
-      // PAY_CRYPTO_WATCHER_ENABLED=true here, and the chain is the in-memory TEST chain: no watcher.
+      // PAY_CRYPTO_WATCHER_ENABLED=true here, and the chain is the in-memory TEST chain: no watcher. The other three
+      // postures (unconfigured, live with the flag off, live with it on) are watcher-boot.db.test.ts.
       expect(one('defaultChainFor').result).toMatchObject({ posture: 'sandbox' });
       expect(seen.of('CryptoChainWatcher')).toEqual([]);
     });

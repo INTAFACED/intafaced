@@ -15,7 +15,7 @@ import {
 import { MerchantOpsError } from './errors.js';
 import { InvoiceService, parseInvoiceAmount } from './invoices.js';
 import { scriptedSql } from '../scripted-sql.testkit.js';
-import { formatAmount } from '@intafaced/ledger-client';
+import { MemoryLedger, formatAmount } from '@intafaced/ledger-client';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MERCHANT = '11111111-1111-4111-8111-111111111111';
@@ -104,6 +104,7 @@ describe('invoice amounts', () => {
       return [];
     });
     const fetched = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('the invoice module called out'));
+    const memoryPost = vi.spyOn(MemoryLedger.prototype, 'post');
     try {
       const invoices = new InvoiceService(sql);
       const caller = { merchantId: MERCHANT, userId: OWNER, role: 'owner', viaApiKey: false, interactive: true } as const;
@@ -114,12 +115,38 @@ describe('invoice amounts', () => {
         status: 'paid',
         paymentId: PAYMENT,
       });
+      // Every other door of the module too (list, get, duplicate, send, reissue the link, void), with the link port
+      // recorded: whatever each answers, it reaches nothing outside its own rows and the payment-link port.
+      const linkCalls: string[] = [];
+      const links = {
+        createPaymentLink: async (input: { label: string }) => {
+          linkCalls.push('createPaymentLink');
+          return { id: 'link-1', token: 'tok', prefix: 'pl_', label: input.label, expiresAt: new Date(), maxUses: null };
+        },
+        deactivatePaymentLink: async () => {
+          linkCalls.push('deactivatePaymentLink');
+          return { deactivated: true };
+        },
+      };
+      const withLinks = new InvoiceService(sql, links);
+      const doors: Array<() => Promise<unknown>> = [
+        () => withLinks.list(caller, { limit: 10 }),
+        () => withLinks.get(caller, INVOICE),
+        () => withLinks.duplicate(caller, { requestId: 'inv-dup-1', invoiceId: INVOICE }),
+        () => withLinks.send(caller, { requestId: 'inv-send-1', invoiceId: INVOICE }),
+        () => withLinks.reissueLink(caller, { requestId: 'inv-reissue-1', invoiceId: INVOICE }),
+        () => withLinks.void(caller, { requestId: 'inv-void-1', invoiceId: INVOICE }),
+      ];
+      for (const door of doors) await door().catch(() => undefined);
+      expect(linkCalls.length).toBeGreaterThan(0);
+      expect(memoryPost).not.toHaveBeenCalled();
       expect(fetched).not.toHaveBeenCalled();
     } finally {
       fetched.mockRestore();
+      memoryPost.mockRestore();
     }
     const writes = calls.map((c) => c.text.trim()).filter((text) => /^(INSERT|UPDATE|DELETE)\b/i.test(text));
-    expect(writes.length).toBeGreaterThanOrEqual(3);
+    expect(writes.length).toBeGreaterThanOrEqual(5);
     for (const write of writes) expect(write).toMatch(/^(INSERT INTO|UPDATE) pay\.merchant_invoice(s|_actions|_lines)\b/);
   });
 });

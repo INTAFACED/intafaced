@@ -59,5 +59,23 @@ describe('PAY_WEBHOOK_TOLERANCE_SECONDS unset refuse', () => {
         expect(rail.verifyWebhook(rail.signWebhook(payload, ago(windowSeconds + 10))), `${rail.id} past ${windowSeconds}s`).toBeNull();
       }
     }
+    // Built with the window missing, neither rail takes 300 of its own: it either refuses to build, or a delivery signed
+    // just past 300 seconds ago is judged otherwise than a 300-second window would judge it.
+    const cardOptions = { secret, toleranceSeconds: 300, now: () => now };
+    const cryptoOptions = { chain: new MemoryChain(), secret, minConfirmations: 6, toleranceSeconds: 300, now: () => now };
+    Reflect.deleteProperty(cardOptions, 'toleranceSeconds');
+    Reflect.deleteProperty(cryptoOptions, 'toleranceSeconds');
+    for (const build of [() => new CardSandboxAdapter(cardOptions), () => new CryptoNativeAdapter(cryptoOptions)]) {
+      let rail: CardSandboxAdapter | CryptoNativeAdapter;
+      try {
+        rail = build();
+      } catch {
+        continue;
+      }
+      const at300 = new CardSandboxAdapter({ secret, toleranceSeconds: 300, now: () => now });
+      const late = rail.signWebhook(payload, ago(310));
+      expect(at300.verifyWebhook(at300.signWebhook(payload, ago(310)))).toBeNull();
+      expect(rail.verifyWebhook(late), `${rail.id} with no window`).not.toBeNull();
+    }
   });
 });
