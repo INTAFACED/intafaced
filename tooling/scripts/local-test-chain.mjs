@@ -197,18 +197,26 @@ function makeGate(gatePort, anvilPort) {
   };
 }
 
+/**
+ * The flags of one TEST chain's anvil. With LOCAL_STACK_CHAIN_HISTORY unset, anvil keeps every block's state, which a
+ * journey's short-lived stack can afford. svc-protocol's seed mines a block a second (evm_setIntervalMining), so the
+ * long-lived beta's chain held 26 GB after 21 hours (75,709 blocks), nearly all of the box's swap. A whole number keeps
+ * at most that many past states in memory (`--prune-history N`): a read at an older block fails.
+ */
+export function anvilArgs(port, chainId, history = process.env.LOCAL_STACK_CHAIN_HISTORY) {
+  const args = ['--host', HOST, '--port', String(port), '--chain-id', String(chainId), '--accounts', '1', '--silent'];
+  if (history === undefined || history === '') return args;
+  const n = Number(history);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`LOCAL_STACK_CHAIN_HISTORY=${history}: a whole number of blocks, 1 or more`);
+  return [...args, '--prune-history', String(n)];
+}
+
 function serve() {
   const bin = anvilBin();
   if (!bin) throw new Error('no anvil binary (set LOCAL_STACK_ANVIL_BIN or put anvil on PATH)');
   const anvils = [
-    spawn(bin, ['--host', HOST, '--port', String(CHAIN_PORTS.anvil), '--chain-id', String(TEST_CHAIN_ID), '--accounts', '1', '--silent'], {
-      stdio: 'inherit',
-    }),
-    spawn(
-      bin,
-      ['--host', HOST, '--port', String(SECOND_CHAIN_PORTS.anvil), '--chain-id', String(SECOND_CHAIN_ID), '--accounts', '1', '--silent'],
-      { stdio: 'inherit' },
-    ),
+    spawn(bin, anvilArgs(CHAIN_PORTS.anvil, TEST_CHAIN_ID), { stdio: 'inherit' }),
+    spawn(bin, anvilArgs(SECOND_CHAIN_PORTS.anvil, SECOND_CHAIN_ID), { stdio: 'inherit' }),
   ];
   const gate = makeGate(CHAIN_PORTS.gate, CHAIN_PORTS.anvil);
   const second = makeGate(SECOND_CHAIN_PORTS.gate, SECOND_CHAIN_PORTS.anvil);

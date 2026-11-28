@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  anvilArgs,
   anvilBin,
   CHAIN_PORTS,
   installTestBridge,
@@ -158,4 +159,13 @@ test('installTestBridge waits for an anvil that starts listening late, and names
   }
   const silent = await free();
   await assert.rejects(installTestBridge({ ports: [silent], waitMs: 1000 }), new RegExp(`anvil on port ${silent} never answered`));
+});
+
+test('anvilArgs keeps every block unless LOCAL_STACK_CHAIN_HISTORY names how many past states to keep', () => {
+  const base = ['--host', '127.0.0.1', '--port', '1', '--chain-id', '84532', '--accounts', '1', '--silent'];
+  assert.deepEqual(anvilArgs(1, 84532, undefined), base);
+  assert.deepEqual(anvilArgs(1, 84532, ''), base);
+  assert.deepEqual(anvilArgs(1, 84532, '3600'), [...base, '--prune-history', '3600']);
+  for (const bad of ['0', '-1', '1.5', 'all'])
+    assert.throws(() => anvilArgs(1, 84532, bad), /LOCAL_STACK_CHAIN_HISTORY/, `refused: ${bad}`);
 });
