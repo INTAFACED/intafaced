@@ -38,10 +38,10 @@ export function memoryShort(meminfo) {
  * The changed files a person sees in the app: an app's own files outside its tests, and the shared UI and copy packages.
  * A service, contract or test change is proven by the journeys on CI.
  */
-export const VISIBLE = [/^apps\/(customer|admin|invitation|mobile)\/(?!tests\/)/, /^packages\/(ui|i18n)\//];
+const VISIBLE = [/^apps\/(customer|admin|invitation|mobile)\/(?!tests\/)/, /^packages\/(ui|i18n)\//];
 export const visibleFiles = (files) => files.filter((f) => VISIBLE.some((re) => re.test(f)));
 
-/** Started by an agent: Claude Code's Bash tool (CLAUDECODE) or any T3 thread (T3CODE_THREAD_ID). */
+/** Started by an agent: its shell's CLAUDECODE, or any T3 thread (T3CODE_THREAD_ID). */
 export const agentStart = (env) => env.CLAUDECODE === '1' || Boolean(env.T3CODE_THREAD_ID);
 
 /**
