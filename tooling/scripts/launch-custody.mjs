@@ -61,12 +61,14 @@ export const LAUNCH_ORDER = 1;
  * J-cex-spot-18 left it once its Later steps #3 and #4, a reconcile sweep and a trade bust on our own book with a customer
  * funded through our ledger, moved to J-cex-spot-18-custodial.pw.mjs; #1, #2 and #5 read a routed order on the customer's
  * own venue account, and the customer holds nothing on our ledger.
+ * J-cex-spot-10 left it once every check of today's custodial desk, on our own book with a trader funded through our
+ * ledger, moved to J-cex-spot-10-custodial.pw.mjs; #5 and #7 make their own unfunded accounts, and #8 reads the fee
+ * currency row on the person's own venue account in J-cex-spot-10-venue.pw.mjs.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
   'J-agents-02',
   'J-agents-08',
-  'J-cex-spot-10',
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
   'J-charts-desk-14',

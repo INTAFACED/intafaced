@@ -24,11 +24,11 @@ import {
   venueWrites,
 } from './venue.mjs';
 
-// J-cex-spot-10 #1 #2 #3 #4 #6 #9 #10 #11 on the venue model (docs/roadmap/journeys.json): a person sees what they pay on
-// their own venue account, the venue's maker or taker fee and our builder fee named apart, what tier the venue placed
+// J-cex-spot-10 #1 #2 #3 #4 #6 #8 #9 #10 #11 on the venue model (docs/roadmap/journeys.json): a person sees what they pay
+// on their own venue account, the venue's maker or taker fee and our builder fee named apart, what tier the venue placed
 // them in, and how to get cheaper. One test per step, titled "J-cex-spot-10 #<n>", run in order on one TEST account.
-// J-cex-spot-10.pw.mjs keeps the steps that are ours alone (our tier programme, VIP benefits, fee currency on our own
-// desk) and the custodial desk's checks of these eight, titled "part of", which count for no step.
+// J-cex-spot-10.pw.mjs keeps the steps that are ours alone (our tier programme and VIP benefits), and
+// J-cex-spot-10-custodial.pw.mjs the custodial desk's checks of these nine, titled "part of", which count for no step.
 //
 // INTAFACED holds none of this person's money: with svc-trade's user-venue door on for this file (venueForThisFile),
 // every rate, fee, fill, tier and volume is read from the stack's TEST venue simulator (packages/venue-sim) itself,
@@ -659,6 +659,56 @@ test(`${J} #6 crosses a venue tier: the venue's tier read from the venue at its 
   expect(preview.body.value.rates).toEqual({ makerFeeBps: tier1.spot.makerFeeBps, takerFeeBps: tier1.spot.takerFeeBps });
 });
 
+/**
+ * The writes the page sends while `act` runs and over a short while after it, less the ticket's own venue preview: a
+ * method and path each. Proving nothing is sent needs the wait.
+ */
+async function sentWhile(page, act) {
+  const sent = [];
+  const record = (r) => {
+    if (r.method() !== 'GET') sent.push(`${r.method()} ${new URL(r.url()).pathname}`);
+  };
+  page.on('request', record);
+  try {
+    await act();
+    // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing is sent over a short while after the act
+    await page.waitForTimeout(1_000);
+  } finally {
+    page.off('request', record);
+  }
+  return sent.filter((r) => !r.endsWith('/api/v1/venue/preview'));
+}
+
+test(`${J} #8 looks at the fee currency row: disabled with its reason; no request sent`, async ({ page, stepPicture }) => {
+  test.setTimeout(180_000);
+  const s = state();
+  const market = run.read().marketA;
+  const wallet = await openVenueDesk(page, s.account, desk(market.symbol), s.walletKey);
+  const row = page.getByTestId('venue-fee-currency');
+  const asked = wallet.requests.length;
+  // Looking at the row, the pointer on it and on its choice, sends nothing and asks the wallet nothing.
+  const ifc = row.getByRole('button', { name: 'IFC', exact: true });
+  const sent = await sentWhile(page, async () => {
+    await row.scrollIntoViewIfNeeded();
+    await row.hover();
+    await ifc.hover({ force: true });
+  });
+  // What the venue charges in, and the one other choice disabled with its reason.
+  await expect(row.getByRole('heading', { level: 2, name: 'Pay trading fees in', exact: true })).toBeVisible();
+  await expect(row.locator('[data-line="fee-currency-venue"]')).toHaveText(
+    'What the venue charges in: the coin you receive on a buy, the quote coin on a sell',
+  );
+  await expect(ifc).toBeDisabled();
+  await expect(ifc).toHaveAccessibleDescription(
+    'Not at launch: the venue charges its fee in the fill’s own coin, and INTAFACED holds no coin of yours to pay it with in IFC.',
+  );
+  expect(sent).toEqual([]);
+  expect(wallet.requests.length).toBe(asked);
+  expect(await openOn(s.owner, market.symbol)).toEqual([]);
+  // The step's picture: the fee currency row, disabled with its reason.
+  await stepPicture();
+});
+
 test(`${J} #9 chooses to pay trading fees in IFC: at launch the row is disabled with its reason; nothing sent`, async ({ page }) => {
   test.setTimeout(180_000);
   const s = state();
@@ -672,17 +722,13 @@ test(`${J} #9 chooses to pay trading fees in IFC: at launch the row is disabled 
     'Not at launch: the venue charges its fee in the fill’s own coin, and INTAFACED holds no coin of yours to pay it with in IFC.',
   );
   // Chosen anyway: nothing is sent, to our door or anywhere, and the wallet is asked nothing.
-  const requests = [];
-  page.on('request', (r) => {
-    if (r.method() !== 'GET') requests.push(`${r.method()} ${new URL(r.url()).pathname}`);
-  });
   const asked = wallet.requests.length;
-  await ifc.click({ force: true });
-  await ifc.focus();
-  await page.keyboard.press('Enter');
-  // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing is sent over a short while after the press
-  await page.waitForTimeout(1_000);
-  expect(requests.filter((r) => !r.endsWith('/api/v1/venue/preview'))).toEqual([]);
+  const sent = await sentWhile(page, async () => {
+    await ifc.click({ force: true });
+    await ifc.focus();
+    await page.keyboard.press('Enter');
+  });
+  expect(sent).toEqual([]);
   expect(wallet.requests.length).toBe(asked);
   expect(await openOn(s.owner, market.symbol)).toEqual([]);
 });
