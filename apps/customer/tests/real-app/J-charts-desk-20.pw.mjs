@@ -55,8 +55,8 @@ async function makerRests(side, price) {
     amount: '1',
     price,
     timeInForce: 'GTC',
-    // The maker opens short on the sell it rests, and its buy only ever closes that short.
-    reduceOnly: side === 'buy',
+    // A resting order may not be reduce-only on the TEST simulator: the maker's resting buy nets its short to flat.
+    reduceOnly: false,
     clientOrderKey: `order:${owner}:jcd20:${tag()}`,
     builderFee: null,
   });
