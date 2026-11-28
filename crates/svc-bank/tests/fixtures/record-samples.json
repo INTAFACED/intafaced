@@ -1,5 +1,5 @@
 {
-  "// why": "Inputs written by hand for calls the wire replay never sends past the door's checks (a file, a wallet's or a recovery key's signature, a bank recipient's form, a note's text): the call-records codemod's samples (tooling/codemod/call-records/samples.mjs).",
+  "// why": "Inputs written by hand for calls the wire replay never sends past the door's checks (a file, a wallet's or a recovery key's signature, a bank recipient's form, a note's text, a cardholder's or a bulk card file's fields): the call-records codemod's samples (tooling/codemod/call-records/samples.mjs).",
   "businessBills.upload": {
     "accountId": "22222222-2222-4222-8222-222222222222",
     "billId": "22222222-2222-4222-8222-222222222222",
@@ -99,5 +99,15 @@
     "id": "line-00000001",
     "reportDescription": "TEST office rent",
     "commandId": "cmd-00000001"
+  },
+  "ops.cardProgrammeCardholderCreate": {
+    "requestKey": "console-cardholder-00000001",
+    "kind": "individual",
+    "name": "Ada TEST",
+    "email": "ada@example.test",
+    "country": "US"
+  },
+  "ops.cardProgrammeBulkIssue": {
+    "file": "cardholder,asset,limit\n22222222-2222-4222-8222-222222222222,USDC,100"
   }
 }

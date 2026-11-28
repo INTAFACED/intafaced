@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { assetIdSchema } from './asset-id.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `ops.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -777,4 +778,285 @@ export const BANK_OPS_LOAN_BOOK = defineProcedure({
     oldestPending: z.object({ id: z.string(), ageSeconds: z.number().int().nonnegative() }).nullable(),
   }),
   samples: [{ verdict: 'accept' }],
+});
+
+/**
+ * RUNNING THE CARD PROGRAMME (J-bank-26; BK-cops-01 to -03 and -06 to -08), for support and finance on the founder console.
+ *
+ * The programme, product, BIN, fee and 3DS settings, the authorisation rules (shadow, promote, roll back), the set-up
+ * checklist, cardholders behind a KYC and KYB gate with screening and a review queue, the real-time decision log and one
+ * authorisation's lifecycle, capture variance and trace, a signed report export, staff roles, the audit log, bulk issue,
+ * reassign and the TEST card event simulator.
+ *
+ * Nothing here holds a balance or posts to the ledger. Card money is the card partner's (OWNER 226): the simulator drives
+ * the same authorise and capture path a real issuer's message does, and a reassign moves a card, never money. Fees are
+ * recorded settings: svc-bank has no fee recipe, so none is charged. Every change writes one audit row, which the
+ * database refuses to edit. A staff member with the viewer role reads everything here and changes nothing.
+ */
+export const SETTING_KEYS = ['programme', 'product', 'bin', 'fees', 'threeds'] as const;
+
+export const setting = z
+  .object({ value: jsonValueSchema, version: z.number().int(), updatedBy: z.string(), updatedAt: z.string() })
+  .nullable();
+
+export const settings = z.object(
+  Object.fromEntries(SETTING_KEYS.map((k) => [k, setting])) as Record<(typeof SETTING_KEYS)[number], typeof setting>,
+);
+
+export const assetId = z.string().regex(/^[A-Z0-9]{2,16}$/);
+
+export const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/);
+
+export const ruleParamsSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('amount_above'), assetId, amount: decimal }).strict(),
+  z.object({ kind: z.literal('merchant_category'), category: z.string().trim().min(1).max(64) }).strict(),
+  z.object({ kind: z.literal('channel'), channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']) }).strict(),
+]);
+
+export const rule = z.object({
+  id: z.string().guid(),
+  ruleKey: z.string(),
+  version: z.number().int(),
+  name: z.string(),
+  params: ruleParamsSchema,
+  words: z.string(),
+  state: z.enum(['shadow', 'active', 'retired']),
+  shadow: z.object({ evaluated: z.number().int(), wouldDecline: z.number().int(), at: z.string() }),
+  createdBy: z.string(),
+  createdAt: z.string(),
+  promotedAt: z.string().nullable(),
+  retiredAt: z.string().nullable(),
+});
+
+export const staff = z.object({
+  userId: z.string(),
+  email: z.string(),
+  role: z.enum(['manager', 'viewer']),
+  assignedBy: z.string(),
+  assignedAt: z.string(),
+});
+
+export const channel = z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']);
+
+export const BANK_OPS_CARD_PROGRAMME_CLEAR_THREE_DS = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeClearThreeDs',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeClearThreeDs',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: NO_INPUT,
+  output: settings,
+  samples: [{ verdict: 'accept' }],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_RULE_CREATE = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeRuleCreate',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeRuleCreate',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z.object({ ruleKey: z.string().max(64), name: z.string().max(80), params: ruleParamsSchema }).strict(),
+  output: rule,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { ruleKey: 'placeholder', name: 'placeholder', params: { kind: 'amount_above', assetId: 'BTC', amount: '1.50' } },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_RULE_PROMOTE = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeRulePromote',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeRulePromote',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z.object({ ruleId: z.string().guid() }).strict(),
+  output: z.array(rule),
+  samples: [
+    { verdict: 'accept', input: { ruleId: '22222222-2222-4222-8222-222222222222' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_RULE_ROLLBACK = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeRuleRollback',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeRuleRollback',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z.object({ ruleKey: z.string().max(64) }).strict(),
+  output: z.array(rule),
+  samples: [
+    { verdict: 'accept', input: { ruleKey: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_STAFF_ASSIGN = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeStaffAssign',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeStaffAssign',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z.object({ email: z.string().max(254), role: z.enum(['manager', 'viewer']) }).strict(),
+  output: z.array(staff),
+  samples: [
+    { verdict: 'accept', input: { email: 'placeholder', role: 'manager' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_BULK_VALIDATE = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeBulkValidate',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeBulkValidate',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z.object({ file: z.string().max(100_000) }).strict(),
+  output: z.object({
+    batchId: z.string(),
+    ok: z.boolean(),
+    rows: z.array(
+      z.object({
+        row: z.number().int(),
+        cardholderId: z.string(),
+        assetId: assetIdSchema,
+        perAuthorizationLimit: z.string(),
+        error: z.string().nullable(),
+      }),
+    ),
+  }),
+  samples: [
+    { verdict: 'accept', input: { file: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_REASSIGN = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeReassign',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeReassign',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z.object({ cardId: z.string().guid(), toCardholderId: z.string().guid() }).strict(),
+  output: z.object({ cardId: z.string().guid(), panTail: z.string(), cardholderId: z.string().guid() }),
+  samples: [
+    {
+      verdict: 'accept',
+      input: { cardId: '22222222-2222-4222-8222-222222222222', toCardholderId: '22222222-2222-4222-8222-222222222222' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The card event simulator (TEST): dev and test stacks only, simulated cards only. */
+export const BANK_OPS_CARD_PROGRAMME_SIMULATE = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeSimulate',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeSimulate',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z.discriminatedUnion('kind', [
+    z
+      .object({
+        kind: z.literal('authorize'),
+        cardId: z.string().guid(),
+        authorizationRef: z.string().min(4).max(128),
+        amount,
+        channel: channel.optional(),
+        merchantCategory: z.string().max(64).optional(),
+        threeDs: z.enum(['authenticated', 'failed']).optional(),
+      })
+      .strict(),
+    z.object({ kind: z.literal('capture'), cardId: z.string().guid(), authorizationRef: z.string().min(4).max(128), amount }).strict(),
+    z.object({ kind: z.literal('reverse'), cardId: z.string().guid(), authorizationRef: z.string().min(4).max(128) }).strict(),
+  ]),
+  output: z.object({
+    test: z.literal(true),
+    kind: z.enum(['authorize', 'capture', 'reverse']),
+    authorizationId: z.string().optional(),
+    decision: z.enum(['approved', 'declined']).optional(),
+    declineCode: z.string().nullable().optional(),
+    captured: amount.optional(),
+    returned: amount.optional(),
+  }),
+  samples: [
+    {
+      verdict: 'accept',
+      input: { kind: 'authorize', cardId: '22222222-2222-4222-8222-222222222222', authorizationRef: 'placeholder', amount: '1.50' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_EXPORT = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeExport',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeExport',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({ fileName: z.string(), asOf: z.string(), text: z.string(), sha256: z.string(), signature: z.string() }),
+  samples: [{ verdict: 'accept' }],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_CARDHOLDER_CREATE = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeCardholderCreate',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeCardholderCreate',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z
+    .object({
+      requestKey: z.string().max(128),
+      kind: z.enum(['individual', 'business']),
+      name: z.string().max(120),
+      email: z.string().max(254).optional(),
+      country: z.string().max(2),
+      beneficialOwners: z
+        .array(z.object({ name: z.string().max(120), email: z.string().max(254) }).strict())
+        .max(10)
+        .optional(),
+    })
+    .strict(),
+  output: cardholder,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { requestKey: 'console-cardholder-00000001', kind: 'individual', name: 'Ada TEST', email: 'ada@example.test', country: 'US' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_PROGRAMME_BULK_ISSUE = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeBulkIssue',
+  kind: 'mutation',
+  path: 'ops.cardProgrammeBulkIssue',
+  access: { caller: 'scope', scope: 'support:ops' },
+  refusals: {},
+  input: z.object({ file: z.string().max(100_000) }).strict(),
+  output: z.object({
+    batchId: z.string(),
+    cards: z.array(z.object({ row: z.number().int(), cardId: z.string().guid(), panTail: z.string(), cardholderId: z.string().guid() })),
+    cardsInBatch: z.number().int(),
+    test: z.boolean(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { file: 'cardholder,asset,limit\n22222222-2222-4222-8222-222222222222,USDC,100' } },
+    { verdict: 'refuse', input: 42 },
+  ],
 });
