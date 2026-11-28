@@ -1612,23 +1612,37 @@ console.log('local-test-stack: customer folder override checks passed');
     'a record kept before settings restarts once',
   );
   assert.equal(restartReason({ pid: 1, build: 'b1' }, 'b1', undefined), null, 'a part that passes no settings restarts on its build only');
-  // A service's start hands its own settings to the stop, so a live process on other settings is stopped first.
+  // With LOCAL_STACK_RESTART_ON_SETTINGS=on (the beta's), a service's start hands its own settings to the stop, so a live
+  // process on other settings is stopped first. Without it (a journey's stack), the stop judges the build alone, so a
+  // service keeps the one-off settings a `restart <service>` gave it through a later restart of another service.
   const ledger = localTestServiceEnvs().find((d) => d.name === 'ledger');
   const halt = new Error('stopped here');
-  const stops = [];
-  await assert.rejects(
-    startNodeService(
-      { name: 'ledger', env: () => ledger.env },
-      {
-        stop: (...args) => {
-          stops.push(args);
-          throw halt;
-        },
-      },
-    ),
-    (err) => err === halt,
-  );
-  assert.equal(stops[0][4], settingsMark(ledger.env), "the stop is given the start's settings");
+  const stopsWith = async (value) => {
+    const before = process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+    if (value === undefined) delete process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+    else process.env.LOCAL_STACK_RESTART_ON_SETTINGS = value;
+    const stops = [];
+    try {
+      await assert.rejects(
+        startNodeService(
+          { name: 'ledger', env: () => ledger.env },
+          {
+            stop: (...args) => {
+              stops.push(args);
+              throw halt;
+            },
+          },
+        ),
+        (err) => err === halt,
+      );
+    } finally {
+      if (before === undefined) delete process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+      else process.env.LOCAL_STACK_RESTART_ON_SETTINGS = before;
+    }
+    return stops[0];
+  };
+  assert.equal((await stopsWith('on'))[4], settingsMark(ledger.env), "on the beta the stop is given the start's settings");
+  assert.equal((await stopsWith(undefined))[4], undefined, "on a journey's stack the stop judges the build alone");
   console.log('local-test-stack: a running service restarts onto changed launch settings');
 }
 

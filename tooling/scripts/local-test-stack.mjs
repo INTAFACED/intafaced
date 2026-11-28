@@ -998,6 +998,13 @@ export function onCurrentSettings(rec, settings) {
 }
 
 /**
+ * Whether a start restarts a running service onto changed settings: only with `LOCAL_STACK_RESTART_ON_SETTINGS=on`, which
+ * the beta sets (tooling/beta/beta-host.mjs stackEnv). A journey's stack keeps a service on the one-off settings a
+ * `restart <service>` gave it (the venue door, a switch turned off) through every later start, as journeys expect.
+ */
+export const restartsOnSettings = (env = process.env) => env.LOCAL_STACK_RESTART_ON_SETTINGS === 'on';
+
+/**
  * Why a running process restarts, or null when it keeps running: another build, or (for a part that passes the settings it
  * starts with) other settings.
  */
@@ -2101,7 +2108,7 @@ export async function startNodeService(def, { stop = stopForNewBuild } = {}) {
   const url = `http://${HOST}:${port}/health`;
   const build = currentBuild('backendBuild');
   const settings = settingsMark(env);
-  await stop(def.name, procs[def.name], build, port, settings);
+  await stop(def.name, procs[def.name], build, port, restartsOnSettings() ? settings : undefined);
   const rec = readProcs()[def.name];
   const owned = ownedAlive(rec);
   const healthy = owned && (await httpGet(url, 2000)).status === 200;
