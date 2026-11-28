@@ -3,8 +3,10 @@
 // Run: node --test tooling/ci/look-gate/look-gate.test.mjs (also by the tooling-tests gate). It needs a Chromium:
 // Playwright's own, or the machine's Chrome (GitHub's runners have one); with neither it says so and skips.
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { decodePng } from './png.mjs';
+import * as gate from './look-gate.mjs';
 import { CLIPPED_COPY, GENERATED_ID, HIDE_TEXT_CSS, contrastFindings, fitToPage, focusState, fontFindings, measure } from './look-gate.mjs';
 
 let browser = null;
@@ -215,4 +217,30 @@ test('font: text whose first family is no loaded web font fails; the same in a c
   assert.equal(found.length, 1, 'in plain view');
   assert.match(found[0], /^p "Drawn in a fallback": first family "NoSuchWebFont" is not a web font/);
   assert.deepEqual(await fonts(`<details><summary></summary>${text}</details>`), [], 'in a closed <details>');
+});
+
+test('loading: the gate waits out the app\'s "Opening room…" panel, not only a lazy room\'s loading line', { skip }, async () => {
+  // The panel the app draws while the session restores or a room's code loads (#11271: /reg shot as it, under a
+  // signed-in bar). Its root's classes are read from the component, so a rename there fails here, not in a shot.
+  const source = readFileSync(new URL('../../../apps/customer/src/app/RoomLoading.tsx', import.meta.url), 'utf8');
+  const [, classes] = source.match(/<div className="([^"]+)" role="status">/) ?? [];
+  assert.ok(classes, 'RoomLoading.tsx draws its panel as <div className="…" role="status">');
+  // The selector the gate waits on before it shoots; before #11271 it was this one, hard-coded in each wait.
+  const loading = gate.LOADING ?? '.loading, [aria-busy="true"]';
+  const stillLoading = async (html) => {
+    const { page, close } = await pageOf(html);
+    try {
+      return await page.evaluate((s) => !!document.querySelector(s), loading);
+    } finally {
+      await close();
+    }
+  };
+  assert.equal(
+    await stillLoading(`<header>Home</header><div class="${classes}" role="status"><span>Opening room…</span></div>`),
+    true,
+    'the panel',
+  );
+  assert.equal(await stillLoading('<p class="loading">Loading…</p>'), true, "a lazy room's loading line");
+  assert.equal(await stillLoading('<section aria-busy="true"></section>'), true, 'a busy region');
+  assert.equal(await stillLoading('<main><h1>Open your account</h1><form></form></main>'), false, 'a settled room');
 });
