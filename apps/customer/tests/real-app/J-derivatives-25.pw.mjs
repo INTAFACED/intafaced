@@ -715,7 +715,11 @@ test(`${J} #12 opens the trading account statement: every move, fill and fee wit
     .poll(async () => sameDecimal((await deposits.locator('[data-cell="amount"]').innerText()).split(' ')[0], MOVE_IN))
     .toBe(true);
   await expect(deposits.locator('[data-cell="source"]')).toHaveText(venueName);
-  await expect(deposits).toHaveAttribute('data-ref', /.+/);
+  // The venue's own reference for its credit of the move in's deposit, from its arrivals record.
+  const arrivals = (await venueRecord(owner, '/arrivals')).value.filter((a) => a.kind === 'deposit');
+  expect(arrivals).toHaveLength(1);
+  expect(sameDecimal(arrivals[0].amount, MOVE_IN)).toBe(true);
+  await expect(deposits).toHaveAttribute('data-ref', arrivals[0].arrivalId);
   // The venue reports no fee on a deposit it credited: "not known", never 0.
   await expect(deposits.locator('[data-cell="fee"]')).toHaveText('not known');
   // The move out: the venue's withdrawal by the chain transaction that paid it, with its fee or "not known", and the
