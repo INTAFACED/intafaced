@@ -548,6 +548,16 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
+    "@intafaced/svc-execution#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
     "@intafaced/svc-identity#typecheck": {
       "outputs": [],
       "dependsOn": [
@@ -629,6 +639,7 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/tooling/scripts/local-test-notice.*",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]

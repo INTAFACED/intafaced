@@ -16,7 +16,7 @@ import type { FastifyInstance } from 'fastify';
 import { vi } from 'vitest';
 
 /** The secret the booted service verifies the edge principal with. Fixture only. */
-export const BOOT_EDGE_SECRET = 'svc-notify-boot-harness-edge-secret-long-x';
+export const BOOT_EDGE_SECRET = 'svc-notify-boot-placeholder-edge-secret-long';
 
 /** A complete environment for a boot. Fixture values only. */
 const BOOT_ENV: Readonly<Record<string, string>> = {

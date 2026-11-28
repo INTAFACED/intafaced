@@ -25,7 +25,7 @@ export { DEV_VENUE_ADDRESS, ZERO_VENUE_ADDRESS };
  * and a service that cannot tell an edge-vouched principal from a caller-typed
  * one should not be the service that decides it does not need to.
  */
-export const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
+const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   z.object({
     SERVICE_NAME: z.string().default('svc-indexer'),
     // 4013: every port from 4000 to 4012 is taken by another service in
@@ -259,5 +259,6 @@ export const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   }),
 );
 
+export { schema };
 export const env = loadEnv(schema);
 export type Env = typeof env;
