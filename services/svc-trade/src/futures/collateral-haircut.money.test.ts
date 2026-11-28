@@ -127,18 +127,18 @@ describe('collateral haircut hitch (source) — no invented bps, not a loan', ()
         return { opened: true };
       }
     }
-    const Layered = withCollateralHaircutOpen(Base as never) as unknown as new () => Base;
-    await expect(new Layered().open({ clientOpenId: 'x' })).rejects.toMatchObject({
+    const layered: Base = Reflect.construct(withCollateralHaircutOpen(Base as never), []);
+    await expect(layered.open({ clientOpenId: 'x' })).rejects.toMatchObject({
       name: 'FuturesError',
       code: HAIRCUT_UNSET,
       status: 400,
     });
-    await expect(new Layered().open({ clientOpenId: 'y', asLoan: true, haircutBps: '1000' })).rejects.toMatchObject({
+    await expect(layered.open({ clientOpenId: 'y', asLoan: true, haircutBps: '1000' })).rejects.toMatchObject({
       code: MARGIN_IS_NOT_A_LOAN,
     });
     expect(seen).toEqual([]);
     const passing = { clientOpenId: 'z', haircutBps: '1000', collateralClass: 'cash' };
-    await expect(new Layered().open(passing)).resolves.toEqual({ opened: true });
+    await expect(layered.open(passing)).resolves.toEqual({ opened: true });
     expect(seen).toEqual([passing]);
   });
 

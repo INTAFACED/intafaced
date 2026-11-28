@@ -124,7 +124,7 @@ describe('the trade router runs no futures money mill', () => {
       recordingService(services, 'lead'),
     );
     const context = createEdgeContext({ secret: SECRET, serviceName: 'svc-trade' });
-    const caller = router.createCaller(context({ headers: signedHeaders(), id: 'req-module-reach' })) as unknown as Record<string, unknown>;
+    const caller: unknown = router.createCaller(context({ headers: signedHeaders(), id: 'req-module-reach' }));
     const paths = Object.keys(router._def.procedures as Record<string, unknown>);
     const codes: string[] = [];
     for (const path of paths) {
