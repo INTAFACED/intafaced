@@ -23,6 +23,10 @@
  *     TEST addresses that start with it, so each person sees only the codes for the accounts they created (owner
  *     decision project-state#3903). No Access token, no mailbox. The tunnel already refused any request whose Access
  *     token its app did not sign (cloudflared's `originRequest.access`), so the token's email is read, not re-checked.
+ *   - A sign-up (`auth.signUpStart`) from a viewer the Access token names, with any address but one of that viewer's
+ *     TEST addresses (the token, or the token, a dot and more, at local-test.invalid), is refused here, before the stack
+ *     sees it: no other address's code ever reaches the viewer's mailbox, and no other account is approved or funded
+ *     (beta-invited.mjs invitedOwner). The refusal names the address to use and the mailbox (#11217).
  * Only the public name and this front's own loopback names are served (DNS rebinding stays closed).
  *
  * While the beta updates (beta-host.mjs writes `updating` to its status file from before the checkout moves until the new
@@ -39,6 +43,8 @@ import { pathToFileURL } from 'node:url';
 
 export const PUBLIC_ORIGIN = 'https://beta.intafaced.com';
 const MAIL_PUBLIC_HOST = 'beta-mail.intafaced.com';
+/** The TEST mailbox, where every code the beta mails is read (beta-host.mjs mailboxPage). */
+export const MAILBOX_URL = `https://${MAIL_PUBLIC_HOST}/`;
 const APP = { listen: 6211, upstream: 6210, upstreamHost: 'localhost:6210', upstreamOrigin: 'http://localhost:6210' };
 const MAIL = { listen: 6291, upstream: 6290, upstreamHost: 'localhost:6290' };
 const LOOPBACK_ORIGINS = ['http://localhost:6210', 'http://127.0.0.1:6210'];
@@ -75,6 +81,41 @@ export function viewerFromAccess(headers) {
   } catch {
     return null;
   }
+}
+
+/** The only domain a viewer's TEST addresses use (beta-invited.mjs INVITED_DOMAIN). */
+const TEST_DOMAIN = 'local-test.invalid';
+const SIGN_UP_PATH = '/api/identity/trpc/auth.signUpStart';
+/** The most of a sign-up body the front reads to check its address; a longer one is refused by size. */
+const SIGN_UP_MAX_BYTES = 16 * 1024;
+
+/** Whether `email` is one of `token`'s TEST addresses: the token, or the token, a dot and more, at local-test.invalid. */
+export function viewerAddress(email, token) {
+  const e = String(email ?? '')
+    .trim()
+    .toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (!token || at < 1 || e.slice(at + 1) !== TEST_DOMAIN) return false;
+  const local = e.slice(0, at);
+  return local === token || (local.startsWith(`${token}.`) && local.length > token.length + 1);
+}
+
+/**
+ * The front's refusal of a sign-up body from `token`'s viewer, as the stack's tRPC refusals are shaped (the app shows
+ * its message), or null when it may pass: a body that is not JSON, or names no email, is left to the stack to answer.
+ */
+export function signUpRefusal(text, token) {
+  let input;
+  try {
+    input = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const email = input && typeof input === 'object' ? input.email : undefined;
+  if (input?.channel !== 'email' && email === undefined) return null;
+  if (viewerAddress(email, token)) return null;
+  const message = `On the beta, sign up with ${token}.1@${TEST_DOMAIN} (or ${token}, a dot and anything, @${TEST_DOMAIN}), not your own email: its code arrives only in your TEST mailbox, ${MAILBOX_URL}`;
+  return JSON.stringify({ error: { message, code: -32600, data: { code: 'beta.signup_address_not_yours', httpStatus: 400 } } });
 }
 
 function withoutAccessCookie(cookie) {
@@ -238,31 +279,52 @@ export function frontApp({ upstream = APP.upstream, statusFile = STATUS_FILE, ca
     const page = wantsPage(req);
     const hold = holdOf(status());
     if (page && hold) return sendHold(req, res, hold);
+    const viewer = req.method === 'POST' && pathname === SIGN_UP_PATH ? viewerFromAccess(req.headers) : null;
     const headers = appRequestHeaders(req.headers, { peer: req.socket.remoteAddress });
     if (page) delete headers['accept-encoding']; // the page comes back plain, so the watch script can be added
-    const up = http.request({ host: '127.0.0.1', port: upstream, method: req.method, path: req.url, headers }, (ur) => {
-      const out = responseHeaders(ur);
-      const html =
-        page && ur.statusCode === 200 && /^text\/html\b/i.test(String(ur.headers['content-type'] ?? '')) && !ur.headers['content-encoding'];
-      if (!html) {
-        res.writeHead(ur.statusCode ?? 502, out);
-        return void ur.pipe(res);
-      }
-      const chunks = [];
-      ur.on('data', (c) => chunks.push(c));
-      ur.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        const body = Buffer.from(withWatch(text) ?? text, 'utf8');
-        if (req.method !== 'HEAD') out['content-length'] = String(body.length);
-        res.writeHead(200, out);
-        res.end(req.method === 'HEAD' ? undefined : body);
+    const forward = () => {
+      const up = http.request({ host: '127.0.0.1', port: upstream, method: req.method, path: req.url, headers }, (ur) => {
+        const out = responseHeaders(ur);
+        const html =
+          page &&
+          ur.statusCode === 200 &&
+          /^text\/html\b/i.test(String(ur.headers['content-type'] ?? '')) &&
+          !ur.headers['content-encoding'];
+        if (!html) {
+          res.writeHead(ur.statusCode ?? 502, out);
+          return void ur.pipe(res);
+        }
+        const chunks = [];
+        ur.on('data', (c) => chunks.push(c));
+        ur.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const body = Buffer.from(withWatch(text) ?? text, 'utf8');
+          if (req.method !== 'HEAD') out['content-length'] = String(body.length);
+          res.writeHead(200, out);
+          res.end(req.method === 'HEAD' ? undefined : body);
+        });
       });
+      up.on('error', () => {
+        if (res.headersSent) return res.destroy();
+        return page ? sendHold(req, res, 'closed') : refuse(res, 502, 'beta app unreachable');
+      });
+      return up;
+    };
+    if (!viewer) return void req.pipe(forward());
+    // A viewer's sign-up: read the body whole, check its address, then send it on unchanged or refuse it here.
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size <= SIGN_UP_MAX_BYTES) chunks.push(c);
     });
-    up.on('error', () => {
-      if (res.headersSent) return res.destroy();
-      return page ? sendHold(req, res, 'closed') : refuse(res, 502, 'beta app unreachable');
+    req.on('end', () => {
+      if (size > SIGN_UP_MAX_BYTES) return refuse(res, 413, 'sign-up too large');
+      const body = Buffer.concat(chunks);
+      const refusal = signUpRefusal(body.toString('utf8'), viewer);
+      if (!refusal) return void forward().end(body);
+      send(res, 400, 'application/json; charset=utf-8', refusal);
     });
-    req.pipe(up);
   });
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy());
