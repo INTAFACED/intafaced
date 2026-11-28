@@ -64,7 +64,7 @@ export function invitedOwner(email, tokens) {
  * TEST partner, as the testnet step already exempts the ready check's accounts (beta-testnet.mjs judgeAccount, Nino's
  * guide on project-state#4046, 25 Nov). Every other invited person stays capped.
  */
-const agentsInvite = (token) => String(token ?? '').startsWith('zenyoda');
+export const agentsInvite = (token) => String(token ?? '').startsWith('zenyoda');
 
 /** The ledger reference of an account's one grant: fixed, so a second post of it is a no-op. */
 export const grantRef = (userId) => `beta-invite-${userId}`;
@@ -108,6 +108,8 @@ export function planPass({ users, approved, pending, tokens, granted }) {
 export const invitedPaths = (root = path.join(os.homedir(), '.intafaced', 'beta')) => ({
   invited: path.join(root, 'invited.json'),
   granted: path.join(root, 'granted.json'),
+  /** When each token's account was last approved or funded here: the front reloads that viewer's open app on it (#11217). */
+  changed: path.join(root, 'changed.json'),
   /** The testnet sends to invited testers' embedded wallets (beta-testnet.mjs). */
   testnet: path.join(root, 'testnet-funded.json'),
 });
@@ -157,6 +159,22 @@ export function recordInvited(file, token, now = new Date()) {
   return !seen;
 }
 
+/**
+ * Note that `token`'s account changed (approved, or its TEST funds landed), at `now`. The public front reads it
+ * (beta-front.mjs viewerChange) and the viewer's open app reloads once, so it shows the new level and balance with no
+ * sign-out (#11217).
+ */
+export function markChanged(file, token, now = new Date()) {
+  if (!TOKEN_RE.test(String(token ?? ''))) return;
+  const doc = readJson(file, null) ?? {
+    kind: 'intafaced-beta-changed',
+    label: 'TEST beta: when each invited viewer last changed',
+    tokens: {},
+  };
+  doc.tokens = { ...doc.tokens, [token]: now.toISOString() };
+  writePrivate(file, doc);
+}
+
 async function pass({ root, checkout }) {
   const files = invitedPaths(root);
   const tokens = readInvited(files.invited);
@@ -164,8 +182,10 @@ async function pass({ root, checkout }) {
   const gates = await import(pathToFileURL(path.join(checkout, 'tooling', 'scripts', 'local-test-gates.mjs')).href);
   const secrets = readJson(gates.gatePaths().secrets, null);
   if (!secrets) throw new Error('the stack has no secrets.json: is it running?');
+  const ownerOf = new Map();
   const read = () => {
     const { users, approved, pending } = gates.listAccountsAndTiers(secrets);
+    for (const u of users) ownerOf.set(u.id, invitedOwner(u.email, tokens));
     return planPass({ users, approved, pending, tokens, granted: readJson(files.granted, {}) });
   };
   // Custody off (the beta's stack, launch's money model): the ledger holds no customer money, so the grant is the partner's.
@@ -175,6 +195,7 @@ async function pass({ root, checkout }) {
   if (plan.approve.length) {
     const ctx = await gates.makeContext({ log: (l) => console.log(l) });
     const rows = await gates.approvePending(ctx, null, { userIds: plan.approve });
+    for (const r of rows) if (r.ok) markChanged(files.changed, ownerOf.get(r.userId));
     for (const r of rows)
       console.log(
         `invited ${r.handle}: ${r.tier} ${r.ok ? "approved through the stack's two-person TEST door" : `NOT approved: ${r.why}`}`,
@@ -216,6 +237,7 @@ async function pass({ root, checkout }) {
     const granted = readJson(files.granted, {});
     granted[f.userId] = { token: f.token, asset: GRANT.asset, amount: GRANT.amount, at: new Date().toISOString() };
     writePrivate(files.granted, granted);
+    markChanged(files.changed, f.token);
     console.log(`invited ${f.email}: ${GRANT.amount} TEST ${GRANT.asset} added through the ledger (ref ${grantRef(f.userId)})`);
   }
   await keepAtPartner({ gates, secrets, tokens, files });
@@ -280,6 +302,7 @@ async function keepAtPartner({ gates, secrets, tokens, files }) {
     const now = readJson(files.granted, {});
     now[p.userId] = { ...now[p.userId], partnerAt: new Date().toISOString() };
     writePrivate(files.granted, now);
+    markChanged(files.changed, granted[p.userId]?.token);
     console.log(`invited ${p.userId}: ${GRANT.amount} TEST ${GRANT.asset} kept in their TEST partner account (fund ${PARTNER_FUND_ID})`);
   }
 }

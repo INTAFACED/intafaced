@@ -577,6 +577,18 @@ export function viewerRows(rows, token) {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+/**
+ * What a viewer's mailbox leads with (#11217): the address to sign up with, a control that copies it, and the way back to
+ * the app. Only that address's mail reaches this page, and the front refuses a sign-up with any other.
+ */
+function signUpLead(viewer, link) {
+  const address = `${String(viewer).replace(/[^a-z0-9-]/g, '')}.1@local-test.invalid`;
+  return `<section class="lead"><p class="big">Sign up with <code id="signup-address">${esc(address)}</code></p>
+<p><button type="button" id="copy-address">Copy</button> <a href="${esc(link)}">Back to the beta</a></p>
+<p>Use it, not your own email, on the beta's Sign up page; its code appears below.</p></section>
+<script>document.getElementById('copy-address').onclick=function(){navigator.clipboard.writeText(${JSON.stringify(address)}).then(()=>{this.textContent='Copied'})}</script>`;
+}
+
 export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = null } = {}) {
   const body = rows.length
     ? rows
@@ -593,9 +605,10 @@ export function mailboxPage(rows, { link = BETA_LINK, status = null, viewer = nu
 <meta http-equiv="refresh" content="10"><title>TEST mailbox</title>
 <style>body{background:#0b0b0b;color:#eee;font:16px/1.4 system-ui,sans-serif;margin:0;padding:1rem}h1{font-size:1.2rem}
 .test{background:#F5A915;color:#0b0b0b;font-weight:600;padding:.3rem .6rem;display:inline-block}table{border-collapse:collapse;width:100%}
-td,th{border-bottom:1px solid #333;padding:.4rem;text-align:start;word-break:break-all}.code{font:600 1.3rem ui-monospace,monospace}a{color:#9cf}</style></head>
-<body><p class="test">TEST MAILBOX: test accounts only, not real mail</p><h1>Codes and links the beta app sent</h1>${state}
-${viewer ? `<p>You see only mail to TEST addresses that start with <b>${esc(viewer)}</b>. Sign up with one, for example <b>${esc(viewer)}.1@local-test.invalid</b>.</p>` : ''}
+td,th{border-bottom:1px solid #333;padding:.4rem;text-align:start;word-break:break-all}.code{font:600 1.3rem ui-monospace,monospace}a{color:#9cf}.lead{border:1px solid #F5A915;padding:.6rem 1rem;margin:1rem 0}.big{font-size:1.2rem}.lead code{font:600 1.1rem ui-monospace,monospace;word-break:break-all}button{font:inherit;padding:.3rem .9rem;margin-inline-end:1rem}</style></head>
+<body><p class="test">TEST MAILBOX: test accounts only, not real mail</p>
+${viewer ? signUpLead(viewer, link) : ''}<h1>Codes and links the beta app sent</h1>${state}
+${viewer ? `<p>You see only mail to TEST addresses that start with <b>${esc(viewer)}</b>: that one, or it, a dot and anything, at local-test.invalid. Mail to any other address, your own email included, never arrives here.</p>` : ''}
 <p><a href="${esc(link)}">Open the beta app</a>. This page reloads every 10 seconds.</p>
 <table><thead><tr><th>What</th><th>To</th><th>Code</th><th>Expires</th></tr></thead><tbody>
 ${body}
@@ -1083,6 +1096,18 @@ export const invitedPassDue = ({ state, invited, running }) => state === 'up' &&
  * failed pass waits a minute before the next, so a stack that refuses fills the log once a minute, not every 15 s.
  */
 export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling', 'beta', 'beta-invited.mjs') } = {}) {
+  return passLoop(paths, { script, args: ['pass', '--root', paths.root, '--checkout', paths.checkout], every: INVITED_EVERY_MS });
+}
+
+/** How often the testers' reports pass runs (beta-reports.mjs): a STUCK tester or a help request is an issue within 5 min. */
+const REPORTS_EVERY_MS = 5 * 60_000;
+
+/** The reports pass (#11218), on the same terms as the invited pass: each STUCK tester and help request is an issue. */
+function reportsLoop(paths, { script = path.join(paths.checkout, 'tooling', 'beta', 'beta-reports.mjs') } = {}) {
+  return passLoop(paths, { script, args: ['pass', '--root', paths.root], every: REPORTS_EVERY_MS });
+}
+
+function passLoop(paths, { script, args, every }) {
   let running = false;
   let nextAt = 0;
   const tick = () => {
@@ -1090,8 +1115,7 @@ export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling
     if (!invitedPassDue({ state: readJson(paths.status, {})?.state, invited: readInvited(paths.invited).size, running })) return;
     running = true;
     const out = fs.openSync(paths.log, 'a');
-    const args = [script, 'pass', '--root', paths.root, '--checkout', paths.checkout];
-    const child = spawn('node', args, { cwd: paths.checkout, env: stackEnv(paths), stdio: ['ignore', out, out] });
+    const child = spawn('node', [script, ...args], { cwd: paths.checkout, env: stackEnv(paths), stdio: ['ignore', out, out] });
     const timer = setTimeout(() => child.kill('SIGTERM'), 120_000);
     let ended = false;
     const end = (code) => {
@@ -1105,8 +1129,8 @@ export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling
     child.on('close', (code) => end(code ?? 1));
     child.on('error', () => end(127));
   };
-  const every = setInterval(tick, INVITED_EVERY_MS);
-  return () => clearInterval(every);
+  const timer = setInterval(tick, every);
+  return () => clearInterval(timer);
 }
 
 async function serve(paths) {
@@ -1115,6 +1139,7 @@ async function serve(paths) {
   const mine = selfHash();
   serveMailbox(paths);
   invitedLoop(paths);
+  reportsLoop(paths);
   for (;;) {
     try {
       await round(paths);
