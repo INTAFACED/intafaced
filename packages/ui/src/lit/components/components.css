@@ -213,6 +213,13 @@
   padding-inline: 12px;
   text-align: center;
 }
+/* A word longer than its whole segment (a long translation) breaks inside it rather than spilling over the next. The cap
+   is the segment's full width, side padding included: a word that reaches into the padding today, as "snapshots" does,
+   reads as it did, and the segment's own width is what it was. */
+.lit-segmented-label {
+  max-inline-size: calc(100% + 24px);
+  overflow-wrap: break-word;
+}
 /* The chosen segment is lifted in the raised material, never lime: lime is only the screen's one main action. */
 .lit-segmented button[aria-pressed='true'],
 .lit-segmented button[aria-selected='true'] {
@@ -919,7 +926,8 @@
 }
 .lit-button[data-tone='down'] {
   background: var(--lit-down);
-  color: var(--lit-text-1);
+  /* Dark on the loss colour, as Buy: light text on it measures 2.67:1. */
+  color: var(--lit-page);
 }
 .lit-button[data-size='sm'] {
   min-block-size: 32px;
@@ -1528,7 +1536,7 @@ button.lt-menu-item:focus-visible {
 }
 .lit-toast p {
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .lit-toast [data-part='title'] {
   font-weight: 600;
@@ -1602,12 +1610,12 @@ button.lt-menu-item:focus-visible {
 }
 .lit-payee [data-part='name'] {
   font-weight: 600;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .lit-payee [data-part='handle'] {
   color: var(--lit-text-2);
   font-size: var(--lit-type-label-size);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   unicode-bidi: plaintext;
 }
 .lit-payee [data-part='badge'] {
@@ -1653,7 +1661,7 @@ button.lt-menu-item:focus-visible {
 }
 .lit-note [data-part='body'] {
   color: var(--lit-text-2);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .lit-note [data-part='body'] a {
   color: var(--lit-text-1);
@@ -2408,7 +2416,7 @@ a.lit-button {
 }
 .lt-featured-price {
   /* At 200% text on a phone the price wraps inside its tile instead of pushing the page sideways. */
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: normal;
   font-size: clamp(2rem, 2.6vw, 2.75rem);
   line-height: 1.05;
@@ -2575,8 +2583,11 @@ a.lit-button {
 .lt-book-pick {
   all: unset;
   cursor: pointer;
-  display: block;
+  display: flex;
+  align-items: center;
   inline-size: 100%;
+  /* A level is a 24px target (WCAG 2.5.8): the levels touch, so none may be shorter (issue 10984). */
+  min-block-size: 1.7143rem;
 }
 .lt-book-pick:focus-visible {
   outline: 2px solid var(--lit-focus);
@@ -2590,6 +2601,10 @@ a.lit-button {
 }
 .lt-book-mid th {
   text-align: start;
+}
+/* The spread line wraps where its words are longer than the ladder's column (a long translation), never spills. */
+.lt-book-mid td {
+  white-space: normal;
 }
 .lt-tape-row[data-taker='buy'] .lt-tape-price {
   color: var(--lit-up-text);
@@ -2849,7 +2864,7 @@ a.lit-button {
     grid-area: name;
     min-inline-size: 0;
     /* The name takes what the figures leave, wrapping inside it at large text sizes rather than widening the row. */
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   /* A tag beside the name (Spot, 40x) waits for a wider screen: the line keeps the name whole. */
   .lt-table[data-phone='line'] :is(td, th)[data-phone='name'] .lit-tag {

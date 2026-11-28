@@ -206,9 +206,15 @@
 </label>
 <section data-testid="money-alloc" class="lt-stack" aria-label="Where your money is">
 <div class="lit-segmented" role="group" aria-label="Group by">
-<button type="button" aria-pressed="true">Coin</button>
-<button type="button" aria-pressed="false">Kind</button>
-<button type="button" aria-pressed="false">Place</button>
+<button type="button" aria-pressed="true">
+<span class="lit-segmented-label">Coin</span>
+</button>
+<button type="button" aria-pressed="false">
+<span class="lit-segmented-label">Kind</span>
+</button>
+<button type="button" aria-pressed="false">
+<span class="lit-segmented-label">Place</span>
+</button>
 </div>
 <div data-testid="money-alloc__legend" aria-hidden="true">
 <figure class="lt-parts" aria-label="Share of your total by coin">
@@ -842,9 +848,15 @@
 <h2>What you hold, then and now</h2>
 </header>
 <div class="lit-segmented" role="group" aria-label="Compare with">
-<button type="button" aria-pressed="false">24 hours ago</button>
-<button type="button" aria-pressed="true">7 days ago</button>
-<button type="button" aria-pressed="false">30 days ago</button>
+<button type="button" aria-pressed="false">
+<span class="lit-segmented-label">24 hours ago</span>
+</button>
+<button type="button" aria-pressed="true">
+<span class="lit-segmented-label">7 days ago</span>
+</button>
+<button type="button" aria-pressed="false">
+<span class="lit-segmented-label">30 days ago</span>
+</button>
 </div>
 <table data-testid="money-table" class="lt-table" aria-label="What you held on 14 Oct, 12:00 and on 20 Oct, 12:00">
 <thead>

@@ -66,8 +66,8 @@ describe('choices listed but not open now', () => {
       />,
     );
     expect(out).toContain('role="group" aria-label="Order type"');
-    expect(out).toContain('<button type="button" aria-pressed="true">Market</button>');
-    expect(out).toContain('<button type="button" aria-pressed="false" disabled="">Limit</button>');
+    expect(out).toContain('<button type="button" aria-pressed="true"><span class="lit-segmented-label">Market</span></button>');
+    expect(out).toContain('<button type="button" aria-pressed="false" disabled=""><span class="lit-segmented-label">Limit</span></button>');
   });
 
   it('a Menu item may carry its reason on a second line', () => {

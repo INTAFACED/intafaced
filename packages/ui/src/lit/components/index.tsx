@@ -165,7 +165,7 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
           disabled={o.disabled}
           onClick={() => onChange(o.value)}
         >
-          {o.label}
+          <span className="lit-segmented-label">{o.label}</span>
         </button>
       ))}
     </div>
