@@ -3191,6 +3191,9 @@ test('a wrapper that sends the call name it is handed, or a spec whose procedure
     // handed on in what it returns: its callers are not all here
     'handed.ts':
       "export function tools(api: any) { const query = (procedure: string) => api.query('pay', procedure, undefined, s); return { query }; }",
+    // its hook's holder handed on whole, to no component of the file that takes it apart
+    'held-whole.ts':
+      "function useChange() { const run = (procedure: string) => api.mutate('pay', procedure, {}, s); return { busy: false, run }; }\nexport function Room() { const change = useChange(); log(change); return change.run('a.b'); }",
     // a caller names the call by a variable
     'variable.ts':
       "const w = (api: any, procedure: string) => api.mutate('pay', procedure, {}, s);\nexport const c = (api: any, p: string) => w(api, p);",
@@ -3199,6 +3202,31 @@ test('a wrapper that sends the call name it is handed, or a spec whose procedure
       "type S = { procedure: string };\nconst go = (api: any, x: S) => api.mutate('pay', x.procedure, {}, s);\nexport const c = (api: any) => { const x = { procedure: 'a.b' }; log(x.procedure); return go(api, x); };",
   };
   for (const [f, body] of Object.entries(near)) writeFileSync(join(repo, 'apps/customer/src', f), `${body}\n`);
+  // The business rooms' shape (svc-bank, weed project-state#3724): a read whose wrapper also keys its cache by the name,
+  // and a write sender a hook returns, called through what holds it, in the room and in a form handed it as a prop, one
+  // caller choosing between two calls by a `? :`.
+  const hook = join(repo, 'apps/customer/src/hook.tsx');
+  writeFileSync(
+    hook,
+    [
+      'function useBank(procedure: string, input: unknown) {',
+      "  return useResource((signal: any) => api.query('bank', procedure, input, s, { signal }), `bank:${procedure}:x`);",
+      '}',
+      'function useChange() {',
+      "  const run = (procedure: string, body: unknown) => api.mutate('bank', procedure, body, s);",
+      '  return { busy: false, run };',
+      '}',
+      'export function Room({ on }: { on: boolean }) {',
+      "  const list = useBank('a.list', {});",
+      '  const change = useChange();',
+      "  void change.run('a.set', {});",
+      "  void change.run(on ? 'a.on' : 'a.off', {});",
+      '  return <Form change={change} busy={change.busy} />;',
+      '}',
+      "function Form({ change }: { change: any }) { return <b onClick={() => change.run('a.form', {})} />; }",
+      '',
+    ].join('\n'),
+  );
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
   const sites = findSites(repo);
@@ -3210,7 +3238,13 @@ test('a wrapper that sends the call name it is handed, or a spec whose procedure
     'apps/customer/src/contacts.ts wrapper identity contacts.remove 1/2 moves',
     'apps/customer/src/contacts.ts wrapper identity keys.add 0/2 moves',
     'apps/customer/src/contacts.ts wrapper identity keys.revoke 1/2 moves',
-    'apps/customer/src/handed.ts query pay ? - call name passed through a wrapper: its wrapper query takes its call name by a parameter, and apps/customer/src/handed.ts:1 hands query on rather than calling it',
+    'apps/customer/src/handed.ts query pay ? - call name passed through a wrapper: its wrapper query takes its call name by a parameter, and apps/customer/src/handed.ts:1 hands query on rather than calling it: its hook tools is exported, and the codemod follows what it returns only in its file',
+    'apps/customer/src/held-whole.ts mutate pay ? - call name passed through a wrapper: its wrapper run takes its call name by a parameter, and apps/customer/src/held-whole.ts:1 hands run on rather than calling it: apps/customer/src/held-whole.ts:2 hands change, which holds it, on whole',
+    'apps/customer/src/hook.tsx wrapper bank a.form 3/4 moves',
+    'apps/customer/src/hook.tsx wrapper bank a.list 0/1 moves',
+    'apps/customer/src/hook.tsx wrapper bank a.off 2/4 moves',
+    'apps/customer/src/hook.tsx wrapper bank a.on 1/4 moves',
+    'apps/customer/src/hook.tsx wrapper bank a.set 0/4 moves',
     'apps/customer/src/page.ts wrapper identity contacts.list 0/1 moves',
     "apps/customer/src/spec-read.ts mutate pay ? - call name passed through a wrapper: apps/customer/src/spec-read.ts:3 reads a spec's procedure for more than sending it",
     'apps/customer/src/spec-read.ts procedure-prop undefined a.b - `procedure:` names its call by a string',
@@ -3237,6 +3271,14 @@ test('a wrapper that sends the call name it is handed, or a spec whose procedure
   assert.match(out, /=> callAs\(api, change\.procedure, change\.body, s\);$/m);
   assert.match(out, /send\(api, \{ procedure: KEYS_ADD, body: \{\} \}\);$/m);
   assert.deepEqual([...changes.of(file).imports.get('./shared/api')], ['callAs', 'type AppProcedure']);
+  const hooked = applyEdits(load(hook).src, changes.of(hook).edits);
+  assert.match(hooked, /^function useBank\(procedure: AppProcedure, input: unknown\) \{$/m);
+  assert.match(hooked, /callAs\(api, procedure, input, s, \{ signal \}\), `bank:\$\{procedure\.path\}:x`\);$/m, 'the key reads the path');
+  assert.match(hooked, /const run = \(procedure: AppProcedure, body: unknown\) => callAs\(api, procedure, body, s\);$/m);
+  assert.match(hooked, /useBank\(A_LIST, \{\}\);$/m);
+  assert.match(hooked, /change\.run\(A_SET, \{\}\);$/m);
+  assert.match(hooked, /change\.run\(on \? A_ON : A_OFF, \{\}\);$/m);
+  assert.match(hooked, /change\.run\(A_FORM, \{\}\)/);
   const page = applyEdits(load(join(repo, 'apps/customer/src/page.ts')).src, changes.of(join(repo, 'apps/customer/src/page.ts')).edits);
   assert.match(page, /read\(api, CONTACTS_LIST\);$/m);
   assert.equal(typeof callText, 'function');
