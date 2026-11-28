@@ -184,7 +184,7 @@
       "kind": "test",
       "ref": "services/svc-execution/src/oms-tca.test.ts#does not write ledger — a run posts nothing, calls no recipe and sends no request"
     },
-    "why": "Protected (money): runs TCA with the ledger recipes mocked and fetch spied and asserts no recipe call and no request."
+    "why": "Protected (money): the ledger root and recipes subpath are both recorded and MemoryLedger.prototype.post is spied for the whole file, which asserts after every test (each runTcaRun outcome and the mounted door) that nothing posted or called a recipe; one test drives every runTcaRun outcome with fetch spied, and one loads oms-tca with the ledger client cut to its money arithmetic and the recipes refusing to load."
   },
   {
     "file": "services/svc-execution/src/oms-write-hmac-rest.test.ts",
@@ -453,13 +453,13 @@
   {
     "file": "services/svc-indexer/src/sovereignty.test.ts",
     "target": "../src/projection/postgres-store.ts",
-    "verdict": "delete",
+    "verdict": "rewrite",
     "asserts": "The indexer writes no table outside its own schema.",
     "guard": {
-      "kind": "boundary",
-      "ref": "B-sql"
+      "kind": "test",
+      "ref": "services/svc-indexer/src/sovereignty.test.ts#writes to no schema but its own"
     },
-    "why": "boundary-scan B-sql refuses any service source that queries another service's schema, across all of svc-indexer, not just this one file."
+    "why": "Protected (custody): drives every PostgresProjectionStore method against a recording SQL stand-in and asserts every INSERT, UPDATE and DELETE names one of its 15 own tables, unqualified, that nothing moves the search_path, and that every own table is written by some path; a store method with no row in the test fails it."
   },
   {
     "file": "services/svc-indexer/src/trpc-windows-unset-refuse.test.ts",

@@ -3,7 +3,13 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { BOOT_ENV } from './testing/boot.js';
+import type { ChainBlock } from './chain/source.js';
+import { ERC20_TRANSFER_TOPIC } from './explorer/address.js';
+import { POOL_CREATED_TOPIC, POOL_SWAP_TOPIC, POOL_SYNC_TOPIC } from './explorer/pools.js';
+import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { businessBlockFor, checkAccess, KYC_TIERS, MODULES, regionsWithEntries, UNSET_SCREENING_LIST } from '@intafaced/config';
+
+const CHAIN = 31337;
 
 /**
  * §22 AND §16.10, ASSERTED FROM INSIDE THE SERVICE.
@@ -236,5 +242,172 @@ describe('svc-indexer · §16.10 — the custody boundary, from inside', () => {
   /**
    * A read model has no business writing anywhere but its own schema (§2).
    * Every table this service touches is declared in its own migration.
+   *
+   * The Postgres store is driven, every method of it, against a stand-in that
+   * records each statement it is sent. Every INSERT, UPDATE and DELETE must name
+   * one of the service's own tables, unqualified (the connection's search_path is
+   * the service's schema), and nothing may move the search_path itself. A store
+   * method not in the table below fails the test, so a new write is driven too.
    */
+  it('writes to no schema but its own', async () => {
+    const own = new Set([
+      'blocks',
+      'book_levels',
+      'explorer_block_facts',
+      'explorer_block_traces',
+      'explorer_internal_txs',
+      'explorer_pools',
+      'explorer_swaps',
+      'explorer_syncs',
+      'explorer_tx_logs',
+      'explorer_tokens',
+      'explorer_transfers',
+      'explorer_tx_seen',
+      'explorer_txs',
+      'fills',
+      'positions',
+    ]);
+    const sent: string[] = [];
+    const rows = () => Object.assign([], { count: 0 });
+    const tag = (first: unknown, ..._values: unknown[]): unknown => {
+      if (Array.isArray(first) && 'raw' in first) {
+        sent.push(first.join('$?'));
+        return Promise.resolve(rows());
+      }
+      // sql(rows, ...columns) and other helper forms: an inert fragment.
+      return { fragment: true };
+    };
+    const sql = Object.assign(tag, {
+      array: (v: unknown) => v,
+      json: (v: unknown) => v,
+      unsafe: async (text: string) => {
+        sent.push(text);
+        return rows();
+      },
+      begin: async (...args: unknown[]) => {
+        const fn = args.at(-1);
+        if (typeof fn !== 'function') throw new Error('begin without a callback');
+        return fn(sql);
+      },
+    });
+    const store = new PostgresProjectionStore(sql as never, CHAIN);
+
+    const word = (hex: string) => hex.replace(/^0x/, '').padStart(64, '0');
+    const A = '0x' + 'a'.repeat(40);
+    const B = '0x' + 'b'.repeat(40);
+    const TX = '0x' + '1'.repeat(64);
+    const block: ChainBlock = {
+      chainId: CHAIN,
+      height: 7,
+      hash: '0x' + '7'.repeat(64),
+      parentHash: '0x' + '6'.repeat(64),
+      timestamp: 1_700_000_000,
+      header: { gasUsed: 21_000n, gasLimit: 30_000_000n, baseFeePerGas: 7n, miner: A, txCount: 1, size: 600 },
+      transactions: [
+        {
+          hash: TX,
+          index: 0,
+          from: A,
+          to: B,
+          valueWei: 1n,
+          nonce: 0,
+          gasLimit: 21_000n,
+          gasPriceWei: 1n,
+          gasConsumed: 21_000n,
+          status: 'success',
+          revertReason: null,
+          input: '0x',
+          createdContract: null,
+          logs: [
+            { logIndex: 0, address: B, topics: [ERC20_TRANSFER_TOPIC, `0x${word(A)}`, `0x${word(B)}`], data: `0x${word('0x5')}` },
+            {
+              logIndex: 1,
+              address: B,
+              topics: [POOL_CREATED_TOPIC, `0x${word(A)}`, `0x${word(B)}`],
+              data: `0x${word('0x1e')}${word(A)}${word('0x1')}`,
+            },
+            {
+              logIndex: 2,
+              address: B,
+              topics: [POOL_SWAP_TOPIC, `0x${word(A)}`, `0x${word(B)}`],
+              data: `0x${word('0x1')}${word('0x0')}${word('0x0')}${word('0x2')}`,
+            },
+            { logIndex: 3, address: B, topics: [POOL_SYNC_TOPIC], data: `0x${word('0x9')}${word('0x8')}` },
+          ],
+        },
+      ],
+      tokens: [{ address: B, symbol: 'TEST', name: 'TEST token', decimals: 18 }],
+      internal: { read: true, calls: [{ txHash: TX, path: '0', kind: 'call', from: A, to: B, valueWei: 1n }] },
+      events: [
+        { kind: 'book_level', logIndex: 4, market: 'TEST-USD', side: 'bid', price: '1.5', quantity: '2' },
+        { kind: 'fill', logIndex: 5, market: 'TEST-USD', price: '1.5', quantity: '1', takerSide: 'buy', maker: A, taker: B },
+        { kind: 'position', logIndex: 6, market: 'TEST-USD', account: A, size: '1', entryPrice: '1.5' },
+      ],
+    };
+    const since = new Date('2026-11-01T00:00:00.000Z');
+    const calls: Record<string, () => Promise<unknown>> = {
+      head: () => store.head(),
+      blockAt: () => store.blockAt(7),
+      earliestHeight: () => store.earliestHeight(),
+      explorerBlocks: () => store.explorerBlocks({ limit: 2 }),
+      explorerAtHeight: () => store.explorerAtHeight(7),
+      explorerBlock: () => store.explorerBlock({ height: 7 }),
+      explorerTxList: () => store.explorerTxList({ limit: 2 }),
+      explorerTx: () => store.explorerTx(TX),
+      explorerAddressTxs: () => store.explorerAddressTxs({ address: A, limit: 2 }),
+      explorerTokensBySymbol: () => store.explorerTokensBySymbol({ symbol: 'TEST', limit: 2 }),
+      explorerPools: () => store.explorerPools({ factory: B, limit: 2 }),
+      explorerPool: () => store.explorerPool({ factory: B, pool: A }),
+      explorerPoolSwaps: () => store.explorerPoolSwaps({ pool: A, limit: 2 }),
+      explorerPoolVolume: () => store.explorerPoolVolume({ pool: A, since }),
+      explorerPoolCandles: () => store.explorerPoolCandles({ pool: A, since, seconds: 60, scale: '1m' }),
+      explorerAddressInternal: () => store.explorerAddressInternal({ address: A, limit: 2 }),
+      explorerTraceGaps: () => store.explorerTraceGaps(),
+      explorerAddressTokens: () => store.explorerAddressTokens({ address: A, limit: 2 }),
+      explorerBlockBefore: () => store.explorerBlockBefore(since),
+      explorerTokensUnread: () => store.explorerTokensUnread(2),
+      writeExplorerTokenFacts: () => store.writeExplorerTokenFacts(block.tokens ?? [], 7),
+      noteExplorerTxPending: () => store.noteExplorerTxPending(TX, since),
+      explorerTxPendingSince: () => store.explorerTxPendingSince(TX),
+      applyBlock: () => store.applyBlock(block),
+      unwindTo: () => store.unwindTo(7),
+      prune: () => store.prune(7),
+      book: () => store.book('TEST-USD', 2),
+      bookFinalized: () => store.bookFinalized('TEST-USD', 2, 1),
+      recentFills: () => store.recentFills('TEST-USD', 2),
+      fillsForAccount: () => store.fillsForAccount(A, 2),
+      position: () => store.position('TEST-USD', A),
+      positionsOf: () => store.positionsOf(A, 2),
+      markets: () => store.markets(2),
+      // A private builder of the pool reads' SELECT; called through Reflect because TypeScript hides it.
+      poolSelect: async () => Reflect.apply(Reflect.get(store, 'poolSelect'), store, []),
+    };
+    const methods = Object.getOwnPropertyNames(PostgresProjectionStore.prototype).filter((name) => name !== 'constructor');
+    expect(
+      methods.filter((name) => !(name in calls)),
+      'a store method with no row in this table',
+    ).toEqual([]);
+
+    const WRITES = ['writeExplorerTokenFacts', 'noteExplorerTxPending', 'applyBlock', 'unwindTo', 'prune'];
+    for (const name of methods) {
+      // A write must go through; a read over no rows may refuse, and still must write nothing.
+      if (WRITES.includes(name)) await calls[name]!();
+      else await calls[name]!().catch(() => undefined);
+    }
+
+    const written = new Set<string>();
+    for (const text of sent) {
+      expect(text, 'moves the search_path').not.toMatch(/search_path|set_config/i);
+      for (const match of text.matchAll(/\b(?:INSERT\s+INTO|DELETE\s+FROM|UPDATE)\s+([a-z_][\w.]*)/gi)) {
+        if (match[1]!.toLowerCase() === 'set') continue; // ON CONFLICT … DO UPDATE SET
+        written.add(match[1]!.toLowerCase());
+      }
+    }
+    expect(
+      [...written].filter((table) => !own.has(table)),
+      "a write outside the indexer's own tables",
+    ).toEqual([]);
+    // Every own table is written by some path above, so the check is not vacuous.
+    expect([...written].sort()).toEqual([...own].sort());
+  });
 });
