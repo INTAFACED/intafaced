@@ -548,6 +548,7 @@ import {
   BANK_BUSINESS_BILLS_PAY,
   BANK_BUSINESS_BILLS_CANCEL,
   BANK_BUSINESS_BILLS_RESEND,
+  BANK_BUSINESS_BILLS_UPLOAD,
 } from './bank-business-bills-procedures.js';
 
 import {
@@ -568,6 +569,8 @@ import {
   BANK_BUSINESS_CARDS_DECIDE_LIMIT_REQUEST,
   BANK_BUSINESS_CARDS_SET_POLICY,
   BANK_BUSINESS_CARDS_APPROVE_AND_PAY,
+  BANK_BUSINESS_CARDS_ATTACH_RECEIPT,
+  BANK_BUSINESS_CARDS_SUBMIT_CLAIM,
 } from './bank-business-cards-procedures.js';
 
 import {
@@ -588,6 +591,9 @@ import {
   BANK_BUSINESS_PAYOUTS_WALLET_OFFER,
   BANK_BUSINESS_PAYOUTS_CREATE_PAYROLL,
   BANK_BUSINESS_PAYOUTS_JOIN_AS_CONTRACTOR,
+  BANK_BUSINESS_PAYOUTS_CONNECT_WALLET,
+  BANK_BUSINESS_PAYOUTS_PREPARE_RUN,
+  BANK_BUSINESS_PAYOUTS_SIGN_RUN,
 } from './bank-business-payouts-procedures.js';
 
 import {
@@ -3161,6 +3167,7 @@ const part_bank_business_bills_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_BILLS_PAY,
   BANK_BUSINESS_BILLS_CANCEL,
   BANK_BUSINESS_BILLS_RESEND,
+  BANK_BUSINESS_BILLS_UPLOAD,
 ];
 
 const part_bank_business_books_procedures: readonly ProcedureRecord[] = [
@@ -3181,6 +3188,8 @@ const part_bank_business_cards_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_CARDS_DECIDE_LIMIT_REQUEST,
   BANK_BUSINESS_CARDS_SET_POLICY,
   BANK_BUSINESS_CARDS_APPROVE_AND_PAY,
+  BANK_BUSINESS_CARDS_ATTACH_RECEIPT,
+  BANK_BUSINESS_CARDS_SUBMIT_CLAIM,
 ];
 
 const part_bank_business_payouts_procedures: readonly ProcedureRecord[] = [
@@ -3201,6 +3210,9 @@ const part_bank_business_payouts_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_PAYOUTS_WALLET_OFFER,
   BANK_BUSINESS_PAYOUTS_CREATE_PAYROLL,
   BANK_BUSINESS_PAYOUTS_JOIN_AS_CONTRACTOR,
+  BANK_BUSINESS_PAYOUTS_CONNECT_WALLET,
+  BANK_BUSINESS_PAYOUTS_PREPARE_RUN,
+  BANK_BUSINESS_PAYOUTS_SIGN_RUN,
 ];
 
 const part_bank_business_procedures: readonly ProcedureRecord[] = [

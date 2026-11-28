@@ -22,7 +22,17 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
-import { BANK_BUSINESS_CARDS_RECEIPTS_ZIP, BANK_BUSINESS_CARDS_OVERVIEW } from '@intafaced/contracts/bank-business-cards-procedures';
+import {
+  BANK_BUSINESS_CARDS_RECEIPTS_ZIP,
+  BANK_BUSINESS_CARDS_OVERVIEW,
+  BANK_BUSINESS_CARDS_ISSUE_CARD,
+  BANK_BUSINESS_CARDS_TEST_PURCHASE,
+  BANK_BUSINESS_CARDS_ATTACH_RECEIPT,
+  BANK_BUSINESS_CARDS_DECIDE_LIMIT_REQUEST,
+  BANK_BUSINESS_CARDS_SET_POLICY,
+  BANK_BUSINESS_CARDS_SUBMIT_CLAIM,
+  BANK_BUSINESS_CARDS_APPROVE_AND_PAY,
+} from '@intafaced/contracts/bank-business-cards-procedures';
 import { BANK_BUSINESS_TEAM_OVERVIEW, BANK_BUSINESS_TEAM_MEMBERS } from '@intafaced/contracts/bank-business-team-procedures';
 import { callAs, type AppProcedure } from '../../../shared/api';
 
@@ -150,12 +160,12 @@ function useChange(after: () => void) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<Failed | null>(null);
   const [notice, setNotice] = useState('');
-  async function run<S>(procedure: string, body: unknown, schema: ZodType<S>, done: (data: S) => string, held?: HeldId) {
+  async function run<S>(procedure: AppProcedure, body: unknown, schema: ZodType<S>, done: (data: S) => string, held?: HeldId) {
     if (busy) return null;
     setBusy(true);
     setFailed(null);
     setNotice('');
-    const out = await api.mutate('bank', procedure, body, schema);
+    const out = await callAs(api, procedure, body, schema);
     setBusy(false);
     held?.settle(out);
     if (!out.ok) {
@@ -363,7 +373,7 @@ function Parts({
                       disabled={change.busy}
                       onClick={() =>
                         void change.run(
-                          'businessCards.decideLimitRequest',
+                          BANK_BUSINESS_CARDS_DECIDE_LIMIT_REQUEST,
                           { purchaseId: r.purchaseId, approve: true },
                           businessCardLimitRequestSchema,
                           () => t('decided'),
@@ -378,7 +388,7 @@ function Parts({
                       disabled={change.busy}
                       onClick={() =>
                         void change.run(
-                          'businessCards.decideLimitRequest',
+                          BANK_BUSINESS_CARDS_DECIDE_LIMIT_REQUEST,
                           { purchaseId: r.purchaseId, approve: false },
                           businessCardLimitRequestSchema,
                           () => t('decided'),
@@ -444,7 +454,7 @@ function IssueForm({
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         void change.run(
-          'businessCards.issueCard',
+          BANK_BUSINESS_CARDS_ISSUE_CARD,
           { accountId, cardId: held.id, memberUserId: who, perPurchaseLimit: limit.trim() },
           businessCardSchema,
           () => t('issued'),
@@ -485,7 +495,7 @@ function SpendForm({ cards, change, t }: { cards: BusinessCard[]; change: Change
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         void change.run(
-          'businessCards.testPurchase',
+          BANK_BUSINESS_CARDS_TEST_PURCHASE,
           { cardId, purchaseId: held.id, merchant: merchant.trim(), amount: amount.trim() },
           businessCardPurchaseSchema,
           () => t('spent'),
@@ -552,7 +562,7 @@ function PurchaseRow({ p, tail, mine, change, t }: { p: BusinessCardPurchase; ta
             if (!file) return;
             void fileBase64(file).then((contentBase64) =>
               change.run(
-                'businessCards.attachReceipt',
+                BANK_BUSINESS_CARDS_ATTACH_RECEIPT,
                 { purchaseId: p.id, receiptId: held.id, fileName: file.name, contentType: receiptType(file), contentBase64 },
                 businessCardPurchaseSchema,
                 () => t('attached'),
@@ -581,7 +591,7 @@ function PolicyForm({ accountId, change, t }: { accountId: string; change: Chang
       aria-label={t('policyTitle')}
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
-        void change.run('businessCards.setPolicy', { accountId, receiptOver: over.trim() }, businessExpensePolicySchema, () =>
+        void change.run(BANK_BUSINESS_CARDS_SET_POLICY, { accountId, receiptOver: over.trim() }, businessExpensePolicySchema, () =>
           t('policySaved'),
         );
       }}
@@ -620,7 +630,13 @@ function ClaimForm({ accountId, change, t }: { accountId: string; change: Change
             contentType: receiptType(file),
             contentBase64,
           };
-          const out = await change.run('businessCards.submitClaim', body, businessReimbursementSchema, () => t('claimSubmitted'), claim);
+          const out = await change.run(
+            BANK_BUSINESS_CARDS_SUBMIT_CLAIM,
+            body,
+            businessReimbursementSchema,
+            () => t('claimSubmitted'),
+            claim,
+          );
           if (out) receipt.settle({ ok: true });
         });
       }}
@@ -687,7 +703,9 @@ function ClaimRow({
           type="button"
           tone="primary"
           disabled={change.busy}
-          onClick={() => void change.run('businessCards.approveAndPay', { claimId: c.id }, businessReimbursementSchema, () => t('paid'))}
+          onClick={() =>
+            void change.run(BANK_BUSINESS_CARDS_APPROVE_AND_PAY, { claimId: c.id }, businessReimbursementSchema, () => t('paid'))
+          }
         >
           {t('approvePay')}
         </Button>

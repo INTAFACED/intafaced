@@ -10317,6 +10317,511 @@
         }
       ]
     },
+    "bank.businessBills.upload": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "businessBills.upload",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "billId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "contentType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "contentBase64": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 1398104,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          }
+        },
+        "required": ["accountId", "billId", "fileName", "contentType", "contentBase64"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "vendor": {
+            "type": ["string", "null"]
+          },
+          "reference": {
+            "type": ["string", "null"]
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dueDate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "fileSize": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "fileSha256": {
+            "type": "string"
+          },
+          "createdByHandle": {
+            "type": "string"
+          },
+          "extracted": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reader": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "vendor": {
+                    "type": ["string", "null"]
+                  },
+                  "reference": {
+                    "type": ["string", "null"]
+                  },
+                  "amount": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dueDate": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["reader", "label", "vendor", "reference", "amount", "dueDate"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["inbox", "awaiting_approval", "approved", "scheduled", "paying", "paid"]
+          },
+          "round": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "approvalsNeeded": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "preapproved": {
+            "type": "boolean"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "overAmount": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d+)?$"
+                  },
+                  "payee": {
+                    "type": ["string", "null"]
+                  },
+                  "paymentType": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["domestic", "international", "payroll"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "approvals": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["id", "overAmount", "payee", "paymentType", "approvals", "createdAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submittedByHandle": {
+            "type": ["string", "null"]
+          },
+          "approvals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string"
+                },
+                "handle": {
+                  "type": "string"
+                },
+                "approvedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": ["userId", "handle", "approvedAt"],
+              "additionalProperties": false
+            }
+          },
+          "duplicateOf": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "vendor": {
+                    "type": ["string", "null"]
+                  },
+                  "reference": {
+                    "type": ["string", "null"]
+                  },
+                  "amount": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dueDate": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["id", "vendor", "reference", "amount", "dueDate", "createdAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duplicateCleared": {
+            "type": "boolean"
+          },
+          "back": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason", "text"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "payments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "billId": {
+                  "type": "string"
+                },
+                "attempt": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "madeByHandle": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$"
+                },
+                "scheduledFor": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["scheduled", "sending", "sent", "cancelled", "declined", "returned"]
+                },
+                "partnerKey": {
+                  "type": "string"
+                },
+                "partnerMoveId": {
+                  "type": ["string", "null"]
+                },
+                "partnerReason": {
+                  "type": ["string", "null"]
+                },
+                "partnerReasonText": {
+                  "type": ["string", "null"]
+                },
+                "returnKey": {
+                  "type": "string"
+                },
+                "returnMoveId": {
+                  "type": ["string", "null"]
+                },
+                "splits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "category": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d+)?$"
+                      }
+                    },
+                    "required": ["category", "amount"],
+                    "additionalProperties": false
+                  }
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                "sentAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cancelledAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "answeredAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "billId",
+                "attempt",
+                "madeByHandle",
+                "assetId",
+                "amount",
+                "scheduledFor",
+                "status",
+                "partnerKey",
+                "partnerMoveId",
+                "partnerReason",
+                "partnerReasonText",
+                "returnKey",
+                "returnMoveId",
+                "splits",
+                "createdAt",
+                "sentAt",
+                "cancelledAt",
+                "answeredAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "vendor",
+          "reference",
+          "amount",
+          "dueDate",
+          "createdAt",
+          "accountId",
+          "assetId",
+          "fileName",
+          "contentType",
+          "fileSize",
+          "fileSha256",
+          "createdByHandle",
+          "extracted",
+          "status",
+          "round",
+          "approvalsNeeded",
+          "preapproved",
+          "rule",
+          "submittedByHandle",
+          "approvals",
+          "duplicateOf",
+          "duplicateCleared",
+          "back",
+          "payments"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "22222222-2222-4222-8222-222222222222",
+            "billId": "22222222-2222-4222-8222-222222222222",
+            "fileName": "bill.pdf",
+            "contentType": "application/pdf",
+            "contentBase64": "JVBERi0="
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.businessBooks.codeLines": {
       "service": "svc-bank",
       "module": "bank",
@@ -11300,6 +11805,208 @@
         }
       ]
     },
+    "bank.businessCards.attachReceipt": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "businessCards.attachReceipt",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "purchaseId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "receiptId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "contentType": {
+            "type": "string",
+            "enum": ["application/pdf", "image/png", "image/jpeg", "text/plain"]
+          },
+          "contentBase64": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 699052,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          }
+        },
+        "required": ["purchaseId", "receiptId", "fileName", "contentType", "contentBase64"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "cardId": {
+            "type": "string"
+          },
+          "panTail": {
+            "type": "string"
+          },
+          "memberUserId": {
+            "type": "string"
+          },
+          "merchant": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["declined", "capturing", "captured"]
+          },
+          "declineReason": {
+            "type": ["string", "null"]
+          },
+          "partnerKey": {
+            "type": "string"
+          },
+          "partnerMoveId": {
+            "type": ["string", "null"]
+          },
+          "receiptOver": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "needsReceipt": {
+            "type": "boolean"
+          },
+          "receiptId": {
+            "type": ["string", "null"]
+          },
+          "reminders": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limitRequest": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "purchaseId": {
+                    "type": "string"
+                  },
+                  "cardId": {
+                    "type": "string"
+                  },
+                  "memberUserId": {
+                    "type": "string"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d+)?$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": ["open", "approved", "declined"]
+                  },
+                  "decidedBy": {
+                    "type": ["string", "null"]
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": ["purchaseId", "cardId", "memberUserId", "amount", "status", "decidedBy", "createdAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "capturedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "panTail",
+          "memberUserId",
+          "merchant",
+          "assetId",
+          "amount",
+          "status",
+          "declineReason",
+          "partnerKey",
+          "partnerMoveId",
+          "receiptOver",
+          "needsReceipt",
+          "receiptId",
+          "reminders",
+          "limitRequest",
+          "createdAt",
+          "capturedAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "purchaseId": "22222222-2222-4222-8222-222222222222",
+            "receiptId": "22222222-2222-4222-8222-222222222222",
+            "fileName": "receipt.pdf",
+            "contentType": "application/pdf",
+            "contentBase64": "JVBERi0="
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.businessCards.decideLimitRequest": {
       "service": "svc-bank",
       "module": "bank",
@@ -12069,6 +12776,216 @@
           "input": {
             "accountId": "22222222-2222-4222-8222-222222222222",
             "receiptOver": "1.50"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.businessCards.submitClaim": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "businessCards.submitClaim",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "claimId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "receiptId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "contentType": {
+            "type": "string",
+            "enum": ["application/pdf", "image/png", "image/jpeg", "text/plain"]
+          },
+          "contentBase64": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 699052,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          }
+        },
+        "required": ["accountId", "claimId", "amount", "description", "receiptId", "fileName", "contentType", "contentBase64"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "memberUserId": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "fileName": {
+                "type": "string"
+              },
+              "contentType": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "uploadedBy": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            },
+            "required": ["id", "fileName", "contentType", "size", "sha256", "uploadedBy", "createdAt"],
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": ["submitted", "paying", "paid", "declined"]
+          },
+          "approvedBy": {
+            "type": ["string", "null"]
+          },
+          "partnerKey": {
+            "type": "string"
+          },
+          "partnerMoveId": {
+            "type": ["string", "null"]
+          },
+          "memberBefore": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memberAfter": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refusalCode": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "paidAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "accountId",
+          "memberUserId",
+          "assetId",
+          "amount",
+          "description",
+          "receipt",
+          "status",
+          "approvedBy",
+          "partnerKey",
+          "partnerMoveId",
+          "memberBefore",
+          "memberAfter",
+          "refusalCode",
+          "createdAt",
+          "paidAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "22222222-2222-4222-8222-222222222222",
+            "claimId": "22222222-2222-4222-8222-222222222222",
+            "amount": "1.50",
+            "description": "TEST lunch",
+            "receiptId": "22222222-2222-4222-8222-222222222222",
+            "fileName": "receipt.pdf",
+            "contentType": "application/pdf",
+            "contentBase64": "JVBERi0="
           }
         },
         {
@@ -13361,6 +14278,65 @@
         }
       ]
     },
+    "bank.businessPayouts.connectWallet": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "businessPayouts.connectWallet",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$"
+          }
+        },
+        "required": ["offerId", "signature"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["address", "connectedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "22222222-2222-4222-8222-222222222222",
+            "signature": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.businessPayouts.contractors": {
       "service": "svc-bank",
       "module": "bank",
@@ -14518,6 +15494,197 @@
         }
       ]
     },
+    "bank.businessPayouts.prepareRun": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "businessPayouts.prepareRun",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "payrollId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+          }
+        },
+        "required": ["payrollId", "period"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "dayOfMonth": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contractorId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "walletAddress": {
+                  "type": ["string", "null"]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$"
+                }
+              },
+              "required": ["contractorId", "name", "walletAddress", "amount"],
+              "additionalProperties": false
+            }
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "payrollId": {
+                  "type": "string"
+                },
+                "period": {
+                  "type": "string"
+                },
+                "runKey": {
+                  "type": "string"
+                },
+                "walletAddress": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["awaiting_signature", "signed"]
+                },
+                "signature": {
+                  "type": ["string", "null"]
+                },
+                "signedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "payslips": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "contractorId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "walletAddress": {
+                        "type": "string"
+                      },
+                      "assetId": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d+)?$"
+                      }
+                    },
+                    "required": ["contractorId", "name", "walletAddress", "assetId", "amount"],
+                    "additionalProperties": false
+                  }
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": [
+                "id",
+                "payrollId",
+                "period",
+                "runKey",
+                "walletAddress",
+                "message",
+                "total",
+                "status",
+                "signature",
+                "signedAt",
+                "payslips",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["id", "accountId", "name", "assetId", "dayOfMonth", "members", "runs", "createdAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "payrollId": "22222222-2222-4222-8222-222222222222",
+            "period": "2026-11"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "bank.businessPayouts.runs": {
       "service": "svc-bank",
       "module": "bank",
@@ -14730,6 +15897,197 @@
           "verdict": "accept",
           "input": {
             "accountId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "bank.businessPayouts.signRun": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "businessPayouts.signRun",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$"
+          }
+        },
+        "required": ["runId", "signature"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "dayOfMonth": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contractorId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "walletAddress": {
+                  "type": ["string", "null"]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$"
+                }
+              },
+              "required": ["contractorId", "name", "walletAddress", "amount"],
+              "additionalProperties": false
+            }
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "payrollId": {
+                  "type": "string"
+                },
+                "period": {
+                  "type": "string"
+                },
+                "runKey": {
+                  "type": "string"
+                },
+                "walletAddress": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["awaiting_signature", "signed"]
+                },
+                "signature": {
+                  "type": ["string", "null"]
+                },
+                "signedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "payslips": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "contractorId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "walletAddress": {
+                        "type": "string"
+                      },
+                      "assetId": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d+)?$"
+                      }
+                    },
+                    "required": ["contractorId", "name", "walletAddress", "assetId", "amount"],
+                    "additionalProperties": false
+                  }
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": [
+                "id",
+                "payrollId",
+                "period",
+                "runKey",
+                "walletAddress",
+                "message",
+                "total",
+                "status",
+                "signature",
+                "signedAt",
+                "payslips",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["id", "accountId", "name", "assetId", "dayOfMonth", "members", "runs", "createdAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "runId": "22222222-2222-4222-8222-222222222222",
+            "signature": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
           }
         },
         {

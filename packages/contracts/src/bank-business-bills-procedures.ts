@@ -6,7 +6,7 @@ import {
   businessBillSettingsSchema,
   businessBillVendorSchema,
 } from './bank-business-bills.js';
-import { accountInput, amountString, billInput, day, MAX_SPLIT_LINES, stepUpApprovalField } from './bank-call-schemas.js';
+import { accountInput, amountString, billInput, day, MAX_SPLIT_LINES, stepUpApprovalField, fileBase64 } from './bank-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `businessBills.*`, one record per call: svc-bank mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -231,6 +231,38 @@ export const BANK_BUSINESS_BILLS_RESEND = defineProcedure({
   output: businessBillSchema,
   samples: [
     { verdict: 'accept', input: { paymentId: '22222222-2222-4222-8222-222222222222' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_BILLS_UPLOAD = defineProcedure({
+  ...base,
+  name: 'bank.businessBills.upload',
+  kind: 'mutation',
+  path: 'businessBills.upload',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z
+    .object({
+      accountId: z.string().guid(),
+      billId: z.string().guid(),
+      fileName: z.string().min(1).max(128),
+      contentType: z.string().min(1).max(128),
+      contentBase64: fileBase64,
+    })
+    .strict(),
+  output: businessBillSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        accountId: '22222222-2222-4222-8222-222222222222',
+        billId: '22222222-2222-4222-8222-222222222222',
+        fileName: 'bill.pdf',
+        contentType: 'application/pdf',
+        contentBase64: 'JVBERi0=',
+      },
+    },
     { verdict: 'refuse', input: 42 },
   ],
 });

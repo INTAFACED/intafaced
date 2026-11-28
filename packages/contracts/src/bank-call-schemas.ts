@@ -3,6 +3,7 @@ import { GLOBAL_HOLD_STATES } from './bank-global-procedures.js';
 import { LINKED_ACCOUNT_STATES, LINKED_ACCOUNT_BLOCKERS } from './bank-cash-out-procedures.js';
 import { assetIdSchema } from './asset-id.js';
 import { bankSpaceSchema } from './bank-spaces-list.js';
+import { BUSINESS_RECEIPT_TYPES } from './bank-business-cards.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-bank's records share, copied from the service's router while its Rust port is in flight (the router keeps its own until the port's switch). */
@@ -791,3 +792,52 @@ export const contractorFields = {
 export const MAX_BATCH_INVOICES = 50;
 
 export const MAX_PAYROLL_MEMBERS = 50;
+
+/** The largest bill file kept: 1 MiB. */
+export const MAX_BILL_BYTES = 1_048_576;
+
+/** At most 1 MiB once decoded: base64 of 1 MiB is 1398104 characters. */
+export const fileBase64 = z
+  .string()
+  .min(4)
+  .max(Math.ceil(MAX_BILL_BYTES / 3) * 4)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/);
+
+/**
+ * A BUSINESS GIVES ITS TEAM CARDS AND HANDLES THEIR EXPENSES (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02).
+ *
+ * The business's money is the partner bank's (OWNER 226; docs/adr/2026-11-10-launch-money-model.md), in its own account
+ * at the partner, `business:<account id>`. INTAFACED's ledger posts nothing for any of this.
+ *
+ *   cards           A member with `manage_team` issues a card to a member of the business with a per-purchase limit. The
+ *                   card is a TEST card on the TEST card network: `rail.card` is not connected, and no card number, CVC or
+ *                   PIN exists anywhere (the last four digits are derived from the card id).
+ *   purchases       A purchase over the card's limit is declined `over_limit`, moves nothing, and opens one request to the
+ *                   business's admins. One within it is captured as one partner move from the business's account to the
+ *                   TEST merchant, under `bank.business.card-capture:<purchase id>`, stored before it is sent and sent
+ *                   once; a lost answer is read back by its key. The partner's no (not enough money) declines it.
+ *   receipts        The business sets its own receipt rule. A captured purchase over it with no receipt "needs receipt",
+ *                   and exactly one reminder is queued for it, never a second. Giving the receipt clears it. Anyone with
+ *                   `export` downloads every receipt of the business in one ZIP file.
+ *   reimbursements  A member claims back what they paid themselves, with a receipt. Someone else holding `approve`
+ *                   approves and pays it: one partner move from the business's account to the member's own, under
+ *                   `bank.business.reimbursement:<claim id>`. The member's balance at the partner is read just before and
+ *                   just after, as the partner reports it.
+ */
+export const MAX_RECEIPT_BYTES = 524_288;
+
+/** Base64 of at most 512 KiB. */
+export const base64 = z
+  .string()
+  .min(4)
+  .max(Math.ceil(MAX_RECEIPT_BYTES / 3) * 4)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/);
+
+export const receiptFields = {
+  receiptId: z.string().guid(),
+  fileName: z.string().min(1).max(120),
+  contentType: z.enum(BUSINESS_RECEIPT_TYPES),
+  contentBase64: base64,
+};
+
+export const signature = z.string().regex(/^0x[0-9a-fA-F]{130}$/);

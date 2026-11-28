@@ -8,7 +8,7 @@ import {
   businessExpensePolicySchema,
   businessReimbursementSchema,
 } from './bank-business-cards.js';
-import { accountInput, amountString, stepUpApprovalField } from './bank-call-schemas.js';
+import { accountInput, amountString, stepUpApprovalField, receiptFields } from './bank-call-schemas.js';
 import { z } from 'zod';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -146,6 +146,65 @@ export const BANK_BUSINESS_CARDS_APPROVE_AND_PAY = defineProcedure({
   output: businessReimbursementSchema,
   samples: [
     { verdict: 'accept', input: { claimId: '22222222-2222-4222-8222-222222222222' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_CARDS_ATTACH_RECEIPT = defineProcedure({
+  ...base,
+  name: 'bank.businessCards.attachReceipt',
+  kind: 'mutation',
+  path: 'businessCards.attachReceipt',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ purchaseId: z.string().guid(), ...receiptFields }).strict(),
+  output: businessCardPurchaseSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        purchaseId: '22222222-2222-4222-8222-222222222222',
+        receiptId: '22222222-2222-4222-8222-222222222222',
+        fileName: 'receipt.pdf',
+        contentType: 'application/pdf',
+        contentBase64: 'JVBERi0=',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_CARDS_SUBMIT_CLAIM = defineProcedure({
+  ...base,
+  name: 'bank.businessCards.submitClaim',
+  kind: 'mutation',
+  path: 'businessCards.submitClaim',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z
+    .object({
+      accountId: z.string().guid(),
+      claimId: z.string().guid(),
+      amount: amountString,
+      description: z.string().min(1).max(200),
+      ...receiptFields,
+    })
+    .strict(),
+  output: businessReimbursementSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        accountId: '22222222-2222-4222-8222-222222222222',
+        claimId: '22222222-2222-4222-8222-222222222222',
+        amount: '1.50',
+        description: 'TEST lunch',
+        receiptId: '22222222-2222-4222-8222-222222222222',
+        fileName: 'receipt.pdf',
+        contentType: 'application/pdf',
+        contentBase64: 'JVBERi0=',
+      },
+    },
     { verdict: 'refuse', input: 42 },
   ],
 });

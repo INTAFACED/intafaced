@@ -21,6 +21,7 @@ import {
   MAX_BULK_FILE_BYTES,
   MAX_PAYROLL_MEMBERS,
   stepUpApprovalField,
+  signature,
 } from './bank-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -357,6 +358,67 @@ export const BANK_BUSINESS_PAYOUTS_JOIN_AS_CONTRACTOR = defineProcedure({
         email: 'placeholder',
         iban: 'placeholder',
         walletAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_PAYOUTS_CONNECT_WALLET = defineProcedure({
+  ...base,
+  name: 'bank.businessPayouts.connectWallet',
+  kind: 'mutation',
+  path: 'businessPayouts.connectWallet',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ offerId: z.string().guid(), signature }).strict(),
+  output: businessPayrollWalletSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        offerId: '22222222-2222-4222-8222-222222222222',
+        signature:
+          '0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** One month's run and its payslips, under its run key: nothing is sent, held or posted. */
+export const BANK_BUSINESS_PAYOUTS_PREPARE_RUN = defineProcedure({
+  ...base,
+  name: 'bank.businessPayouts.prepareRun',
+  kind: 'mutation',
+  path: 'businessPayouts.prepareRun',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ payrollId: z.string().guid(), period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }).strict(),
+  output: businessCryptoPayrollSchema,
+  samples: [
+    { verdict: 'accept', input: { payrollId: '22222222-2222-4222-8222-222222222222', period: '2026-11' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The business's own wallet's signature over the run's message. */
+export const BANK_BUSINESS_PAYOUTS_SIGN_RUN = defineProcedure({
+  ...base,
+  name: 'bank.businessPayouts.signRun',
+  kind: 'mutation',
+  path: 'businessPayouts.signRun',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ runId: z.string().guid(), signature }).strict(),
+  output: businessCryptoPayrollSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        runId: '22222222-2222-4222-8222-222222222222',
+        signature:
+          '0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab',
       },
     },
     { verdict: 'refuse', input: 42 },

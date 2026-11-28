@@ -23,6 +23,16 @@ import {
   BANK_BUSINESS_BILLS_LIST,
   BANK_BUSINESS_BILLS_SETTINGS,
   BANK_BUSINESS_BILLS_GET,
+  BANK_BUSINESS_BILLS_UPLOAD,
+  BANK_BUSINESS_BILLS_SET_VENDOR,
+  BANK_BUSINESS_BILLS_SET_LIMITS,
+  BANK_BUSINESS_BILLS_CLEAR_DUPLICATE,
+  BANK_BUSINESS_BILLS_REVIEW,
+  BANK_BUSINESS_BILLS_SUBMIT,
+  BANK_BUSINESS_BILLS_APPROVE,
+  BANK_BUSINESS_BILLS_PAY,
+  BANK_BUSINESS_BILLS_CANCEL,
+  BANK_BUSINESS_BILLS_RESEND,
 } from '@intafaced/contracts/bank-business-bills-procedures';
 import { callAs, type AppProcedure } from '../../../shared/api';
 
@@ -217,7 +227,7 @@ function useChange(after: () => void) {
   const [failed, setFailed] = useState<Failed | null>(null);
   const [notice, setNotice] = useState('');
   async function run<S>(
-    procedure: string,
+    procedure: AppProcedure,
     body: unknown,
     schema: ZodType<S>,
     done?: (data: S) => string,
@@ -227,7 +237,7 @@ function useChange(after: () => void) {
     setBusy(true);
     setFailed(null);
     setNotice('');
-    const out = await api.mutate('bank', procedure, body, schema);
+    const out = await callAs(api, procedure, body, schema);
     setBusy(false);
     held?.settle(out);
     if (!out.ok) {
@@ -354,7 +364,7 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
             if (!file) return;
             void base64Of(file).then((contentBase64) =>
               change.run(
-                'businessBills.upload',
+                BANK_BUSINESS_BILLS_UPLOAD,
                 { accountId, billId: billId.id, fileName: file.name, contentType: file.type || 'application/octet-stream', contentBase64 },
                 businessBillSchema,
                 () => t('uploaded'),
@@ -419,8 +429,11 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             void change
-              .run('businessBills.setVendor', { accountId, name: vendorName.trim(), cap: vendorCap.trim() }, businessBillVendorSchema, () =>
-                t('vendorSaved'),
+              .run(
+                BANK_BUSINESS_BILLS_SET_VENDOR,
+                { accountId, name: vendorName.trim(), cap: vendorCap.trim() },
+                businessBillVendorSchema,
+                () => t('vendorSaved'),
               )
               .then((v) => {
                 if (v) {
@@ -463,7 +476,7 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
             const v = (x: string) => (x.trim() ? x.trim() : null);
             void change
               .run(
-                'businessBills.setLimits',
+                BANK_BUSINESS_BILLS_SET_LIMITS,
                 { accountId, perPayment: v(shownLimits.perPayment), daily: v(shownLimits.daily), monthly: v(shownLimits.monthly) },
                 businessBillLimitsSchema,
                 () => t('limitsSaved'),
@@ -586,7 +599,7 @@ function BillParts({
               tone="primary"
               type="button"
               disabled={change.busy}
-              onClick={() => void change.run('businessBills.clearDuplicate', { billId: b.id }, businessBillSchema)}
+              onClick={() => void change.run(BANK_BUSINESS_BILLS_CLEAR_DUPLICATE, { billId: b.id }, businessBillSchema)}
             >
               {t('notDuplicate')}
             </Button>
@@ -625,7 +638,7 @@ function BillParts({
             e.preventDefault();
             void change
               .run(
-                'businessBills.review',
+                BANK_BUSINESS_BILLS_REVIEW,
                 {
                   billId: b.id,
                   vendor: v(shown.vendor),
@@ -669,7 +682,7 @@ function BillParts({
             type="button"
             tone="primary"
             disabled={change.busy}
-            onClick={() => void change.run('businessBills.submit', { billId: b.id }, businessBillSchema, () => t('submitted'))}
+            onClick={() => void change.run(BANK_BUSINESS_BILLS_SUBMIT, { billId: b.id }, businessBillSchema, () => t('submitted'))}
           >
             {t('submit')}
           </Button>
@@ -695,7 +708,7 @@ function BillParts({
               type="button"
               tone="primary"
               disabled={change.busy}
-              onClick={() => void change.run('businessBills.approve', { billId: b.id }, businessBillSchema, () => t('approved'))}
+              onClick={() => void change.run(BANK_BUSINESS_BILLS_APPROVE, { billId: b.id }, businessBillSchema, () => t('approved'))}
             >
               {t('approve')}
             </Button>
@@ -713,7 +726,7 @@ function BillParts({
               const scheduledFor = payOn || null;
               void change
                 .run(
-                  'businessBills.pay',
+                  BANK_BUSINESS_BILLS_PAY,
                   {
                     billId: b.id,
                     paymentId: paymentId.id,
@@ -815,7 +828,7 @@ function BillParts({
                   tone="primary"
                   type="button"
                   disabled={change.busy}
-                  onClick={() => void change.run('businessBills.cancel', { paymentId: p.id }, businessBillSchema, () => t('cancelled'))}
+                  onClick={() => void change.run(BANK_BUSINESS_BILLS_CANCEL, { paymentId: p.id }, businessBillSchema, () => t('cancelled'))}
                 >
                   {t('cancel')}
                 </Button>
@@ -828,7 +841,7 @@ function BillParts({
             tone="primary"
             type="button"
             disabled={change.busy}
-            onClick={() => void change.run('businessBills.resend', { paymentId: sending.id }, businessBillSchema)}
+            onClick={() => void change.run(BANK_BUSINESS_BILLS_RESEND, { paymentId: sending.id }, businessBillSchema)}
           >
             {t('tryAgain')}
           </Button>

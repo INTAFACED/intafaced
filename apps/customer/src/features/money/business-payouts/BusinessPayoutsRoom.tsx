@@ -34,6 +34,20 @@ import {
   BANK_BUSINESS_PAYOUTS_WALLET,
   BANK_BUSINESS_PAYOUTS_PAYROLLS,
   BANK_BUSINESS_PAYOUTS_INVITE_INFO,
+  BANK_BUSINESS_PAYOUTS_IMPORT_RUN,
+  BANK_BUSINESS_PAYOUTS_CONFIRM_RUN,
+  BANK_BUSINESS_PAYOUTS_APPROVE_RUN,
+  BANK_BUSINESS_PAYOUTS_ADD_INVOICE,
+  BANK_BUSINESS_PAYOUTS_ADD_CONTRACTOR,
+  BANK_BUSINESS_PAYOUTS_PAY_BATCH,
+  BANK_BUSINESS_PAYOUTS_APPROVE_BATCH,
+  BANK_BUSINESS_PAYOUTS_CREATE_INVITE,
+  BANK_BUSINESS_PAYOUTS_WALLET_OFFER,
+  BANK_BUSINESS_PAYOUTS_CONNECT_WALLET,
+  BANK_BUSINESS_PAYOUTS_CREATE_PAYROLL,
+  BANK_BUSINESS_PAYOUTS_PREPARE_RUN,
+  BANK_BUSINESS_PAYOUTS_SIGN_RUN,
+  BANK_BUSINESS_PAYOUTS_JOIN_AS_CONTRACTOR,
 } from '@intafaced/contracts/bank-business-payouts-procedures';
 import { callAs, type AppProcedure } from '../../../shared/api';
 
@@ -238,7 +252,7 @@ function useChange(after: () => void) {
   const [failed, setFailed] = useState<Failed | null>(null);
   const [notice, setNotice] = useState('');
   async function run<S>(
-    procedure: string,
+    procedure: AppProcedure,
     body: unknown,
     schema: ZodType<S>,
     done?: (data: S) => string,
@@ -248,7 +262,7 @@ function useChange(after: () => void) {
     setBusy(true);
     setFailed(null);
     setNotice('');
-    const out = await api.mutate('bank', procedure, body, schema);
+    const out = await callAs(api, procedure, body, schema);
     setBusy(false);
     held?.settle(out);
     if (!out.ok) {
@@ -373,7 +387,7 @@ function Parts({
             if (!file) return;
             void file.text().then((csv) =>
               change.run(
-                'businessPayouts.importRun',
+                BANK_BUSINESS_PAYOUTS_IMPORT_RUN,
                 { accountId, runId: runId.id, csv },
                 businessBulkRunSchema,
                 (run) => {
@@ -484,7 +498,9 @@ function RunView({
           <Button
             tone="primary"
             disabled={change.busy}
-            onClick={() => void change.run('businessPayouts.confirmRun', { runId: run.id }, businessBulkRunSchema, () => t('confirmed'))}
+            onClick={() =>
+              void change.run(BANK_BUSINESS_PAYOUTS_CONFIRM_RUN, { runId: run.id }, businessBulkRunSchema, () => t('confirmed'))
+            }
           >
             {t('confirm')}
           </Button>
@@ -499,7 +515,9 @@ function RunView({
         <Button
           tone="primary"
           disabled={change.busy}
-          onClick={() => void change.run('businessPayouts.approveRun', { runId: run.id }, businessBulkRunSchema, () => t('runApproved'))}
+          onClick={() =>
+            void change.run(BANK_BUSINESS_PAYOUTS_APPROVE_RUN, { runId: run.id }, businessBulkRunSchema, () => t('runApproved'))
+          }
         >
           {t('approveRun')}
         </Button>
@@ -547,7 +565,7 @@ function ContractorParts({ accountId, people, change, t }: { accountId: string; 
           e.preventDefault();
           void change
             .run(
-              'businessPayouts.addContractor',
+              BANK_BUSINESS_PAYOUTS_ADD_CONTRACTOR,
               {
                 accountId,
                 contractorId: contractorId.id,
@@ -592,7 +610,7 @@ function ContractorParts({ accountId, people, change, t }: { accountId: string; 
             e.preventDefault();
             void change
               .run(
-                'businessPayouts.payBatch',
+                BANK_BUSINESS_PAYOUTS_PAY_BATCH,
                 { accountId, batchId: batchId.id, invoiceIds: picked },
                 businessContractorBatchSchema,
                 () => t('batchMade'),
@@ -646,7 +664,7 @@ function ContractorRow({ c, change, t }: { c: BusinessContractor; change: Change
           e.preventDefault();
           void change
             .run(
-              'businessPayouts.addInvoice',
+              BANK_BUSINESS_PAYOUTS_ADD_INVOICE,
               {
                 contractorId: c.id,
                 invoiceId: invoiceId.id,
@@ -709,7 +727,7 @@ function BatchRow({ b, label, me, change, t }: { b: BusinessContractorBatch; lab
           tone="primary"
           disabled={change.busy}
           onClick={() =>
-            void change.run('businessPayouts.approveBatch', { batchId: b.id }, businessContractorBatchSchema, () => t('runApproved'))
+            void change.run(BANK_BUSINESS_PAYOUTS_APPROVE_BATCH, { batchId: b.id }, businessContractorBatchSchema, () => t('runApproved'))
           }
         >
           {t('approveBatch')}
@@ -728,7 +746,7 @@ function InviteParts({ accountId, change, t }: { accountId: string; change: Chan
         tone="primary"
         disabled={change.busy}
         onClick={() =>
-          void change.run('businessPayouts.createInvite', { accountId }, businessContractorInviteSchema).then((made) => {
+          void change.run(BANK_BUSINESS_PAYOUTS_CREATE_INVITE, { accountId }, businessContractorInviteSchema).then((made) => {
             if (made) setLink(`${location.origin}/bank/business/contractor-join?token=${encodeURIComponent(made.token)}`);
           })
         }
@@ -805,7 +823,7 @@ function WalletParts({
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
           void change
-            .run('businessPayouts.walletOffer', { accountId, address: address.trim() }, businessPayrollWalletOfferSchema)
+            .run(BANK_BUSINESS_PAYOUTS_WALLET_OFFER, { accountId, address: address.trim() }, businessPayrollWalletOfferSchema)
             .then((o) => {
               if (o) setOffer(o);
             });
@@ -825,7 +843,7 @@ function WalletParts({
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             void change
-              .run('businessPayouts.connectWallet', { offerId: offer.offerId, signature: sig }, businessPayrollWalletSchema, () =>
+              .run(BANK_BUSINESS_PAYOUTS_CONNECT_WALLET, { offerId: offer.offerId, signature: sig }, businessPayrollWalletSchema, () =>
                 t('connected'),
               )
               .then((r) => {
@@ -859,7 +877,7 @@ function PayrollSetup({ accountId, people, change, t }: { accountId: string; peo
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         void change.run(
-          'businessPayouts.createPayroll',
+          BANK_BUSINESS_PAYOUTS_CREATE_PAYROLL,
           { accountId, payrollId: payrollId.id, name: name.trim(), dayOfMonth: Number(day), members },
           businessCryptoPayrollSchema,
           () => t('payrollMade'),
@@ -905,7 +923,7 @@ function PayrollView({ p, change, t }: { p: BusinessCryptoPayroll; change: Chang
         aria-label={`${t('prepareRun')} ${p.name}`}
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
-          void change.run('businessPayouts.prepareRun', { payrollId: p.id, period: period.trim() }, businessCryptoPayrollSchema, () =>
+          void change.run(BANK_BUSINESS_PAYOUTS_PREPARE_RUN, { payrollId: p.id, period: period.trim() }, businessCryptoPayrollSchema, () =>
             t('runPrepared'),
           );
         }}
@@ -949,7 +967,9 @@ function PayrollRunView({ r, change, t }: { r: BusinessPayrollRun; change: Chang
           aria-label={`${t('signRun')} ${r.period}`}
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
-            void change.run('businessPayouts.signRun', { runId: r.id, signature: sig }, businessCryptoPayrollSchema, () => t('runSigned'));
+            void change.run(BANK_BUSINESS_PAYOUTS_SIGN_RUN, { runId: r.id, signature: sig }, businessCryptoPayrollSchema, () =>
+              t('runSigned'),
+            );
           }}
         >
           <SignatureField message={r.message} address={r.walletAddress} value={sig} onChange={setSig} t={t} />
@@ -1008,7 +1028,7 @@ export function ContractorJoinRoom({ search }: { search: string }) {
                   e.preventDefault();
                   void change
                     .run(
-                      'businessPayouts.joinAsContractor',
+                      BANK_BUSINESS_PAYOUTS_JOIN_AS_CONTRACTOR,
                       {
                         token,
                         name: form.name.trim(),
