@@ -24,7 +24,7 @@ export const ACADEMY_LEAVE_CERT_PATH = defineProcedure({
   input: z.object({ pathSlug: z.string().min(1).max(64), clientRequestId: z.string().min(1).max(200) }),
   output: leaveOut,
   samples: [
-    { verdict: 'accept', input: { pathSlug: 'USDC', clientRequestId: 'USDC' } },
+    { verdict: 'accept', input: { pathSlug: 'foundations', clientRequestId: 'leave:foundations:sample' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

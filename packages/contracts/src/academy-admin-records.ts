@@ -1580,7 +1580,7 @@ export const ACADEMY_ADMIN_ENROLMENTS = defineProcedure({
     paths: z.array(z.object({ pathSlug: z.string(), count: z.number().int().nonnegative() })),
   }),
   samples: [
-    { verdict: 'accept', input: { from: 'USDC', to: 'USDC' } },
+    { verdict: 'accept', input: { from: '2026-01-01', to: '2026-01-31' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

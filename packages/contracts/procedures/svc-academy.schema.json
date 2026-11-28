@@ -8065,8 +8065,8 @@
         {
           "verdict": "accept",
           "input": {
-            "from": "USDC",
-            "to": "USDC"
+            "from": "2026-01-01",
+            "to": "2026-01-31"
           }
         },
         {
@@ -29847,8 +29847,8 @@
         {
           "verdict": "accept",
           "input": {
-            "pathSlug": "USDC",
-            "clientRequestId": "USDC"
+            "pathSlug": "foundations",
+            "clientRequestId": "leave:foundations:sample"
           }
         },
         {
