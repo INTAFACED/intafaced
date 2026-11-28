@@ -3,7 +3,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { testPostgres } from '@intafaced/db/test-postgres';
 import postgres from 'postgres';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
+import type { Principal } from '@intafaced/auth';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
@@ -18,6 +21,7 @@ import {
   proposerGateFromEnv,
   type ProposerGate,
 } from './governance-home.js';
+import { createTokenRouter } from './router.js';
 import { TokenError, TokenService } from './token-service.js';
 import { TEST_VOTE_SIGNATURE, testVoteSignatures } from './vote-signature.testkit.js';
 
@@ -35,6 +39,28 @@ const migrations = readdirSync(drizzleDir)
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
+const EDGE_SECRET = 'a-token-governance-home-edge-secret-long-enough';
+const edgeContext = createEdgeContext({ secret: EDGE_SECRET, serviceName: 'svc-token' });
+
+function staker() {
+  const raw = encodePrincipal({
+    sub: USER_A,
+    userId: USER_A,
+    sid: '33333333-3333-4333-8333-333333333333',
+    scopes: ['token:read', 'token:stake'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 60_000),
+  } as Principal);
+  return edgeContext({
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, EDGE_SECRET, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
+    id: 'req-governance-home',
+  });
+}
 const OPENS = new Date('2026-07-15T00:00:00.000Z');
 const CLOSES = new Date('2026-07-22T00:00:00.000Z');
 const NOW = new Date('2026-07-15T12:00:00.000Z');
@@ -103,25 +129,23 @@ describe('proposer rule decisions', () => {
     expect(proposalSearchPattern('100%_off')).toBe('%100\\%\\_off%');
   });
 
-  it('does not mint a proposal id or read stake before the author lock', () => {
-    const home = readFileSync(join(here, 'governance-home.ts'), 'utf8');
-    const insert = home.slice(home.indexOf('export async function insertGovernanceProposal'));
-    expect(insert).not.toMatch(/randomUUID/);
-    expect(insert).not.toMatch(/::uuid/);
-    expect(insert).toMatch(/lockedStake\(tx\)/);
-
-    const router = readFileSync(join(here, 'router.ts'), 'utf8');
-    const door = router.slice(router.indexOf('createProposal:'), router.indexOf('castVote:'));
-    expect(door).not.toMatch(/proposalId/);
-    expect(door).toMatch(/handle: input\.handle/);
-
-    const service = readFileSync(join(here, 'token-service.ts'), 'utf8');
-    const create = service.slice(service.indexOf('async createProposal('), service.indexOf('async editProposal('));
-    expect(create).not.toMatch(/this\.stakeOf\(/);
-    // The author's stake is read from the locked snapshot of every active stake (FOR UPDATE, id order), not a bare read.
-    expect(create).toMatch(/snapshotActiveStake/);
-    const snapshot = service.slice(service.indexOf('private async snapshotActiveStake('), service.indexOf('async getStake('));
-    expect(snapshot).toMatch(/ORDER BY id\s+FOR UPDATE/);
+  it('does not mint a proposal id or read stake before the author lock', async () => {
+    // The door takes no proposal id: it hands the caller's handle to the service, which derives the id
+    // (see "refuses a missing handle and does not store a client uuid as the proposal id" below), and the
+    // author's stake is read under the lock ("refuses the create when unstake commits the stake row ...").
+    const createProposal = vi.fn(async (_input: Record<string, unknown>) => {
+      throw new TokenError('stop at the door', 'token.proposal_handle_invalid');
+    });
+    const caller = createTokenRouter(partial<TokenService>({ createProposal })).createCaller(staker());
+    await expect(
+      caller.createProposal({ kind: 'listing', handle: 'client-handle-1', title: 'T', proposalId: 'client-chosen-id' } as never),
+    ).rejects.toMatchObject({ cause: { code: 'token.proposal_handle_invalid' } });
+    expect(createProposal).toHaveBeenCalledTimes(1);
+    const handed = createProposal.mock.calls[0]![0];
+    expect(handed).toMatchObject({ kind: 'listing', handle: 'client-handle-1', createdBy: USER_A, asAdmin: false });
+    expect(handed).not.toHaveProperty('proposalId');
+    expect(handed).not.toHaveProperty('id');
+    expect(Object.values(handed)).not.toContain('client-chosen-id');
   });
 });
 

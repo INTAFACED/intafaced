@@ -1,6 +1,6 @@
 # Tests that read source text: the recipe
 
-Every finding of `garden/no-source-text-test` outside `services/` goes, one site at a time, by this page. Read it whole
+Every finding of `garden/no-source-text-test` goes, one site at a time, by this page. Read it whole
 before you touch a file. You do not edit this page, the classifier, or the rule; a case they get wrong goes back to
 whoever gave you the files, with the site and why.
 
@@ -58,9 +58,8 @@ The test must call the code and assert on its answer, the records it writes, or 
 - "no copy of a list drifts from the source" → import both lists and compare them.
 - "a component renders the notice" → render it and assert what the user sees.
 - "two services agree on a hash, a key or a shape" → import both functions or the shared contract and compare their
-  outputs on the same input. A service's internals that an app or tooling test cannot import (`services/` is not
-  yours to change): assert through the service's public record or contract (`@intafaced/contracts`), or through a
-  test that already lives with the service; if neither exists, report it back.
+  outputs on the same input. A test in another package than the service whose code it read asserts through the
+  service's public record or contract (`@intafaced/contracts`), or moves beside the service as a test of it.
 
 ## 4. The verification contract
 
@@ -76,7 +75,7 @@ For each part, in the PR:
 
 ## 5. The fences
 
-- **Never** touch `services/`. Never edit a journey test (`apps/customer/tests/real-app/`) unless the part says so.
+- Never edit a journey test (`apps/customer/tests/real-app/`) unless the part says so.
 - **Never delete** a test of money, custody, sign-in, permissions or a journey: rewrite it so it keeps every
   protection it has today. Never weaken an assertion to get green, and never skip a test.
 - **No evasion.** Reading the source by another route (an alias of `readFileSync`, `fs.promises`, `?raw` imports,

@@ -1,12 +1,14 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { MemoryEventBus } from '@intafaced/events';
+import { burnAccount, parseAmount, type LedgerClient } from '@intafaced/ledger-client';
+import { DEFAULT_BUYBACK_PARAMS } from './economics/buyback.js';
+import { DEFAULT_EMISSION_PARAMS } from './economics/emission.js';
+import { recordingSql } from './sql-recorder.testkit.js';
 import { DELEGATION_BLOCKER, DELEGATION_UNAVAILABLE, refuseDelegation, unavailableDelegation } from './delegation.js';
 import { createTokenRouter } from './router.js';
-import { TokenError, type TokenService } from './token-service.js';
+import { TokenError, TokenService } from './token-service.js';
 import { reportLastBuyback, reportTreasury, type TreasurySums } from './treasury-view.js';
 import { userCopy } from './user-copy.js';
 
@@ -20,7 +22,6 @@ import { userCopy } from './user-copy.js';
 const SECRET = 'a-token-delegation-test-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-token' });
 
@@ -117,26 +118,6 @@ describe('delegation unavailable', () => {
     ]);
     expect(userCopy(DELEGATION_UNAVAILABLE)).toBe('There is no chain service and no on-chain delegate registry.');
   });
-
-  it('castVote does not read a delegation, and the copy does not claim the chain GO is missing', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-token/src/token-service.ts'), 'utf8');
-    const start = src.indexOf('async castVote(');
-    const end = src.indexOf('async listProposals(', start);
-    const fn = src.slice(start, end);
-    expect(fn).not.toMatch(/delegat/i);
-    const files = [
-      'services/svc-token/src/delegation.ts',
-      'services/svc-token/src/token-service.ts',
-      'services/svc-token/src/router.ts',
-      'services/svc-token/README.md',
-    ];
-    for (const file of files) {
-      expect(readFileSync(join(ROOT, file), 'utf8')).not.toMatch(/no chain GO is recorded/i);
-    }
-    const delegation = readFileSync(join(ROOT, 'services/svc-token/src/delegation.ts'), 'utf8');
-    expect(delegation).not.toMatch(/\b(insert|update|sql)\b/i);
-    expect(delegation).toContain('no_chain_service');
-  });
 });
 
 describe('treasury view', () => {
@@ -195,20 +176,68 @@ describe('treasury view', () => {
     expect(userCopy('token.treasury_figure_unreadable')).toBe('A treasury figure recorded by this service could not be read.');
   });
 
-  it('the service query does not read the ledger or a price', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-token/src/token-service.ts'), 'utf8');
-    const start = src.indexOf('async treasuryView(');
-    const end = src.indexOf('async emissionSchedule(', start);
-    const fn = src.slice(start, end);
-    expect(fn).toContain('closed = true');
-    expect(fn).toContain("status = 'settled'");
-    expect(fn).toContain('ledger_tx_id IS NOT NULL');
-    expect(fn).toContain('executed_at DESC, id DESC');
-    expect(fn).toContain('this.burnedSupply()');
-    expect(fn).not.toMatch(/SUM\(tokens_burned\)/);
-    expect(fn).not.toMatch(/this\.ledger|burnAccount|houseFees|price|recipes\./i);
-    const fold = readFileSync(join(ROOT, 'services/svc-token/src/treasury-view.ts'), 'utf8');
-    expect(fold).not.toMatch(/\bNumber\(/);
+  it('the service query does not read the ledger or a price', async () => {
+    // The sums are rows this service recorded; the one ledger read is the burn account's balance.
+    const { sql, queries } = recordingSql(() => [
+      {
+        minted: '10.5',
+        minted_count: '2',
+        bought: '17',
+        to_rewards: '9',
+        settled_count: '3',
+        distributed: '3.25',
+        distributed_count: '4',
+        last_bought: '5',
+        last_burned: '3',
+        last_to_rewards: '2',
+        last_executed_at: '2026-06-01T00:00:00.000Z',
+      },
+    ]);
+    const asked: string[] = [];
+    const ledger = new Proxy({} as LedgerClient, {
+      get: (_target, method: string) =>
+        method === 'balance'
+          ? async (account: unknown) => {
+              asked.push(`balance ${JSON.stringify(account)}`);
+              return { amount: parseAmount('7') };
+            }
+          : () => {
+              asked.push(method);
+              throw new Error(`treasuryView must not call ledger.${method}`);
+            },
+    });
+    const token = new TokenService(sql, ledger, new MemoryEventBus('svc-token'), {
+      assetId: 'IFC',
+      emission: DEFAULT_EMISSION_PARAMS,
+      buyback: DEFAULT_BUYBACK_PARAMS,
+      loadParamsFromDb: false,
+    });
+    const view = await token.treasuryView();
+    expect(view).toEqual({
+      minted: '10.5',
+      bought: '17',
+      toRewards: '9',
+      distributed: '3.25',
+      // burned is the burn account, not a sum of the runs' recorded burns.
+      burned: '7',
+      lastBuyback: { bought: '5', burned: '3', toRewards: '2', executedAt: '2026-06-01T00:00:00.000Z' },
+    });
+    expect(asked).toEqual([`balance ${JSON.stringify(burnAccount('IFC'))}`]);
+    expect(queries).toHaveLength(1);
+    const read = queries[0]!.text;
+    expect(read).toContain('closed = true');
+    expect(read).toContain("status = 'settled'");
+    expect(read).toContain('ledger_tx_id IS NOT NULL');
+    expect(read).toContain('ORDER BY executed_at DESC, id DESC');
+    expect(read).not.toMatch(/SUM\(tokens_burned\)/);
+    expect(read).not.toMatch(/price/i);
+
+    // The fold keeps every digit of a recorded total: no float on the way.
+    const big = '9007199254740993.000000000000000001';
+    expect(reportTreasury(emptySums({ minted: big, mintedCount: '1' }))).toEqual({
+      ok: true,
+      view: { ...emptyView, minted: big },
+    });
   });
 });
 

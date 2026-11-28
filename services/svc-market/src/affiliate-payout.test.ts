@@ -1,6 +1,13 @@
-import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createTestDatabase } from '@intafaced/db';
+import { MemoryLedger, recipes } from '@intafaced/ledger-client';
+import { CommerceService } from './commerce/commerce-service.js';
+import type { VendorEntitlement } from './stake-source.js';
+import { MARKET_OPS_SCOPE, VendorService } from './vendor-service.js';
+import type { AffiliateMarketFeeLeg } from './affiliate-accrue.js';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
@@ -71,17 +78,72 @@ describe('createAffiliatePayoutClient', () => {
   });
 });
 
-/** Pin: purchase posts first, accrue second, payout third. */
-describe('purchase wires payout after accrue after ledger post', () => {
-  it('fires payout after accrue, after marketPurchase', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'commerce/commerce-service.ts'), 'utf8');
-    expect(src).toMatch(/notifyMarketAffiliatePayout/);
-    expect(src).toMatch(/notifyMarketAffiliateAccrue/);
-    expect(src).toMatch(/recipes\.marketPurchase/);
-    expect(src.indexOf('recipes.marketPurchase')).toBeLessThan(src.indexOf('notifyMarketAffiliateAccrue'));
-    expect(src.indexOf('notifyMarketAffiliateAccrue')).toBeLessThan(src.indexOf('notifyMarketAffiliatePayout'));
-    const idx = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(idx).toMatch(/createAffiliatePayoutClient/);
+/**
+ * A real pay-through purchase: Postgres (TEST_DATABASE_URL, a `*_test` admin URL) for the claim rows and the in-memory
+ * ledger for the money, with the affiliate ports recording what the ledger held at the moment each was called.
+ */
+async function purchaseHarness() {
+  const url = process.env.TEST_DATABASE_URL?.trim();
+  if (!url) throw new Error('The purchase wiring test requires an isolated TEST_DATABASE_URL');
+  const drizzle = join(dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
+  const migrations = readdirSync(drizzle)
+    .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+    .sort()
+    .map((f) => readFileSync(join(drizzle, f), 'utf8'));
+  const db = await createTestDatabase({ service: 'market', url, migrations });
+  const vendors = new VendorService(db.sql, {
+    async entitlementOf(): Promise<VendorEntitlement> {
+      return { tierName: 'Operator', vendorSlots: 10 };
+    },
   });
+  const ledger = new MemoryLedger();
+  const calls: string[] = [];
+  const commerce = new CommerceService(db.sql, vendors, ledger, {
+    commissionBps: 500,
+    affiliateAccrue: {
+      accrueMarketFee: async (leg: AffiliateMarketFeeLeg) => {
+        const posted = await ledger.getTxByKey(leg.feeEventId);
+        calls.push(`accrue ${leg.feeEventId} posted=${posted !== null}`);
+      },
+    },
+    affiliatePayout: {
+      payoutMarketFee: async (feeEventId: string) => {
+        const posted = await ledger.getTxByKey(feeEventId);
+        calls.push(`payout ${feeEventId} posted=${posted !== null}`);
+      },
+    },
+  });
+  const vendor = await vendors.applyAsVendor({ userId: SELLER_USER, displayName: 'TEST seller', description: 'TEST' });
+  await vendors.vet({ vendorId: vendor.id, decision: 'approved', reason: 'TEST', actorId: OPERATOR_USER, actorScope: MARKET_OPS_SCOPE });
+  await ledger.post(
+    recipes.deposit({ userId: BUYER_USER, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: randomUUID() }),
+  );
+  const listing = await commerce.createListing({
+    userId: SELLER_USER,
+    title: 'TEST one time',
+    description: 'TEST listing',
+    offerType: 'one_time',
+    assetId: 'USDT',
+    price: '10',
+  });
+  return { db, ledger, commerce, calls, listingId: listing.id };
+}
+
+const SELLER_USER = '11111111-1111-4111-8111-111111111111';
+const BUYER_USER = '22222222-2222-4222-8222-222222222222';
+const OPERATOR_USER = '33333333-3333-4333-8333-333333333333';
+
+/** Purchase posts first, accrue second, payout third. */
+describe('purchase wires payout after accrue after ledger post', () => {
+  it('fires payout after accrue, after marketPurchase', async () => {
+    const { db, commerce, calls, listingId } = await purchaseHarness();
+    try {
+      const purchaseId = randomUUID();
+      const paid = await commerce.purchase({ buyerId: BUYER_USER, listingId, purchaseId });
+      expect(paid).toMatchObject({ status: 'settled', flow: 'pay' });
+      expect(calls).toEqual([`accrue market.purchase:${purchaseId} posted=true`, `payout market.purchase:${purchaseId} posted=true`]);
+    } finally {
+      await db.drop();
+    }
+  }, 120_000);
 });

@@ -61,12 +61,4 @@ describe('positions channel has no invented futures publisher', () => {
 
     expect(sent).toEqual([]);
   });
-
-  it('gateway source refuses an invented publisher: ready is honesty, not a book', () => {
-    const gateway = readFileSync(join(SRC_ROOT, 'private', 'gateway.ts'), 'utf8');
-    expect(gateway).toMatch(/busAttached/);
-    expect(gateway).toMatch(/type:\s*['"]ready['"]/);
-    expect(gateway).not.toMatch(/\.publish\(\s*['"]positionUpdated['"]/);
-    expect(gateway).toMatch(/Positions updates still only arrive when `trade\.futures` publishes/);
-  });
 });

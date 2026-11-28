@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Unit card — compose stack passes trade-tape limit and durable names into svc-ws
@@ -34,6 +34,21 @@ const KEYS = [
   { name: PRIVATE_DURABLE, fallback: 'ws-private-orders', envDefault: "'ws-private-orders'" },
 ] as const;
 
+async function loadEnv(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  vi.stubEnv('NODE_ENV', 'test');
+  for (const [key, value] of Object.entries(overrides)) {
+    vi.stubEnv(key, value);
+  }
+  const module = await import('./env.js');
+  return module.env;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 function wsComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
   const start = compose.indexOf('\n  svc-ws:');
@@ -50,14 +65,17 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes trade-tape limit and durable names into svc-ws', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-ws/src/env.ts'), 'utf8');
   const block = wsComposeBlock();
 
-  it('env.ts still declares the flags this pin tracks (defaults ws-trade-tape / ws-private-orders; tape window is unpublished)', () => {
+  it('the env loader defaults the durable names to the compose fallbacks (ws-trade-tape / ws-private-orders); tape window is unpublished', async () => {
+    const unset = await loadEnv({ [LIMIT]: undefined, [TRADES_DURABLE]: undefined, [PRIVATE_DURABLE]: undefined });
     for (const key of KEYS) {
-      expect(envTs).toMatch(new RegExp(`${key.name}:[\\s\\S]{0,200}?\\.default\\(\\s*${key.envDefault}\\s*\\)`));
+      expect(unset[key.name]).toBe(key.fallback);
+      expect(`'${key.fallback}'`).toBe(key.envDefault);
+      expect((await loadEnv({ [key.name]: 'custom-durable' }))[key.name]).toBe('custom-durable');
+      await expect(loadEnv({ [key.name]: 'x'.repeat(129) })).rejects.toThrow(new RegExp(key.name));
     }
-    expect(envTs).not.toMatch(/WS_TRADE_RECENT_LIMIT:[\s\S]{0,400}\.default\(50\)/);
+    expect(unset.WS_TRADE_RECENT_LIMIT).toBeUndefined();
   });
 
   it('compose svc-ws block passes unique keys once with env.ts defaults', () => {

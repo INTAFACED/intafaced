@@ -25,10 +25,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isPublishedConnectionCeiling } from './max-connections.js';
+import { isPublishedConnectionCeiling, WS_MAX_CONNECTIONS_UNSET, WS_PRIVATE_MAX_CONNECTIONS_PER_USER_UNSET } from './max-connections.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 function wsComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
@@ -66,21 +65,27 @@ afterEach(() => {
 
 describe('compose WS_MAX_CONNECTIONS / per-user for svc-ws', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-ws/src/env.ts'), 'utf8');
-  const helperTs = readFileSync(join(HERE, 'max-connections.ts'), 'utf8');
   const block = wsComposeBlock();
 
-  it('env.ts refuses blank ceilings — no 5000 / 16 default; poll stays 250', () => {
-    expect(envTs).not.toMatch(/WS_MAX_CONNECTIONS:[\s\S]{0,400}\.default\(5_000\)/);
-    expect(envTs).not.toMatch(/WS_MAX_CONNECTIONS:[\s\S]{0,400}\.default\(5000\)/);
-    expect(envTs).not.toMatch(/WS_PRIVATE_MAX_CONNECTIONS_PER_USER:[\s\S]{0,400}\.default\(16\)/);
-    expect(envTs).toMatch(
-      /WS_MAX_CONNECTIONS:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.union\(\[z\.undefined\(\), z\.coerce\.number\(\)\.int\(\)\.min\(1\)\]\),\s*\)/,
-    );
-    expect(envTs).toMatch(
-      /WS_PRIVATE_MAX_CONNECTIONS_PER_USER:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.union\(\[z\.undefined\(\), z\.coerce\.number\(\)\.int\(\)\.min\(1\)\]\),\s*\)/,
-    );
-    expect(envTs).toMatch(/WS_POLL_INTERVAL_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(50\)\.max\(60_000\)\.default\(250\)/);
+  it('the env loader refuses blank ceilings — no 5000 / 16 default; poll stays 250', async () => {
+    const unset = await loadWith({
+      WS_MAX_CONNECTIONS: undefined,
+      WS_PRIVATE_MAX_CONNECTIONS_PER_USER: undefined,
+      WS_POLL_INTERVAL_MS: undefined,
+    });
+    expect(unset.WS_MAX_CONNECTIONS).toBeUndefined();
+    expect(unset.WS_PRIVATE_MAX_CONNECTIONS_PER_USER).toBeUndefined();
+    expect(unset.WS_POLL_INTERVAL_MS).toBe(250);
+    expect((await loadWith({ WS_MAX_CONNECTIONS: '1' })).WS_MAX_CONNECTIONS).toBe(1);
+    await expect(loadWith({ WS_MAX_CONNECTIONS: '0' })).rejects.toThrow(/WS_MAX_CONNECTIONS/);
+    await expect(loadWith({ WS_MAX_CONNECTIONS: '1.5' })).rejects.toThrow(/WS_MAX_CONNECTIONS/);
+    expect((await loadWith({ WS_PRIVATE_MAX_CONNECTIONS_PER_USER: '1' })).WS_PRIVATE_MAX_CONNECTIONS_PER_USER).toBe(1);
+    await expect(loadWith({ WS_PRIVATE_MAX_CONNECTIONS_PER_USER: '0' })).rejects.toThrow(/WS_PRIVATE_MAX_CONNECTIONS_PER_USER/);
+    await expect(loadWith({ WS_PRIVATE_MAX_CONNECTIONS_PER_USER: '1.5' })).rejects.toThrow(/WS_PRIVATE_MAX_CONNECTIONS_PER_USER/);
+    expect((await loadWith({ WS_POLL_INTERVAL_MS: '50' })).WS_POLL_INTERVAL_MS).toBe(50);
+    expect((await loadWith({ WS_POLL_INTERVAL_MS: '60000' })).WS_POLL_INTERVAL_MS).toBe(60_000);
+    await expect(loadWith({ WS_POLL_INTERVAL_MS: '49' })).rejects.toThrow(/WS_POLL_INTERVAL_MS/);
+    await expect(loadWith({ WS_POLL_INTERVAL_MS: '60001' })).rejects.toThrow(/WS_POLL_INTERVAL_MS/);
   });
 
   it('compose svc-ws block is the unique home; ceilings are empty pass-through', () => {
@@ -103,8 +108,8 @@ describe('compose WS_MAX_CONNECTIONS / per-user for svc-ws', () => {
     expect(block).toMatch(/WS_GATEWAY_ENABLED:\s*\$\{WS_GATEWAY_ENABLED:-true\}/);
     expect(block).toMatch(/WS_DEPTH_LIMIT:\s*\$\{WS_DEPTH_LIMIT:-\}/);
     expect(block).toMatch(/WS_MARKETS_REFRESH_MS:\s*\$\{WS_MARKETS_REFRESH_MS:-30000\}/);
-    expect(helperTs).toMatch(/ws\.max_connections_unset/);
-    expect(helperTs).toMatch(/ws\.private_max_connections_per_user_unset/);
+    expect(WS_MAX_CONNECTIONS_UNSET).toBe('ws.max_connections_unset');
+    expect(WS_PRIVATE_MAX_CONNECTIONS_PER_USER_UNSET).toBe('ws.private_max_connections_per_user_unset');
   });
 });
 

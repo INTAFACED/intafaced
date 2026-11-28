@@ -4,6 +4,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
+import type { VendorEntitlement } from '../stake-source.js';
+import { MARKET_OPS_SCOPE, MarketError, VendorService } from '../vendor-service.js';
+import { CommerceService } from './commerce-service.js';
 
 /**
  * L1231 — purchase access window and period snapshot.
@@ -339,23 +343,57 @@ describe('market.purchases access window (L1231)', () => {
     expect(row?.period_seconds).toBe(PERIOD);
   });
 
-  it('copies period_seconds from the listing and writes access_until only on a paid path', () => {
-    const src = readFileSync(join(here, 'commerce-service.ts'), 'utf8');
-    const claim = src.slice(src.indexOf('private async claimPurchase'));
-    expect(claim).toContain('l.period_seconds');
-    expect(claim).not.toContain('access_until');
-    expect(claim).not.toMatch(/COALESCE\s*\(\s*l\.period_seconds/i);
+  it('copies period_seconds from the listing and writes access_until only on a paid path', async () => {
+    const seller = 'e1e1e1e1-e1e1-41e1-81e1-e1e1e1e1e1e1';
+    const buyer = 'f1f1f1f1-f1f1-41f1-81f1-f1f1f1f1f1f1';
+    const vendors = new VendorService(sql, {
+      async entitlementOf(): Promise<VendorEntitlement> {
+        return { tierName: 'Operator', vendorSlots: 10 };
+      },
+    });
+    const ledger = new MemoryLedger();
+    const commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
+    const vendor = await vendors.applyAsVendor({ userId: seller, displayName: 'TEST feed', description: 'TEST' });
+    await vendors.vet({ vendorId: vendor.id, decision: 'approved', reason: 'TEST', actorId: BUYER, actorScope: MARKET_OPS_SCOPE });
+    const listing = await commerce.createListing({
+      userId: seller,
+      title: 'TEST hourly',
+      description: 'TEST subscription',
+      offerType: 'subscription',
+      assetId: 'USDT',
+      price: '10',
+      periodSeconds: PERIOD,
+    });
 
-    const ensureStart = src.indexOf('private async ensureSubscriptionAccess');
-    const ensureEnd = src.indexOf('private async maxAccessUntilExcluding');
-    const ensure = src.slice(ensureStart, ensureEnd);
-    expect(ensure).toContain('paidPeriodSeconds(purchase)');
-    expect(ensure).not.toContain('requireSubscriptionPeriod(listing)');
-    expect(ensure).not.toContain('listing.periodSeconds');
-    expect(ensure).toMatch(
-      /SET access_until = \$\{untilIso\}::timestamptz\s+WHERE id = \$\{purchase\.id\}\s+AND status IN \('settled', 'held', 'released'\)\s+AND ledger_tx_id IS NOT NULL\s+AND access_until IS NULL/,
-    );
-    expect(src).not.toContain('2592000');
-    expect(src).not.toContain("interval '1 month'");
-  });
+    // Unpaid: the buyer holds nothing, so the claim is written and no access is stamped.
+    const unpaid = randomUUID();
+    await expect(commerce.purchase({ buyerId: buyer, listingId: listing.id, purchaseId: unpaid })).rejects.toBeInstanceOf(MarketError);
+    const [claimed] = await sql<
+      Array<{ status: string; period_seconds: number | null; access_until: Date | null; ledger_tx_id: string | null }>
+    >`
+      SELECT status, period_seconds, access_until, ledger_tx_id FROM market.purchases WHERE id = ${unpaid}
+    `;
+    expect(claimed).toBeDefined();
+    if (claimed) {
+      expect(claimed.status).not.toBe('settled');
+      expect(claimed.ledger_tx_id).toBeNull();
+      expect(claimed.period_seconds).toBe(PERIOD);
+      expect(claimed.access_until).toBeNull();
+    }
+
+    // Paid: the snapshot period, never a month, runs from the moment it settled.
+    await ledger.post(recipes.deposit({ userId: buyer, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: randomUUID() }));
+    const paidId = randomUUID();
+    const paid = await commerce.purchase({ buyerId: buyer, listingId: listing.id, purchaseId: paidId });
+    expect(paid.status).toBe('settled');
+    const [row] = await sql<
+      Array<{ period_seconds: number | null; access_until: Date | null; settled_at: Date | null; ledger_tx_id: string | null }>
+    >`
+      SELECT period_seconds, access_until, settled_at, ledger_tx_id FROM market.purchases WHERE id = ${paidId}
+    `;
+    expect(row?.period_seconds).toBe(PERIOD);
+    expect(row?.ledger_tx_id).toBeTruthy();
+    expect(row?.access_until).toBeInstanceOf(Date);
+    expect(row!.access_until!.getTime() - row!.settled_at!.getTime()).toBe(PERIOD * 1000);
+  }, 60_000);
 });

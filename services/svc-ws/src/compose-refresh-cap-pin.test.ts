@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Unit card — compose stack passes listing-refresh and connection cap into svc-ws
@@ -25,6 +25,21 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const REFRESH = 'WS_MARKETS_REFRESH_MS';
 const REFRESH_FALLBACK = '30000';
 
+async function loadEnv(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  vi.stubEnv('NODE_ENV', 'test');
+  for (const [key, value] of Object.entries(overrides)) {
+    vi.stubEnv(key, value);
+  }
+  const module = await import('./env.js');
+  return module.env;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 function wsComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
   const start = compose.indexOf('\n  svc-ws:');
@@ -41,11 +56,15 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes markets-refresh and connection cap into svc-ws', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-ws/src/env.ts'), 'utf8');
   const block = wsComposeBlock();
 
-  it('env.ts still declares the refresh flag this pin tracks (default 30000)', () => {
-    expect(envTs).toMatch(/WS_MARKETS_REFRESH_MS:[\s\S]{0,200}?\.default\(\s*30_000\s*\)/);
+  it('the env loader defaults the refresh flag this pin tracks to the compose fallback (30000)', async () => {
+    const unset = await loadEnv({ [REFRESH]: undefined });
+    expect(unset.WS_MARKETS_REFRESH_MS).toBe(Number(REFRESH_FALLBACK));
+    expect((await loadEnv({ [REFRESH]: '1000' })).WS_MARKETS_REFRESH_MS).toBe(1_000);
+    expect((await loadEnv({ [REFRESH]: '600000' })).WS_MARKETS_REFRESH_MS).toBe(600_000);
+    await expect(loadEnv({ [REFRESH]: '999' })).rejects.toThrow(/WS_MARKETS_REFRESH_MS/);
+    await expect(loadEnv({ [REFRESH]: '600001' })).rejects.toThrow(/WS_MARKETS_REFRESH_MS/);
   });
 
   it('compose svc-ws block passes unique keys once with env.ts defaults', () => {

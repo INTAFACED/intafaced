@@ -15,7 +15,7 @@
  * `type` with `path#<name>` (the type or symbol), `boundary` with a check name in tooling/ci/boundary-scan.mjs.
  *
  * Usage: node tooling/lint/source-text/classify.mjs [path…] [--json] [--check] [--apply]
- *   path     what to lint (default: apps, packages, tooling: services/ moves to Rust and is left alone)
+ *   path     what to lint (default: apps, packages, services, tooling)
  *   --check  exit 1 when a site has no verdict, a guard does not exist, or a protected test would be deleted
  *   --apply  delete each `delete` site's test block (and the read, and the imports nothing uses any more), then re-lint
  * Safe to rerun: a deleted site is gone from the next run's list.
@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 const RULE = 'garden/no-source-text-test';
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
-const SCOPE = ['apps', 'packages', 'tooling'];
+const SCOPE = ['apps', 'packages', 'services', 'tooling'];
 
 // A test of money, custody, sign-in, permissions or a journey, by its path, its titles or what it asserts.
 const PROTECTED = [
@@ -59,7 +59,6 @@ function sites(paths = SCOPE, root = ROOT) {
       line: d.labels?.[0]?.span?.line ?? 0,
       target: /\(`([^`]*)`\)/.exec(d.message)?.[1] ?? '',
     }))
-    .filter((s) => !s.file.startsWith('services/'))
     .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
