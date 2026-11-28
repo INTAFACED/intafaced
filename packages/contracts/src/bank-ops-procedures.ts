@@ -433,7 +433,8 @@ export const BANK_OPS_RAMP_HEALTH = defineProcedure({
     ),
   }),
   samples: [
-    { verdict: 'accept', input: {} },
+    // The door refuses a read with no window (its `_health_window_unset` refusal), so the accepted sample names one.
+    { verdict: 'accept', input: { windowHours: 24 } },
     { verdict: 'refuse', input: 42 },
   ],
 });
@@ -477,7 +478,8 @@ export const BANK_OPS_TRANSFER_HEALTH = defineProcedure({
     }),
   }),
   samples: [
-    { verdict: 'accept', input: {} },
+    // The door refuses a read with no window (its `_health_window_unset` refusal), so the accepted sample names one.
+    { verdict: 'accept', input: { windowHours: 24 } },
     { verdict: 'refuse', input: 42 },
   ],
 });
