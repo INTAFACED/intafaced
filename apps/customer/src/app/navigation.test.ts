@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   coinHref,
   customerRoomHref,
+  inboxRoomHref,
   deskPairLabel,
   findRoom,
   resolveAlias,
@@ -89,6 +90,14 @@ it('lists a room searched by its own title before any room that only mentions it
       expect(found.slice(0, named.length), `${mode}: ${room.title}`).toContain(room);
     }
   expect(searchRooms('payments', 'Business')[0]?.path).toBe('/pay/payments');
+});
+
+it('lets a message lead to a Web3 room, but never to the Team desk, and never makes either a sign-in return target', () => {
+  expect(inboxRoomHref('/wallet/venue')).toBe('/wallet/venue');
+  expect(customerRoomHref('/wallet/venue')).toBeUndefined();
+  expect(safeReturnTo('/wallet/venue')).toBe('/home');
+  expect(inboxRoomHref('/money')).toBe('/money');
+  for (const path of ['/ops', '/platform', '//external.invalid', '/nowhere-at-all']) expect(inboxRoomHref(path), path).toBeUndefined();
 });
 
 it('keeps parked and team rooms out of sign-in return targets even though parked rooms are searchable', () => {

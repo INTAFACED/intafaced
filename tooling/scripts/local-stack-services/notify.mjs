@@ -113,5 +113,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // svc-support's own secret for the guest verification door (SP-tickets-01): its links must open NOTIFY_PUBLIC_ORIGIN,
     // and the LOCAL TEST outbox above writes them with `purpose: guest-verify`.
     NOTIFY_SUPPORT_SERVICE_SECRET: secrets.notifySupportService,
+    // LOCAL TEST only (J-charts-desk-21): the TEST bot. With no owner's bot token, every Telegram message the desk sends is
+    // written, labelled TEST, to a file in this stack's state folder, which the journey reads as the chat; the journey sends
+    // the chat's messages to /telegram/webhook with this stack's own webhook header. The TEST age door lets it age a link code
+    // past its five minutes. Production has no bot until the owner sets its token, and Connect Telegram says it is not set up.
+    NOTIFY_TELEGRAM_TEST_OUTBOX: path.join(STATE, 'notify-telegram-outbox.log'),
+    NOTIFY_TELEGRAM_WEBHOOK_SECRET: secrets.notifyTelegramWebhook,
+    NOTIFY_TELEGRAM_BOT_NAME: '@intafaced_test_bot',
+    TEST_AGE_DOOR: 'on',
   }),
 });

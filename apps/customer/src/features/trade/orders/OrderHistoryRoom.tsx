@@ -1,5 +1,7 @@
 // volt-room: /trade/orders
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Loading, Page } from '../../../shared/ui';
+import { useVenueMode } from '../use-venue-mode';
 import { Button, EmptyState, DateInput } from '@intafaced/ui/lit';
 import { navigate } from '../../../app/location';
 import { useDataEnv } from '../../../data/hooks';
@@ -13,6 +15,7 @@ import { appendPage, NO_PARAMS, PAGE_SIZES, readParams, toQuery, writeParams, ty
 import { ordersCopy } from './orders-copy';
 import { ProductSwitch } from './FuturesOrdersRoom';
 import { AssistantOrders } from './AssistantOrders';
+import { VenueOrdersRoom } from './VenueOrders';
 import { OrdersRoomFrame, Pick, SignedOut, WaitingRows } from './orders-parts';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -35,7 +38,30 @@ const FILTER_CODES: Record<string, 'filter' | 'from' | 'to' | 'range' | 'cursor'
 };
 
 /**
- * Order history (`/trade/orders`): the orders that have ended, filtered by side, state, type and dates by the service
+ * `/trade/orders`, the one orders page the menus open (Trade > Orders, More > Order history): with venue trading
+ * on, the person's venue orders, open and past, with their assistant's; otherwise the spot order history below.
+ */
+export function OrdersRoom({ path }: { path: string }) {
+  const { t } = ordersCopy.useCopy();
+  const mode = useVenueMode();
+  if (mode.mode === 'checking')
+    return (
+      <Page eyebrow={t('eyebrow')} title={t('historyTitle')}>
+        <Loading label={t('loading')} />
+      </Page>
+    );
+  if (mode.mode === 'on') return <VenueOrdersRoom path={path} assistant={<AssistantOrders t={t} revision={0} />} />;
+  return <OrderHistoryRoom path={path} />;
+}
+
+/** The spot half's address: `?product=spot` once the plain address may open the venue half. */
+function spotAddress(path: string, query: string): string {
+  if (new URL(path, location.origin).searchParams.get('product') !== 'spot') return `/trade/orders${query}`;
+  return query === '' ? '/trade/orders?product=spot' : `/trade/orders?product=spot&${query.slice(1)}`;
+}
+
+/**
+ * Order history (`/trade/orders`, `/trade/orders?product=spot`): the orders that have ended, filtered by side, state, type and dates by the service
  * itself, a page at a time. The filters live in the address, so a link keeps them and a mistyped one is refused in words.
  */
 export function OrderHistoryRoom({ path }: { path: string }) {
@@ -77,7 +103,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
   }, [key]);
 
   function setParams(next: HistoryParams) {
-    navigate(`/trade/orders${writeParams(next)}`, true);
+    navigate(spotAddress(path, writeParams(next)), true);
   }
 
   async function older() {

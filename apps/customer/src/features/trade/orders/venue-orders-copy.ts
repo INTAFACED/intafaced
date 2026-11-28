@@ -22,6 +22,7 @@ export const venueOrdersCopy = defineCopy('trade.venue-orders', {
   executionsLead: 'Every trade fill and liquidation on your connected trading wallet, with fees and realised result.',
   venueOff: 'Connected-wallet trading is not currently available, so there is no wallet order history to show.',
   connectFirst: 'Connect your trading wallet to see its orders.',
+  noneYet: 'No orders to show',
   allStates: 'All',
   perPage: 'Per page',
   placed: 'Placed',

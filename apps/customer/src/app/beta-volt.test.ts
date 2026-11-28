@@ -43,14 +43,14 @@ describe("the beta's menus", () => {
     }
   });
 
-  it("keep Trade's Orders row, whose room (/money/activity) counts in Volt (#10708)", () => {
+  it("keep Trade's Orders row, whose room (/trade/orders, More's Order history) counts in Volt", () => {
     vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(betaScreens.rooms, rooms));
-    expect(shownRooms.has('/money/activity')).toBe(true);
+    expect(shownRooms.has('/trade/orders')).toBe(true);
     for (const mode of ['simple', 'pro'] as const) {
       const trade = tabSpecs(mode, true).find((tab) => tab.door === 'Trade');
-      expect(trade?.items.map((item) => item.href)).toContain('/money/activity?tab=orders');
+      expect(trade?.items.map((item) => item.href)).toContain('/trade/orders');
     }
-    expect(betaHides('/money/activity')).toBe(false);
+    expect(betaHides('/trade/orders')).toBe(false);
   });
 
   it('shows Futures (/trade/futures) in Trade menus, More > All services, search and contract addresses in the beta (#10700)', () => {
@@ -285,6 +285,7 @@ describe("the beta's menus", () => {
       ['/quant', false],
       ['/quant/editor', false],
       ['/money/activity', false],
+      ['/trade/orders', false],
     ]);
     const tabs = tabSpecs('simple', true);
     expect(tabs.find((tab) => tab.door === 'Trade')).toBeUndefined();
