@@ -83,7 +83,9 @@ import { VenueCalculator } from './VenueCalculator';
 import { NotOfferedChips } from '../desk/VenueOrderOptions';
 import { ticketSummary } from './ticket-summary';
 import { RiskStrip } from './RiskStrip';
-import { positionLines, sizeFromRisk, type PositionLine } from './risk-strip';
+import { positionLines, sizeFromRisk, type PositionLine, type RiskFees, type RiskSize } from './risk-strip';
+import { ChecklistSettings, ChecklistTicks } from './PreTradeChecklist';
+import { deviceStore, firstUnticked, holdsOrder, readChecklist, type Checklist } from './pre-trade-checklist';
 import type { ChartOrderLine } from '../chart/PriceChart';
 import { VenueSplitReview, type SplitReviewData } from './VenueSplitReview';
 import { VenueTierConfirm } from './VenueTierConfirm';
@@ -962,10 +964,17 @@ function Ticket({
   const dailyLossRead = useDailyLoss(owner, { terms: true });
   const dailyLoss = dailyLossRead.status === 'ready' ? counted(dailyLossRead.data) : null;
   const [lossAccepted, setLossAccepted] = useState(false);
+  // The person's pre-trade checklist (J-derivatives-34 #4 #5): it holds an opening order at Confirm until every item is
+  // ticked, and starts unticked on each review; a reduce-only order never meets it.
+  const [checklist, setChecklist] = useState<Checklist>(() => readChecklist(deviceStore(), owner));
+  const [ticked, setTicked] = useState<ReadonlySet<number>>(new Set());
+  const [checklistWait, setChecklistWait] = useState<string | null>(null);
   const [review, setReview] = useState<{
     intent: OrderIntent;
     preview: AsOf<VenuePreview>;
     priceCorrected: { asked: string; applied: string } | null;
+    /** The size worked out from the person's risk, with its stop and its loss there (J-derivatives-34 #1). */
+    plan: { risk: string; stop: string; loss: string } | null;
   } | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [last, setLast] = useState<ActionResult | null>(null);
@@ -990,9 +999,22 @@ function Ticket({
     best.data && best.data.slippageCapBps.known
       ? slippageLimit(on, best.data.value, best.data.slippageCapBps.value, market.tickSize)
       : null;
-  // Size from my risk (desk A, from desk B): a limit enters at its price, a market order at the best price it meets.
-  const entry = type === 'limit' ? price.trim() || null : ((side === 'buy' ? best.data?.value.ask : best.data?.value.bid) ?? null);
-  const sized = fromRisk ? sizeFromRisk({ risk, entry, stop: stopLoss, lot: market.lotSize, side }) : null;
+  // Size from my risk (desk A, from desk B; J-derivatives-34 #1 #2): a limit enters at its price, a market order at its
+  // worst price (the bound it may fill at), so the loss at the stop is never more than the person typed. The fees are the
+  // venue's published rates and our builder fee, on the way in and on the way out.
+  const entry = type === 'limit' ? price.trim() || null : price.trim() || marketBound(side);
+  const sized = fromRisk
+    ? sizeFromRisk({
+        risk,
+        entry,
+        stop: stopLoss,
+        mark: market.mark.known ? market.mark.value : null,
+        lot: market.lotSize,
+        side,
+        fees: riskFees(market, status.builder?.feeBps ?? null),
+        minNotional: market.minOrderNotional ?? null,
+      })
+    : null;
   const size = sized ? (sized.ok ? sized.size : '') : typedSize;
   // Desk A's ticket summary: what this order would be, before the venue's own review; an unknown figure waits for it.
   const summary = ticketSummary({
@@ -1019,6 +1041,13 @@ function Ticket({
     clearChecks();
     setResult(null);
     setAttached(null);
+    setTicked(new Set());
+    setChecklistWait(null);
+    // A size from risk that is refused names its rule, and nothing is asked of the venue (J-derivatives-34 #2).
+    if (sized && !sized.ok) {
+      setProblemCode(`trade.risk_size.${sized.reason}`);
+      return setProblem(riskSizeText(t, sized, market, side));
+    }
     // What the venue publishes it takes as margin decides, naming the venue (J-derivatives-02 #4); with no list published,
     // a perpetual's margin is its settle asset.
     const taken = takenAssets(market);
@@ -1128,7 +1157,12 @@ function Ticket({
       return setProblem(room === null ? refused : `${refused}. ${r('Room left', { room: displayAmount(room), base: market.baseAsset })}`);
     }
     setTierAccepted(false);
-    setReview({ intent, preview: preview.data, priceCorrected: corrected });
+    setReview({
+      intent,
+      preview: preview.data,
+      priceCorrected: corrected,
+      plan: sized?.ok ? { risk: canonicalDecimal(risk), stop: canonicalDecimal(stopLoss), loss: sized.lossAtStop } : null,
+    });
   }
 
   async function openSplitReview() {
@@ -1210,6 +1244,10 @@ function Ticket({
 
   async function confirm() {
     if (!review || sending.current) return;
+    // The checklist holds an opening order until every item is ticked: Confirm names the first one left, nothing is sent.
+    const waits = holdsOrder(checklist, review.intent) ? firstUnticked(checklist, ticked) : null;
+    setChecklistWait(waits);
+    if (waits !== null) return;
     sending.current = true;
     const answer = await run(review.intent);
     sending.current = false;
@@ -1217,6 +1255,8 @@ function Ticket({
     setResult(answer);
     setLast(answer);
     account.reload();
+    // The next opening order starts unticked.
+    setTicked(new Set());
     if (answer.kind === 'outcome' && answer.outcome.accepted) await attach(review.intent, answer.outcome.order?.filled ?? '0');
   }
 
@@ -1278,6 +1318,8 @@ function Ticket({
       : null);
   const needsTierConfirm = reviewTier?.confirmRequired === true;
   const needsLossConfirm = review !== null && !review.intent.reduceOnly && advisoryReached(dailyLoss) !== null;
+  const showsChecklist = review !== null && holdsOrder(checklist, review.intent);
+  const riskRefused = problemCode?.startsWith('trade.risk_size.') === true;
   const lossRefused = result?.kind === 'refused' && result.code === 'trade.daily_loss_limit_reached';
   return (
     <section className="lt-panel" aria-label={t('Ticket')} data-testid="venue-ticket">
@@ -1350,9 +1392,25 @@ function Ticket({
           }}
         />
       </label>
-      {sized ? (
-        <p className="lt-note" data-testid="venue-risk-size">
-          {sized.ok ? t('Sized from risk', { risk, asset: market.quoteAsset }) : t(`risk_size_${sized.reason}`)}
+      {sized && !riskRefused ? (
+        <p
+          className="lt-note"
+          data-testid="venue-risk-size"
+          data-size={sized.ok ? sized.size : undefined}
+          data-loss={sized.ok ? sized.lossAtStop : undefined}
+          data-reason={sized.ok ? undefined : sized.reason}
+        >
+          {sized.ok
+            ? t('Sized from risk', {
+                size: sized.size,
+                base: market.baseAsset,
+                risk: displayAmount(canonicalDecimal(risk)),
+                asset: market.quoteAsset,
+                stop: displayAmount(canonicalDecimal(stopLoss)),
+                lot: market.lotSize,
+                loss: displayAmount(sized.lossAtStop),
+              })
+            : riskSizeText(t, sized, market, side)}
         </p>
       ) : null}
       <label className="lt-field">
@@ -1443,6 +1501,14 @@ function Ticket({
           ))}
         </select>
       </label>
+      <ChecklistSettings
+        owner={owner}
+        checklist={checklist}
+        onSaved={(next) => {
+          setChecklist(next);
+          setTicked(new Set());
+        }}
+      />
       {/* The summary and the one primary button stay pinned at the ticket column's foot, so a long ticket never hides them. */}
       <div className="xd-ticket-go">
         {summary ? (
@@ -1577,6 +1643,20 @@ function Ticket({
               {needsLossConfirm && dailyLoss ? (
                 <DailyLossConfirm view={dailyLoss} accepted={lossAccepted} onAccept={setLossAccepted} />
               ) : null}
+              {showsChecklist ? (
+                <ChecklistTicks
+                  checklist={checklist}
+                  ticked={ticked}
+                  waiting={checklistWait}
+                  onTick={(i, on) => {
+                    const next = new Set(ticked);
+                    if (on) next.add(i);
+                    else next.delete(i);
+                    setTicked(next);
+                    setChecklistWait(null);
+                  }}
+                />
+              ) : null}
             </>
           }
           result={result}
@@ -1587,11 +1667,18 @@ function Ticket({
             setAttached(null);
             setTierAccepted(false);
             setLossAccepted(false);
+            setTicked(new Set());
+            setChecklistWait(null);
           }}
           after={
             <>
               {lossRefused ? <DailyLossRefused view={dailyLoss} /> : null}
               {attached ? <AttachedLine attached={attached} /> : null}
+              {review.plan && attached?.state === 'done' && attached.set.includes('stop_loss') ? (
+                <p className="lt-note" data-testid="venue-planned-stop" data-stop={review.plan.stop}>
+                  {t('Planned stop kept', { stop: displayAmount(review.plan.stop), asset: market.quoteAsset })}
+                </p>
+              ) : null}
             </>
           }
           extra={
@@ -1626,6 +1713,19 @@ function Ticket({
                             reason: band.reason ?? '',
                           })}`
                         : ''}
+                    </dd>
+                  </div>
+                ) : null}
+                {review.plan ? (
+                  <div>
+                    <dt>{t('Loss at stop')}</dt>
+                    <dd className="lt-num" data-line="risk-loss" data-loss={review.plan.loss}>
+                      {t('Loss at stop value', {
+                        loss: displayAmount(review.plan.loss),
+                        risk: displayAmount(review.plan.risk),
+                        stop: displayAmount(review.plan.stop),
+                        asset: market.quoteAsset,
+                      })}
                     </dd>
                   </div>
                 ) : null}
@@ -1688,6 +1788,42 @@ function Ticket({
       ) : null}
     </section>
   );
+}
+
+/** The fee rates a size from risk is worked out with: the venue's own published rates and our builder fee. */
+function riskFees(market: VenueMarket, builderBps: string | null): RiskFees {
+  const maker = market.makerFeeBps.known ? market.makerFeeBps.value : null;
+  const taker = market.takerFeeBps.known ? market.takerFeeBps.value : null;
+  const higher = maker === null || taker === null ? null : parseAmount(maker) > parseAmount(taker) ? maker : taker;
+  return { venueInBps: higher, venueOutBps: taker, builderBps };
+}
+
+/** Why a size from risk was refused, naming its rule (J-derivatives-34 #2). */
+function riskSizeText(
+  t: ReturnType<typeof futuresVenueCopy.useCopy>['t'],
+  sized: Extract<RiskSize, { ok: false }>,
+  market: VenueMarket,
+  side: 'buy' | 'sell',
+): string {
+  const asset = market.quoteAsset;
+  const base = market.baseAsset;
+  switch (sized.reason) {
+    case 'stop_wrong_side':
+      return t(`risk_size_stop_${side}_${sized.against}`, { price: displayAmount(sized.price), asset });
+    case 'below_minimum':
+      return sized.minNotional === null
+        ? t('risk_size_below_lot', { size: sized.size, base, minSize: sized.minSize, minLoss: displayAmount(sized.minLoss), asset })
+        : t('risk_size_below_value', {
+            size: sized.size,
+            base,
+            minNotional: displayAmount(sized.minNotional),
+            minSize: sized.minSize,
+            minLoss: displayAmount(sized.minLoss),
+            asset,
+          });
+    default:
+      return t(`risk_size_${sized.reason}`);
+  }
 }
 
 type Attached =
