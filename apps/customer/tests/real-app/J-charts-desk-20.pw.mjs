@@ -44,10 +44,15 @@ const bucket = minuteStart;
 /** A venue decimal as the page writes it: no trailing zeros. */
 const plain = (decimal) => fromUnits(toUnits(decimal));
 
-const MAKER = `${J}-${runId}-maker`;
+/**
+ * The makers: two TEST other traders, each resting one order on XRPY-PERP for the person to take at the price chosen.
+ * One rests the ask and one the bid, so each only ever opens (the TEST venue rests no reduce-only order).
+ */
+const MAKERS = { sell: `${J}-${runId}-asks`, buy: `${J}-${runId}-bids` };
 async function makerRests(side, price) {
-  const owner = otherTraderKey(MAKER).address.toLowerCase();
-  const rested = await otherTraderRun(MAKER, {
+  const name = MAKERS[side];
+  const owner = otherTraderKey(name).address.toLowerCase();
+  const rested = await otherTraderRun(name, {
     kind: 'place_order',
     symbol: SYMBOL,
     side,
@@ -55,7 +60,6 @@ async function makerRests(side, price) {
     amount: '1',
     price,
     timeInForce: 'GTC',
-    // A resting order may not be reduce-only on the TEST simulator: the maker's resting buy nets its short to flat.
     reduceOnly: false,
     clientOrderKey: `order:${owner}:jcd20:${tag()}`,
     builderFee: null,
@@ -86,10 +90,13 @@ test.beforeAll(async ({ browser }) => {
     const act = (intent, actionKey = null) => walletDoorAct(session, key, { intent, actionKey });
 
     expect(await testDeposit(owner, 'USDC', '1000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-    const maker = otherTraderKey(MAKER).address.toLowerCase();
-    expect(await testDeposit(maker, 'USDC', '100000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+    for (const name of Object.values(MAKERS)) {
+      const maker = otherTraderKey(name).address.toLowerCase();
+      expect(await testDeposit(maker, 'USDC', '100000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+    }
     const leverage = { kind: 'update_leverage', symbol: SYMBOL, leverageBps: 50_000, marginMode: 'isolated' };
-    expect(await otherTraderRun(MAKER, leverage)).toMatchObject({ definite: true, accepted: true });
+    for (const name of Object.values(MAKERS))
+      expect(await otherTraderRun(name, leverage)).toMatchObject({ definite: true, accepted: true });
     await expect(() => act(leverage, `leverage:${owner}:${SYMBOL}:5x`)).toPass({ timeout: 30_000, intervals: [2_000] });
     const status = doorOk(await session.get('/api/v1/venue/status'));
     expect(status.builder, 'the TEST builder fee is set on the door').toBeTruthy();
