@@ -6,6 +6,7 @@
  */
 
 import { logCopyResidual } from './residual-log.js';
+import { COPY_DESK_BLOCKER_CODES, type CopyDeskBlockerCode } from '@intafaced/contracts/trade-call-schemas';
 
 export type CopyErrorCode =
   | 'trade.copy_fee_share_blank'
@@ -110,17 +111,6 @@ export type CopyErrorCode =
   | 'trade.copy_daily_cap_reached'
   | 'trade.copy_venue_account_not_open';
 
-/**
- * Closed set for the customer desk and blank-law refusals.
- * TRD-0722 names no code for an unmounted copy service, so that case is `trade.copy_unavailable`.
- */
-export const COPY_DESK_BLOCKER_CODES = [
-  'trade.copy_fee_share_blank',
-  'trade.copy_jurisdiction_blank',
-  'trade.copy_place_disabled',
-  'trade.copy_unavailable',
-] as const;
-export type CopyDeskBlockerCode = (typeof COPY_DESK_BLOCKER_CODES)[number];
 export type CopyDeskBlocker = { readonly code: CopyDeskBlockerCode };
 
 const DESK_BLOCKER_CODES = new Set<string>(COPY_DESK_BLOCKER_CODES);

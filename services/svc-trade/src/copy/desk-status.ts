@@ -6,13 +6,7 @@ import { z } from 'zod';
 import { formatAmount } from '@intafaced/ledger-client';
 import type { CopyMinInvestment } from './follow-rules.js';
 import { autoMirrorPlaceStatus, COPY_AUTO_MIRROR_PLACE_SOCKET, COPY_PLACE_DISABLED_RESIDUAL } from './auto-mirror-place.js';
-import {
-  COPY_DESK_BLOCKER_CODES,
-  COPY_FEE_SHARE_RESIDUAL,
-  COPY_JURISDICTION_RESIDUAL,
-  type CopyDeskBlocker,
-  type CopyDeskBlockerCode,
-} from './errors.js';
+import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, type CopyDeskBlocker } from './errors.js';
 import {
   copyLawResidual,
   copyLawStatusLine,
@@ -23,6 +17,7 @@ import {
 } from './fee-share-law.js';
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { logCopyResidual } from './residual-log.js';
+import { copyDeskStatusOutput } from '@intafaced/contracts/trade-call-schemas';
 
 const SOVEREIGN = {
   shape: 'sovereign',
@@ -107,29 +102,6 @@ export function presentCopyOpsStatus(facts: CopyDeskFacts) {
     },
   };
 }
-
-const blockerCode = z.enum(COPY_DESK_BLOCKER_CODES as unknown as [CopyDeskBlockerCode, ...CopyDeskBlockerCode[]]);
-
-export const copyDeskStatusOutput = z.object({
-  sovereign: z.object({
-    shape: z.literal('sovereign'),
-    custody: z.literal(false),
-    feeModel: z.literal('protocol_fee_share'),
-    pnlFeeForbidden: z.literal(true),
-    rankingForbidden: z.literal(true),
-    killUnfollowReal: z.literal(true),
-  }),
-  feeSharePublished: z.boolean(),
-  leaderShareBps: z.string().nullable(),
-  jurisdictionPublished: z.boolean(),
-  blockers: z.array(z.object({ code: blockerCode })),
-  autoMirrorPlace: z.object({
-    published: z.boolean(),
-    socket: z.string(),
-  }),
-  /** The owner's minimum investment per follow in the quote asset; null when unpublished (every follow refuses). */
-  minInvestment: z.string().nullable(),
-});
 
 export const copyOpsStatusOutput = copyDeskStatusOutput.extend({
   autoMirrorPlace: z.object({

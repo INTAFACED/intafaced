@@ -46,7 +46,7 @@ import {
   studioStrategySchema,
   venueFollowCheckSchemaOf,
 } from '@intafaced/contracts/trade-copy-room';
-import { parsesAs, type ApiClient } from '../../../shared/api';
+import { parsesAs, type ApiClient, callAs } from '../../../shared/api';
 import { copyFollowSchema, createToolApi } from '../../../features/trade/tool-api';
 import {
   TRADE_COPY_MY_LEAD,
@@ -64,8 +64,15 @@ import {
   TRADE_COPY_LEAD_TRADES,
   TRADE_COPY_LEAD_COPIERS,
   TRADE_COPY_PLATFORM_PAUSES,
+  TRADE_COPY_DESK_STATUS,
+  TRADE_COPY_STOP,
+  TRADE_COPY_LIST_LEADERS,
+  TRADE_COPY_LEADER_PROFILE,
+  TRADE_COPY_FOLLOW_POSITIONS,
+  TRADE_COPY_COPIED_POSITIONS,
+  TRADE_COPY_FLATTEN,
 } from '@intafaced/contracts/trade-copy-records';
-import { TRADE_SIGNALS_WEBHOOKS_CREATE } from '@intafaced/contracts/trade-signals-procedures';
+import { TRADE_SIGNALS_WEBHOOKS_CREATE, TRADE_SIGNALS_WEBHOOKS_LIST } from '@intafaced/contracts/trade-signals-procedures';
 import {
   TRADE_BOTS_GRID_SETUP,
   TRADE_BOTS_GRID_PRESETS,
@@ -74,6 +81,9 @@ import {
   TRADE_BOTS_GRID_TOP_UP,
   TRADE_BOTS_GRID_MODIFY,
   TRADE_BOTS_GRID_WITHDRAW_PROFIT,
+  TRADE_BOTS_GRID_CREATE,
+  TRADE_BOTS_GRID_GET,
+  TRADE_BOTS_GRID_LIST,
 } from '@intafaced/contracts/trade-bots-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 import { TRADE_ALGO_POLICY, TRADE_ALGO_CREATE_TWAP, TRADE_ALGO_LIST } from '@intafaced/contracts/trade-algo-procedures';
@@ -230,11 +240,11 @@ export type VenueFollowCheck = ProcedureOutput<typeof TRADE_COPY_CHECK_VENUE_FOL
 export function createRoomApi(api: ApiClient) {
   const tools = createToolApi(api);
   return {
-    copyDesk: (signal?: AbortSignal) => api.query('trade', 'copy.deskStatus', undefined, copyDeskSchema, { signal }),
+    copyDesk: (signal?: AbortSignal) => callAs(api, TRADE_COPY_DESK_STATUS, undefined, copyDeskSchema, { signal }),
     leaders: (query: { marketMode?: LeaderMode; q?: string; cursor?: string }, signal?: AbortSignal) =>
-      api.query(
-        'trade',
-        'copy.listLeaders',
+      callAs(
+        api,
+        TRADE_COPY_LIST_LEADERS,
         {
           limit: LEADER_PAGE,
           ...(query.marketMode ? { marketMode: query.marketMode } : {}),
@@ -246,9 +256,9 @@ export function createRoomApi(api: ApiClient) {
       ),
     /** A ranked category or the trending row. The service refuses every one; the room shows that refusal as it comes. */
     rankedLeaders: (ranking: { category: string } | { trending: true }) =>
-      api.query('trade', 'copy.listLeaders', { limit: LEADER_PAGE, ...ranking }, leaderPageSchema),
+      callAs(api, TRADE_COPY_LIST_LEADERS, { limit: LEADER_PAGE, ...ranking }, leaderPageSchema),
     leaderProfile: (leaderRef: string, signal?: AbortSignal) =>
-      api.query('trade', 'copy.leaderProfile', { leaderRef }, leaderProfileSchema, { signal }),
+      callAs(api, TRADE_COPY_LEADER_PROFILE, { leaderRef }, leaderProfileSchema, { signal }),
     leaderTrades: (leaderRef: string, cursor: string | null, signal?: AbortSignal) =>
       api.call(
         TRADE_COPY_LEADER_TRADES,
@@ -270,20 +280,20 @@ export function createRoomApi(api: ApiClient) {
     grantCopying: (followId: string) => api.call(TRADE_COPY_GRANT_SESSION_KEY, { followId }),
     stopCopying: (followId: string) => api.call(TRADE_COPY_KILL_SESSION_KEY, { followId }),
     followPositions: (followId: string, signal?: AbortSignal) =>
-      api.query('trade', 'copy.followPositions', { followId }, followPositionsSchema, { signal }),
+      callAs(api, TRADE_COPY_FOLLOW_POSITIONS, { followId }, followPositionsSchema, { signal }),
     /** Stop is close-only: new trades are fenced, the leader's closes still close what was copied (CB-copy-09). */
-    stop: (followId: string) => api.mutate('trade', 'copy.stop', { followId, closeOnly: true }, copyAckSchema.passthrough()),
+    stop: (followId: string) => callAs(api, TRADE_COPY_STOP, { followId, closeOnly: true }, copyAckSchema.passthrough()),
     copiedPositions: (followId: string, signal?: AbortSignal) =>
-      api.query('trade', 'copy.copiedPositions', { followId }, copiedPositionsSchema, { signal }),
+      callAs(api, TRADE_COPY_COPIED_POSITIONS, { followId }, copiedPositionsSchema, { signal }),
     /** Closes one copied position, whole or by an amount. The service runs one close per position and amount. */
     closePosition: (followId: string, positionId: string, qty?: string) =>
       api.call(TRADE_COPY_CLOSE_COPIED_POSITION, { followId, positionId, ...(qty ? { qty } : {}) }),
     skipLog: (followId: string, signal?: AbortSignal) => api.call(TRADE_COPY_SKIP_LOG, { followId }, { signal }),
     /** Close-all needs identity's step-up for exactly this follow and request (`trade.step_up.copy.flatten`). */
     flatten: (input: { followId: string; requestId: string; stepUpApprovalId: string | null }) =>
-      api.mutate('trade', 'copy.flatten', input, copyAckSchema.passthrough()),
+      callAs(api, TRADE_COPY_FLATTEN, input, copyAckSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.call(TRADE_ALGO_POLICY, undefined, { signal }),
-    webhooks: (signal?: AbortSignal) => api.query('trade', 'signals.webhooks.list', undefined, z.array(signalWebhookSchema), { signal }),
+    webhooks: (signal?: AbortSignal) => callAs(api, TRADE_SIGNALS_WEBHOOKS_LIST, undefined, z.array(signalWebhookSchema), { signal }),
     createWebhook: (input: { symbol: string; venueOwner: string; clientRequestId: string }) =>
       api.call(TRADE_SIGNALS_WEBHOOKS_CREATE, input),
     signalCriteria: (signal?: AbortSignal) => api.call(MARKET_SIGNALS_CRITERIA, undefined, { signal }),
@@ -310,9 +320,9 @@ export function createRoomApi(api: ApiClient) {
     algoAction: tools.algoAction,
     gridSetup: (signal?: AbortSignal) => api.call(TRADE_BOTS_GRID_SETUP, undefined, { signal }),
     gridPresets: (signal?: AbortSignal) => api.call(TRADE_BOTS_GRID_PRESETS, undefined, { signal }),
-    gridCreate: (input: GridRequest) => api.mutate('trade', 'bots.grid.create', input, gridBotSchema),
-    gridGet: (botId: string, signal?: AbortSignal) => api.query('trade', 'bots.grid.get', { botId }, gridBotSchema, { signal }),
-    gridList: (signal?: AbortSignal) => api.query('trade', 'bots.grid.list', undefined, z.array(gridBotSchema), { signal }),
+    gridCreate: (input: GridRequest) => callAs(api, TRADE_BOTS_GRID_CREATE, input, gridBotSchema),
+    gridGet: (botId: string, signal?: AbortSignal) => callAs(api, TRADE_BOTS_GRID_GET, { botId }, gridBotSchema, { signal }),
+    gridList: (signal?: AbortSignal) => callAs(api, TRADE_BOTS_GRID_LIST, undefined, z.array(gridBotSchema), { signal }),
     gridStop: (botId: string) => api.call(TRADE_BOTS_GRID_STOP, { botId }),
     gridSubmitPermission: (input: {
       botId: string;

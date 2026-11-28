@@ -6933,6 +6933,2045 @@
         }
       ]
     },
+    "trade.bots.grid.create": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "bots.grid.create",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientRequestId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 120
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 64
+          },
+          "lowerPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upperPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gridCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "investment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["clientRequestId", "symbol"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "botId": {
+                "type": "string"
+              },
+              "clientRequestId": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "baseAsset": {
+                "type": "string"
+              },
+              "quoteAsset": {
+                "type": "string"
+              },
+              "lowerPrice": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "upperPrice": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "gridCount": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "investment": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "reinitCount": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "status": {
+                "type": "string",
+                "enum": ["signing", "initializing", "running", "paused_range", "stopped"]
+              },
+              "statusReason": {
+                "type": ["string", "null"]
+              },
+              "reserve": {
+                "type": "null"
+              },
+              "levels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "price": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "qty": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "hold": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "openOrder": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "side": {
+                              "type": "string",
+                              "enum": ["buy", "sell"]
+                            },
+                            "orderId": {
+                              "type": "string"
+                            },
+                            "clientOrderId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["side", "orderId", "clientOrderId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["index", "price", "qty", "hold", "openOrder"],
+                  "additionalProperties": false
+                }
+              },
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "clientOrderId": {
+                      "type": "string"
+                    },
+                    "orderId": {
+                      "type": "string"
+                    },
+                    "levelIndex": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": ["buy", "sell"]
+                    },
+                    "cycle": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "price": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "qty": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "holdAmount": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["open", "filled", "partial", "cancelled"]
+                    },
+                    "pairProfit": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "clientOrderId",
+                    "orderId",
+                    "levelIndex",
+                    "side",
+                    "cycle",
+                    "price",
+                    "qty",
+                    "holdAmount",
+                    "status",
+                    "pairProfit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "gridProfit": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "withdrawableProfit": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "closedPairs": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "gridApr": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "under_a_day"
+                      },
+                      "percent": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["state", "percent"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "set"
+                      },
+                      "percent": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      }
+                    },
+                    "required": ["state", "percent"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "venue": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "test": {
+                    "type": "boolean"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "agentAddress": {
+                    "type": "string"
+                  },
+                  "agentName": {
+                    "type": "string"
+                  }
+                },
+                "required": ["id", "name", "test", "owner", "agentAddress", "agentName"],
+                "additionalProperties": false
+              },
+              "next": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "actionKey": {
+                        "type": "string"
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "typedData": {
+                        "type": "object",
+                        "properties": {
+                          "domain": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": ["string", "number"]
+                            }
+                          },
+                          "types": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "type": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["name", "type"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "primaryType": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": ["string", "number", "boolean", "null"]
+                            }
+                          }
+                        },
+                        "required": ["domain", "types", "primaryType", "message"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["actionKey", "digest", "typedData"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "fees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "asset": {
+                      "type": "string"
+                    },
+                    "venueFee": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "builderFee": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    }
+                  },
+                  "required": ["asset", "venueFee", "builderFee"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "botId",
+              "clientRequestId",
+              "symbol",
+              "baseAsset",
+              "quoteAsset",
+              "lowerPrice",
+              "upperPrice",
+              "gridCount",
+              "investment",
+              "reinitCount",
+              "status",
+              "statusReason",
+              "reserve",
+              "levels",
+              "orders",
+              "gridProfit",
+              "withdrawableProfit",
+              "closedPairs",
+              "gridApr",
+              "createdAt",
+              "venue",
+              "next",
+              "fees"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "botId": {
+                "type": "string"
+              },
+              "clientRequestId": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "baseAsset": {
+                "type": "string"
+              },
+              "quoteAsset": {
+                "type": "string"
+              },
+              "lowerPrice": {
+                "type": "string"
+              },
+              "upperPrice": {
+                "type": "string"
+              },
+              "gridCount": {
+                "type": "number"
+              },
+              "investment": {
+                "type": "string"
+              },
+              "reinitCount": {
+                "type": "number"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["initializing", "running", "paused_range", "initialization_failed", "stopped"]
+              },
+              "statusReason": {
+                "type": ["string", "null"]
+              },
+              "reserve": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "asset": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string"
+                      },
+                      "releasedAt": {
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": ["key", "asset", "amount", "releasedAt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "levels": {
+                "readOnly": true,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "string"
+                    },
+                    "qty": {
+                      "type": "string"
+                    },
+                    "hold": {
+                      "type": "string"
+                    },
+                    "openOrder": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "side": {
+                              "type": "string",
+                              "enum": ["buy", "sell"]
+                            },
+                            "orderId": {
+                              "type": "string"
+                            },
+                            "clientOrderId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["side", "orderId", "clientOrderId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["index", "price", "qty", "hold", "openOrder"],
+                  "additionalProperties": false
+                }
+              },
+              "orders": {
+                "readOnly": true,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "clientOrderId": {
+                      "type": "string"
+                    },
+                    "orderId": {
+                      "type": "string"
+                    },
+                    "levelIndex": {
+                      "type": "number"
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": ["buy", "sell"]
+                    },
+                    "cycle": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "string"
+                    },
+                    "qty": {
+                      "type": "string"
+                    },
+                    "holdAmount": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["open", "filled", "partial", "cancelled"]
+                    },
+                    "pairProfit": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": [
+                    "clientOrderId",
+                    "orderId",
+                    "levelIndex",
+                    "side",
+                    "cycle",
+                    "price",
+                    "qty",
+                    "holdAmount",
+                    "status",
+                    "pairProfit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "exits": {
+                "type": "object",
+                "properties": {
+                  "stopBelow": {
+                    "type": ["string", "null"]
+                  },
+                  "stopAbove": {
+                    "type": ["string", "null"]
+                  },
+                  "rsi": {
+                    "type": "object",
+                    "properties": {
+                      "source": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["source"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["stopBelow", "stopAbove", "rsi"],
+                "additionalProperties": false
+              },
+              "gridProfit": {
+                "type": "string"
+              },
+              "withdrawableProfit": {
+                "type": "string"
+              },
+              "closedPairs": {
+                "type": "number"
+              },
+              "gridApr": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "under_a_day"
+                      },
+                      "percent": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["state", "percent"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "set"
+                      },
+                      "percent": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["state", "percent"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "botId",
+              "clientRequestId",
+              "symbol",
+              "baseAsset",
+              "quoteAsset",
+              "lowerPrice",
+              "upperPrice",
+              "gridCount",
+              "investment",
+              "reinitCount",
+              "status",
+              "statusReason",
+              "reserve",
+              "levels",
+              "orders",
+              "exits",
+              "gridProfit",
+              "withdrawableProfit",
+              "closedPairs",
+              "gridApr",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "clientRequestId": "ethereum",
+            "symbol": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.bots.grid.get": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "bots.grid.get",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "botId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["botId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "botId": {
+                "type": "string"
+              },
+              "clientRequestId": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "baseAsset": {
+                "type": "string"
+              },
+              "quoteAsset": {
+                "type": "string"
+              },
+              "lowerPrice": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "upperPrice": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "gridCount": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "investment": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "reinitCount": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "status": {
+                "type": "string",
+                "enum": ["signing", "initializing", "running", "paused_range", "stopped"]
+              },
+              "statusReason": {
+                "type": ["string", "null"]
+              },
+              "reserve": {
+                "type": "null"
+              },
+              "levels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "price": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "qty": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "hold": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "openOrder": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "side": {
+                              "type": "string",
+                              "enum": ["buy", "sell"]
+                            },
+                            "orderId": {
+                              "type": "string"
+                            },
+                            "clientOrderId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["side", "orderId", "clientOrderId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["index", "price", "qty", "hold", "openOrder"],
+                  "additionalProperties": false
+                }
+              },
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "clientOrderId": {
+                      "type": "string"
+                    },
+                    "orderId": {
+                      "type": "string"
+                    },
+                    "levelIndex": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": ["buy", "sell"]
+                    },
+                    "cycle": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "price": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "qty": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "holdAmount": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["open", "filled", "partial", "cancelled"]
+                    },
+                    "pairProfit": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "clientOrderId",
+                    "orderId",
+                    "levelIndex",
+                    "side",
+                    "cycle",
+                    "price",
+                    "qty",
+                    "holdAmount",
+                    "status",
+                    "pairProfit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "gridProfit": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "withdrawableProfit": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "closedPairs": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "gridApr": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "under_a_day"
+                      },
+                      "percent": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["state", "percent"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "set"
+                      },
+                      "percent": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      }
+                    },
+                    "required": ["state", "percent"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "venue": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "test": {
+                    "type": "boolean"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "agentAddress": {
+                    "type": "string"
+                  },
+                  "agentName": {
+                    "type": "string"
+                  }
+                },
+                "required": ["id", "name", "test", "owner", "agentAddress", "agentName"],
+                "additionalProperties": false
+              },
+              "next": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "actionKey": {
+                        "type": "string"
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "typedData": {
+                        "type": "object",
+                        "properties": {
+                          "domain": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": ["string", "number"]
+                            }
+                          },
+                          "types": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "type": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["name", "type"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "primaryType": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": ["string", "number", "boolean", "null"]
+                            }
+                          }
+                        },
+                        "required": ["domain", "types", "primaryType", "message"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["actionKey", "digest", "typedData"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "fees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "asset": {
+                      "type": "string"
+                    },
+                    "venueFee": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "builderFee": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    }
+                  },
+                  "required": ["asset", "venueFee", "builderFee"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "botId",
+              "clientRequestId",
+              "symbol",
+              "baseAsset",
+              "quoteAsset",
+              "lowerPrice",
+              "upperPrice",
+              "gridCount",
+              "investment",
+              "reinitCount",
+              "status",
+              "statusReason",
+              "reserve",
+              "levels",
+              "orders",
+              "gridProfit",
+              "withdrawableProfit",
+              "closedPairs",
+              "gridApr",
+              "createdAt",
+              "venue",
+              "next",
+              "fees"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "botId": {
+                "type": "string"
+              },
+              "clientRequestId": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "baseAsset": {
+                "type": "string"
+              },
+              "quoteAsset": {
+                "type": "string"
+              },
+              "lowerPrice": {
+                "type": "string"
+              },
+              "upperPrice": {
+                "type": "string"
+              },
+              "gridCount": {
+                "type": "number"
+              },
+              "investment": {
+                "type": "string"
+              },
+              "reinitCount": {
+                "type": "number"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["initializing", "running", "paused_range", "initialization_failed", "stopped"]
+              },
+              "statusReason": {
+                "type": ["string", "null"]
+              },
+              "reserve": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "asset": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string"
+                      },
+                      "releasedAt": {
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": ["key", "asset", "amount", "releasedAt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "levels": {
+                "readOnly": true,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "string"
+                    },
+                    "qty": {
+                      "type": "string"
+                    },
+                    "hold": {
+                      "type": "string"
+                    },
+                    "openOrder": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "side": {
+                              "type": "string",
+                              "enum": ["buy", "sell"]
+                            },
+                            "orderId": {
+                              "type": "string"
+                            },
+                            "clientOrderId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["side", "orderId", "clientOrderId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["index", "price", "qty", "hold", "openOrder"],
+                  "additionalProperties": false
+                }
+              },
+              "orders": {
+                "readOnly": true,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "clientOrderId": {
+                      "type": "string"
+                    },
+                    "orderId": {
+                      "type": "string"
+                    },
+                    "levelIndex": {
+                      "type": "number"
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": ["buy", "sell"]
+                    },
+                    "cycle": {
+                      "type": "number"
+                    },
+                    "price": {
+                      "type": "string"
+                    },
+                    "qty": {
+                      "type": "string"
+                    },
+                    "holdAmount": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["open", "filled", "partial", "cancelled"]
+                    },
+                    "pairProfit": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": [
+                    "clientOrderId",
+                    "orderId",
+                    "levelIndex",
+                    "side",
+                    "cycle",
+                    "price",
+                    "qty",
+                    "holdAmount",
+                    "status",
+                    "pairProfit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "exits": {
+                "type": "object",
+                "properties": {
+                  "stopBelow": {
+                    "type": ["string", "null"]
+                  },
+                  "stopAbove": {
+                    "type": ["string", "null"]
+                  },
+                  "rsi": {
+                    "type": "object",
+                    "properties": {
+                      "source": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["source"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["stopBelow", "stopAbove", "rsi"],
+                "additionalProperties": false
+              },
+              "gridProfit": {
+                "type": "string"
+              },
+              "withdrawableProfit": {
+                "type": "string"
+              },
+              "closedPairs": {
+                "type": "number"
+              },
+              "gridApr": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "under_a_day"
+                      },
+                      "percent": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["state", "percent"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "set"
+                      },
+                      "percent": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["state", "percent"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "botId",
+              "clientRequestId",
+              "symbol",
+              "baseAsset",
+              "quoteAsset",
+              "lowerPrice",
+              "upperPrice",
+              "gridCount",
+              "investment",
+              "reinitCount",
+              "status",
+              "statusReason",
+              "reserve",
+              "levels",
+              "orders",
+              "exits",
+              "gridProfit",
+              "withdrawableProfit",
+              "closedPairs",
+              "gridApr",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "botId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.bots.grid.list": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "bots.grid.list",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "botId": {
+                  "type": "string"
+                },
+                "clientRequestId": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "baseAsset": {
+                  "type": "string"
+                },
+                "quoteAsset": {
+                  "type": "string"
+                },
+                "lowerPrice": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "upperPrice": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "gridCount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "investment": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "reinitCount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["signing", "initializing", "running", "paused_range", "stopped"]
+                },
+                "statusReason": {
+                  "type": ["string", "null"]
+                },
+                "reserve": {
+                  "type": "null"
+                },
+                "levels": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "index": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "price": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "qty": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "hold": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "openOrder": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "side": {
+                                "type": "string",
+                                "enum": ["buy", "sell"]
+                              },
+                              "orderId": {
+                                "type": "string"
+                              },
+                              "clientOrderId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["side", "orderId", "clientOrderId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["index", "price", "qty", "hold", "openOrder"],
+                    "additionalProperties": false
+                  }
+                },
+                "orders": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "clientOrderId": {
+                        "type": "string"
+                      },
+                      "orderId": {
+                        "type": "string"
+                      },
+                      "levelIndex": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "side": {
+                        "type": "string",
+                        "enum": ["buy", "sell"]
+                      },
+                      "cycle": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "price": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "qty": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "holdAmount": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": ["open", "filled", "partial", "cancelled"]
+                      },
+                      "pairProfit": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "clientOrderId",
+                      "orderId",
+                      "levelIndex",
+                      "side",
+                      "cycle",
+                      "price",
+                      "qty",
+                      "holdAmount",
+                      "status",
+                      "pairProfit"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "gridProfit": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "withdrawableProfit": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "closedPairs": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "gridApr": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "under_a_day"
+                        },
+                        "percent": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["state", "percent"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "set"
+                        },
+                        "percent": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        }
+                      },
+                      "required": ["state", "percent"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "venue": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "test": {
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string"
+                    },
+                    "agentAddress": {
+                      "type": "string"
+                    },
+                    "agentName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "name", "test", "owner", "agentAddress", "agentName"],
+                  "additionalProperties": false
+                },
+                "next": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "actionKey": {
+                          "type": "string"
+                        },
+                        "digest": {
+                          "type": "string"
+                        },
+                        "typedData": {
+                          "type": "object",
+                          "properties": {
+                            "domain": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": ["string", "number"]
+                              }
+                            },
+                            "types": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": ["name", "type"],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "primaryType": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": ["string", "number", "boolean", "null"]
+                              }
+                            }
+                          },
+                          "required": ["domain", "types", "primaryType", "message"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["actionKey", "digest", "typedData"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "fees": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "asset": {
+                        "type": "string"
+                      },
+                      "venueFee": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      "builderFee": {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      }
+                    },
+                    "required": ["asset", "venueFee", "builderFee"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "botId",
+                "clientRequestId",
+                "symbol",
+                "baseAsset",
+                "quoteAsset",
+                "lowerPrice",
+                "upperPrice",
+                "gridCount",
+                "investment",
+                "reinitCount",
+                "status",
+                "statusReason",
+                "reserve",
+                "levels",
+                "orders",
+                "gridProfit",
+                "withdrawableProfit",
+                "closedPairs",
+                "gridApr",
+                "createdAt",
+                "venue",
+                "next",
+                "fees"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "botId": {
+                  "type": "string"
+                },
+                "clientRequestId": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "baseAsset": {
+                  "type": "string"
+                },
+                "quoteAsset": {
+                  "type": "string"
+                },
+                "lowerPrice": {
+                  "type": "string"
+                },
+                "upperPrice": {
+                  "type": "string"
+                },
+                "gridCount": {
+                  "type": "number"
+                },
+                "investment": {
+                  "type": "string"
+                },
+                "reinitCount": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["initializing", "running", "paused_range", "initialization_failed", "stopped"]
+                },
+                "statusReason": {
+                  "type": ["string", "null"]
+                },
+                "reserve": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "asset": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "string"
+                        },
+                        "releasedAt": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["key", "asset", "amount", "releasedAt"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "levels": {
+                  "readOnly": true,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "index": {
+                        "type": "number"
+                      },
+                      "price": {
+                        "type": "string"
+                      },
+                      "qty": {
+                        "type": "string"
+                      },
+                      "hold": {
+                        "type": "string"
+                      },
+                      "openOrder": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "side": {
+                                "type": "string",
+                                "enum": ["buy", "sell"]
+                              },
+                              "orderId": {
+                                "type": "string"
+                              },
+                              "clientOrderId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["side", "orderId", "clientOrderId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["index", "price", "qty", "hold", "openOrder"],
+                    "additionalProperties": false
+                  }
+                },
+                "orders": {
+                  "readOnly": true,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "clientOrderId": {
+                        "type": "string"
+                      },
+                      "orderId": {
+                        "type": "string"
+                      },
+                      "levelIndex": {
+                        "type": "number"
+                      },
+                      "side": {
+                        "type": "string",
+                        "enum": ["buy", "sell"]
+                      },
+                      "cycle": {
+                        "type": "number"
+                      },
+                      "price": {
+                        "type": "string"
+                      },
+                      "qty": {
+                        "type": "string"
+                      },
+                      "holdAmount": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": ["open", "filled", "partial", "cancelled"]
+                      },
+                      "pairProfit": {
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": [
+                      "clientOrderId",
+                      "orderId",
+                      "levelIndex",
+                      "side",
+                      "cycle",
+                      "price",
+                      "qty",
+                      "holdAmount",
+                      "status",
+                      "pairProfit"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "exits": {
+                  "type": "object",
+                  "properties": {
+                    "stopBelow": {
+                      "type": ["string", "null"]
+                    },
+                    "stopAbove": {
+                      "type": ["string", "null"]
+                    },
+                    "rsi": {
+                      "type": "object",
+                      "properties": {
+                        "source": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["source"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["stopBelow", "stopAbove", "rsi"],
+                  "additionalProperties": false
+                },
+                "gridProfit": {
+                  "type": "string"
+                },
+                "withdrawableProfit": {
+                  "type": "string"
+                },
+                "closedPairs": {
+                  "type": "number"
+                },
+                "gridApr": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "under_a_day"
+                        },
+                        "percent": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["state", "percent"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "set"
+                        },
+                        "percent": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["state", "percent"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "botId",
+                "clientRequestId",
+                "symbol",
+                "baseAsset",
+                "quoteAsset",
+                "lowerPrice",
+                "upperPrice",
+                "gridCount",
+                "investment",
+                "reinitCount",
+                "status",
+                "statusReason",
+                "reserve",
+                "levels",
+                "orders",
+                "exits",
+                "gridProfit",
+                "withdrawableProfit",
+                "closedPairs",
+                "gridApr",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "trade.bots.grid.modify": {
       "service": "svc-trade",
       "module": "trade",
@@ -13332,6 +15371,413 @@
         }
       ]
     },
+    "trade.copy.copiedPositions": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.copiedPositions",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["followId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "positionId": {
+                  "type": "string"
+                },
+                "market": {
+                  "type": "string"
+                },
+                "bought": {
+                  "type": "string"
+                },
+                "open": {
+                  "type": "string"
+                },
+                "closing": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["open", "closed", "buying", "closing"]
+                },
+                "placedAt": {
+                  "type": "string"
+                },
+                "reportedBy": {
+                  "type": "object",
+                  "properties": {
+                    "venue": {
+                      "type": "string"
+                    },
+                    "test": {
+                      "type": "boolean"
+                    },
+                    "asOf": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["venue", "test", "asOf"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["positionId", "market", "bought", "open", "closing", "status", "placedAt"],
+              "additionalProperties": false
+            }
+          },
+          "markets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "market": {
+                  "type": "string"
+                },
+                "fills": {
+                  "type": ["number", "null"]
+                },
+                "filled": {
+                  "type": ["string", "null"]
+                },
+                "open": {
+                  "type": "string"
+                },
+                "averageEntry": {
+                  "type": ["string", "null"]
+                },
+                "funding": {
+                  "type": "null"
+                }
+              },
+              "required": ["market", "fills", "filled", "open", "averageEntry", "funding"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["positions", "markets"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "followId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.copy.deskStatus": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.deskStatus",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sovereign": {
+            "type": "object",
+            "properties": {
+              "shape": {
+                "type": "string",
+                "const": "sovereign"
+              },
+              "custody": {
+                "type": "boolean",
+                "const": false
+              },
+              "feeModel": {
+                "type": "string",
+                "const": "protocol_fee_share"
+              },
+              "pnlFeeForbidden": {
+                "type": "boolean",
+                "const": true
+              },
+              "rankingForbidden": {
+                "type": "boolean",
+                "const": true
+              },
+              "killUnfollowReal": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": ["shape", "custody", "feeModel", "pnlFeeForbidden", "rankingForbidden", "killUnfollowReal"],
+            "additionalProperties": false
+          },
+          "feeSharePublished": {
+            "type": "boolean"
+          },
+          "leaderShareBps": {
+            "type": ["string", "null"]
+          },
+          "jurisdictionPublished": {
+            "type": "boolean"
+          },
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "trade.copy_fee_share_blank",
+                    "trade.copy_jurisdiction_blank",
+                    "trade.copy_place_disabled",
+                    "trade.copy_unavailable"
+                  ]
+                }
+              },
+              "required": ["code"],
+              "additionalProperties": false
+            }
+          },
+          "autoMirrorPlace": {
+            "type": "object",
+            "properties": {
+              "published": {
+                "type": "boolean"
+              },
+              "socket": {
+                "type": "string"
+              }
+            },
+            "required": ["published", "socket"],
+            "additionalProperties": false
+          },
+          "minInvestment": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "sovereign",
+          "feeSharePublished",
+          "leaderShareBps",
+          "jurisdictionPublished",
+          "blockers",
+          "autoMirrorPlace",
+          "minInvestment"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "trade.copy.detach": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "copy.detach",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["followId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string"
+          },
+          "relationshipState": {
+            "type": "string",
+            "enum": ["ACTIVE", "PAUSED", "STOPPING", "CLOSE_ONLY", "DETACHED"]
+          },
+          "disposition": {
+            "type": "string",
+            "enum": ["DETACH_KEEP"]
+          },
+          "newIntentFenced": {
+            "type": "boolean"
+          },
+          "flattenInvented": {
+            "type": "boolean",
+            "const": false
+          },
+          "sessionKeyRevoked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["followId", "relationshipState", "disposition", "newIntentFenced", "flattenInvented", "sessionKeyRevoked"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "followId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.copy.flatten": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "copy.flatten",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stepUpApprovalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["followId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string"
+          },
+          "relationshipState": {
+            "type": "string",
+            "const": "DETACHED"
+          },
+          "disposition": {
+            "type": "string",
+            "enum": ["DETACH_FLATTEN"]
+          },
+          "newIntentFenced": {
+            "type": "boolean",
+            "const": true
+          },
+          "flattenChosen": {
+            "type": "boolean",
+            "const": true
+          },
+          "flattenInvented": {
+            "type": "boolean",
+            "const": false
+          },
+          "sessionKeyRevoked": {
+            "type": "boolean",
+            "const": true
+          },
+          "orderIds": {
+            "readOnly": true,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "followId",
+          "relationshipState",
+          "disposition",
+          "newIntentFenced",
+          "flattenChosen",
+          "flattenInvented",
+          "sessionKeyRevoked",
+          "orderIds"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "followId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "trade.copy.follow": {
       "service": "svc-trade",
       "module": "trade",
@@ -13657,6 +16103,137 @@
             "maxAggregateExposure": "1",
             "expiresAt": "2026-01-01T00:00:00.000Z",
             "clientRequestId": "ethereum"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.copy.followPositions": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.followPositions",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["followId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "orderId": {
+                  "type": "string"
+                },
+                "market": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "qty": {
+                  "type": "string"
+                },
+                "filledQty": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "placedAt": {
+                  "type": "string"
+                },
+                "venue": {
+                  "type": "object",
+                  "properties": {
+                    "venueName": {
+                      "type": "string"
+                    },
+                    "test": {
+                      "type": "boolean"
+                    },
+                    "asOf": {
+                      "type": "string"
+                    },
+                    "placedBy": {
+                      "type": "string"
+                    },
+                    "fills": {
+                      "readOnly": true,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "fillId": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "string"
+                          },
+                          "price": {
+                            "type": "string"
+                          },
+                          "venueFee": {
+                            "type": "string"
+                          },
+                          "builderFee": {
+                            "type": "string"
+                          },
+                          "feeAsset": {
+                            "type": "string"
+                          },
+                          "filledAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["fillId", "amount", "price", "venueFee", "builderFee", "feeAsset", "filledAt"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["venueName", "test", "asOf", "placedBy", "fills"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["orderId", "market", "side", "qty", "filledQty", "price", "status", "placedAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["positions"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "followId": "USDC"
           }
         },
         {
@@ -14336,6 +16913,360 @@
         }
       ]
     },
+    "trade.copy.leaderProfile": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.leaderProfile",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "leaderRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": ["leaderRef"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "leader": {
+            "type": "object",
+            "properties": {
+              "leaderRef": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "marketMode": {
+                "type": "string",
+                "enum": ["spot", "futures", "bot", "signal"]
+              },
+              "recordKind": {
+                "type": "string",
+                "enum": ["verified_live", "paper", "backtest", "imported", "self_reported"]
+              },
+              "tenureStart": {
+                "type": ["string", "null"]
+              },
+              "assets": {
+                "readOnly": true,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "strategyVersion": {
+                "type": ["string", "null"]
+              },
+              "publishedReturn": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "const": "no_published_record"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "maximumDrawdown": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "const": "no_published_record"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "windowStart": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "const": "no_published_record"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "windowEnd": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "const": "no_published_record"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "netOfCosts": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "const": "no_published_record"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "copiersCount": {
+                "type": "number"
+              },
+              "capacity": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "number"
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "const": "capacity_unpublished"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "leaderShareBps": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "const": "leader_share_unpublished"
+                      }
+                    },
+                    "required": ["value", "reason"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "leaderRef",
+              "displayName",
+              "marketMode",
+              "recordKind",
+              "tenureStart",
+              "assets",
+              "strategyVersion",
+              "publishedReturn",
+              "maximumDrawdown",
+              "windowStart",
+              "windowEnd",
+              "netOfCosts",
+              "copiersCount",
+              "capacity",
+              "leaderShareBps"
+            ],
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": ["listed", "suspended", "delisted", "unknown"]
+          },
+          "definitionsVersion": {
+            "type": ["string", "null"]
+          },
+          "metrics": {
+            "readOnly": true,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": ["publishedReturn", "maximumDrawdown", "winRate", "sharpeRatio"]
+                },
+                "value": {
+                  "type": ["string", "null"]
+                },
+                "reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["no_published_record", "definition_unpublished", "not_held"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "definition": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["key", "value", "reason", "definition"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["leader", "status", "definitionsVersion", "metrics"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "leaderRef": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "trade.copy.leaderTrades": {
       "service": "svc-trade",
       "module": "trade",
@@ -14662,6 +17593,582 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "trade.copy.listLeaders": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.listLeaders",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "sort": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "order": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "orderBy": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "return": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "profit": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "copiers": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "rank": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "trending": {
+            "type": "boolean"
+          },
+          "marketMode": {
+            "type": "string",
+            "maxLength": 16
+          },
+          "q": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "leaders": {
+            "readOnly": true,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "leaderRef": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "marketMode": {
+                  "type": "string",
+                  "enum": ["spot", "futures", "bot", "signal"]
+                },
+                "recordKind": {
+                  "type": "string",
+                  "enum": ["verified_live", "paper", "backtest", "imported", "self_reported"]
+                },
+                "tenureStart": {
+                  "type": ["string", "null"]
+                },
+                "assets": {
+                  "readOnly": true,
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "strategyVersion": {
+                  "type": ["string", "null"]
+                },
+                "publishedReturn": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "no_published_record"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "maximumDrawdown": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "no_published_record"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "windowStart": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "no_published_record"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "windowEnd": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "no_published_record"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "netOfCosts": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "boolean"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "no_published_record"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "copiersCount": {
+                  "type": "number"
+                },
+                "capacity": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "capacity_unpublished"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "leaderShareBps": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "leader_share_unpublished"
+                        }
+                      },
+                      "required": ["value", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "leaderRef",
+                "displayName",
+                "marketMode",
+                "recordKind",
+                "tenureStart",
+                "assets",
+                "strategyVersion",
+                "publishedReturn",
+                "maximumDrawdown",
+                "windowStart",
+                "windowEnd",
+                "netOfCosts",
+                "copiersCount",
+                "capacity",
+                "leaderShareBps"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["leaders", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.copy.listMyFollows": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.listMyFollows",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "followId": {
+              "type": "string"
+            },
+            "followerId": {
+              "type": "string"
+            },
+            "leaderId": {
+              "type": ["string", "null"]
+            },
+            "leaderRef": {
+              "type": ["string", "null"]
+            },
+            "permittedMarkets": {
+              "readOnly": true,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "maxNotionalPerOrder": {
+              "type": "string"
+            },
+            "maxAggregateExposure": {
+              "type": "string"
+            },
+            "fixedOrderSize": {
+              "type": ["string", "null"]
+            },
+            "sizingMode": {
+              "type": "string",
+              "enum": ["fixed_amount", "smart_sync"]
+            },
+            "smartSync": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "followerTotal": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["followerTotal"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxPerMarket": {
+              "type": ["string", "null"]
+            },
+            "maxPerDay": {
+              "type": ["string", "null"]
+            },
+            "reserve": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "asset": {
+                      "type": "string"
+                    },
+                    "amount": {
+                      "type": "string"
+                    },
+                    "released": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["asset", "amount", "released"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "maxLoss": {
+              "type": ["string", "null"]
+            },
+            "maxSlippageBps": {
+              "type": ["number", "null"]
+            },
+            "maxConcurrent": {
+              "type": ["number", "null"]
+            },
+            "maxDrawdown": {
+              "type": ["string", "null"]
+            },
+            "peakResult": {
+              "type": ["string", "null"]
+            },
+            "currentExposure": {
+              "type": "string"
+            },
+            "remainingExposure": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "region": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "feeShareKilled": {
+              "type": "boolean"
+            },
+            "sessionKeyGranted": {
+              "type": "boolean"
+            },
+            "sessionKeyRevoked": {
+              "type": "boolean"
+            },
+            "relationshipState": {
+              "type": "string",
+              "enum": ["ACTIVE", "PAUSED", "STOPPING", "CLOSE_ONLY", "DETACHED"]
+            },
+            "newIntentFenced": {
+              "type": "boolean"
+            },
+            "leaderStatus": {
+              "type": "string",
+              "enum": ["listed", "suspended", "delisted", "unknown"]
+            },
+            "sessionKeyPrefix": {
+              "type": "string"
+            },
+            "sessionKeyId": {
+              "type": "string"
+            },
+            "sessionKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "followId",
+            "followerId",
+            "leaderId",
+            "leaderRef",
+            "permittedMarkets",
+            "maxNotionalPerOrder",
+            "maxAggregateExposure",
+            "fixedOrderSize",
+            "sizingMode",
+            "smartSync",
+            "maxPerMarket",
+            "maxPerDay",
+            "reserve",
+            "maxLoss",
+            "maxSlippageBps",
+            "maxConcurrent",
+            "maxDrawdown",
+            "peakResult",
+            "currentExposure",
+            "remainingExposure",
+            "expiresAt",
+            "region",
+            "createdAt",
+            "feeShareKilled",
+            "sessionKeyGranted",
+            "sessionKeyRevoked",
+            "relationshipState",
+            "newIntentFenced",
+            "leaderStatus"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -15048,6 +18555,72 @@
         }
       ]
     },
+    "trade.copy.pause": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "copy.pause",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["followId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string"
+          },
+          "relationshipState": {
+            "type": "string",
+            "enum": ["ACTIVE", "PAUSED", "STOPPING", "CLOSE_ONLY", "DETACHED"]
+          },
+          "disposition": {
+            "type": "string",
+            "enum": ["PAUSE_NEW"]
+          },
+          "newIntentFenced": {
+            "type": "boolean"
+          },
+          "flattenInvented": {
+            "type": "boolean",
+            "const": false
+          },
+          "sessionKeyRevoked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["followId", "relationshipState", "disposition", "newIntentFenced", "flattenInvented", "sessionKeyRevoked"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "followId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "trade.copy.platformPauses": {
       "service": "svc-trade",
       "module": "trade",
@@ -15093,6 +18666,72 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "trade.copy.resume": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "copy.resume",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["followId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string"
+          },
+          "relationshipState": {
+            "type": "string",
+            "enum": ["ACTIVE", "PAUSED", "STOPPING", "CLOSE_ONLY", "DETACHED"]
+          },
+          "disposition": {
+            "type": "string",
+            "enum": ["RESUME"]
+          },
+          "newIntentFenced": {
+            "type": "boolean"
+          },
+          "flattenInvented": {
+            "type": "boolean",
+            "const": false
+          },
+          "sessionKeyRevoked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["followId", "relationshipState", "disposition", "newIntentFenced", "flattenInvented", "sessionKeyRevoked"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "followId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -15160,6 +18799,75 @@
           }
         },
         "required": ["items"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "followId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.copy.stop": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "copy.stop",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "closeOnly": {
+            "type": "boolean"
+          }
+        },
+        "required": ["followId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "followId": {
+            "type": "string"
+          },
+          "relationshipState": {
+            "type": "string",
+            "enum": ["ACTIVE", "PAUSED", "STOPPING", "CLOSE_ONLY", "DETACHED"]
+          },
+          "disposition": {
+            "type": "string",
+            "enum": ["STOP_NEW", "STOP_CLOSE_ONLY"]
+          },
+          "newIntentFenced": {
+            "type": "boolean"
+          },
+          "flattenInvented": {
+            "type": "boolean",
+            "const": false
+          },
+          "sessionKeyRevoked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["followId", "relationshipState", "disposition", "newIntentFenced", "flattenInvented", "sessionKeyRevoked"],
         "additionalProperties": false
       },
       "samples": [
@@ -16955,6 +20663,156 @@
         }
       ]
     },
+    "trade.options.policy": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "options.policy",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "socket": {
+            "type": "string",
+            "const": "socket.options-settlement-asset-law"
+          },
+          "settlementLawUnsetCode": {
+            "type": "string",
+            "const": "trade.options_settlement_law_unset"
+          },
+          "fixingUnconfiguredCode": {
+            "type": "string",
+            "const": "trade.options_fixing_unconfigured"
+          },
+          "termsIncompleteCode": {
+            "type": "string",
+            "const": "trade.options_terms_incomplete"
+          },
+          "settlementAssetLawStamped": {
+            "type": "boolean"
+          },
+          "settlementFixingConfigured": {
+            "type": "boolean"
+          },
+          "statusLine": {
+            "type": "string"
+          },
+          "residual": {
+            "type": "string"
+          },
+          "blockers": {
+            "readOnly": true,
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string",
+                "const": "settlement_asset_law"
+              },
+              {
+                "type": "string",
+                "const": "settlement_fixing"
+              },
+              {
+                "type": "string",
+                "const": "european_terms"
+              }
+            ],
+            "items": false,
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "allowed": {
+            "type": "object",
+            "properties": {
+              "nonOptionsListing": {
+                "type": "boolean",
+                "const": true
+              },
+              "optionsListing": {
+                "type": "boolean"
+              },
+              "optionsOrders": {
+                "type": "boolean"
+              },
+              "paperOptionsOrders": {
+                "type": "boolean",
+                "const": true
+              },
+              "liveOptionsOrders": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": ["nonOptionsListing", "optionsListing", "optionsOrders", "paperOptionsOrders", "liveOptionsOrders"],
+            "additionalProperties": false
+          },
+          "europeanOnly": {
+            "type": "boolean",
+            "const": true
+          },
+          "fullCollateralV1": {
+            "type": "boolean",
+            "const": true
+          },
+          "inventsLiveSet": {
+            "type": "boolean",
+            "const": false
+          },
+          "inventsSettlementAsset": {
+            "type": "boolean",
+            "const": false
+          },
+          "inventsIvSurface": {
+            "type": "boolean",
+            "const": false
+          },
+          "ordersStillRefuseUntilEngine": {
+            "type": "boolean",
+            "const": false
+          },
+          "liveOrdersStillRefuse": {
+            "type": "boolean",
+            "const": true
+          },
+          "paperEngine": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "socket",
+          "settlementLawUnsetCode",
+          "fixingUnconfiguredCode",
+          "termsIncompleteCode",
+          "settlementAssetLawStamped",
+          "settlementFixingConfigured",
+          "statusLine",
+          "residual",
+          "blockers",
+          "allowed",
+          "europeanOnly",
+          "fullCollateralV1",
+          "inventsLiveSet",
+          "inventsSettlementAsset",
+          "inventsIvSurface",
+          "ordersStillRefuseUntilEngine",
+          "liveOrdersStillRefuse",
+          "paperEngine"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "trade.otc.accept": {
       "service": "svc-trade",
       "module": "trade",
@@ -17283,6 +21141,190 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "trade.otc.deskStatus": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "otc.deskStatus",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "published": {
+            "type": "boolean"
+          },
+          "statusLine": {
+            "type": "string"
+          },
+          "residual": {
+            "type": ["string", "null"]
+          },
+          "assets": {
+            "anyOf": [
+              {
+                "readOnly": true,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minTier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["basic", "full", "institutional"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "makerRouting": {
+            "type": "object",
+            "properties": {
+              "published": {
+                "type": "boolean",
+                "const": false
+              },
+              "socket": {
+                "type": "string",
+                "const": "socket.otc-maker-routing"
+              },
+              "residual": {
+                "type": "string"
+              }
+            },
+            "required": ["published", "socket", "residual"],
+            "additionalProperties": false
+          },
+          "midFeed": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "wiring": {
+                    "type": "string",
+                    "enum": ["flag_off", "flag_on_venue_unwired", "flag_on_symbol_map_empty", "live_observation"]
+                  },
+                  "published": {
+                    "type": "boolean"
+                  },
+                  "socket": {
+                    "type": "string",
+                    "const": "socket.otc-mid-feed"
+                  },
+                  "residual": {
+                    "type": ["string", "null"]
+                  },
+                  "bootMapAllowed": {
+                    "type": "boolean"
+                  },
+                  "liveObservationFeed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["wiring", "published", "socket", "residual", "bootMapAllowed", "liveObservationFeed"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "published": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "socket": {
+                    "type": "string",
+                    "const": "socket.otc-mid-feed"
+                  },
+                  "residual": {
+                    "type": "null"
+                  },
+                  "bootMapAllowed": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "liveObservationFeed": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": ["published", "socket", "residual", "bootMapAllowed", "liveObservationFeed"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "published": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "socket": {
+                    "type": "string",
+                    "const": "socket.otc-mid-feed"
+                  },
+                  "residual": {
+                    "type": "string"
+                  },
+                  "bootMapAllowed": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "liveObservationFeed": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": ["published", "socket", "residual", "bootMapAllowed", "liveObservationFeed"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "residuals": {
+            "type": "object",
+            "properties": {
+              "deskLaw": {
+                "type": ["string", "null"]
+              },
+              "assets": {
+                "type": ["string", "null"]
+              },
+              "minTier": {
+                "type": ["string", "null"]
+              },
+              "makerRouting": {
+                "type": "string"
+              },
+              "midFeed": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["deskLaw", "assets", "minTier", "makerRouting", "midFeed"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["published", "statusLine", "residual", "assets", "minTier", "makerRouting", "midFeed", "residuals"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     },
@@ -18560,6 +22602,165 @@
         }
       ]
     },
+    "trade.rfq.board": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "rfq.board",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "groups": {
+            "readOnly": true,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": ["open", "accepted", "settled", "expired"]
+                },
+                "count": {
+                  "type": "number"
+                },
+                "requests": {
+                  "readOnly": true,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "rfqId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": ["open", "accepted", "settled", "expired"]
+                      },
+                      "side": {
+                        "type": "string",
+                        "enum": ["buy", "sell"]
+                      },
+                      "baseAsset": {
+                        "type": "string"
+                      },
+                      "quoteAsset": {
+                        "type": "string"
+                      },
+                      "qty": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "quotes": {
+                        "readOnly": true,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "quoteId": {
+                              "type": "string"
+                            },
+                            "makerId": {
+                              "type": ["string", "null"]
+                            },
+                            "rfqSeq": {
+                              "type": "number"
+                            },
+                            "quotedPrice": {
+                              "type": "string"
+                            },
+                            "userNotional": {
+                              "type": "string"
+                            },
+                            "spreadBps": {
+                              "type": "number"
+                            },
+                            "lifecycle": {
+                              "type": "string",
+                              "enum": ["open", "bound", "expired", "settled"]
+                            },
+                            "test": {
+                              "type": "boolean"
+                            },
+                            "rank": {
+                              "type": "number"
+                            },
+                            "best": {
+                              "type": "boolean"
+                            },
+                            "expiresAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "quoteId",
+                            "makerId",
+                            "rfqSeq",
+                            "quotedPrice",
+                            "userNotional",
+                            "spreadBps",
+                            "lifecycle",
+                            "test",
+                            "rank",
+                            "best",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": ["rfqId", "status", "side", "baseAsset", "quoteAsset", "qty", "createdAt", "quotes"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["status", "count", "requests"],
+              "additionalProperties": false
+            }
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": ["groups", "more"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "trade.rfq.expire": {
       "service": "svc-trade",
       "module": "trade",
@@ -18874,6 +23075,294 @@
           "verdict": "accept",
           "input": {
             "quoteId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "trade.rfq.quote": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "rfq.quote",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "baseAsset": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "quoteAsset": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "qty": {
+            "type": "string"
+          },
+          "makerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "makerIds": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 120
+            }
+          }
+        },
+        "required": ["side", "baseAsset", "quoteAsset", "qty"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "baseAsset": {
+            "type": "string"
+          },
+          "quoteAsset": {
+            "type": "string"
+          },
+          "qty": {
+            "type": "string"
+          },
+          "midPrice": {
+            "type": "string"
+          },
+          "quotedPrice": {
+            "type": "string"
+          },
+          "midNotional": {
+            "type": "string"
+          },
+          "userNotional": {
+            "type": "string"
+          },
+          "spreadBps": {
+            "type": "number"
+          },
+          "spreadNotional": {
+            "type": "string"
+          },
+          "counterparty": {
+            "type": "string",
+            "enum": ["platform", "maker"]
+          },
+          "counterpartyId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "const": "open"
+          },
+          "rfqId": {
+            "type": "string"
+          },
+          "rfqSeq": {
+            "type": "number"
+          },
+          "makerId": {
+            "type": ["string", "null"]
+          },
+          "test": {
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "type": "string",
+            "enum": ["open", "bound", "expired", "settled"]
+          },
+          "acceptedAt": {
+            "type": ["string", "null"]
+          },
+          "fillPrice": {
+            "type": ["string", "null"]
+          },
+          "settleBy": {
+            "type": ["string", "null"]
+          },
+          "settleWindowMs": {
+            "type": ["number", "null"]
+          },
+          "bookFill": {
+            "type": "boolean",
+            "const": false
+          },
+          "midInvented": {
+            "type": "boolean",
+            "const": false
+          },
+          "quotes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "quoteId": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "baseAsset": {
+                  "type": "string"
+                },
+                "quoteAsset": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string"
+                },
+                "midPrice": {
+                  "type": "string"
+                },
+                "quotedPrice": {
+                  "type": "string"
+                },
+                "midNotional": {
+                  "type": "string"
+                },
+                "userNotional": {
+                  "type": "string"
+                },
+                "spreadBps": {
+                  "type": "number"
+                },
+                "spreadNotional": {
+                  "type": "string"
+                },
+                "counterparty": {
+                  "type": "string",
+                  "enum": ["platform", "maker"]
+                },
+                "counterpartyId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "const": "open"
+                },
+                "rfqId": {
+                  "type": "string"
+                },
+                "rfqSeq": {
+                  "type": "number"
+                },
+                "makerId": {
+                  "type": ["string", "null"]
+                },
+                "test": {
+                  "type": "boolean"
+                },
+                "rank": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "quoteId",
+                "side",
+                "baseAsset",
+                "quoteAsset",
+                "qty",
+                "midPrice",
+                "quotedPrice",
+                "midNotional",
+                "userNotional",
+                "spreadBps",
+                "spreadNotional",
+                "counterparty",
+                "counterpartyId",
+                "createdAt",
+                "expiresAt",
+                "status",
+                "rfqId",
+                "rfqSeq",
+                "makerId",
+                "test",
+                "rank"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "quoteId",
+          "side",
+          "baseAsset",
+          "quoteAsset",
+          "qty",
+          "midPrice",
+          "quotedPrice",
+          "midNotional",
+          "userNotional",
+          "spreadBps",
+          "spreadNotional",
+          "counterparty",
+          "counterpartyId",
+          "createdAt",
+          "expiresAt",
+          "status",
+          "rfqId",
+          "rfqSeq",
+          "makerId",
+          "test",
+          "lifecycle",
+          "acceptedAt",
+          "fillPrice",
+          "settleBy",
+          "settleWindowMs",
+          "bookFill",
+          "midInvented",
+          "quotes"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "side": "buy",
+            "baseAsset": "USDC",
+            "quoteAsset": "USDC",
+            "qty": "USDC"
           }
         },
         {
@@ -19951,6 +24440,58 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "trade.signals.webhooks.list": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "signals.webhooks.list",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "webhookId": {
+              "type": "string"
+            },
+            "symbol": {
+              "type": "string"
+            },
+            "venueOwner": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "tokenPrefix": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": ["active", "paused", "ended"]
+            },
+            "createdAt": {
+              "type": "string"
+            }
+          },
+          "required": ["webhookId", "symbol", "venueOwner", "path", "tokenPrefix", "state", "createdAt"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     },
