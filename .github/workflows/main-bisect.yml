@@ -263,6 +263,11 @@ jobs:
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+      # Back on this workflow's commit, so the runner's post steps find .github/actions/journey-runner, which the probed
+      # commit may not hold (the replay runs of #11272 failed there).
+      - name: Back to this workflow's commit
+        if: always()
+        run: git checkout --quiet --force "$GITHUB_SHA"
 
   # The culprit from every leg's result (journeys-revert-probe.mjs decide): the oldest commit of the failing run that ends
   # at the red commit, whose commit before passes. A leg that couldn't run next to that run, or the red commit passing,
@@ -362,6 +367,11 @@ jobs:
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+      # Back on this workflow's commit, so the runner's post steps find .github/actions/journey-runner, which the probed
+      # commit may not hold (the replay runs of #11272 failed there).
+      - name: Back to this workflow's commit
+        if: always()
+        run: git checkout --quiet --force "$GITHUB_SHA"
 
   # Confirm: the failing journey files alone on main's head (bad), a fresh stack set up as a shard sets it up, no retry.
   confirm-run:
@@ -427,6 +437,11 @@ jobs:
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+      # Back on this workflow's commit, so the runner's post steps find .github/actions/journey-runner, which the probed
+      # commit may not hold (the replay runs of #11272 failed there).
+      - name: Back to this workflow's commit
+        if: always()
+        run: git checkout --quiet --force "$GITHUB_SHA"
 
   confirm-note:
     name: 'Journeys revert: note whether the break is back'
