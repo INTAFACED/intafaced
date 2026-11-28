@@ -71,6 +71,8 @@ export const LAUNCH_ORDER = 1;
  * J-ops-console-02-customer-record left it once #3's customer held their bank money at the TEST partner bank and traded
  * from their own venue account, and the customer record read both: the partner's balances on the money tab
  * (ops.customerPartnerBalances) and the venue's orders on the trade tab (admin.venueAccounts.orders).
+ * J-derivatives-02 left it once J-derivatives-02.pw.mjs, four custodial Later tests on our own futures book with a trader
+ * funded through our ledger, became J-derivatives-02-custodial.pw.mjs; all eight steps are proven in J-derivatives-02-venue.pw.mjs.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -79,7 +81,6 @@ export const NOT_YET_OFF = new Set([
   'J-cex-spot-10',
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
-  'J-derivatives-02',
   'J-derivatives-06',
   'J-home-ia-01',
   'J-p2p-21',
