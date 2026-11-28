@@ -174,12 +174,25 @@ describe('shared venue reads', () => {
   });
 
   it('a read the venue answers 429 is tried once more; a second 429 is venue_down, and nothing is kept', async () => {
-    const once = setup(true, [429, 200]);
-    expect(await once.venue.read({ type: 'userFees', user: '0xa' })).toEqual({ n: 2 });
-    const twice = setup(true, [429, 429]);
-    await expect(twice.venue.read({ type: 'userFees', user: '0xa' })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
-    await twice.venue.read({ type: 'userFees', user: '0xa' });
-    expect(twice.calls).toHaveLength(3);
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const once = setup(true, [429, 200]);
+      const first = once.venue.read({ type: 'userFees', user: '0xa' });
+      await vi.advanceTimersByTimeAsync(READ_HOLD_MS);
+      expect(await first).toEqual({ n: 2 });
+      const twice = setup(true, [429, 429]);
+      const refused = expect(twice.venue.read({ type: 'userFees', user: '0xa' })).rejects.toMatchObject({
+        refusal: { code: 'venue_down' },
+      });
+      await vi.advanceTimersByTimeAsync(READ_HOLD_MS);
+      await refused;
+      // The second 429 holds reads again; once that hold has passed, the read goes and nothing was kept from before.
+      twice.tick(READ_HOLD_MS);
+      await twice.venue.read({ type: 'userFees', user: '0xa' });
+      expect(twice.calls).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
     const off = setup(false, [429]);
     await expect(off.venue.read({ type: 'userFees', user: '0xa' })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
     expect(off.calls).toHaveLength(1);

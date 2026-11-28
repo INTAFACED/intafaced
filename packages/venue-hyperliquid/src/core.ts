@@ -71,8 +71,15 @@ const ORDER_ACTIONS: ReadonlySet<string> = new Set([
  * and background reads asking from moments a few seconds apart share one read instead of each weighing 20.
  */
 export const FILLS_GRID_MS = 3_600_000;
-/** How long to wait before the one retry of a read the venue answered 429, unless it says (Retry-After, capped at 5 s). */
-const READ_RETRY_MS = 1_000;
+/**
+ * How long every read is held back once the venue answers one 429, unless it says longer (Retry-After, capped at a
+ * minute). The venue limits the box's one address by weight a minute and, past the limit, lets one request through every
+ * 10 s (its rate-limit docs); a read sent inside the hold would only be refused and counted. The read it refused is tried
+ * once more when the hold ends; any other read not kept is refused `venue_down` without a send, so open desks polling
+ * every few seconds cannot keep the box over the limit.
+ */
+export const READ_HOLD_MS = 10_000;
+const READ_HOLD_MAX_MS = 60_000;
 /** A venue answer's text as JSON; `readOnce` has already checked that it parses. */
 const parseJson = (text: string): Json => JSON.parse(text);
 /**
@@ -284,6 +291,8 @@ export abstract class HyperliquidCore {
   protected readonly timeoutMs: number;
   protected readonly nonceSource: HyperliquidNonceSource;
   private marketsCache: { index: MarketIndex; loadedAtMs: number } | null = null;
+  /** Until when no read is sent: set by a 429 (`READ_HOLD_MS`). */
+  private readsHeldUntilMs = 0;
   /** One listing read at a time: concurrent callers share it. */
   private marketsInFlight: Promise<MarketIndex> | null = null;
   private lastMissRefreshMs = Number.NEGATIVE_INFINITY;
@@ -474,10 +483,19 @@ export abstract class HyperliquidCore {
     return current;
   }
 
-  private async readOnce(body: Record<string, Json>, retry429 = false): Promise<string> {
+  private async readOnce(body: Record<string, Json>, retry429 = false, held = false): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      // The read a 429 refused is the one sent when its hold ends (`held`), whatever the clock says by then.
+      const heldMs = held ? 0 : this.readsHeldUntilMs - this.clock().getTime();
+      if (heldMs > 0) {
+        throw refusal(
+          this.venue.id,
+          'venue_down',
+          `info ${String(body.type)} not sent: the venue's rate limit holds reads for ${Math.ceil(heldMs / 1000)} s more`,
+        );
+      }
       const res = await this.fetchImpl(`${this.baseUrl}/info`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -492,11 +510,15 @@ export abstract class HyperliquidCore {
         answer = undefined;
       }
       this.spend(String(body.type), readWeight(String(body.type), answer), typeof body.user === 'string' ? body.user : null);
-      if (res.status === 429 && retry429) {
-        clearTimeout(timer);
+      if (res.status === 429) {
         const said = Number(res.headers?.get('retry-after') ?? NaN);
-        await new Promise((r) => setTimeout(r, Number.isFinite(said) && said > 0 ? Math.min(said * 1000, 5_000) : READ_RETRY_MS));
-        return await this.readOnce(body, false);
+        const holdMs = Number.isFinite(said) && said > 0 ? Math.min(Math.max(said * 1000, READ_HOLD_MS), READ_HOLD_MAX_MS) : READ_HOLD_MS;
+        this.readsHeldUntilMs = Math.max(this.readsHeldUntilMs, this.clock().getTime() + holdMs);
+        if (retry429) {
+          clearTimeout(timer);
+          await new Promise((r) => setTimeout(r, holdMs));
+          return await this.readOnce(body, false, true);
+        }
       }
       if (!res.ok) throw refusal(this.venue.id, 'venue_down', `info ${String(body.type)} answered HTTP ${res.status}`);
       if (answer === undefined) throw new Error('the answer is not JSON');
