@@ -65,6 +65,9 @@ export const LAUNCH_ORDER = 1;
  * the person's own venue account in J-cex-spot-10-venue.pw.mjs. J-cex-spot-10.pw.mjs now holds only #7, which stays here:
  * with our own book off, My tier shows the venue's tier and none of our programme's, so the benefits table and a VIP
  * trial's tier are not shown.
+ * J-charts-desk-14 left it once #8's check of today's engine queue read, whose other person is the TEST market maker's
+ * taker account (made only with our own book on), moved to J-charts-desk-14-custodial.pw.mjs; every step reads the
+ * person's own venue account.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -73,7 +76,6 @@ export const NOT_YET_OFF = new Set([
   'J-cex-spot-10',
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
-  'J-charts-desk-14',
   'J-derivatives-02',
   'J-derivatives-06',
   'J-home-ia-01',
