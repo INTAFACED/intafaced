@@ -267,7 +267,7 @@ function moveBookAside(paths, layer, now = new Date()) {
 
 /**
  * The TEST chain's anvil on the beta: the same pinned foundry image and `docker run` launcher the journeys use
- * (.github/workflows/real-app-journeys.yml, "Get an anvil launcher"). The box has no anvil of its own, and without one the
+ * (.github/actions/journey-runner, "Get an anvil launcher"). The box has no anvil of its own, and without one the
  * stack starts no TEST chain: svc-indexer is not started and svc-protocol keeps no node, so /dex, /chain, /protocol and
  * /dex/pools only ever said "didn't answer" or "Checking network…" (#10305). Host network, so anvil binds the loopback
  * port the stack names; the stack's stop signals the client, which passes it to the container (--init, --rm).

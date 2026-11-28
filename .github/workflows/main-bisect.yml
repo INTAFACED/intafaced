@@ -207,22 +207,14 @@ jobs:
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
     steps:
-      - name: Paths
-        run: |
-          {
-            echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
-            echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
-            echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
-            echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
-            echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
-          } >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      # The search checks out older commits; keep the probe (from this workflow's commit) out of the way.
+      # The search checks out older commits; keep the probe and the shard's setup (from this workflow's commit, which is
+      # main's: journey-shard.sh) out of the way.
       - name: Keep the probe outside the checkout
-        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh tooling/ci/journey-shard.sh "$RUNNER_TEMP/"
       # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
       # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
       # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
@@ -245,20 +237,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-      - name: Put pnpm next to node
-        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
-      - name: Get a nats-server binary
-        uses: ./.github/actions/nats-server
-        with:
-          path: ${{ env.LOCAL_STACK_NATS_BIN }}
-      - name: Get an anvil launcher
-        run: |
-          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
-          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
-          #!/bin/sh
-          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
-          EOF
-          chmod +x "$LOCAL_STACK_ANVIL_BIN"
+      # The runner readied as a Real-app journeys shard readies it, by the same action (project-state#4151).
+      - uses: ./.github/actions/journey-runner
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Install the browser
@@ -283,6 +263,11 @@ jobs:
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+      # Back on this workflow's commit, so the runner's post steps find .github/actions/journey-runner, which the probed
+      # commit may not hold (the replay runs of #11272 failed there).
+      - name: Back to this workflow's commit
+        if: always()
+        run: git checkout --quiet --force "$GITHUB_SHA"
 
   # The culprit from every leg's result (journeys-revert-probe.mjs decide): the oldest commit of the failing run that ends
   # at the red commit, whose commit before passes. A leg that couldn't run next to that run, or the red commit passing,
@@ -335,22 +320,13 @@ jobs:
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
     steps:
-      - name: Paths
-        run: |
-          {
-            echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
-            echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
-            echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
-            echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
-            echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
-          } >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
       # The run checks out the good commit; keep the probe (from this workflow's commit) out of the way.
       - name: Keep the probe outside the checkout
-        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh tooling/ci/journey-shard.sh "$RUNNER_TEMP/"
       # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
       # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
       # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
@@ -373,20 +349,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-      - name: Put pnpm next to node
-        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
-      - name: Get a nats-server binary
-        uses: ./.github/actions/nats-server
-        with:
-          path: ${{ env.LOCAL_STACK_NATS_BIN }}
-      - name: Get an anvil launcher
-        run: |
-          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
-          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
-          #!/bin/sh
-          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
-          EOF
-          chmod +x "$LOCAL_STACK_ANVIL_BIN"
+      # The runner readied as a Real-app journeys shard readies it, by the same action (project-state#4151).
+      - uses: ./.github/actions/journey-runner
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Install the browser
@@ -403,6 +367,11 @@ jobs:
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+      # Back on this workflow's commit, so the runner's post steps find .github/actions/journey-runner, which the probed
+      # commit may not hold (the replay runs of #11272 failed there).
+      - name: Back to this workflow's commit
+        if: always()
+        run: git checkout --quiet --force "$GITHUB_SHA"
 
   # Confirm: the failing journey files alone on main's head (bad), a fresh stack set up as a shard sets it up, no retry.
   confirm-run:
@@ -420,15 +389,6 @@ jobs:
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
     steps:
-      - name: Paths
-        run: |
-          {
-            echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
-            echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
-            echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
-            echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
-            echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
-          } >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -443,7 +403,7 @@ jobs:
           BAD: ${{ inputs.bad }}
         run: node tooling/ci/journeys-revert.mjs confirm-files
       - name: Keep the probe outside the checkout
-        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh tooling/ci/journey-shard.sh "$RUNNER_TEMP/"
       # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
       # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
       # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
@@ -459,20 +419,8 @@ jobs:
             echo "::notice::run $RED_RUN kept no leave-out list (not a push run on main, or before it kept one): nothing is left out"
           fi
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - name: Put pnpm next to node
-        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
-      - name: Get a nats-server binary
-        uses: ./.github/actions/nats-server
-        with:
-          path: ${{ env.LOCAL_STACK_NATS_BIN }}
-      - name: Get an anvil launcher
-        run: |
-          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
-          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
-          #!/bin/sh
-          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
-          EOF
-          chmod +x "$LOCAL_STACK_ANVIL_BIN"
+      # The runner readied as a Real-app journeys shard readies it, by the same action (project-state#4151).
+      - uses: ./.github/actions/journey-runner
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Install the browser
@@ -489,6 +437,11 @@ jobs:
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+      # Back on this workflow's commit, so the runner's post steps find .github/actions/journey-runner, which the probed
+      # commit may not hold (the replay runs of #11272 failed there).
+      - name: Back to this workflow's commit
+        if: always()
+        run: git checkout --quiet --force "$GITHUB_SHA"
 
   confirm-note:
     name: 'Journeys revert: note whether the break is back'
