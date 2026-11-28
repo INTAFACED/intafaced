@@ -134,6 +134,20 @@ export function recordingSql(answer: SqlAnswer = () => undefined): { sql: unknow
   return { sql, queries };
 }
 
+/** What the last `bootIdentity` start reached, kept when the start throws: database pools opened, servers made, listens. */
+export interface BootTrace {
+  connections: number;
+  servers: number;
+  listens: number;
+  readonly queries: SqlCall[];
+}
+let lastTrace: BootTrace | null = null;
+
+/** The trace of the most recent `bootIdentity` call (null before the first). */
+export function lastBootTrace(): BootTrace | null {
+  return lastTrace;
+}
+
 /**
  * Boots `index.ts` with `env` over the base variables. Each call is a fresh start: modules are reset, so two boots in
  * one file are two services.
@@ -146,7 +160,14 @@ export async function bootIdentity(
   stubIdentityEnv(env);
   const { sql, queries } = recordingSql(answer);
   const listened: FastifyInstance[] = [];
-  vi.doMock('postgres', () => ({ default: () => sql }));
+  const trace: BootTrace = { connections: 0, servers: 0, listens: 0, queries };
+  lastTrace = trace;
+  vi.doMock('postgres', () => ({
+    default: () => {
+      trace.connections += 1;
+      return sql;
+    },
+  }));
   vi.doMock('@intafaced/events', async (original) => {
     const real = await original<Record<string, unknown>>();
     class JetStreamEventBus {
@@ -165,8 +186,10 @@ export async function bootIdentity(
     const real = await original<{ default: (...args: unknown[]) => FastifyInstance }>();
     const factory = (...args: unknown[]) => {
       const app = real.default(...args);
+      trace.servers += 1;
       return Object.assign(app, {
         listen: async () => {
+          trace.listens += 1;
           await app.ready();
           listened.push(app);
           return '';
