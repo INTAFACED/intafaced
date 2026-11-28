@@ -85,6 +85,10 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
  *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
  *        /test/fills {since}                              every account's fills since a time, with its account
+ *        /test/history-kept {symbol,fillsFrom?,candlesFrom?}   the venue keeps that market's fills (every account's) or its
+ *                                                         candles only from that time on, as a venue keeps a bounded
+ *                                                         history (Hyperliquid: the newest 10,000 fills, 5,000 candles);
+ *                                                         null keeps all again (J-portfolio-18 #3 #7)
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP,
  *                                                         XSTK-PERP and XSTD-PERP
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
@@ -686,6 +690,46 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     triggerSources: ['mark'],
     oracle: {},
   },
+  {
+    // J-portfolio-18: a TEST perpetual of its own whose trades fill the person's journal, so moving its ladder, closing
+    // its funding period and taking its history away (/test/history-kept) reach no other journey. Only J-portfolio-18
+    // trades it. Priced by its TEST oracle, so a fill never moves its mark.
+    symbol: 'XJRL-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XJRL',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    // TEST: stop orders judged on the mark, so the journal's trades open with a stop (J-portfolio-18 #4).
+    triggerSources: ['mark'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    // TEST: hourly funding as on XFND-PERP.
+    funding: {
+      rate: ZERO,
+      intervalSeconds: 3600,
+      settles: {
+        interestRate: parseAmount('0.0000125'),
+        rateCap: parseAmount('0.04'),
+        rule:
+          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
+          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
+      },
+    },
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
@@ -701,6 +745,7 @@ const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
   'XBIL-PERP',
   'XCRS-PERP',
   'XTGM-PERP',
+  'XJRL-PERP',
 ]);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'limit_only', 'halted', 'cancel_only', 'delisted']);
 
@@ -724,6 +769,7 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'XBIL-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XCRS-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XTGM-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XJRL-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
@@ -1470,6 +1516,17 @@ async function route(
       if (typeof body.published === 'boolean') sim.setSessionPublished(symbol, body.published);
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { session: market?.session ?? { known: false }, label: 'TEST' };
+    }
+    case '/test/history-kept': {
+      const at = (k: 'fillsFrom' | 'candlesFrom') => {
+        const v = body[k];
+        if (v === undefined) return undefined;
+        if (v === null || v instanceof Date) return v;
+        const at = typeof v === 'string' ? new Date(v) : null;
+        if (!at || Number.isNaN(at.getTime())) throw new VenueWireError(`${k} is an ISO time or null`);
+        return at;
+      };
+      return { ...sim.keepHistoryFrom(str(body, 'symbol'), { fills: at('fillsFrom'), candles: at('candlesFrom') }), label: 'TEST' };
     }
     case '/test/fills': {
       const since = body.since;

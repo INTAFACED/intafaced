@@ -1,5 +1,18 @@
 import { createHash } from 'node:crypto';
-import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import {
+  add,
+  compare,
+  div,
+  formatAmount,
+  max,
+  min,
+  mul,
+  parseAmount,
+  proRata,
+  sub,
+  ZERO,
+  type Amount,
+} from '@intafaced/ledger-client/money';
 import {
   type AgentPermissionReach,
   VenueRefusalError,
@@ -656,6 +669,14 @@ function refuse(venueId: string, code: VenueRefusalCode, detail: string): never 
 
 function accountKey(account: UserVenueAccount): string {
   return `${account.owner.toLowerCase()}/${account.subAccount ?? ''}`;
+}
+
+/** One part of a perp fill: its price, amount, the share of the order's lock it frees and its fees. */
+interface FillPart {
+  readonly price: Amount;
+  readonly qty: Amount;
+  readonly lockForQty: Amount;
+  readonly fees: Amount;
 }
 
 export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
@@ -1558,6 +1579,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     for (const p of this.prints.get(market.symbol) ?? []) {
       const openMs = Math.floor(p.tradedAt.getTime() / stepMs) * stepMs;
       if (sinceMs !== undefined && openMs < sinceMs) continue;
+      if (!this.kept('candles', market.symbol, p.tradedAt)) continue;
       const last = out[out.length - 1];
       if (last && last.openAt.getTime() === openMs)
         out[out.length - 1] = {
@@ -2390,7 +2412,35 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   async fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
     this.up();
-    return this.asOf(this.account(account).fills.filter((f) => f.filledAt.getTime() >= since.getTime()));
+    return this.asOf(
+      this.account(account).fills.filter((f) => f.filledAt.getTime() >= since.getTime() && this.kept('fills', f.symbol, f.filledAt)),
+    );
+  }
+
+  /** From when the venue keeps each market's fills and candles (`keepHistoryFrom`); a market not named keeps all. */
+  private readonly historyFrom = new Map<string, { fills: Date | null; candles: Date | null }>();
+
+  private kept(kind: 'fills' | 'candles', symbol: string, at: Date): boolean {
+    const from = this.historyFrom.get(symbol)?.[kind];
+    return !from || at.getTime() >= from.getTime();
+  }
+
+  /**
+   * TEST control: the venue keeps `symbol`'s fills (every account's) or its candles only from a time on, as a venue keeps
+   * a bounded history (J-portfolio-18 #3 #7). `null` keeps all again; left out keeps that one as it is.
+   */
+  keepHistoryFrom(
+    symbol: string,
+    from: { readonly fills?: Date | null; readonly candles?: Date | null },
+  ): { symbol: string; fillsFrom: Date | null; candlesFrom: Date | null } {
+    this.market(symbol);
+    const was = this.historyFrom.get(symbol) ?? { fills: null, candles: null };
+    const now = {
+      fills: from.fills === undefined ? was.fills : from.fills,
+      candles: from.candles === undefined ? was.candles : from.candles,
+    };
+    this.historyFrom.set(symbol, now);
+    return { symbol, fillsFrom: now.fills, candlesFrom: now.candles };
   }
 
   async positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>> {
@@ -4356,13 +4406,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         return refused('venue_rejected', 'reduce-only order would open or grow a position');
       if (compare(intent.amount, held.size) > 0) return refused('venue_rejected', 'reduce-only order is larger than the position');
     } else if (perp) {
-      // An order is either opening (grows the position) or reduce-only (closes it). Netting through zero is not simulated.
-      if (held && (held.side === 'long') !== (intent.side === 'buy')) {
-        return refused(
-          'not_offered',
-          'closing or flipping a position with an opening order is not offered on the TEST simulator: close it reduce-only',
-        );
-      }
+      // An opening order against the position nets through zero, as the venue does: it closes the position and opens
+      // the other side with what is left (`settle`).
       // An own resting order this one crosses is not counted: the self-trade rule below cancels it before this one rests.
       const book = this.bookOf(market.symbol);
       const opposite = [...state.orders.values()].some(
@@ -4932,39 +4977,72 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     // Perpetual, isolated margin. The order's lock pays this fill's margin and fees; the rest returns to free.
     const usdc = this.lockBalance(state, market.marginAccount?.name ?? null, market.marginAccount?.collateralAsset ?? market.quoteAsset);
     const current = state.positions.get(market.symbol);
+    const held = current && current.size !== ZERO ? current : undefined;
+    if (!o.reduceOnly && held && (held.side === 'long') !== (o.side === 'buy')) {
+      // An opening order against the other side nets through zero, as the venue does: the part up to the position's
+      // size closes it, the rest opens the other side, the lock and the fee split between them by amount.
+      const closeQty = min(qty, held.size);
+      const openQty = sub(qty, closeQty);
+      const [closeFee = ZERO, openFee = ZERO] = openQty === ZERO ? [fees, ZERO] : proRata(fees, [closeQty, openQty]);
+      const [closeLock = ZERO, openLock = ZERO] = openQty === ZERO ? [lockForQty, ZERO] : proRata(lockForQty, [closeQty, openQty]);
+      const closed = this.closePart(usdc, held, { price, qty: closeQty, lockForQty: closeLock, fees: closeFee });
+      const opened =
+        openQty === ZERO
+          ? { uncharged: ZERO }
+          : this.openPart({ state, market, side, usdc }, { price, qty: openQty, lockForQty: openLock, fees: openFee });
+      return { realisedPnl: closed.realisedPnl, uncharged: add(closed.uncharged, opened.uncharged) };
+    }
     if (!o.reduceOnly) {
-      const margin = div(mul(mul(price, qty, QUOTE_ROUND), BPS), parseAmount(String(side.leverageBps)), QUOTE_ROUND);
-      // A short that fills above its limit needs a little more margin than it locked: from free, while free has it.
-      const needed = add(margin, fees);
-      const extra = compare(needed, lockForQty) > 0 ? min(sub(needed, lockForQty), usdc.free) : ZERO;
-      usdc.free = sub(usdc.free, extra);
-      const available = add(lockForQty, extra);
-      const posted = max(ZERO, min(margin, sub(available, fees)));
-      usdc.free = add(usdc.free, sub(available, add(posted, fees)));
-      // Posted margin is "used as margin": it stays in locked until the position closes (user-venue.ts).
-      usdc.locked = add(usdc.locked, posted);
-      if (!current || current.size === ZERO) {
-        state.positions.set(market.symbol, {
-          side: o.side === 'buy' ? 'long' : 'short',
-          size: qty,
-          entryPrice: price,
-          margin: posted,
-          leverageBps: side.leverageBps as number,
-          marginMode: side.marginMode as VenueMarginMode,
-        });
-      } else {
-        if ((current.side === 'long') !== (o.side === 'buy'))
-          throw new Error('TEST simulator invariant: an opening fill met an opposite position');
-        const size = add(current.size, qty);
-        current.entryPrice = div(add(mul(current.entryPrice, current.size), mul(price, qty)), size, QUOTE_ROUND);
-        current.size = size;
-        current.margin = add(current.margin, posted);
-      }
+      this.openPart({ state, market, side, usdc }, { price, qty, lockForQty, fees });
       return { realisedPnl: null, uncharged: ZERO };
     }
     // Reduce-only: close (part of) the position. Isolated: the loss stops at the margin released.
     const p = current as PositionState;
-    const closeQty = min(qty, p.size);
+    return this.closePart(usdc, p, { price, qty: min(qty, p.size), lockForQty, fees });
+  }
+
+  /** The opening part of a perp fill: margin posted from the order's lock, the rest back to free. */
+  private openPart(
+    at: { state: AccountState; market: SimMarketConfig; side: OrderState; usdc: { free: Amount; locked: Amount } },
+    part: FillPart,
+  ): { uncharged: Amount } {
+    const { state, market, side, usdc } = at;
+    const { price, qty, lockForQty, fees } = part;
+    const o = side.order;
+    const current = state.positions.get(market.symbol);
+    const margin = div(mul(mul(price, qty, QUOTE_ROUND), BPS), parseAmount(String(side.leverageBps)), QUOTE_ROUND);
+    // A short that fills above its limit needs a little more margin than it locked: from free, while free has it.
+    const needed = add(margin, fees);
+    const extra = compare(needed, lockForQty) > 0 ? min(sub(needed, lockForQty), usdc.free) : ZERO;
+    usdc.free = sub(usdc.free, extra);
+    const available = add(lockForQty, extra);
+    const posted = max(ZERO, min(margin, sub(available, fees)));
+    usdc.free = add(usdc.free, sub(available, add(posted, fees)));
+    // Posted margin is "used as margin": it stays in locked until the position closes (user-venue.ts).
+    usdc.locked = add(usdc.locked, posted);
+    if (!current || current.size === ZERO) {
+      state.positions.set(market.symbol, {
+        side: o.side === 'buy' ? 'long' : 'short',
+        size: qty,
+        entryPrice: price,
+        margin: posted,
+        leverageBps: side.leverageBps as number,
+        marginMode: side.marginMode as VenueMarginMode,
+      });
+    } else {
+      if ((current.side === 'long') !== (o.side === 'buy'))
+        throw new Error('TEST simulator invariant: an opening fill met an opposite position');
+      const size = add(current.size, qty);
+      current.entryPrice = div(add(mul(current.entryPrice, current.size), mul(price, qty)), size, QUOTE_ROUND);
+      current.size = size;
+      current.margin = add(current.margin, posted);
+    }
+    return { uncharged: ZERO };
+  }
+
+  /** The closing part of a perp fill: margin released with the realised result, fees from the lock, then from it. */
+  private closePart(usdc: { free: Amount; locked: Amount }, p: PositionState, part: FillPart): { realisedPnl: Amount; uncharged: Amount } {
+    const { price, qty: closeQty, lockForQty, fees } = part;
     const pnl = this.pnl(p, price, closeQty);
     const released = closeQty === p.size ? p.margin : div(mul(p.margin, closeQty), p.size, QUOTE_ROUND);
     p.margin = sub(p.margin, released);
