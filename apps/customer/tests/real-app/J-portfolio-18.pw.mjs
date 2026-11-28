@@ -162,6 +162,20 @@ function expected(id, side, opens, closes, largest) {
   };
 }
 
+/** The funding the venue booked on a trade's side for the periods that ended while it was open. */
+const fundingOn = (t, payments) =>
+  sum(
+    payments
+      .filter(
+        (p) => p.side === t.side && Date.parse(p.periodAt) > Date.parse(t.openedAt) && Date.parse(p.periodAt) <= Date.parse(t.closedAt),
+      )
+      .map((p) => toUnits(p.amount)),
+  );
+
+/** The venue's funding payments on the market since a time. */
+const fundingSince = async (owner, since) =>
+  (await venueRecord(owner, '/funding-payments', { since })).value.filter((p) => p.symbol === SYMBOL);
+
 /** The net result: the venue's realised result, less the venue's fee and our builder fee, plus or minus funding. */
 function withNet(t, funding) {
   t.funding = fromUnits(funding);
@@ -288,8 +302,8 @@ async function startsLine(browser) {
     const stop = history.find((r) => r.order.venueClientOrderId === ids.Astop);
     expect(stop?.order.trigger).toMatchObject({ role: 'stop_loss', price: STOP });
     expect(Date.parse(stop.placedAt)).toBeLessThan(Date.parse(of('A2').filledAt));
-    // No funding period of the market closed while any of them was open.
-    const funding = (await venueRecord(owner, '/funding-payments', { since })).value.filter((p) => p.symbol === SYMBOL);
+    // The funding the venue booked on each trade while it was open, if a period ended then.
+    const funding = await fundingSince(owner, since);
 
     const B = expected(of('B1').fillId, 'short', [[of('B1'), '0.1']], [[of('B2'), '0.1']], '0.1');
     const A = expected(
@@ -307,18 +321,7 @@ async function startsLine(browser) {
     );
     const CL = expected(of('C1').fillId, 'long', [[of('C1'), '0.1']], [[of('C2'), '0.1']], '0.1');
     const CS = expected(of('C2').fillId, 'short', [[of('C2'), '0.2']], [[of('C3'), '0.2']], '0.2');
-    for (const t of [B, A, CL, CS])
-      withNet(
-        t,
-        sum(
-          funding
-            .filter(
-              (p) =>
-                p.side === t.side && Date.parse(p.periodAt) > Date.parse(t.openedAt) && Date.parse(p.periodAt) <= Date.parse(t.closedAt),
-            )
-            .map((p) => toUnits(p.amount)),
-        ),
-      );
+    for (const t of [B, A, CL, CS]) withNet(t, fundingOn(t, funding));
     // Each trade's candles from the venue, read before #7 takes them away: B's minute is gone; the others are whole.
     expect(candles.some((c) => Date.parse(c.openAt) === minuteOf(B.openedAt))).toBe(false);
     run.reset({
@@ -567,7 +570,8 @@ test(`${J} #6 closes another TEST position on the desk, then opens Journal: one 
     closing.map((f) => [f, f.amount]),
     '0.1',
   );
-  withNet(D, 0n);
+  // A funding period may end while D is open: its payment is in D's net, as the venue booked it.
+  withNet(D, fundingOn(D, await fundingSince(s.owner, s.since)));
 
   await openJournal(page, s, { fresh: false });
   const rows = page.getByTestId('journal-row');
