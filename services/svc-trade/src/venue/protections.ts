@@ -645,6 +645,8 @@ export class VenueProtections {
    * venue; a move whose answer was lost is read back by the order's own client id.
    */
   async move(principal: Principal, req: TriggerMoveRequest): Promise<TriggerMoveAnswer> {
+    // A moved stop or take profit is a changed order: the person's level is checked first, as the door checks it.
+    assertTradingLevel(principal, 'move_trigger');
     if (typeof req.symbol !== 'string' || req.symbol.trim() === '') bad('symbol is required');
     const symbol = req.symbol;
     if (typeof req.venueClientOrderId !== 'string' || !/^\S{1,128}$/.test(req.venueClientOrderId))

@@ -116,7 +116,7 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
  * grants stay open below it: they only reduce what is on the venue, so a held account never strands its own funds there.
  */
 export function assertTradingLevel(principal: Principal, kind: VenueIntent['kind']): void {
-  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order' || kind === 'replace_order')
+  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order' || kind === 'replace_order' || kind === 'move_trigger')
     requireTradeTier(principal, 'basic');
 }
 

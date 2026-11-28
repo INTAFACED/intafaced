@@ -631,6 +631,11 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     for (const made of [tp, sl]) expect((await send(made)).outcome).toMatchObject({ accepted: true });
     const tpId = tp.prepared.venueClientOrderId!;
     try {
+      // A moved order is a changed order: a person below trading moves nothing, as the door refuses a changed order.
+      const below = { ...person, tier: 'none' } as Principal;
+      await expect(p.move(below, { owner, symbol: ETH, venueClientOrderId: tpId, triggerPrice: '3150' })).rejects.toMatchObject({
+        code: 'tier.insufficient',
+      });
       const moved = await p.move(person, { owner, symbol: ETH, venueClientOrderId: tpId, triggerPrice: '3150' });
       expect(moved).toMatchObject({ role: 'take_profit', from: '3100', triggerPrice: '3150', price: '2835' });
       expect(triggerMoveAnswerSchema.safeParse(encodeVenueWire(moved)).success).toBe(true);
