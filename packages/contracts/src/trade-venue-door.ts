@@ -576,6 +576,8 @@ export const venueAccountSummarySchema = z.object({
   usedMargin: decimalSchema,
   maintenanceMargin: decimalSchema,
   marginRatio: maybeKnown(decimalSchema),
+  /** The most a withdrawal of `asset` may ask for now, as the venue reports it (J-derivatives-25 #10); absent: it reports none. */
+  withdrawable: decimalSchema.optional(),
   /** The account's cross margin as the venue judges it (J-derivatives-26): null with no cross position open. */
   cross: z
     .object({

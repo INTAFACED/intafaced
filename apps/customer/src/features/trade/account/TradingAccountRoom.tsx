@@ -31,6 +31,7 @@ import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { tradingAccountCopy } from './trading-account-copy';
 import { AccountModePanel } from './AccountMode';
 import { TradingStatement } from './TradingStatement';
+import { MoveOut } from './MoveOut';
 import { depositRoute, routeOf } from './move-route';
 import { BANK_CARDS_LIST, BANK_CARDS_PARTNER_HELD } from '@intafaced/contracts/bank-cards-procedures';
 import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from '@intafaced/contracts/bank-own-moves-procedures';
@@ -44,7 +45,8 @@ import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from '@intafaced/contract
  * person's own wallet (svc-bank `ownMoves.toWallet`, after a fresh second factor and the wallet's signature naming the
  * move), then the wallet's own signed deposit to the venue's deposit address, which svc-bank records against the move.
  * Sending the same move again sends nothing and shows the first result. A move above what the partner reports free is
- * refused by the bank with its figure, and nothing is sent (#3). The ledger posts nothing for any of it.
+ * refused by the bank with its figure, and nothing is sent (#3). A move back out to spending is the venue's withdrawal to
+ * the wallet, then the wallet's send to the partner account (`MoveOut`, #10 #11). The ledger posts nothing for any of it.
  */
 
 /** The asset a move carries: TEST USDC on the stack, the venue's deposit route's own asset. */
@@ -133,6 +135,7 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
   const [revision, setRevision] = useState(0);
   const spaces = useSpendingSpaces(revision);
   const partner = (spaces.data ?? []).find((s) => s.heldAt)?.heldAt?.label ?? null;
+  const primarySummary = useAccountSummary(owner, primary, revision);
   // A margin call's one action (J-derivatives-26 #2): the person's own move, opened at its amount; nothing moves until they sign.
   const openMoveIn = () => {
     const amount = document.getElementById(MOVE_AMOUNT_ID);
@@ -159,6 +162,13 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
         <SpendingGroup revision={revision} spaces={spaces} />
       </div>
       <MoveIn owner={owner} venue={primary} partner={partner} onMoved={() => setRevision((n) => n + 1)} />
+      <MoveOut
+        owner={owner}
+        venue={primary}
+        summary={primarySummary.data?.value ?? null}
+        partner={partner}
+        onMoved={() => setRevision((n) => n + 1)}
+      />
     </>
   );
 }
@@ -184,6 +194,7 @@ function VenueAccount({
     VENUE_POLL_MS,
   );
   const rows = balances.data?.value ?? null;
+  const summary = useAccountSummary(owner, venue, revision);
   return (
     <div data-testid="trading-venue" data-venue={venue.name}>
       <h2>
@@ -219,7 +230,8 @@ function VenueAccount({
         </ScrollTable>
       )}
       <AccountModePanel owner={owner} venue={venue} balances={rows} onChanged={balances.reload} />
-      <CrossMargin owner={owner} venue={venue} revision={revision} onMoveIn={onMoveIn} />
+      <FreeMargin summary={summary} venue={venue} />
+      <CrossMargin summary={summary} venue={venue} onMoveIn={onMoveIn} />
       <Liquidations owner={owner} venue={venue} revision={revision} />
     </div>
   );
@@ -231,14 +243,8 @@ function VenueAccount({
  * for margin, one alert names the trading account, with one action: the person's own move into it. Nothing moves from
  * spending unless they sign that move.
  */
-function CrossMargin({ owner, venue, revision, onMoveIn }: { owner: string; venue: Venue; revision: number; onMoveIn: () => void }) {
+function CrossMargin({ summary, venue, onMoveIn }: { summary: ReturnType<typeof useAccountSummary>; venue: Venue; onMoveIn: () => void }) {
   const { t } = tradingAccountCopy.useCopy();
-  const api = useVenueApi();
-  const summary = usePolled(
-    (signal) => api.accountSummary(owner, signal, venue.id),
-    `trading:cross:${owner}:${venue.id ?? ''}:${revision}`,
-    VENUE_POLL_MS,
-  );
   const s = summary.data?.value ?? null;
   const cross = s?.cross ?? null;
   if (!s || !cross) return null;
@@ -269,6 +275,31 @@ function CrossMargin({ owner, venue, revision, onMoveIn }: { owner: string; venu
         {cross.rule}
       </p>
     </div>
+  );
+}
+
+/**
+ * The account's free margin, beside its cross figures, as the venue reports it with its time (J-derivatives-25 #9): shown
+ * with or without a cross position open, so a close that realises a profit shows what it freed.
+ */
+function FreeMargin({ summary, venue }: { summary: ReturnType<typeof useAccountSummary>; venue: Venue }) {
+  const { t } = tradingAccountCopy.useCopy();
+  const s = summary.data?.value ?? null;
+  if (!s) return null;
+  return (
+    <p data-testid="free-margin" data-value={s.free}>
+      {t('freeMargin', { amount: s.free, asset: s.asset, venue: venue.name })} · <AsOf iso={summary.data?.asOf} t={t} />
+    </p>
+  );
+}
+
+/** The venue account's margin summary as the venue reports it, read for the account's cross figures and its move out. */
+function useAccountSummary(owner: string, venue: Venue, revision: number) {
+  const api = useVenueApi();
+  return usePolled(
+    (signal) => api.accountSummary(owner, signal, venue.id),
+    `trading:summary:${owner}:${venue.id ?? ''}:${revision}`,
+    VENUE_POLL_MS,
   );
 }
 

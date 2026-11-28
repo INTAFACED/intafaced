@@ -425,6 +425,8 @@ export abstract class HyperliquidReads extends HyperliquidCore {
         asset: PERP_COLLATERAL_ASSET,
         equity,
         free: amt(p.withdrawable, 'withdrawable'),
+        // The venue's own `withdrawable`: what a withdrawal may ask for, its fee taken from the amount (J-derivatives-25 #10).
+        withdrawable: amt(p.withdrawable, 'withdrawable'),
         usedMargin: amt(summary.totalMarginUsed, 'totalMarginUsed'),
         maintenanceMargin: maintenance,
         marginRatio: compare(equity, ZERO) > 0 ? { known: true, value: div(maintenance, equity, 'ceil') } : { known: false },
