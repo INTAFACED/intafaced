@@ -79,6 +79,8 @@ function trade(tradeId: string, closedAt: string, complete: boolean): JournalTra
     rMissing: null,
     excursion: { interval: '1m', complete, mae: complete ? excursion : null, mfe: complete ? excursion : null },
     disciplined: { exit: 'unresolved', exitPrice: null, netPnl: null },
+    rules: { verdict: 'no_stop', netPnl: '17.789875', oneR: null, widenedStop: null, dailyLoss: null },
+    fillIds: [tradeId, `${tradeId}-x`],
   };
 }
 
