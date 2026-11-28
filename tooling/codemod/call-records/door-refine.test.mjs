@@ -18,7 +18,10 @@ const contractsZod = () =>
 const REFINE = '(.refine/.superRefine (a TypeScript predicate the export drops))';
 const EIGHT = '(args) => Object.keys(args).length <= 8';
 
-/** A planted crate whose recorder names one refine, written two ways, beside a table that is not the refines'. */
+/**
+ * A planted crate whose recorder names one refine as tsx prints it (`args=>…`, no parentheses), as svc-bank's names
+ * `value=>Object.keys(value).length<=8`, beside a table that is not the refines'.
+ */
 function plantedDoor() {
   const root = mkdtempSync(join(tmpdir(), 'call-records-door-refine-'));
   mkdirSync(join(root, 'crates/svc-x/scripts'), { recursive: true });
@@ -28,7 +31,6 @@ function plantedDoor() {
       "const OTHER = { '(v) => v > 0': 'not_a_refine' };",
       'const REFINES = {',
       "  'args=>Object.keys(args).length<=8': 'at_most_eight_keys',",
-      `  '${EIGHT}': 'at_most_eight_keys',`,
       '};',
       'export { OTHER, REFINES };',
       '',
@@ -40,14 +42,11 @@ function plantedDoor() {
 test("a door's names for its refines are its recorder's REFINES table, by each function's source without its spacing", () => {
   const root = plantedDoor();
   const names = doorRefines('crates/svc-x', root);
-  assert.deepEqual(
-    [...names],
-    [
-      ['args=>Object.keys(args).length<=8', 'at_most_eight_keys'],
-      ['(args)=>Object.keys(args).length<=8', 'at_most_eight_keys'],
-    ],
-  );
+  assert.deepEqual([...names], [['args=>Object.keys(args).length<=8', 'at_most_eight_keys']]);
+  // The refine as a record file writes it, its lone parameter in parentheses, takes the name the table gave the other
+  // printing: svc-bank's `recipient` was left by hand for this.
   assert.equal(names.get(squash('(args) =>\n  Object.keys(args).length <= 8')), 'at_most_eight_keys');
+  assert.equal(squash('(a, b) => a'), '(a,b)=>a');
   // A crate with no recorder names none, and nothing is thrown.
   assert.equal(doorRefines('crates/svc-none', root).size, 0);
   assert.equal(wordsOf('at_most_eight_keys'), 'at most eight keys');

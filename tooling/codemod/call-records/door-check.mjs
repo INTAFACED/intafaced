@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { callsOf } from './door.mjs';
-import { doorRefines } from './door-refine.mjs';
+import { doorRefines, squash } from './door-refine.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 
@@ -40,14 +40,6 @@ const REFINES = {
   "(rule) => rule.mode === 'delayed' || rule.delayMinutes === null": 'only_delayed_has_delay',
   'v=>!(v.course&&v.certificate)': 'course_or_certificate',
 };
-// A refine's source as tsc emits it may differ from tsx's only in spacing, a one-parameter arrow's parentheses
-// (`(v) => ...` from prettier, `v => ...` from esbuild), and the semicolon a block body's last statement ends with
-// (tsc writes `=== day;\n}`, esbuild `===day}`): compare without any of them.
-const squash = (s) =>
-  s
-    .replace(/\s+/g, '')
-    .replace(/^\(([A-Za-z_$][\w$]*)\)=>/, '$1=>')
-    .replace(/;}/g, '}');
 const REFINE_BY = new Map(Object.entries(REFINES).map(([src, id]) => [squash(src), id]));
 /** A door's own names for its refines (its recorder's table, door-refine.mjs), read beside the ones named above. */
 export const knowRefines = (names) => {
@@ -137,6 +129,22 @@ export function treeOf(s, path = []) {
       return node({ t: 'record', key: sub(d.keyType), value: sub(d.valueType) });
     case 'lazy':
       return node({ t: 'lazy', in: sub(s._zod.innerType) });
+    case 'pipe': {
+      // As the door's recorder writes one (record-door.mjs `pipe`): a string's trim is the string with `trim` as its one
+      // check; any other transform has no door form; any other pipe is its two parts.
+      const out = d.out._zod.def;
+      if (out.type !== 'transform') return node({ t: 'pipe', in: sub(d.in), out: sub(d.out) });
+      const from = d.in._zod.def;
+      if (
+        !checks.length &&
+        from.type === 'string' &&
+        !from.checks?.length &&
+        !from.coerce &&
+        squash(out.transform.toString()) === 's=>s.trim()'
+      )
+        return { t: 'string', checks: [{ k: 'trim' }] };
+      return { t: '?transform' };
+    }
     default:
       return { t: `?${d.type}` };
   }
@@ -153,6 +161,7 @@ export function doorTree(nodes, id, path = []) {
   if (n.shape) out.shape = n.shape.map(([k, v]) => [k, sub(v)]);
   if (n.el !== undefined) out.el = sub(n.el);
   if (n.in !== undefined) out.in = sub(n.in);
+  if (n.t === 'pipe' && n.out !== undefined) out.out = sub(n.out);
   if (n.options) out.options = n.options.map(sub);
   if (n.key !== undefined) out.key = sub(n.key);
   if (n.value !== undefined && n.t === 'record') out.value = sub(n.value);

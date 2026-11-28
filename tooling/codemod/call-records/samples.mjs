@@ -5,8 +5,9 @@
 // Run after `pnpm --filter @intafaced/contracts build`; it rewrites the placeholder in the record's source file.
 //
 //   node tooling/codemod/call-records/samples.mjs <record file.ts> ...
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { KEY_MAPS, quietIssue, quietRefineAt } from './door-refine.mjs';
@@ -151,7 +152,8 @@ function candidates(schema, depth = 0, key = '') {
 const REFUSALS = [42, 'not-an-input', [], null, true, { '': 1 }];
 
 /** Values tried where an input check sits: blanks, short and long strings, numbers, absence, and maps of growing size. */
-const CHECK_TRIES = [undefined, null, '', ' ', 'x', 'ab', 'x'.repeat(1001), 0, -1, 1, ...STRINGS, [], {}, ...KEY_MAPS];
+// 'x\ny': words with a control character in them, which a plain-text rule refuses (`!/[\u0000-\u001F]/.test(value)`).
+const CHECK_TRIES = [undefined, null, '', ' ', 'x', 'ab', 'x'.repeat(1001), 'x\ny', 0, -1, 1, ...STRINGS, [], {}, ...KEY_MAPS];
 
 /** zod's own words for a custom issue: what a `.refine` written with no message raises. */
 const QUIET = z
@@ -193,6 +195,19 @@ function getAt(v, steps) {
     } else return undefined;
   }
   return cur;
+}
+
+/**
+ * `base` with its optional keys taken out, each alone and then all: the input a rule across keys refuses (`.refine((v) =>
+ * v.text !== undefined || v.reportDescription !== undefined)`) is one with none of them.
+ */
+function withoutOptional(json, base) {
+  if (!base || typeof base !== 'object' || Array.isArray(base) || json?.type !== 'object') return [];
+  const req = new Set(json.required ?? []);
+  const keys = Object.keys(base).filter((k) => !req.has(k));
+  if (!keys.length) return [];
+  const drop = (ks) => Object.fromEntries(Object.entries(base).filter(([k]) => !ks.includes(k)));
+  return [...keys.map((k) => drop([k])), drop(keys)];
 }
 
 /** Optional-property combinations over `base`: singles, same-shape pairs (e.g. `from`/`before`), and all optional set. */
@@ -265,9 +280,11 @@ function checkRefusals(record, bases, json) {
     const alone = (v, steps) => {
       const quiet = quietRefineAt(record.input, steps);
       const r = record.input.safeParse(v);
-      return (
-        !r.success && r.error.issues.every((i) => i.code === 'custom' && (says.has(i.message) || (quiet && quietIssue(i, steps, QUIET))))
-      );
+      const own = (i) => i.code === 'custom' && (says.has(i.message) || (quiet && quietIssue(i, steps, QUIET)));
+      // A union refuses with one issue holding each option's: the check alone refuses when one option fails by it alone.
+      const only = (issues) =>
+        issues.length > 0 && issues.every((i) => own(i) || (i.code === 'invalid_union' && (i.errors ?? []).some(only)));
+      return !r.success && only(r.error.issues);
     };
     let found;
     for (const at of typeof check.at === 'string' ? [check.at] : check.at) {
@@ -280,7 +297,7 @@ function checkRefusals(record, bases, json) {
             const dup = Array.isArray(cur) && cur.length > 0 ? [[cur[0], cur[0]]] : [];
             return [...dup, ...saysWords, ...CHECK_TRIES].map((t) => setAt(target, steps, t));
           })
-        : [...bases, ...optionalCombos(json, bases[0])];
+        : [...bases, ...bases.flatMap((b) => withoutOptional(json, b)), ...optionalCombos(json, bases[0])];
       found = tries.find((v) => v !== undefined && alone(v, steps));
       if (found !== undefined) break;
     }
@@ -388,6 +405,21 @@ export function samplesFor(record, doorValid) {
   return `[${[a, `{ verdict: 'refuse', input: ${JSON.stringify(refuse)} }`, ...byCheck].join(', ')}]`;
 }
 
+/** The records a file holds at HEAD: none for a file the run created. */
+export function committedRecords(file, root = REPO) {
+  let src = '';
+  try {
+    src = execFileSync('git', ['show', `HEAD:${relative(root, resolve(file))}`], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return new Set();
+  }
+  return new Set([...src.matchAll(/^export const ([A-Z][A-Z0-9_]*) = defineProcedure\(/gm)].map((m) => m[1]));
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const flag = (f) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
@@ -399,12 +431,16 @@ async function main() {
   const unportable = {};
   for (const file of files) {
     const src = readFileSync(file, 'utf8');
+    const committed = committedRecords(file);
     const dist = join(REPO, 'packages/contracts/dist', basename(file).replace(/\.ts$/, '.js'));
     const mod = await import(pathToFileURL(dist).href);
     let out = src;
     let n = 0;
     for (const m of src.matchAll(/^export const ([A-Z][A-Z0-9_]*) = defineProcedure\(/gm)) {
       const name = m[1];
+      // A record the file already held before this run is not this run's: its samples stand, even ones that read like
+      // the placeholder (`{}` accepted, 42 refused is a real pair for an input whose keys are all optional).
+      if (committed.has(name)) continue;
       // A record whose schemas JSON Schema can't carry is not one the codemod may write: it goes back to its router.
       try {
         procedureJsonSchema(mod[name]);
