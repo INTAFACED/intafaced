@@ -7,7 +7,16 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { api, fromUnits, restartService, stackFile, toUnits } from './stack.mjs';
 import { ADMIN } from './admin.mjs';
 import { setPartner } from './partner.mjs';
-import { otherTraderKey, otherTraderRun, sameDecimal, testDeposit, venueBalance, venueInfo, venueRecord } from './venue.mjs';
+import {
+  otherTraderKey,
+  otherTraderRun,
+  sameDecimal,
+  testDeposit,
+  venueBalance,
+  venueForThisFile,
+  venueInfo,
+  venueRecord,
+} from './venue.mjs';
 import { ownSpotMarket } from './own-market.mjs';
 import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
@@ -68,6 +77,8 @@ async function printedMarket() {
 const AT_PARTNER = '10';
 
 test.describe.configure({ mode: 'default' });
+// The launch desk's venue door, for #5's market: the TEST venue, on for this file and off after it.
+venueForThisFile(test);
 
 const main = (page) => page.getByRole('main');
 const workspace = (page) => main(page).getByRole('region', { name: 'Session workspace' });
