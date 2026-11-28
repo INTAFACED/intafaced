@@ -1,15 +1,28 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { namesAreNotActionApproval } from '@intafaced/contracts';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import { namesAreNotActionApproval, type Context } from '@intafaced/contracts';
+import { createActionApprovalRouter } from '../action-approval-router.js';
 import { staticFounderDirectory } from './action-approval-audience.js';
 import { ActionApprovalError, ActionApprovalService } from './action-approval-service.js';
 import { MemoryActionApprovalStore } from './action-approval-store.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const routerAuth = {
+  secret: 'action-approval-service-test-secret-long-enough',
+  issuer: 'intafaced',
+  audience: 'intafaced.api',
+  accessTtlSeconds: 900,
+};
+
+/** One of the founder pair, signed in, with or without a second factor. */
+async function founder(userId: string, mfa: boolean): Promise<Context> {
+  const { token } = await issueAccessToken(
+    { userId, sessionId: '44444444-4444-4444-8444-444444444444', scopes: ['identity:write', 'admin:write'], tier: 'none', mfa },
+    routerAuth,
+  );
+  return { principal: await verifyAccessToken(token, routerAuth), service: null, region: 'DE', requestId: 'req-aa' };
+}
 
 const propose = {
   actionType: 'ledger.freeze',
@@ -178,13 +191,41 @@ describe('S10 matching.open is two people (TRD-0003)', () => {
 });
 
 describe('action-approval source pins', () => {
-  it('router does not accept confirmActorId on approve and is mounted', () => {
-    const routerSrc = readFileSync(join(HERE, '../action-approval-router.ts'), 'utf8');
-    const indexSrc = readFileSync(join(HERE, '../index.ts'), 'utf8');
-    expect(routerSrc).toMatch(/requireMfa\(ctx\.principal\)/);
-    expect(routerSrc).toMatch(/serviceProcedure/);
-    expect(routerSrc).not.toMatch(/confirmActorId/);
-    expect(routerSrc).not.toMatch(/confirmOperatorId/);
-    expect(indexSrc).toMatch(/createActionApprovalRouter/);
+  it('router does not accept confirmActorId on approve and is mounted', async () => {
+    const r = createActionApprovalRouter(
+      new ActionApprovalService(new MemoryActionApprovalStore(), { ttlSeconds: 60, founders: staticFounderDirectory([A, B]) }),
+    );
+    const maker = r.createCaller(await founder(A, true));
+    const pending = await maker.actionApproval.propose(propose);
+    const decision = { approvalId: pending.approvalId, expectedPayloadHash: pending.payloadHash };
+    // A second factor is required to approve or reject.
+    const noFactor = r.createCaller(await founder(B, false));
+    for (const call of [
+      () => noFactor.actionApproval.approve(decision),
+      () => noFactor.actionApproval.reject({ approvalId: pending.approvalId }),
+    ]) {
+      const err = await call().catch((e: unknown) => e);
+      expect((err as { code?: string }).code).toBe('UNAUTHORIZED');
+      expect(((err as { cause?: { code?: string } }).cause ?? {}).code).toBe('mfa.required');
+    }
+    // The approver is always the caller: a named confirmer (confirmActorId / confirmOperatorId) is refused, never taken.
+    const checker = r.createCaller(await founder(B, true));
+    for (const extra of [{ confirmActorId: A }, { confirmOperatorId: A }]) {
+      const err = await checker.actionApproval.approve({ ...decision, ...extra } as never).catch((e: unknown) => e);
+      expect((err as { code?: string }).code, JSON.stringify(extra)).toBe('BAD_REQUEST');
+    }
+    await expect(checker.actionApproval.approve(decision)).resolves.toMatchObject({ status: 'APPROVED', approverId: B });
+    // Consuming an approval is a service call: a person's session cannot reach it.
+    const consume = {
+      approvalId: pending.approvalId,
+      actionType: propose.actionType,
+      targetService: propose.targetService,
+      targetId: propose.targetId,
+      expectedVersion: propose.expectedVersion,
+      payloadHash: propose.payloadHash,
+      policyVersion: propose.policyVersion,
+    };
+    const bySession = await maker.actionApproval.consume(consume as never).catch((e: unknown) => e);
+    expect(['UNAUTHORIZED', 'FORBIDDEN']).toContain((bySession as { code?: string }).code);
   });
 });

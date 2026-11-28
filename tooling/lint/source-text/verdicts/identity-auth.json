@@ -1,0 +1,629 @@
+[
+  {
+    "file": "services/svc-identity/src/auth/action-approval-service.test.ts",
+    "target": "../action-approval-router.ts",
+    "verdict": "rewrite",
+    "asserts": "The approval door takes no typed-in second name, needs MFA to approve or reject, and a session cannot consume.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/action-approval-service.test.ts#router does not accept confirmActorId on approve and is mounted"
+    },
+    "why": "Calls the action-approval router: approve and reject without MFA are UNAUTHORIZED (mfa.required), confirmActorId or confirmOperatorId is BAD_REQUEST, and consume by a session is refused."
+  },
+  {
+    "file": "services/svc-identity/src/auth/action-approval-service.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-identity's boot mounts the action-approval door, built on its ActionApprovalService on the router it serves.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts#mergeRouters includes createActionApprovalRouter"
+    },
+    "why": "Runs index.ts itself (stand-in database and bus, Fastify never listens) with the real builders watched: the builder is called with the service's own sql and AuthService, and its procedures are in the served router."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-identity's boot mounts the attribution door, with its AuthService wrapped for attribution and product scope on the router it serves.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts#boot path hitches AuthService and mounts the live door"
+    },
+    "why": "Runs index.ts itself (stand-in database and bus, Fastify never listens) with the real builders watched: the builder is called with the service's own sql and AuthService, and its procedures are in the served router."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts",
+    "target": "../api-key-attribution-router.ts",
+    "verdict": "rewrite",
+    "asserts": "The attribution door stamps through requireAttribution and attributedSurfaces.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts#the door stamps through requireAttribution and attributedSurfaces: one stamp on order, fill and ledger"
+    },
+    "why": "Calls the door over the wire and checks its stamp equals attributedSurfaces(requireAttribution(...)) for the same principal."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-key-origin.test.ts",
+    "target": "auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "A key's mode is live unless minted sandbox, and the exchanged token carries the verified mode.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-origin.test.ts#exchangeApiKey mints keyEnv from verified.mode — default live cannot become sandbox"
+    },
+    "why": "createApiKey through a recording executor writes mode live and the live prefix when mode is omitted; exchangeApiKey's token carries key_env from the verified key."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-key-origin.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-identity's boot mounts the origin allowlist bind door on the router it serves.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts#mergeRouters includes createApiKeyOriginRouter and createApiKeyProductRouter so bind/mint are live doors"
+    },
+    "why": "Runs index.ts itself (stand-in database and bus, Fastify never listens) with the real builders watched: the builder is called with the service's own sql and AuthService, and its procedures are in the served router."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-key-product.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-identity's boot mounts the product scope bind door, with installApiKeyProductExchange(auth, sql) checked by the boot path test on the router it serves.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts#mergeRouters includes createApiKeyOriginRouter and createApiKeyProductRouter so bind/mint are live doors"
+    },
+    "why": "Runs index.ts itself (stand-in database and bus, Fastify never listens) with the real builders watched: the builder is called with the service's own sql and AuthService, and its procedures are in the served router."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-key-request-sign.vectors.test.ts",
+    "target": "api-key-request-sign.ts",
+    "verdict": "rewrite",
+    "asserts": "A request signature is compared in constant time.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-request-sign.vectors.test.ts#compares with timingSafeEqual"
+    },
+    "why": "Loads the signer over a watched node:crypto timingSafeEqual: a good signature makes one comparison of the two signatures' bytes, and when the comparison says no the same signature is refused as tampered."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-keys-list-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The apiKeys.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-keys-list-limit-unset-refuse.test.ts#omitted / undefined / null limit refuses before SQL"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.api_keys_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-keys-list-limit-unset-refuse.test.ts",
+    "target": "auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The apiKeys.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-keys-list-limit-unset-refuse.test.ts#list selects signing posture and the IP allowlist, never the secret or the key hash"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.api_keys_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-keys-list-limit-unset-refuse.test.ts",
+    "target": "auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The apiKeys.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-keys-list-limit-unset-refuse.test.ts#list selects signing posture and the IP allowlist, never the secret or the key hash"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.api_keys_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/api-keys-list-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The apiKeys.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-keys-list-limit-unset-refuse.test.ts#omitted / undefined / null limit refuses before SQL"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.api_keys_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/disable-user-revokes-sessions.pg.test.ts",
+    "target": "drizzle",
+    "verdict": "rewrite",
+    "asserts": "The test database carries the service's own migrations.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/disable-user-revokes-sessions.pg.test.ts#disableUser leaves no live session"
+    },
+    "why": "Migrations come from serviceMigrations(import.meta.url) in @intafaced/service-kit/testing, the service's own drizzle folder, not a file listing it reads by path."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-after-last-mint.test.ts",
+    "target": "enroll-after-last-mint.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly mintApiKeyAfterPasskey's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-after-last-mint.test.ts#mints and refuses exactly as mintApiKeyAfterPasskey does; no invented challenge"
+    },
+    "why": "Runs the helper and mintApiKeyAfterPasskey over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (mint)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-after-last-revoke-all-sessions.test.ts",
+    "target": "enroll-after-last-revoke-all-sessions.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly revokeAllSessions's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-after-last-revoke-all-sessions.test.ts#revokes exactly as revokeAllSessions does, after one passkey read; no invented challenge; not one-session revoke"
+    },
+    "why": "Runs the helper and revokeAllSessions over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (revoke all sessions)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-after-last-revoke-all.test.ts",
+    "target": "enroll-after-last-revoke-all.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly revokeAllApiKeys's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-after-last-revoke-all.test.ts#revokes exactly as revokeAllApiKeys does, after one passkey read; no invented challenge; not one-key revoke"
+    },
+    "why": "Runs the helper and revokeAllApiKeys over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (revoke all keys)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-after-last-revoke.test.ts",
+    "target": "enroll-after-last-revoke.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly revokeApiKeyAfterPasskey's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-after-last-revoke.test.ts#newly enrolled verified cred revokes; no invented challenge"
+    },
+    "why": "Runs the helper and revokeApiKeyAfterPasskey over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (revoke one key)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-after-last-rotate.test.ts",
+    "target": "enroll-after-last-rotate.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly rotateApiKeyAfterPasskey's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-after-last-rotate.test.ts#rotates and refuses exactly as rotateApiKeyAfterPasskey does; no invented challenge"
+    },
+    "why": "Runs the helper and rotateApiKeyAfterPasskey over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (rotate)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-after-last-session-open.test.ts",
+    "target": "enroll-after-last-session-open.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly PlaceDoor's assertSessionLive's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-after-last-session-open.test.ts#answers exactly as PlaceDoor's assertSessionLive does, after one passkey read; no invented challenge or session"
+    },
+    "why": "Runs the helper and PlaceDoor's assertSessionLive over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (open a session)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-after-last-session-revoke.test.ts",
+    "target": "enroll-after-last-session-revoke.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly revokeSession's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-after-last-session-revoke.test.ts#revokes exactly as revokeSession does, after one passkey read; no invented challenge or session"
+    },
+    "why": "Runs the helper and revokeSession over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (revoke a session)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-after-last.test.ts",
+    "target": "enroll-after-last.ts",
+    "verdict": "rewrite",
+    "asserts": "Enrolling after the last unenroll is beginEnrollPasskey / enrollPasskey, with no challenge of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-after-last.test.ts#reuses beginEnrollPasskey / enrollPasskey; does not invent a challenge"
+    },
+    "why": "Under fake timers, begin and enroll return what beginEnrollPasskey and enrollPasskey return on the same sql, and the WebAuthn library's generate and verify are called only by them."
+  },
+  {
+    "file": "services/svc-identity/src/auth/enroll-another-passkey.test.ts",
+    "target": "enroll-another-passkey.ts",
+    "verdict": "rewrite",
+    "asserts": "Enrolling another passkey is beginEnrollPasskey / enrollPasskey, with no copied ceremony or challenge.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/enroll-another-passkey.test.ts#reuses beginEnrollPasskey / enrollPasskey; does not copy the ceremony or invent a challenge"
+    },
+    "why": "Under fake timers, begin and enroll return what beginEnrollPasskey and enrollPasskey return on the same sql, and the WebAuthn library's generate and verify are called only by them."
+  },
+  {
+    "file": "services/svc-identity/src/auth/founder-enrolment.test.ts",
+    "target": "founder-enrolment.ts",
+    "verdict": "rewrite",
+    "asserts": "The founder invite needs no network, file, process or database, and compares codes in constant time over every hash.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/founder-enrolment.test.ts#the invite library loads no network, file, process or database module and reads no settings"
+    },
+    "why": "Loads the library with every network, file, process and database module mocked to record a load, and process.env and fetch behind a Proxy: none is loaded or read; a watched node:crypto timingSafeEqual shows every configured hash is compared, with no early exit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/founder-enrolment.test.ts",
+    "target": "founder-enrolment.ts",
+    "verdict": "rewrite",
+    "asserts": "The founder invite needs no network, file, process or database, and compares codes in constant time over every hash.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/founder-enrolment.test.ts#the invite library loads no network, file, process or database module and reads no settings"
+    },
+    "why": "Loads the library with every network, file, process and database module mocked to record a load, and process.env and fetch behind a Proxy: none is loaded or read; a watched node:crypto timingSafeEqual shows every configured hash is compared, with no early exit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/freeze-closed-account.pg.test.ts",
+    "target": "drizzle",
+    "verdict": "rewrite",
+    "asserts": "The test database carries the service's own migrations.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/freeze-closed-account.pg.test.ts#freeze then unfreeze leaves a closed account closed"
+    },
+    "why": "Migrations come from serviceMigrations(import.meta.url) in @intafaced/service-kit/testing, the service's own drizzle folder, not a file listing it reads by path."
+  },
+  {
+    "file": "services/svc-identity/src/auth/kyc-pending-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The kyc.pending and waitlist.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/kyc-pending-limit-unset-refuse.test.ts#omitted / undefined / null limit refuses before SQL"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.kyc_pending_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/kyc-pending-limit-unset-refuse.test.ts",
+    "target": "auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The kyc.pending door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/kyc-pending-limit-unset-refuse.test.ts#listPendingKyc asks for exactly the given page of pending records, oldest first"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.kyc_pending_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/kyc-records-list-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The kyc.status door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/kyc-records-list-limit-unset-refuse.test.ts#kyc.status requires limit 1..200 and passes input.limit"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.kyc_records_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/kyc-records-list-limit-unset-refuse.test.ts",
+    "target": "auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The kyc.status door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/kyc-records-list-limit-unset-refuse.test.ts#omitted / undefined / null limit refuses before SQL"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.kyc_records_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/last-passkey-unenroll.test.ts",
+    "target": "last-passkey-unenroll.ts",
+    "verdict": "rewrite",
+    "asserts": "Unenrolling the last passkey is unenrollOneOfTwo, with no invented challenge, session or key ids.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/last-passkey-unenroll.test.ts#reuses unenrollOneOfTwo; no invented challenge, session, or key ids"
+    },
+    "why": "Spies on the delegate modules check it calls unenrollOneOfTwo with its own arguments and returns its answer, and nothing inserts a session or a key."
+  },
+  {
+    "file": "services/svc-identity/src/auth/list-sessions.test.ts",
+    "target": "list-sessions.ts",
+    "verdict": "rewrite",
+    "asserts": "Listing sessions reads only a user's own live sessions and never a secret.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/list-sessions.test.ts#never selects refresh_hash or other secrets"
+    },
+    "why": "Checks the query's selected columns and LIMIT over a recording sql, and that the door's reply has no refresh hash."
+  },
+  {
+    "file": "services/svc-identity/src/auth/list-sessions.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-identity's boot mounts the listSessions door on the router it serves.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts#mergeRouters includes createListSessionsRouter, createSessionRevokeRouter and createPanicRevokeRouter"
+    },
+    "why": "Runs index.ts itself (stand-in database and bus, Fastify never listens) with the real builders watched: the builder is called with the service's own sql and AuthService, and its procedures are in the served router."
+  },
+  {
+    "file": "services/svc-identity/src/auth/list-sessions.test.ts",
+    "target": "../list-sessions-router.ts",
+    "verdict": "rewrite",
+    "asserts": "The listSessions door refuses a bad input before any query.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/list-sessions.test.ts#refuses a missing userId and does not write"
+    },
+    "why": "Calls the door through its router: a missing or malformed userId is refused before any query runs."
+  },
+  {
+    "file": "services/svc-identity/src/auth/local-mail.test.ts",
+    "target": "./local-mail.ts",
+    "verdict": "rewrite",
+    "asserts": "The local outbox sends through no mail vendor and makes no request.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/local-mail.test.ts#the local outbox sends through no mail vendor and makes no request: the line goes to the file alone"
+    },
+    "why": "Loads the outbox with fetch stubbed and every mail vendor and network module mocked to record a load: none is loaded or called and the line goes to the file."
+  },
+  {
+    "file": "services/svc-identity/src/auth/max-sub-accounts-unset.test.ts",
+    "target": "auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "With no published cap a sub-account create is refused; a published cap is the one enforced.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/max-sub-accounts-unset.test.ts#auth-service.ts does not git-default 25"
+    },
+    "why": "Creates over a recording sql: with no cap it refuses auth.sub_account_cap_unset before any sub_accounts statement; caps 25, 26 and 3 allow and refuse at exactly their number."
+  },
+  {
+    "file": "services/svc-identity/src/auth/mint-recovery-code-passkey.test.ts",
+    "target": "mint-recovery-code-passkey.ts",
+    "verdict": "rewrite",
+    "asserts": "A recovery code is minted through generateRecoveryCodes and stored only as its hash, with no invented challenge.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/mint-recovery-code-passkey.test.ts#mints through generateRecoveryCodes and stores hashToken of it beside the old hashes; no invented challenge"
+    },
+    "why": "Spies on ./totp.js and ./passwords.js: the code comes from generateRecoveryCodes, the recorded statement stores hashToken of it beside the old hashes, and no challenge is written."
+  },
+  {
+    "file": "services/svc-identity/src/auth/panic-revoke.test.ts",
+    "target": "panic-revoke.ts",
+    "verdict": "rewrite",
+    "asserts": "Panic revoke is revokeAllAccess: revokeAllApiKeys and revokeAllSessions, not a fork of them.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/panic-revoke.test.ts#is revokeAllAccess — same function, not a fork of the two UPDATE paths"
+    },
+    "why": "Spies on revokeAllApiKeys and revokeAllSessions see one call each with the user, and the recorded statements equal theirs."
+  },
+  {
+    "file": "services/svc-identity/src/auth/panic-revoke.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-identity's boot mounts the panicRevoke door on the router it serves.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts#mergeRouters includes createListSessionsRouter, createSessionRevokeRouter and createPanicRevokeRouter"
+    },
+    "why": "Runs index.ts itself (stand-in database and bus, Fastify never listens) with the real builders watched: the builder is called with the service's own sql and AuthService, and its procedures are in the served router."
+  },
+  {
+    "file": "services/svc-identity/src/auth/privileged-dual-control.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "Privileged router doors need approval ids, consumed for that door, before anything is frozen.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/privileged-dual-control.test.ts#router privileged doors require approval ids"
+    },
+    "why": "Calls affiliates.freeze through the identity router: missing, blank or partial approval ids are PRECONDITION_FAILED with nothing consumed or frozen; with them the approval is consumed for affiliates.freeze, then the freeze runs."
+  },
+  {
+    "file": "services/svc-identity/src/auth/remaining-passkey-mint.test.ts",
+    "target": "remaining-passkey-mint.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly mintApiKeyAfterPasskey's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/remaining-passkey-mint.test.ts#mints and refuses exactly as mintApiKeyAfterPasskey does; no invented challenge"
+    },
+    "why": "Runs the helper and mintApiKeyAfterPasskey over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (mint)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/remaining-passkey-rotate.test.ts",
+    "target": "remaining-passkey-rotate.ts",
+    "verdict": "rewrite",
+    "asserts": "Behind a verified passkey the action is exactly rotateApiKeyAfterPasskey's, and no new challenge is invented.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/remaining-passkey-rotate.test.ts#rotates and refuses exactly as rotateApiKeyAfterPasskey does; no invented challenge"
+    },
+    "why": "Runs the helper and rotateApiKeyAfterPasskey over the same recording sql: equal outcome and statements, refusals from requireVerifiedPasskey's gate, the WebAuthn library's challenge calls never made and no challenge row written (rotate)."
+  },
+  {
+    "file": "services/svc-identity/src/auth/revoke-recovery-codes-passkey.test.ts",
+    "target": "revoke-recovery-codes-passkey.ts",
+    "verdict": "rewrite",
+    "asserts": "Recovery codes are cleared only behind a verified passkey, with no invented challenge.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/revoke-recovery-codes-passkey.test.ts#clears every recovery hash after lastVerifiedAt"
+    },
+    "why": "Spies on ./totp.js and ./passwords.js and a recording sql: the statement clears every recovery hash, refusals write nothing, and no challenge is written."
+  },
+  {
+    "file": "services/svc-identity/src/auth/revoke-session.test.ts",
+    "target": "revoke-session.ts",
+    "verdict": "rewrite",
+    "asserts": "Revoking a session touches only that user's one live session.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/revoke-session.test.ts#write door is identity:write; input is both uuids; helper UPDATE is sessions-only"
+    },
+    "why": "Checks the recorded update statement and its values (session id, user id, revoked = false) over a recording sql."
+  },
+  {
+    "file": "services/svc-identity/src/auth/revoke-session.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-identity's boot mounts the revokeSession door on the router it serves.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/api-key-attribution-public-door.test.ts#mergeRouters includes createListSessionsRouter, createSessionRevokeRouter and createPanicRevokeRouter"
+    },
+    "why": "Runs index.ts itself (stand-in database and bus, Fastify never listens) with the real builders watched: the builder is called with the service's own sql and AuthService, and its procedures are in the served router."
+  },
+  {
+    "file": "services/svc-identity/src/auth/revoke-session.test.ts",
+    "target": "../session-revoke-router.ts",
+    "verdict": "rewrite",
+    "asserts": "The revokeSession door needs identity:write and two uuids.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/revoke-session.test.ts#write door is identity:write; input is both uuids; helper UPDATE is sessions-only"
+    },
+    "why": "Calls the door through its router: identity:read is FORBIDDEN, a malformed uuid is BAD_REQUEST."
+  },
+  {
+    "file": "services/svc-identity/src/auth/session-refresh-recovery.pg.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "The refresh recovery window has no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/session-refresh-recovery.pg.test.ts#is not given a default and is not set in compose or the example env"
+    },
+    "why": "envWith() re-imports ../env.js over the given settings: unset and blank parse as undefined (off), 120 as 120, and 601 is refused."
+  },
+  {
+    "file": "services/svc-identity/src/auth/sessions-list-limit-unset-refuse.test.ts",
+    "target": "../list-sessions-router.ts",
+    "verdict": "rewrite",
+    "asserts": "The listSessions door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/sessions-list-limit-unset-refuse.test.ts#the listSessions door requires limit 1..200 and pages by the given limit"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.sessions_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/sessions-list-limit-unset-refuse.test.ts",
+    "target": "list-sessions.ts",
+    "verdict": "rewrite",
+    "asserts": "The listSessions door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/sessions-list-limit-unset-refuse.test.ts#listSessions asks for one row past the published limit and returns no more than the limit"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.sessions_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/signin-challenge.pg.test.ts",
+    "target": "drizzle",
+    "verdict": "rewrite",
+    "asserts": "The test database carries the service's own migrations.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/signin-challenge.pg.test.ts#with the count blank, every sign-in needs a challenge"
+    },
+    "why": "Migrations come from serviceMigrations(import.meta.url) in @intafaced/service-kit/testing, the service's own drizzle folder, not a file listing it reads by path."
+  },
+  {
+    "file": "services/svc-identity/src/auth/sub-accounts-list-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The subAccounts.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/sub-accounts-list-limit-unset-refuse.test.ts#subAccounts.list requires limit 1..200 and passes input.limit"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.sub_accounts_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/sub-accounts-list-limit-unset-refuse.test.ts",
+    "target": "auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The subAccounts.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/sub-accounts-list-limit-unset-refuse.test.ts#omitted / undefined / null limit refuses before SQL"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.sub_accounts_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/trade-identity-auth.test.ts",
+    "target": "trade-identity-auth.ts",
+    "verdict": "rewrite",
+    "asserts": "The trade identity module never loads the ledger client.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/trade-identity-auth.test.ts#the module source does not import the ledger client"
+    },
+    "why": "Loads the module with every @intafaced/ledger-client entry mocked to record a load: none is loaded."
+  },
+  {
+    "file": "services/svc-identity/src/auth/unenroll-one-of-two.test.ts",
+    "target": "unenroll-one-of-two.ts",
+    "verdict": "rewrite",
+    "asserts": "Unenrolling one of two is unenrollPasskey, and on the last cred revokeAllSessions then revokeAllApiKeys.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/unenroll-one-of-two.test.ts#reuses unenrollPasskey and, on last cred, revokeAllSessions then revokeAllApiKeys; never the always-revoke helper"
+    },
+    "why": "Spies on the delegate modules check their arguments, order and answers, the always-revoke helper is never called, and nothing inserts a session or a key."
+  },
+  {
+    "file": "services/svc-identity/src/auth/unenroll-passkey-keys.test.ts",
+    "target": "unenroll-passkey-keys.ts",
+    "verdict": "rewrite",
+    "asserts": "Unenroll-and-revoke-keys is unenrollPasskeyAndRevokeSessions then revokeAllApiKeys, with no invented key id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/unenroll-passkey-keys.test.ts#reuses unenrollPasskeyAndRevokeSessions then revokeAllApiKeys; never invents a key id"
+    },
+    "why": "Spies on the delegate modules check their arguments, order and answers, and nothing inserts a key."
+  },
+  {
+    "file": "services/svc-identity/src/auth/unenroll-passkey-sessions.test.ts",
+    "target": "unenroll-passkey-sessions.ts",
+    "verdict": "rewrite",
+    "asserts": "Unenroll-and-revoke-sessions is unenrollPasskey then revokeAllSessions, with no invented session id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/unenroll-passkey-sessions.test.ts#reuses unenrollPasskey then revokeAllSessions; never invents a session id"
+    },
+    "why": "Spies on the delegate modules check their arguments, order and answers, and nothing inserts a session."
+  },
+  {
+    "file": "services/svc-identity/src/auth/webauthn-list-limit-unset-refuse.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The webauthn.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/webauthn-list-limit-unset-refuse.test.ts#webauthn.list requires limit 1..200 and passes input.limit"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.webauthn_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  },
+  {
+    "file": "services/svc-identity/src/auth/webauthn-list-limit-unset-refuse.test.ts",
+    "target": "auth-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The webauthn.list door refuses a missing or out-of-range limit and pages by exactly the limit it is given, never a number of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-identity/src/auth/webauthn-list-limit-unset-refuse.test.ts#listWebauthnCredentials returns at most the published limit, newest first"
+    },
+    "why": "Calls the door through the identity router and the service method over a recording sql: no limit, a blank, a non-integer or one outside 1..200 is refused (identity.webauthn_list_limit_unset) before any query, and the query's LIMIT values are the given limit."
+  }
+]

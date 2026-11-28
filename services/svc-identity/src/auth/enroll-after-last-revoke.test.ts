@@ -1,14 +1,38 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as webauthnLib from '@simplewebauthn/server';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
 import { newlyEnrolledPasskeyRevokes, revokeApiKeyAfterNewlyEnrolledPasskey } from './enroll-after-last-revoke.js';
 
+// The WebAuthn library, watched: revoking after a passkey must never start a ceremony of its own.
+vi.mock('@simplewebauthn/server', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@simplewebauthn/server')>();
+  return { ...real, generateAuthenticationOptions: vi.fn(real.generateAuthenticationOptions) };
+});
+
 function fakeSql(rows: unknown[] = []) {
   const fn = async () => rows;
   return fn as unknown as Parameters<typeof revokeApiKeyAfterNewlyEnrolledPasskey>[1];
+}
+
+/** A `sql` tag that answers every query with `rows` and records each statement's text. */
+function recordingSql(rows: unknown[]) {
+  const statements: string[] = [];
+  const fn = async (strings: TemplateStringsArray) => {
+    statements.push(strings.join('?').replace(/\s+/g, ' ').trim());
+    return rows;
+  };
+  return { sql: fn as Parameters<typeof revokeApiKeyAfterNewlyEnrolledPasskey>[1], statements };
+}
+
+/** The code a synchronous check refuses with, or null when it passes. */
+function refusalOf(check: () => void): unknown {
+  try {
+    check();
+    return null;
+  } catch (err) {
+    return (err as { code?: unknown }).code;
+  }
 }
 
 function makeMinter() {
@@ -83,12 +107,27 @@ describe('newlyEnrolledPasskeyRevokes — enroll after last unenroll', () => {
     expect(revoked).toEqual([]);
   });
 
-  it('source reuses requireVerifiedPasskey; no invented challenge', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'enroll-after-last-revoke.ts'), 'utf8');
-    expect(src).toMatch(/requireVerifiedPasskey/);
-    expect(src).toMatch(/revokeApiKey/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+challenges/i);
+  it("gates on requireVerifiedPasskey, then revokes through the minter's revokeApiKey alone; no invented challenge", async () => {
+    for (const creds of [[enrolledAgain], [enrolledUnverified], []]) {
+      const { minter, revoked } = makeMinter();
+      const { sql, statements } = recordingSql([{ webauthn_creds: creds }]);
+      const gate = refusalOf(() => requireVerifiedPasskey(creds));
+      const out = revokeApiKeyAfterNewlyEnrolledPasskey(minter, sql, revokeInput);
+      if (gate) {
+        await expect(out).rejects.toMatchObject({ code: gate });
+        expect(revoked).toEqual([]);
+      } else {
+        await expect(out).resolves.toEqual({ revokedKeyId: 'old' });
+        expect(revoked).toEqual(['old']);
+      }
+      // Its one statement is the read of the stored passkeys: no challenge or key is written here.
+      expect(statements).toEqual(['SELECT webauthn_creds FROM users WHERE id = ? LIMIT 1']);
+    }
+    // A key the minter does not revoke is not found, never reported revoked.
+    const missing: ApiKeyMinter = { ...makeMinter().minter, revokeApiKey: async () => false };
+    await expect(
+      revokeApiKeyAfterNewlyEnrolledPasskey(missing, fakeSql([{ webauthn_creds: [enrolledAgain] }]), revokeInput),
+    ).rejects.toMatchObject({ code: 'auth.not_found' });
+    expect(vi.mocked(webauthnLib.generateAuthenticationOptions)).not.toHaveBeenCalled();
   });
 });

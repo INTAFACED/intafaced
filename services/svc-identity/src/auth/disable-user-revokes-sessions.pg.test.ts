@@ -1,20 +1,15 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { SESSION_SCOPES } from '@intafaced/auth';
+import { serviceMigrations } from '@intafaced/service-kit/testing';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import { RankService } from '../rank/rank-service.js';
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test';
-const drizzleDir = join(process.cwd(), 'drizzle');
-const migrations = readdirSync(drizzleDir)
-  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
-  .sort()
-  .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
+const migrations = serviceMigrations(import.meta.url);
 const tokenConfig = {
   secret: 'an-identity-test-signing-secret-long-enough',
   issuer: 'intafaced',

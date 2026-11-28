@@ -158,7 +158,7 @@ function mailFieldText(message: LocalMailMessage): string {
   return `expires=${message.expiresAt.toISOString()}${pin} link=${link}`;
 }
 
-export function createLocalOutboxMail(filePath: string): PasswordResetMail {
+function createLocalOutboxMail(filePath: string): PasswordResetMail {
   return {
     async send(message) {
       await mkdir(path.dirname(filePath), { recursive: true });
