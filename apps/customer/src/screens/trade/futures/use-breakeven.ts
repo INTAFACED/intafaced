@@ -60,6 +60,9 @@ export function useBreakeven(owner: string, onChanged: () => void) {
         }
         // Every call answered `call_again`: say so, never end silent.
         setNote({ tone: 'bad', text: t('Breakeven not finished', { calls: String(MOST_CALLS) }), code: null });
+      } catch {
+        // A call that failed outright (no answer at all) still ends in words.
+        setNote({ tone: 'bad', text: t('No answer'), code: null });
       } finally {
         working.current = false;
         setBusy(false);

@@ -135,6 +135,9 @@ export function ExitLines({
     setBusy(true);
     try {
       await fn();
+    } catch {
+      // A call that failed outright (no answer at all) still ends in words: the venue's own list is what counts.
+      setNote({ tone: 'bad', text: t('No answer'), code: null });
     } finally {
       working.current = false;
       setBusy(false);
