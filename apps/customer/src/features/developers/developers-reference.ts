@@ -924,6 +924,15 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'Whether the venue your own wallet trades on is switched on here, which venue it is, and whether it is TEST',
   },
   {
+    name: 'venueDemo',
+    method: 'GET',
+    path: '/api/v1/venue/demo',
+    product: 'accounts',
+
+    summary:
+      'The demo environment: the TEST venue a bot trades in with the same doors and its venueId, TEST assets only, nothing in our ledger; refused where there is none',
+  },
+  {
     name: 'venueMarkets',
     method: 'GET',
     path: '/api/v1/venue/markets',

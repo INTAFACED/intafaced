@@ -264,6 +264,7 @@ const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
 export type UserVenueDoorCode =
   | 'trade.user_venue_off'
+  | 'trade.demo_unavailable'
   | 'trade.request_expired'
   | 'trade.cancel_all_after_rejected'
   | 'trade.cancel_all_after_unset'

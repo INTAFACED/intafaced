@@ -184,6 +184,32 @@ export class UserVenueRouter {
     throw new UserVenueDoorError(`no venue ${JSON.stringify(id)} is configured here`, 'trade.venue_unknown', 404);
   }
 
+  /**
+   * The demo environment (J-cex-spot-15 #8): the first configured venue whose own proof level is not live, so it holds
+   * TEST assets only and our ledger posts nothing for it. None (a live deployment) refuses `trade.demo_unavailable`; a
+   * venue that can't be reached now is skipped, so a live one is never named the demo by default.
+   */
+  async demo() {
+    for (const d of this.deps.doors) {
+      let venue;
+      try {
+        venue = (await d.venue()).venue;
+      } catch {
+        continue;
+      }
+      if (!isTestVenue(venue)) continue;
+      return {
+        environment: 'demo' as const,
+        venueId: venue.id,
+        displayName: venue.displayName,
+        proofLevel: venue.proofLevel,
+        label: 'TEST' as const,
+        ledger: 'none' as const,
+      };
+    }
+    throw new UserVenueDoorError('no TEST venue is configured here, so there is no demo environment', 'trade.demo_unavailable', 503);
+  }
+
   /** Every configured venue's descriptor and health, for the desk's status read. */
   async venues(): Promise<
     {

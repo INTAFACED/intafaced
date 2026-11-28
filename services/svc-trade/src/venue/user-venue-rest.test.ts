@@ -15,6 +15,7 @@ import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, type BuilderFeeValue } from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
 import { UserVenueRouter } from './venue-router.js';
+import { TRADE_VENUE_DEMO } from '@intafaced/contracts/trade-venue-demo-procedures';
 
 const USER = { userId: '11111111-1111-4111-8111-1111111111c1', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue rest')));
@@ -54,7 +55,15 @@ function door(
   slippageCapBps: number | null = null,
   builder: BuilderFeeValue | null = null,
 ) {
-  return new UserVenueDoor({
+  return new UserVenueDoor(doorDeps(withdrawStepUp, slippageCapBps, builder));
+}
+
+function doorDeps(
+  withdrawStepUp: 'approve' | 'required' = 'approve',
+  slippageCapBps: number | null = null,
+  builder: BuilderFeeValue | null = null,
+): ConstructorParameters<typeof UserVenueDoor>[0] {
+  return {
     connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
     appEnv: 'test',
     store: new InMemoryPreparedActionStore(),
@@ -72,7 +81,7 @@ function door(
     closeSlippageBps: 1000,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP'])),
-  });
+  };
 }
 
 describe('/api/v1/venue/*', () => {
@@ -827,6 +836,62 @@ describe('/api/v1/venue/*', () => {
     });
     expect(odd.status).toBe(400);
     expect(await odd.text()).toContain("figures is 'live', 'stale' or 'unknown'");
+  });
+});
+
+describe('/api/v1/venue/demo (J-cex-spot-15 #8)', () => {
+  it('names the TEST venue as the demo environment, and a prepare and submit on it say demo', async () => {
+    await mount(door());
+    const demo = await app.inject({ method: 'GET', url: TRADE_VENUE_DEMO.path });
+    expect(demo.statusCode).toBe(200);
+    const venueId = (await app.inject({ method: 'GET', url: '/api/v1/venue/status' })).json().venue.id;
+    expect(TRADE_VENUE_DEMO.output.parse(demo.json())).toEqual({
+      environment: 'demo',
+      venueId,
+      displayName: expect.any(String),
+      proofLevel: expect.not.stringMatching(/^live$/),
+      label: 'TEST',
+      ledger: 'none',
+    });
+    const actionKey = `leverage:${USER.userId}:demo`;
+    const intent = { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 30_000, marginMode: 'isolated' };
+    const prep = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/prepare',
+      payload: { owner, signer: { role: 'owner', address: owner }, intent, actionKey, venueId },
+    });
+    expect(prep.json()).toMatchObject({ environment: 'demo', test: true, reused: false });
+    const prepared = prep.json().prepared;
+    const t = prepared.typedData as TestVenueTypedData;
+    const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+    const payload = { actionKey, signature: { digest: prepared.digest, signature, signedBy: owner } };
+    const sub = await app.inject({ method: 'POST', url: '/api/v1/venue/submit', payload });
+    expect(sub.json()).toMatchObject({ environment: 'demo', test: true, outcome: { definite: true, accepted: true } });
+    // A repeat is the stored answer, still labelled.
+    const again = await app.inject({ method: 'POST', url: '/api/v1/venue/submit', payload });
+    expect(again.json()).toMatchObject({ environment: 'demo', test: true, replayed: true, outcome: sub.json().outcome });
+  });
+
+  it('with no TEST venue there is no demo: trade.demo_unavailable, and a live venue is never named it', async () => {
+    const live = new UserVenueDoor({
+      ...doorDeps(),
+      connect: async () => {
+        const v = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 });
+        return Object.assign(Object.create(v) as typeof v, { venue: { ...v.venue, proofLevel: 'live' as const } });
+      },
+    });
+    await mount(live);
+    const res = await app.inject({ method: 'GET', url: TRADE_VENUE_DEMO.path });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().intafacedCode).toBe('trade.demo_unavailable');
+    expect(Object.keys(TRADE_VENUE_DEMO.refusals)).toContain(res.json().intafacedCode);
+  });
+
+  it('off: trade.user_venue_off', async () => {
+    await mount(null);
+    const res = await app.inject({ method: 'GET', url: TRADE_VENUE_DEMO.path });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().intafacedCode).toBe('trade.user_venue_off');
   });
 });
 
