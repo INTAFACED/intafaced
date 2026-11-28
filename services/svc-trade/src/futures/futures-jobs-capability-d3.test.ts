@@ -11,6 +11,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { presentFuturesJobsCapabilityNote } from './futures-policy.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 describe('capabilities futures note does not invent D3 bps', () => {
   it('ladderNumbers stays d3_unset and maintenanceBps is absent', () => {
@@ -31,5 +37,17 @@ describe('capabilities futures note does not invent D3 bps', () => {
     // @ts-expect-error presentFuturesJobsCapabilityNote takes no maintenanceBps
     const smuggled = presentFuturesJobsCapabilityNote({ maintenanceBps: 50 });
     expect(smuggled).not.toHaveProperty('maintenanceBps');
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, 'futures-policy.ts'), 'utf8');
+
+  it('ladderNumbers stays d3_unset and maintenanceBps is absent (kept source pin)', () => {
+    expect(src).toMatch(/ladderNumbers:\s*'d3_unset'/);
+    expect(src).not.toMatch(/maintenanceBps/);
+    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
   });
 });

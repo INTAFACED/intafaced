@@ -11,6 +11,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { presentFuturesJobsHealth } from './futures-jobs-health.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 describe('/health futuresJobs does not invent D3', () => {
   it('presenter has no maintenanceBps, ladder, or 8h interval echo', () => {
@@ -34,5 +40,18 @@ describe('/health futuresJobs does not invent D3', () => {
       fundingIntervalMs: 28_800_000,
     });
     expect(JSON.stringify(smuggled)).not.toMatch(/28800000/);
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, 'futures-jobs-health.ts'), 'utf8');
+
+  it('presenter has no maintenanceBps, ladder, or 8h interval echo (kept source pin)', () => {
+    expect(src).not.toMatch(/maintenanceBps/);
+    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
+    expect(src).not.toMatch(/28_?800_?000|28800000/);
+    expect(src).toMatch(/fundingIntervalConfigured/);
   });
 });

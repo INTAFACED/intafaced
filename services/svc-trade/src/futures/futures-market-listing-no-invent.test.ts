@@ -13,6 +13,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { fakeMarket, presentCcxtMarket } from '../public-rest.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 describe('listed markets do not invent perp contract or funding fields', () => {
   it('reads contractSize and settle only from the stored listing; expiry is listed dated or null; leverage min is null', () => {
@@ -55,5 +61,32 @@ describe('listed markets do not invent perp contract or funding fields', () => {
     expect(wire).not.toHaveProperty('nextFundingTimestamp');
     expect(wire).not.toHaveProperty('indexPrice');
     expect(JSON.stringify(wire)).not.toMatch(/fundingRate|nextFundingTimestamp|indexPrice/);
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, '..', 'public-rest.ts'), 'utf8');
+
+  const presenter = src.match(/export function presentCcxtMarket[\s\S]*?^}/m)?.[0] ?? '';
+
+  it('extracts presentCcxtMarket (kept source pin)', () => {
+    expect(presenter).toMatch(/export function presentCcxtMarket/);
+  });
+
+  it('reads contractSize and settle only from the stored listing; expiry is listed dated or null; leverage min is null (kept source pin)', () => {
+    expect(presenter).toMatch(/contractSize:\s*isFutures && market\.contractSize != null \? formatAmount\(market\.contractSize\)/);
+    expect(presenter).not.toMatch(/contractSize:\s*'\d/);
+    expect(presenter).toMatch(/settle:\s*settleAsset/);
+    expect(presenter).toMatch(/listedExpiry \? listedExpiry\.getTime\(\) : \(null as number \| null\)/);
+    expect(presenter).not.toMatch(/expiry:\s*\d+/);
+    expect(presenter).toMatch(/min:\s*null as string \| null/);
+  });
+
+  it('does not attach a funding quote to the listing (kept source pin)', () => {
+    expect(presenter).not.toMatch(/fundingRate/);
+    expect(presenter).not.toMatch(/nextFundingTimestamp/);
+    expect(presenter).not.toMatch(/indexPrice/);
   });
 });

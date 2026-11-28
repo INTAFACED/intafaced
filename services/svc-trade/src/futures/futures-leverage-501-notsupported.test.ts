@@ -12,6 +12,12 @@
 import { describe, expect, it } from 'vitest';
 import { doorHeaders, privateRestDoor } from './testing/doors.js';
 import { FUTURES_HONEST_GAPS, futuresLiveReleverageMounted } from './mount-vs-tracker.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const levered = {
   id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -107,5 +113,43 @@ describe('live re-leverage is mounted; margin-mode stays NotSupported', () => {
     expect(res.json().code).not.toBe('RateLimitExceeded');
     expect(res.json()).not.toHaveProperty('retryAfter');
     expect(res.headers['retry-after']).toBeUndefined();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+
+  const service = readFileSync(join(here, 'position-service.ts'), 'utf8');
+
+  const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+  const setLev = service.match(/async setLeverage\([\s\S]*?^  async addIsolatedMargin/m)?.[0] ?? '';
+
+  it('POST leverage is a real handler, not the 501 helper (kept source pin)', () => {
+    expect(src).toMatch(/app\.post\('\/api\/v1\/positions\/leverage',\s*privateWrite,\s*async/);
+    expect(src).not.toMatch(/app\.post\('\/api\/v1\/positions\/leverage',\s*(?:privateWrite,\s*)?derivativesNotSupported\('setLeverage'/);
+    expect(src).toMatch(/deps\.setLeverage\(/);
+    expect(src).toMatch(/typeof body\.leverage === 'string'/);
+  });
+
+  it('deleting setLeverage live path fails — service posts ledger add/release (kept source pin)', () => {
+    expect(setLev).toMatch(/async setLeverage\(/);
+    expect(setLev).toMatch(/recipes\.futuresMarginAdd\(/);
+    expect(setLev).toMatch(/recipes\.futuresMarginRelease\(/);
+    expect(setLev).not.toMatch(/notSupported\(/);
+    expect(indexSrc).toMatch(/positions\.setLeverage\(/);
+    expect(futuresLiveReleverageMounted()).toBe(true);
+    expect(FUTURES_HONEST_GAPS).not.toContain('gap.live_releverage_501');
+  });
+
+  it('POST margin-mode still uses the derivativesNotSupported helper (kept source pin)', () => {
+    expect(src).toMatch(/app\.post\('\/api\/v1\/positions\/margin-mode',\s*privateWrite,\s*derivativesNotSupported\('setMarginMode'/);
+  });
+
+  it('the helper sends notSupported, not rateLimited (kept source pin)', () => {
+    const helper = src.match(/const derivativesNotSupported[\s\S]*?^\s*\};/m)?.[0] ?? '';
+    expect(helper).toMatch(/notSupported\(/);
+    expect(helper).not.toMatch(/rateLimited\(/);
   });
 });

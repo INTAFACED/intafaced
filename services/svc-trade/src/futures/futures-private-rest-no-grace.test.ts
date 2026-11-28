@@ -12,6 +12,12 @@
 import { describe, expect, it } from 'vitest';
 import { DOOR_USER_ID, doorHeaders, privateRestDoor } from './testing/doors.js';
 import { memoryMarginCallStore, presentMarginCallWire, type MarginCallWire } from './margin-call-transport.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const POSITION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -62,5 +68,20 @@ describe('private REST margin-call door does not invent grace', () => {
     const { res } = await getMarginCall(call);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual(call);
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');
+
+  it('does not mention graceExpiresAt (kept source pin)', () => {
+    expect(src).toMatch(/\/api\/v1\/positions\/:id\/margin-call/);
+    expect(src).not.toMatch(/graceExpiresAt/);
+  });
+
+  it('200 sends the host call body without wrapping extras (kept source pin)', () => {
+    expect(src).toMatch(/return reply\.code\(200\)\.send\(call\)/);
   });
 });

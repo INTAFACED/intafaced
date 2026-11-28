@@ -18,6 +18,11 @@ import {
 import { DATED_FUTURES_SETTLEMENT_PRICE_UNSET, datedSettlementIdFor } from './dated-futures-settlement.js';
 import { startFuturesJobs } from './futures-jobs.js';
 import { tradeEnvWith } from './testing/doors.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
@@ -238,5 +243,29 @@ describe('H6 JobHost invokes settlement mill', () => {
     await clock.timers[0]!.fn();
     expect(ledger.journal()).toHaveLength(before);
     handle.stop();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('schedules futures.dated_settlement via scan; never last-trade as owner price (kept source pin)', () => {
+    const jobs = readFileSync(join(here, 'futures-jobs.ts'), 'utf8');
+    expect(jobs).toMatch(/host\.every\('futures\.dated_settlement'/);
+    expect(jobs).toMatch(/runDatedFuturesSettlementScan/);
+    expect(jobs).toMatch(/settlementFixingConfigured:\s*deps\.config\.settlementFixing/);
+    expect(jobs).not.toMatch(/ownerSettlementPriceFor:\s*deps\.lastTradePrice/);
+    expect(jobs).not.toMatch(/ownerSettlementPrice:\s*(deps\.)?lastTrade/);
+    expect(jobs).not.toMatch(/ownerSettlementPriceFor:\s*[\s\S]{0,80}markPrice/);
+    const mill = readFileSync(join(here, 'dated-futures-settlement.ts'), 'utf8');
+    expect(mill).toMatch(/void input\.lastTradePrice/);
+    expect(mill).toMatch(/void input\.markPrice/);
+    expect(mill).not.toMatch(/exitPrice:\s*input\.lastTradePrice/);
+    const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
+    expect(envSrc).toMatch(/TRADE_FUTURES_SETTLEMENT_FIXING:\s*z\.string\(\)\.default\(''\)/);
+    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    // futuresJobsHostDeps passes the env's stamp: held by behaviour in dated-futures-settlement-jobhost.money.test.ts.
+    expect(indexSrc).not.toMatch(/ownerSettlementPriceFor/);
+    expect(indexSrc).not.toMatch(/TRADE_FUTURES_SETTLEMENT_FIXING:\s*['"][0-9]/);
   });
 });

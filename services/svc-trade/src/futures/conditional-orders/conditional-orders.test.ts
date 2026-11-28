@@ -288,3 +288,24 @@ describe('conditional order doors', () => {
     await app.close();
   });
 });
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('ships default off and does not schedule when the flag or the interval is blank (kept source pin)', () => {
+    const env = readFileSync(join(root, 'services/svc-trade/src/env.ts'), 'utf8');
+    const decl = /TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED:\s*([\s\S]{0,220})/.exec(env);
+    expect(decl?.[1]).toContain('.default(false)');
+    expect(decl?.[1]).not.toContain('.default(true)');
+    const index = readFileSync(join(root, 'services/svc-trade/src/index.ts'), 'utf8');
+    expect(index).toMatch(/enabled:\s*env\.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED/);
+    const compose = readFileSync(join(root, 'docker-compose.apps.yml'), 'utf8');
+    expect(compose).toMatch(/TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED:\s*\$\{TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED:-false\}/);
+    const off = startConditionalOrderJobs({ config: { enabled: false, intervalMs: 1_000 }, evaluate: async () => undefined });
+    expect(off.host.list()).toEqual([]);
+    off.stop();
+    const blank = startConditionalOrderJobs({ config: { enabled: true, intervalMs: null }, evaluate: async () => undefined });
+    expect(blank.host.list()).toEqual([]);
+    blank.stop();
+  });
+});

@@ -7,6 +7,12 @@ import { parseAmount as amt, formatAmount } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
 import { DOOR_USER_ID, positionsOver, storedPositionRow } from './testing/doors.js';
 import { planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 /** An owner policy for the test: one band, so the maintenance figure is easy to check by hand. */
 const POLICY: FuturesLadderPolicy = {
@@ -76,5 +82,35 @@ describe('position present uses the liquidation ladder for maintenance', () => {
     expect(lit!.fees).toBeNull();
     marks.clear('dddddddd-dddd-4ddd-8ddd-dddddddddddd');
     expect((await service.listOpen(DOOR_USER_ID))[0]!.markPrice).toBeNull();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+  const present = src.slice(src.indexOf('function presentPosition'), src.indexOf('export function storedEntryAfterFill'));
+  const listed = src.slice(src.indexOf('private async presentListed'), src.indexOf('private async maintenanceAt'));
+
+  it('does not import DEFAULT_FUTURES_LADDER_POLICY (kept source pin)', () => {
+    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
+  });
+
+  it('maintenanceAt calls planLadderRung and presentPosition does not hard-null maintenance (kept source pin)', () => {
+    const maintenance = src.slice(src.indexOf('private async maintenanceAt'), src.indexOf('type ReduceOnlyOutcome'));
+    expect(maintenance).toMatch(/planLadderRung\(/);
+    expect(maintenance).toMatch(/maintenanceRequired/);
+    expect(present).not.toMatch(/maintenanceMargin:\s*null/);
+    expect(present).not.toMatch(/nextFundingTimestamp/);
+    expect(listed).toMatch(/tryMarkForMarking\(/);
+  });
+
+  it('listOpen presents through presentListed (kept source pin)', () => {
+    const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async listClosed'));
+    // The only extras listOpen passes are the fill figures (fees), which carry no mark and no maintenance figure.
+    expect(listOpen).toMatch(/this\.presentListed\(row, figures\.get\(row\.id\)\)/);
+    expect(listOpen).not.toMatch(/presentPosition\(row,\s*\{/);
+    const figures = src.slice(src.indexOf('private async matchedFigures'), src.indexOf('async get('));
+    expect(figures).not.toMatch(/markPrice|maintenanceMargin|liquidationPrice/);
   });
 });

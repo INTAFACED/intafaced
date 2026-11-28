@@ -60,3 +60,27 @@ describe('production refuses an unset owner leverage cap', () => {
     expect(resolveMaxLeverage(parsed)).toBeNull();
   });
 });
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const production = readFileSync(join(here, 'initial-margin.ts'), 'utf8');
+
+  const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+
+  const envSrc = readFileSync(join(root, 'services/svc-trade/src/env.ts'), 'utf8');
+
+  it('initial-margin.ts names the typed refusal and no default magnitude (kept source pin)', () => {
+    expect(production).not.toMatch(/DEFAULT_MAX_LEVERAGE/);
+    expect(production).toMatch(/LEVERAGE_CAP_UNSET = 'trade\.leverage_cap_unset'/);
+  });
+
+  it('env.ts leaves the owner source empty (kept source pin)', () => {
+    expect(envSrc).toMatch(/TRADE_FUTURES_MAX_LEVERAGE:\s*z\.string\(\)\.default\(''\)/);
+  });
+
+  it('live host preserves the nullable parse result (kept source pin)', () => {
+    expect(indexSrc).toMatch(/const maxLeverage = parseConfiguredMaxLeverage\(env\.TRADE_FUTURES_MAX_LEVERAGE\)/);
+    expect(indexSrc).not.toMatch(/resolveMaxLeverage\(parseConfiguredMaxLeverage/);
+  });
+});

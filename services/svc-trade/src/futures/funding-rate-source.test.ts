@@ -6,6 +6,7 @@ const FIXTURE_FUNDING_MAX_ABS = '1';
 import { memoryFundingMarginApplier, memoryFundingPeriodStore, runFundingTick } from './funding-tick.js';
 import { parseAmount as amt, type PostRequest } from '@intafaced/ledger-client';
 import type { FundingOpenPosition } from './funding-settlement.js';
+import { readFileSync } from 'node:fs';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -207,5 +208,16 @@ describe('integration: rate book → funding tick', () => {
     );
     expect(result.status).toBe('settled');
     expect(posts.length).toBeGreaterThan(0);
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('source does not pin a typical funding interval (kept source pin)', () => {
+    const src = readFileSync(new URL('./funding-rate-source.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/8 \* 60 \* 60/);
+    expect(src).not.toMatch(/28_?800_?000/);
+    expect(src).not.toMatch(/typical funding interval/);
   });
 });

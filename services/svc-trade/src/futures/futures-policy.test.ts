@@ -16,6 +16,12 @@ import {
   presentInsuranceListingPolicy,
 } from './futures-policy.js';
 import { publicTradeCaller } from './testing/doors.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 describe('describeFuturesPolicy — trade.futures honesty door', () => {
   it('combines jobs capability, insurance listing, and ADL disclosure constants', () => {
@@ -49,5 +55,15 @@ describe('futures.policy route (trade.futures honesty door)', () => {
   it('router mounts describeFuturesPolicy on futures.policy', async () => {
     // An anonymous caller reads the door; it answers exactly the policy summary with no flags set.
     expect(await publicTradeCaller().futures.policy()).toEqual(describeFuturesPolicy({}));
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const routerSource = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+
+  it('router mounts describeFuturesPolicy on futures.policy (kept source pin)', () => {
+    expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*describeFuturesPolicy\(\{\}\)\)/);
   });
 });

@@ -45,3 +45,13 @@ describe('shipped config does not invent a funding abs-rate ceiling', () => {
     expect(envExample).not.toMatch(/^TRADE_FUTURES_FUNDING_MAX_ABS_RATE=/m);
   });
 });
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const envSrc = readFileSync(join(root, 'services/svc-trade/src/env.ts'), 'utf8');
+
+  it('env.ts defaults the ceiling to empty, not a decimal (kept source pin)', () => {
+    expect(envSrc).toMatch(/TRADE_FUTURES_FUNDING_MAX_ABS_RATE:\s*z\.string\(\)\.default\(''\)/);
+  });
+});

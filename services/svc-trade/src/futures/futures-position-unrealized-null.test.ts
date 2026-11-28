@@ -5,6 +5,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { DOOR_USER_ID, positionsOver, storedPositionRow } from './testing/doors.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 describe('position present values unrealised PnL from the mark', () => {
   it('uses the close planner helper and does not hard-null or invent 0', async () => {
@@ -24,5 +30,22 @@ describe('position present values unrealised PnL from the mark', () => {
     const [none] = await dark.service.listOpen(DOOR_USER_ID);
     expect(none).toMatchObject({ markPrice: null, unrealizedPnl: null, percentage: null });
     expect(none!.fieldReasons).toMatchObject({ unrealizedPnl: 'mark_missing', percentage: 'mark_missing' });
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
+
+  const present = src.slice(src.indexOf('function presentPosition'), src.indexOf('export function storedEntryAfterFill'));
+
+  it('uses the close planner helper and does not hard-null or invent 0 (kept source pin)', () => {
+    expect(present).toMatch(/unrealizedPnl\(/);
+    expect(present).toMatch(/positionPercentage\(/);
+    expect(present).not.toMatch(/unrealizedPnl:\s*null/);
+    expect(present).not.toMatch(/unrealizedPnl:\s*['"]0['"]/);
+    expect(present).not.toMatch(/percentage:\s*null/);
+    expect(present).not.toMatch(/contractSize:\s*null/);
   });
 });

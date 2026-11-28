@@ -12,6 +12,12 @@
 import { describe, expect, it } from 'vitest';
 import { presentInsuranceListingPolicy } from './insurance-listing-gate.js';
 import { describeFuturesPolicy } from './futures-policy.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 describe('insurance listing policy on /health', () => {
   it('live host mounts presentInsuranceListingPolicy on /health', () => {
@@ -19,5 +25,15 @@ describe('insurance listing policy on /health', () => {
     expect(presentInsuranceListingPolicy()).toEqual({ emptyPotBlocksLiveList: true, targetSize: 'owner_unset' });
     // The public policy door reports the same one.
     expect(describeFuturesPolicy({}).insuranceListing).toEqual(presentInsuranceListingPolicy());
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const indexSource = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+
+  it('live host mounts presentInsuranceListingPolicy on /health (kept source pin)', () => {
+    expect(indexSource).toMatch(/insuranceListing:\s*presentInsuranceListingPolicy\(\)/);
   });
 });

@@ -21,6 +21,11 @@ import {
   publishedListClosedLimit,
   TRADE_LIST_CLOSED_LIMIT_UNSET,
 } from './position-service.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 function serviceWithUnreachableSql(): { positions: PositionService; sqlCalled: () => boolean } {
   let sqlCalled = false;
@@ -80,5 +85,16 @@ describe('listClosed limit unset refuse (no invented 100)', () => {
       });
       expect(sqlCalled()).toBe(false);
     }
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  it('position-service.ts does not invent 100 via default or clamp (kept source pin)', () => {
+    const src = readFileSync(join(HERE, 'position-service.ts'), 'utf8');
+    expect(src).not.toMatch(/input\.limit \?\? 100/);
+    expect(src).toMatch(/publishedListClosedLimit\(input\?\.limit\)/);
+    expect(src).not.toMatch(/listClosed[\s\S]{0,200}Math\.min\(Math\.max\(/);
   });
 });

@@ -11,6 +11,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { notSupported } from '../ccxt-errors.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 describe('notSupported does not look like a retryable throttle', () => {
   it('is 501 and has no retryAfter in the factory', () => {
@@ -21,5 +27,18 @@ describe('notSupported does not look like a retryable throttle', () => {
     });
     expect(wire.body).not.toHaveProperty('retryAfter');
     expect(wire).not.toHaveProperty('retryAfter');
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, '..', 'ccxt-errors.ts'), 'utf8');
+
+  it('is 501 and has no retryAfter in the factory (kept source pin)', () => {
+    const fn = src.match(/export function notSupported[\s\S]*?^}/m)?.[0] ?? '';
+    expect(fn).toMatch(/status:\s*501/);
+    expect(fn).toMatch(/code:\s*'NotSupported'/);
+    expect(fn).not.toMatch(/retryAfter/);
   });
 });

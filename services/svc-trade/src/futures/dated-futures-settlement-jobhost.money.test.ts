@@ -302,8 +302,7 @@ describe('kept source pins', () => {
     expect(call).toMatch(/^const futuresJobs = startFuturesJobs\(\s*futuresJobsHostDeps\(env, \{/);
     expect(call.trimEnd()).toMatch(/\}\),$/);
     expect(call).not.toMatch(/\.\.\.|lastTradePrice|markPrice|datedSettlement/);
-    const hostSrc = readFileSync(join(here, 'futures-jobs-host.ts'), 'utf8');
-    expect(hostSrc).toMatch(/settlementFixing:\s*env\.TRADE_FUTURES_SETTLEMENT_FIXING/);
+    // futuresJobsHostDeps passes the env's stamp: held by behaviour in this file's 'live host does not invent a fixing price'.
     expect(indexSrc).not.toMatch(/ownerSettlementPriceFor/);
   });
 });

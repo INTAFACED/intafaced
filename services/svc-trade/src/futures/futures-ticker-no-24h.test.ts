@@ -13,6 +13,12 @@
 import { parseAmount } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
 import { presentTicker } from '../public-rest.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const print = {
   id: 'p1',
@@ -33,5 +39,16 @@ describe('presentTicker does not invent 24h rollups', () => {
         expect(wire[field]).toBeNull();
       }
     }
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, '..', 'public-rest.ts'), 'utf8');
+
+  it('does not copy last print into high/low (kept source pin)', () => {
+    expect(src).not.toMatch(/high:\s*lastPrice/);
+    expect(src).not.toMatch(/low:\s*lastPrice/);
   });
 });

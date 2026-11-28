@@ -11,6 +11,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { sqlPositionCloser } from './tick-stores.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 /** Announce one liquidated position through the closer, over a row the sql answers, and return what reached the bus. */
 async function liquidatedEvent() {
@@ -59,5 +65,21 @@ describe('liquidation positionUpdated does not invent D3', () => {
     const event = await liquidatedEvent();
     expect(event.payload.status).toBe('liquidated');
     expect(event.payload.markPrice).toBeNull();
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, 'tick-stores.ts'), 'utf8');
+
+  it('does not import DEFAULT_FUTURES_LADDER_POLICY or emit maintenanceBps / nextFunding (kept source pin)', () => {
+    expect(src).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
+    expect(src).not.toMatch(/maintenanceBps\s*:/);
+    expect(src).not.toMatch(/nextFundingTimestamp/);
+  });
+
+  it('liquidated mark stays null rather than an invented mid (kept source pin)', () => {
+    expect(src).toMatch(/markPrice:\s*null/);
   });
 });

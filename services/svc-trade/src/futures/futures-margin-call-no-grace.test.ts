@@ -11,6 +11,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { memoryMarginCallStore, presentMarginCallWire, sqlMarginCallStore } from './margin-call-transport.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 const CALL = {
   positionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -66,5 +72,22 @@ describe('margin-call transport does not invent a grace clock', () => {
     expect(queries.join('\n')).not.toMatch(/grace/i);
     expect(row).not.toHaveProperty('graceExpiresAt');
     expect(Object.keys(presentMarginCallWire(row)).sort()).toEqual(WIRE_KEYS);
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const src = readFileSync(join(here, 'margin-call-transport.ts'), 'utf8');
+
+  it('does not put graceExpiresAt on the public wire or durable row (kept source pin)', () => {
+    expect(src).not.toMatch(/graceExpiresAt\s*:/);
+    expect(src).toMatch(/export interface MarginCallWire/);
+    expect(src).toMatch(/export function presentMarginCallWire/);
+  });
+
+  it('SQL store does not persist a grace column (kept source pin)', () => {
+    expect(src).not.toMatch(/grace_expires_at/);
+    expect(src).toMatch(/INSERT INTO trade\.position_margin_calls/);
   });
 });

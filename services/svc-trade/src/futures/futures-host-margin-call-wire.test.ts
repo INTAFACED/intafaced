@@ -11,6 +11,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { memoryMarginCallStore, presentMarginCallWire } from './margin-call-transport.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 describe('live host margin-call door does not invent grace', () => {
   it('getOpenMarginCall returns presentMarginCallWire(row) only', async () => {
@@ -47,5 +53,20 @@ describe('live host margin-call door does not invent grace', () => {
     const row = await store.getOpenForPosition('p1');
     expect(row).not.toHaveProperty('graceExpiresAt');
     expect(JSON.stringify(presentMarginCallWire(row!))).not.toMatch(/grace/i);
+  });
+});
+
+// Kept source pins: what these read is wired where no test can call it yet, or on paths a behaviour test does not drive.
+// Each pin stays until a behaviour test holds the same property on every path.
+describe('kept source pins', () => {
+  const indexSource = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+
+  it('getOpenMarginCall returns presentMarginCallWire(row) only (kept source pin)', () => {
+    expect(indexSource).toMatch(/getOpenMarginCall:/);
+    expect(indexSource).toMatch(/return presentMarginCallWire\(row\)/);
+  });
+
+  it('does not attach graceExpiresAt on the host path (kept source pin)', () => {
+    expect(indexSource).not.toMatch(/graceExpiresAt/);
   });
 });

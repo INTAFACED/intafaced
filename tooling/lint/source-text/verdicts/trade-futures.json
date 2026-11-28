@@ -107,7 +107,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/conditional-orders/conditional-orders.test.ts#ships default off and does not schedule when the flag or the interval is blank"
     },
-    "why": "Parses the service env with the flag unset (false) and 'true' (true), then starts the conditional jobs off and with a null interval (nothing scheduled)."
+    "why": "Parses the service env with the flag unset (false) and 'true' (true), then starts the conditional jobs off and with a null interval (nothing scheduled). The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/conditional-orders/conditional-orders.test.ts",
@@ -118,7 +118,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/conditional-orders/conditional-orders.test.ts#ships default off and does not schedule when the flag or the interval is blank"
     },
-    "why": "The env default and startConditionalOrderJobs' refusal to schedule are asserted; the compose default is still read. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "The env default and startConditionalOrderJobs' refusal to schedule are asserted; the compose default is still read. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts",
@@ -151,7 +151,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts#TRADE_FUTURES_SETTLEMENT_FIXING defaults blank in the service env, never a number"
     },
-    "why": "Parses the service env with the key unset (blank) and set (the stamp as given)."
+    "why": "Parses the service env with the key unset (blank) and set (the stamp as given). The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
@@ -162,7 +162,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobhost.money.test.ts#router.ts not recut; live host does not invent a fixing price"
     },
-    "why": "index.ts boots at import, so its futures-jobs wiring moved into futuresJobsHostDeps (futures-jobs-host.ts), which index.ts calls. The test builds it from the parsed env with the stamp blank and set, and asserts that config.settlementFixing is the env's and that none of the test-only slots is present. Its return type omits them, so the host cannot fill one without a type error."
+    "why": "index.ts boots at import, so its futures-jobs wiring moved into futuresJobsHostDeps (futures-jobs-host.ts), which index.ts calls. The test builds it from the parsed env with the stamp blank and set, and asserts that config.settlementFixing is the env's and that none of the test-only slots is present. Its return type omits them, so the host cannot fill one without a type error. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
@@ -173,7 +173,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts#router.ts not recut; mill never last-trade exitPrice; listing refuse kept"
     },
-    "why": "That test runs the mill with three last-trade/mark pairs and asserts the posts equal planClose's recipes at the owner fixing."
+    "why": "That test runs the mill with three last-trade/mark pairs and asserts the posts equal planClose's recipes at the owner fixing. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts",
@@ -184,7 +184,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/dated-futures-settlement-jobs.test.ts#interval tick posts owner decimal recipes and ignores last trade 1 / mark 2"
     },
-    "why": "That test starts the live jobs with last trade 1 and mark 2 and asserts futures.dated_settlement is listed, the scan runs and posts settle at 110; 'blank TRADE_FUTURES_SETTLEMENT_FIXING refuses the JobHost tick' and 'stamp set but no owner decimal (production) refuses' hold the gate."
+    "why": "That test starts the live jobs with last trade 1 and mark 2 and asserts futures.dated_settlement is listed, the scan runs and posts settle at 110; 'blank TRADE_FUTURES_SETTLEMENT_FIXING refuses the JobHost tick' and 'stamp set but no owner decimal (production) refuses' hold the gate. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/dated-futures-settlement.money.test.ts",
@@ -228,7 +228,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/dated-futures.test.ts#expiry job never assigns lastTrade or mark as settlement"
     },
-    "why": "Calls resolveDatedFuturesSettlement and runDatedFuturesExpiryTick with last trade and mark set and the fixing blank or unusable (refused settlement_price_unset), and with a fixing (ready at the fixing alone, source owner_fixing)."
+    "why": "Calls resolveDatedFuturesSettlement and runDatedFuturesExpiryTick with last trade and mark set and the fixing blank or unusable (refused settlement_price_unset), and with a fixing (ready at the fixing alone, source owner_fixing). The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/funding-rate-source.test.ts",
@@ -239,7 +239,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/funding-rate-source.test.ts#source does not pin a typical funding interval"
     },
-    "why": "Publishes a fresh rate to the memory book and asserts no quote without a policy, a quote at exactly 8 h under an 8 h policy, and none past a 1 s policy."
+    "why": "Publishes a fresh rate to the memory book and asserts no quote without a policy, a quote at exactly 8 h under an 8 h policy, and none past a 1 s policy. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/funding-recon.money.test.ts",
@@ -283,7 +283,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-capability-margin-call-no-grace.test.ts#setLeverage is supported within 10×; setMarginMode stays refuse"
     },
-    "why": "Imports CCXT_CAPABILITY_MATRIX and asserts the margin-call row, that no row names a grace clock, setLeverage's supported kind and setMarginMode's refuse kind and arm."
+    "why": "Imports CCXT_CAPABILITY_MATRIX and asserts the margin-call row, that no row names a grace clock, setLeverage's supported kind and setMarginMode's refuse kind and arm. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
@@ -294,7 +294,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/mm/mid-source.test.ts#refuses a dust book"
     },
-    "why": "That test drives the venue MM mid source with a dust book and asserts it mints no mid; 'honours an injected notional floor without a second constant' holds the shared floor."
+    "why": "That test drives the venue MM mid source with a dust book and asserts it mints no mid; 'honours an injected notional floor without a second constant' holds the shared floor. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
@@ -305,7 +305,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/mark-from-depth.test.ts#applies the threshold by DEFAULT"
     },
-    "why": "That test asserts DEFAULT_MIN_BEST_LEVEL_NOTIONAL is '100' and that omitting the policy still refuses dust; 'states the requirement in base units' asserts the 100 bps; the ADR wording in comments is no behaviour."
+    "why": "That test asserts DEFAULT_MIN_BEST_LEVEL_NOTIONAL is '100' and that omitting the policy still refuses dust; 'states the requirement in base units' asserts the 100 bps; the ADR wording in comments is no behaviour. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-dust-floor-p0-14-sealed.test.ts",
@@ -316,7 +316,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/mark-from-venue.test.ts#two dust orders on the NEW venue mint nothing either"
     },
-    "why": "That test drives a venue mark source with two dust orders and asserts no mark is minted under the shared floor; a comment's wording is no behaviour."
+    "why": "That test drives a venue mark source with two dust orders and asserts no mark is minted under the shared floor; a comment's wording is no behaviour. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-error-wire.test.ts",
@@ -327,7 +327,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/private-rest.test.ts#POST /positions/:id/close unnamed pot on winning close is NotSupported"
     },
-    "why": "That test drives the private REST close door with a service throwing trade.profit_source_unconfigured and asserts the body carries ccxtCode NotSupported and retry:false."
+    "why": "That test drives the private REST close door with a service throwing trade.profit_source_unconfigured and asserts the body carries ccxtCode NotSupported and retry:false. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-host-funding-index-null.test.ts",
@@ -338,7 +338,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-host-funding-index-null.test.ts#hard-nulls indexPrice and nextFundingTimestamp"
     },
-    "why": "Publishes a rate through the jobs and asserts the entry the host quotes from has no index or next time, and that GET /api/v1/funding-rate answers null for both and does not copy the mark. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Publishes a rate through the jobs and asserts the entry the host quotes from has no index or next time, and that GET /api/v1/funding-rate answers null for both and does not copy the mark. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-host-margin-call-wire.test.ts",
@@ -349,7 +349,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-host-margin-call-wire.test.ts#getOpenMarginCall returns presentMarginCallWire(row) only"
     },
-    "why": "Records a call in the store, re-ticks it, and asserts the presented wire's exact fields with no grace. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Records a call in the store, re-ticks it, and asserts the presented wire's exact fields with no grace. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-capability-d3.test.ts",
@@ -360,7 +360,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-capability-d3.test.ts#ladderNumbers stays d3_unset and maintenanceBps is absent"
     },
-    "why": "Calls presentFuturesJobsCapabilityNote with every flag on and asserts d3_unset and no maintenance or tier field; @ts-expect-error proves it takes no maintenanceBps."
+    "why": "Calls presentFuturesJobsCapabilityNote with every flag on and asserts d3_unset and no maintenance or tier field; @ts-expect-error proves it takes no maintenanceBps. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-env-passthrough.test.ts",
@@ -371,7 +371,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-env-passthrough.test.ts#live host passes TRADE_FUTURES_JOBS_ENABLED and TRADE_FUTURES_ENABLED"
     },
-    "why": "Builds the public REST app with no futures flags and with all of them and reads GET /capabilities: off by default, each flag through, no ids, rate or interval; next funding and index stay 'unpublished'. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Builds the public REST app with no futures flags and with all of them and reads GET /capabilities: off by default, each flag through, no ids, rate or interval; next funding and index stay 'unpublished'. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-health-d3.test.ts",
@@ -382,7 +382,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-health-d3.test.ts#presenter has no maintenanceBps, ladder, or 8h interval echo"
     },
-    "why": "Calls presentFuturesJobsHealth with everything on and asserts no maintenance, tier or 8h figure in its output; @ts-expect-error proves it takes no interval in ms."
+    "why": "Calls presentFuturesJobsHealth with everything on and asserts no maintenance, tier or 8h figure in its output; @ts-expect-error proves it takes no interval in ms. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-health-passthrough.test.ts",
@@ -393,7 +393,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-health-passthrough.test.ts#does not put the |rate| decimal or market UUID list on /health"
     },
-    "why": "Calls presentFuturesJobsHealth off and on and asserts each flag passes through; @ts-expect-error proves its input has no slot for the rate, the ids or the venue, and none reach the output. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The boot log's venueMark line is no longer pinned either."
+    "why": "Calls presentFuturesJobsHealth off and on and asserts each flag passes through; @ts-expect-error proves its input has no slot for the rate, the ids or the venue, and none reach the output. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The boot log's venueMark line is no longer pinned either. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-host-d3.test.ts",
@@ -404,7 +404,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-host-d3.test.ts#startFuturesJobs takes no ladder but the owner’s published one, and no maintenanceBps"
     },
-    "why": "Asserts the ladder modules export no DEFAULT policy, parses the env with the ladder unset (no policy), and a @ts-expect-error proves FuturesJobsDeps has no maintenanceBps. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Asserts the ladder modules export no DEFAULT policy, parses the env with the ladder unset (no policy), and a @ts-expect-error proves FuturesJobsDeps has no maintenanceBps. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-interval.test.ts",
@@ -415,7 +415,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-interval.test.ts#env.ts does not default TRADE_FUTURES_FUNDING_INTERVAL_MS to 8h"
     },
-    "why": "Loads the service env with the interval unset, blank, set to 8h and out of range, asserting null, null, the owner's value and a boot refusal."
+    "why": "Loads the service env with the interval unset, blank, set to 8h and out of range, asserting null, null, the owner's value and a boot refusal. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-interval.test.ts",
@@ -426,7 +426,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-interval.test.ts#enabled with markets but null interval schedules liquidation only"
     },
-    "why": "That test starts the jobs with markets and a null interval and asserts only the liquidation, payouts and dated-settlement jobs are scheduled."
+    "why": "That test starts the jobs with markets and a null interval and asserts only the liquidation, payouts and dated-settlement jobs are scheduled. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs-liquidation-report.test.ts",
@@ -448,7 +448,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#passes the ladder policy through with no fallback"
     },
-    "why": "That test runs the live liquidation job with no ladder policy (the tick's ladder.policy is undefined, no maintenanceBps) and with one (the same object)."
+    "why": "That test runs the live liquidation job with no ladder policy (the tick's ladder.policy is undefined, no maintenanceBps) and with one (the same object). The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-jobs.test.ts",
@@ -459,7 +459,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#passes the ladder policy through with no fallback"
     },
-    "why": "That test runs the live liquidation job and asserts the tick's ladder policy is undefined when omitted, carries no maintenanceBps, and is the passed object when published."
+    "why": "That test runs the live liquidation job and asserts the tick's ladder policy is undefined when omitted, carries no maintenanceBps, and is the passed object when published. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts",
@@ -470,7 +470,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts#live host passes no ladder but the owner’s published setting"
     },
-    "why": "Parses the service env with the ladder unset (blank, ownerLadderPolicy gives undefined) and set (gives the published policy). The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Parses the service env with the ladder unset (blank, ownerLadderPolicy gives undefined) and set (gives the published policy). The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts",
@@ -481,7 +481,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts#keeps the placeholder only in the test harness"
     },
-    "why": "Imports the harness and asserts its DEFAULT_FUTURES_LADDER_POLICY first tier."
+    "why": "Imports the harness and asserts its DEFAULT_FUTURES_LADDER_POLICY first tier. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts",
@@ -492,7 +492,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-ladder-default-not-production.test.ts#does not embed the placeholder depth-tier table"
     },
-    "why": "Imports the maintenance-ladder module and walks every exported value, asserting none is the harness placeholder policy, its tiers or its first tier."
+    "why": "Imports the maintenance-ladder module and walks every exported value, asserting none is the harness placeholder policy, its tiers or its first tier. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts",
@@ -503,7 +503,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts#deleting setLeverage live path fails — service posts ledger add/release"
     },
-    "why": "futuresLiveReleverageMounted and FUTURES_HONEST_GAPS are asserted; the leverage door is driven through registerPrivateRest. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "futuresLiveReleverageMounted and FUTURES_HONEST_GAPS are asserted; the leverage door is driven through registerPrivateRest. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts",
@@ -514,7 +514,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts#POST leverage is a real handler, not the 501 helper"
     },
-    "why": "Injects signed POSTs into the private REST door: both leverage routes 200 with the service called with leverage '5', numeric leverage 400 trade.leverage_required with no call; margin-mode 501 NotSupported with no retryAfter or Retry-After."
+    "why": "Injects signed POSTs into the private REST door: both leverage routes 200 with the service called with leverage '5', numeric leverage 400 trade.leverage_required with no call; margin-mode 501 NotSupported with no retryAfter or Retry-After. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts",
@@ -525,7 +525,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-leverage-501-notsupported.test.ts#deleting setLeverage live path fails — service posts ledger add/release"
     },
-    "why": "The ledger moves are driven in position-service.test.ts#re-leverage moves the isolated margin through futures.margin.add and futures.margin.release (10x to 5x adds, back to 10x releases, balances asserted); this test keeps the tracker's mounted and no-gap answers."
+    "why": "The ledger moves are driven in position-service.test.ts#re-leverage moves the isolated margin through futures.margin.add and futures.margin.release (10x to 5x adds, back to 10x releases, balances asserted); this test keeps the tracker's mounted and no-gap answers. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts",
@@ -536,7 +536,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts#env.ts leaves the owner source empty"
     },
-    "why": "Loads the service env with TRADE_FUTURES_MAX_LEVERAGE unset and asserts it is blank."
+    "why": "Loads the service env with TRADE_FUTURES_MAX_LEVERAGE unset and asserts it is blank. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts",
@@ -547,7 +547,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts#live host preserves the nullable parse result"
     },
-    "why": "Parses the env's unset value as the host does and asserts it stays null through resolveMaxLeverage. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Parses the env's unset value as the host does and asserts it stays null through resolveMaxLeverage. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts",
@@ -558,7 +558,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-leverage-p0-07-default.test.ts#initial-margin.ts names the typed refusal and no default magnitude"
     },
-    "why": "Calls parseConfiguredMaxLeverage and resolveMaxLeverage with blank, null and zero (null each time), a named cap (kept exactly) and a non-positive one (boot refusal); the open path's refusal is position-service.test.ts#refuses to OPEN when the listing leverage cap is unset."
+    "why": "Calls parseConfiguredMaxLeverage and resolveMaxLeverage with blank, null and zero (null each time), a named cap (kept exactly) and a non-positive one (boot refusal); the open path's refusal is position-service.test.ts#refuses to OPEN when the listing leverage cap is unset. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-liq-event-d3.test.ts",
@@ -569,7 +569,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-liq-event-d3.test.ts#liquidated mark stays null rather than an invented mid"
     },
-    "why": "Announces a liquidated row through sqlPositionCloser and asserts the event on the bus has no maintenance or nextFunding field and markPrice null."
+    "why": "Announces a liquidated row through sqlPositionCloser and asserts the event on the bus has no maintenance or nextFunding field and markPrice null. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-liq-event-unrealized-null.test.ts",
@@ -580,7 +580,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-liq-event-unrealized-null.test.ts#hard-nulls unrealizedPnl and markPrice on the liquidated publish"
     },
-    "why": "Announces a liquidated row through sqlPositionCloser and asserts unrealizedPnl, realizedPnl and markPrice are null, the row's own figures pass through, and the idempotency key."
+    "why": "Announces a liquidated row through sqlPositionCloser and asserts unrealizedPnl, realizedPnl and markPrice are null, the row's own figures pass through, and the idempotency key. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-liq-tick-no-default-policy.test.ts",
@@ -591,7 +591,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/liquidation-tick.test.ts#ladder without owner D3 policy skips — never seizes on DEFAULT placeholders"
     },
-    "why": "That test runs the tick with a ladder but no policy on an underwater position and asserts skipped_d3_unset, no posts, no close and no depth read."
+    "why": "That test runs the tick with a ladder but no policy on an underwater position and asserts skipped_d3_unset, no posts, no close and no depth read. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-listing-leverage-cap.test.ts",
@@ -602,7 +602,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/public-rest.test.ts#listed futures stay active and are not orderable until the host enables futures"
     },
-    "why": "That test asserts limits.leverage.max is null with no flags and '4.25' when futuresMaxLeverage is supplied."
+    "why": "That test asserts limits.leverage.max is null with no flags and '4.25' when futuresMaxLeverage is supplied. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-listing-linear-null.test.ts",
@@ -613,7 +613,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-listing-linear-null.test.ts#derives linear and inverse from the stored family, never from the kind"
     },
-    "why": "Calls presentCcxtMarket on futures listings with linear, inverse and no family, and on spot and options, asserting linear, inverse, settle and family."
+    "why": "Calls presentCcxtMarket on futures listings with linear, inverse and no family, and on spot and options, asserting linear, inverse, settle and family. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-margin-call-no-grace.test.ts",
@@ -624,7 +624,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-margin-call-no-grace.test.ts#SQL store does not persist a grace column"
     },
-    "why": "Records a call in the memory store and through the SQL store on a recording sql: the wire has exactly its eight fields, the insert names no grace column, and a grace column in the reply does not reach the record."
+    "why": "Records a call in the memory store and through the SQL store on a recording sql: the wire has exactly its eight fields, the insert names no grace column, and a grace column in the reply does not reach the record. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-market-listing-no-invent.test.ts",
@@ -635,7 +635,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-market-listing-no-invent.test.ts#reads contractSize and settle only from the stored listing; expiry is listed dated or null; leverage min is null"
     },
-    "why": "Calls presentCcxtMarket on perp, dated, undated-dated and spot listings, with and without a stored contractSize, and asserts the wire fields and that no funding field appears."
+    "why": "Calls presentCcxtMarket on perp, dated, undated-dated and spot listings, with and without a stored contractSize, and asserts the wire fields and that no funding field appears. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-no-invented-funding-ceiling.test.ts",
@@ -646,7 +646,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-no-invented-funding-ceiling.test.ts#env.ts defaults the ceiling to empty, not a decimal"
     },
-    "why": "Loads the service env with the ceiling unset (blank), and asserts the parser gives no bound, a rate is refused, and a funding market list without one stops boot."
+    "why": "Loads the service env with the ceiling unset (blank), and asserts the parser gives no bound, a rate is refused, and a funding market list without one stops boot. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-notsupported-no-retry.test.ts",
@@ -657,7 +657,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-notsupported-no-retry.test.ts#is 501 and has no retryAfter in the factory"
     },
-    "why": "Calls notSupported and asserts the exact wire shape and that neither it nor its body carries retryAfter."
+    "why": "Calls notSupported and asserts the exact wire shape and that neither it nor its body carries retryAfter. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-policy.test.ts",
@@ -668,7 +668,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-policy.test.ts#router mounts describeFuturesPolicy on futures.policy"
     },
-    "why": "Calls futures.policy on the trade router as an anonymous caller and asserts it equals describeFuturesPolicy({})."
+    "why": "Calls futures.policy on the trade router as an anonymous caller and asserts it equals describeFuturesPolicy({}). The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-position-present-d3.test.ts",
@@ -679,7 +679,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-position-present-d3.test.ts#maintenanceAt calls planLadderRung and presentPosition does not hard-null maintenance"
     },
-    "why": "Lists stored rows through a PositionService over a sql stub: no policy gives null 'maintenance_policy_unset'; a policy gives planLadderRung's maintenanceRequired (2550); dark gives null mark_missing, then the fed mark."
+    "why": "Lists stored rows through a PositionService over a sql stub: no policy gives null 'maintenance_policy_unset'; a policy gives planLadderRung's maintenanceRequired (2550); dark gives null mark_missing, then the fed mark. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-position-unrealized-null.test.ts",
@@ -690,7 +690,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-position-unrealized-null.test.ts#uses the close planner helper and does not hard-null or invent 0"
     },
-    "why": "Lists a long and a short through a PositionService over a sql stub: +1000 / 20% and -1000 / -20% at 51000, contract size from the listing or null with its reason, and null with mark_missing when dark."
+    "why": "Lists a long and a short through a PositionService over a sql stub: +1000 / 20% and -1000 / -20% at 51000, contract size from the listing or null with its reason, and null with mark_missing when dark. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-private-rest-no-grace.test.ts",
@@ -701,7 +701,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-private-rest-no-grace.test.ts#200 sends the host call body without wrapping extras"
     },
-    "why": "Builds the private REST app and GETs the margin-call door: 200 equals the host's body exactly with no grace, 404 trade.margin_call_not_found when none."
+    "why": "Builds the private REST app and GETs the margin-call door: 200 equals the host's body exactly with no grace, 404 trade.margin_call_not_found when none. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-publish-period-named.test.ts",
@@ -712,7 +712,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/internal-funding-rate.test.ts#400 when the publisher names no period — the clock must not name it"
     },
-    "why": "That test posts a rate with no periodId or periodStartIso and asserts 400 trade.funding_rate_publish_invalid naming the fields, with nothing published."
+    "why": "That test posts a rate with no periodId or periodStartIso and asserts 400 trade.funding_rate_publish_invalid naming the fields, with nothing published. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-reads.test.ts",
@@ -745,7 +745,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/liquidation-tick.test.ts#delivered=true still does not seize today — grace clock not implemented (D3)"
     },
-    "why": "That test runs the tick on a margin-call position with a notifier that reports delivered and asserts nothing is seized; maintenance-ladder.test.ts holds the seal's own cases."
+    "why": "That test runs the tick on a margin-call position with a notifier that reports delivered and asserts nothing is seized; maintenance-ladder.test.ts holds the seal's own cases. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-ticker-no-24h.test.ts",
@@ -756,7 +756,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-ticker-no-24h.test.ts#with no 24 h stats, high, low, vwap, open, volumes, change and percentage are null"
     },
-    "why": "That test presents a ticker with a last print and no 24 h stats and asserts high and low are null while last is the print."
+    "why": "That test presents a ticker with a last print and no 24 h stats and asserts high and low are null while last is the print. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-tracker-status-pin.test.ts",
@@ -767,7 +767,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-tracker-status-pin.test.ts#features.mjs marks trade.futures done when owner env wiring ships"
     },
-    "why": "Imports the tracker's FEATURES list as a module and reads trade.futures' status from it."
+    "why": "Imports the tracker's FEATURES list as a module and reads trade.futures' status from it. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-wide-policy-not-production.test.ts",
@@ -778,7 +778,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/futures-jobs-tick-wiring.test.ts#passes the ladder policy through with no fallback"
     },
-    "why": "The test only read a comment in another test file; that the live tick takes the passed ladder or none is asserted by the wiring test, and futures-ladder-default-not-production.test.ts asserts no placeholder ships."
+    "why": "The test only read a comment in another test file; that the live tick takes the passed ladder or none is asserted by the wiring test, and futures-ladder-default-not-production.test.ts asserts no placeholder ships. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/futures-ws-open-close-unrealized-null.test.ts",
@@ -789,7 +789,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-service.test.ts#publishes positionUpdated on open and close"
     },
-    "why": "That test opens and closes a real position against Postgres and now asserts every positionUpdated payload has unrealizedPnl null and no nextFundingTimestamp."
+    "why": "That test opens and closes a real position against Postgres and now asserts every positionUpdated payload has unrealizedPnl null and no nextFundingTimestamp. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/insurance-listing-health-passthrough.test.ts",
@@ -800,7 +800,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/insurance-listing-health-passthrough.test.ts#live host mounts presentInsuranceListingPolicy on /health"
     },
-    "why": "Calls presentInsuranceListingPolicy and the public policy door and asserts both answer the empty-pot block and owner_unset size. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Calls presentInsuranceListingPolicy and the public policy door and asserts both answer the empty-pot block and owner_unset size. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/liquidation-planner.test.ts",
@@ -899,7 +899,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/list-open-no-invent-mark.test.ts#reads tryMarkForMarking and never writes a zero mark"
     },
-    "why": "Lists a stored row through a PositionService over a sql stub with no quote (null, mark_missing), a stale quote (null, mark_unusable) and a usable one (its price), and asserts every query was a read."
+    "why": "Lists a stored row through a PositionService over a sql stub with no quote (null, mark_missing), a stale quote (null, mark_unusable) and a usable one (its price), and asserts every query was a read. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/margin-call-transport.test.ts",
@@ -987,7 +987,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/mark-from-venue.test.ts#okx-spot → real public MarketDataAdapter, reached by its id"
     },
-    "why": "The test read the wording of a boot log line and an env comment; that okx-spot resolves to a real adapter is asserted by that test and 'the three ids resolve to DIFFERENT adapters'."
+    "why": "The test read the wording of a boot log line and an env comment; that okx-spot resolves to a real adapter is asserted by that test and 'the three ids resolve to DIFFERENT adapters'. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/mark-from-venue.test.ts",
@@ -998,7 +998,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/mark-from-venue.test.ts#okx-spot → real public MarketDataAdapter, reached by its id"
     },
-    "why": "The test read the wording of a boot log line and an env comment; that okx-spot resolves to a real adapter is asserted by that test and 'the three ids resolve to DIFFERENT adapters'."
+    "why": "The test read the wording of a boot log line and an env comment; that okx-spot resolves to a real adapter is asserted by that test and 'the three ids resolve to DIFFERENT adapters'. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/matched-liquidation.money.test.ts",
@@ -1141,7 +1141,7 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/position-service-list-closed-limit-unset-refuse.test.ts#position-service.ts does not invent 100 via default or clamp"
     },
-    "why": "Calls PositionService.listClosed with 0, -1, 501 and 1.5 (refused trade.list_closed_limit_unset before any SQL) and with 7 (the query carries 7, never 100)."
+    "why": "Calls PositionService.listClosed with 0, -1, 501 and 1.5 (refused trade.list_closed_limit_unset before any SQL) and with 7 (the query carries 7, never 100). The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   },
   {
     "file": "services/svc-trade/src/futures/pretrade-credit.money.test.ts",
@@ -1306,6 +1306,6 @@
       "kind": "test",
       "ref": "services/svc-trade/src/futures/venue-mark-stream-env-passthrough.test.ts#live host passes TRADE_VENUE_MARK_STREAM into presentVenueLatencyHealth"
     },
-    "why": "Loads the service env unset and set, and asserts presentVenueLatencyHealth reports off and on from those values. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly."
+    "why": "Loads the service env unset and set, and asserts presentVenueLatencyHealth reports off and on from those values. The index.ts line that hands this value on is no longer pinned by text: index.ts boots (top-level await, listen) at import, so no test can call it; the class fix is an importable host assembly. The original source pin is also kept, verbatim, beside the behaviour test (its file's 'kept source pins' block, or the file itself for a delete): no futures test loses a protection in this part, and each pin goes only when a behaviour test holds the same property on every path."
   }
 ]
