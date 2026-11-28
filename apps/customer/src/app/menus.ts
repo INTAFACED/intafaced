@@ -137,7 +137,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
         },
         {
           id: 'orders',
-          href: '/money/activity?tab=orders',
+          href: '/trade/orders',
           icon: 'activity',
           title: 'Orders',
           description: 'Open and past orders',
