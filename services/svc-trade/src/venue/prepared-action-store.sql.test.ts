@@ -281,4 +281,33 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     expect(await store.placedOrder(mine, '0x0403')).toBeNull();
     expect((await store.placedOrder(theirs, '0x0403'))?.userId).toBe(theirs);
   });
+
+  it('J-derivatives-33 #5: an order retried under its own client id after a refusal is the try the venue took', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const mine = '11111111-1111-4111-8111-1111111111d3';
+    const at = new Date('2026-11-28T00:00:00.000Z');
+    const later = new Date('2026-11-28T00:00:05.000Z');
+    const order = (nonce: string): PreparedVenueAction => ({ ...prepared(nonce, '60000'), venueClientOrderId: '0x0501' });
+    const sig = (nonce: string) => ({ digest: `0xdigest${nonce}`, signature: '0xs', signedBy: OWNER });
+    await store.insertOnce(mine, 'close:j33:1', order('501'), at);
+    await store.signOnce(mine, 'close:j33:1', sig('501'), at);
+    await store.recordOutcome(
+      mine,
+      'close:j33:1',
+      { definite: true, accepted: false, refusal: { venueId: 'test-venue-sim', code: 'venue_rejected', detail: 'TEST' }, asOf: at },
+      at,
+    );
+    expect((await store.placedOrder(mine, '0x0501'))?.businessKey).toBe('close:j33:1');
+    await store.insertOnce(mine, 'close:j33:1:retry:2', order('502'), later);
+    await store.signOnce(mine, 'close:j33:1:retry:2', sig('502'), later);
+    await store.recordOutcome(
+      mine,
+      'close:j33:1:retry:2',
+      { definite: true, accepted: true, venueRef: null, order: null, asOf: later },
+      later,
+    );
+    expect((await store.placedOrder(mine, '0x0501'))?.businessKey).toBe('close:j33:1:retry:2');
+    // Both tries stay as they were written: the refused one is never changed or removed.
+    expect((await store.find(mine, 'close:j33:1'))?.lastOutcome).toMatchObject({ accepted: false });
+  });
 });

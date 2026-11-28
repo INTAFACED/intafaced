@@ -75,6 +75,7 @@ import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
 import { spotVenueCopy } from '../desk/venue-copy';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
+import { FlattenHold } from './VenueFlatten';
 import { ProtectDialog, ReverseDialog, refusalOf, useExitSigner, useSignPrepared } from './VenueProtect';
 import { venueProtectCopy } from './venue-protect-copy';
 import { VenueCollateral, VenueTiers } from './VenueRisk';
@@ -232,6 +233,7 @@ function Contracts({
   const { run, resend } = useVenueActions(owner, session.signing);
   // A venue a session key signs, with no live session in this tab: nothing can be sent until one starts.
   const needsSession = session.on && session.signing.live === null;
+  const flattenKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const ticketRef = useRef<HTMLDivElement>(null);
   // A phone: the ticket is far below the chart, so Long and Short wait at the bottom and bring it into view.
@@ -277,10 +279,16 @@ function Contracts({
                 {owner ? (
                   <FlattenHold
                     positions={account.positions.data?.value ?? []}
+                    orders={account.openOrders.data?.value ?? []}
                     markets={perps}
                     owner={owner}
                     run={run}
                     closeSlippageBps={status.closeSlippageBps ?? null}
+                    closeWorst={closeWorstPrice}
+                    cancelsPerAction={status.cancelsPerAction ?? null}
+                    heldKey={(id) => flattenKeys?.get(id)}
+                    venueName={status.venue.displayName}
+                    onSettled={account.reload}
                   />
                 ) : null}
               </div>
@@ -2249,124 +2257,6 @@ function Settlements({ owner, test }: { owner: string; test: boolean }) {
 }
 
 const sumSigned = (values: string[]) => formatAmount(values.reduce((total, x) => total + parseAmount(x), 0n));
-
-/** How long Flatten is held before it sends: desk A's hold, long enough that a stray click never closes anything. */
-const FLATTEN_HOLD_MS = 650;
-
-/**
- * Flatten (desk A): hold the button 0.65 s and every open position on this venue closes whole, each by one reduce-only
- * IOC order at the market bounded by the owner's slippage cap, exactly as Close at 100% sends it. Letting go earlier
- * sends nothing. One close id per position per flatten, held until the venue answers definitely, so a second hold after
- * a lost answer re-sends the same closes, never new ones. The person's wallet still signs each close.
- */
-export function FlattenHold({
-  positions,
-  markets,
-  owner,
-  run,
-  closeSlippageBps,
-}: {
-  positions: readonly VenuePosition[];
-  markets: readonly VenueMarket[];
-  owner: string;
-  run: RunAction;
-  /** The owner's close tolerance (status `closeSlippageBps`): null is blank, and svc-trade refuses every close. */
-  closeSlippageBps: number | null;
-}) {
-  const { t } = futuresVenueCopy.useCopy();
-  const v = venueCopy.useCopy().t;
-  const venue = useVenueApi();
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const ids = useRef(new Map<string, string>());
-  const [holding, setHolding] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [outcomes, setOutcomes] = useState<{ symbol: string; text: string }[]>([]);
-  const open = positions.filter((p) => markets.some((m) => m.symbol === p.symbol));
-  if (open.length === 0 && outcomes.length === 0) return null;
-
-  async function flatten() {
-    setBusy(true);
-    const done: { symbol: string; text: string }[] = [];
-    for (const position of open) {
-      const market = markets.find((m) => m.symbol === position.symbol)!;
-      const type = market.orderTypes.includes('market') ? 'market' : 'limit';
-      const key = `${position.symbol}:${position.size}`;
-      const id = ids.current.get(key) ?? draftId();
-      ids.current.set(key, id);
-      const price =
-        type === 'market'
-          ? await venue.bestPrices(position.symbol).then(
-              (best) => closeMarketPrice(position, market.tickSize, best.ok ? best.data : null, closeSlippageBps),
-              () => closeMarketPrice(position, market.tickSize, null, closeSlippageBps),
-            )
-          : closeWorstPrice(position, market.tickSize, closeSlippageBps);
-      const answer = await run({
-        kind: 'place_order',
-        symbol: position.symbol,
-        side: position.side === 'long' ? 'sell' : 'buy',
-        type,
-        amount: position.size,
-        price,
-        timeInForce: 'IOC',
-        reduceOnly: true,
-        clientOrderKey: keys.close(owner, position.symbol, id),
-        builderFee: null,
-      });
-      if (!keepsDraft(answer)) ids.current.delete(key);
-      done.push({ symbol: position.symbol, text: outcomeText(v, answer) });
-    }
-    setOutcomes(done);
-    setBusy(false);
-  }
-  const start = () => {
-    if (busy || open.length === 0 || timer.current) return;
-    setHolding(true);
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      setHolding(false);
-      void flatten();
-    }, FLATTEN_HOLD_MS);
-  };
-  const stop = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    setHolding(false);
-  };
-  return (
-    <div className="xd-flatten" data-testid="venue-flatten">
-      <Button
-        tone="secondary"
-        className="xd-hold"
-        data-holding={holding || undefined}
-        disabled={busy || open.length === 0}
-        aria-describedby="venue-flatten-how"
-        onPointerDown={start}
-        onPointerUp={stop}
-        onPointerLeave={stop}
-        onPointerCancel={stop}
-        onKeyDown={(e) => {
-          if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
-            e.preventDefault();
-            start();
-          }
-        }}
-        onKeyUp={stop}
-      >
-        {busy ? t('Flattening') : t('Flatten', { count: String(open.length) })}
-      </Button>
-      <span id="venue-flatten-how" className="xd-risk-note">
-        {t('Flatten how')}
-      </span>
-      {outcomes.length > 0 ? (
-        <ul role="status" className="xd-risk-note" data-testid="venue-flatten-outcome">
-          {outcomes.map((o) => (
-            <li key={o.symbol}>{t('Flatten outcome', { symbol: o.symbol, outcome: o.text })}</li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
 
 /** A position line in the chart's words: "Long 0.25 · +285.00", "Stop −260.00", "Target +890.00", "Liquidation, est.". */
 function chartLineOf(
