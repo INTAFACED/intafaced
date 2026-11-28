@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /**
  * svc-bank's card programme desk (`ops.cardProgramme*`, J-bank-26): what the service answers, in one place, so the admin
@@ -15,7 +16,8 @@ const decimal = z.string().regex(/^-?\d+(\.\d+)?$/, 'decimal string');
 const when = z.string();
 
 export const bankCardProgrammeSettingSchema = z.object({
-  value: z.record(z.string(), z.unknown()),
+  // A setting's value is a JSON object on the wire: its fields are JSON values, as the record's answer names them.
+  value: z.record(z.string(), jsonValueSchema),
   version: count,
   updatedBy: z.string(),
   updatedAt: when,
