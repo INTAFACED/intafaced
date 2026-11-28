@@ -7,9 +7,9 @@ import { EDGE } from './stack.mjs';
 const J = 'J-cex-spot-10';
 
 /** TEST rates through the real write path, not owner decisions. A TEST VIP tier lowers both rates. */
-export const REGULAR = { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null };
-export const VIP = { pairGroup: 'all-others', tierId: 'test-vip-1', zeroFee: false, makerBps: '6', takerBps: '9', minFee: null };
-export const ZERO = { pairGroup: 'test-zero-fee', tierId: 'regular', zeroFee: true, minFee: null };
+const REGULAR = { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null };
+const VIP = { pairGroup: 'all-others', tierId: 'test-vip-1', zeroFee: false, makerBps: '6', takerBps: '9', minFee: null };
+const ZERO = { pairGroup: 'test-zero-fee', tierId: 'regular', zeroFee: true, minFee: null };
 /**
  * A stored version replaces the stack's boot schedule for every later order, futures too, so it carries the stack's own
  * perpetual block (tooling/scripts/local-stack-services/trade.mjs) unchanged.
