@@ -1,6 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   AGENTS_SUPPORT_ASSIST,
@@ -10,8 +8,9 @@ import {
   OPS_SUPPORT_MOUNTAIN,
   deskVsAgentSplit,
 } from './desk-vs-agent-split.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
+import { supportHealthHonesty, supportStoreHonesty } from './identity-grounding-honesty.js';
+import { mountedSupportApp } from './testing/mounted-app.js';
+import { describeSupportSettlement } from './settlement-refuse.js';
 
 describe('D26-P1-O3 desk vs agent surface split', () => {
   it('names distinct mountains and keeps the desk standalone', () => {
@@ -27,21 +26,38 @@ describe('D26-P1-O3 desk vs agent surface split', () => {
     expect(DESK_DOES_NOT).toContain('metered_agent_sessions');
   });
 
-  it('composition root /ready advertises the same stage + identity account source', () => {
-    const src = readFileSync(join(here, 'http-app.ts'), 'utf8');
-    expect(src).toMatch(/deskVsAgentSplit/);
-    expect(src).toMatch(/stage:\s*split\.stage/);
-    expect(src).toMatch(/accountStateSource:\s*split\.accountStateSource/);
-    expect(src).toMatch(/deskMountain:\s*split\.deskMountain/);
-    expect(src).toMatch(/agentAssist:\s*split\.agentAssist/);
-    expect(src).toMatch(/supportHealthHonesty/);
-    expect(src).toMatch(/identityGroundingRefuse/);
-    expect(src).toMatch(/supportStoreHonesty/);
-    expect(src).toMatch(/canSettle:\s*settlement\.canSettle/);
+  it('the mounted /ready advertises the split, the settlement refusal and the honest identity and store states', async () => {
+    const { app, get } = await mountedSupportApp('an-internal-service-secret-long-enough');
+    const split = deskVsAgentSplit();
+    const health = supportHealthHonesty({ serviceName: 'svc-support', identitySecret: 'an-internal-service-secret-long-enough' });
+    const ready = await get('/ready');
+    expect(ready.status).toBe(200);
+    expect(ready.body).toMatchObject({
+      ready: true,
+      stage: split.stage,
+      accountStateSource: split.accountStateSource,
+      deskMountain: split.deskMountain,
+      agentAssist: split.agentAssist,
+      deskStandalone: split.deskStandalone,
+      canSettle: describeSupportSettlement().canSettle,
+      store: supportStoreHonesty(),
+      identityGroundingWired: health.identityGroundingWired,
+      identitySecretSet: health.identitySecretSet,
+      identityGroundingRefuse: health.identityGroundingRefuse,
+      identity: health.identity,
+    });
+    expect(ready.body.canSettle).toBe(false);
+    await app.close();
   });
 
-  it('desk service never imports ledger-client (no invent balances)', () => {
-    const src = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(src).not.toMatch(/@intafaced\/ledger-client|LedgerClient|recipes\./);
+  it('desk service cannot reach the ledger client (no invent balances)', async () => {
+    // Nothing in svc-support can import the ledger client: it is not a dependency, and pnpm resolves only declared ones.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    expect(Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })).not.toContain('@intafaced/ledger-client');
+    const ledgerClient = '@intafaced/ledger-client';
+    await expect(import(/* @vite-ignore */ ledgerClient)).rejects.toThrow();
   });
 });

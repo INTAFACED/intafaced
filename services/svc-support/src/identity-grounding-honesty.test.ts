@@ -17,6 +17,7 @@ import {
   supportHealthHonesty,
   supportStoreHonesty,
 } from './identity-grounding-honesty.js';
+import { mountedSupportApp } from './testing/mounted-app.js';
 import { composeServiceBlock } from '@intafaced/config/compose';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -101,15 +102,21 @@ describe('identity grounding honesty — secret-set is not wired', () => {
     expect(body.identity).toEqual({ status: 'configured', code: IDENTITY_GROUNDING_UNPROBED });
   });
 
-  it('http-app.ts serves honesty helpers, not secret-set as wired or store postgres', () => {
-    const httpSrc = readFileSync(join(here, 'http-app.ts'), 'utf8');
-    expect(httpSrc).toContain('supportHealthHonesty');
-    expect(httpSrc).toContain('supportStoreHonesty');
-    expect(httpSrc).not.toMatch(/ok:\s*grounding\.wired/);
-    expect(httpSrc).not.toMatch(/ready:\s*grounding\.wired/);
-    expect(httpSrc).not.toMatch(/identityGroundingWired:\s*grounding\.wired/);
-    expect(httpSrc).not.toMatch(/store:\s*'postgres'/);
-    expect(httpSrc).not.toMatch(/fetch\(/);
+  it('the mounted app serves the honesty helpers: a set secret is not wired, and the store is unprobed', async () => {
+    for (const identitySecret of ['an-internal-service-secret-long-enough', '', undefined]) {
+      const { app, get } = await mountedSupportApp(identitySecret);
+      const health = await get('/health');
+      expect(health.status).toBe(200);
+      expect(health.body).toEqual(supportHealthHonesty({ serviceName: 'svc-support', identitySecret }));
+      expect(health.body.ok).toBe(true);
+      expect(health.body.identityGroundingWired).toBe(false);
+      const ready = await get('/ready');
+      expect(ready.body.ready).toBe(true);
+      expect(ready.body.identityGroundingWired).toBe(false);
+      expect(ready.body.store).toEqual({ status: 'configured', code: SUPPORT_STORE_UNPROBED });
+      expect(JSON.stringify(ready.body.store)).not.toMatch(/postgres/i);
+      await app.close();
+    }
   });
 
   it('detects compose that claims IDENTITY_URL without the internal secret', () => {

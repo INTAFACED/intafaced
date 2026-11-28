@@ -7,14 +7,12 @@
  * Door: Fastify + `/trpc` as index.ts mounts — not createCaller-only.
  * GET `/health` is the leftover mill door #3868 did not cover.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
+import { copyClaimsBestEx } from '@intafaced/venue-adapter';
 import { parseAmount as amt, type Amount } from '@intafaced/ledger-client/money';
 import { createDexRouter, type DexRouter } from '../router.js';
 import { dexHealthHonesty, dexReadyHonesty } from './door-honesty.js';
@@ -38,8 +36,6 @@ afterAll(() => {
 });
 const NOW = new Date('2026-07-29T12:00:00.000Z');
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-dex' });
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 type WireBody = {
   result?: { data?: unknown };
@@ -222,17 +218,21 @@ describe('Q-dex HTTP — internal book is not non-custodial', () => {
       amm: false,
     });
     expect(JSON.stringify(quoted)).not.toMatch(/"custodial":false/);
+    // The quote door's copy does not sell a live quote as certified best execution.
+    expect(copyClaimsBestEx(JSON.stringify(body))).toBe(false);
   });
 
-  it('index.ts / router.ts no longer ship a custodial:false door claim', () => {
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(indexSrc).not.toMatch(/custodial:\s*false/);
-    expect(indexSrc).not.toMatch(/Non-custodial by construction/);
-    expect(routerSrc).not.toMatch(/custodial:\s*z\.literal\(false\)/);
-    expect(indexSrc).toContain('dexHealthHonesty');
-    expect(indexSrc).toContain('dexReadyHonesty');
-    expect(indexSrc).toContain('externalVenueWired');
-    expect(routerSrc).toContain('dexHealthHonesty');
+  it('GET /trpc/health with the internal book on or off never claims custodial:false (index.ts serves it: index-boot.test.ts)', async () => {
+    for (const internalBookEnabled of [true, false]) {
+      const app = await mount({ internalBookEnabled });
+      apps.push(app);
+      const { statusCode, body } = await trpcGet(app, 'health');
+      expect(statusCode).toBe(200);
+      const data = body.result?.data as Record<string, unknown>;
+      expect(data).toHaveProperty('externalVenueWired', false);
+      expect(data.custodial).toBeUndefined();
+      expect(JSON.stringify(data)).not.toMatch(/"custodial":false/);
+      expect(JSON.stringify(data)).not.toMatch(/Non-custodial by construction/i);
+    }
   });
 });

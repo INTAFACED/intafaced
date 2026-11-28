@@ -16,9 +16,12 @@ import { fileURLToPath } from 'node:url';
 import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { MemoryLedger } from '@intafaced/ledger-client';
+import { MemoryLedger, MoneyError, parseAmount } from '@intafaced/ledger-client';
 import { MINING_EPOCH_PAYOUT_JOB, startMiningJobs } from './epoch-jobs.js';
+import { buildPayoutRecipes, postPayouts } from './ledger.js';
+import { planPplns } from './pplns.js';
 import { submitShare } from './submit-share.js';
+import { EMISSION_UNPUBLISHED, EPOCH_UNSET } from './window-store.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', 'drizzle');
@@ -82,26 +85,41 @@ describe('Q-mine JobHost money hitch (source)', () => {
     expect(src).not.toMatch(/\bit\.skip\s*\(/);
   });
 
-  it('HTTP submitShare persists only; JobHost is the payout door and refuses unpublished mint/reward', () => {
-    const submitSrc = readFileSync(join(here, 'submit-share.ts'), 'utf8');
-    const jobsSrc = readFileSync(join(here, 'epoch-jobs.ts'), 'utf8');
-    const serverSrc = readFileSync(join(here, 'server.ts'), 'utf8');
-    const ledgerSrc = readFileSync(join(here, 'ledger.ts'), 'utf8');
-    const pplnsSrc = readFileSync(join(here, 'pplns.ts'), 'utf8');
-    expect(submitSrc).not.toMatch(/postPayouts/);
-    expect(submitSrc).toMatch(/persistWindowShares/);
-    expect(jobsSrc).toMatch(/postPayouts/);
-    expect(jobsSrc).toMatch(/createJobHost/);
-    expect(jobsSrc).toMatch(/EMISSION_UNPUBLISHED/);
-    expect(serverSrc).toMatch(/startMiningJobs/);
-    expect(serverSrc).not.toMatch(/postPayouts/);
-    expect(ledgerSrc).toMatch(/parseAmount\(payout\.amount\)/);
-    expect(ledgerSrc).toMatch(/parseAmount\(input\.reward\)/);
-    expect(ledgerSrc).toMatch(/EMISSION_UNPUBLISHED/);
-    expect(ledgerSrc).not.toMatch(/mintEmission/);
-    expect(ledgerSrc).not.toMatch(/ledger\.post/);
-    expect(pplnsSrc).toMatch(/parseAmount\(input\.reward\)/);
-    expect(pplnsSrc).not.toMatch(/Number\(input\.reward\)/);
+  it('the payout door refuses unpublished mint/reward and never posts; amounts are decimal strings, never numbers', async () => {
+    const posts: unknown[] = [];
+    const ledger = {
+      post: async (request: unknown): Promise<never> => {
+        posts.push(request);
+        throw new Error('TEST: no post');
+      },
+    };
+    const window = {
+      windowId: 'epoch-1',
+      epoch: 1,
+      assetId: 'IFC',
+      reward: '10',
+      feeBps: 100,
+      shares: [{ shareId: 'a', minerId: ALICE, weight: 1n }],
+    };
+    // An owner-unpublished emission refuses by name even with a set epoch and a caller reward (ledger.ts).
+    await expect(postPayouts(ledger, window)).rejects.toThrow(EMISSION_UNPUBLISHED);
+    const { epoch: _unset, ...noEpoch } = window;
+    await expect(postPayouts(ledger, noEpoch)).rejects.toThrow(EPOCH_UNSET);
+    // The reward is parsed as a decimal string: an exponent or a lossy figure refuses before anything else.
+    for (const reward of ['1e1', '10.0000000000000000001', 'ten']) {
+      await expect(postPayouts(ledger, { ...window, reward })).rejects.toThrow(MoneyError);
+      expect(() => planPplns({ ...window, reward })).toThrow(MoneyError);
+    }
+    expect(posts).toEqual([]);
+    // A reward a JS number cannot hold is paid out exactly (pplns.ts keeps it a scaled bigint).
+    const plan = planPplns({ ...window, reward: '123456789012345678.000000000000000001', feeBps: 0 });
+    expect(plan.gross).toBe('123456789012345678.000000000000000001');
+    expect(plan.payouts).toEqual([{ minerId: ALICE, amount: '123456789012345678.000000000000000001' }]);
+    // The recipe it would post is the ledger-client's rewardPay at that exact amount, for that miner.
+    const [recipe] = buildPayoutRecipes({ ...window, reward: '2.5', feeBps: 0 });
+    const posted = JSON.stringify(recipe, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v));
+    expect(posted).toContain(String(parseAmount('2.5')));
+    expect(posted).toContain(ALICE);
   });
 });
 

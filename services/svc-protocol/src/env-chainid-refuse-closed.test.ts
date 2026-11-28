@@ -16,10 +16,11 @@
  *    compose interpolates :-31337, or feeBps defaults to 30
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { PROTOCOL_AMM_BUILD_CREATE_AND_SEED, PROTOCOL_AMM_POOL_EXISTS } from '@intafaced/contracts/protocol-amm-procedures';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
@@ -53,12 +54,6 @@ afterEach(() => {
 });
 
 describe('svc-protocol PROTOCOL_CHAIN_ID refuse-closed', () => {
-  it('env.ts has no Anvil 31337 default', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/PROTOCOL_CHAIN_ID:[\s\S]*?\.default\(31337\)/);
-    expect(envTs).toMatch(/PROTOCOL_CHAIN_ID is unset — will not echo Anvil 31337 as live/);
-  });
-
   it('compose does not interpolate :-31337 on svc-protocol', () => {
     const compose = readFileSync(COMPOSE, 'utf8');
     const block = composeServiceBlock(compose, 'svc-protocol');
@@ -66,9 +61,14 @@ describe('svc-protocol PROTOCOL_CHAIN_ID refuse-closed', () => {
     expect(block).not.toMatch(/PROTOCOL_CHAIN_ID:.*31337/);
   });
 
-  it('router does not git-default AMM feeBps to 30', () => {
-    const routerTs = readFileSync(join(HERE, 'router.ts'), 'utf8');
-    expect(routerTs).not.toMatch(/feeBps:[\s\S]{0,80}\.default\(\s*30\s*\)/);
+  it('the AMM doors the router mounts do not git-default feeBps to 30', () => {
+    for (const record of [PROTOCOL_AMM_POOL_EXISTS, PROTOCOL_AMM_BUILD_CREATE_AND_SEED]) {
+      const sample = record.samples.find((s) => s.verdict === 'accept')?.input as Record<string, unknown>;
+      const { feeBps: _fee, ...withoutFee } = sample;
+      expect(record.input.safeParse(withoutFee).success, `${record.path} without feeBps`).toBe(false);
+      const parsed = record.input.parse({ ...sample, feeBps: 5 }) as { feeBps: number };
+      expect(parsed.feeBps).toBe(5);
+    }
   });
 
   it('unset PROTOCOL_CHAIN_ID refuses (no silent Anvil)', async () => {

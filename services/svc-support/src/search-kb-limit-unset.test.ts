@@ -1,11 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';
 import { LIST_KB_LIMIT_UNSET, SupportError, SupportService, assertListKbLimit } from './support-service.js';
 import { PLATFORM_KB_SPINE, searchKb } from './kb-catalog.js';
 import { userCopy } from './user-copy.js';
+import { callerAs } from './testing/router-caller.js';
 
 /**
  * searchKb page size is refuse-closed when unset — same window as listKb.
@@ -15,8 +13,6 @@ import { userCopy } from './user-copy.js';
  * explicitly. Slice is after search so a match beyond the first N published
  * rows is not dropped.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('searchKb limit unset refuse', () => {
   it('reuses listKb window — never invents 100', () => {
@@ -69,30 +65,19 @@ describe('searchKb limit unset refuse', () => {
     expect(searchKb('account', PLATFORM_KB_SPINE).some((a) => a.id === 'kb-account-access')).toBe(true);
   });
 
-  it('router does not invent 100 when searchKb omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/router.ts'), 'utf8');
-    const start = src.indexOf('searchKb:');
-    const end = src.indexOf('getKb:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('limit: input?.limit');
+  it('the searchKb door refuses an omitted limit by name and pages the hits after searching', async () => {
     // The record the door is mounted from names the refusal and leaves the page size optional, so a blank reaches it.
-    expect(fn).toContain('SUPPORT_SEARCH_KB');
     expect(SUPPORT_SEARCH_KB.refusals['support.list_kb_limit_unset']).toBe('PRECONDITION_FAILED');
     expect(SUPPORT_SEARCH_KB.input.safeParse({ q: '' }).success).toBe(true);
-    expect(fn).not.toMatch(/input\?\.limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
-    expect(fn).not.toMatch(/all\.length/);
-  });
-
-  it('searchKb slices after search — never invents 100 / catalog.length', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/support-service.ts'), 'utf8');
-    const start = src.indexOf('async searchKb(');
-    const end = src.indexOf('async getKbArticle(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertListKbLimit');
-    expect(fn).toContain('.slice(0, limit)');
-    expect(fn).not.toMatch(/\?\? 100/);
-    expect(fn).not.toMatch(/all\.length/);
-    expect(fn).not.toMatch(/PLATFORM_KB_SPINE\.length/);
+    const svc = new SupportService();
+    const staff = await callerAs(svc, '33333333-3333-4333-8333-333333333333', ['support:ops', 'support:read', 'support:write']);
+    for (const input of [undefined, { q: '' }, { q: 'account' }]) {
+      await expect(staff.searchKb(input)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: userCopy(LIST_KB_LIMIT_UNSET) });
+    }
+    expect((await staff.searchKb({ q: 'account', limit: 100 })).some((a) => a.id === 'kb-account-access')).toBe(true);
+    const all = await staff.searchKb({ q: '', limit: 100 });
+    expect(all.length).toBeGreaterThan(1);
+    expect(await staff.searchKb({ q: '', limit: 1 })).toEqual(all.slice(0, 1));
+    expect(await staff.searchKb({ q: '', limit: 2 })).toEqual(await svc.listKb({ limit: 2 }));
   });
 });

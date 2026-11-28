@@ -49,7 +49,7 @@ const blankIsUnset = <T extends z.ZodTypeAny>(schema: T) =>
  * a principal the edge vouched for from one a caller typed. Most of the surface
  * is permissionless; the registry procedures are not, and they are the reason.
  */
-const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
+export const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   z.object({
     SERVICE_NAME: z.string().default('svc-protocol'),
     HTTP_PORT: z.coerce.number().int().default(4004),

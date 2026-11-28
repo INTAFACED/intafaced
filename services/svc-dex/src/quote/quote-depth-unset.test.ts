@@ -9,9 +9,6 @@
  * 5. Paths: quote-service.ts sourceQuote
  * 6. RED: unset quote succeeds or source git-defaults 50
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseAmount as amt } from '@intafaced/ledger-client/money';
 import { QuoteRefusedError, sourceQuote } from './quote-service.js';
@@ -46,13 +43,6 @@ class LiveVenue extends MarketDataSource {
 const buyOne = { symbol: 'IFC-USD', side: 'buy' as const, qty: amt('1') };
 
 describe('sourceQuote depth unpublished', () => {
-  it('quote-service.ts does not git-default 50', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'quote-service.ts'), 'utf8');
-    expect(src).toMatch(/dex\.quote\.depth_unset/);
-    expect(src).not.toMatch(/depth\s*=\s*50/);
-    expect(src).not.toMatch(/DEFAULT_QUOTE_DEPTH/);
-  });
-
   it('unset depth refuses (does not invent 50)', async () => {
     await expect(sourceQuote({ venues: [new LiveVenue()], maxAgeMs: 2_000, now: () => NOW }, buyOne)).rejects.toMatchObject({
       name: 'QuoteRefusedError',

@@ -10,12 +10,7 @@
  * 5. Paths: env.ts via loadEnv at import (same as boot)
  * 6. RED: unset parses as 6 / 3 / 1, or .default(6|3|1) returns
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 const BASE_ENV = {
   DATABASE_URL: 'postgres://u:p@localhost:5432/db',
@@ -49,13 +44,6 @@ afterEach(() => {
 });
 
 describe('BLUEPRINT crew / mentor / season refuse-closed', () => {
-  it('env.ts does not git-default 6 / 3 / 1', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/BLUEPRINT_CREW_CAPACITY:[\s\S]{0,400}\.default\(6\)/);
-    expect(envTs).not.toMatch(/BLUEPRINT_MENTOR_SHORTLIST_SIZE:[\s\S]{0,400}\.default\(3\)/);
-    expect(envTs).not.toMatch(/BLUEPRINT_SEASON:[\s\S]{0,400}\.default\(1\)/);
-  });
-
   for (const key of KEYS) {
     it(`unset ${key.name} is unpublished (not ${key.invented})`, async () => {
       const parsed = await loadWith({});

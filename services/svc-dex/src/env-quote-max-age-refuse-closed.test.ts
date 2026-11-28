@@ -9,12 +9,8 @@
  * 5. Paths: env.ts via loadEnv at import (same as boot)
  * 6. RED: unset parses as 2000, or .default(2_000) / .default(2000) returns
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 const BASE_ENV = {
@@ -38,11 +34,6 @@ afterEach(() => {
 });
 
 describe('QUOTE_MAX_AGE_MS refuse-closed', () => {
-  it('env.ts does not git-default 2000', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/QUOTE_MAX_AGE_MS:[\s\S]{0,500}\.default\(2_?000\)/);
-  });
-
   it('unset is unpublished (not 2000)', async () => {
     const parsed = await loadWith({});
     expect(parsed.QUOTE_MAX_AGE_MS).toBeUndefined();

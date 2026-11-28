@@ -2,14 +2,9 @@
  * GET /health and tRPC health must not sell Anvil 31337 as the chain.
  * chainStatus is the probe. Configured / unprobed is not chain ok.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROTOCOL_CHAIN_UNPROBED, protocolHealthHonesty } from './health-honesty.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('protocol health honesty — unprobed is not a live chain', () => {
   const apps: FastifyInstance[] = [];
@@ -64,19 +59,15 @@ describe('protocol health honesty — unprobed is not a live chain', () => {
     expect(JSON.stringify(body)).not.toMatch(/31337/);
   });
 
-  it('index.ts and router.ts serve health via protocolHealthHonesty, not PROTOCOL_CHAIN_ID', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    const routerSrc = readFileSync(join(here, 'router.ts'), 'utf8');
-    expect(indexSrc).toContain('protocolHealthHonesty');
-    expect(routerSrc).toContain('protocolHealthHonesty');
-    expect(indexSrc).not.toMatch(/app\.get\('\/health'[\s\S]{0,400}chainId:\s*env\.PROTOCOL_CHAIN_ID/);
-    expect(routerSrc).not.toMatch(/health:[\s\S]{0,500}chainId:\s*chain\.config\.chainId/);
-  });
-
-  it('health-honesty.ts does not literal-stamp custodial:false', () => {
-    const src = readFileSync(join(here, 'health-honesty.ts'), 'utf8');
-    expect(src).not.toMatch(/custodial:\s*z\.literal\(false\)/);
-    expect(src).not.toMatch(/custodial:\s*false\s+as const/);
-    expect(src).not.toMatch(/custodial:\s*false,/);
+  it('stamps no custodial claim for any wiring (index.ts and the router serve it: index-boot.test.ts)', () => {
+    for (const relayEnabled of [true, false]) {
+      for (const factoryConfigured of [true, false]) {
+        for (const venueVaultConfigured of [true, false, undefined]) {
+          const body = protocolHealthHonesty({ relayEnabled, factoryConfigured, venueVaultConfigured });
+          expect(body).not.toHaveProperty('custodial');
+          expect(JSON.stringify(body)).not.toMatch(/custod/i);
+        }
+      }
+    }
   });
 });

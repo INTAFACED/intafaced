@@ -1,0 +1,893 @@
+[
+  {
+    "file": "services/svc-blueprint/src/brand.test.ts",
+    "target": "../../../tooling/ci/brand-scan.mjs",
+    "verdict": "rule",
+    "asserts": "Blueprint copy names no vendor from the brand scan's forbidden list.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/brand.test.ts#contains no forbidden name in any file in this package"
+    },
+    "why": "The read is the brand scan's own vocabulary (data the test compares copy to), outside this part's folders; brand-scan.mjs exports no list and runs a whole-repo scan with process.exit on import, so it cannot be imported. Left for the rule's owner."
+  },
+  {
+    "file": "services/svc-blueprint/src/card/compose.test.ts",
+    "target": "../../../../tooling/ci/brand-scan.mjs",
+    "verdict": "rule",
+    "asserts": "The composed card carries no vendor name from the brand scan's forbidden list.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/card/compose.test.ts#renders no forbidden name, for any profile the contract allows"
+    },
+    "why": "Same as brand.test.ts: the read is the brand scan's vocabulary (data), outside this part, not importable (no export, whole-repo scan and process.exit on import). Left for the rule's owner."
+  },
+  {
+    "file": "services/svc-blueprint/src/card-renderer-timeout-compose-pin.test.ts",
+    "target": "../../../services/svc-blueprint/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-blueprint defaults the card renderer timeout to 10000 and keeps API keys optional, matching compose.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/card-renderer-timeout-compose-pin.test.ts#env.ts still defaults BLUEPRINT_CARD_RENDERER_TIMEOUT_MS to 10000 matching compose"
+    },
+    "why": "Loads env.ts with the keys unset, blank and set and asserts the parsed timeout and the API keys' refusal or omission."
+  },
+  {
+    "file": "services/svc-blueprint/src/compose-crew-capacity-season-timeout-pin.test.ts",
+    "target": "../../../services/svc-blueprint/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts keeps the timeout default 20000 and leaves crew, mentor and season unpublished.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/compose-crew-capacity-season-timeout-pin.test.ts#env.ts still declares the flags this pin tracks"
+    },
+    "why": "Loads env.ts and asserts the parsed timeout and the three unset values."
+  },
+  {
+    "file": "services/svc-blueprint/src/crew-capacity-unset.test.ts",
+    "target": "blueprint-service.ts",
+    "verdict": "delete",
+    "asserts": "The blueprint service never invents a crew size, shortlist length or season.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/crew-capacity-unset.test.ts#unset / NaN / 0 / 25 refuse capacity — never invent 6"
+    },
+    "why": "The same file calls the parsers with unset, NaN, 0 and out-of-range values for all three and asserts the refusal; blueprint-service.test.ts#refuses forming a crew when capacity is unpublished calls the service."
+  },
+  {
+    "file": "services/svc-blueprint/src/edge-trust.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts hands the edge public key and its limits to the edge context.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/index-boot.test.ts#hands the edge public key and its limits to the edge context"
+    },
+    "why": "Boots index.ts and drives an edge-signed request: accepted with the key, refused over the lifetime limit and without the key."
+  },
+  {
+    "file": "services/svc-blueprint/src/engine-mode-compose-pin.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts defaults the engine mode to http, never mock.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/engine-mode-compose-pin.test.ts#unset MODE is http"
+    },
+    "why": "The same file loads env.ts with MODE unset, blank, mock and garbage and asserts http, http, mock and a refused boot."
+  },
+  {
+    "file": "services/svc-blueprint/src/env-crew-capacity-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts publishes no default crew capacity, shortlist length or season.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/env-crew-capacity-refuse-closed.test.ts#zero crew capacity refuses boot"
+    },
+    "why": "The same file loads env.ts with each key unset, blank, whitespace, explicit, garbage and zero and asserts unpublished, the owner value or a refused boot."
+  },
+  {
+    "file": "services/svc-blueprint/src/env-engine-url-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts invents no engine host.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/env-engine-url-refuse-closed.test.ts#unset BLUEPRINT_ENGINE_URL with http mode refuses"
+    },
+    "why": "The same file loads env.ts with the URL unset, blank, whitespace and garbage (all refuse) and explicit (kept)."
+  },
+  {
+    "file": "services/svc-blueprint/src/matching/mentor-shortlist-limit-unset.test.ts",
+    "target": "mentor-matching.ts",
+    "verdict": "delete",
+    "asserts": "shortlistMentors never invents a shortlist length of 3.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/matching/mentor-shortlist-limit-unset.test.ts#unset limit refuses (no invent 3)"
+    },
+    "why": "The same file calls shortlistMentors with the limit unset and null (refused) and 3 (used)."
+  },
+  {
+    "file": "services/svc-blueprint/src/share-limits-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts publishes no share count or page size by default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-blueprint/src/share-limits-refuse-closed.test.ts#unset and blank stay unpublished, and 0 is kept"
+    },
+    "why": "The same file loads env.ts with the keys unset, blank and 0 and asserts the parsed values."
+  },
+  {
+    "file": "services/svc-campaigns/src/router.test.ts",
+    "target": "./router.ts",
+    "verdict": "rewrite",
+    "asserts": "router.ts only composes: every procedure it serves is one a routes/<feature>.ts file makes.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-campaigns/src/router.test.ts#serves only its features' procedures"
+    },
+    "why": "Builds the router and compares every procedure path it serves with the union the feature files make (customer, ops., ops.campaigns.) plus health."
+  },
+  {
+    "file": "services/svc-campaigns/src/test-age-door.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The TEST age and pay-fault doors open only from TEST_AGE_DOOR, read before the database opens, behind a signed call.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-campaigns/src/index-boot.test.ts#without TEST_AGE_DOOR"
+    },
+    "why": "Boots index.ts: both doors refuse by name when the flag is off, open behind a signed call when on, and on outside a TEST stack refuses boot before postgres() is called."
+  },
+  {
+    "file": "services/svc-dex/src/env-quote-depth-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts never invents a quote depth of 50.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/env-quote-depth-refuse-closed.test.ts#unset is unpublished (not 50)"
+    },
+    "why": "The same file loads env.ts with the depth unset, blank, whitespace, 50, garbage and 0."
+  },
+  {
+    "file": "services/svc-dex/src/env-quote-max-age-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts never invents a quote freshness of 2000.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/env-quote-max-age-refuse-closed.test.ts#unset is unpublished (not 2000)"
+    },
+    "why": "The same file loads env.ts with the window unset, blank, whitespace, 2000, garbage and 99."
+  },
+  {
+    "file": "services/svc-dex/src/order/limit-order.test.ts",
+    "target": "./limit-order.ts",
+    "verdict": "rewrite",
+    "asserts": "A limit order is computed in-process: no call to another service, no store, no ledger post.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/order/limit-order.test.ts#does not call another service or keep a store"
+    },
+    "why": "Runs the order's whole flow with fetch stubbed to fail and the env emptied and asserts the answers; the ledger write recipes stay held by pnpm scan:custody."
+  },
+  {
+    "file": "services/svc-dex/src/order/trigger-order.test.ts",
+    "target": "./",
+    "verdict": "rewrite",
+    "asserts": "A trigger order is computed in-process: no service call, no database, no minted id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/order/trigger-order.test.ts#does not call a service, open a database, or mint an id"
+    },
+    "why": "Runs the order's life with fetch, randomUUID and crypto watched and asserts none is called and the ids are its business keys."
+  },
+  {
+    "file": "services/svc-dex/src/quote/dex-fee-compose-wiring.test.ts",
+    "target": "../env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-dex invents no internal-book fee: unset is unpublished, an explicit one is the owner's.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/dex-fee-compose-wiring.test.ts#compose pins empty internal-book fee"
+    },
+    "why": "Loads env.ts with the fee unset (undefined) and 7 (7)."
+  },
+  {
+    "file": "services/svc-dex/src/quote/dex-fee-tracker-status-pin.test.ts",
+    "target": "../../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker marks socket.dex-fee-source done only with its owner wiring shipped.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/dex-fee-tracker-status-pin.test.ts#features.mjs marks socket.dex-fee-source done"
+    },
+    "why": "Imports FEATURES from the tracker and asserts the entry's status."
+  },
+  {
+    "file": "services/svc-dex/src/quote/door-honesty.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "No dex door sells a quote as certified best execution.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/door-honesty.test.ts#the door honesty copy does not sell a live quote as certified best execution"
+    },
+    "why": "Runs copyClaimsBestEx over every honesty output; the served router and index answers: index-boot.test.ts."
+  },
+  {
+    "file": "services/svc-dex/src/quote/door-honesty.test.ts",
+    "target": "door-honesty.ts",
+    "verdict": "rewrite",
+    "asserts": "The door honesty copy never claims best execution.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/door-honesty.test.ts#the door honesty copy does not sell a live quote as certified best execution"
+    },
+    "why": "Runs copyClaimsBestEx over the outputs for every wiring."
+  },
+  {
+    "file": "services/svc-dex/src/quote/door-honesty.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts serves /health and /ready from the door honesty, with no best-ex claim.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/index-boot.test.ts#serves /health and /ready from the door honesty"
+    },
+    "why": "Boots index.ts and compares /health and /ready to dexHealthHonesty and dexReadyHonesty, book on and off."
+  },
+  {
+    "file": "services/svc-dex/src/quote/internal-book-http.honesty.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts never serves custodial:false for the internal book.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/index-boot.test.ts#serves /health and /ready from the door honesty"
+    },
+    "why": "Boots index.ts and asserts no custodial:false and the book marked custodial on /health, /ready and /trpc/health."
+  },
+  {
+    "file": "services/svc-dex/src/quote/internal-book-http.honesty.test.ts",
+    "target": "../router.ts",
+    "verdict": "rewrite",
+    "asserts": "The router's health never claims custodial:false, book on or off.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/internal-book-http.honesty.test.ts#GET /trpc/health with the internal book on or off never claims custodial:false"
+    },
+    "why": "Calls the mounted health with the book on and off and asserts the answer."
+  },
+  {
+    "file": "services/svc-dex/src/quote/orderbook-limit-unset.test.ts",
+    "target": "market-data-source.ts",
+    "verdict": "delete",
+    "asserts": "orderBook never invents a depth of 50.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/orderbook-limit-unset.test.ts#unset limit refuses (no invent 50)"
+    },
+    "why": "The same file calls orderBook with the limit unset and null (refused) and 50 (used)."
+  },
+  {
+    "file": "services/svc-dex/src/quote/quote-depth-unset.test.ts",
+    "target": "quote-service.ts",
+    "verdict": "delete",
+    "asserts": "The quote service never invents a depth of 50.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/quote-depth-unset.test.ts#unset depth refuses (does not invent 50)"
+    },
+    "why": "The same file quotes with the depth unset, NaN and 0 (refused) and 50 (quotes)."
+  },
+  {
+    "file": "services/svc-dex/src/quote/quote-hardcoded-depth-unset.test.ts",
+    "target": "market-data-source.ts",
+    "verdict": "delete",
+    "asserts": "MarketDataSource.quote never invents a depth of 50.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/quote-hardcoded-depth-unset.test.ts#unset depth refuses (no invent 50)"
+    },
+    "why": "The same file quotes with the depth unset, NaN and 0 (refused) and 50 (published)."
+  },
+  {
+    "file": "services/svc-dex/src/quote/quote-hardcoded-depth-unset.test.ts",
+    "target": "venue-set.ts",
+    "verdict": "rewrite",
+    "asserts": "venuesFor hands DEX_QUOTE_DEPTH to every venue, with no second invented number.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/quote-hardcoded-depth-unset.test.ts#venuesFor hands DEX_QUOTE_DEPTH to every venue"
+    },
+    "why": "Builds the venues with fetch stubbed and asserts each asks its venue for depth 7."
+  },
+  {
+    "file": "services/svc-dex/src/quote/quote-max-age-unset.test.ts",
+    "target": "quote-service.ts",
+    "verdict": "delete",
+    "asserts": "The quote service never invents a freshness window of 2000.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-dex/src/quote/quote-max-age-unset.test.ts#unset maxAgeMs refuses (does not invent 2000) and does not fetch"
+    },
+    "why": "The same file quotes with maxAgeMs unset, NaN, 0 and 99 (refused, no fetch) and 2000 (quotes)."
+  },
+  {
+    "file": "services/svc-fix/src/matching-port.test.ts",
+    "target": "../src/matching-port.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-fix never posts to the ledger, cannot load the ledger client, and sends no last price to matching.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-fix/src/matching-port.test.ts#never posts ledger and does not depend on ledger-client"
+    },
+    "why": "Asserts the recorded URLs, the declared dependencies and that importing the ledger client fails; no last price: the toMatchingSubmitBody tests in the same file."
+  },
+  {
+    "file": "services/svc-mining-pool/src/epoch-jobs.money.test.ts",
+    "target": "submit-share.ts",
+    "verdict": "rewrite",
+    "asserts": "Only the JobHost pays; it refuses unpublished emission and posts nothing; amounts are decimal strings.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-mining-pool/src/epoch-jobs.money.test.ts#the payout door refuses unpublished mint/reward and never posts"
+    },
+    "why": "Calls postPayouts, planPplns and buildPayoutRecipes: emission and epoch refuse by name, non-decimal rewards refuse with MoneyError, a reward a number cannot hold is paid exactly, nothing is posted; submitShare paying nothing and the JobHost tick: the Postgres tests in the same file."
+  },
+  {
+    "file": "services/svc-mining-pool/src/epoch-jobs.money.test.ts",
+    "target": "epoch-jobs.ts",
+    "verdict": "rewrite",
+    "asserts": "Only the JobHost pays; it refuses unpublished emission and posts nothing; amounts are decimal strings.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-mining-pool/src/epoch-jobs.money.test.ts#the payout door refuses unpublished mint/reward and never posts"
+    },
+    "why": "Calls postPayouts, planPplns and buildPayoutRecipes: emission and epoch refuse by name, non-decimal rewards refuse with MoneyError, a reward a number cannot hold is paid exactly, nothing is posted; submitShare paying nothing and the JobHost tick: the Postgres tests in the same file."
+  },
+  {
+    "file": "services/svc-mining-pool/src/epoch-jobs.money.test.ts",
+    "target": "ledger.ts",
+    "verdict": "rewrite",
+    "asserts": "Only the JobHost pays; it refuses unpublished emission and posts nothing; amounts are decimal strings.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-mining-pool/src/epoch-jobs.money.test.ts#the payout door refuses unpublished mint/reward and never posts"
+    },
+    "why": "Calls postPayouts, planPplns and buildPayoutRecipes: emission and epoch refuse by name, non-decimal rewards refuse with MoneyError, a reward a number cannot hold is paid exactly, nothing is posted; submitShare paying nothing and the JobHost tick: the Postgres tests in the same file."
+  },
+  {
+    "file": "services/svc-mining-pool/src/epoch-jobs.money.test.ts",
+    "target": "pplns.ts",
+    "verdict": "rewrite",
+    "asserts": "Only the JobHost pays; it refuses unpublished emission and posts nothing; amounts are decimal strings.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-mining-pool/src/epoch-jobs.money.test.ts#the payout door refuses unpublished mint/reward and never posts"
+    },
+    "why": "Calls postPayouts, planPplns and buildPayoutRecipes: emission and epoch refuse by name, non-decimal rewards refuse with MoneyError, a reward a number cannot hold is paid exactly, nothing is posted; submitShare paying nothing and the JobHost tick: the Postgres tests in the same file."
+  },
+  {
+    "file": "services/svc-mining-pool/src/epoch-jobs.money.test.ts",
+    "target": "server.ts",
+    "verdict": "rewrite",
+    "asserts": "server.ts runs payouts only through the one scheduled JobHost job.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-mining-pool/src/server-boot.test.ts#with a database, a ledger and a payout interval"
+    },
+    "why": "Boots server.ts: one job at the published interval, none without one, nothing posted at boot."
+  },
+  {
+    "file": "services/svc-mining-pool/src/health-honesty.test.ts",
+    "target": "server.ts",
+    "verdict": "rewrite",
+    "asserts": "server.ts serves /health and /ready from miningHealthHonesty, never wired.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-mining-pool/src/server-boot.test.ts#with a database, a ledger and a payout interval"
+    },
+    "why": "Boots server.ts and compares /health and /ready to miningHealthHonesty, configured and absent."
+  },
+  {
+    "file": "services/svc-mining-pool/src/health-honesty.test.ts",
+    "target": "window-store.ts",
+    "verdict": "rewrite",
+    "asserts": "Absent pg reuses the window store's mining.pg_unavailable code.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-mining-pool/src/health-honesty.test.ts#pg absent reuses mining.pg_unavailable"
+    },
+    "why": "Imports PG_UNAVAILABLE and compares it to MINING_PG_UNAVAILABLE."
+  },
+  {
+    "file": "services/svc-ops/src/list-limit-unset.test.ts",
+    "target": "../../../services/svc-ops/src/router.ts",
+    "verdict": "delete",
+    "asserts": "No ops directory door dumps every row when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ops/src/list-limit-unset.test.ts#omit / empty input refuses PRECONDITION_FAILED on every directory dump"
+    },
+    "why": "The same file calls all seven doors through the router with no limit (each refuses by name) and with 1 and 50 (sliced)."
+  },
+  {
+    "file": "services/svc-ops/src/ready-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts serves /ready from opsReadyUrlHonesty: a set URL is configured, not live, and nothing is fetched.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ops/src/index-boot.test.ts#serves /ready from opsReadyUrlHonesty"
+    },
+    "why": "Boots index.ts and asserts /ready, no custodial or URL booleans, and that fetch is never called."
+  },
+  {
+    "file": "services/svc-ops/src/router.mount.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The ops health answers ok + service only, with no custodial stamp.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-ops/src/router.mount.test.ts#answers the same ok + service to a signed operator"
+    },
+    "why": "Calls health as anyone and as a signed operator and over the booted index (index-boot.test.ts) and asserts exactly {ok, service}."
+  },
+  {
+    "file": "services/svc-protocol/src/card/issuer-adapter.test.ts",
+    "target": "issuer-adapter.ts",
+    "verdict": "rewrite",
+    "asserts": "The card adapter reads no issuer key and refuses issuer secrets.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/card/issuer-adapter.test.ts#builds the same calldata whatever the process env holds"
+    },
+    "why": "Refuses each issuer key by name and builds identical calldata with secret keys in the env."
+  },
+  {
+    "file": "services/svc-protocol/src/edge-trust.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts hands the edge public key and its limits to the edge context.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/index-boot.test.ts#hands the edge public key and its limits to the edge context"
+    },
+    "why": "Boots index.ts and drives an edge-signed request with and without the key."
+  },
+  {
+    "file": "services/svc-protocol/src/env-chainid-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts has no Anvil chain id default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/env-chainid-refuse-closed.test.ts#unset PROTOCOL_CHAIN_ID refuses (no silent Anvil)"
+    },
+    "why": "The same file loads env.ts with the chain id unset, blank, whitespace and garbage (refused) and explicit (kept)."
+  },
+  {
+    "file": "services/svc-protocol/src/env-chainid-refuse-closed.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The AMM doors the router mounts never default feeBps to 30.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/env-chainid-refuse-closed.test.ts#the AMM doors the router mounts do not git-default feeBps to 30"
+    },
+    "why": "Parses the doors' records' inputs without feeBps and asserts each refuses."
+  },
+  {
+    "file": "services/svc-protocol/src/env-entrypoint-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts has no canonical EntryPoint default; the other addresses default to 0x0.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/env-entrypoint-refuse-closed.test.ts#unset PROTOCOL_ENTRYPOINT_ADDRESS refuses"
+    },
+    "why": "The same file loads env.ts with the EntryPoint unset, blank, whitespace, garbage and explicit; the 0x0 defaults: env-factory-compose-pin.test.ts#unset quartet is 0x0."
+  },
+  {
+    "file": "services/svc-protocol/src/env-factory-compose-pin.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts defaults the factory quartet to 0x0, never Anvil CREATE addresses.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/env-factory-compose-pin.test.ts#unset quartet is 0x0"
+    },
+    "why": "The same file loads env.ts with the quartet unset, blank, owner, Anvil and garbage."
+  },
+  {
+    "file": "services/svc-protocol/src/env-rpc-url-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "delete",
+    "asserts": "env.ts has no localhost or evm:8545 RPC default.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/env-rpc-url-refuse-closed.test.ts#unset PROTOCOL_RPC_URL refuses (no silent evm:8545)"
+    },
+    "why": "The same file loads env.ts with the URL unset, blank, whitespace and garbage (refused) and explicit (kept)."
+  },
+  {
+    "file": "services/svc-protocol/src/health-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts serves /health from protocolHealthHonesty, never echoing the chain id.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/index-boot.test.ts#serves /health and the health procedure from protocolHealthHonesty"
+    },
+    "why": "Boots index.ts and compares /health and the router's health to protocolHealthHonesty."
+  },
+  {
+    "file": "services/svc-protocol/src/health-honesty.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "The router's health is protocolHealthHonesty.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/index-boot.test.ts#serves /health and the health procedure from protocolHealthHonesty"
+    },
+    "why": "Calls the served health procedure and compares it to protocolHealthHonesty."
+  },
+  {
+    "file": "services/svc-protocol/src/health-honesty.test.ts",
+    "target": "health-honesty.ts",
+    "verdict": "rewrite",
+    "asserts": "protocolHealthHonesty stamps no custodial claim.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/health-honesty.test.ts#stamps no custodial claim for any wiring"
+    },
+    "why": "Calls protocolHealthHonesty over every wiring and asserts no custodial field."
+  },
+  {
+    "file": "services/svc-protocol/src/rwa/rwa-tracker-status-pin.test.ts",
+    "target": "../../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker marks launch.rwa done once its backend bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/rwa/rwa-tracker-status-pin.test.ts#features.mjs marks launch.rwa done"
+    },
+    "why": "Imports FEATURES and asserts the entry's status."
+  },
+  {
+    "file": "services/svc-protocol/src/sovereignty.test.ts",
+    "target": "../src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-protocol declares no signing key in its environment.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/sovereignty.test.ts#declares no signing key in its environment"
+    },
+    "why": "Imports the env schema (now exported) and asserts none of its keys names a private key, mnemonic or signer."
+  },
+  {
+    "file": "services/svc-protocol/src/vaults/treasury-yield-tracker-status-pin.test.ts",
+    "target": "../../../../tooling/tracker/features.mjs",
+    "verdict": "rewrite",
+    "asserts": "The tracker marks launch.treasury-yield done once its backend bar is met.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-protocol/src/vaults/treasury-yield-tracker-status-pin.test.ts#features.mjs marks launch.treasury-yield done"
+    },
+    "why": "Imports FEATURES and asserts the entry's status."
+  },
+  {
+    "file": "services/svc-quant/src/edge-trust.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts hands the edge public key and its limits to the edge context.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-quant/src/index-boot.test.ts#hands the edge public key and its limits to the edge context"
+    },
+    "why": "Boots index.ts and drives an edge-signed studio.list with and without the key and over the lifetime limit."
+  },
+  {
+    "file": "services/svc-quant/src/ready-honesty.test.ts",
+    "target": "ready-honesty.ts",
+    "verdict": "rewrite",
+    "asserts": "quantReadyHonesty stamps no custodial claim.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-quant/src/ready-honesty.test.ts#stamps no custodial claim for any wiring"
+    },
+    "why": "Calls quantReadyHonesty over every combination and asserts no custodial field."
+  },
+  {
+    "file": "services/svc-quant/src/ready-honesty.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts serves /ready from quantReadyHonesty over the missing lake.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-quant/src/index-boot.test.ts#serves /ready from quantReadyHonesty over the missing lake"
+    },
+    "why": "Boots index.ts and compares /ready to quantReadyHonesty."
+  },
+  {
+    "file": "services/svc-quant/src/router.shape.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "router.ts only composes the areas; no procedure is written there.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-quant/src/router.shape.test.ts#serves exactly the procedures its area files make"
+    },
+    "why": "Builds the router and compares its top-level entries to the areas and every procedure path to the union the area files make."
+  },
+  {
+    "file": "services/svc-quant/src/sandbox/max-compose-pin.test.ts",
+    "target": "../../../../services/svc-quant/src/env.ts",
+    "verdict": "rewrite",
+    "asserts": "env.ts refuses blank sandbox ceilings, holds their ranges and keeps the 500 timeout.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-quant/src/sandbox/max-compose-pin.test.ts#env.ts refuses blank ceilings"
+    },
+    "why": "Loads env.ts with the ceilings blank, out of range and set and the timeout unset."
+  },
+  {
+    "file": "services/svc-quant/src/sandbox/max-compose-pin.test.ts",
+    "target": "max.ts",
+    "verdict": "rewrite",
+    "asserts": "The sandbox never invents a ceiling.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-quant/src/sandbox/max-compose-pin.test.ts#env.ts refuses blank ceilings"
+    },
+    "why": "The reads of max.ts are gone; the ceilings are refused at env.ts load here and by the sandbox's own unset / NaN / out of range tests."
+  },
+  {
+    "file": "services/svc-quant/src/studio/account.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts allow-lists no service for the studio.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-quant/src/index-boot.test.ts#allow-lists no service for the studio"
+    },
+    "why": "Boots index.ts and calls studio.list as svc-agents with an explicit account: FORBIDDEN."
+  },
+  {
+    "file": "services/svc-quant/src/studio/list-limit-unset.test.ts",
+    "target": "../../../../services/svc-quant/src/routes/studio.ts",
+    "verdict": "rewrite",
+    "asserts": "The studio list door never dumps both saves when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-quant/src/studio/list-limit-unset.test.ts#the door's input is the record's"
+    },
+    "why": "Parses the record's input (limit optional, whole, 1 to the cap) and the door refusal with no limit."
+  },
+  {
+    "file": "services/svc-support/src/desk-vs-agent-split.test.ts",
+    "target": "http-app.ts",
+    "verdict": "rewrite",
+    "asserts": "The mounted app advertises the desk/agent split, the settlement refusal and honest identity and store states.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/desk-vs-agent-split.test.ts#the mounted /ready advertises the split"
+    },
+    "why": "Mounts the app and asserts /ready."
+  },
+  {
+    "file": "services/svc-support/src/desk-vs-agent-split.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-support cannot reach the ledger client.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/desk-vs-agent-split.test.ts#desk service cannot reach the ledger client"
+    },
+    "why": "Asserts the declared dependencies and that importing the ledger client fails."
+  },
+  {
+    "file": "services/svc-support/src/edge-trust.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "index.ts hands the edge public key and its limits to the edge context.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/index-boot.test.ts#hands the edge public key and its limits to the edge context"
+    },
+    "why": "Boots index.ts and drives an edge-signed request with and without the key."
+  },
+  {
+    "file": "services/svc-support/src/fleet-compose-pin.test.ts",
+    "target": "../../svc-edge/src/routes.ts",
+    "verdict": "rewrite",
+    "asserts": "The edge routes support to the svc-support container.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/fleet-compose-pin.test.ts#points the edge door at that container"
+    },
+    "why": "The svc-edge source read is gone; the compose wiring is still read here, and the route itself is held by services/svc-edge/src/routes.test.ts (strips /api/support)."
+  },
+  {
+    "file": "services/svc-support/src/identity-grounding-honesty.test.ts",
+    "target": "http-app.ts",
+    "verdict": "rewrite",
+    "asserts": "The mounted app serves the honesty helpers: a set secret is not wired, the store unprobed.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/identity-grounding-honesty.test.ts#the mounted app serves the honesty helpers"
+    },
+    "why": "Mounts the app and asserts /health and /ready."
+  },
+  {
+    "file": "services/svc-support/src/list-all-tickets-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The listAll door never dumps every row when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-all-tickets-limit-unset.test.ts#the listAll door refuses an omitted limit by name"
+    },
+    "why": "Calls the door through the router with no limit (refused by name) and with a limit (paged)."
+  },
+  {
+    "file": "services/svc-support/src/list-all-tickets-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/support-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The service behind listAll never invents a page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-all-tickets-limit-unset.test.ts#the listAll door refuses an omitted limit by name"
+    },
+    "why": "The service read is gone; the same file's service tests call it with the limit unset and set, and the door test calls it through the router."
+  },
+  {
+    "file": "services/svc-support/src/list-comments-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The listComments door never dumps every row when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-comments-limit-unset.test.ts#the listComments door refuses an omitted limit by name"
+    },
+    "why": "Calls the door through the router with no limit (refused by name) and with a limit (paged)."
+  },
+  {
+    "file": "services/svc-support/src/list-comments-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/support-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The service behind listComments never invents a page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-comments-limit-unset.test.ts#the listComments door refuses an omitted limit by name"
+    },
+    "why": "The service read is gone; the same file's service tests call it with the limit unset and set, and the door test calls it through the router."
+  },
+  {
+    "file": "services/svc-support/src/list-events-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The events door never dumps every row when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-events-limit-unset.test.ts#the events door refuses an omitted limit by name"
+    },
+    "why": "Calls the door through the router with no limit (refused by name) and with a limit (paged)."
+  },
+  {
+    "file": "services/svc-support/src/list-events-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/support-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The service behind events never invents a page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-events-limit-unset.test.ts#the events door refuses an omitted limit by name"
+    },
+    "why": "The service read is gone; the same file's service tests call it with the limit unset and set, and the door test calls it through the router."
+  },
+  {
+    "file": "services/svc-support/src/list-kb-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The listKb door never dumps every row when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-kb-limit-unset.test.ts#the listKb door refuses an omitted limit by name"
+    },
+    "why": "Calls the door through the router with no limit (refused by name) and with a limit (paged)."
+  },
+  {
+    "file": "services/svc-support/src/list-kb-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/support-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The service behind listKb never invents a page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-kb-limit-unset.test.ts#the listKb door refuses an omitted limit by name"
+    },
+    "why": "The service read is gone; the same file's service tests call it with the limit unset and set, and the door test calls it through the router."
+  },
+  {
+    "file": "services/svc-support/src/list-mine-tickets-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The listMine door never dumps every row when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-mine-tickets-limit-unset.test.ts#the listMine door refuses an omitted limit by name"
+    },
+    "why": "Calls the door through the router with no limit (refused by name) and with a limit (paged)."
+  },
+  {
+    "file": "services/svc-support/src/list-mine-tickets-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/support-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The service behind listMine never invents a page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/list-mine-tickets-limit-unset.test.ts#the listMine door refuses an omitted limit by name"
+    },
+    "why": "The service read is gone; the same file's service tests call it with the limit unset and set, and the door test calls it through the router."
+  },
+  {
+    "file": "services/svc-support/src/search-kb-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The searchKb door never dumps every row when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/search-kb-limit-unset.test.ts#the searchKb door refuses an omitted limit by name"
+    },
+    "why": "Calls the door through the router with no limit (refused by name) and with a limit (paged)."
+  },
+  {
+    "file": "services/svc-support/src/search-kb-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/support-service.ts",
+    "verdict": "rewrite",
+    "asserts": "The service behind searchKb never invents a page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/search-kb-limit-unset.test.ts#the searchKb door refuses an omitted limit by name"
+    },
+    "why": "The service read is gone; the same file's service tests call it with the limit unset and set, and the door test calls it through the router."
+  },
+  {
+    "file": "services/svc-support/src/operator-queue-list-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/operator-queue.ts",
+    "verdict": "rewrite",
+    "asserts": "buildOperatorQueue never invents a page size.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/operator-queue-list-limit-unset.test.ts#buildOperatorQueue refuses an omitted limit by name"
+    },
+    "why": "Calls buildOperatorQueue with no limit (refused) and with one (paged)."
+  },
+  {
+    "file": "services/svc-support/src/operator-queue-list-limit-unset.test.ts",
+    "target": "../../../services/svc-support/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The listQueue door never dumps the queue when the page size is omitted.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/operator-queue-list-limit-unset.test.ts#the listQueue door refuses an omitted limit by name"
+    },
+    "why": "Calls the door through the router with no limit and with one."
+  },
+  {
+    "file": "services/svc-support/src/ticket-kb-loop-observation.test.ts",
+    "target": "http-app.ts",
+    "verdict": "rewrite",
+    "asserts": "/ready never claims a live ticket+KB observation.",
+    "guard": {
+      "kind": "test",
+      "ref": "services/svc-support/src/ticket-kb-loop-observation.test.ts#/ready refuses to claim a live compose ticket+KB observation"
+    },
+    "why": "Mounts the app and asserts /ready."
+  }
+]

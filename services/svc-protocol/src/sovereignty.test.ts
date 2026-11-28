@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   businessBlockFor,
   checkAccess,
@@ -198,13 +198,25 @@ describe('§16.10 — the custody boundary, asserted from inside the service', (
     }
   });
 
-  it('declares no signing key in its environment', () => {
-    const envSource = readFileSync(join(serviceRoot, 'src', 'env.ts'), 'utf8');
+  it('declares no signing key in its environment', async () => {
     // A signing key here would mean the platform could originate a transaction
-    // on a user's account. Matched as a zod field DECLARATION rather than as a
-    // substring, so the comment in env.ts explaining the absence does not read
-    // as the thing it is explaining.
-    expect(envSource).not.toMatch(/^\s*\w*(PRIVATE_KEY|MNEMONIC|SEED_PHRASE|SIGNER_KEY|SECRET_KEY)\w*\s*:/m);
+    // on a user's account. Read from the schema env.ts parses at boot, merged
+    // settings included, so a comment explaining the absence is not the thing.
+    for (const [key, value] of Object.entries({
+      DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+      DATABASE_POOL_MAX: '1',
+      EDGE_PRINCIPAL_SECRET: 's'.repeat(32),
+      PROTOCOL_CHAIN_ID: '1',
+      PROTOCOL_RPC_URL: 'http://127.0.0.1:8545',
+      PROTOCOL_ENTRYPOINT_ADDRESS: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+    }))
+      vi.stubEnv(key, value);
+    vi.resetModules();
+    const { schema: envSchema } = await import('./env.js');
+    vi.unstubAllEnvs();
+    const names = Object.keys(envSchema.shape);
+    expect(names.length).toBeGreaterThan(10);
+    expect(names.filter((name) => /(PRIVATE_KEY|MNEMONIC|SEED_PHRASE|SIGNER_KEY|SECRET_KEY)/.test(name))).toEqual([]);
   });
 
   it('creates no viem wallet client in shipped code — reads only', () => {

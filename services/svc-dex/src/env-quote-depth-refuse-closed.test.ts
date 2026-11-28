@@ -9,12 +9,8 @@
  * 5. Paths: env.ts via loadEnv at import (same as boot)
  * 6. RED: unset parses as 50, or .default(50) returns
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 const BASE_ENV = {
@@ -38,11 +34,6 @@ afterEach(() => {
 });
 
 describe('DEX_QUOTE_DEPTH refuse-closed', () => {
-  it('env.ts does not git-default 50', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/DEX_QUOTE_DEPTH:[\s\S]{0,400}\.default\(50\)/);
-  });
-
   it('unset is unpublished (not 50)', async () => {
     const parsed = await loadWith({});
     expect(parsed.DEX_QUOTE_DEPTH).toBeUndefined();

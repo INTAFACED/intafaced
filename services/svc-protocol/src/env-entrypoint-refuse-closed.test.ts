@@ -19,7 +19,7 @@
  *    or compose interpolates :-0x0000000071727De22E5E9d8BAf0edAc6f37da032
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
@@ -58,28 +58,11 @@ afterEach(() => {
 });
 
 describe('svc-protocol PROTOCOL_ENTRYPOINT_ADDRESS refuse-closed', () => {
-  it('env.ts has no canonical Ethereum EntryPoint default', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/PROTOCOL_ENTRYPOINT_ADDRESS:[\s\S]*?\.default\(\s*'0x0000000071727De22E5E9d8BAf0edAc6f37da032'\s*\)/);
-    expect(envTs).toMatch(
-      /PROTOCOL_ENTRYPOINT_ADDRESS is unset — will not publish Ethereum EntryPoint 0x0000000071727De22E5E9d8BAf0edAc6f37da032 as this venue/,
-    );
-  });
-
   it('compose empty-passes PROTOCOL_ENTRYPOINT_ADDRESS on svc-protocol', () => {
     const compose = readFileSync(COMPOSE, 'utf8');
     const block = composeServiceBlock(compose, 'svc-protocol');
     expect(block).toMatch(/PROTOCOL_ENTRYPOINT_ADDRESS:\s*\$\{PROTOCOL_ENTRYPOINT_ADDRESS:-\}/);
     expect(block).not.toMatch(/PROTOCOL_ENTRYPOINT_ADDRESS:.*0x0000000071727De22E5E9d8BAf0edAc6f37da032/);
-  });
-
-  it('other protocol addresses keep 0x0 defaults', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).toMatch(/evmAddress\.default\('0x0000000000000000000000000000000000000000'\)/);
-    expect(envTs).toMatch(/PROTOCOL_FACTORY_ADDRESS: evmAddressDefaultZero/);
-    expect(envTs).toMatch(/PROTOCOL_IMPLEMENTATION_ADDRESS: evmAddressDefaultZero/);
-    expect(envTs).toMatch(/PROTOCOL_AMM_FACTORY_ADDRESS: evmAddressDefaultZero/);
-    expect(envTs).toMatch(/PROTOCOL_TOKEN_FACTORY_ADDRESS: evmAddressDefaultZero/);
   });
 
   it('unset PROTOCOL_ENTRYPOINT_ADDRESS refuses (no silent Ethereum EntryPoint)', async () => {

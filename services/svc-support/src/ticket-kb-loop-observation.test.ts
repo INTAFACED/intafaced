@@ -13,10 +13,10 @@ import {
   createTicketKbLoopObserver,
   ticketKbLoopObservedInLiveCompose,
 } from './ticket-kb-loop-observation.js';
+import { mountedSupportApp } from './testing/mounted-app.js';
 import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const HTTP_APP = resolve(import.meta.dirname, 'http-app.ts');
 
 function supportServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-support');
@@ -54,10 +54,13 @@ describe('ticket+KB loop is not observed in a live compose env', () => {
     expect(supportServiceBlock(source)).toBe(block);
   });
 
-  it('/ready refuses to claim a live compose ticket+KB observation', () => {
+  it('/ready refuses to claim a live compose ticket+KB observation', async () => {
     expect(TICKET_KB_LOOP_OBSERVED_IN_LIVE_COMPOSE).toBe(false);
-    const src = readFileSync(HTTP_APP, 'utf8');
-    expect(src).toMatch(/ticketKbLoopObservedInLiveCompose:\s*ticketKbLoopObservedInLiveCompose\(\)/);
+    const { app, get } = await mountedSupportApp(undefined);
+    const ready = await get('/ready');
+    expect(ready.body.ticketKbLoopObservedInLiveCompose).toBe(ticketKbLoopObservedInLiveCompose());
+    expect(ready.body.ticketKbLoopObservedInLiveCompose).toBe(false);
+    await app.close();
   });
 
   it('process observer starts at zeros and only advances on mark', () => {

@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { LIST_EVENTS_LIMIT_UNSET, SupportError, SupportService, assertListEventsLimit } from './support-service.js';
 import { userCopy } from './user-copy.js';
+import { callerAs } from './testing/router-caller.js';
 
 /**
  * events / listTicketEvents page size is refuse-closed when unset.
@@ -13,7 +11,6 @@ import { userCopy } from './user-copy.js';
  * explicitly.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const USER = '11111111-1111-4111-8111-111111111111';
 const OP = '33333333-3333-4333-8333-333333333333';
 
@@ -64,24 +61,18 @@ describe('listTicketEvents limit unset refuse', () => {
     expect(one[0]!.kind).toBe('opened');
   });
 
-  it('router does not invent 100 when events omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/router.ts'), 'utf8');
-    const start = src.indexOf('events:');
-    const end = src.indexOf('accountState:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('limit: input.limit');
-    expect(fn).not.toMatch(/input\.limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
-  });
-
-  it('listTicketEvents no longer dumps store.listEvents(ticketId) without a page', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-support/src/support-service.ts'), 'utf8');
-    const start = src.indexOf('async listTicketEvents(');
-    const end = src.indexOf('async readAccountState(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertListEventsLimit');
-    expect(fn).toContain('this.store.listEvents(input.ticketId, { limit })');
-    expect(fn).not.toMatch(/this\.store\.listEvents\(input\.ticketId\)\s*;/);
-    expect(fn).not.toMatch(/\?\? 100/);
+  it('the events door refuses an omitted limit by name and pages an explicit one; it never dumps the trail', async () => {
+    const svc = new SupportService();
+    const ticket = await svc.createTicket({ userId: USER, category: 'other', subject: 'S', body: 'B' });
+    await svc.setStatus({ operatorId: OP, ticketId: ticket.id, status: 'pending' });
+    await svc.setStatus({ operatorId: OP, ticketId: ticket.id, status: 'resolved' });
+    const me = await callerAs(svc, USER, ['support:read', 'support:write']);
+    await expect(me.events({ ticketId: ticket.id })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: userCopy(LIST_EVENTS_LIMIT_UNSET),
+    });
+    expect(await me.events({ ticketId: ticket.id, limit: 100 })).toHaveLength(3);
+    const one = await me.events({ ticketId: ticket.id, limit: 1 });
+    expect(one.map((e) => e.kind)).toEqual(['opened']);
   });
 });

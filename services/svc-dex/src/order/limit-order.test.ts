@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import {
@@ -95,12 +94,28 @@ async function refused(input: LimitOrderInput, ctx = signed()) {
 }
 
 describe('svc-dex limitOrder — forwarded principal, no session store', () => {
-  it('does not call another service or keep a store', () => {
-    const src = readFileSync(new URL('./limit-order.ts', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '');
-    expect(src).not.toMatch(/svc-identity|INTERNAL_SERVICE_SECRET|DATABASE_URL|fetch\(|ledger\.post/);
-    expect(src).not.toMatch(/from\s+['"]@intafaced\/ledger-client\/recipes['"]/);
+  it('does not call another service or keep a store', async () => {
+    // No ledger write: svc-dex is a Protocol Plane service, so `pnpm scan:custody` refuses a write recipe import or a
+    // ledger.post anywhere in it (tooling/ci/custody-scan.mjs, WRITE_SURFACE).
+    // Every path through the door, with no secret and no database configured, makes no network call.
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string | URL) => {
+      calls.push(String(url));
+      throw new Error('TEST: svc-dex limitOrder must not call out');
+    });
+    vi.stubEnv('INTERNAL_SERVICE_SECRET', undefined);
+    vi.stubEnv('DATABASE_URL', undefined);
+    try {
+      const caller = router().createCaller(signed());
+      for (const input of [live, { ...live, price: '' }, { ...live, symbol: ' ' }]) {
+        await expect(caller.limitOrder(input)).rejects.toMatchObject({ cause: { code: expect.stringMatching(/^dex\./) } });
+      }
+      await expect(router().createCaller(anonymous()).limitOrder(live)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+      expect(calls).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   it('refuses a missing principal before reading a price', async () => {

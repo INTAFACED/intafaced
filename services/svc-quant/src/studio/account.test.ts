@@ -155,8 +155,7 @@ describe('saved strategies are per account', () => {
 
   it('requires an allow-listed service and an explicit account; no unscoped list', async () => {
     expect(STUDIO_SERVICE_ALLOWLIST).toEqual([]);
-    const index = readFileSync(join(HERE, '../index.ts'), 'utf8');
-    expect(index).not.toContain('studioServiceAllowlist');
+    // index.ts hands no allow-list to the router it serves: index-boot.test.ts boots it and is refused.
     const routerSrc = ['../router.ts', ...readdirSync(join(HERE, '../routes')).map((name) => join('../routes', name))]
       .map((rel) => readFileSync(join(HERE, rel), 'utf8'))
       .join('\n');

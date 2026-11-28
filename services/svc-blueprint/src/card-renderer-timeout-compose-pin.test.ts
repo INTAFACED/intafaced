@@ -25,7 +25,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -52,24 +52,50 @@ function blueprintComposeBlock(): string {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+const BASE_ENV = {
+  DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+  DATABASE_POOL_MAX: '10',
+  EDGE_PRINCIPAL_SECRET: 'an-edge-principal-secret-long-enough-for-the-schema',
+  BLUEPRINT_ENGINE_MODE: 'mock',
+};
+
+/** The service's own env, parsed by env.ts at import as at boot. */
+async function loadWith(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  vi.stubEnv('NODE_ENV', 'test');
+  for (const key of [KEY, ENGINE_KEY, RENDERER_KEY]) vi.stubEnv(key, undefined);
+  for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) vi.stubEnv(key, value);
+  return (await import('./env.js')).env;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 function countAssignments(source: string, name: string): number {
   const re = new RegExp(`^\\s*${name}:`, 'gm');
   return source.match(re)?.length ?? 0;
 }
 
 describe('compose passes card-renderer timeout into svc-blueprint', () => {
-  const envTs = readFileSync(join(ROOT, 'services/svc-blueprint/src/env.ts'), 'utf8');
   const block = blueprintComposeBlock();
 
-  it('env.ts still defaults BLUEPRINT_CARD_RENDERER_TIMEOUT_MS to 10000 matching compose', () => {
-    const raw = /BLUEPRINT_CARD_RENDERER_TIMEOUT_MS:[\s\S]*?\.default\(([\d_]+)\)/.exec(envTs)?.[1];
-    expect(raw?.replaceAll('_', '')).toBe('10000');
-  });
+  it('env.ts still defaults BLUEPRINT_CARD_RENDERER_TIMEOUT_MS to 10000 matching compose', async () => {
+    expect((await loadWith({})).BLUEPRINT_CARD_RENDERER_TIMEOUT_MS).toBe(10_000);
+    expect((await loadWith({ [KEY]: '2500' })).BLUEPRINT_CARD_RENDERER_TIMEOUT_MS).toBe(2_500);
+  }, 20_000);
 
-  it('env.ts keeps API keys optional (empty string can fail; unset omits)', () => {
-    expect(envTs).toMatch(/BLUEPRINT_ENGINE_API_KEY:\s*z\.string\(\)\.min\(1\)\.optional\(\)/);
-    expect(envTs).toMatch(/BLUEPRINT_CARD_RENDERER_API_KEY:\s*z\.string\(\)\.min\(1\)\.optional\(\)/);
-    expect(envTs).not.toMatch(/authEnvSchema/);
+  it('env.ts keeps API keys optional (empty string fails; unset omits)', async () => {
+    const unset = await loadWith({});
+    expect(unset.BLUEPRINT_ENGINE_API_KEY).toBeUndefined();
+    expect(unset.BLUEPRINT_CARD_RENDERER_API_KEY).toBeUndefined();
+    await expect(loadWith({ [ENGINE_KEY]: '' })).rejects.toThrow(new RegExp(ENGINE_KEY));
+    await expect(loadWith({ [RENDERER_KEY]: '' })).rejects.toThrow(new RegExp(RENDERER_KEY));
+    const set = await loadWith({ [ENGINE_KEY]: 'k1', [RENDERER_KEY]: 'k2' });
+    expect([set.BLUEPRINT_ENGINE_API_KEY, set.BLUEPRINT_CARD_RENDERER_API_KEY]).toEqual(['k1', 'k2']);
+    // No sign-in settings: the service authenticates the edge, not a token of its own.
+    expect(Object.keys(set).filter((name) => name.startsWith('JWT_'))).toEqual([]);
   });
 
   it('compose svc-blueprint block passes the timeout once with default 10000', () => {

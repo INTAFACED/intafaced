@@ -11,9 +11,6 @@
  * 5. Paths: matching/mentor-matching.ts shortlistMentors()
  * 6. RED: omitting limit returns a 3-entry shortlist
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { shortlistMentors, type MentorCandidate, type MentorProfile } from './mentor-matching.js';
 
@@ -34,7 +31,6 @@ const IDEAL: MentorProfile = {
 };
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 const candidates: MentorCandidate[] = [
   { userId: uuid(1), profile: STUDENT },
@@ -44,12 +40,6 @@ const candidates: MentorCandidate[] = [
 ];
 
 describe('shortlistMentors limit refuse-closed', () => {
-  it('mentor-matching.ts has no invented 3 on shortlistMentors()', () => {
-    const src = readFileSync(join(HERE, 'mentor-matching.ts'), 'utf8');
-    expect(src).not.toMatch(/limit = 3/);
-    expect(src).toMatch(/publishedShortlistLimit/);
-  });
-
   it('unset limit refuses (no invent 3)', () => {
     expect(() => shortlistMentors(uuid(99), STUDENT, candidates)).toThrow(/refuse to invent 3/);
     expect(() => shortlistMentors(uuid(99), STUDENT, candidates, undefined)).toThrow(/refuse to invent 3/);
