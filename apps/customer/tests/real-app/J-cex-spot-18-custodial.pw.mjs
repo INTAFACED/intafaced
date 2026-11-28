@@ -119,7 +119,8 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   // The first look sees the orphan missing from the book and releases nothing yet: an empty book and an empty fill
   // record are proof only on a second look at least the owner's wait apart (the stack's TEST wait is 15 s).
   const sighted = await runSweep();
-  await expect(sighted).not.toHaveAttribute('data-released-orders', new RegExp(`(^|,)${orphan}(,|$)`));
+  await expect(sighted).toHaveAttribute('data-released-orders');
+  await expect.poll(async () => (await sighted.getAttribute('data-released-orders')).split(',')).not.toContain(orphan);
   expect(await usdtUsed(customer)).toBe(usedBefore);
   // oxlint-disable-next-line garden/no-wait-for-timeout -- the second look must be a real floor apart on the engine's live book, which has no age door
   await page.waitForTimeout(20_000);
