@@ -19,14 +19,8 @@ export const journalCopy = defineCopy('trade.journal', {
   loading: 'Reading your closed trades from the venue…',
   refused: 'The journal couldn’t be read: {detail}',
   none: 'No closed futures trades on this account in the last 90 days.',
-  tradesTitle: 'Closed trades',
   hClosed: 'Closed',
   hMarket: 'Market',
-  hSide: 'Side',
-  hEntry: 'Entry',
-  hExit: 'Exit',
-  hSize: 'Size',
-  hNet: 'Net result',
   long: 'Long',
   short: 'Short',
   equityTitle: 'What I made beside keeping my rules',
@@ -50,6 +44,7 @@ export const journalCopy = defineCopy('trade.journal', {
   v_capped: 'Capped at your first stop',
   v_stopped: 'Stopped at your first stop',
   v_left_out: 'Left out: opened past your daily loss limit',
+  v_incomplete: 'Not worked out',
   why_kept: 'The same result on both lines, {net}: it kept its stop and your daily loss limit.',
   why_no_stop: 'The same result on both lines, {net}: it opened with no stop, so there was no first stop to keep.',
   why_widened_unreached:
@@ -60,6 +55,9 @@ export const journalCopy = defineCopy('trade.journal', {
     'On the rules line it counts as minus 1R less its fees: −{oneR} − {fees} = {rules}, not its profit of {net}. Its price crossed the first stop of {stop} after the stop was moved to {widened}.',
   why_left_out:
     'It counts 0 on the rules line, not its {net}. When you placed it, your daily loss limit set to warn stood reached: {loss} lost today against your limit of {limit} (warned {warned}).',
+  why_incomplete:
+    'Not on either line: the venue reported no realised result for it, or its stop was moved and the venue’s candles that would show whether the first stop of {stop} was reached are missing.',
+  equityLeft: '{count} closed trades are not drawn: the venue reported no realised result for them, or their candles are missing.',
   fEntry: 'Entry',
   fExit: 'Exit',
   fSize: 'Size',

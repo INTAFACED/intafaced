@@ -80,14 +80,16 @@ export function encodeDeterministicNdjsonGzip(rows: readonly Record<string, unkn
 }
 
 /**
- * Sequence completeness and gap report for a sorted or unsorted sequence list.
- * Missing contiguous ranges between `firstSequence` and `lastSequence` are reported as `{ fromSequence, toSequence }`.
- * For kinds without contiguous per-row engine sequences (candles), pass `contiguous: false` so completeness is 100.00
- * for the observed buckets without fabricating missing gaps.
+ * Sequence completeness and gap report for a file's rows, measured against the sequences the venue's own record says
+ * the file should hold (`expected`). The matching engine numbers every accept, fill and cancel of a market, so the
+ * numbers between two trades are not trades and a hole in them is never a gap. A gap is a run of expected
+ * sequences the file does not hold, reported as `{ fromSequence, toSequence }` (the first and last missing sequence
+ * of the run). With no `expected` set (candles, book snapshots: checkpoints, not one row per numbered event),
+ * completeness is 100.00 for the observed rows without fabricating missing gaps.
  */
 export function computeSequenceCompleteness(
   sequences: readonly number[],
-  opts: { contiguous?: boolean } = {},
+  opts: { expected?: readonly number[] } = {},
 ): {
   readonly firstSequence: number | null;
   readonly lastSequence: number | null;
@@ -103,20 +105,29 @@ export function computeSequenceCompleteness(
   if (firstSequence === undefined || lastSequence === undefined) {
     return { firstSequence: null, lastSequence: null, completenessPct: '0.00', gaps: [] };
   }
-  if (opts.contiguous === false) {
+  const expected = opts.expected === undefined ? [] : [...new Set(opts.expected)].sort((a, b) => a - b);
+  if (expected.length === 0) {
     return { firstSequence, lastSequence, completenessPct: '100.00', gaps: [] };
   }
+  const held = new Set(unique);
   const gaps: HistoryGap[] = [];
-  for (let i = 1; i < unique.length; i += 1) {
-    const prev = unique[i - 1];
-    const curr = unique[i];
-    if (prev !== undefined && curr !== undefined && curr > prev + 1) {
-      gaps.push({ fromSequence: prev + 1, toSequence: curr - 1 });
+  let present = 0;
+  let run: { fromSequence: number; toSequence: number } | null = null;
+  for (const seq of expected) {
+    if (held.has(seq)) {
+      present += 1;
+      if (run) gaps.push(run);
+      run = null;
+    } else if (run) {
+      run.toSequence = seq;
+    } else {
+      run = { fromSequence: seq, toSequence: seq };
     }
   }
-  const expected = lastSequence - firstSequence + 1;
+  if (run) gaps.push(run);
   // Exact scaled integer math: round(present * 10000 / expected) → two decimals.
-  const scaled = (BigInt(unique.length) * 10_000n + BigInt(expected) / 2n) / BigInt(expected);
+  const total = BigInt(expected.length);
+  const scaled = (BigInt(present) * 10_000n + total / 2n) / total;
   const whole = scaled / 100n;
   const frac = (scaled % 100n).toString().padStart(2, '0');
   return { firstSequence, lastSequence, completenessPct: `${whole}.${frac}`, gaps };
@@ -444,9 +455,11 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
       };
     });
 
+    // Measured against the trades the venue recorded for the window (one taker fill each), never against the
+    // engine's numbering, which also numbers accepts and cancels.
     const stats = computeSequenceCompleteness(
       rows.map((r) => r.sequence),
-      { contiguous: true },
+      { expected: fills.map((f) => f.sequence) },
     );
     return this.upsertDataset({
       key: datasetKeyFor(market.symbol, 'trades', day),
@@ -514,7 +527,7 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
     });
 
     const seqs = buckets.flatMap((b) => [Number(b.first_seq), Number(b.last_seq)]);
-    const stats = computeSequenceCompleteness(seqs, { contiguous: false });
+    const stats = computeSequenceCompleteness(seqs);
     return this.upsertDataset({
       key: datasetKeyFor(market.symbol, 'candles', day),
       marketId: market.id,
@@ -561,10 +574,7 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
       asks: s.asks,
     }));
 
-    const stats = computeSequenceCompleteness(
-      rows.map((r) => r.sequence),
-      { contiguous: false },
-    );
+    const stats = computeSequenceCompleteness(rows.map((r) => r.sequence));
     return this.upsertDataset({
       key: datasetKeyFor(market.symbol, 'book_snapshots', day),
       marketId: market.id,
@@ -576,6 +586,28 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
       rows,
       stats,
     });
+  }
+
+  /** Sequences of the trades a trades file publishes for a window: non-seeded taker fills, one per trade. */
+  private async recordedTradeSequences(marketId: string, windowStart: Date, windowEnd: Date): Promise<number[]> {
+    const rows = z
+      .object({ sequence: pgBigint })
+      .array()
+      .parse(
+        await this.sql`
+          SELECT f.sequence
+            FROM trade.fills f
+            INNER JOIN trade.orders o ON o.id = f.order_id
+            INNER JOIN trade.orders c ON c.id = f.counter_order_id
+           WHERE f.market_id = ${marketId}
+             AND f.liquidity = 'taker'
+             AND o.seeded = false
+             AND c.seeded = false
+             AND f.ts >= ${windowStart}
+             AND f.ts < ${windowEnd}
+        `,
+      );
+    return rows.map((r) => r.sequence);
   }
 
   /**
@@ -590,7 +622,6 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
     readonly correctionTag: string;
     readonly rows: readonly Record<string, unknown>[];
     readonly sequences: readonly number[];
-    readonly contiguous?: boolean;
   }): Promise<{ original: HistoryDatasetManifest; superseding: HistoryDatasetManifest }> {
     const [orig] = datasetRecordSchema.array().parse(
       await this.sql`
@@ -605,7 +636,10 @@ export class SqlHistoryDatasets implements HistoryDatasetsPort {
     if (!orig) {
       throw new TradeError('Historical dataset not found', TRADE_HISTORY_DATASET_NOT_FOUND);
     }
-    const stats = computeSequenceCompleteness(input.sequences, { contiguous: input.contiguous ?? orig.kind === 'trades' });
+    const stats = computeSequenceCompleteness(
+      input.sequences,
+      orig.kind === 'trades' ? { expected: await this.recordedTradeSequences(orig.market_id, orig.window_start, orig.window_end) } : {},
+    );
     const superseding = await this.upsertDataset({
       key: correctionDatasetKeyFor({
         symbol: orig.symbol,

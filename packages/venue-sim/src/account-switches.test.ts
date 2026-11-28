@@ -6,6 +6,7 @@ import { decodeVenueWire, encodeVenueWire, type PreparedVenueAction, type UserVe
 import { TestVenueSimulator } from './simulator.js';
 import type { TestVenueTypedData } from './signing.js';
 import { TEST_VENUE_MARKETS, answerTestVenue } from './http-server.js';
+import { seedTestVenue } from './index.js';
 
 // `/test/account-switches` (J-developer-05): a TEST switch on one owner's account only, so one journey can take the venue
 // away from its own person, lose its answer or hold its submit, and every other account is untouched.
@@ -76,9 +77,84 @@ describe('the TEST venue per-account switches', () => {
     );
   });
 
+  it('refuseClose refuses a reduce-only order on that market only, definitely and in its words, applying nothing', async () => {
+    // A venue of its own, its TEST ladder seeded before anything trades on it.
+    const sim = new TestVenueSimulator({ clock: () => new Date(Date.UTC(2026, 10, 10, 3)), markets: TEST_VENUE_MARKETS });
+    sim.deposit(acct(mine), 'USDC', parseAmount('1000'), 'seed:mine');
+    await seedTestVenue(sim);
+    const signer = { role: 'owner' as const, address: mine.address.toLowerCase() };
+    const close = (symbol: string, n: number, reduceOnly = true) => ({
+      kind: 'place_order',
+      symbol,
+      side: 'sell',
+      type: 'market',
+      amount: parseAmount('0.001'),
+      price: parseAmount('50000'),
+      timeInForce: 'IOC',
+      reduceOnly,
+      clientOrderKey: `order:switches:close:${n}`,
+      builderFee: null,
+    });
+    const send = async (intent: Record<string, unknown>) => {
+      const [status, raw] = await answerTestVenue(
+        sim,
+        'POST',
+        '/prepare',
+        JSON.stringify(encodeVenueWire({ account: acct(mine), signer, intent })),
+      );
+      // Refused at prepare (the venue's own rule): nothing to sign, and its answer is the refusal.
+      if (status !== 200) return { status, out: decodeVenueWire<Record<string, unknown>>(raw) };
+      const prepared = decodeVenueWire<PreparedVenueAction & { typedData: TestVenueTypedData }>(raw);
+      const t = prepared.typedData;
+      const signature = await mine.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+      return call(sim, '/submit', { prepared, signature: { digest: prepared.digest, signature, signedBy: signer.address } });
+    };
+    // A TEST long of 0.001 BTC-PERP at the TEST ladder's asks, for the closes to reduce.
+    expect((await send({ kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 50_000, marginMode: 'isolated' })).out).toMatchObject({
+      accepted: true,
+    });
+    const long = await send({
+      ...close('BTC-PERP', 0, false),
+      side: 'buy',
+      type: 'market',
+      price: parseAmount('61000'),
+      timeInForce: 'IOC',
+    });
+    expect(long.out).toMatchObject({ definite: true, accepted: true });
+    const before = ((await call(sim, '/open-orders', { account: acct(mine) })).out.value as unknown[]).length;
+    expect(
+      (
+        await call(sim, '/test/account-switches', {
+          owner: mine.address,
+          refuseClose: { symbol: 'BTC-PERP', reason: 'TEST close refused' },
+        })
+      ).status,
+    ).toBe(200);
+    const refused = await send(close('BTC-PERP', 1));
+    expect(refused.out).toMatchObject({
+      definite: true,
+      accepted: false,
+      refusal: { code: 'venue_rejected', detail: 'TEST close refused (TEST switch)' },
+    });
+    expect(((await call(sim, '/open-orders', { account: acct(mine) })).out.value as unknown[]).length).toBe(before);
+    // Not reduce-only: the switch leaves it alone (the venue answers it as it would anyway).
+    expect((await send(close('BTC-PERP', 2, false))).out).not.toMatchObject({ refusal: { detail: 'TEST close refused (TEST switch)' } });
+    await call(sim, '/test/account-switches', { owner: mine.address, refuseClose: null });
+    expect((await send(close('BTC-PERP', 3))).out).not.toMatchObject({ refusal: { detail: 'TEST close refused (TEST switch)' } });
+  });
+
+  it('declares who signs trades: the session key, or none again', async () => {
+    expect((await call(sim, '/test/switches', { tradesSignedBy: 'session_key' })).out).toMatchObject({ tradesSignedBy: 'session_key' });
+    expect(sim.venue.tradesSignedBy).toBe('session_key');
+    expect((await call(sim, '/test/switches', { tradesSignedBy: null })).out).toMatchObject({ tradesSignedBy: null });
+    expect(sim.venue.tradesSignedBy).toBeUndefined();
+    expect((await call(sim, '/test/switches', { tradesSignedBy: 'owner' })).status).toBe(400);
+  });
+
   it('refuses a malformed switch', async () => {
     expect((await call(sim, '/test/account-switches', { owner: 'nobody', down: true })).status).toBe(400);
     expect((await call(sim, '/test/account-switches', { owner: mine.address, submitDelayMs: 60_000 })).status).toBe(400);
     expect((await call(sim, '/test/account-switches', { owner: mine.address, failAfterSend: -1 })).status).toBe(400);
+    expect((await call(sim, '/test/account-switches', { owner: mine.address, refuseClose: { symbol: 'BTC-PERP' } })).status).toBe(400);
   });
 });

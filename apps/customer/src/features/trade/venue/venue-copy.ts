@@ -132,6 +132,8 @@ export const venueCopy = defineCopy('trade.venue', {
   'Outcome rejected wallet': 'You cancelled in your wallet. Nothing was signed or sent.',
   'Outcome wallet failed': '{message}',
   'Outcome step up': 'Refused before your wallet was asked: {detail}',
+  'Outcome email proof':
+    'Confirm your email first: new orders wait until you confirm the email on this account. Refused before your wallet was asked; nothing was signed or sent.',
   'Outcome reused': 'This is the same action as before: the venue’s first answer stands.',
   'Read back': 'Read back from the venue: {status}',
   'Read back missing': 'Read back from the venue: not found so far. Still checking; nothing is sent again.',

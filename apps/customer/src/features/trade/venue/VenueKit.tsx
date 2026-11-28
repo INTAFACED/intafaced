@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useRef, type ReactNode } from 'react';
+import { EmailProofNotice } from '../../account';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
@@ -85,6 +86,8 @@ export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title
         {t('Trading mode')}: {t('Trading mode line', { venue: status.venue.displayName })}
       </p>
       {feeLine ? <p data-testid="venue-fee-line">{feeLine}</p> : null}
+      {/* J-identity-01 #8: our door holds a new order until the email is proved; every venue desk says so first. */}
+      <EmailProofNotice />
     </header>
   );
 }
@@ -202,7 +205,13 @@ export type ActionResult =
 export type RunAction = (
   intent: VenueIntent,
   /** `venueId`: the venue to prepare on (J-derivatives-28 routing); none is the primary venue. Submit follows the stored action. */
-  opts?: { actionKey?: string; stepUpApprovalId?: string | null; venueId?: string },
+  opts?: {
+    actionKey?: string;
+    stepUpApprovalId?: string | null;
+    venueId?: string;
+    /** An order the venue definitely refused is sent again under its own client order id (J-derivatives-33 #5). */
+    retryRefused?: boolean;
+  },
 ) => Promise<ActionResult>;
 
 /** The business key the door stores an intent under (user-venue-door.ts `businessKey`). */
@@ -310,6 +319,7 @@ export function useVenueActions(owner: string | null, given?: SessionSigning | n
           actionKey: opts.actionKey,
           stepUpApprovalId: opts.stepUpApprovalId,
           ...(opts.venueId ? { venueId: opts.venueId } : {}),
+          ...(opts.retryRefused ? { retryRefused: true } : {}),
         });
         if (!prepared.ok) return { kind: 'refused', code: prepared.code, message: prepared.message, beforeWallet: true };
         const answer = prepared.data;

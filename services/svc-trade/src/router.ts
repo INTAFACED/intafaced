@@ -5,6 +5,8 @@ import type { VenueAutoTopUp } from './venue/auto-top-up.js';
 import { autoTopUpRouter } from './venue/auto-top-up-router.js';
 import type { VenueRiskAlerts } from './venue/risk-alerts.js';
 import { riskAlertsRouter } from './venue/risk-alerts-router.js';
+import type { VenueProfitLocks } from './venue/profit-lock.js';
+import { profitLockRouter } from './venue/profit-lock-router.js';
 import { tradeJournalRouter } from './venue/trade-journal-router.js';
 import type { TradeJournalDeps } from './venue/trade-journal.js';
 import type { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
@@ -810,6 +812,7 @@ export function createTradeRouter(
   journal?: TradeJournalDeps | null,
   dailyLoss?: VenueDailyLossLimits | null,
   venueDoor?: Pick<UserVenueDoor, 'orderLabelsOf'> | null,
+  profitLocks?: VenueProfitLocks | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -895,6 +898,8 @@ export function createTradeRouter(
     autoTopUp: autoTopUpRouter(autoTopUp),
     /** `riskAlerts.*`: margin and liquidation-risk alerts on a position on the person's own venue account (venue/risk-alerts-router.ts). */
     riskAlerts: riskAlertsRouter(riskAlerts),
+    /** `profitLock.*`: the weekly Profit lock on the person's own venue account (venue/profit-lock-router.ts). */
+    profitLock: profitLockRouter(profitLocks),
     /** `journal.*`: the perps trade journal of the person's own venue account (venue/trade-journal-router.ts). */
     journal: tradeJournalRouter(journal),
     /** `dailyLoss.*`: the person's opt-in daily loss limit on their own venue account (venue/daily-loss-router.ts). */

@@ -2,18 +2,25 @@ import { z } from 'zod';
 import { defineProcedure, type Refusals } from './procedure.js';
 
 /**
- * THE PERPS TRADE JOURNAL: every closed perpetual trade on the person's own venue account, recorded with no
- * entry by hand (svc-trade src/venue/trade-journal.ts). Read only: nothing is sent to the venue, nothing is stored, and
- * the ledger posts nothing. Every figure is the venue's own (its fills, its order history, its candles), worked here.
+ * THE PERPS TRADE JOURNAL (J-portfolio-18): every closed perpetual trade on the person's own venue account, recorded
+ * with no entry by hand (svc-trade src/venue/trade-journal.ts). Nothing is sent to the venue and the ledger posts
+ * nothing; each closed trade worked from the venue's fills, funding, order history and candles is kept in the journal's
+ * own record (`trade.user_venue_journal_trades`), so a trade stays whole after the venue stops returning its history.
  *
- * - A trade runs from flat to flat on one market: entry is the average price of the fills that opened or added, exit of
- *   those that reduced or closed; size is everything opened. A fill that flips the position closes one trade and opens
- *   the next, its fee split by amount.
- * - The planned stop and target are the first stop-loss and take-profit trigger orders on the market set at entry: the
- *   ones attached to an opening order, else the first placed while the trade was open. None: `null`, never guessed.
- * - R = net result over the planned risk (|entry − stop| × size); `null` with no stop.
- * - MAE and MFE (worst and best price reached while open) come from the venue's candles over the trade's window, at the
- *   finest interval that covers it (`candleInterval`), with the entry and exit prices themselves.
+ * - A trade runs from flat to flat on one market: entry is the size-weighted average price of the fills that opened or
+ *   added, exit of those that reduced or closed; `size` is the largest size held. A fill that flips the position closes
+ *   one trade and opens the next, its amount and fees split between them by size; the venue's realised result on it
+ *   belongs to the part that closed.
+ * - Net result: the venue's realised result, less the venue's fee and our builder fee, plus or minus the funding the
+ *   venue booked on the position while it was open, each part as the venue reports it. A closing fill the venue reports
+ *   no realised result for leaves `realisedPnl` and `netPnl` null, never 0.
+ * - The planned stop and target are the stop-loss and take-profit trigger orders the trade opened with: attached to the
+ *   order of its first fill, else placed before its second fill. None: `null`, never guessed.
+ * - 1R = |entry − stop| × the largest size; R = net result ÷ 1R, to four places. No stop: `rMissing: 'no_stop_when_opened'`;
+ *   a stop at the entry (1R = 0): `'stop_at_entry'`.
+ * - MAE and MFE: the worst and best price the venue's 1-minute candles reached over the trade's time, in price, dollars
+ *   (per unit × the largest size) and percent of the entry. Candles missing (a fill's minute has no candle, or one that
+ *   does not hold the fill's price): `excursion.complete` false and both null.
  * - Disciplined: the result had the trade left at its planned stop or target, whichever price the venue's candles reached
  *   first from entry (both in one candle: the stop), with the trade's own fees. `unresolved` while neither has been
  *   reached; `no_plan` with neither set.
@@ -24,7 +31,8 @@ import { defineProcedure, type Refusals } from './procedure.js';
  *   stopped there: minus 1R less the trade's own fees, 1R being |entry − first stop| × size (`capped` when that is no
  *   worse than what it made, `stopped` when it made more: a widened stop that won is never credited). A widened stop
  *   whose first stop was never reached, a trade opened with no stop, and one that kept its stop and limit count what
- *   they made.
+ *   they made. A trade with no net result, or with a widened stop and its candles missing, is `incomplete`: null,
+ *   never guessed.
  */
 
 const base = { service: 'svc-trade', module: 'trade', transport: 'trpc' } as const;
@@ -38,12 +46,40 @@ export const TRADE_JOURNAL_MAX_TRADES = 100;
 export const TRADE_JOURNAL_MAX_DAYS = 90;
 
 export const DISCIPLINED_EXITS = ['stop', 'target', 'unresolved', 'no_plan'] as const;
+export const R_MISSING = ['no_stop_when_opened', 'stop_at_entry', 'no_result'] as const;
 
 /** How a trade counts on the "keeping my rules" line (the record's comment defines each). */
-export const RULES_VERDICTS = ['kept', 'no_stop', 'widened_unreached', 'capped', 'stopped', 'left_out'] as const;
+export const RULES_VERDICTS = ['kept', 'no_stop', 'widened_unreached', 'capped', 'stopped', 'left_out', 'incomplete'] as const;
 export type RulesVerdict = (typeof RULES_VERDICTS)[number];
 
-export const journalTradeSchema = z.object({
+/** One fill, or the part of a flipping fill, inside one trade, as the venue reports it. */
+export const journalFillSchema = z.object({
+  fillId: z.string().min(1),
+  filledAt: z.string(),
+  side: z.enum(['buy', 'sell']),
+  price: decimal,
+  amount: decimal,
+  venueFee: decimal,
+  builderFee: decimal,
+  feeAsset: z.string().min(1),
+  /** True when it opened or added to the position; false when it reduced or closed it. */
+  opening: z.boolean(),
+  /** The part of a flipping fill: the fill's amount, fees and realised result are split by size. */
+  split: z.boolean(),
+});
+
+const excursionSchema = z.object({
+  price: decimal,
+  /** How far from the entry, per unit (never below zero). */
+  perUnit: decimal,
+  /** Per unit × the largest size. */
+  usd: decimal,
+  /** Per unit ÷ the entry × 100, to two places. */
+  pct: decimal,
+});
+
+/** A closed trade's figures, as the journal's record keeps them. */
+export const journalTradeFiguresSchema = z.object({
   /** The first opening fill's venue id: stable for the trade. */
   tradeId: z.string().min(1),
   symbol: z.string().min(1),
@@ -52,26 +88,31 @@ export const journalTradeSchema = z.object({
   closedAt: z.string(),
   entryPrice: decimal,
   exitPrice: decimal,
-  /** Everything opened, in base units. */
+  /** The largest size held, in base units. */
   size: decimal,
-  /** The venue's fee and our builder fee on every fill of the trade. */
-  fees: decimal,
+  fills: z.array(journalFillSchema).min(2),
   feeAsset: z.string().min(1),
-  /** Price result before fees: what was received for the base sold, less what was paid for the base bought. */
-  grossPnl: decimal,
-  netPnl: decimal,
+  /** The venue's realised result on the closing fills; null when it reported none on one of them. */
+  realisedPnl: decimal.nullable(),
+  venueFees: decimal,
+  builderFees: decimal,
+  /** The funding the venue booked on the position while it was open (paid: below zero), and in how many payments. */
+  funding: decimal,
+  fundingPayments: z.number().int().min(0),
+  /** realisedPnl − venueFees − builderFees + funding; null with realisedPnl. */
+  netPnl: decimal.nullable(),
   plannedStop: decimal.nullable(),
   plannedTarget: decimal.nullable(),
-  /** Net result over the planned risk, to four places; `null` with no planned stop. */
+  /** 1R in dollars: |entry − stop| × size. */
+  risk: decimal.nullable(),
   rMultiple: decimal.nullable(),
-  /** The worst price reached while open, and how far against the entry it was, per unit (never below zero). */
-  maePrice: decimal,
-  mae: decimal,
-  /** The best price reached while open, and how far in favour of the entry it was, per unit (never below zero). */
-  mfePrice: decimal,
-  mfe: decimal,
-  /** The candle interval MAE, MFE and the disciplined exit were read at. */
-  candleInterval: z.string().min(1),
+  rMissing: z.enum(R_MISSING).nullable(),
+  excursion: z.object({
+    interval: z.literal('1m'),
+    complete: z.boolean(),
+    mae: excursionSchema.nullable(),
+    mfe: excursionSchema.nullable(),
+  }),
   disciplined: z.object({
     exit: z.enum(DISCIPLINED_EXITS),
     /** The planned level it would have left at; `null` when `unresolved` or `no_plan`. */
@@ -81,8 +122,8 @@ export const journalTradeSchema = z.object({
   /** The trade on the "keeping my rules" line (J-portfolio-19). */
   rules: z.object({
     verdict: z.enum(RULES_VERDICTS),
-    /** What it counts on the rules line. */
-    netPnl: decimal,
+    /** What it counts on the rules line; null with `incomplete`. */
+    netPnl: decimal.nullable(),
     /** 1R: |entry − the stop it opened with| × size; `null` with no stop. */
     oneR: decimal.nullable(),
     /** The furthest stop it was moved to past its first; `null` when never widened. */
@@ -91,6 +132,14 @@ export const journalTradeSchema = z.object({
     dailyLoss: z.object({ limit: decimal, loss: decimal, asset: z.string(), warnedAt: z.string() }).nullable(),
   }),
   fillIds: z.array(z.string()),
+});
+export type JournalTradeFigures = z.infer<typeof journalTradeFiguresSchema>;
+
+export const journalTradeSchema = journalTradeFiguresSchema.extend({
+  /** When the journal first stored this trade (or last completed it). */
+  storedAt: z.string(),
+  /** `venue`: the venue still returns the trade's fills; `record`: shown from the journal's own record alone. */
+  source: z.enum(['venue', 'record']),
 });
 export type JournalTrade = z.infer<typeof journalTradeSchema>;
 
@@ -103,14 +152,18 @@ export const tradeJournalSchema = z.object({
   asOf: z.string(),
   /** Newest closed first, at most `TRADE_JOURNAL_MAX_TRADES`. */
   trades: z.array(journalTradeSchema),
-  /** Every closed trade's net result, and the disciplined one over the trades that have one (named by `disciplinedCount`). */
+  /**
+   * Every closed trade's net result over the trades that have one (`netUnknown` counts the rest), and the disciplined one
+   * over the trades that have one (named by `disciplinedCount`).
+   */
   totals: z.object({
     count: z.number().int(),
     netPnl: decimal,
+    netUnknown: z.number().int(),
     disciplinedCount: z.number().int(),
     actualNetPnlOfDisciplined: decimal,
     disciplinedNetPnl: decimal,
-    /** Every closed trade on the "keeping my rules" line; less `netPnl`, the gap between the two lines. */
+    /** The closed trades on the "keeping my rules" line whose rules result is known. */
     rulesNetPnl: decimal,
   }),
 });
@@ -131,6 +184,8 @@ export const TRADE_JOURNAL_CLOSED_TRADES = defineProcedure({
     'trade.journal_unavailable': 'SERVICE_UNAVAILABLE',
     'trade.journal_request_invalid': 'BAD_REQUEST',
     'trade.venue_sub_account_not_own': 'FORBIDDEN',
+    // A wallet the caller's own signature never proved theirs: nothing is read or kept.
+    'trade.journal_wallet_not_own': 'FORBIDDEN',
   }),
   input: z.object({
     owner: z.string().max(64),

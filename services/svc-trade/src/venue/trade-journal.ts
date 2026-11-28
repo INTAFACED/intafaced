@@ -1,10 +1,9 @@
 /**
- * THE PERPS TRADE JOURNAL (record `@intafaced/contracts/trade-journal-procedures`, whose comment defines every
- * figure). Every closed perpetual trade on the person's own venue account, worked from the venue's own fills, order
- * history and candles at the moment of the read. Read only: nothing is prepared, sent or stored, and the ledger posts
- * nothing. A venue that is down or refuses is a refusal, never an empty journal.
- *
- * Crash points: none; nothing is written.
+ * THE PERPS TRADE JOURNAL (J-portfolio-18; record `@intafaced/contracts/trade-journal-procedures`, whose comment defines
+ * every figure). Every closed perpetual trade on the person's own venue account, worked from the venue's own fills,
+ * funding, order history and 1-minute candles, and kept in the journal's own record (trade-journal-store.ts). Nothing is
+ * prepared or sent to the venue, and the ledger posts nothing. A venue that is down or refuses is a refusal, never an
+ * empty journal.
  */
 import {
   abs,
@@ -25,7 +24,8 @@ import {
   ZERO,
   type Amount,
 } from '@intafaced/ledger-client/money';
-import type { JournalTrade, TradeJournal } from '@intafaced/contracts/trade-journal-procedures';
+import type { JournalTradeFigures, TradeJournal } from '@intafaced/contracts/trade-journal-procedures';
+import type { TradeJournalStore } from './trade-journal-store.js';
 import { TRADE_JOURNAL_MAX_DAYS, TRADE_JOURNAL_MAX_TRADES } from '@intafaced/contracts/trade-journal-procedures';
 import {
   isTestVenue,
@@ -34,13 +34,14 @@ import {
   type UserVenue,
   type UserVenueAccount,
   type UserVenueFill,
+  type UserVenueFundingPayment,
   type UserVenueOrderRecord,
   type VenueCandle,
   type VenueCandleInterval,
 } from '@intafaced/venue-contracts';
 import type { DailyLossWarnedOrder } from './daily-loss-limit-store.js';
 
-export type TradeJournalCode = 'trade.journal_unavailable' | 'trade.journal_request_invalid';
+export type TradeJournalCode = 'trade.journal_unavailable' | 'trade.journal_request_invalid' | 'trade.journal_wallet_not_own';
 
 export class TradeJournalError extends Error {
   constructor(
@@ -59,11 +60,16 @@ export interface TripPart {
   readonly side: 'buy' | 'sell';
   readonly price: Amount;
   readonly amount: Amount;
-  readonly fee: Amount;
+  readonly venueFee: Amount;
+  readonly builderFee: Amount;
+  /** The venue's realised result on this part: a closing part carries its fill's; an opening part none (`null`). */
+  readonly realisedPnl: Amount | null;
   readonly feeAsset: string;
   readonly filledAt: Date;
   /** True when it opened or added to the position; false when it reduced or closed it. */
   readonly opening: boolean;
+  /** Part of a fill that flipped the position. */
+  readonly split: boolean;
 }
 
 /** One trade from flat to flat on one market. */
@@ -76,6 +82,8 @@ export interface RoundTrip {
   readonly openedAt: Date;
   readonly closedAt: Date;
   readonly feeAsset: string;
+  /** The largest size held while open. */
+  readonly largest: Amount;
 }
 
 const signed = (side: 'buy' | 'sell', amount: Amount): Amount => (side === 'buy' ? amount : neg(amount));
@@ -84,44 +92,53 @@ const sign = (a: Amount): -1 | 0 | 1 => compare(a, ZERO);
 /**
  * The closed trades in `fills` (one market's or many), oldest first. `startPosition` is each market's signed position
  * before the first fill: a trade already open then, and one still open after the last fill, is not closed here and is
- * left out. A fill that crosses zero closes one trade and opens the next; its fee is split by amount.
+ * left out. A fill that crosses zero closes one trade and opens the next; its amount and fees split by size, and the
+ * venue's realised result stays with the closing part.
  */
 export function roundTrips(fills: readonly UserVenueFill[], startPosition: ReadonlyMap<string, Amount>): RoundTrip[] {
   const ordered = [...fills].sort((a, b) => a.filledAt.getTime() - b.filledAt.getTime());
-  const state = new Map<string, { position: Amount; parts: TripPart[] | null }>();
+  const state = new Map<string, { position: Amount; largest: Amount; parts: TripPart[] | null }>();
   const done: RoundTrip[] = [];
   for (const f of ordered) {
     const start = startPosition.get(f.symbol) ?? ZERO;
     let s = state.get(f.symbol);
     // A market already open at the start is followed but not recorded until it is flat.
-    if (!s) state.set(f.symbol, (s = { position: start, parts: isZero(start) ? [] : null }));
-    const fee = add(f.venueFee, f.builderFee);
-    const part = (amount: Amount, partFee: Amount, opening: boolean): TripPart => ({
+    if (!s) state.set(f.symbol, (s = { position: start, largest: ZERO, parts: isZero(start) ? [] : null }));
+    const part = (
+      { amount, venueFee, builderFee }: { amount: Amount; venueFee: Amount; builderFee: Amount },
+      { opening, split }: { opening: boolean; split: boolean },
+    ): TripPart => ({
       fillId: f.fillId,
       venueClientOrderId: f.venueClientOrderId,
       side: f.side,
       price: f.price,
       amount,
-      fee: partFee,
+      venueFee,
+      builderFee,
+      realisedPnl: opening ? null : f.realisedPnl,
       feeAsset: f.feeAsset,
       filledAt: f.filledAt,
       opening,
+      split,
     });
     const delta = signed(f.side, f.amount);
     if (isZero(s.position) || sign(delta) === sign(s.position)) {
-      s.parts?.push(part(f.amount, fee, true));
+      s.parts?.push(part({ amount: f.amount, venueFee: f.venueFee, builderFee: f.builderFee }, { opening: true, split: false }));
       s.position = add(s.position, delta);
+      s.largest = max(s.largest, abs(s.position));
       continue;
     }
     const held = abs(s.position);
     const closing = min(held, f.amount);
     const rest = sub(f.amount, closing);
-    const closeFee = isZero(rest) ? fee : (proRata(fee, [closing, rest])[0] ?? ZERO);
-    const openFee = sub(fee, closeFee);
-    s.parts?.push(part(closing, closeFee, false));
+    const flip = !isZero(rest);
+    const share = (fee: Amount) => (flip ? (proRata(fee, [closing, rest])[0] ?? ZERO) : fee);
+    const closeVenueFee = share(f.venueFee);
+    const closeBuilderFee = share(f.builderFee);
+    s.parts?.push(part({ amount: closing, venueFee: closeVenueFee, builderFee: closeBuilderFee }, { opening: false, split: flip }));
     const side = sign(s.position) > 0 ? 'long' : 'short';
     s.position = add(s.position, delta);
-    if (isZero(s.position) || !isZero(rest)) {
+    if (isZero(s.position) || flip) {
       const [first] = s.parts ?? [];
       if (s.parts && first)
         done.push({
@@ -132,14 +149,23 @@ export function roundTrips(fills: readonly UserVenueFill[], startPosition: Reado
           openedAt: first.filledAt,
           closedAt: f.filledAt,
           feeAsset: first.feeAsset,
+          largest: s.largest,
         });
-      s.parts = isZero(rest) ? [] : [part(rest, openFee, true)];
+      s.parts = flip
+        ? [
+            part(
+              { amount: rest, venueFee: sub(f.venueFee, closeVenueFee), builderFee: sub(f.builderFee, closeBuilderFee) },
+              { opening: true, split: true },
+            ),
+          ]
+        : [];
+      s.largest = flip ? rest : ZERO;
     }
   }
   return done;
 }
 
-/** The weighted average price of `parts`. */
+/** The size-weighted average price of `parts`. */
 function averagePrice(parts: readonly TripPart[]): Amount {
   const amount = sum(parts.map((p) => p.amount));
   return div(sum(parts.map((p) => mul(p.price, p.amount))), amount);
@@ -155,26 +181,28 @@ export function roundTo(a: Amount, places: number): Amount {
 }
 
 /**
- * The planned stop and target: the first stop-loss and take-profit trigger orders on the trade's market that close it,
- * attached to one of its opening orders, else the first placed while it was open. `laterStops` are the stop-loss
- * trigger prices placed after the planned stop and before the close: where the person moved it.
+ * The stop and target the trade opened with: the first stop-loss and take-profit trigger orders on its market that close
+ * it, attached to the order of its first fill, else placed before its second fill. `laterStops` are the stop-loss
+ * trigger prices placed after that stop and before the close: where the person moved it (J-portfolio-19).
  */
 export function plannedLevels(
   trip: RoundTrip,
   orders: readonly UserVenueOrderRecord[],
 ): { stop: Amount | null; target: Amount | null; laterStops: readonly Amount[] } {
   const closeSide = trip.side === 'long' ? 'sell' : 'buy';
-  const openIds = new Set(trip.parts.flatMap((p) => (p.opening && p.venueClientOrderId ? [p.venueClientOrderId] : [])));
+  const [firstPart, secondPart] = trip.parts;
+  const entryOrder = firstPart?.venueClientOrderId ?? null;
   const openedAt = trip.openedAt.getTime();
   const closedAt = trip.closedAt.getTime();
+  const before = secondPart ? secondPart.filledAt.getTime() : closedAt;
   const mine = (role: 'stop_loss' | 'take_profit') =>
     orders
       .filter((r) => r.order.symbol === trip.symbol && r.order.side === closeSide && r.order.trigger?.role === role)
       .sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime());
   const pick = (list: readonly UserVenueOrderRecord[]): UserVenueOrderRecord | null => {
-    const attached = list.find((r) => r.order.parentClientOrderId && openIds.has(r.order.parentClientOrderId));
-    const during = list.find((r) => r.placedAt.getTime() >= openedAt && r.placedAt.getTime() < closedAt);
-    return attached ?? during ?? null;
+    const attached = entryOrder ? list.find((r) => r.order.parentClientOrderId === entryOrder) : undefined;
+    const atOpen = list.find((r) => r.placedAt.getTime() >= openedAt && r.placedAt.getTime() < before);
+    return attached ?? atOpen ?? null;
   };
   const stops = mine('stop_loss');
   const first = pick(stops);
@@ -204,21 +232,22 @@ function keepingRules(args: {
   readonly entry: Amount;
   readonly size: Amount;
   readonly fees: Amount;
-  readonly net: Amount;
-  /** The worst price reached while open (MAE's price). */
-  readonly worst: Amount;
+  /** Null when the venue reported no realised result on a closing fill. */
+  readonly net: Amount | null;
+  /** The worst price reached while open (MAE's price); null when the candles are incomplete. */
+  readonly worst: Amount | null;
   readonly stop: Amount | null;
   readonly laterStops: readonly Amount[];
   readonly warned: DailyLossWarnedOrder | null;
-}): JournalTrade['rules'] {
+}): JournalTradeFigures['rules'] {
   const { long, entry, size, fees, net, worst, stop, laterStops, warned } = args;
   const oneR = stop === null ? null : mul(abs(sub(entry, stop)), size);
   // Further from the entry than the first stop: lower on a long, higher on a short.
   const wider = stop === null ? [] : laterStops.filter((p) => (long ? compare(p, stop) < 0 : compare(p, stop) > 0));
   const widenedStop = wider.length === 0 ? null : wider.reduce(long ? min : max);
-  const out = (verdict: JournalTrade['rules']['verdict'], value: Amount): JournalTrade['rules'] => ({
+  const out = (verdict: JournalTradeFigures['rules']['verdict'], value: Amount | null): JournalTradeFigures['rules'] => ({
     verdict,
-    netPnl: formatAmount(value),
+    netPnl: value === null ? null : formatAmount(value),
     oneR: oneR === null ? null : formatAmount(oneR),
     widenedStop: widenedStop === null ? null : formatAmount(widenedStop),
     dailyLoss: warned
@@ -231,36 +260,44 @@ function keepingRules(args: {
       : null,
   });
   if (warned) return out('left_out', ZERO);
+  // Without the venue's realised result, or with a widened stop and the candles that would show whether its first stop
+  // was reached missing, what the trade counts cannot be worked out: named, never guessed.
+  if (net === null) return out('incomplete', null);
   if (stop === null || oneR === null) return out('no_stop', net);
   if (widenedStop === null) return out('kept', net);
+  if (worst === null) return out('incomplete', null);
   const reached = long ? compare(worst, stop) <= 0 : compare(worst, stop) >= 0;
   if (!reached) return out('widened_unreached', net);
   const atFirstStop = sub(neg(oneR), fees);
   return out(compare(atFirstStop, net) >= 0 ? 'capped' : 'stopped', atFirstStop);
 }
 
-/** The candle intervals tried, finest first (6h is left out: not every venue publishes it). */
-const LADDER: readonly VenueCandleInterval[] = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w'];
-/** The most candles one read asks for (the wire's and the venues' own cap). */
+/** The candle interval MAE, MFE and the disciplined exit are read at (J-portfolio-18 #3: the venue's 1-minute candles). */
+const JOURNAL_CANDLE_INTERVAL = '1m' satisfies VenueCandleInterval;
+/** The most candles one read asks for (the wire's and the venues' own cap): twelve hours of 1-minute candles. */
 const JOURNAL_CANDLES_PER_READ = 720;
+const MINUTE_MS = VENUE_CANDLE_INTERVALS[JOURNAL_CANDLE_INTERVAL] * 1000;
+const bucketOf = (t: Date) => Math.floor(t.getTime() / MINUTE_MS) * MINUTE_MS;
 
-/** The finest interval whose candles from the bucket `openedAt` falls in up to `now` fit in one read. */
-export function candleIntervalFor(openedAt: Date, now: Date): { interval: VenueCandleInterval; since: Date } {
-  for (const interval of LADDER) {
-    const step = VENUE_CANDLE_INTERVALS[interval] * 1000;
-    const since = Math.floor(openedAt.getTime() / step) * step;
-    if (Math.floor((now.getTime() - since) / step) + 1 <= JOURNAL_CANDLES_PER_READ) return { interval, since: new Date(since) };
-  }
-  throw new TradeJournalError('the trade opened too long ago to read its candles', 'trade.journal_request_invalid');
+/**
+ * Whether the candles hold the whole trade: every fill is a print, so each fill's minute has a candle whose range holds
+ * the fill's price. A venue past the history it keeps (or a trade longer than one read) leaves one missing.
+ */
+export function candlesCover(trip: RoundTrip, candles: readonly VenueCandle[]): boolean {
+  const byMinute = new Map(candles.map((c) => [c.openAt.getTime(), c]));
+  return trip.parts.every((p) => {
+    const c = byMinute.get(bucketOf(p.filledAt));
+    return c !== undefined && compare(c.lowPrice, p.price) <= 0 && compare(c.highPrice, p.price) >= 0;
+  });
 }
 
-/** One closed trade, worked from its parts, its planned levels and the venue's candles from its open onward. */
+/** One closed trade's figures, worked from its parts, the funding booked on it, its planned levels and its candles. */
 export function journalTrade(
   trip: RoundTrip,
   levels: { stop: Amount | null; target: Amount | null; laterStops?: readonly Amount[] },
-  read: { readonly candles: readonly VenueCandle[]; readonly interval: VenueCandleInterval } & Partial<RulesContext>,
-): JournalTrade {
-  const { candles, interval } = read;
+  read: { readonly candles: readonly VenueCandle[]; readonly funding: readonly UserVenueFundingPayment[] } & Partial<RulesContext>,
+): JournalTradeFigures {
+  const { candles, funding } = read;
   const opens = trip.parts.filter((p) => p.opening);
   const closes = trip.parts.filter((p) => !p.opening);
   const feeAsset = trip.feeAsset;
@@ -270,30 +307,57 @@ export function journalTrade(
   const dir = long ? SCALE : neg(SCALE);
   const entry = averagePrice(opens);
   const exit = averagePrice(closes);
-  const size = sum(opens.map((p) => p.amount));
-  const fees = sum(trip.parts.map((p) => p.fee));
-  const gross = sum(trip.parts.map((p) => mul(p.price, p.side === 'sell' ? p.amount : neg(p.amount))));
-  const net = sub(gross, fees);
+  const size = trip.largest;
+  const opened = sum(opens.map((p) => p.amount));
+  const venueFees = sum(trip.parts.map((p) => p.venueFee));
+  const builderFees = sum(trip.parts.map((p) => p.builderFee));
+  const fees = add(venueFees, builderFees);
   const { openedAt, closedAt } = trip;
-  const step = VENUE_CANDLE_INTERVALS[interval] * 1000;
+  // The funding the venue booked on this position while it was open: periods closed after it opened, up to its close.
+  const paid = funding.filter(
+    (f) =>
+      f.symbol === trip.symbol &&
+      f.side === trip.side &&
+      f.periodAt.getTime() > openedAt.getTime() &&
+      f.periodAt.getTime() <= closedAt.getTime(),
+  );
+  const fundingTotal = sum(paid.map((f) => f.amount));
+  const realised = closes.some((p) => p.realisedPnl === null) ? null : sum(closes.map((p) => p.realisedPnl ?? ZERO));
+  const net = realised === null ? null : add(sub(realised, fees), fundingTotal);
 
-  // From the candle the entry falls in onward; the window is those that opened before the exit.
-  const fromEntry = candles
-    .filter((c) => c.openAt.getTime() + step > openedAt.getTime())
-    .sort((a, b) => a.openAt.getTime() - b.openAt.getTime());
+  // The 1-minute candles over the trade's time: from the minute it opened to the minute it closed.
+  const fromEntry = candles.filter((c) => c.openAt.getTime() >= bucketOf(openedAt)).sort((a, b) => a.openAt.getTime() - b.openAt.getTime());
   const window = fromEntry.filter((c) => c.openAt.getTime() <= closedAt.getTime());
-  const prices = trip.parts.map((p) => p.price);
-  const low = [...window.map((c) => c.lowPrice), ...prices].reduce(min);
-  const high = [...window.map((c) => c.highPrice), ...prices].reduce(max);
-  const worst = long ? low : high;
-  const best = long ? high : low;
-  const against = (p: Amount) => max(ZERO, long ? sub(entry, p) : sub(p, entry));
-  const inFavour = (p: Amount) => max(ZERO, long ? sub(p, entry) : sub(entry, p));
+  const complete = candlesCover(trip, candles);
+  const excursion = (price: Amount, perUnit: Amount) => ({
+    price: formatAmount(price),
+    perUnit: formatAmount(perUnit),
+    usd: formatAmount(mul(perUnit, size)),
+    pct: formatAmount(roundTo(div(mul(perUnit, parseAmount('100')), entry), 2)),
+  });
+  let mae: JournalTradeFigures['excursion']['mae'] = null;
+  let mfe: JournalTradeFigures['excursion']['mfe'] = null;
+  if (complete) {
+    const low = window.map((c) => c.lowPrice).reduce(min);
+    const high = window.map((c) => c.highPrice).reduce(max);
+    const worst = long ? low : high;
+    const best = long ? high : low;
+    mae = excursion(worst, max(ZERO, long ? sub(entry, worst) : sub(worst, entry)));
+    mfe = excursion(best, max(ZERO, long ? sub(best, entry) : sub(entry, best)));
+  }
 
   const risk = levels.stop === null ? null : mul(abs(sub(entry, levels.stop)), size);
-  const rMultiple = risk === null || isZero(risk) ? null : roundTo(div(net, risk), 4);
+  const rMultiple = risk === null || isZero(risk) || net === null ? null : roundTo(div(net, risk), 4);
+  const rMissing =
+    levels.stop === null
+      ? 'no_stop_when_opened'
+      : risk !== null && isZero(risk)
+        ? 'stop_at_entry'
+        : rMultiple === null
+          ? 'no_result'
+          : null;
 
-  let disciplined: JournalTrade['disciplined'] = { exit: 'no_plan', exitPrice: null, netPnl: null };
+  let disciplined: JournalTradeFigures['disciplined'] = { exit: 'no_plan', exitPrice: null, netPnl: null };
   if (levels.stop !== null || levels.target !== null) {
     disciplined = { exit: 'unresolved', exitPrice: null, netPnl: null };
     const { stop, target } = levels;
@@ -302,7 +366,7 @@ export function journalTrade(
       const targetHit = target !== null && (long ? compare(c.highPrice, target) >= 0 : compare(c.lowPrice, target) <= 0);
       const level = stopHit ? stop : targetHit ? target : null;
       if (level === null) continue;
-      const result = sub(mul(mul(sub(level, entry), size), dir), fees);
+      const result = sub(mul(mul(sub(level, entry), opened), dir), fees);
       disciplined = { exit: stopHit ? 'stop' : 'target', exitPrice: formatAmount(level), netPnl: formatAmount(result) };
       break;
     }
@@ -317,18 +381,31 @@ export function journalTrade(
     entryPrice: formatAmount(entry),
     exitPrice: formatAmount(exit),
     size: formatAmount(size),
-    fees: formatAmount(fees),
+    fills: trip.parts.map((p) => ({
+      fillId: p.fillId,
+      filledAt: p.filledAt.toISOString(),
+      side: p.side,
+      price: formatAmount(p.price),
+      amount: formatAmount(p.amount),
+      venueFee: formatAmount(p.venueFee),
+      builderFee: formatAmount(p.builderFee),
+      feeAsset: p.feeAsset,
+      opening: p.opening,
+      split: p.split,
+    })),
     feeAsset,
-    grossPnl: formatAmount(gross),
-    netPnl: formatAmount(net),
+    realisedPnl: realised === null ? null : formatAmount(realised),
+    venueFees: formatAmount(venueFees),
+    builderFees: formatAmount(builderFees),
+    funding: formatAmount(fundingTotal),
+    fundingPayments: paid.length,
+    netPnl: net === null ? null : formatAmount(net),
     plannedStop: levels.stop === null ? null : formatAmount(levels.stop),
     plannedTarget: levels.target === null ? null : formatAmount(levels.target),
+    risk: risk === null ? null : formatAmount(risk),
     rMultiple: rMultiple === null ? null : formatAmount(rMultiple),
-    maePrice: formatAmount(worst),
-    mae: formatAmount(against(worst)),
-    mfePrice: formatAmount(best),
-    mfe: formatAmount(inFavour(best)),
-    candleInterval: interval,
+    rMissing,
+    excursion: { interval: JOURNAL_CANDLE_INTERVAL, complete, mae, mfe },
     disciplined,
     rules: keepingRules({
       long,
@@ -336,7 +413,7 @@ export function journalTrade(
       size,
       fees,
       net,
-      worst,
+      worst: mae === null ? null : parseAmount(mae.price),
       stop: levels.stop,
       laterStops: levels.laterStops ?? [],
       warned: read.warned ?? null,
@@ -345,13 +422,20 @@ export function journalTrade(
   };
 }
 
-/** The venue reads the journal needs. A `UserVenue` with order history and candles is one. */
-export type JournalVenue = Pick<UserVenue, 'venue' | 'markets' | 'fills' | 'positions' | 'orderHistory' | 'candles'>;
+/** The venue reads the journal needs. A `UserVenue` with order history, funding and candles is one. */
+export type JournalVenue = Pick<UserVenue, 'venue' | 'markets' | 'fills' | 'positions' | 'orderHistory' | 'candles' | 'fundingPayments'>;
 
 export interface TradeJournalDeps {
   readonly venue: () => Promise<JournalVenue>;
   /** The account a read names, a sub-account only when listed under the owner (UserVenueDoor.readableAccount). */
   readonly account: (owner: string, subAccount: string | null) => Promise<UserVenueAccount>;
+  /**
+   * The venue accounts whose owner wallet signed an action this person prepared through the door
+   * (`PreparedActionStore.ownerSignedAccounts`): the only wallets the journal reads and keeps.
+   */
+  readonly ownWallets: (userId: string, venueId: string) => Promise<readonly { readonly owner: string }[]>;
+  /** The journal's own record of the closed trades (trade-journal-store.ts). */
+  readonly store: TradeJournalStore;
   readonly now: () => Date;
   /**
    * The opening orders the person was warned on while their daily loss limit stood reached (daily-loss-limit-store.ts),
@@ -369,8 +453,15 @@ export interface TradeJournalInput {
 
 const DAY_MS = 86_400_000;
 
-/** The closed perpetual trades of one venue account since `input.since`, newest closed first. */
-export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput, userId?: string): Promise<TradeJournal> {
+/**
+ * The closed perpetual trades of one venue account since `input.since`, newest closed first: every one the venue's fills
+ * show now is worked and kept in the journal's record (once; a trade kept with its candles missing is completed when a
+ * later read has them), and the read answers from that record, so a trade the venue no longer returns stays whole.
+ *
+ * Crash points: between the venue read and the store, nothing is kept and the next read works it again; a trade is keyed
+ * by its venue, account and first fill, so a second read never stores it twice.
+ */
+export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput, userId: string): Promise<TradeJournal> {
   const now = deps.now();
   const since = new Date(input.since);
   if (Number.isNaN(since.getTime()) || since.getTime() > now.getTime() || now.getTime() - since.getTime() > TRADE_JOURNAL_MAX_DAYS * DAY_MS)
@@ -380,16 +471,26 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
   const venue = await deps.venue();
   const candlesOf = venue.candles?.bind(venue);
   const historyOf = venue.orderHistory?.bind(venue);
-  if (!historyOf || !candlesOf)
-    throw new TradeJournalError('this venue publishes no order history or no candles to journal from', 'trade.journal_unavailable');
+  const fundingOf = venue.fundingPayments?.bind(venue);
+  if (!historyOf || !candlesOf || !fundingOf)
+    throw new TradeJournalError('this venue publishes no order history, funding or candles to journal from', 'trade.journal_unavailable');
+  // Only a wallet this person's own signature proved theirs is read or kept: another wallet's public history is never
+  // stored under their read. Checked before the account is resolved, so nothing of it is read.
+  const named = (input.owner ?? '').trim().toLowerCase();
+  if (!(await deps.ownWallets(userId, venue.venue.id)).some((w) => w.owner.toLowerCase() === named))
+    throw new TradeJournalError(
+      'The journal reads only a venue account your own wallet has signed for here; sign one action with that wallet on the desk first',
+      'trade.journal_wallet_not_own',
+    );
   const account = await deps.account(input.owner, input.subAccount ?? null);
 
-  const [markets, fills, positions, orders, warnings] = await Promise.all([
+  const [markets, fills, positions, orders, funding, warnings] = await Promise.all([
     venue.markets(null),
     venue.fills(account, since),
     venue.positions(account),
     historyOf(account),
-    deps.warned && userId ? deps.warned({ userId, venueId: venue.venue.id, owner: account.owner }) : Promise.resolve([]),
+    fundingOf(account, since),
+    deps.warned ? deps.warned({ userId, venueId: venue.venue.id, owner: account.owner }) : Promise.resolve([]),
   ]);
   const warnedBy = new Map(warnings.map((w) => [w.venueClientOrderId.toLowerCase(), w]));
   const perps = new Set(markets.value.filter((m) => m.kind === 'perpetual').map((m) => m.symbol));
@@ -404,13 +505,13 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
     .slice(0, input.limit);
 
   const candleReads = new Map<string, Promise<readonly VenueCandle[]>>();
-  const trades = await Promise.all(
+  const worked = await Promise.all(
     trips.map(async (trip) => {
-      const { interval, since: from } = candleIntervalFor(trip.openedAt, now);
-      const key = `${trip.symbol}|${interval}|${from.getTime()}`;
+      const from = new Date(bucketOf(trip.openedAt));
+      const key = `${trip.symbol}|${from.getTime()}`;
       let read = candleReads.get(key);
       if (!read) {
-        read = candlesOf(trip.symbol, interval, { limit: JOURNAL_CANDLES_PER_READ, since: from }).then((r) => r.value);
+        read = candlesOf(trip.symbol, JOURNAL_CANDLE_INTERVAL, { limit: JOURNAL_CANDLES_PER_READ, since: from }).then((r) => r.value);
         candleReads.set(key, read);
       }
       const warned =
@@ -418,11 +519,22 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
           const w = p.opening && p.venueClientOrderId ? warnedBy.get(p.venueClientOrderId.toLowerCase()) : undefined;
           return w ? [w] : [];
         })[0] ?? null;
-      return journalTrade(trip, plannedLevels(trip, orders.value), { candles: await read, interval, warned });
+      return journalTrade(trip, plannedLevels(trip, orders.value), { candles: await read, funding: funding.value, warned });
     }),
   );
+  const book = { venueId: account.venueId, owner: account.owner, subAccount: account.subAccount };
+  await deps.store.keep(book, worked, now);
+  const onVenue = new Set(worked.map((t) => t.tradeId));
+  const trades = (await deps.store.list(book, since, input.limit)).map(({ trade, storedAt }) => ({
+    ...trade,
+    storedAt: storedAt.toISOString(),
+    source: onVenue.has(trade.tradeId) ? ('venue' as const) : ('record' as const),
+  }));
 
-  const resolved = trades.flatMap((t) => (t.disciplined.netPnl === null ? [] : [{ actual: t.netPnl, disciplined: t.disciplined.netPnl }]));
+  const known = trades.flatMap((t) => (t.netPnl === null ? [] : [t.netPnl]));
+  const resolved = trades.flatMap((t) =>
+    t.disciplined.netPnl === null || t.netPnl === null ? [] : [{ actual: t.netPnl, disciplined: t.disciplined.netPnl }],
+  );
   const total = (xs: readonly string[]) => formatAmount(sum(xs.map((x) => parseAmount(x))));
   return {
     venue: { id: venue.venue.id, name: venue.venue.displayName, test: isTestVenue(venue.venue) },
@@ -433,11 +545,12 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
     trades,
     totals: {
       count: trades.length,
-      netPnl: total(trades.map((t) => t.netPnl)),
+      netPnl: total(known),
+      netUnknown: trades.length - known.length,
       disciplinedCount: resolved.length,
       actualNetPnlOfDisciplined: total(resolved.map((t) => t.actual)),
       disciplinedNetPnl: total(resolved.map((t) => t.disciplined)),
-      rulesNetPnl: total(trades.map((t) => t.rules.netPnl)),
+      rulesNetPnl: total(trades.flatMap((t) => (t.rules.netPnl === null ? [] : [t.rules.netPnl]))),
     },
   };
 }

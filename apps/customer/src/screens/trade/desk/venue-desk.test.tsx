@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+
+// The venue header's email notice reads the session; a static render runs no effect, so identity is never asked.
+vi.mock('../../../features/session', async (actual) => ({
+  ...(await actual<typeof import('../../../features/session')>()),
+  useSession: () => ({ api: {}, userId: 'u1' }),
+}));
 import { OrdersTable } from '../../../features/trade/venue/VenueKit';
 import { builderApproved, requiredBuilderFeeBps } from '../../../features/trade/venue/VenueReview';
 import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp } from '../../../features/trade/venue-api';

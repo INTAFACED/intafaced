@@ -218,6 +218,9 @@ export async function startHyperliquidVenueServer(
     ...((opts.live ?? !opts.fetch)
       ? {
           shareReads: true,
+          // On the live network, each viewed market's book, trades and candles come from one WebSocket, which weighs
+          // nothing against the address's 1,200 a minute (by REST, five desks on five markets spent 1,330).
+          ...(opts.fetch ? {} : { marketStream: true as const }),
           onWeightMinute: (spent: VenueWeightMinute) =>
             process.stdout.write(`${JSON.stringify({ msg: 'hl.venue_weight_minute', limit: 1200, ...spent })}\n`),
         }
@@ -238,6 +241,7 @@ export async function startHyperliquidVenueServer(
       ...(opts.fetch ? {} : { walletReads: { baseUrl: HL_TESTNET_API_URL, perpDexs: [...(opts.perpDexs ?? [])] } }),
     }),
   );
+  server.once('close', () => venue.closeMarketStream());
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, opts.host, () => resolve());

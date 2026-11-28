@@ -6,6 +6,7 @@ import { tradeJournalSchema } from '@intafaced/contracts/trade-journal-procedure
 import type { PlaceUserOrderIntent, UserVenueAccount, VenueIntent } from '@intafaced/venue-contracts';
 import { seedTestVenue, TEST_VENUE_MARKETS, TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { readTradeJournal } from './trade-journal.js';
+import { InMemoryTradeJournalStore } from './trade-journal-store.js';
 
 /**
  * A ROUND TRIP ON THE TEST VENUE, JOURNALLED: open a long on the TEST perpetual ETH-PERP, set a stop loss and a
@@ -66,8 +67,15 @@ describe('trade journal on the TEST venue', { timeout: 60_000 }, () => {
 
     const journal = tradeJournalSchema.parse(
       await readTradeJournal(
-        { venue: async () => sim, account: async () => account, now: () => new Date(now) },
+        {
+          venue: async () => sim,
+          account: async () => account,
+          ownWallets: async () => [account],
+          store: new InMemoryTradeJournalStore(),
+          now: () => new Date(now),
+        },
         { owner, since: since.toISOString(), limit: 10 },
+        'user-1',
       ),
     );
     expect(journal.venue.test).toBe(true);
@@ -82,32 +90,37 @@ describe('trade journal on the TEST venue', { timeout: 60_000 }, () => {
     expect(buys.length).toBeGreaterThan(0);
     expect(sells.length).toBeGreaterThan(0);
     const entry = div(sum(buys.map((f) => mul(f.price, f.amount))), sum(buys.map((f) => f.amount)));
-    const fees = sum(fills.map((f) => add(f.venueFee, f.builderFee)));
-    const gross = sub(sum(sells.map((f) => mul(f.price, f.amount))), sum(buys.map((f) => mul(f.price, f.amount))));
+    const venueFees = sum(fills.map((f) => f.venueFee));
+    const builderFees = sum(fills.map((f) => f.builderFee));
+    const realised = sum(sells.map((f) => f.realisedPnl!));
     expect(t).toMatchObject({
       symbol: ETH,
       side: 'long',
       entryPrice: formatAmount(entry),
       size: '1',
-      fees: formatAmount(fees),
-      grossPnl: formatAmount(gross),
-      netPnl: formatAmount(sub(gross, fees)),
+      venueFees: formatAmount(venueFees),
+      builderFees: formatAmount(builderFees),
+      realisedPnl: formatAmount(realised),
+      funding: '0',
+      netPnl: formatAmount(sub(realised, add(venueFees, builderFees))),
       plannedStop: '2950',
       plannedTarget: '3100',
-      candleInterval: '1m',
+      source: 'venue',
     });
+    expect(t.fills.map((f) => f.fillId)).toEqual(fills.map((f) => f.fillId));
     expect(t.rMultiple).not.toBeNull();
 
-    // MAE and MFE: the venue's 1m candles overlapping the trade's window, with the trade's own fill prices.
+    // MAE and MFE: the venue's 1m candles from the minute the trade opened to the minute it closed.
     const candles = (await sim.candles!(ETH, '1m', { limit: 720, since: new Date(Math.floor(since.getTime() / 60_000) * 60_000) })).value;
-    const opened = new Date(t.openedAt).getTime();
+    const opened = Math.floor(new Date(t.openedAt).getTime() / 60_000) * 60_000;
     const closed = new Date(t.closedAt).getTime();
-    const window = candles.filter((c) => c.openAt.getTime() + 60_000 > opened && c.openAt.getTime() <= closed);
+    const window = candles.filter((c) => c.openAt.getTime() >= opened && c.openAt.getTime() <= closed);
     expect(window.length).toBeGreaterThan(0);
-    const low = [...window.map((c) => c.lowPrice), ...fills.map((f) => f.price)].reduce(min);
-    const high = [...window.map((c) => c.highPrice), ...fills.map((f) => f.price)].reduce(max);
-    expect([t.maePrice, t.mfePrice]).toEqual([formatAmount(low), formatAmount(high)]);
-    expect(t.mae).toBe(formatAmount(max(a('0'), sub(entry, low))));
-    expect(t.mfe).toBe(formatAmount(max(a('0'), sub(high, entry))));
+    const low = window.map((c) => c.lowPrice).reduce(min);
+    const high = window.map((c) => c.highPrice).reduce(max);
+    expect(t.excursion.complete).toBe(true);
+    expect([t.excursion.mae?.price, t.excursion.mfe?.price]).toEqual([formatAmount(low), formatAmount(high)]);
+    expect(t.excursion.mae?.perUnit).toBe(formatAmount(max(a('0'), sub(entry, low))));
+    expect(t.excursion.mfe?.perUnit).toBe(formatAmount(max(a('0'), sub(high, entry))));
   });
 });

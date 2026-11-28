@@ -28,6 +28,7 @@ import {
   type VenueWithdrawal,
 } from './venue-account-api';
 import { venueWalletCopy, type VenueWalletCopyKey } from './venue-wallet-copy';
+import { ProfitLock, type ProfitLockSign } from './ProfitLock';
 import { sleep as pause } from '@intafaced/contracts/sleep';
 
 /**
@@ -610,6 +611,19 @@ export function VenueWalletRoom() {
       setWithdrawAsk({ key: venueWithdrawalKey(owner, Date.now()), amount: asked, destination: destination.toLowerCase() });
     });
 
+  /**
+   * A week's Profit lock offer (J-wallet-26 #4): the same confirm, wallet signature and follow as Withdraw, under the
+   * offer's own key, so a retry or a double press is the same withdrawal; the amount and cold wallet are the offer's.
+   */
+  const signOffer = (ask: ProfitLockSign) =>
+    once(async () => {
+      if (!owner || !(await connectionLive('withdraw'))) return;
+      const closed = doorRefusal();
+      if (closed) return setRefusal(closed);
+      setWithdrawal(null);
+      setWithdrawAsk({ key: ask.key, amount: ask.amount, destination: ask.destination.toLowerCase() });
+    });
+
   /** The step-up names exactly what svc-trade re-hashes: this key, account, asset, amount and destination. */
   const withdrawStepUp = (ask: { key: string; amount: string; destination: string }): StepUpBegin => ({
     scope: 'trade.step_up.venue.withdraw',
@@ -911,6 +925,14 @@ export function VenueWalletRoom() {
                   </div>
                 ) : null}
                 {withdrawal ? <WithdrawalView amount={withdrawal.amount} record={withdrawal.record} t={t} /> : null}
+                {owner && live ? (
+                  <ProfitLock
+                    owner={owner}
+                    busy={busy || withdrawAsk !== null || unsettled}
+                    version={withdrawal?.record ? `${withdrawal.record.nonce}:${withdrawal.record.status}` : 'none'}
+                    onSign={(ask) => void signOffer(ask)}
+                  />
+                ) : null}
               </section>
             ) : null}
           </div>

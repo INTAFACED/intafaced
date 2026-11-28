@@ -1549,6 +1549,41 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   assert.equal(buildStillFresh({ stampHead: 'h1' }, { repo: '/w/a', head: 'h1', edits: '' }, same), false, 'an older stamp builds once');
 
+  // #11041: a commit that changes only a service's start settings (tooling/scripts/local-stack-services/, #11230's
+  // once-a-minute sweep on the beta) moved no backend source, so the long-lived beta kept svc-trade on its old settings.
+  // A move there gives the services a new build id, which restarts them onto the new settings; tooling and docs elsewhere don't.
+  {
+    const { serviceSettingsMoved } = await import('./local-test-stack.mjs');
+    const repo = mkdtempSync(join(tmpdir(), 'settings-moved-'));
+    const git = (...args) => {
+      const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    const commit = (file, text) => {
+      mkdirSync(dirname(join(repo, file)), { recursive: true });
+      writeFileSync(join(repo, file), text);
+      git('add', '-A');
+      git('commit', '-qm', file);
+      return git('rev-parse', 'HEAD');
+    };
+    try {
+      git('init', '-q');
+      const c1 = commit('tooling/scripts/local-stack-services/trade.mjs', "export default () => ({ SWEEP: '3000' });\n");
+      const c2 = commit('tooling/scripts/local-stack-services/trade.mjs', "export default () => ({ SWEEP: '60000' });\n");
+      const c3 = commit('docs/notes.md', 'a note\n');
+      const stampAt = (head) => ({ repo, head, settingsEdits: '' });
+      const now = (head) => ({ repo, head, edits: '' });
+      assert.equal(serviceSettingsMoved(stampAt(c1), now(c2)), true, "a service's settings changed: its services restart");
+      assert.equal(serviceSettingsMoved(stampAt(c2), now(c3)), false, 'a docs-only move restarts nothing');
+      assert.equal(serviceSettingsMoved(stampAt(c2), now(c2)), false, 'the same commit restarts nothing');
+      assert.equal(serviceSettingsMoved(stampAt(c2), { ...now(c2), edits: 'e1' }), true, 'an uncommitted settings edit restarts them');
+      assert.equal(serviceSettingsMoved({ repo, head: c2 }, now(c2)), true, 'a stamp from before settings counted restarts them once');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }
+
   assert.equal(onCurrentBuild({ build: 'b1' }, 'b1'), true);
   assert.equal(onCurrentBuild({ build: 'b1' }, 'b2'), false, 'rebuilt since it started');
   assert.equal(onCurrentBuild({}, 'b2'), false, 'started before builds had ids');
@@ -1582,6 +1617,68 @@ console.log('local-test-stack: customer folder override checks passed');
     }
   }
   console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
+}
+
+// 20a. A running service whose launch settings changed restarts onto them, as one on another build does. Before this, a
+// tooling-only commit kept the build fresh and the beta's svc-trade kept the TEST venue's 3 s own-funds sweep after
+// #11230 set a minute on the test network: 20 balance reads a minute went on (trade.venue_reads_minute, #11041).
+{
+  const { settingsMark, restartReason, startNodeService, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const before = { TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '3000', HTTP_PORT: '17504' };
+  const after = { ...before, TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '60000' };
+  assert.equal(
+    settingsMark(before),
+    settingsMark({ HTTP_PORT: '17504', TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '3000' }),
+    'key order is no change',
+  );
+  assert.notEqual(settingsMark(before), settingsMark(after), 'a changed value is a change');
+  assert.notEqual(
+    settingsMark(before),
+    settingsMark({ ...before, TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: '60000' }),
+    'a new key is a change',
+  );
+  const rec = { pid: 1, build: 'b1', settings: settingsMark(before) };
+  assert.equal(restartReason(rec, 'b1', settingsMark(before)), null, 'the same build and settings keep running');
+  assert.equal(restartReason(rec, 'b1', settingsMark(after)), 'new settings', 'a process on the old settings restarts');
+  assert.equal(restartReason(rec, 'b2', settingsMark(before)), 'the new build');
+  assert.equal(
+    restartReason({ pid: 1, build: 'b1' }, 'b1', settingsMark(before)),
+    'new settings',
+    'a record kept before settings restarts once',
+  );
+  assert.equal(restartReason({ pid: 1, build: 'b1' }, 'b1', undefined), null, 'a part that passes no settings restarts on its build only');
+  // With LOCAL_STACK_RESTART_ON_SETTINGS=on (the beta's), a service's start hands its own settings to the stop, so a live
+  // process on other settings is stopped first. Without it (a journey's stack), the stop judges the build alone, so a
+  // service keeps the one-off settings a `restart <service>` gave it through a later restart of another service.
+  const ledger = localTestServiceEnvs().find((d) => d.name === 'ledger');
+  const halt = new Error('stopped here');
+  const stopsWith = async (value) => {
+    const before = process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+    if (value === undefined) delete process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+    else process.env.LOCAL_STACK_RESTART_ON_SETTINGS = value;
+    const stops = [];
+    try {
+      await assert.rejects(
+        startNodeService(
+          { name: 'ledger', env: () => ledger.env },
+          {
+            stop: (...args) => {
+              stops.push(args);
+              throw halt;
+            },
+          },
+        ),
+        (err) => err === halt,
+      );
+    } finally {
+      if (before === undefined) delete process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+      else process.env.LOCAL_STACK_RESTART_ON_SETTINGS = before;
+    }
+    return stops[0];
+  };
+  assert.equal((await stopsWith('on'))[4], settingsMark(ledger.env), "on the beta the stop is given the start's settings");
+  assert.equal((await stopsWith(undefined))[4], undefined, "on a journey's stack the stop judges the build alone");
+  console.log('local-test-stack: a running service restarts onto changed launch settings');
 }
 
 // 20b. A banner site (customer, invitation, apex) still serving another banner restarts: before #10863's fix a start
@@ -2134,6 +2231,14 @@ console.log('local-test-stack: customer folder override checks passed');
       assert.ok(testnet.includes('PURR-USDC') && testnet.includes('BTC-PERP'), `${raw} keeps PURR-USDC and BTC-PERP`);
     }
     for (const raw of ['on', 'two']) assert.ok(listings(raw).includes('BTC-USDC'), `${raw} seeds BTC-USDC`);
+    // Every TEST perpetual the venue lists, one file each in packages/venue-sim/src/instruments/, is seeded, in file order.
+    const { testVenuePerpetuals } = await import('./local-test-venue.mjs');
+    const perps = testVenuePerpetuals();
+    assert.ok(perps.length >= 13 && perps[0] === 'BTC-PERP' && perps.includes('XJRN-PERP'), `the venue's perpetuals: ${perps}`);
+    assert.deepEqual(
+      listings('on').filter((s) => !s.startsWith('xyz:') && s.endsWith('-PERP')),
+      perps,
+    );
   } finally {
     if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = saved;

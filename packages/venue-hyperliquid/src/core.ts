@@ -7,6 +7,7 @@ import {
   type UserVenueDescriptor,
   type VenueRefusalCode,
 } from '@intafaced/venue-contracts';
+import { HyperliquidMarketStream, type MarketStreamSocket } from './market-stream.js';
 import { HL_TESTNET_API_URL, assertTestnetUrl } from './signing.js';
 
 /**
@@ -95,6 +96,10 @@ export interface VenueWeightMinute {
   readonly minute: string;
   readonly weight: number;
   readonly byType: Readonly<Record<string, { readonly requests: number; readonly weight: number; readonly accounts?: number }>>;
+  /** Reads the market stream answered that minute, by type, weighing nothing; absent when it answered none. */
+  readonly streamed?: Readonly<Record<string, number>>;
+  /** The market stream's live subscriptions at the minute's end; absent with no stream. */
+  readonly subscriptions?: number;
 }
 const freshFor = (type: string) =>
   LIGHT_READS.has(type)
@@ -174,6 +179,17 @@ export interface HyperliquidTestnetOptions {
    * and a read the venue answers 429 is tried once more. Off (the default), every read goes to the venue.
    */
   readonly shareReads?: boolean;
+  /**
+   * Take each viewed market's book, trades and candles from one WebSocket to the venue (`HyperliquidMarketStream`,
+   * market-stream.ts) instead of REST, which weighs them against the machine's one IP. Only with `shareReads`. `true`
+   * opens the platform's own WebSocket to the test network; tests pass their own `connect` and `every`.
+   */
+  readonly marketStream?:
+    | true
+    | {
+        readonly connect: (url: string) => MarketStreamSocket;
+        readonly every?: (ms: number, tick: () => void) => () => void;
+      };
   /**
    * Told once a minute what this instance spent at the venue the minute before (`VenueWeightMinute`), at its first
    * request in the next minute: every request that left for the venue, by type, weighed as the venue weighs it.
@@ -272,6 +288,8 @@ export abstract class HyperliquidCore {
   private marketsInFlight: Promise<MarketIndex> | null = null;
   private lastMissRefreshMs = Number.NEGATIVE_INFINITY;
   private readonly shareReads: boolean;
+  /** Viewed markets' public reads from one WebSocket (`marketStream`), or null. */
+  protected readonly marketStream: HyperliquidMarketStream | null;
   /** The HIP-3 perp DEXs listed beside the main one (`HyperliquidTestnetOptions.perpDexs`). */
   protected readonly perpDexs: readonly string[];
   protected readonly warn: (message: string) => void;
@@ -281,7 +299,11 @@ export abstract class HyperliquidCore {
   /** Per account, bumped by every signed action for it, so a read of it that began before the action is not kept after. */
   private readonly readsEpoch = new Map<string, { orders: number; rare: number }>();
   private readonly onWeightMinute: ((spent: VenueWeightMinute) => void) | null;
-  private weightMinute: { startMs: number; byType: Map<string, { requests: number; weight: number; users: Set<string> }> } | null = null;
+  private weightMinute: {
+    startMs: number;
+    byType: Map<string, { requests: number; weight: number; users: Set<string> }>;
+    streamed: Map<string, number>;
+  } | null = null;
   /**
    * Destinations of withdrawals signed and sent through this instance, by
    * nonce. The venue's ledger read does not report one; this is the
@@ -320,6 +342,16 @@ export abstract class HyperliquidCore {
     if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`wallet chain ${String(chainId)} is not a chain id`);
     this.chainId = chainId;
     this.shareReads = options.shareReads === true;
+    const stream = options.marketStream;
+    this.marketStream =
+      this.shareReads && stream !== undefined
+        ? new HyperliquidMarketStream({
+            url: `${this.baseUrl.replace(/^https:/, 'wss:')}/ws`,
+            clock: this.clock,
+            warn: (message) => this.warn(message),
+            ...(stream === true ? {} : { connect: stream.connect, ...(stream.every ? { every: stream.every } : {}) }),
+          })
+        : null;
     this.onWeightMinute = options.onWeightMinute ?? null;
     this.perpDexs = [...new Set(options.perpDexs ?? [])];
     this.warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
@@ -333,6 +365,11 @@ export abstract class HyperliquidCore {
   /** A read. Any failure to get a readable answer is `venue_down`: nothing was changed by a read. */
   protected async info(body: Record<string, Json>): Promise<Json> {
     if (!this.shareReads) return parseJson(await this.readOnce(body));
+    const streamed = this.marketStream?.answer(body);
+    if (streamed !== undefined) {
+      this.streamed(String(body.type));
+      return parseJson(streamed);
+    }
     const key = JSON.stringify(body);
     const user = typeof body.user === 'string' ? body.user.toLowerCase() : null;
     const type = String(body.type);
@@ -344,6 +381,7 @@ export abstract class HyperliquidCore {
       const epoch = this.epochOf(user, type);
       const read: Promise<string> = this.readOnce(body, true)
         .then((text) => {
+          this.marketStream?.seed(body, text, now);
           if (epoch === this.epochOf(user, type)) this.keep(key, { text, user, type });
           return text;
         })
@@ -389,7 +427,29 @@ export abstract class HyperliquidCore {
 
   /** Counts one request that left for the venue, and tells `onWeightMinute` the last minute's spend once a new one starts. */
   protected spend(type: string, weight: number, user: string | null = null): void {
-    if (this.onWeightMinute === null) return;
+    const current = this.minuteNow();
+    if (current === null) return;
+    const row = current.byType.get(type) ?? { requests: 0, weight: 0, users: new Set<string>() };
+    row.requests += 1;
+    row.weight += weight;
+    if (user !== null) row.users.add(user.toLowerCase());
+    current.byType.set(type, row);
+  }
+
+  /** Closes the market stream's socket, if one is open (`marketStream`). */
+  closeMarketStream(): void {
+    this.marketStream?.close();
+  }
+
+  /** Counts one read the market stream answered, weighing nothing. */
+  private streamed(type: string): void {
+    const current = this.minuteNow();
+    if (current !== null) current.streamed.set(type, (current.streamed.get(type) ?? 0) + 1);
+  }
+
+  /** This minute's tally, after telling `onWeightMinute` the last one's once a new minute starts; null when nobody is told. */
+  private minuteNow() {
+    if (this.onWeightMinute === null) return null;
     const startMs = Math.floor(this.clock().getTime() / 60_000) * 60_000;
     let current = this.weightMinute;
     if (current === null || current.startMs !== startMs) {
@@ -400,16 +460,18 @@ export abstract class HyperliquidCore {
           byType[t] = { requests: v.requests, weight: v.weight, ...(v.users.size > 0 ? { accounts: v.users.size } : {}) };
           total += v.weight;
         }
-        this.onWeightMinute({ minute: new Date(current.startMs).toISOString(), weight: total, byType });
+        this.onWeightMinute({
+          minute: new Date(current.startMs).toISOString(),
+          weight: total,
+          byType,
+          ...(current.streamed.size > 0 ? { streamed: Object.fromEntries(current.streamed) } : {}),
+          ...(this.marketStream !== null ? { subscriptions: this.marketStream.live } : {}),
+        });
       }
-      current = { startMs, byType: new Map() };
+      current = { startMs, byType: new Map(), streamed: new Map() };
       this.weightMinute = current;
     }
-    const row = current.byType.get(type) ?? { requests: 0, weight: 0, users: new Set<string>() };
-    row.requests += 1;
-    row.weight += weight;
-    if (user !== null) row.users.add(user.toLowerCase());
-    current.byType.set(type, row);
+    return current;
   }
 
   private async readOnce(body: Record<string, Json>, retry429 = false): Promise<string> {

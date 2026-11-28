@@ -4,8 +4,9 @@ import type { AsOf, UserVenue, UserVenueAccount, UserVenueBalance, UserVenueFill
 import { VenueRefusalError } from '@intafaced/venue-contracts';
 import { partial } from '@intafaced/service-kit/testing';
 import { postBuilderFees } from '../builder-fee/builder-fee-poster.js';
+import { builderFeeRecon } from '../builder-fee/builder-fee-recon.js';
 import { InMemoryBuilderFeeStore, type BuilderFeeAccount } from '../builder-fee/builder-fee-store.js';
-import { AccountPace } from './account-pace.js';
+import { AccountPace, AccountReadPace } from './account-pace.js';
 import { InMemoryBalanceWatchStore } from './balance-watch-store.js';
 import { VenueBalanceWatch } from './balance-watch.js';
 
@@ -17,8 +18,8 @@ const owner = (i: number) => `0x${i.toString(16).padStart(40, '0')}`;
 
 const none = <T>(): AsOf<readonly T[]> => ({ venueId: VENUE, value: [], asOf: new Date(0), reportedAt: null });
 
-function countingVenue(opts: { refuse?: ReadonlySet<string> } = {}) {
-  const reads = { balances: new Map<string, number>(), fills: new Map<string, number>() };
+function countingVenue(opts: { refuse?: ReadonlySet<string>; now?: () => Date } = {}) {
+  const reads = { balances: new Map<string, number>(), fills: new Map<string, number>(), fillsAt: [] as number[] };
   const bump = (m: Map<string, number>, a: UserVenueAccount) => m.set(a.owner, (m.get(a.owner) ?? 0) + 1);
   const venue = partial<UserVenue>({
     venue: partial<UserVenue['venue']>({ id: VENUE }),
@@ -29,6 +30,7 @@ function countingVenue(opts: { refuse?: ReadonlySet<string> } = {}) {
     },
     fills: async (a: UserVenueAccount) => {
       bump(reads.fills, a);
+      reads.fillsAt.push(opts.now?.().getTime() ?? 0);
       if (opts.refuse?.has(a.owner)) throw new VenueRefusalError({ venueId: VENUE, code: 'not_offered', detail: 'TEST refusal' });
       return none<UserVenueFill>();
     },
@@ -144,5 +146,40 @@ describe('background readers keep their pace whatever the account count', () => 
     const began = c.now();
     expect(await run()).toMatchObject({ read: 2, complete: true });
     expect((await store.runState(VENUE)).lastCompleteAt).toEqual(began);
+  });
+
+  // The scheduled recon reads every account's fills over the last day. With a read pace it reads them one at a time,
+  // evenly spaced, so the minute it runs weighs no more than any other, however many accounts there are.
+  it('the scheduled recon reads 6 accounts a minute of 30, every account once, and never more than 6 in any minute', async () => {
+    const c = clock();
+    const v = countingVenue({ now: c.now });
+    const accounts: BuilderFeeAccount[] = Array.from({ length: 30 }, (_, i) => ({
+      userId: `user-${i}`,
+      account: { venueId: VENUE, owner: owner(i), subAccount: null },
+      since: new Date(Date.UTC(2026, 10, 27, 10, 0, 0)),
+    }));
+    const to = c.now();
+    const from = new Date(to.getTime() - 86_400_000);
+    const recon = await builderFeeRecon(
+      {
+        venue: async () => v.venue,
+        ledger: { getTxByKey: async () => null, balances: async () => [] },
+        store: new InMemoryBuilderFeeStore(() => accounts),
+        routedOrders: async () => new Map(),
+        builder: null,
+        now: c.now,
+        readPace: new AccountReadPace(6, c.now, async (ms) => {
+          c.advance(ms);
+        }),
+      },
+      from,
+      to,
+    );
+    expect(recon.venues[0]).toMatchObject({ state: 'read', verdict: 'nothing_to_compare' });
+    expect(v.reads.fills.size).toBe(30);
+    expect(v.total(v.reads.fills)).toBe(30);
+    for (const at of v.reads.fillsAt) expect(v.reads.fillsAt.filter((t) => t >= at && t < at + 60_000).length).toBeLessThanOrEqual(6);
+    // 30 accounts at 6 a minute: the last is read 4 minutes 50 seconds after the first.
+    expect(v.reads.fillsAt.at(-1)! - v.reads.fillsAt[0]!).toBe(290_000);
   });
 });

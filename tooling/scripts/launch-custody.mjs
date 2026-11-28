@@ -56,6 +56,11 @@ export const LAUNCH_ORDER = 1;
  * identity holds the account's trading restriction (svc-trade venue/trading-restriction.ts).
  * J-home-ia-11 left it once the stack's status table named the TEST market maker off by design on a custody-off stack
  * (local-test-market.mjs MARKET_OFF_CUSTODY_OFF) and #1 read that row exactly, where it read "not started" as a fault.
+ * J-identity-01 left it once #8's trade room became the launch desk, the person's own venue account, and svc-trade's
+ * user-venue door held a new order until the email is proved (`trade.email_proof_required`), as our own book does.
+ * J-cex-spot-18 left it once its Later steps #3 and #4, a reconcile sweep and a trade bust on our own book with a customer
+ * funded through our ledger, moved to J-cex-spot-18-custodial.pw.mjs; #1, #2 and #5 read a routed order on the customer's
+ * own venue account, and the customer holds nothing on our ledger.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -64,12 +69,10 @@ export const NOT_YET_OFF = new Set([
   'J-cex-spot-10',
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
-  'J-cex-spot-18',
   'J-charts-desk-14',
   'J-derivatives-02',
   'J-derivatives-06',
   'J-home-ia-01',
-  'J-identity-01',
   'J-ops-console-02-customer-record',
   'J-p2p-21',
   'J-portfolio-01',

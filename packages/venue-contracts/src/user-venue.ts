@@ -1701,6 +1701,12 @@ export interface UserVenueMarket {
    */
   readonly maxOpenOrders: number | null;
   /**
+   * Whether this venue links a trigger order to an entry order (`PlaceUserOrderIntent.parentClientOrderKey`), arming it
+   * on what the entry fills. Absent or `false`: an intent with a parent is refused `not_offered`, and an exit for a
+   * filled entry is sent as a plain reduce-only trigger on the position (svc-trade protections.ts `create`).
+   */
+  readonly attachedExits?: boolean;
+  /**
    * The most builder fee the venue lets any builder attach to an order on this market, in bps of notional (scaled, as
    * `maxFeeBps`), as the venue publishes it; `known: false` when it publishes none. An order carrying more is refused
    * `builder_fee_above_cap`, and our builder-fee versions are never written above it (J-cex-spot-17 #3).

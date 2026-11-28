@@ -18,7 +18,8 @@ import { VENUE_POLL_MS } from '../venue/poll';
 import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { useAsOfText, useOwner } from '../venue/VenueKit';
 import { journalCopy } from './journal-copy';
-import { equityOf, equityPlaces, minusOneRLessFees, type EquityPoint } from './journal-model';
+import { equityOf, equityPlaces, feesOf, minusOneRLessFees, type EquityPoint } from './journal-model';
+import { JournalTrades, tradeFromPath } from './JournalTrades';
 
 type View = 'trades' | 'equity';
 const DAY_MS = 86_400_000;
@@ -78,7 +79,7 @@ export function JournalRoom({ path }: { path: string }) {
         }
         panels={
           <div className="lt-stack">
-            <Owned>{(owner) => <Journal owner={owner} first={first} />}</Owned>
+            <Owned>{(owner) => <Journal owner={owner} first={first} picked={tradeFromPath(path)} />}</Owned>
           </div>
         }
         explain={<p className="lt-hint">{t('explain')}</p>}
@@ -94,7 +95,7 @@ function Owned({ children }: { children: (owner: string) => ReactNode }) {
   return <>{children(owner)}</>;
 }
 
-function Journal({ owner, first }: { owner: string; first: View }) {
+function Journal({ owner, first, picked }: { owner: string; first: View; picked: string | null }) {
   const { t } = journalCopy.useCopy();
   const api = useApi();
   const asOfText = useAsOfText();
@@ -138,7 +139,7 @@ function Journal({ owner, first }: { owner: string; first: View }) {
           {t('none')}
         </p>
       ) : view === 'trades' ? (
-        <Trades journal={journal} />
+        <JournalTrades journal={journal} picked={picked} />
       ) : (
         <Equity journal={journal} />
       )}
@@ -155,31 +156,6 @@ const when = (iso: string) => new Date(iso).toISOString().replace('T', ' ').slic
 
 function money(value: string, asset: string) {
   return `${displayAmount(value)} ${asset}`;
-}
-
-function Trades({ journal }: { journal: TradeJournal }) {
-  const { t } = journalCopy.useCopy();
-  return (
-    <section className="lt-stack" aria-labelledby="journal-trades" data-testid="journal-trades">
-      <h2 id="journal-trades">{t('tradesTitle')}</h2>
-      <ScrollTable
-        label={t('tradesTitle')}
-        headers={[t('hClosed'), t('hMarket'), t('hSide'), t('hEntry'), t('hExit'), t('hSize'), t('hNet')]}
-      >
-        {journal.trades.map((trade) => (
-          <tr key={trade.tradeId} data-trade={trade.tradeId}>
-            <td>{when(trade.closedAt)}</td>
-            <td>{trade.symbol}</td>
-            <td>{trade.side === 'long' ? t('long') : t('short')}</td>
-            <td>{displayAmount(trade.entryPrice)}</td>
-            <td>{displayAmount(trade.exitPrice)}</td>
-            <td>{displayAmount(trade.size)}</td>
-            <td data-net={trade.netPnl}>{money(trade.netPnl, trade.feeAsset)}</td>
-          </tr>
-        ))}
-      </ScrollTable>
-    </section>
-  );
 }
 
 function Equity({ journal }: { journal: TradeJournal }) {
@@ -247,6 +223,11 @@ function Equity({ journal }: { journal: TradeJournal }) {
         <div data-testid="equity-gap" data-amount={equity.gap}>
           <strong>{t('gap', { amount: usd(equity.gap) })}</strong>
           <p className="lt-hint">{t('gapExplain', { count: String(equity.points.length) })}</p>
+          {equity.left > 0 ? (
+            <p className="lt-hint" data-testid="equity-left">
+              {t('equityLeft', { count: String(equity.left) })}
+            </p>
+          ) : null}
         </div>
       </dl>
       <ScrollTable label={t('pointsTitle')} headers={[t('hClosed'), t('hMarket'), t('hMade'), t('hRules'), t('hCounts'), '']}>
@@ -280,7 +261,7 @@ function PointDetail({ point, onClose }: { point: EquityPoint; onClose: () => vo
     net: a(trade.netPnl),
     rules: a(r.netPnl),
     oneR: r.oneR === null ? t('none_') : displayAmount(r.oneR),
-    fees: displayAmount(trade.fees),
+    fees: displayAmount(feesOf(trade)),
     stop: price(trade.plannedStop),
     widened: price(r.widenedStop),
     loss: r.dailyLoss ? money(r.dailyLoss.loss, r.dailyLoss.asset) : t('none_'),
@@ -294,7 +275,7 @@ function PointDetail({ point, onClose }: { point: EquityPoint; onClose: () => vo
     ['first-stop', t('fFirstStop'), price(trade.plannedStop)],
     ...(r.widenedStop !== null ? ([['widened', t('fWidened'), price(r.widenedStop)]] as [string, string, string][]) : []),
     ['one-r', t('fOneR'), r.oneR === null ? t('none_') : a(r.oneR)],
-    ['fees', t('fFees'), a(trade.fees)],
+    ['fees', t('fFees'), a(feesOf(trade))],
     ['net', t('fNet'), a(trade.netPnl)],
     ['rules', t('fRules'), a(r.netPnl)],
     ...(r.dailyLoss
