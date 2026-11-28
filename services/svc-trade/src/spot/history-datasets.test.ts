@@ -12,27 +12,43 @@ import {
 } from './history-datasets.js';
 
 describe('historical market data datasets (RC-cex-spot-05)', () => {
-  it('computes completeness 98.00% and gap 51..52 when sequences 1..100 have 98 rows', () => {
-    const sequences: number[] = [];
-    for (let s = 1; s <= 100; s += 1) {
-      if (s === 51 || s === 52) continue;
-      sequences.push(s);
-    }
-    const stats = computeSequenceCompleteness(sequences, { contiguous: true });
+  it('computes completeness 98.00% and gap 51..52 when the record holds trades 1..100 and the file 98 of them', () => {
+    const expected = Array.from({ length: 100 }, (_, i) => i + 1);
+    const sequences = expected.filter((s) => s !== 51 && s !== 52);
+    const stats = computeSequenceCompleteness(sequences, { expected });
     expect(stats.firstSequence).toBe(1);
     expect(stats.lastSequence).toBe(100);
     expect(stats.completenessPct).toBe('98.00');
     expect(stats.gaps).toEqual([{ fromSequence: 51, toSequence: 52 }]);
   });
 
-  it('computes 100.00% with no gaps for contiguous sequences and non-contiguous checkpoint kinds', () => {
-    expect(computeSequenceCompleteness([10, 11, 12], { contiguous: true })).toEqual({
+  it('reads no gap in the numbers between recorded trades: the engine numbers accepts and cancels too', () => {
+    // Trades on every third number, as when two accepts come before each fill.
+    const expected = Array.from({ length: 40 }, (_, i) => 1123 + i * 3);
+    expect(computeSequenceCompleteness(expected, { expected })).toEqual({
+      firstSequence: 1123,
+      lastSequence: 1240,
+      completenessPct: '100.00',
+      gaps: [],
+    });
+    // A missing recorded trade is a gap of that trade's number alone; two missing in a row are one run.
+    const held = expected.filter((s) => s !== 1126 && s !== 1150 && s !== 1153);
+    const stats = computeSequenceCompleteness(held, { expected });
+    expect(stats.gaps).toEqual([
+      { fromSequence: 1126, toSequence: 1126 },
+      { fromSequence: 1150, toSequence: 1153 },
+    ]);
+    expect(stats.completenessPct).toBe('92.50');
+  });
+
+  it('computes 100.00% with no gaps for a complete file and for checkpoint kinds with no expected set', () => {
+    expect(computeSequenceCompleteness([10, 11, 12], { expected: [10, 11, 12] })).toEqual({
       firstSequence: 10,
       lastSequence: 12,
       completenessPct: '100.00',
       gaps: [],
     });
-    expect(computeSequenceCompleteness([10, 42, 99], { contiguous: false })).toEqual({
+    expect(computeSequenceCompleteness([10, 42, 99])).toEqual({
       firstSequence: 10,
       lastSequence: 99,
       completenessPct: '100.00',
