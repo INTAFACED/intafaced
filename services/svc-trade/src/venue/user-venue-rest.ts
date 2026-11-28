@@ -2,6 +2,7 @@
  * The user-venue door's REST routes (B1; src/venue/user-venue-door.ts), for the signed-in customer:
  *
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
+ *   GET  /api/v1/venue/demo                            J-cex-spot-15 #8: the demo environment (a TEST venue) or trade.demo_unavailable; prepare and submit answer `environment`
  *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
  *   GET  /api/v1/venue/gated-list                      each perpetual open or blocked for this account, every reason (J-derivatives-01 #2)
  *   GET  /api/v1/venue/eligible-instruments            the perpetuals this account is eligible for, each with its settle
@@ -81,6 +82,7 @@ import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import {
   VenueRefusalError,
   hasSubAccountReads,
+  isTestVenue,
   VenueWireError,
   decodeVenueWire,
   encodeVenueWire,
@@ -99,6 +101,7 @@ import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
 import { refuseRetailPriceImprovement } from '../spot/rpi.js';
 import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
 import type { UserVenueRouter } from './venue-router.js';
+import { TRADE_VENUE_DEMO } from '@intafaced/contracts/trade-venue-demo-procedures';
 import { SessionKeys } from './session-key.js';
 import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
 import { presentConversion, presentConvertQuote, presentPairs, type ConvertSigner, type VenueConverts } from './venue-convert.js';
@@ -257,6 +260,15 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return deps.requireTradeJurisdiction(req, reply, principal) ? principal : null;
   }
 
+  /**
+   * J-cex-spot-15 #8: a prepare or submit answer names the environment it was made in, by its venue's own proof level:
+   * `demo` on a TEST venue (TEST assets only; our ledger posts nothing), `live` otherwise.
+   */
+  async function labelled<T extends object>(d: UserVenueDoor, value: T) {
+    const test = isTestVenue((await d.venue()).venue);
+    return { ...value, environment: test ? ('demo' as const) : ('live' as const), test };
+  }
+
   /** Run `run` on the door of `venueId` (the primary venue when none is named); `replayed` marks a stored answer. */
   async function answer(
     reply: FastifyReply,
@@ -297,6 +309,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     // The primary venue's status as before, and every configured venue with its health (J-derivatives-28).
     const primary = await router.primary.status();
     return reply.code(200).send(encodeVenueWire({ ...primary, routes: router.routes, venues: await router.venues() }));
+  });
+
+  // J-cex-spot-15 #8: the demo environment a bot trades in (TRADE_VENUE_DEMO): a configured TEST venue, or a typed refusal.
+  app.get('/api/v1/venue/demo', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (_d, r) => TRADE_VENUE_DEMO.output.parse(await r.demo()));
   });
 
   app.get('/api/v1/venue/markets', privateRead, async (req, reply) => {
@@ -1280,17 +1298,20 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(
       reply,
       async (d) =>
-        d.prepare(principal, {
-          retryRefused: b.retryRefused === true,
-          owner: b.owner ?? '',
-          subAccount: b.subAccount ?? null,
-          signer: b.signer as VenueSigner,
-          intent: b.intent as VenueIntent,
-          actionKey: b.actionKey ?? null,
-          stepUpApprovalId: b.stepUpApprovalId ?? null,
-          idempotencyKey: idempotencyHeader(req) ?? null,
-          requestDeadline: b.requestDeadline ?? null,
-        }),
+        labelled(
+          d,
+          await d.prepare(principal, {
+            retryRefused: b.retryRefused === true,
+            owner: b.owner ?? '',
+            subAccount: b.subAccount ?? null,
+            signer: b.signer as VenueSigner,
+            intent: b.intent as VenueIntent,
+            actionKey: b.actionKey ?? null,
+            stepUpApprovalId: b.stepUpApprovalId ?? null,
+            idempotencyKey: idempotencyHeader(req) ?? null,
+            requestDeadline: b.requestDeadline ?? null,
+          }),
+        ),
       b.venueId,
       (v) => (v as { reused?: boolean }).reused === true,
     );
@@ -1348,11 +1369,15 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           if (key !== '' && key !== fromHeader) throw new VenueWireError('with an Idempotency-Key, leave actionKey out');
           key = fromHeader;
         }
-        return r.submitRequest(principal, {
+        // The venue the action is on, read before anything is sent: once the send went out, its answer is never lost to
+        // a failed label read, and goes back unlabelled instead.
+        const onVenue = await r.doorOfAction(principal, key);
+        const sent = await r.submitRequest(principal, {
           actionKey: key,
           signature: b.signature as VenueSignature,
           requestDeadline: b.requestDeadline ?? null,
         });
+        return labelled(onVenue, sent).catch(() => sent);
       },
       null,
       (v) => (v as { replayed?: boolean }).replayed === true,

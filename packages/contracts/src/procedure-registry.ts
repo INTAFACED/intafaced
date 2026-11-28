@@ -2617,6 +2617,8 @@ import { RISK_ALERTS_GET, RISK_ALERTS_SET, RISK_ALERTS_OFF, RISK_ALERTS_LIST } f
 
 import { TRADE_SIGNALS_WEBHOOKS_CREATE, TRADE_SIGNALS_WEBHOOKS_LIST } from './trade-signals-procedures.js';
 
+import { TRADE_VENUE_DEMO } from './trade-venue-demo-procedures.js';
+
 import { VENUE_ORDER_LABELS_LIST } from './trade-venue-order-labels-procedures.js';
 
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
@@ -5360,6 +5362,8 @@ const part_trade_risk_alerts_procedures: readonly ProcedureRecord[] = [RISK_ALER
 
 const part_trade_signals_procedures: readonly ProcedureRecord[] = [TRADE_SIGNALS_WEBHOOKS_CREATE, TRADE_SIGNALS_WEBHOOKS_LIST];
 
+const part_trade_venue_demo_procedures: readonly ProcedureRecord[] = [TRADE_VENUE_DEMO];
+
 const part_trade_venue_order_labels_procedures: readonly ProcedureRecord[] = [VENUE_ORDER_LABELS_LIST];
 
 const part_ws_procedures: readonly ProcedureRecord[] = [WS_SBE_CONSUMERS];
@@ -5732,6 +5736,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_trade_rfq_procedures,
   ...part_trade_risk_alerts_procedures,
   ...part_trade_signals_procedures,
+  ...part_trade_venue_demo_procedures,
   ...part_trade_venue_order_labels_procedures,
   ...part_ws_procedures,
 ];

@@ -24573,6 +24573,64 @@
         }
       ]
     },
+    "trade.venue.demo": {
+      "service": "svc-trade",
+      "transport": "http",
+      "method": "GET",
+      "path": "/api/v1/venue/demo",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {
+        "trade.user_venue_off": "NOT_FOUND",
+        "trade.demo_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string",
+            "const": "demo"
+          },
+          "venueId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "proofLevel": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "const": "TEST"
+          },
+          "ledger": {
+            "type": "string",
+            "const": "none"
+          }
+        },
+        "required": ["environment", "venueId", "displayName", "proofLevel", "label", "ledger"],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "notLive": {
+          "at": "output.proofLevel",
+          "says": "a demo venue is never live"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "trade.venue.deskSnapshot": {
       "service": "svc-trade",
       "module": "trade",
