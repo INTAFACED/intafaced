@@ -36,6 +36,7 @@ const en = {
   downloadSuperseding: 'Download superseding file',
   noGaps: 'No gaps',
   gapsLabel: 'Gaps: {gaps}',
+  gapsCount: '{count} gaps',
   noCorrections: 'None',
   correctionDetail: 'Seq {from}–{to}: {reason}',
   schemasHeading: 'Published file schemas',

@@ -27,6 +27,9 @@ function formatGaps(gaps: HistoryDatasetManifest['gaps']): string {
   return gaps.map((g) => (g.fromSequence === g.toSequence ? String(g.fromSequence) : `${g.fromSequence}..${g.toSequence}`)).join(', ');
 }
 
+/** At most this many gap ranges are listed in the row itself; a longer list folds behind its count. */
+const GAPS_SHOWN = 3;
+
 function downloadHref(downloadPath: string): string {
   return downloadPath.startsWith('/') ? downloadPath : `${HISTORY_DATASETS_PATH}/${downloadPath}`;
 }
@@ -200,12 +203,23 @@ export function DataDownloadsRoom() {
                           <td>{row.rowCount}</td>
                           <td>
                             <div>{row.completenessPct}%</div>
-                            <small className="lt-hint">
-                              {row.gaps.length === 0 ? t('noGaps') : t('gapsLabel', { gaps: formatGaps(row.gaps) })}
-                            </small>
+                            {row.gaps.length === 0 ? (
+                              <small className="lt-hint">{t('noGaps')}</small>
+                            ) : row.gaps.length <= GAPS_SHOWN ? (
+                              <small className="lt-hint">{t('gapsLabel', { gaps: formatGaps(row.gaps) })}</small>
+                            ) : (
+                              // A long gap list folds behind its count, so one row never runs down the page.
+                              <details data-testid={`gaps-${row.id}`}>
+                                <summary className="lt-hint">{t('gapsCount', { count: String(row.gaps.length) })}</summary>
+                                <small className="lt-hint lt-wrap">{formatGaps(row.gaps)}</small>
+                              </details>
+                            )}
                           </td>
                           <td>
-                            <code data-testid={`checksum-${row.id}`}>{row.sha256}</code>
+                            {/* The 64-character checksum breaks inside its cell, so every column, the file link too, stays inside the card. */}
+                            <code className="lt-wrap" data-testid={`checksum-${row.id}`}>
+                              {row.sha256}
+                            </code>
                           </td>
                           <td>
                             {row.corrections.length === 0 ? (
