@@ -19,6 +19,11 @@ import { AcademyRefusal } from './academy-refusal';
 import { KitGuardedButton as GuardedButton } from './academy-guarded';
 import { ServiceOffNote as ServiceOffNotice } from './service-off-note';
 import { Waiting } from './volt-parts';
+import { ACADEMY_LEAVE_AUTHORED_COURSE } from '@intafaced/contracts/academy-leave-authored-course-procedures';
+import { ACADEMY_AUTHORED_COURSE_ENROLMENT } from '@intafaced/contracts/academy-authored-course-enrolment-procedures';
+import { ACADEMY_COURSE_ENROLMENT } from '@intafaced/contracts/academy-course-enrolment-procedures';
+import { ACADEMY_ENROL_AUTHORED_COURSE } from '@intafaced/contracts/academy-enrol-authored-course-procedures';
+import { ACADEMY_ENROL_COURSE } from '@intafaced/contracts/academy-enrol-course-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -57,7 +62,10 @@ export function AcademyCourseEnrol({
   const authored = source === 'authored';
   const schema: z.ZodType<AcademyAuthoredCourseEnrolment> = authored ? academyAuthoredCourseEnrolmentSchema : academyCourseEnrolmentSchema;
   const terms = useResource(
-    (signal) => api.query('academy', authored ? 'authoredCourseEnrolment' : 'courseEnrolment', { slug }, schema, { signal }),
+    (signal) =>
+      authored
+        ? api.call(ACADEMY_AUTHORED_COURSE_ENROLMENT, { slug }, { signal })
+        : api.call(ACADEMY_COURSE_ENROLMENT, { slug }, { signal }),
     `course-enrolment:${source}:${slug}`,
   );
   const [sending, setSending] = useState(false);
@@ -83,12 +91,14 @@ export function AcademyCourseEnrol({
     }
   };
   const enrol = (track: AcademyEnrolmentTrack) =>
-    send('enrol', () => api.mutate('academy', authored ? 'enrolAuthoredCourse' : 'enrolCourse', { slug, track }, schema));
+    send('enrol', () =>
+      authored ? api.call(ACADEMY_ENROL_AUTHORED_COURSE, { slug, track }) : api.call(ACADEMY_ENROL_COURSE, { slug, track }),
+    );
   // The business key of this leave is the enrolment it ends: a resend after a lost reply is the same leave, never a second.
   const leave = (enrolledAt: string) =>
     send('leave', () =>
       authored
-        ? api.mutate('academy', 'leaveAuthoredCourse', { slug, enrolledAt }, schema)
+        ? api.call(ACADEMY_LEAVE_AUTHORED_COURSE, { slug, enrolledAt })
         : api.mutate(
             'academy',
             'leaveCertPath',

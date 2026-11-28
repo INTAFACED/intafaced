@@ -9363,6 +9363,130 @@
         }
       ]
     },
+    "academy.admin.grantAudit": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "admin.grantAudit",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.cert_invalid": "BAD_REQUEST",
+        "academy.grant_audit_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "course": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "certificate": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "access_granted",
+                    "access_revoked",
+                    "access_expired",
+                    "access_reinstated",
+                    "certificate_granted",
+                    "certificate_revoked"
+                  ]
+                },
+                "target": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": ["string", "null"]
+                },
+                "actorId": {
+                  "type": ["string", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "reference": {
+                  "type": "string"
+                }
+              },
+              "required": ["accountId", "kind", "target", "source", "actorId", "reason", "at", "reference"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "answer_holds": {
+          "at": "input",
+          "says": "name a course or a certificate, not both"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "answer_holds",
+          "input": {
+            "course": "USDC",
+            "certificate": "USDC"
+          }
+        }
+      ]
+    },
     "academy.admin.grantCertException": {
       "service": "svc-academy",
       "module": "academy",
@@ -23296,6 +23420,176 @@
         }
       ]
     },
+    "academy.authoredCourseEnrolment": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "authoredCourseEnrolment",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.course_not_found": "NOT_FOUND",
+        "academy.enrolment_closed": "PRECONDITION_FAILED",
+        "academy.payment_required": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "startsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatsRemaining": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tracks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "track": {
+                  "type": "string",
+                  "enum": ["audit", "certificate"]
+                },
+                "free": {
+                  "type": "boolean"
+                },
+                "closed": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["track", "free", "closed"],
+              "additionalProperties": false
+            }
+          },
+          "enrolment": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "track": {
+                    "type": "string",
+                    "enum": ["audit", "certificate"]
+                  },
+                  "enrolledAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["track", "enrolledAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activationMail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "vendor.email"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["slug", "startsAt", "seatCap", "seatsRemaining", "closed", "tracks", "enrolment", "activationMail"],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "enrolment_terms_holds": {
+          "at": "output",
+          "says": "seatsRemaining is set exactly when a seat cap is"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.certDefinitions": {
       "service": "svc-academy",
       "module": "academy",
@@ -23728,6 +24022,175 @@
           "verdict": "accept",
           "input": {
             "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.courseEnrolment": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "courseEnrolment",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.course_not_found": "NOT_FOUND",
+        "academy.slug_reserved": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "enum": ["foundations", "markets", "builder", "sovereign"]
+          },
+          "startsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatsRemaining": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tracks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "track": {
+                  "type": "string",
+                  "enum": ["audit", "certificate"]
+                },
+                "free": {
+                  "type": "boolean"
+                },
+                "closed": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["track", "free", "closed"],
+              "additionalProperties": false
+            }
+          },
+          "enrolment": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "track": {
+                    "type": "string",
+                    "enum": ["audit", "certificate"]
+                  },
+                  "enrolledAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["track", "enrolledAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activationMail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "vendor.email"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["slug", "startsAt", "seatCap", "seatsRemaining", "closed", "tracks", "enrolment", "activationMail"],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "enrolment_terms_holds": {
+          "at": "output",
+          "says": "seatsRemaining is set exactly when a seat cap is"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder"
           }
         },
         {
@@ -25959,6 +26422,357 @@
         }
       ]
     },
+    "academy.enrolAuthoredCourse": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "enrolAuthoredCourse",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.course_not_found": "NOT_FOUND",
+        "academy.enrolment_closed": "PRECONDITION_FAILED",
+        "academy.payment_required": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "track": {
+            "type": "string",
+            "enum": ["audit", "certificate"]
+          }
+        },
+        "required": ["slug", "track"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "startsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatsRemaining": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tracks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "track": {
+                  "type": "string",
+                  "enum": ["audit", "certificate"]
+                },
+                "free": {
+                  "type": "boolean"
+                },
+                "closed": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["track", "free", "closed"],
+              "additionalProperties": false
+            }
+          },
+          "enrolment": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "track": {
+                    "type": "string",
+                    "enum": ["audit", "certificate"]
+                  },
+                  "enrolledAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["track", "enrolledAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activationMail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "vendor.email"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["slug", "startsAt", "seatCap", "seatsRemaining", "closed", "tracks", "enrolment", "activationMail"],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "enrolment_terms_holds": {
+          "at": "output",
+          "says": "seatsRemaining is set exactly when a seat cap is"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder",
+            "track": "audit"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "academy.enrolCourse": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "enrolCourse",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.cert_invalid": "BAD_REQUEST",
+        "academy.course_not_found": "NOT_FOUND",
+        "academy.enrolment_closed": "PRECONDITION_FAILED",
+        "academy.slug_reserved": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "track": {
+            "type": "string",
+            "enum": ["audit", "certificate"]
+          }
+        },
+        "required": ["slug", "track"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "enum": ["foundations", "markets", "builder", "sovereign"]
+          },
+          "startsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatsRemaining": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tracks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "track": {
+                  "type": "string",
+                  "enum": ["audit", "certificate"]
+                },
+                "free": {
+                  "type": "boolean"
+                },
+                "closed": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["track", "free", "closed"],
+              "additionalProperties": false
+            }
+          },
+          "enrolment": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "track": {
+                    "type": "string",
+                    "enum": ["audit", "certificate"]
+                  },
+                  "enrolledAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["track", "enrolledAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activationMail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "vendor.email"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["slug", "startsAt", "seatCap", "seatsRemaining", "closed", "tracks", "enrolment", "activationMail"],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "enrolment_terms_holds": {
+          "at": "output",
+          "says": "seatsRemaining is set exactly when a seat cap is"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder",
+            "track": "audit"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "academy.enrollCertPath": {
       "service": "svc-academy",
       "module": "academy",
@@ -26632,6 +27446,182 @@
           "input": {
             "sessionId": 7
           }
+        }
+      ]
+    },
+    "academy.leaveAuthoredCourse": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "leaveAuthoredCourse",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.course_not_found": "NOT_FOUND",
+        "academy.enrolment_closed": "PRECONDITION_FAILED",
+        "academy.payment_required": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "enrolledAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["slug", "enrolledAt"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "startsAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seatsRemaining": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tracks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "track": {
+                  "type": "string",
+                  "enum": ["audit", "certificate"]
+                },
+                "free": {
+                  "type": "boolean"
+                },
+                "closed": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["unpublished", "hidden", "no_price", "window_not_started", "window_ended", "full", "payments_off"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["track", "free", "closed"],
+              "additionalProperties": false
+            }
+          },
+          "enrolment": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "track": {
+                    "type": "string",
+                    "enum": ["audit", "certificate"]
+                  },
+                  "enrolledAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["track", "enrolledAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activationMail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "vendor.email"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["slug", "startsAt", "seatCap", "seatsRemaining", "closed", "tracks", "enrolment", "activationMail"],
+        "additionalProperties": false
+      },
+      "outputChecks": {
+        "enrolment_terms_holds": {
+          "at": "output",
+          "says": "seatsRemaining is set exactly when a seat cap is"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "slug": "placeholder",
+            "enrolledAt": "2026-01-01T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },

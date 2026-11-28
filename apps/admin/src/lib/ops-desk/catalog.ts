@@ -56,6 +56,7 @@ import {
   BANK_OPS_FAILED_TRANSFERS,
   BANK_OPS_TRANSFER_DETAIL,
 } from '@intafaced/contracts/bank-ops-2-procedures';
+import { ACADEMY_ADMIN_GRANT_AUDIT } from '@intafaced/contracts/academy-admin-records';
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -1818,8 +1819,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.grant-audit',
         title: 'Grants and revokes',
         note: 'Newest first, at the page size the owner set. Course access granted, revoked, expired or reinstated, and certificates issued or revoked, each with who did it, when and why. This list reads the records: nothing here grants or takes one away.',
-        module: 'academy',
-        procedure: 'admin.grantAudit',
+        ...readOf(ACADEMY_ADMIN_GRANT_AUDIT),
         sendEmptyInput: true,
         shape: 'list',
         rowsKey: 'items',

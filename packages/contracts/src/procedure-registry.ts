@@ -108,6 +108,7 @@ import {
   ACADEMY_ADMIN_GRANT_ACCESS,
   ACADEMY_ADMIN_REINSTATE_ACCESS,
   ACADEMY_ADMIN_COURSE_GRADEBOOK,
+  ACADEMY_ADMIN_GRANT_AUDIT,
 } from './academy-admin-records.js';
 
 import { ACADEMY_AMBASSADOR_BADGE } from './academy-ambassador-badge-procedures.js';
@@ -124,6 +125,8 @@ import { ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS } from './academy-a
 
 import { ACADEMY_ASSIGNMENT } from './academy-assignment-procedures.js';
 
+import { ACADEMY_AUTHORED_COURSE_ENROLMENT } from './academy-authored-course-enrolment-procedures.js';
+
 import { ACADEMY_AUTHORED_COURSE } from './academy-authored-course-procedures.js';
 
 import { ACADEMY_CERT_PATHS } from './academy-cert-paths-procedures.js';
@@ -133,6 +136,8 @@ import { ACADEMY_CERT_VERIFY } from './academy-cert-verify-procedures.js';
 import { ACADEMY_CERT_XP_PLANE } from './academy-cert-xp-plane-procedures.js';
 
 import { ACADEMY_COURSE_CONVERSATIONS } from './academy-course-conversations-procedures.js';
+
+import { ACADEMY_COURSE_ENROLMENT } from './academy-course-enrolment-procedures.js';
 
 import { ACADEMY_COURSE_OUTLINE } from './academy-course-outline-procedures.js';
 
@@ -145,6 +150,10 @@ import { ACADEMY_CURRICULUM_IMPORT_STATUS } from './academy-curriculum-import-st
 import { ACADEMY_CURRICULUM_INVENTORY } from './academy-curriculum-inventory-procedures.js';
 
 import { ACADEMY_DECIDE_RESIDENCY } from './academy-decide-residency-procedures.js';
+
+import { ACADEMY_ENROL_AUTHORED_COURSE } from './academy-enrol-authored-course-procedures.js';
+
+import { ACADEMY_ENROL_COURSE } from './academy-enrol-course-procedures.js';
 
 import { ACADEMY_FREEZE_AMBASSADOR } from './academy-freeze-ambassador-procedures.js';
 
@@ -193,6 +202,8 @@ import {
   ACADEMY_PLANNER_SET_GOAL,
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 } from './academy-learner-procedures.js';
+
+import { ACADEMY_LEAVE_AUTHORED_COURSE } from './academy-leave-authored-course-procedures.js';
 
 import { ACADEMY_MARK_FEEDBACK_READ } from './academy-mark-feedback-read-procedures.js';
 
@@ -2583,6 +2594,7 @@ const part_academy_admin_records: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_GRANT_ACCESS,
   ACADEMY_ADMIN_REINSTATE_ACCESS,
   ACADEMY_ADMIN_COURSE_GRADEBOOK,
+  ACADEMY_ADMIN_GRANT_AUDIT,
 ];
 
 const part_academy_ambassador_badge_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADOR_BADGE];
@@ -2599,6 +2611,8 @@ const part_academy_assessment_procedures: readonly ProcedureRecord[] = [ACADEMY_
 
 const part_academy_assignment_procedures: readonly ProcedureRecord[] = [ACADEMY_ASSIGNMENT];
 
+const part_academy_authored_course_enrolment_procedures: readonly ProcedureRecord[] = [ACADEMY_AUTHORED_COURSE_ENROLMENT];
+
 const part_academy_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_AUTHORED_COURSE];
 
 const part_academy_cert_paths_procedures: readonly ProcedureRecord[] = [ACADEMY_CERT_PATHS];
@@ -2608,6 +2622,8 @@ const part_academy_cert_verify_procedures: readonly ProcedureRecord[] = [ACADEMY
 const part_academy_cert_xp_plane_procedures: readonly ProcedureRecord[] = [ACADEMY_CERT_XP_PLANE];
 
 const part_academy_course_conversations_procedures: readonly ProcedureRecord[] = [ACADEMY_COURSE_CONVERSATIONS];
+
+const part_academy_course_enrolment_procedures: readonly ProcedureRecord[] = [ACADEMY_COURSE_ENROLMENT];
 
 const part_academy_course_outline_procedures: readonly ProcedureRecord[] = [ACADEMY_COURSE_OUTLINE];
 
@@ -2620,6 +2636,10 @@ const part_academy_curriculum_import_status_procedures: readonly ProcedureRecord
 const part_academy_curriculum_inventory_procedures: readonly ProcedureRecord[] = [ACADEMY_CURRICULUM_INVENTORY];
 
 const part_academy_decide_residency_procedures: readonly ProcedureRecord[] = [ACADEMY_DECIDE_RESIDENCY];
+
+const part_academy_enrol_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_ENROL_AUTHORED_COURSE];
+
+const part_academy_enrol_course_procedures: readonly ProcedureRecord[] = [ACADEMY_ENROL_COURSE];
 
 const part_academy_freeze_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_FREEZE_AMBASSADOR];
 
@@ -2668,6 +2688,8 @@ const part_academy_learner_procedures: readonly ProcedureRecord[] = [
   ACADEMY_PLANNER_SET_GOAL,
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 ];
+
+const part_academy_leave_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_LEAVE_AUTHORED_COURSE];
 
 const part_academy_mark_feedback_read_procedures: readonly ProcedureRecord[] = [ACADEMY_MARK_FEEDBACK_READ];
 
@@ -5068,21 +5090,26 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_appoint_ambassador_procedures,
   ...part_academy_assessment_procedures,
   ...part_academy_assignment_procedures,
+  ...part_academy_authored_course_enrolment_procedures,
   ...part_academy_authored_course_procedures,
   ...part_academy_cert_paths_procedures,
   ...part_academy_cert_verify_procedures,
   ...part_academy_cert_xp_plane_procedures,
   ...part_academy_course_conversations_procedures,
+  ...part_academy_course_enrolment_procedures,
   ...part_academy_course_outline_procedures,
   ...part_academy_course_purchase_procedures,
   ...part_academy_curriculum_depth_procedures,
   ...part_academy_curriculum_import_status_procedures,
   ...part_academy_curriculum_inventory_procedures,
   ...part_academy_decide_residency_procedures,
+  ...part_academy_enrol_authored_course_procedures,
+  ...part_academy_enrol_course_procedures,
   ...part_academy_freeze_ambassador_procedures,
   ...part_academy_health_procedures,
   ...part_academy_item_video_procedures,
   ...part_academy_learner_procedures,
+  ...part_academy_leave_authored_course_procedures,
   ...part_academy_mark_feedback_read_procedures,
   ...part_academy_my_access_grants_procedures,
   ...part_academy_my_certs_procedures,

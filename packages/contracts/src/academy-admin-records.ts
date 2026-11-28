@@ -1254,3 +1254,55 @@ export const ACADEMY_ADMIN_COURSE_GRADEBOOK = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/**
+ * AC-access-grants-02: the grant audit, newest first: course access grants, revokes, expiries and reinstatements,
+ * and certificates issued and revoked, each with who did it, when and why. The page size is the owner's
+ * (`ACADEMY_GRANT_AUDIT_PAGE_SIZE`); a caller may ask for fewer. Blank, it refuses `academy.grant_audit_list_limit_unset`.
+ */
+export const ACADEMY_ADMIN_GRANT_AUDIT = defineProcedure({
+  ...base,
+  name: 'academy.admin.grantAudit',
+  kind: 'query',
+  path: 'admin.grantAudit',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.cert_invalid': 'BAD_REQUEST', 'academy.grant_audit_list_limit_unset': 'PRECONDITION_FAILED' },
+  input: z
+    .object({
+      limit: z.number().int().min(1).optional(),
+      cursor: z.string().min(1).max(512).optional(),
+      /** One course's lines (its slug) or one certificate's (its id); never both. */
+      course: z.string().min(1).max(120).optional(),
+      certificate: z.string().min(1).max(120).optional(),
+    })
+    .refine((v) => !(v.course && v.certificate), { message: 'name a course or a certificate, not both' })
+    .optional(),
+  checks: { answer_holds: { at: 'input', says: 'name a course or a certificate, not both' } },
+  output: z.object({
+    items: z.array(
+      z.object({
+        accountId: z.string().guid(),
+        kind: z.enum([
+          'access_granted',
+          'access_revoked',
+          'access_expired',
+          'access_reinstated',
+          'certificate_granted',
+          'certificate_revoked',
+        ]),
+        target: z.string(),
+        source: z.string().nullable(),
+        actorId: z.string().nullable(),
+        reason: z.string().nullable(),
+        at: z.iso.datetime({ offset: true }),
+        reference: z.string(),
+      }),
+    ),
+    nextCursor: z.string().nullable(),
+  }),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'answer_holds', input: { course: 'USDC', certificate: 'USDC' } },
+  ],
+});
