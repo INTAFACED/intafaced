@@ -4,7 +4,7 @@ import { loadEnv } from '@intafaced/config';
  * svc-pay's settings as its boot reads them (`loadEnv` over env.ts's schema), from a full test-stack set with one key
  * changed: `undefined` removes it. For tests of what a blank, missing or given setting becomes.
  */
-export const PAY_TEST_ENV: Readonly<Record<string, string>> = {
+const PAY_TEST_ENV: Readonly<Record<string, string>> = {
   APP_ENV: 'test',
   SERVICE_NAME: 'svc-pay',
   DATABASE_URL: 'postgres://127.0.0.1:1/pay_env_test',

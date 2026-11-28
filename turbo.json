@@ -644,6 +644,16 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
+    "@intafaced/svc-pay#typecheck": {
+      "outputs": [],
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/tracker/features.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
     "@intafaced/svc-support#typecheck": {
       "outputs": [],
       "dependsOn": ["^build", "@intafaced/connect-data-lake#build", "@intafaced/ledger-client#build", "@intafaced/quant-honesty#build"],
