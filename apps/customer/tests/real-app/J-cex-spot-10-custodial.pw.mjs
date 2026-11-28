@@ -7,7 +7,7 @@ import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toU
 import { awayBid, confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 import { utcMinuteOf } from './clock.mjs';
-import { J, SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, published } from './cex-spot-10.mjs';
+import { SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, published } from './cex-spot-10.mjs';
 
 // J-cex-spot-10's checks of today's custodial desk, custody on by design (CUSTODIAL_PART in
 // tooling/scripts/launch-custody.mjs): one TEST account funded with TEST USDT through the real ledger, trading
@@ -18,6 +18,7 @@ import { J, SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, published } 
 // once more. Part of #9 adds TEST terms for paying fees in IFC and a TEST stake-discount ladder, and takes them away again.
 // Every test here is titled "part of" and counts for no step: at launch the person trades on their own venue account,
 // and every step is proven custody off, #5 and #7 in J-cex-spot-10.pw.mjs and the rest in J-cex-spot-10-venue.pw.mjs.
+const J = 'J-cex-spot-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 /** The same, with IFC/USDT in a pair group the owner named and gave no row: its rate is blank. */

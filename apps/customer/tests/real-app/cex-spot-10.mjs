@@ -4,7 +4,7 @@ import { EDGE } from './stack.mjs';
 
 // J-cex-spot-10's TEST fee schedules and the two-operator door that writes them, shared by J-cex-spot-10.pw.mjs (our
 // tier programme and VIP benefits, custody off) and J-cex-spot-10-custodial.pw.mjs (today's custodial desk, custody on).
-export const J = 'J-cex-spot-10';
+const J = 'J-cex-spot-10';
 
 /** TEST rates through the real write path, not owner decisions. A TEST VIP tier lowers both rates. */
 export const REGULAR = { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null };

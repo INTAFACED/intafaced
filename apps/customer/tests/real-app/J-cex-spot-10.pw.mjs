@@ -7,7 +7,7 @@ import { api, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { utcMinuteOf } from './clock.mjs';
-import { J, SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, tiersAt } from './cex-spot-10.mjs';
+import { SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, tiersAt } from './cex-spot-10.mjs';
 
 // J-cex-spot-10 #5 #7, in the running app (docs/roadmap/journeys.json): the steps that are ours alone, our tier programme
 // and VIP benefits, with the custody layer off as launch runs it. Each test makes its own TEST account, signed up and
@@ -20,6 +20,8 @@ import { J, SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, tiersAt } fr
 // #1 #2 #3 #4 #6 #8 #9 #10 #11 are proven on the person's own venue account, in J-cex-spot-10-venue.pw.mjs. Today's
 // custodial desk's checks of them, and of #5 with fills on our own book, are in J-cex-spot-10-custodial.pw.mjs, custody
 // on.
+
+const J = 'J-cex-spot-10';
 
 test.describe.configure({ mode: 'default' });
 
