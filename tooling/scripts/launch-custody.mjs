@@ -61,14 +61,16 @@ export const LAUNCH_ORDER = 1;
  * J-cex-spot-18 left it once its Later steps #3 and #4, a reconcile sweep and a trade bust on our own book with a customer
  * funded through our ledger, moved to J-cex-spot-18-custodial.pw.mjs; #1, #2 and #5 read a routed order on the customer's
  * own venue account, and the customer holds nothing on our ledger.
- * J-cex-spot-10 left it once every check of today's custodial desk, on our own book with a trader funded through our
- * ledger, moved to J-cex-spot-10-custodial.pw.mjs; #5 and #7 make their own unfunded accounts, and #8 reads the fee
- * currency row on the person's own venue account in J-cex-spot-10-venue.pw.mjs.
+ * J-cex-spot-10's checks of today's custodial desk moved to J-cex-spot-10-custodial.pw.mjs, and #5 and #8 are proven on
+ * the person's own venue account in J-cex-spot-10-venue.pw.mjs. J-cex-spot-10.pw.mjs now holds only #7, which stays here:
+ * with our own book off, My tier shows the venue's tier and none of our programme's, so the benefits table and a VIP
+ * trial's tier are not shown.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
   'J-agents-02',
   'J-agents-08',
+  'J-cex-spot-10',
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
   'J-charts-desk-14',

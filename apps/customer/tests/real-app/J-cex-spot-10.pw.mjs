@@ -3,95 +3,26 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { grantVipTrial, reviewVipApplication } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { api, toUnits } from './stack.mjs';
+import { api } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { utcMinuteOf } from './clock.mjs';
-import { SCHEDULE, VIP_FROM, myTier, ops, publish, publishTiers, tiersAt } from './cex-spot-10.mjs';
+import { SCHEDULE, myTier, ops, publish, tiersAt } from './cex-spot-10.mjs';
 
-// J-cex-spot-10 #5 #7, in the running app (docs/roadmap/journeys.json): the steps that are ours alone, our tier programme
-// and VIP benefits, with the custody layer off as launch runs it. Each test makes its own TEST account, signed up and
-// verified and funded nowhere: at launch the person trades on their own venue account, so nothing here touches our
-// ledger or our own book. The owner's schedule is written the way two operators would, through svc-trade's two-person
-// door (`setFeeSchedule`, cex-spot-10.mjs), as TEST versions, each taken away again when its test ends. #7 is three
-// tests, one for each clause of its words (the benefits listed, an unsupported file refused, an approval with no trial
-// amount refused): the step passes when all three do. The founder console's review of an application is the operator's
-// side of #7, titled "part of", and counts for no step.
-// #1 #2 #3 #4 #6 #8 #9 #10 #11 are proven on the person's own venue account, in J-cex-spot-10-venue.pw.mjs. Today's
-// custodial desk's checks of them, and of #5 with fills on our own book, are in J-cex-spot-10-custodial.pw.mjs, custody
-// on.
+// J-cex-spot-10 #7, in the running app (docs/roadmap/journeys.json): our VIP benefits and applications. Each test makes
+// its own TEST account, signed up and verified and funded nowhere, so nothing here touches our ledger or our own book.
+// The owner's schedule is written the way two operators would, through svc-trade's two-person door (`setFeeSchedule`,
+// cex-spot-10.mjs), as TEST versions, each taken away again when its test ends. #7 is three tests, one for each clause of
+// its words (the benefits listed, an unsupported file refused, an approval with no trial amount refused): the step
+// passes when all three do. The founder console's review of an application is the operator's side of #7, titled
+// "part of", and counts for no step. With our own book off, as launch runs it, My tier shows the venue's tier and none
+// of our programme's, so the benefits table and a trial's tier are not shown; this file runs on today's switch until
+// they are (NOT_YET_OFF in tooling/scripts/launch-custody.mjs).
+// Every other step is proven on the person's own venue account, in J-cex-spot-10-venue.pw.mjs; today's custodial
+// desk's checks of them are in J-cex-spot-10-custodial.pw.mjs, custody on.
 
 const J = 'J-cex-spot-10';
 
 test.describe.configure({ mode: 'default' });
-
-test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is excluded, and the next threshold`, async ({
-  page,
-  stepPicture,
-}) => {
-  // A fresh account, and two schedule versions (the programme, then none) around a page.
-  test.setTimeout(180_000);
-  const who = await signUp(page, 'js10tier');
-  await verify(page, who);
-  const client = await api(who);
-  const { snapshotAt } = await publishTiers(120_000, `TEST tier programme, VIP from ${VIP_FROM}`);
-  try {
-    // The volume counted is the person's own spot fills on our book quoted in USDT or USDC. At launch they trade on their
-    // own venue account and have none here, so it is the nothing they have, read from the same fills, never invented.
-    let own = 0n;
-    let count = 0;
-    for (const symbol of ['BTC/USDT', 'ETH/USDC', 'IFC/USDT']) {
-      const { status, body } = await client.get(`/api/v1/account/trades?symbol=${encodeURIComponent(symbol)}&limit=100`);
-      expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-      for (const fill of Array.isArray(body) ? body : (body.trades ?? [])) {
-        own += toUnits(fill.cost);
-        count += 1;
-      }
-    }
-    const tier = await myTier(client);
-    expect(toUnits(tier.volume.amount)).toBe(own);
-    expect(tier.volume.fills).toBe(count);
-    expect(own).toBeLessThan(toUnits(VIP_FROM));
-    expect(tier).toMatchObject({
-      tier: 'regular',
-      lastSnapshot: null,
-      volume: { reaches: 'regular' },
-      next: { tierId: 'test-vip-1', minVolume30d: VIP_FROM },
-      snapshotsRunning: true,
-      nextSnapshotAt: snapshotAt.toISOString(),
-      snapshots: [],
-    });
-    expect(toUnits(tier.next.remaining)).toBe(toUnits(VIP_FROM) - own);
-    expect(tier.excluded).toEqual(expect.arrayContaining(['futures_and_options', 'bots_and_copy', 'sub_accounts', 'assets']));
-
-    await signIn(page, who);
-    await page.goto('/fees/my-tier');
-    await expect(page.getByRole('heading', { level: 1, name: 'My fee tier', exact: true })).toBeVisible();
-    await expect(page.locator('h2[data-tier=regular]')).toHaveText('Your tier: Regular');
-    await expect(page.locator(`[data-volume="${tier.volume.amount}"]`)).toHaveText(
-      `${tier.volume.amount} counted toward the next snapshot so far, from ${count} trades`,
-    );
-    await expect(page.locator('[data-reaches=regular]')).toHaveText('At the next snapshot this volume reaches: Regular');
-    await expect(page.locator('[data-tier-page=next]')).toHaveText(`Next tier: test-vip-1 from ${VIP_FROM}, ${tier.next.remaining} to go`);
-    await expect(page.locator('tr[data-threshold=test-vip-1] td')).toHaveText(VIP_FROM);
-    // What counts, and what does not: the asset input is named as not counted, never left out.
-    await expect(page.locator('[data-counted=spot]')).toContainText('quoted in USDT, USDC');
-    for (const code of tier.excluded) await expect(page.locator(`[data-excluded=${code}]`)).toBeVisible();
-    await expect(page.locator('[data-excluded=assets]')).toHaveText('Assets you hold: not counted (no asset thresholds set).');
-    await expect(page.locator(`[data-next-snapshot="${snapshotAt.toISOString()}"]`)).toContainText(
-      `Next snapshot: ${utcMinuteOf(snapshotAt).replace('T', ' ')} UTC`,
-    );
-    await expect(page.locator('[data-tier-page=snapshots]')).toContainText('No snapshot has included you yet.');
-    // The step's picture: the tier, the volume and what it counts, what is excluded and the next threshold.
-    await stepPicture();
-  } finally {
-    await publish(SCHEDULE, 'tier programme off');
-  }
-  // With no programme every account is regular, and the page says the thresholds are not set.
-  expect(await myTier(client)).toMatchObject({ tier: 'regular', program: null, volume: null, next: null });
-  await page.reload();
-  await expect(page.locator('[data-tier-page=thresholds-not-set]')).toHaveText('Thresholds not set. Every account is on the regular tier.');
-});
 
 /** A TEST benefits table, never owner values: the VIP tier fills some cells, the regular tier none. */
 const NOT_SET = { prioritySupport: null, vipPortal: null, ambassador: null, subAccountCap: null, withdrawalLimit24h: null };
