@@ -27,8 +27,10 @@
  * slot held, or the start refused): the line says what to do instead; 130 interrupted.
  *
  * It writes `.jr/run.json`: the tree of the checkout it ran (tracked and untracked files, as `git add -A` would commit
- * them), the files, when it started and its exit code (null until it ends). The Mac refuses a journey branch's first
- * push without a PASS of the tree pushed (a PreToolUse hook on the Mac).
+ * them), the files, when it started and its exit code (null until it ends). .githooks/pre-push reads it: a journey
+ * branch pushed again after its previous head's journeys run failed one of its own files goes only with a PASS (or exit
+ * 3, no free slot) of those files on the tree pushed (tooling/scripts/pre-push-journey-red.mjs). The Mac's first-push
+ * hook that read it before is gone (claude-hub #853).
  *
  * A local pass never counts as proof: the proof is the Real-app journeys run on the pull request's exact head.
  * Why one command (project-state #2561, rows 13 and 20): the words for doing this by hand were rewritten seven times in
@@ -202,11 +204,12 @@ export async function readyStack(io, files) {
 }
 
 /**
- * What a local run ran and how it ended, `.jr/run.json`, for the Mac's first-push check (a PreToolUse hook on the Mac):
- * the first push of a journey branch goes after a PASS (or a refused start) on the exact tree pushed. Written at the
- * start with `code` null, so an interrupted or crashed run never reads as a pass; `pid` lets the check tell a run still
- * going from one that died without its end record. Returns `end(code)`, which writes the exit code. Private to `journey`:
- * no other command writes the first-push record, so a `verify drive` never stands for the journey (project-state #3021).
+ * What a local run ran and how it ended, `.jr/run.json`, for the pre-push re-push check (pre-push-journey-red.mjs):
+ * a journey branch pushed again after a red run of its own files goes after a PASS (or exit 3, no free slot) on the
+ * exact tree pushed. Written at the start with `code` null, so an interrupted or crashed run never reads as a pass;
+ * `pid` tells a run still going from one that died without its end record.
+ * Returns `end(code)`, which writes the exit code. Private to `journey`: no other command writes the record, so a
+ * `verify drive` never stands for the journey (project-state #3021).
  */
 function recordRun(io, files) {
   const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), pid: process.pid, code: null };

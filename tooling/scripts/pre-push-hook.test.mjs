@@ -586,3 +586,26 @@ test('the CI-running notice gets the head each push replaces and prints at the e
     }
   }
 });
+
+test("a j/ branch's re-push runs the journey re-push check and its refusal refuses; a first push or another branch never runs it", () => {
+  const stub = { 'tooling/scripts/pre-push-journey-red.mjs': "console.log('journey re-push check ran'); process.exit(1);\n" };
+  const p = plant({ base: stub });
+  try {
+    for (const ref of ['j/J-x-01', 'feat']) {
+      const first = p.push(ref);
+      assert.equal(first.code, 0, first.out);
+      assert.doesNotMatch(first.out, /journey re-push check ran/);
+    }
+    writeFileSync(join(p.work, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(p.work, 'commit', '-qam', 'again');
+    const other = p.push('feat');
+    assert.equal(other.code, 0, other.out);
+    assert.doesNotMatch(other.out, /journey re-push check ran/);
+    const again = p.push('j/J-x-01');
+    assert.notEqual(again.code, 0, again.out);
+    assert.match(again.out, /journey re-push check ran/);
+    assert.match(again.out, /- journey re-push without a local PASS/);
+  } finally {
+    p.done();
+  }
+});
