@@ -897,8 +897,8 @@ test(`${J} #8 opens /money while prices cannot be read: the refusal in plain wor
     // Back as the file started it, with its TEST price list.
     await startService('ops', { LOCAL_STACK_VALUATION_PRICES: 'test' });
   }
-  // Prices readable again: the refusal goes and the total is back.
-  await openAssets(page);
+  // Prices readable again: the refusal goes and the total is back (the same page, its wallet already signed in).
+  await openAssets(page, { fresh: false });
   await expect(page.getByTestId('assets-total').getByTestId('standing-figure')).not.toHaveAttribute('data-total-usd', '', {
     timeout: 60_000,
   });
