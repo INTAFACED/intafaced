@@ -2,7 +2,7 @@
 // protected test or one whose guard does not exist, and deletes a guarded site's block, its read and its dead imports.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyDeletes, blocks, classify, closeOf, facts, guardError } from './classify.mjs';
+import { applyDeletes, blocks, classify, closeOf, facts, guardError, pruneImports } from './classify.mjs';
 
 const FILE = 'packages/venue-x/src/limit.test.ts';
 const TEXT = [
@@ -78,4 +78,9 @@ test('apply deletes the block, the read and the imports nothing uses, and keeps 
   assert.match(out, /^import \{ describe, expect, it \} from 'vitest';$/m);
   assert.match(out, /it\('a missing limit refuses'/);
   assert.equal(applyDeletes(TEXT, [row, { ...row, blocks: [{ title: 'a missing limit refuses', from: 14 }] }]), null);
+});
+
+test('pruning keeps an import used only in a spread and drops one used only after a member dot', () => {
+  const text = "import { HEADERS, KINDS, gone } from 'x';\nconst h = { ...HEADERS() };\nconst k = [...KINDS];\nconst m = obj.gone;\n";
+  assert.match(pruneImports(text), /^import \{ HEADERS, KINDS \} from 'x';$/m);
 });

@@ -7,6 +7,7 @@ import { MemoryLedger, formatAmount, parseAmount, recipes, userAvailable, type L
 import { actionApprovalSchema, createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import type { Principal } from '@intafaced/auth';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadP2pEnv } from '../testing/env-load-fixture.js';
 import { ActionApprovalConsumeError, disputeResolvePayloadHash, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { InstrumentService } from '../instrument-service.js';
 import { ANY_COUNTRY } from '../instruments.js';
@@ -36,15 +37,19 @@ const CHAT = 'CHAT-SEALED-771992';
 const SECRET = 'p2p-ops-edge-secret-long-enough-ok';
 
 describe('p2p.dispute_resolve stays an operator approval', () => {
-  it('svc-p2p is already an operator-level target, so this type needs no identity change', () => {
-    const src = readFileSync(join(root, 'services/svc-identity/src/auth/action-approval-audience.ts'), 'utf8');
-    expect(src).toContain(
-      "export const OPERATOR_TARGET_SERVICES: readonly string[] = ['svc-edge', 'svc-market', 'svc-academy', 'svc-p2p', 'svc-identity'];",
+  it('svc-p2p is already an operator-level target, so this type needs no identity change', async () => {
+    // The identity half (svc-p2p is on the operator list, `p2p.` is no founder namespace) is svc-identity's own
+    // behaviour, held by services/svc-identity/src/action-approval-founder.test.ts. This half: the four-eyes ruling
+    // ships off, and only an explicit on turns it on.
+    for (const host of [{}, { P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: '' }, { P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: 'off' }]) {
+      expect((await loadP2pEnv(host)).P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL).toBe(false);
+    }
+    for (const on of ['true', 'on', 'yes', '1']) {
+      expect((await loadP2pEnv({ P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: on })).P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL).toBe(true);
+    }
+    await expect(loadP2pEnv({ P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: 'sometimes' })).rejects.toThrow(
+      /P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL/,
     );
-    expect(src).not.toMatch(/FOUNDER_ACTION_PREFIXES[^\]]*p2p\./);
-    const env = readFileSync(join(root, 'services/svc-p2p/src/env.ts'), 'utf8');
-    expect(env).toContain('P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL');
-    expect(env).not.toMatch(/P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL[\s\S]{0,400}\.default\(true\)/);
     const compose = readFileSync(join(root, 'docker-compose.apps.yml'), 'utf8');
     expect(compose).toContain('P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: ${P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL:-}');
     expect(compose).not.toContain('P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: ${P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL:-true}');

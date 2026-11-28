@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { P2pError, assertLateSettlementsListLimit } from './p2p-service.js';
+import { P2pError, P2pService, assertLateSettlementsListLimit } from './p2p-service.js';
+import { limitsOf, recordingSql } from './testing/sql-recorder-fixture.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 
 /**
@@ -12,8 +10,6 @@ import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
  * omit invented a 100-row operator queue. Blank must refuse. Owner/client
  * may pass 100 explicitly.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('ops.lateSettlements limit unset refuse', () => {
   it('assertLateSettlementsListLimit refuses blank / NaN / 0 — never invents 100', () => {
@@ -38,23 +34,14 @@ describe('ops.lateSettlements limit unset refuse', () => {
     expect(assertLateSettlementsListLimit(201)).toBe(200);
   });
 
-  it('listLateSettlements no longer defaults limit to 100', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/p2p-service.ts'), 'utf8');
-    const start = src.indexOf('async listLateSettlements(');
-    const end = src.indexOf('async getTrade(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertLateSettlementsListLimit');
-    expect(fn).not.toMatch(/limit = 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
-  });
-
-  it('router does not invent 100 when ops.lateSettlements omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/router.ts'), 'utf8');
-    const start = src.indexOf('lateSettlements:');
-    const end = src.indexOf('data:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('listLateSettlements(input?.limit)');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
+  it('listLateSettlements refuses an omitted limit before any query, and reads by the limit it was given', async () => {
+    const { sql, calls } = recordingSql();
+    const p2p = new P2pService(sql, {} as never, {} as never, {} as never);
+    await expect(p2p.listLateSettlements()).rejects.toMatchObject({ code: 'p2p.late_settlements_list_limit_unset' });
+    expect(calls).toHaveLength(0);
+    await expect(p2p.listLateSettlements(100)).resolves.toEqual([]);
+    expect(limitsOf(calls)).toEqual([100]);
+    await p2p.listLateSettlements(201);
+    expect(limitsOf(calls)).toEqual([100, 200]);
   });
 });

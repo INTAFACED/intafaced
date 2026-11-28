@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
@@ -229,6 +229,55 @@ describe('UserVenueDoor: an order over the API with an Idempotency-Key (J-develo
       code: 'trade.venue_orders_page_max_unset',
       status: 503,
     });
+  });
+
+  it('a finished order is read from the venue once; an open one on every list (#11264: an open desk polls every 2 s)', async () => {
+    const store = new InMemoryPreparedActionStore();
+    let sent = () => 0;
+    const d = new UserVenueDoor({
+      connect: async () => {
+        const v = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 });
+        const spy = vi.spyOn(v, 'orderByClientId');
+        sent = () => spy.mock.calls.length;
+        return v;
+      },
+      appEnv: 'test',
+      store,
+      stepUp: noStepUp,
+      builder: null,
+      now: () => new Date(),
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),
+      ordersPageMax: 50,
+      slippageCapBps: null,
+      closeSlippageBps: 1000,
+    });
+    const viewer = {
+      ...principal,
+      userId: '11111111-1111-4111-8111-1111111111d6',
+      sub: '11111111-1111-4111-8111-1111111111d6',
+    } as Principal;
+    const filled = await d.prepare(viewer, {
+      owner,
+      signer,
+      intent: { ...buy(), price: a('100000'), timeInForce: 'IOC' } as PlaceUserOrderIntent,
+      idempotencyKey: 'bot-2:done:1',
+    });
+    await d.submit(viewer, filled.actionKey, await sign(filled.prepared));
+    const resting = await d.prepare(viewer, { owner, signer, intent: buy(), idempotencyKey: 'bot-2:open:1' });
+    await d.submit(viewer, resting.actionKey, await sign(resting.prepared));
+
+    const before = sent();
+    const first = await d.orders(viewer, owner, undefined, undefined);
+    expect(first.orders.map((o) => [o.actionKey, o.order?.status])).toEqual([
+      [filled.actionKey, 'filled'],
+      [resting.actionKey, 'open'],
+    ]);
+    expect(sent() - before).toBe(2);
+    const second = await d.orders(viewer, owner, undefined, undefined);
+    // Only the open order is asked again: a filled order's record never changes.
+    expect(sent() - before).toBe(3);
+    expect(second.orders.map((o) => [o.actionKey, o.order?.status])).toEqual(first.orders.map((o) => [o.actionKey, o.order?.status]));
+    expect(second.orders[0]).toEqual(first.orders[0]);
   });
 
   it('refuses a malformed key, and reads the owner value for the largest page strictly', () => {

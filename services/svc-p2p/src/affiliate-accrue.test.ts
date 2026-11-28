@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
@@ -115,17 +112,5 @@ describe('createAffiliateAccrueClient', () => {
         feeEventId: `p2p.release:${TRADE}`,
       } satisfies AffiliateP2pFeeLeg),
     ).rejects.toThrow(/500/);
-  });
-});
-
-describe('settleOnce wires accrue after ledger post', () => {
-  it('fires accrue after escrowRelease, not before', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'p2p-service.ts'), 'utf8');
-    expect(src).toMatch(/notifyP2pAffiliateAccrue/);
-    expect(src).toMatch(/recipes\.escrowRelease/);
-    expect(src.indexOf('recipes.escrowRelease')).toBeLessThan(src.indexOf('notifyP2pAffiliateAccrue'));
-    const idx = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(idx).toMatch(/createAffiliateAccrueClient/);
   });
 });

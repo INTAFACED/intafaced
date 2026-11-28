@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { CurrentAuthorityInput } from '@intafaced/contracts';
@@ -215,17 +214,5 @@ describe('timeouts', () => {
     await vi.advanceTimersByTimeAsync(5000);
     await pending;
     expect(settled).toBe('unavailable');
-  });
-});
-
-describe('edge answers 503 and keeps the session', () => {
-  const src = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-  it('answers 503 edge.authority_unavailable with Retry-After before it would forward anonymous', () => {
-    const unavailable = src.indexOf("exchanged.rejected === 'unavailable'");
-    const anonymous = src.indexOf('token refused, forwarding anonymous');
-    expect(unavailable).toBeGreaterThan(0);
-    expect(unavailable).toBeLessThan(anonymous);
-    expect(src).toMatch(/\.code\(503\)\s*\.header\('retry-after', '1'\)/);
-    expect(src).toContain("code: 'edge.authority_unavailable'");
   });
 });

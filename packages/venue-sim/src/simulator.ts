@@ -3114,10 +3114,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (m.known) maintenance = add(maintenance, m.value);
     }
     const equity = add(add(b.free, b.locked), unrealised);
+    // What a withdrawal of the asset is accepted at now (the `withdraw` intent's own check): free, less any cross loss at
+    // the mark, less the venue's fee, which it charges on top of the amount; never below zero.
+    const fee = this.switches.withdrawalFee.known ? this.switches.withdrawalFee.value : this.switches.unpublishedWithdrawalFee;
+    const leaves = sub(add(b.free, this.crossLoss(state, asset)), fee);
     return this.asOf({
       asset,
       equity,
       free: b.free,
+      withdrawable: compare(leaves, ZERO) > 0 ? leaves : ZERO,
       usedMargin: used,
       maintenanceMargin: maintenance,
       marginRatio: compare(equity, ZERO) > 0 ? { known: true, value: div(maintenance, equity, 'ceil') } : { known: false },

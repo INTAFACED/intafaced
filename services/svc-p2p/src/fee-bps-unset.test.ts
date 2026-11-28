@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { loadP2pEnv } from './testing/env-load-fixture.js';
 import { parseOwnerIntegerEnv } from './fee-bps-env.js';
 import { P2pError, publishedFeeBps } from './p2p-service.js';
 
@@ -24,10 +25,11 @@ describe('P2P_FEE_BPS unset refuse', () => {
     expect(parseOwnerIntegerEnv(0)).toBe(0);
   });
 
-  it('env.ts does not git-default 30', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-p2p/src/env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/P2P_FEE_BPS:[\s\S]{0,200}\.default\(\s*30\s*\)/);
-    expect(envTs).toMatch(/parseOwnerIntegerEnv/);
+  it('env.ts leaves the house take unset when the host gives none — never 30', async () => {
+    expect((await loadP2pEnv()).P2P_FEE_BPS).toBeNull();
+    expect((await loadP2pEnv({ P2P_FEE_BPS: '' })).P2P_FEE_BPS).toBeNull();
+    expect((await loadP2pEnv({ P2P_FEE_BPS: '0' })).P2P_FEE_BPS).toBe(0);
+    expect((await loadP2pEnv({ P2P_FEE_BPS: '30' })).P2P_FEE_BPS).toBe(30);
   });
 
   it('compose passes empty — never a baked 30', () => {

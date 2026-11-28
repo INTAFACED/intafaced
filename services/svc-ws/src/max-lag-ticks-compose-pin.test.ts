@@ -25,10 +25,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isPublishedMaxLagTicks } from './max-lag-ticks.js';
+import { isPublishedMaxLagTicks, WS_MAX_LAG_TICKS_UNSET } from './max-lag-ticks.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 function wsComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
@@ -64,16 +63,19 @@ afterEach(() => {
 
 describe('compose WS_MAX_LAG_TICKS for svc-ws', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-ws/src/env.ts'), 'utf8');
-  const helperTs = readFileSync(join(HERE, 'max-lag-ticks.ts'), 'utf8');
   const block = wsComposeBlock();
 
-  it('env.ts refuses blank lag ticks — no 20 default; poll stays 250', () => {
-    expect(envTs).not.toMatch(/WS_MAX_LAG_TICKS:[\s\S]{0,400}\.default\(20\)/);
-    expect(envTs).toMatch(
-      /WS_MAX_LAG_TICKS:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.union\(\[z\.undefined\(\), z\.coerce\.number\(\)\.int\(\)\.min\(1\)\]\),\s*\)/,
-    );
-    expect(envTs).toMatch(/WS_POLL_INTERVAL_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(50\)\.max\(60_000\)\.default\(250\)/);
+  it('the env loader refuses blank lag ticks — no 20 default; poll stays 250', async () => {
+    const unset = await loadWith({ WS_MAX_LAG_TICKS: undefined, WS_POLL_INTERVAL_MS: undefined });
+    expect(unset.WS_MAX_LAG_TICKS).toBeUndefined();
+    expect(unset.WS_POLL_INTERVAL_MS).toBe(250);
+    expect((await loadWith({ WS_MAX_LAG_TICKS: '1' })).WS_MAX_LAG_TICKS).toBe(1);
+    await expect(loadWith({ WS_MAX_LAG_TICKS: '0' })).rejects.toThrow(/WS_MAX_LAG_TICKS/);
+    await expect(loadWith({ WS_MAX_LAG_TICKS: '1.5' })).rejects.toThrow(/WS_MAX_LAG_TICKS/);
+    expect((await loadWith({ WS_POLL_INTERVAL_MS: '50' })).WS_POLL_INTERVAL_MS).toBe(50);
+    expect((await loadWith({ WS_POLL_INTERVAL_MS: '60000' })).WS_POLL_INTERVAL_MS).toBe(60_000);
+    await expect(loadWith({ WS_POLL_INTERVAL_MS: '49' })).rejects.toThrow(/WS_POLL_INTERVAL_MS/);
+    await expect(loadWith({ WS_POLL_INTERVAL_MS: '60001' })).rejects.toThrow(/WS_POLL_INTERVAL_MS/);
   });
 
   it('compose svc-ws block is the unique home; lag ticks are empty pass-through', () => {
@@ -96,7 +98,7 @@ describe('compose WS_MAX_LAG_TICKS for svc-ws', () => {
     expect(block).toMatch(/WS_MARKETS_REFRESH_MS:\s*\$\{WS_MARKETS_REFRESH_MS:-30000\}/);
     expect(block).toMatch(/WS_TRADES_DURABLE:\s*\$\{WS_TRADES_DURABLE:-ws-trade-tape\}/);
     expect(block).toMatch(/WS_PRIVATE_ORDERS_DURABLE:\s*\$\{WS_PRIVATE_ORDERS_DURABLE:-ws-private-orders\}/);
-    expect(helperTs).toMatch(/ws\.max_lag_ticks_unset/);
+    expect(WS_MAX_LAG_TICKS_UNSET).toBe('ws.max_lag_ticks_unset');
   });
 });
 

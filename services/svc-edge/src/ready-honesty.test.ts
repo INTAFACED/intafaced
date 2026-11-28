@@ -2,14 +2,9 @@
  * GET /ready must not sell a nonempty upstream env URL as a wired hop.
  * A set URL is config. This process does not fetch on /ready.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EDGE_UPSTREAM_UNPROBED, readyUpstreamHonesty } from './ready-honesty.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('edge ready honesty — URL-set is not wired', () => {
   const apps: FastifyInstance[] = [];
@@ -67,16 +62,5 @@ describe('edge ready honesty — URL-set is not wired', () => {
     expect(cfg.code).toBe(EDGE_UPSTREAM_UNPROBED);
     expect(JSON.stringify(body)).not.toMatch(/"wired"|"unwired"/);
     expect(JSON.stringify(body)).not.toContain('pay.internal');
-  });
-
-  it('index.ts serves readyUpstreamHonesty, not wired: isUpstreamWired', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(indexSrc).toContain('readyUpstreamHonesty');
-    expect(indexSrc).toContain('upstreamConfiguration: readyUpstreamHonesty(envLookup)');
-    expect(indexSrc).not.toMatch(/upstreamWiring/);
-    expect(indexSrc).not.toMatch(/wired:\s*table/);
-    expect(indexSrc).not.toMatch(/isUpstreamWired/);
-    const readyHandler = indexSrc.slice(indexSrc.indexOf("app.get('/ready'"), indexSrc.indexOf('registerKillSwitchGuard'));
-    expect(readyHandler).not.toMatch(/\bfetch\s*\(/);
   });
 });

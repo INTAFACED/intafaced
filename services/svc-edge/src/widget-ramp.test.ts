@@ -3,13 +3,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import helmet from '@fastify/helmet';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loadEdgeEnv } from './testing/env-load-fixture.js';
 import { WIDGET_IFRAME_RETIRED, WIDGET_RAMP_PATH, fetchDest, refererOrigin, registerWidgetRampRoute } from './widget-ramp.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '../../..');
-const SRC = readFileSync(join(HERE, 'widget-ramp.ts'), 'utf8');
-const INDEX = readFileSync(join(HERE, 'index.ts'), 'utf8');
+const RETIRED_ENV = { INFRA_LICENCE_KEY: 'test-only-retired-licence', INFRA_WIDGET_ORIGINS: 'https://partner.test' };
 
 const apps: FastifyInstance[] = [];
 
@@ -98,13 +98,22 @@ describe('ops.infra-b2b retired ramp iframe widget', () => {
     expect(fetchDest('IFRAME')).toBe('none');
   });
 
-  it('no longer serves any framable page, licence or white-label env', () => {
-    expect(SRC).not.toMatch(/frame-ancestors \*/);
-    expect(SRC).not.toMatch(/removeHeader/);
-    expect(SRC).not.toMatch(/INFRA_LICENCE|INFRA_WIDGET|<iframe|text\/html/);
-    expect(INDEX).toMatch(/registerWidgetRampRoute\(app\)/);
-    const env = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(env).not.toMatch(/INFRA_LICENCE|INFRA_WIDGET/);
+  it('no longer serves any framable page, licence or white-label env', async () => {
+    // Set in the host env, the old licence and white-label settings reach neither the process env nor the answer.
+    const env = await loadEdgeEnv(RETIRED_ENV);
+    expect(Object.keys(env).filter((key) => /INFRA_LICENCE|INFRA_WIDGET/.test(key))).toEqual([]);
+    for (const [key, value] of Object.entries(RETIRED_ENV)) vi.stubEnv(key, value);
+    try {
+      const res = await (await build()).inject({ method: 'GET', url: WIDGET_RAMP_PATH });
+      expect(res.statusCode).toBe(410);
+      expect(res.headers['content-type']).toMatch(/application\/json/);
+      expect(res.headers['x-frame-options']).toBe('DENY');
+      expect(res.headers['content-security-policy']).toBe("frame-ancestors 'none'");
+      expect(res.body).not.toMatch(/<iframe|<html|frame-ancestors \*/i);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    // Mounted by the booted entrypoint ahead of the /api proxy: index-wiring.boot.e2e.test.ts.
     const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
     expect(compose).not.toMatch(/INFRA_LICENCE|INFRA_WIDGET/);
   });

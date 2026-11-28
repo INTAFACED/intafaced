@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { outcomeOf } from './testing/session-door-cases-fixture.js';
 import { recoveryCodeDropsOtherAdmissions } from './recovery-drop-other-admissions.js';
 
 const CODE = 'A1B2C-D3E4F';
@@ -30,15 +28,31 @@ describe('recoveryCodeDropsOtherAdmissions', () => {
     expect(() => recoveryCodeDropsOtherAdmissions({ code: CODE, recoveryCodeHashes: HASHES })).not.toThrow();
   });
 
-  it('source keeps the recovered admission door; not a streams redo', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'recovery-drop-other-admissions.ts'), 'utf8');
-    expect(src).toMatch(/recoveryCodeDropsOtherAdmissions/);
-    expect(src).toMatch(/auth.recovery_missing/);
-    expect(src).toMatch(/auth.recovery_spent/);
-    expect(src).not.toMatch(/recoveryCodeDropsOtherStreams/);
-    expect(src).not.toMatch(/revokeAllApiKeys/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+sessions/i);
+  it('is only the recovered admission door; not a streams redo', async () => {
+    // The module is this one door and its typed error: no streams door, key revoke, challenge or session.
+    const module = await import('./recovery-drop-other-admissions.js');
+    expect(Object.keys(module).sort()).toEqual(['RecoveryCodeAdmissionError', 'recoveryCodeDropsOtherAdmissions']);
+    const cases = [
+      { code: '', recoveryCodeHashes: HASHES },
+      { code: '   ', recoveryCodeHashes: HASHES },
+      { code: 7, recoveryCodeHashes: HASHES },
+      { recoveryCodeHashes: HASHES },
+      { code: CODE, recoveryCodeHashes: [] },
+      { code: CODE, recoveryCodeHashes: [7] },
+      { code: CODE },
+      { code: CODE, recoveryCodeHashes: HASHES },
+    ];
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    try {
+      expect(cases.map((input) => outcomeOf(() => recoveryCodeDropsOtherAdmissions(input)))).toEqual([
+        ...Array(4).fill({ refused: 'RecoveryCodeAdmissionError', code: 'auth.recovery_missing' }),
+        ...Array(3).fill({ refused: 'RecoveryCodeAdmissionError', code: 'auth.recovery_spent' }),
+        { returned: undefined },
+      ]);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

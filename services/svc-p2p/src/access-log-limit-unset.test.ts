@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { InstrumentError } from './instruments.js';
 import { InstrumentService, assertAccessLogLimit } from './instrument-service.js';
+import { limitsOf, recordingSql } from './testing/sql-recorder-fixture.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 
 /**
@@ -12,8 +10,6 @@ import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
  * accessLogFor used `limit = 100`, so omit invented a 100-row access log page.
  * Blank must refuse. Owner/client may pass 100 explicitly.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('instruments.accessLog limit unset refuse', () => {
   it('assertAccessLogLimit refuses blank / NaN / 0 — never invents 100', () => {
@@ -46,13 +42,13 @@ describe('instruments.accessLog limit unset refuse', () => {
     expect(assertAccessLogLimit(501)).toBe(500);
   });
 
-  it('accessLogFor no longer defaults limit to 100', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/instrument-service.ts'), 'utf8');
-    const start = src.indexOf('async accessLogFor(');
-    const end = src.indexOf('// ── Attaching a destination to a trade', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertAccessLogLimit');
-    expect(fn).not.toMatch(/limit = 100/);
-    expect(fn).not.toMatch(/\?\? 100/);
+  it('accessLogFor reads the log by the limit it was given, capped at 500', async () => {
+    const { sql, calls } = recordingSql();
+    const instruments = new InstrumentService(sql);
+    await expect(instruments.accessLogFor('owner')).rejects.toMatchObject({ code: 'p2p.access_log_limit_unset' });
+    expect(calls).toHaveLength(0);
+    await expect(instruments.accessLogFor('owner', 100)).resolves.toEqual([]);
+    await instruments.accessLogFor('owner', 501);
+    expect(limitsOf(calls)).toEqual([100, 500]);
   });
 });

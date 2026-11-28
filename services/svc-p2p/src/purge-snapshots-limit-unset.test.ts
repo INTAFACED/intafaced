@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { InstrumentError } from './instruments.js';
 import { InstrumentService, assertPurgeExpiredSnapshotsLimit } from './instrument-service.js';
+import { limitsOf, recordingSql } from './testing/sql-recorder-fixture.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 
 /**
@@ -12,8 +10,6 @@ import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
  * purgeExpiredSnapshots used `limit = 500`, so omit invented a 500-row purge batch.
  * Blank must refuse. Owner may pass 500 explicitly.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('purgeExpiredSnapshots limit unset refuse', () => {
   it('assertPurgeExpiredSnapshotsLimit refuses blank / NaN / 0 — never invents 500', () => {
@@ -46,19 +42,13 @@ describe('purgeExpiredSnapshots limit unset refuse', () => {
     expect(assertPurgeExpiredSnapshotsLimit(5_001)).toBe(5_000);
   });
 
-  it('purgeExpiredSnapshots no longer defaults limit to 500', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/instrument-service.ts'), 'utf8');
-    const start = src.indexOf('async purgeExpiredSnapshots(');
-    const end = src.indexOf('// ── internals', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertPurgeExpiredSnapshotsLimit');
-    expect(fn).not.toMatch(/limit = 500/);
-    expect(fn).not.toMatch(/\?\? 500/);
-  });
-
-  it('index sweep publishes 500 explicitly — does not omit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/index.ts'), 'utf8');
-    expect(src).toContain('purgeExpiredSnapshots(500)');
-    expect(src).not.toMatch(/purgeExpiredSnapshots\(\s*\)/);
+  it('purgeExpiredSnapshots purges by the batch it was given, capped at 5000, and touches nothing without one', async () => {
+    const { sql, calls } = recordingSql();
+    const instruments = new InstrumentService(sql, { retentionDays: 90 });
+    await expect(instruments.purgeExpiredSnapshots()).rejects.toMatchObject({ code: 'p2p.purge_snapshots_limit_unset' });
+    expect(calls).toHaveLength(0);
+    await expect(instruments.purgeExpiredSnapshots(500)).resolves.toEqual({ purged: 0 });
+    await instruments.purgeExpiredSnapshots(5_001);
+    expect(limitsOf(calls)).toEqual([500, 5_000]);
   });
 });
