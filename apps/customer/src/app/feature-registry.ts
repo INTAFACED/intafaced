@@ -551,14 +551,26 @@ export const features: readonly Feature[] = [
     tab: 'pay',
   },
   {
+    id: 'developer-apps',
+    label: 'Registered apps',
+    paths: ['/developers/apps'],
+    status: 'live',
+    reason:
+      "A developer registers an app, reads its status and changes a server app's secret through svc-identity; while the owner has not published the token lifetimes the room says so (oauth.lifetime_unset) and no app can sign a person in.",
+    unlock: 'already live',
+    tab: 'person',
+    checked:
+      'apps.render.test.tsx: registration, the one-time secret and the oauth.lifetime_unset notice; J-cex-spot-15 #1 opens it (issue 11177)',
+  },
+  {
     id: 'oauth-apps',
-    label: 'Registered apps and app sign-in',
-    paths: ['/developers/apps', '/oauth/authorize'],
+    label: 'App sign-in',
+    paths: ['/oauth/authorize'],
     status: 'blocked',
     reason:
-      'oauth.lifetime_unset: the owner has not published the authorisation code and access token lifetimes, no service accepts an issued token, and the operator approval queue is not in the admin app',
+      'oauth.lifetime_unset: the owner has not published the authorisation code and access token lifetimes, so no app can sign a person in and no token is issued',
     unlock:
-      'publish OAUTH_CODE_TTL_SECONDS and OAUTH_ACCESS_TOKEN_TTL_SECONDS, add the token check to the services and the approval queue to admin',
+      'publish OAUTH_CODE_TTL_SECONDS and OAUTH_ACCESS_TOKEN_TTL_SECONDS, and add the token check to the services that will accept an app token',
     tab: 'person',
   },
   {
@@ -591,7 +603,7 @@ export const features: readonly Feature[] = [
     unlock: 'already live',
     tab: 'public',
     checked:
-      'Real-app journeys run 12722 on main (2026-11-27): J-developer-01 #1 to #7 and J-cex-spot-15 #1 to #4, #6 and #7 passed. /developers/apps keeps its own oauth-apps row.',
+      'Real-app journeys run 12722 on main (2026-11-27): J-developer-01 #1 to #7 and J-cex-spot-15 #1 to #4, #6 and #7 passed. /developers/apps has its own developer-apps row.',
   },
   {
     id: 'trade-news-calendar',

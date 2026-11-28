@@ -22,6 +22,7 @@ import { registerInternalOurFills } from './internal-our-fills.js';
 import { registerInternalRealised } from './internal-realised.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
 import { DailyLossGuard } from './daily-loss-limit.js';
+import { createIdentityTradingRestrictionRead } from './trading-restriction.js';
 import { SqlDailyLossLimitStore } from './daily-loss-limit-store.js';
 import { UserVenueDoor, parseBuilderAddress, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
 import { SqlVenueListingStore } from './venue-listing-store.js';
@@ -89,6 +90,12 @@ export function wireUserVenue(deps: {
     () => new Date(),
     (minute) => process.stderr.write(`${JSON.stringify({ level: 'info', msg: 'trade.venue_reads_minute', ...minute })}\n`),
   );
+  // Identity's trading restriction (J-support-public-20 #7): every door reads it per new order, and refuses when unreadable.
+  const tradingRestriction = createIdentityTradingRestrictionRead({
+    baseUrl: env.IDENTITY_URL,
+    internalSecret: env.INTERNAL_SERVICE_SECRET,
+    s2s: outS2s,
+  });
   const userVenueDoors = userVenueUrls.map(
     (url, i) =>
       new UserVenueDoor({
@@ -104,6 +111,7 @@ export function wireUserVenue(deps: {
         listings: new StoreVenueRoutingGate(venueListings),
         maintenanceBoard,
         dailyLoss,
+        tradingRestriction,
         appEnv: process.env.APP_ENV,
         betaPosture: process.env.INTAFACED_BETA_POSTURE,
         store: userVenueStore,
