@@ -1,6 +1,8 @@
 /**
  * RC-cex-spot-05 (J-cex-spot-15 #10) — historical tick, book and trade data downloads (real PostgreSQL):
- *   - 98/100 trades produces completeness 98.00% with gap 51..52 and sha256 matching downloaded gzip bytes
+ *   - completeness is measured against the trades the venue recorded, never the engine's numbering: a file
+ *     holding every recorded trade reads 100.00%; a file missing two recorded trades reads 98.00% with gap 51..52
+ *   - sha256 matches downloaded gzip bytes
  *   - append-only correction keeps original file untouched and links superseding file in manifest
  *   - blank TRADE_HISTORY_BOOK_INTERVAL_MS refuses trade.history_book_interval_unset and creates no book dataset
  *   - rerunning build for the same day targets history:<market>:<kind>:<day> with identical id and sha256
@@ -63,15 +65,19 @@ describe('SqlHistoryDatasets (real PostgreSQL, RC-cex-spot-05)', () => {
     `;
   });
 
-  it('builds a 98% trades dataset with gap 51..52, matching sha256, idempotent rerun, and append-only correction', async () => {
-    for (let seq = 1; seq <= 100; seq += 1) {
-      if (seq === 51 || seq === 52) continue;
+  it('builds a 100% trades dataset over holes in the numbering, matching sha256, idempotent rerun, and append-only corrections measured against the record', async () => {
+    const recordFill = async (seq: number) => {
       const fillId = `00000000-0000-4000-8000-${String(seq).padStart(12, '0')}`;
       const ts = new Date(`2026-11-24T00:00:${String(seq % 60).padStart(2, '0')}.000Z`);
       await db.sql`
         INSERT INTO trade.fills (id, order_id, counter_order_id, market_id, user_id, side, price, qty, quote_amount, fee_asset, fee_amount, fee_bps, liquidity, sequence, ts)
         VALUES (${fillId}, ${ORDER_TAKER}, ${ORDER_MAKER}, ${MARKET_ID}, ${USER_A}, 'buy', 65000, 0.01, 650, 'BTC', 0, 0, 'taker', ${seq}, ${ts})
       `;
+    };
+    // Numbers 51 and 52 went to other engine events (an accept, a cancel): not trades, so not gaps.
+    for (let seq = 1; seq <= 100; seq += 1) {
+      if (seq === 51 || seq === 52) continue;
+      await recordFill(seq);
     }
 
     const store = new SqlHistoryDatasets(db.sql, { bookIntervalMs: 5000 });
@@ -83,8 +89,8 @@ describe('SqlHistoryDatasets (real PostgreSQL, RC-cex-spot-05)', () => {
     expect(first!.rowCount).toBe(98);
     expect(first!.firstSequence).toBe(1);
     expect(first!.lastSequence).toBe(100);
-    expect(first!.completenessPct).toBe('98.00');
-    expect(first!.gaps).toEqual([{ fromSequence: 51, toSequence: 52 }]);
+    expect(first!.completenessPct).toBe('100.00');
+    expect(first!.gaps).toEqual([]);
     expect(first!.provenance).toBe("this venue's own matching sequence");
 
     // Download bytes match manifest sha256 and carry no user or order id.
@@ -140,7 +146,6 @@ describe('SqlHistoryDatasets (real PostgreSQL, RC-cex-spot-05)', () => {
       correctionTag: 'seq51-52',
       rows: correctedRows,
       sequences: correctedRows.map((r) => Number(r.sequence)),
-      contiguous: true,
     });
     expect(original.id).toBe(first!.id);
     expect(original.sha256).toBe(first!.sha256);
@@ -155,6 +160,22 @@ describe('SqlHistoryDatasets (real PostgreSQL, RC-cex-spot-05)', () => {
     });
     expect(superseding.completenessPct).toBe('100.00');
     expect(superseding.gaps).toEqual([]);
+
+    // Two trades at 51..52 are recorded late. A correction holding only the 98 published rows is measured against
+    // the record, now 100 trades, so it reads 98.00% with gap 51..52.
+    await recordFill(51);
+    await recordFill(52);
+    const short = await store.recordCorrection({
+      datasetId: first!.id,
+      sequenceFrom: 1,
+      sequenceTo: 100,
+      reason: 'TEST republish without the late trades',
+      correctionTag: 'short',
+      rows: lines,
+      sequences: lines.map((r) => Number(r.sequence)),
+    });
+    expect(short.superseding.completenessPct).toBe('98.00');
+    expect(short.superseding.gaps).toEqual([{ fromSequence: 51, toSequence: 52 }]);
 
     // Original file bytes are still downloadable and unchanged.
     const originalAgain = await store.downloadDataset(first!.id);
