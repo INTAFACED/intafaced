@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { stamp } from '../../screens/money/time';
 import { Text } from './copy';
 

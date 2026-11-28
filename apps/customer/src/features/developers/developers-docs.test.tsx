@@ -6,7 +6,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 import { findRoom } from '../../app/navigation';
 import type { ApiClient } from '../../shared/api';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { DevelopersRoutes } from './DevelopersRoutes';
 import { readServerClock } from '../../shared/server-clock';
 import { developersCopy } from './developers-copy';
@@ -14,6 +14,7 @@ import { docsCopy } from './developers-docs-copy';
 import { AUDIENCES, SECTIONS, developersRoute } from './developers-model';
 import { REST_REFERENCE, routeLine, withinWindow } from './developers-reference';
 import { createDocsSearch } from './developers-search';
+import { pingView, policyView, streamHostsView } from './developers-streams';
 
 const html = (path: string) =>
   renderToString(
@@ -33,16 +34,20 @@ describe('developer portal home', () => {
     expect(home.match(/data-testid="developers-access"/g)).toHaveLength(AUDIENCES.length);
     for (const section of SECTIONS) {
       expect([section.page, section.published, section.waitsFor].filter(Boolean), section.id).toHaveLength(1);
-      if (section.waitsFor) expect(text(home)).toContain(`Waits for ${section.waitsFor}`);
+      if (section.waitsFor) expect(home).toContain(`data-waits-for="${section.waitsFor}"`);
     }
+    expect(text(home)).not.toMatch(/DV-[a-z-]+-\d{2}/);
+    expect(text(home)).not.toContain('Page in this portal');
     expect(home).toContain('type="search"');
     expect(home).toContain('aria-label="Search the developer docs"');
   });
-  it('a section without a page names the slice it waits for', () => {
-    expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
+  it('a section without a page names its plain blocker and keeps its slice attribute', () => {
+    const protocols = html('/developers/protocols');
+    expect(text(protocols)).toContain('It is waiting on the protocol comparison guide.');
+    expect(protocols).toContain('data-waits-for="DV-websocket-01"');
     // DV-limits-01 is built: the section is its written page, never the waits-for notice.
     expect(text(html('/developers/rate-limits'))).toContain('Rate-limit tiers');
-    expect(text(html('/developers/rate-limits'))).not.toContain('It waits for DV-limits-01');
+    expect(text(html('/developers/rate-limits'))).not.toContain('It is waiting on');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');
@@ -65,10 +70,11 @@ describe('developer docs pages', () => {
     expect(developersRoute('/developers/errors/auth')).toEqual({ kind: 'errors-auth' });
     expect(findRoom('/developers/errors/auth')?.area).toBe('public');
   });
-  it('REST conventions name JSON, UTC, UUIDs, symbols and decimal strings, and the paging that waits', () => {
+  it('REST conventions name JSON, UTC, UUIDs, symbols and decimal strings, and the paging status without slice ids', () => {
     const page = text(html('/developers/rest'));
     for (const rule of ['JSON', 'UTC', 'UUID', 'symbol', 'decimal string']) expect(page).toContain(rule);
-    expect(html('/developers/rest')).toMatch(/role="status"[^>]*>.*waits for DV-rest-01/);
+    expect(html('/developers/rest')).toMatch(/role="status"[^>]*>.*Cursor paging/);
+    expect(page).not.toContain('DV-rest-01');
   });
   it('the reference lists every route under its product, and the streams', () => {
     const page = html('/developers/reference');
@@ -164,8 +170,55 @@ describe('developer docs copy', () => {
     for (const locale of ['es', 'fr'] as const) expect(docsCopy.coverage(locale).missing).toEqual([]);
   });
   it('writes every portal key added for access, search and waiting sections in Spanish and French', () => {
-    const added = /^(section_connectivity|section_data_terms|access_|waitsFor|pageHere|search|errorsAuth)/;
+    const added = /^(section_connectivity|section_data_terms|access_|waitsFor|blocker_|search|errorsAuth)/;
     for (const locale of ['es', 'fr'] as const)
       expect(developersCopy.coverage(locale).missing.filter((key) => added.test(key))).toEqual([]);
+  });
+});
+
+describe('the WebSocket streams page', () => {
+  it('draws its heading, the protocol guide with each owning module and the unknown-message rule, and waits for its live reads', () => {
+    const page = html('/developers/websocket');
+    expect(page).toMatch(/<h1 class="lt-title">WebSocket streams<\/h1>/);
+    expect(text(page)).toContain('Unknown message types are ignored.');
+    for (const module of ['svc-trade', 'svc-ws', 'svc-fix']) expect(page).toContain(`data-module="${module}">Owned by ${module}</td>`);
+    // The hosts, the ping interval and the policy are read live: nothing is drawn as a value before the reads answer.
+    expect(page).not.toContain('data-endpoint=');
+    expect(page).not.toContain('data-seconds=');
+    expect(page).not.toContain('wss://');
+  });
+  it('writes wss:// before each published host, reads a blank host as unset, and only the unset code as "not set"', () => {
+    const view = streamHostsView({
+      status: 'ready',
+      data: {
+        endpoints: [
+          { endpoint: 'public', role: 'primary', host: 'stream.example.test' },
+          { endpoint: 'public', role: 'failover', host: null },
+        ],
+      },
+    });
+    expect(view.kind).toBe('table');
+    if (view.kind !== 'table') return;
+    expect(view.host('public', 'primary')).toEqual({ state: 'set', url: 'wss://stream.example.test' });
+    expect(view.host('public', 'failover')).toEqual({ state: 'unset' });
+    expect(view.host('business', 'primary')).toEqual({ state: 'unset' });
+    const unset = streamHostsView({ status: 'failed', code: 'trade.developer_stream_hosts_unset' });
+    expect(unset.kind === 'table' && unset.unsetCode).toBe('trade.developer_stream_hosts_unset');
+    expect(streamHostsView({ status: 'failed', code: 'something_else' }).kind).toBe('failed');
+    expect(streamHostsView({ status: 'failed' }).kind).toBe('failed');
+  });
+  it('reads the ping interval in whole seconds, and unset while svc-ws publishes none', () => {
+    expect(pingView({ status: 'ready', data: { timing: { heartbeatMs: 30_000, muxIdleMs: null } } })).toEqual({ kind: 'set', seconds: 30 });
+    expect(pingView({ status: 'ready', data: { timing: { heartbeatMs: null, muxIdleMs: null } } })).toEqual({ kind: 'unset' });
+    expect(pingView({ status: 'ready', data: {} })).toEqual({ kind: 'unset' });
+    expect(pingView({ status: 'failed' })).toEqual({ kind: 'failed' });
+  });
+  it('shows the per-address cap and ban as published, and says no address is banned while the ban time is blank', async () => {
+    expect(policyView({ status: 'ready', data: {} })).toEqual({ kind: 'unpublished' });
+    const perIp = { maxConnections: 3, stormsBeforeBan: 2, banSeconds: null, ban: 'unset' as const };
+    expect(policyView({ status: 'ready', data: { perIp } })).toEqual({ kind: 'published', perIp });
+    const t = docsCopy.forLocale('en').t;
+    expect(t('wsBanUnset')).toBe('No ban time is set, so no address is banned.');
+    expect(t('wsCap', { n: 3 })).toContain('At most 3 open connections');
   });
 });

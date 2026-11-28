@@ -1,4 +1,4 @@
-import { add, compare, div, formatAmount, mul, parseAmount, sub as minus, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, mul, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import type { TypedDataDefinition } from 'viem';
@@ -32,6 +32,9 @@ import type { AgentAccountRecord, AgentAccountStore } from './agent-account-stor
 import type { AgentConnectionRecord, AgentConnectionStore } from './agent-connection-store.js';
 import type { AgentKeyReader } from './agent-key-read-client.js';
 import { agentKeyFor } from './agent-key.js';
+import type { AccountFreezeRead } from '../quant/live-run/ports.js';
+import { assertNotSelfFrozen, freezePrincipal } from './self-freeze.js';
+import { dailyLossOf, startOfUtcDay } from './daily-loss.js';
 import { AGENT_ORDER_PREFIX, orderOriginOf, UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
 
 /**
@@ -160,6 +163,8 @@ export interface AgentOrdersDeps {
   readonly keys: AgentKeyReader;
   readonly stepUp: StepUpCheck;
   readonly values: AgentAccountValues;
+  /** The owner's own freeze, read from identity before a connection or an assistant order (null refuses). */
+  readonly freeze: AccountFreezeRead | null;
   readonly now: () => Date;
 }
 
@@ -226,6 +231,7 @@ export class AgentOrders {
       );
     }
     await this.notRevoked(principal, account);
+    await assertNotSelfFrozen(this.deps.freeze, principal.userId, 'connecting an assistant to an agent account');
     const key = await this.deps.keys.read(principal.userId, keyId);
     if (key === null) {
       throw new AgentAccountError(
@@ -499,6 +505,58 @@ export class AgentOrders {
     };
   }
 
+  /**
+   * J-wallet-13 #1: the owner froze their own account (the `selfFreezeApplied` event). Every agent permission kept here
+   * for them is revoked at once, the way the person's own Revoke does it (#12): each active assistant connection ends,
+   * the assistant's resting orders are cancelled once on the venue, and our copy of each open agent account's venue
+   * agent key is dropped (its `revoke_agent` prepared for the wallet), so it signs nothing more, for the assistant or a
+   * copy. Positions stay; nothing moves. The venue's own approval is withdrawn only by the wallet's signature of that
+   * revoke, which the person can send whenever they like. Safe to repeat: an ended connection stays ended and a dropped
+   * key is read back from its stored revoke, so a second delivery sends nothing new. A venue that does not answer throws,
+   * so the event is delivered again; the connection has already ended by then. Nothing is restored on the lift.
+   */
+  async applySelfFreeze(userId: string): Promise<{ readonly connections: number; readonly accounts: number }> {
+    const principal = freezePrincipal(userId, 'none');
+    const now = this.deps.now();
+    const connections = await this.deps.connections.listActive(userId);
+    // Every connection ends first, so no assistant order passes while the rest is done.
+    for (const c of connections) await this.deps.connections.end(c.keyId, now);
+    for (const c of connections) {
+      try {
+        await this.revoke(principal, c.keyId);
+      } catch (error) {
+        // An account that is gone or never opened holds no agent key; its connection has ended, which is all there is.
+        if (error instanceof AgentAccountError && (error.code === 'agents.account_unknown' || error.code === 'agents.account_not_open'))
+          continue;
+        throw error;
+      }
+    }
+    let accounts = 0;
+    const venue = await this.deps.door.venue();
+    for (const a of await this.deps.accounts.list(userId)) {
+      if (a.status !== 'open' || a.subAccount === null || a.venueId !== venue.venue.id) continue;
+      accounts += 1;
+      const revokeKey = agentRevokeKey(a.accountId);
+      if ((await this.deps.door.stored(principal, revokeKey)) === null) {
+        await this.deps.door.prepare(
+          principal,
+          {
+            owner: a.owner,
+            subAccount: a.subAccount,
+            signer: { role: 'owner', address: a.owner },
+            intent: { kind: 'revoke_agent', agentAddress: a.agentAddress },
+            actionKey: revokeKey,
+          },
+          { agentAccount: true },
+        );
+      }
+      this.signers.delete(a.agentAddress);
+      this.holdingMarks.delete(a.agentAddress);
+      this.orderMarks.delete(a.agentAddress);
+    }
+    return { connections: connections.length, accounts };
+  }
+
   /** #12 step 2: cancel, once each, the assistant's orders the venue shows resting on the agent account. */
   private async cancelResting(
     principal: Principal,
@@ -622,6 +680,7 @@ export class AgentOrders {
    * is the venue's, named, and nothing is open.
    */
   async place(principal: Principal, req: Record<string, unknown>): Promise<AgentOrderView> {
+    await assertNotSelfFrozen(this.deps.freeze, principal.userId, "an assistant's order");
     const { keyId, account: a } = await this.boundAccount(principal);
     const seed = this.deps.values.keySeed;
     if (seed === null)
@@ -797,6 +856,9 @@ export class AgentOrders {
       );
     }
     const account = a as AgentAccountRecord & { subAccount: string };
+    // Our copy of the account's venue agent key, once dropped (the person's revoke, #12, or their own freeze), signs
+    // nothing more, for a copy as for the assistant: a new permission is the person's to sign.
+    await this.notRevoked(principal, account);
     if (compare(order.amount, ZERO) <= 0 || compare(order.price, ZERO) <= 0) orderInvalid('amount and price must be above zero');
     const venue = await this.deps.door.venue();
     if (account.venueId !== venue.venue.id) {
@@ -926,8 +988,7 @@ export class AgentOrders {
   private async withinDailyLoss(a: AgentAccountRecord, venue: UserVenue, sub: UserVenueAccount): Promise<void> {
     const cap = a.limits.maxDailyLoss;
     if (cap === null) return;
-    const now = this.deps.now();
-    const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const since = startOfUtcDay(this.deps.now());
     const loss = dailyLossOf((await venue.fills(sub, since)).value, a.asset);
     if (compare(loss, cap) >= 0) {
       throw new AgentAccountError(
@@ -1108,25 +1169,5 @@ export class AgentOrders {
   }
 }
 
-/**
- * #18: the loss in `asset` the venue's fills come to: their realised results less every fee, as a positive amount; zero
- * when they come to a gain. A fee in another asset (a spot buy's fee in the base asset) is valued at the fill's price.
- */
-export function dailyLossOf(
-  fills: readonly {
-    readonly price: Amount;
-    readonly venueFee: Amount;
-    readonly builderFee: Amount;
-    readonly feeAsset: string;
-    readonly realisedPnl: Amount | null;
-  }[],
-  asset: string,
-): Amount {
-  let result = ZERO;
-  for (const f of fills) {
-    if (f.realisedPnl !== null) result = add(result, f.realisedPnl);
-    const fees = add(f.venueFee, f.builderFee);
-    result = minus(result, f.feeAsset === asset ? fees : mul(fees, f.price, 'ceil'));
-  }
-  return compare(result, ZERO) < 0 ? minus(ZERO, result) : ZERO;
-}
+/** #18: the loss the venue's fills come to (daily-loss.ts, shared with the person's own daily loss limit). */
+export { dailyLossOf };

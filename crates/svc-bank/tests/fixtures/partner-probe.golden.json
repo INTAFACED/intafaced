@@ -1,0 +1,2024 @@
+{
+  "note": "Written by crates/svc-bank/scripts/partner-probe.mjs from the TypeScript svc-bank; never edited by hand.",
+  "secret": "placeholder-bank-partner-probe-edge-secret-0000",
+  "internal": "placeholder-bank-partner-probe-internal-secret-0",
+  "businesses": [
+    {
+      "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "name": "TEST Ada Ltd",
+      "asset_id": "EUR",
+      "status": "active",
+      "owner_user_id": "11111111-1111-4111-8111-111111111111",
+      "admin": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "name": "TEST Bob Ltd",
+      "asset_id": "EUR",
+      "status": "active",
+      "owner_user_id": "22222222-2222-4222-8222-222222222222",
+      "admin": "22222222-2222-4222-8222-222222222222"
+    }
+  ],
+  "steps": [
+    {
+      "name": "every switch off, and nothing offered yet",
+      "at": "2026-11-22T10:00:01.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/testPartner.switches",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"notOffered\":[],\"fee\":\"known\",\"reserve\":\"none\",\"down\":false,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":null,\"calendarSource\":null,\"label\":\"TEST partner bank\",\"partnerReserve\":{\"required\":false}}}}"
+    },
+    {
+      "name": "a person not held at the partner is offered no cash leg",
+      "at": "2026-11-22T10:00:02.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/convertCash.offers",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"offers\":[],\"reason\":\"the partner does not hold this person’s cash\"}}}"
+    },
+    {
+      "name": "the spend of a person not held at the partner is refused",
+      "at": "2026-11-22T10:00:03.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0001\",\"assetId\":\"EUR\",\"amount\":\"1\",\"kind\":\"payment\"}",
+      "status": 412,
+      "answer": "{\"error\":{\"message\":\"This person has no money at the TEST partner bank, so nothing can leave it.\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.no_partner_bank\"}}}}"
+    },
+    {
+      "name": "custody off, spaces twice, a TEST holder name with spaces",
+      "at": "2026-11-22T10:00:04.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.set",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"custody\":\"off\",\"notOffered\":[\"spaces\",\"pots\",\"spaces\"],\"holderName\":\"  TEST Ada Lovelace \",\"reserve\":\"required\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"notOffered\":[\"spaces\",\"pots\"],\"fee\":\"known\",\"reserve\":\"required\",\"down\":false,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"off\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":\"TEST Ada Lovelace\",\"payIn\":\"answered\",\"openOrder\":null,\"calendarSource\":null,\"label\":\"TEST partner bank\",\"partnerReserve\":{\"required\":true,\"amount\":null}}}}"
+    },
+    {
+      "name": "funded with TEST 100 EUR",
+      "at": "2026-11-22T10:00:05.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fund",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"fundId\":\"fund-00001\",\"assetId\":\"EUR\",\"amount\":\"100\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"assetId\":\"EUR\",\"balance\":\"100\",\"asOf\":\"2026-11-22T10:00:05.000Z\"}}}"
+    },
+    {
+      "name": "the same funding again is the same",
+      "at": "2026-11-22T10:00:06.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fund",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"fundId\":\"fund-00001\",\"assetId\":\"EUR\",\"amount\":\"100\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"assetId\":\"EUR\",\"balance\":\"100\",\"asOf\":\"2026-11-22T10:00:06.000Z\"}}}"
+    },
+    {
+      "name": "the same id with another amount conflicts",
+      "at": "2026-11-22T10:00:07.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fund",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"fundId\":\"fund-00001\",\"assetId\":\"EUR\",\"amount\":\"99\"}",
+      "status": 409,
+      "answer": "{\"error\":{\"message\":\"The partner already holds a different move under fund-00001, so this one was not made.\",\"code\":-32009,\"data\":{\"code\":\"CONFLICT\",\"httpStatus\":409,\"stack\":\"<stack>\",\"path\":\"testPartner.fund\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_move_conflict\"}}}}"
+    },
+    {
+      "name": "funded with TEST 50 USD",
+      "at": "2026-11-22T10:00:08.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fund",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"fundId\":\"fund-00002\",\"assetId\":\"USD\",\"amount\":\"50.25\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"assetId\":\"USD\",\"balance\":\"50.25\",\"asOf\":\"2026-11-22T10:00:08.000Z\"}}}"
+    },
+    {
+      "name": "a payment leaves once",
+      "at": "2026-11-22T10:00:09.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0001\",\"assetId\":\"EUR\",\"amount\":\"30\",\"kind\":\"payment\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"moveId\":\"test-partner-move-<boot>-000000000003\",\"amount\":\"30\"}}}"
+    },
+    {
+      "name": "the same payment again is the same move",
+      "at": "2026-11-22T10:00:10.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0001\",\"assetId\":\"EUR\",\"amount\":\"30\",\"kind\":\"payment\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"moveId\":\"test-partner-move-<boot>-000000000003\",\"amount\":\"30\"}}}"
+    },
+    {
+      "name": "the same id with another amount conflicts",
+      "at": "2026-11-22T10:00:11.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0001\",\"assetId\":\"EUR\",\"amount\":\"31\",\"kind\":\"payment\"}",
+      "status": 409,
+      "answer": "{\"error\":{\"message\":\"The partner already holds a different move under test-spend:11111111-1111-4111-8111-111111111111:spend-0001, so this one was not made.\",\"code\":-32009,\"data\":{\"code\":\"CONFLICT\",\"httpStatus\":409,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_move_conflict\"}}}}"
+    },
+    {
+      "name": "a payout",
+      "at": "2026-11-22T10:00:12.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0002\",\"assetId\":\"EUR\",\"amount\":\"10\",\"kind\":\"payout\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"moveId\":\"test-partner-move-<boot>-000000000004\",\"amount\":\"10\"}}}"
+    },
+    {
+      "name": "a fee",
+      "at": "2026-11-22T10:00:13.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0003\",\"assetId\":\"EUR\",\"amount\":\"0.5\",\"kind\":\"fee\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"moveId\":\"test-partner-move-<boot>-000000000005\",\"amount\":\"0.5\"}}}"
+    },
+    {
+      "name": "more than the partner holds",
+      "at": "2026-11-22T10:00:14.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0004\",\"assetId\":\"EUR\",\"amount\":\"1000\",\"kind\":\"payment\"}",
+      "status": 409,
+      "answer": "{\"error\":{\"message\":\"The partner reports 59.5 EUR in this account, less than 1000. Nothing was moved.\",\"code\":-32009,\"data\":{\"code\":\"CONFLICT\",\"httpStatus\":409,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_insufficient_funds\"}}}}"
+    },
+    {
+      "name": "an amount of zero",
+      "at": "2026-11-22T10:00:15.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0005\",\"assetId\":\"EUR\",\"amount\":\"0\",\"kind\":\"payment\"}",
+      "status": 400,
+      "answer": "{\"error\":{\"message\":\"A partner move needs an amount above zero.\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_amount_invalid\"}}}}"
+    },
+    {
+      "name": "a currency the person holds nothing in",
+      "at": "2026-11-22T10:00:16.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0006\",\"assetId\":\"GBP\",\"amount\":\"1\",\"kind\":\"payment\"}",
+      "status": 409,
+      "answer": "{\"error\":{\"message\":\"The partner reports 0 GBP in this account, less than 1. Nothing was moved.\",\"code\":-32009,\"data\":{\"code\":\"CONFLICT\",\"httpStatus\":409,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_insufficient_funds\"}}}}"
+    },
+    {
+      "name": "the next reply is lost",
+      "at": "2026-11-22T10:00:17.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.set",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"nextReply\":\"lost\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"notOffered\":[\"spaces\",\"pots\"],\"fee\":\"known\",\"reserve\":\"required\",\"down\":false,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"off\",\"nextReply\":\"lost\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":\"TEST Ada Lovelace\",\"payIn\":\"answered\",\"openOrder\":null,\"calendarSource\":null,\"label\":\"TEST partner bank\",\"partnerReserve\":{\"required\":true,\"amount\":null}}}}"
+    },
+    {
+      "name": "the move is made and its answer lost",
+      "at": "2026-11-22T10:00:18.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0007\",\"assetId\":\"EUR\",\"amount\":\"5\",\"kind\":\"payment\"}",
+      "status": 503,
+      "answer": "{\"error\":{\"message\":\"The partner bank did not answer, so whether this move was made is not known. Try again with the same request: it is made at most once.\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_reply_lost\"}}}}"
+    },
+    {
+      "name": "the retry is answered with the one move",
+      "at": "2026-11-22T10:00:19.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0007\",\"assetId\":\"EUR\",\"amount\":\"5\",\"kind\":\"payment\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"moveId\":\"test-partner-move-<boot>-000000000006\",\"amount\":\"5\"}}}"
+    },
+    {
+      "name": "posting frozen on svc-ledger",
+      "at": "2026-11-22T10:00:20.000Z",
+      "env": {
+        "posting": false,
+        "cause": "mismatch",
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0008\",\"assetId\":\"EUR\",\"amount\":\"1\",\"kind\":\"payment\"}",
+      "status": 503,
+      "answer": "{\"error\":{\"message\":\"Money moves are paused across the platform right now. Nothing was sent or changed.\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.posting_frozen\"}}}}"
+    },
+    {
+      "name": "the freeze unreadable cause is not reported",
+      "at": "2026-11-22T10:00:21.000Z",
+      "env": {
+        "posting": false,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0008\",\"assetId\":\"EUR\",\"amount\":\"1\",\"kind\":\"payment\"}",
+      "status": 503,
+      "answer": "{\"error\":{\"message\":\"Money moves are paused across the platform right now. Nothing was sent or changed.\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.posting_frozen\"}}}}"
+    },
+    {
+      "name": "the operator stops bank moves",
+      "at": "2026-11-22T10:00:22.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": ["bank_move"],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0008\",\"assetId\":\"EUR\",\"amount\":\"1\",\"kind\":\"payment\"}",
+      "status": 503,
+      "answer": "{\"error\":{\"message\":\"Operations have stopped this kind of move (bank_move) at the partner for now. Nothing was sent or changed.\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_stopped\"}}}}"
+    },
+    {
+      "name": "a stop of another kind leaves moves open",
+      "at": "2026-11-22T10:00:23.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": ["card_hold"],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0008\",\"assetId\":\"EUR\",\"amount\":\"1\",\"kind\":\"payment\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"moveId\":\"test-partner-move-<boot>-000000000007\",\"amount\":\"1\"}}}"
+    },
+    {
+      "name": "the partner down",
+      "at": "2026-11-22T10:00:24.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.set",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"down\":true}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"notOffered\":[\"spaces\",\"pots\"],\"fee\":\"known\",\"reserve\":\"required\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"off\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":\"TEST Ada Lovelace\",\"payIn\":\"answered\",\"openOrder\":null,\"calendarSource\":null,\"label\":\"TEST partner bank\",\"partnerReserve\":{\"required\":true,\"amount\":null}}}}"
+    },
+    {
+      "name": "a spend while down",
+      "at": "2026-11-22T10:00:25.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.spend",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"spendId\":\"spend-0009\",\"assetId\":\"EUR\",\"amount\":\"1\",\"kind\":\"payment\"}",
+      "status": 503,
+      "answer": "{\"error\":{\"message\":\"The partner bank is not answering. Nothing was sent or changed.\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"testPartner.spend\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_unavailable\"}}}}"
+    },
+    {
+      "name": "a funding while down",
+      "at": "2026-11-22T10:00:26.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fund",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"fundId\":\"fund-00003\",\"assetId\":\"EUR\",\"amount\":\"1\"}",
+      "status": 503,
+      "answer": "{\"error\":{\"message\":\"The partner bank is not answering. Nothing was sent or changed.\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"testPartner.fund\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_unavailable\"}}}}"
+    },
+    {
+      "name": "no cash leg while down",
+      "at": "2026-11-22T10:00:27.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/convertCash.offers",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"offers\":[],\"reason\":\"the partner bank is not answering\"}}}"
+    },
+    {
+      "name": "the switches while down",
+      "at": "2026-11-22T10:00:28.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/testPartner.switches",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"notOffered\":[\"spaces\",\"pots\"],\"fee\":\"known\",\"reserve\":\"required\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"off\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":\"TEST Ada Lovelace\",\"payIn\":\"answered\",\"openOrder\":null,\"calendarSource\":null,\"label\":\"TEST partner bank\",\"partnerReserve\":{\"required\":true,\"amount\":null}}}}"
+    },
+    {
+      "name": "answering again, cash leg off, unknown fee",
+      "at": "2026-11-22T10:00:29.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.set",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"down\":false,\"notOffered\":[\"cash_leg\"],\"fee\":\"unknown\",\"holderName\":null}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"notOffered\":[\"cash_leg\"],\"fee\":\"unknown\",\"reserve\":\"required\",\"down\":false,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"off\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":null,\"calendarSource\":null,\"label\":\"TEST partner bank\",\"partnerReserve\":{\"required\":true,\"amount\":null}}}}"
+    },
+    {
+      "name": "no cash leg when switched off",
+      "at": "2026-11-22T10:00:30.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/convertCash.offers",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"offers\":[],\"reason\":\"the partner has switched cash through a coin off for this person\"}}}"
+    },
+    {
+      "name": "a carry when switched off",
+      "at": "2026-11-22T10:00:31.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/convertCash.carry",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0001\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"spend\":\"20\",\"least\":\"21.6\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"}}",
+      "status": 412,
+      "answer": "{\"error\":{\"message\":\"The partner does not offer cash through a coin here: the partner has switched cash through a coin off for this person. Nothing was moved.\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"convertCash.carry\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.cash_leg_not_offered\"}}}}"
+    },
+    {
+      "name": "the cash leg on again",
+      "at": "2026-11-22T10:00:32.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.set",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"notOffered\":[]}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"notOffered\":[],\"fee\":\"unknown\",\"reserve\":\"required\",\"down\":false,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"off\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":null,\"calendarSource\":null,\"label\":\"TEST partner bank\",\"partnerReserve\":{\"required\":true,\"amount\":null}}}}"
+    },
+    {
+      "name": "the offers with the partner balance",
+      "at": "2026-11-22T10:00:33.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/convertCash.offers",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"offers\":[{\"cash\":\"EUR\",\"coin\":\"USDC\",\"rate\":\"1.08\",\"available\":\"53.5\",\"asOf\":\"2026-11-22T10:00:33.000Z\",\"label\":\"TEST partner bank\",\"test\":true},{\"cash\":\"USD\",\"coin\":\"USDC\",\"rate\":\"1\",\"available\":\"50.25\",\"asOf\":\"2026-11-22T10:00:33.000Z\",\"label\":\"TEST partner bank\",\"test\":true}],\"reason\":null}}}"
+    },
+    {
+      "name": "a carry at a rate that moved",
+      "at": "2026-11-22T10:00:34.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/convertCash.carry",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0002\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"spend\":\"20\",\"least\":\"21.61\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"}}",
+      "status": 409,
+      "answer": "{\"error\":{\"message\":\"The partner now gives 21.6 USDC for 20 EUR, less than the 21.61 priced. Nothing was moved; get a new price.\",\"code\":-32009,\"data\":{\"code\":\"CONFLICT\",\"httpStatus\":409,\"stack\":\"<stack>\",\"path\":\"convertCash.carry\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.cash_leg_rate_moved\"}}}}"
+    },
+    {
+      "name": "a carry with no rate",
+      "at": "2026-11-22T10:00:35.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/convertCash.carry",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0003\",\"cash\":\"EUR\",\"coin\":\"BTC\",\"spend\":\"20\",\"least\":\"1\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"}}",
+      "status": 412,
+      "answer": "{\"error\":{\"message\":\"The partner does not offer cash through a coin here: it gives no rate for EUR to BTC. Nothing was moved.\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"convertCash.carry\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.cash_leg_not_offered\"}}}}"
+    },
+    {
+      "name": "a carry is made and paid out",
+      "at": "2026-11-22T10:00:36.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/convertCash.carry",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0001\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"spend\":\"20\",\"least\":\"21.6\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"}}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0001\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"paid\":\"20\",\"delivered\":\"21.6\",\"rate\":\"1.08\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"},\"state\":\"delivered\",\"moveId\":\"test-partner-move-<boot>-000000000008\",\"movedAt\":\"2026-11-22T10:00:36.000Z\",\"deliveredAt\":\"2026-11-22T10:00:36.000Z\",\"label\":\"TEST partner bank\",\"test\":true}}}"
+    },
+    {
+      "name": "the same carry again",
+      "at": "2026-11-22T10:00:37.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/convertCash.carry",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0001\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"spend\":\"20\",\"least\":\"21.6\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"}}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0001\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"paid\":\"20\",\"delivered\":\"21.6\",\"rate\":\"1.08\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"},\"state\":\"delivered\",\"moveId\":\"test-partner-move-<boot>-000000000008\",\"movedAt\":\"2026-11-22T10:00:36.000Z\",\"deliveredAt\":\"2026-11-22T10:00:36.000Z\",\"label\":\"TEST partner bank\",\"test\":true}}}"
+    },
+    {
+      "name": "another body under the key",
+      "at": "2026-11-22T10:00:38.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/convertCash.carry",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0001\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"spend\":\"21\",\"least\":\"21.6\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"}}",
+      "status": 409,
+      "answer": "{\"error\":{\"message\":\"The partner already holds a different cash leg under convert-cash:1111111111111111111111111111111111111111:quote_0001, so this one was not made.\",\"code\":-32009,\"data\":{\"code\":\"CONFLICT\",\"httpStatus\":409,\"stack\":\"<stack>\",\"path\":\"convertCash.carry\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.partner_move_conflict\"}}}}"
+    },
+    {
+      "name": "the leg read",
+      "at": "2026-11-22T10:00:39.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/convertCash.leg?input=%7B%22legKey%22%3A%22convert-cash%3A1111111111111111111111111111111111111111%3Aquote_0001%22%7D",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"leg\":{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0001\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"paid\":\"20\",\"delivered\":\"21.6\",\"rate\":\"1.08\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"},\"state\":\"delivered\",\"moveId\":\"test-partner-move-<boot>-000000000008\",\"movedAt\":\"2026-11-22T10:00:36.000Z\",\"deliveredAt\":\"2026-11-22T10:00:36.000Z\",\"label\":\"TEST partner bank\",\"test\":true}}}}"
+    },
+    {
+      "name": "another person reads no leg",
+      "at": "2026-11-22T10:00:40.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "22222222-2222-4222-8222-222222222222",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/convertCash.leg?input=%7B%22legKey%22%3A%22convert-cash%3A1111111111111111111111111111111111111111%3Aquote_0001%22%7D",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"22222222-2222-4222-8222-222222222222\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"22222222-2222-4222-8222-222222222222\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "67a670bc6d92dcf5032c82b2ce8260b490ccd210b32a7cc66b5443817a1f9626",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"leg\":null}}}"
+    },
+    {
+      "name": "the venue does not answer",
+      "at": "2026-11-22T10:00:41.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": true
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/convertCash.carry",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0004\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"spend\":\"10.333333\",\"least\":\"1\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"}}",
+      "status": 503,
+      "answer": "{\"error\":{\"message\":\"The partner took 10.333333 EUR and has not yet paid 11.159999 USDC into the venue account. Check again: it is paid once.\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"convertCash.carry\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.cash_leg_sending\"}}}}"
+    },
+    {
+      "name": "the leg reads sending",
+      "at": "2026-11-22T10:00:42.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/convertCash.leg?input=%7B%22legKey%22%3A%22convert-cash%3A1111111111111111111111111111111111111111%3Aquote_0004%22%7D",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"leg\":{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0004\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"paid\":\"10.333333\",\"delivered\":\"11.159999\",\"rate\":\"1.08\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"},\"state\":\"sending\",\"moveId\":\"test-partner-move-<boot>-000000000009\",\"movedAt\":\"2026-11-22T10:00:41.000Z\",\"deliveredAt\":null,\"label\":\"TEST partner bank\",\"test\":true}}}}"
+    },
+    {
+      "name": "asked again once the venue answers, it is paid once",
+      "at": "2026-11-22T10:00:43.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/convertCash.carry",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0004\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"spend\":\"10.333333\",\"least\":\"1\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"}}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"legKey\":\"convert-cash:1111111111111111111111111111111111111111:quote_0004\",\"cash\":\"EUR\",\"coin\":\"USDC\",\"paid\":\"10.333333\",\"delivered\":\"11.159999\",\"rate\":\"1.08\",\"venue\":{\"venueId\":\"test-venue\",\"owner\":\"0x1111111111111111111111111111111111111111\"},\"state\":\"delivered\",\"moveId\":\"test-partner-move-<boot>-000000000009\",\"movedAt\":\"2026-11-22T10:00:41.000Z\",\"deliveredAt\":\"2026-11-22T10:00:43.000Z\",\"label\":\"TEST partner bank\",\"test\":true}}}"
+    },
+    {
+      "name": "a request opened",
+      "at": "2026-11-22T10:00:44.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.openCompliance",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"kind\":\"request\",\"id\":\"request-0001\",\"dueDays\":14}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"id\":\"11111111-1111-4111-8111-111111111111:request-0001\",\"dueAt\":\"2026-12-06T10:00:44.000Z\"}}}"
+    },
+    {
+      "name": "the same request again",
+      "at": "2026-11-22T10:00:45.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.openCompliance",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"kind\":\"request\",\"id\":\"request-0001\",\"dueDays\":30}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"id\":\"11111111-1111-4111-8111-111111111111:request-0001\",\"dueAt\":\"2026-12-06T10:00:44.000Z\"}}}"
+    },
+    {
+      "name": "a review opened",
+      "at": "2026-11-22T10:00:46.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.openCompliance",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"kind\":\"review\",\"id\":\"review-0001\",\"dueDays\":365}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"id\":\"11111111-1111-4111-8111-111111111111:review-0001\",\"dueAt\":\"2027-11-22T10:00:46.000Z\"}}}"
+    },
+    {
+      "name": "a mutation with no body and no content type",
+      "at": "2026-11-22T10:00:47.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.closurePaidOut",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 415,
+      "answer": "{\"error\":{\"message\":\"Missing content-type header\",\"code\":-32015,\"data\":{\"code\":\"UNSUPPORTED_MEDIA_TYPE\",\"httpStatus\":415,\"stack\":\"<stack>\"}}}"
+    },
+    {
+      "name": "a mutation sent as plain text",
+      "at": "2026-11-22T10:00:48.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.closurePaidOut",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "text/plain"
+      },
+      "body": "{}",
+      "status": 415,
+      "answer": "{\"error\":{\"message\":\"Unsupported content-type \\\"text/plain\",\"code\":-32015,\"data\":{\"code\":\"UNSUPPORTED_MEDIA_TYPE\",\"httpStatus\":415,\"stack\":\"<stack>\"}}}"
+    },
+    {
+      "name": "a mutation in a media type nothing reads",
+      "at": "2026-11-22T10:00:49.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.closurePaidOut",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/xml"
+      },
+      "body": "<a/>",
+      "status": 415,
+      "answer": "{\"statusCode\":415,\"code\":\"FST_ERR_CTP_INVALID_MEDIA_TYPE\",\"error\":\"Unsupported Media Type\",\"message\":\"Unsupported Media Type\"}"
+    },
+    {
+      "name": "a mutation with a body and no content type",
+      "at": "2026-11-22T10:00:50.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.closurePaidOut",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": "{}",
+      "status": 415,
+      "answer": "{\"statusCode\":415,\"code\":\"FST_ERR_CTP_INVALID_MEDIA_TYPE\",\"error\":\"Unsupported Media Type\",\"message\":\"Unsupported Media Type\"}"
+    },
+    {
+      "name": "a JSON mutation with an empty body",
+      "at": "2026-11-22T10:00:51.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.closurePaidOut",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "",
+      "status": 404,
+      "answer": "{\"error\":{\"message\":\"No closure of this account is waiting for its payout.\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"testPartner.closurePaidOut\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.closure_not_found\"}}}}"
+    },
+    {
+      "name": "a mutation with no content type and no person",
+      "at": "2026-11-22T10:00:52.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.closurePaidOut",
+      "headers": {},
+      "body": null,
+      "status": 415,
+      "answer": "{\"error\":{\"message\":\"Missing content-type header\",\"code\":-32015,\"data\":{\"code\":\"UNSUPPORTED_MEDIA_TYPE\",\"httpStatus\":415,\"stack\":\"<stack>\"}}}"
+    },
+    {
+      "name": "a query posted without a content type",
+      "at": "2026-11-22T10:00:53.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.switches",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 415,
+      "answer": "{\"error\":{\"message\":\"Missing content-type header\",\"code\":-32015,\"data\":{\"code\":\"UNSUPPORTED_MEDIA_TYPE\",\"httpStatus\":415,\"stack\":\"<stack>\"}}}"
+    },
+    {
+      "name": "no closure waits for its payout",
+      "at": "2026-11-22T10:00:54.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.closurePaidOut",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{}",
+      "status": 404,
+      "answer": "{\"error\":{\"message\":\"No closure of this account is waiting for its payout.\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"testPartner.closurePaidOut\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.closure_not_found\"}}}}"
+    },
+    {
+      "name": "a business that does not exist",
+      "at": "2026-11-22T10:00:55.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fundBusiness",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"accountId\":\"dddddddd-dddd-4ddd-8ddd-dddddddddddd\",\"fundId\":\"bfund-0001\",\"amount\":\"10\"}",
+      "status": 404,
+      "answer": "{\"error\":{\"message\":\"No business account has this id.\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"testPartner.fundBusiness\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.business_not_found\"}}}}"
+    },
+    {
+      "name": "another owner’s business",
+      "at": "2026-11-22T10:00:56.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fundBusiness",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"accountId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"fundId\":\"bfund-0001\",\"amount\":\"10\"}",
+      "status": 403,
+      "answer": "{\"error\":{\"message\":\"Only the owner of this business can do this.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"testPartner.fundBusiness\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.business_owner_only\"}}}}"
+    },
+    {
+      "name": "the owner’s business funded",
+      "at": "2026-11-22T10:00:57.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fundBusiness",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"accountId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"fundId\":\"bfund-0001\",\"amount\":\"10\"}",
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"assetId\":\"EUR\",\"balance\":\"10\",\"asOf\":\"2026-11-22T10:00:57.000Z\"}}}"
+    },
+    {
+      "name": "the business’s statement",
+      "at": "2026-11-22T10:00:58.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/testPartner.businessStatement?input=%7B%22accountId%22%3A%22aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa%22%2C%22from%22%3A%222026-11-22T09%3A00%3A00.000Z%22%2C%22to%22%3A%222026-11-23T00%3A00%3A00.000Z%22%7D",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"opening\":\"0\",\"closing\":\"10\",\"lines\":1}}}"
+    },
+    {
+      "name": "a statement before the funding",
+      "at": "2026-11-22T10:00:59.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/testPartner.businessStatement?input=%7B%22accountId%22%3A%22aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa%22%2C%22from%22%3A%222026-11-21T00%3A00%3A00.000Z%22%2C%22to%22%3A%222026-11-22T10%3A00%3A10.000Z%22%7D",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"label\":\"TEST partner bank\",\"opening\":\"0\",\"closing\":\"0\",\"lines\":0}}}"
+    },
+    {
+      "name": "a business owner not held at the partner",
+      "at": "2026-11-22T10:01:00.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "22222222-2222-4222-8222-222222222222",
+      "service": null,
+      "method": "POST",
+      "url": "/trpc/testPartner.fundBusiness",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"22222222-2222-4222-8222-222222222222\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"22222222-2222-4222-8222-222222222222\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "67a670bc6d92dcf5032c82b2ce8260b490ccd210b32a7cc66b5443817a1f9626",
+        "x-intafaced-region": "GB",
+        "content-type": "application/json"
+      },
+      "body": "{\"accountId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"fundId\":\"bfund-0002\",\"amount\":\"10\"}",
+      "status": 412,
+      "answer": "{\"error\":{\"message\":\"This business’s money is not held at the TEST partner bank.\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"testPartner.fundBusiness\",\"requestId\":\"probe-request\",\"cause\":{\"code\":\"bank.no_partner_bank\"}}}}"
+    },
+    {
+      "name": "the usage read of a partner-held person",
+      "at": "2026-11-22T10:01:01.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341661",
+        "x-intafaced-service-body": "c0c5e921a4cc6298eba034f1da1ce9eedd396e26429aa395a22451ccc1590ea4",
+        "x-intafaced-service-sig": "ad0bff6d36c08a2ed73b7e20d611fa1fa54ec224016aa72b7d0ef0562c92965d",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"read\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\"}",
+      "status": 200,
+      "answer": "{\"heldBy\":\"partner\",\"label\":\"TEST partner bank\",\"available\":\"23.166667\",\"asOf\":\"2026-11-22T10:01:01.000Z\"}"
+    },
+    {
+      "name": "the usage read of a person not held",
+      "at": "2026-11-22T10:01:02.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341662",
+        "x-intafaced-service-body": "d11bd2c9d5d8b4453972de2a8c535440034e5d0eb9771f5689855d328ca7872e",
+        "x-intafaced-service-sig": "d2914352f89c4fe75d474b02f62267f4b77addc797d53da95e022436a7907afc",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"read\",\"userId\":\"22222222-2222-4222-8222-222222222222\",\"assetId\":\"EUR\"}",
+      "status": 200,
+      "answer": "{\"heldBy\":\"none\"}"
+    },
+    {
+      "name": "the usage read of a business paid by its owner",
+      "at": "2026-11-22T10:01:03.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341663",
+        "x-intafaced-service-body": "b2b35ea5c1ca3ecb382389abe078530d207b46eed4b635d5adc78517f8e82d44",
+        "x-intafaced-service-sig": "a20f92dc94110b1b33c92e95e874076d4f292f31b47409e6bbdd01698f757672",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"read\",\"userId\":\"22222222-2222-4222-8222-222222222222\",\"assetId\":\"EUR\",\"businessId\":\"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA\"}",
+      "status": 200,
+      "answer": "{\"heldBy\":\"partner\",\"label\":\"TEST partner bank\",\"available\":\"23.166667\",\"asOf\":\"2026-11-22T10:01:03.000Z\"}"
+    },
+    {
+      "name": "a usage payment",
+      "at": "2026-11-22T10:01:04.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341664",
+        "x-intafaced-service-body": "cb71fd2ed2a3ee20361502f2f7192e9835d3ccff5a35ee2a127448800364384d",
+        "x-intafaced-service-sig": "e4ecd1359e17dcdc047a8972ce7e5bab8c0c40488d65b8d53152064692d45b57",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"collect\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"amount\":\"2.5\",\"chargeKey\":\"agent.usage:window-0001\"}",
+      "status": 200,
+      "answer": "{\"ok\":true,\"paymentId\":\"test-partner-move-<boot>-000000000011\",\"partnerId\":\"test\",\"label\":\"TEST partner bank\",\"amount\":\"2.5\",\"paidAt\":\"2026-11-22T10:01:04.000Z\"}"
+    },
+    {
+      "name": "the same usage payment while frozen: the guarded move asks the freeze again",
+      "at": "2026-11-22T10:01:05.000Z",
+      "env": {
+        "posting": false,
+        "cause": "person",
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341665",
+        "x-intafaced-service-body": "cb71fd2ed2a3ee20361502f2f7192e9835d3ccff5a35ee2a127448800364384d",
+        "x-intafaced-service-sig": "4f455b478c0e4023a384d0ad4e70fbb64c303e203a6eee78b1a7ebcf86ed1890",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"collect\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"amount\":\"2.5\",\"chargeKey\":\"agent.usage:window-0001\"}",
+      "status": 200,
+      "answer": "{\"ok\":false,\"reason\":\"posting_frozen\"}"
+    },
+    {
+      "name": "a new usage payment while frozen",
+      "at": "2026-11-22T10:01:06.000Z",
+      "env": {
+        "posting": false,
+        "cause": "person",
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341666",
+        "x-intafaced-service-body": "a06b625c36cd7bed625724ac620ecb8372f885dddb6c273fceb50b9ce9538dc3",
+        "x-intafaced-service-sig": "20c397661a692fb2aec84c62b47f3d77e49345d3aaafbf245025f34fa195e38f",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"collect\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"amount\":\"1\",\"chargeKey\":\"agent.usage:window-0002\"}",
+      "status": 200,
+      "answer": "{\"ok\":false,\"reason\":\"posting_frozen\"}"
+    },
+    {
+      "name": "a usage payment while stopped",
+      "at": "2026-11-22T10:01:07.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": ["bank_move"],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341667",
+        "x-intafaced-service-body": "a06b625c36cd7bed625724ac620ecb8372f885dddb6c273fceb50b9ce9538dc3",
+        "x-intafaced-service-sig": "a029e7e3d0b571f58b20ea86d6b0fcd077ee2fe77691c617a250cfdef85d8f41",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"collect\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"amount\":\"1\",\"chargeKey\":\"agent.usage:window-0002\"}",
+      "status": 200,
+      "answer": "{\"ok\":false,\"reason\":\"partner_stopped\"}"
+    },
+    {
+      "name": "a usage payment past the balance",
+      "at": "2026-11-22T10:01:08.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341668",
+        "x-intafaced-service-body": "739a8a467d5eefd8d654be925b6c8391ebd37e2fc7b2dcdf9962db66412041d4",
+        "x-intafaced-service-sig": "a2eab7a3a5d9336179afe133b01c7e95385b7d0e3d3d5db11a23da12da0fdabc",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"collect\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"amount\":\"1000\",\"chargeKey\":\"agent.usage:window-0003\"}",
+      "status": 200,
+      "answer": "{\"ok\":false,\"reason\":\"insufficient_funds\"}"
+    },
+    {
+      "name": "a usage payment of zero",
+      "at": "2026-11-22T10:01:09.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341669",
+        "x-intafaced-service-body": "c2049cf8cd5c208941bedbb6fa2448932536280b9667164938c091840a17b41e",
+        "x-intafaced-service-sig": "d2b073f66aa45695c1e3032afd6bd1d2598e3389295e2909aca644d823c163a7",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"collect\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"amount\":\"0\",\"chargeKey\":\"agent.usage:window-0004\"}",
+      "status": 503,
+      "answer": "{\"error\":\"usage payment could not be answered\",\"code\":\"bank.usage_payment_unavailable\"}"
+    },
+    {
+      "name": "a usage payment of a person not held",
+      "at": "2026-11-22T10:01:10.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-agents",
+      "method": "POST",
+      "url": "/internal/agents/usage-payment",
+      "headers": {
+        "x-intafaced-service": "svc-agents",
+        "x-intafaced-service-ts": "1795341670",
+        "x-intafaced-service-body": "ddc076f7e4d5dbfd84303d4c5efcd502958522216496e75a727963fbb5d4a5f6",
+        "x-intafaced-service-sig": "a3d22de90c2f54c5ca100ebe0a71de640d9cc66b440d18c84a554a4d85e56a89",
+        "content-type": "application/json"
+      },
+      "body": "{\"action\":\"collect\",\"userId\":\"22222222-2222-4222-8222-222222222222\",\"assetId\":\"EUR\",\"amount\":\"1\",\"chargeKey\":\"agent.usage:window-0005\"}",
+      "status": 200,
+      "answer": "{\"ok\":false,\"reason\":\"not_partner_held\"}"
+    },
+    {
+      "name": "the partner’s venue",
+      "at": "2026-11-22T10:01:11.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "GET",
+      "url": "/test-partner/venue",
+      "headers": {},
+      "body": null,
+      "status": 200,
+      "answer": "{\"label\":\"TEST\",\"venue\":{\"id\":\"test-partner-bank\",\"displayName\":\"TEST partner bank\"}}"
+    },
+    {
+      "name": "the partner’s balances",
+      "at": "2026-11-22T10:01:12.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/balances",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"account\":{\"venueId\":\"test-partner-bank\",\"owner\":\"11111111-1111-4111-8111-111111111111\",\"subAccount\":null}}",
+      "status": 200,
+      "answer": "{\"label\":\"TEST\",\"value\":[{\"asset\":\"EUR\",\"free\":\"20.666667\",\"locked\":\"0\",\"total\":\"20.666667\"},{\"asset\":\"USD\",\"free\":\"50.25\",\"locked\":\"0\",\"total\":\"50.25\"}]}"
+    },
+    {
+      "name": "the partner’s moves",
+      "at": "2026-11-22T10:01:13.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/moves",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"account\":{\"venueId\":\"test-partner-bank\",\"owner\":\"11111111-1111-4111-8111-111111111111\",\"subAccount\":null}}",
+      "status": 200,
+      "answer": "{\"label\":\"TEST\",\"value\":[{\"id\":\"test-partner-move-<boot>-000000000001\",\"key\":\"pay-in:11111111-1111-4111-8111-111111111111|fund-00001\",\"from\":{\"owner\":\"partner:incoming-payments\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"100\",\"movedAt\":\"2026-11-22T10:00:05.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000002\",\"key\":\"pay-in:11111111-1111-4111-8111-111111111111|fund-00002\",\"from\":{\"owner\":\"partner:incoming-payments\",\"assetId\":\"USD\",\"spaceId\":null},\"to\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USD\",\"spaceId\":null},\"amount\":\"50.25\",\"movedAt\":\"2026-11-22T10:00:08.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000003\",\"key\":\"test-spend:11111111-1111-4111-8111-111111111111:spend-0001\",\"from\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"partner:test-merchant\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"30\",\"movedAt\":\"2026-11-22T10:00:09.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000004\",\"key\":\"test-spend:11111111-1111-4111-8111-111111111111:spend-0002\",\"from\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"partner:outbound-payments\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"10\",\"movedAt\":\"2026-11-22T10:00:12.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000005\",\"key\":\"test-spend:11111111-1111-4111-8111-111111111111:spend-0003\",\"from\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"partner:fees\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"0.5\",\"movedAt\":\"2026-11-22T10:00:13.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000006\",\"key\":\"test-spend:11111111-1111-4111-8111-111111111111:spend-0007\",\"from\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"partner:test-merchant\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"5\",\"movedAt\":\"2026-11-22T10:00:18.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000007\",\"key\":\"test-spend:11111111-1111-4111-8111-111111111111:spend-0008\",\"from\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"partner:test-merchant\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"1\",\"movedAt\":\"2026-11-22T10:00:23.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000008\",\"key\":\"convert-cash:1111111111111111111111111111111111111111:quote_0001\",\"from\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"partner:outbound-payments\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"20\",\"movedAt\":\"2026-11-22T10:00:36.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000009\",\"key\":\"convert-cash:1111111111111111111111111111111111111111:quote_0004\",\"from\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"partner:outbound-payments\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"10.333333\",\"movedAt\":\"2026-11-22T10:00:41.000Z\"},{\"id\":\"test-partner-move-<boot>-000000000011\",\"key\":\"agents.usage-payment:agent.usage:window-0001\",\"from\":{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"EUR\",\"spaceId\":null},\"to\":{\"owner\":\"partner:intafaced\",\"assetId\":\"EUR\",\"spaceId\":null},\"amount\":\"2.5\",\"movedAt\":\"2026-11-22T10:01:04.000Z\"}]}"
+    },
+    {
+      "name": "the partner’s onboarding",
+      "at": "2026-11-22T10:01:14.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/onboarding",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"account\":{\"venueId\":\"test-partner-bank\",\"owner\":\"11111111-1111-4111-8111-111111111111\",\"subAccount\":null}}",
+      "status": 200,
+      "answer": "{\"label\":\"TEST\",\"value\":{\"requirements\":[\"TEST: be 18 or older\",\"TEST: live in a country the partner bank serves\"],\"identityCaseAccepted\":true,\"requests\":[{\"id\":\"11111111-1111-4111-8111-111111111111:request-0001\",\"title\":\"TEST: show where the money you pay in comes from\",\"status\":\"open\",\"dueAt\":\"2026-12-06T10:00:44.000Z\"}]}}"
+    },
+    {
+      "name": "the partner’s direct debits",
+      "at": "2026-11-22T10:01:15.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/direct-debits",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{}",
+      "status": 200,
+      "answer": "{\"label\":\"TEST\",\"value\":{\"mandates\":[],\"failures\":[],\"refunds\":[]}}"
+    },
+    {
+      "name": "a refund of nothing collected",
+      "at": "2026-11-22T10:01:16.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/dd-refund",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"owner\":\"11111111-1111-4111-8111-111111111111\",\"mandateId\":\"m-1\",\"collectionId\":\"c-1\"}",
+      "status": 409,
+      "answer": "{\"error\":\"The partner collected nothing on that debit, so there is nothing to refund.\",\"code\":\"bank.dd_refund_not_collected\"}"
+    },
+    {
+      "name": "a refund with a field missing",
+      "at": "2026-11-22T10:01:17.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/dd-refund",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"owner\":\"11111111-1111-4111-8111-111111111111\"}",
+      "status": 400,
+      "answer": "{\"error\":\"owner, mandateId and collectionId are required\"}"
+    },
+    {
+      "name": "another venue",
+      "at": "2026-11-22T10:01:18.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/balances",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"account\":{\"venueId\":\"other\",\"owner\":\"11111111-1111-4111-8111-111111111111\",\"subAccount\":null}}",
+      "status": 400,
+      "answer": "{\"error\":\"account.venueId must be test-partner-bank\"}"
+    },
+    {
+      "name": "no owner",
+      "at": "2026-11-22T10:01:19.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/moves",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"account\":{\"venueId\":\"test-partner-bank\",\"owner\":\"\",\"subAccount\":null}}",
+      "status": 400,
+      "answer": "{\"error\":\"account.owner (a user id) is required\"}"
+    },
+    {
+      "name": "a sub-account",
+      "at": "2026-11-22T10:01:20.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/moves",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"account\":{\"venueId\":\"test-partner-bank\",\"owner\":\"11111111-1111-4111-8111-111111111111\",\"subAccount\":\"x\"}}",
+      "status": 400,
+      "answer": "{\"error\":\"the partner keeps no sub-accounts\"}"
+    },
+    {
+      "name": "no body",
+      "at": "2026-11-22T10:01:21.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/test-partner/moves",
+      "headers": {},
+      "body": null,
+      "status": 400,
+      "answer": "{\"error\":\"account.venueId must be test-partner-bank\"}"
+    },
+    {
+      "name": "the TEST age door unsigned",
+      "at": "2026-11-22T10:01:22.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": null,
+      "method": "POST",
+      "url": "/internal/test/age",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"subject\":\"business-invite\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"ms\":1000}",
+      "status": 401,
+      "answer": "{\"error\":\"test_age.unauthenticated\",\"message\":\"the TEST age door answers a signed service call only\"}"
+    },
+    {
+      "name": "an invite aged",
+      "at": "2026-11-22T10:01:23.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-identity",
+      "method": "POST",
+      "url": "/internal/test/age",
+      "headers": {
+        "x-intafaced-service": "svc-identity",
+        "x-intafaced-service-ts": "1795341683",
+        "x-intafaced-service-body": "00fdce3c25424fdfd7df8f9d5f52c5245bab8c41d7a2e4735788504f2fbe0dda",
+        "x-intafaced-service-sig": "39fd6c8035e15cd7c2ad5e6cb58c5a1aa406b6e4be944c0947cb909dc856ae7c",
+        "content-type": "application/json"
+      },
+      "body": "{\"subject\":\"business-invite\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"ms\":1500}",
+      "status": 200,
+      "answer": "{\"ok\":true,\"subject\":\"business-invite\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"agedMs\":1500,\"createdAt\":\"2026-11-22T09:59:58.500Z\",\"expiresAt\":\"2026-11-29T09:59:58.500Z\"}"
+    },
+    {
+      "name": "an invite the door may not age",
+      "at": "2026-11-22T10:01:24.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-identity",
+      "method": "POST",
+      "url": "/internal/test/age",
+      "headers": {
+        "x-intafaced-service": "svc-identity",
+        "x-intafaced-service-ts": "1795341684",
+        "x-intafaced-service-body": "bb2c2788de700fba52df7bcf783663c4b3306ef58004a349ec5238cc12b96a90",
+        "x-intafaced-service-sig": "9fc1a61d7e5707b191b103897ba7d3e5129dfd2173d9b3e5099b29e05028d851",
+        "content-type": "application/json"
+      },
+      "body": "{\"subject\":\"shared-pot-invite\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"ms\":1000}",
+      "status": 404,
+      "answer": "{\"error\":\"test_age.not_found\",\"message\":\"no shared-pot-invite cccccccc-cccc-4ccc-8ccc-cccccccccccc this door may age\"}"
+    },
+    {
+      "name": "an id that is no uuid",
+      "at": "2026-11-22T10:01:25.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-identity",
+      "method": "POST",
+      "url": "/internal/test/age",
+      "headers": {
+        "x-intafaced-service": "svc-identity",
+        "x-intafaced-service-ts": "1795341685",
+        "x-intafaced-service-body": "acc8bbeaa5258a432527276f682dab0d5806b600a98c10ba18755f6fb42bc3fd",
+        "x-intafaced-service-sig": "d87386ef70966284cd8907f7a6bee6b6335fac2291c21897e70d92017ce98a65",
+        "content-type": "application/json"
+      },
+      "body": "{\"subject\":\"pay-yourself-rule\",\"id\":\"not-a-uuid\",\"ms\":1000}",
+      "status": 404,
+      "answer": "{\"error\":\"test_age.not_found\",\"message\":\"no pay-yourself-rule not-a-uuid this door may age\"}"
+    },
+    {
+      "name": "a subject it does not age",
+      "at": "2026-11-22T10:01:26.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-identity",
+      "method": "POST",
+      "url": "/internal/test/age",
+      "headers": {
+        "x-intafaced-service": "svc-identity",
+        "x-intafaced-service-ts": "1795341686",
+        "x-intafaced-service-body": "b0f76d302960a764aa45d735f0780567fe505a3926464ace65471783a852a432",
+        "x-intafaced-service-sig": "bc264e3818a698f004c1589e2282f3f38b557c99395a37a6f0f755e80b249fc8",
+        "content-type": "application/json"
+      },
+      "body": "{\"subject\":\"loan\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"ms\":1000}",
+      "status": 400,
+      "answer": "{\"error\":\"test_age.invalid\",\"message\":\"subject must be one of shared-pot-invite, business-invite, pay-yourself-rule, scheduled-transfer\"}"
+    },
+    {
+      "name": "a body out of shape",
+      "at": "2026-11-22T10:01:27.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": null,
+      "service": "svc-identity",
+      "method": "POST",
+      "url": "/internal/test/age",
+      "headers": {
+        "x-intafaced-service": "svc-identity",
+        "x-intafaced-service-ts": "1795341687",
+        "x-intafaced-service-body": "a052cdaa16518f142c0d62ced001eef0560d17d0f0be98079a7f67a76360f422",
+        "x-intafaced-service-sig": "6971a90f927d7ea6d37f6b2853996f469fd21d4b067f32c987a62f889b4ce87b",
+        "content-type": "application/json"
+      },
+      "body": "{\"subject\":7,\"id\":\"   \",\"ms\":0.5,\"extra\":true}",
+      "status": 400,
+      "answer": "{\"error\":\"test_age.invalid\",\"message\":\"subject: Invalid input: expected string, received number; id: Too small: expected string to have >=1 characters; ms: Invalid input: expected int, received number; : Unrecognized key: \\\"extra\\\"\"}"
+    },
+    {
+      "name": "every switch back where the story left them",
+      "at": "2026-11-22T10:01:28.000Z",
+      "env": {
+        "posting": true,
+        "cause": null,
+        "stopped": [],
+        "venueFails": false
+      },
+      "as": "11111111-1111-4111-8111-111111111111",
+      "service": null,
+      "method": "GET",
+      "url": "/trpc/testPartner.switches",
+      "headers": {
+        "x-intafaced-principal": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"bank:read\",\"bank:write\"],\"tier\":\"full\",\"mfa\":true,\"sid\":\"33333333-3333-4333-8333-333333333333\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2099-01-01T00:00:00.000Z\"}",
+        "x-intafaced-principal-sig": "12815ef6d5ae4450bdf8cf868b8629277a6ffefc64f261ed9065e62ee1880717",
+        "x-intafaced-region": "GB"
+      },
+      "body": null,
+      "status": 200,
+      "answer": "{\"result\":{\"data\":{\"notOffered\":[],\"fee\":\"unknown\",\"reserve\":\"required\",\"down\":false,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"off\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":null,\"calendarSource\":null,\"label\":\"TEST partner bank\",\"partnerReserve\":{\"required\":true,\"amount\":null}}}}"
+    }
+  ],
+  "counted": {
+    "posting_freeze|mismatch|bank_move": 1,
+    "posting_freeze|not_reported|bank_move": 1,
+    "partner_stop|stopped|bank_move": 2,
+    "posting_freeze|person|bank_move": 1
+  },
+  "venuePaid": [
+    {
+      "ref": "convert-cash:1111111111111111111111111111111111111111:quote_0001",
+      "owner": "0x1111111111111111111111111111111111111111",
+      "coin": "USDC",
+      "amount": "21600000000000000000"
+    },
+    {
+      "ref": "convert-cash:1111111111111111111111111111111111111111:quote_0004",
+      "owner": "0x1111111111111111111111111111111111111111",
+      "coin": "USDC",
+      "amount": "11159999000000000000"
+    }
+  ]
+}

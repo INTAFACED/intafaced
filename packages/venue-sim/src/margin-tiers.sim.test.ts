@@ -81,6 +81,19 @@ describe('TEST venue simulator: published margin tiers and collateral (J-derivat
     expect(btc.collateral).toEqual({ known: false });
   });
 
+  it('publishes one maintenance rate only on a perpetual with no tiers, and carries it over the wire exactly (J-algo-dev-02 #5)', async () => {
+    const w = world();
+    const btc = await marketOf(w, 'BTC-PERP');
+    expect(btc.maintenanceMarginRate).toEqual({ known: true, value: a('0.005') });
+    expect(btc.maxLeverageBps).toBe(200_000);
+    // With tiers a position's rate is its tier's, so the tiered market publishes no single rate.
+    expect((await marketOf(w)).maintenanceMarginRate).toEqual({ known: false });
+    expect((await marketOf(w, 'BTC-USDC')).maintenanceMarginRate).toEqual({ known: false });
+    const wire = JSON.parse(JSON.stringify(encodeVenueWire(btc))) as Record<string, unknown>;
+    expect(wire.maintenanceMarginRate).toEqual({ known: true, value: '0.005' });
+    expect(decodeVenueWire<UserVenueMarket>(wire).maintenanceMarginRate).toEqual(btc.maintenanceMarginRate);
+  });
+
   it('carries tiers and collateral over the wire as decimal strings and back exactly', async () => {
     const m = await marketOf(world());
     const wire = JSON.parse(JSON.stringify(encodeVenueWire(m))) as Record<string, any>;
@@ -116,5 +129,80 @@ describe('TEST venue simulator: published margin tiers and collateral (J-derivat
     expect(r.detail).toBe(
       `${w.sim.venue.displayName} caps XRSK-PERP's open interest at 5 XRSK; 0 XRSK is open, so 6 XRSK more would pass the cap`,
     );
+  });
+
+  it('reports projected margin tier and confirmRequired on preview when crossing a tier threshold (J-derivatives-02 #6)', async () => {
+    const w = world();
+    w.sim.deposit(w.account, 'USDC', a('20000'), 'chain:tiers:d3');
+    await w.run({ kind: 'update_leverage', symbol: XRSK, leverageBps: 50_000, marginMode: 'isolated' });
+    // 30 XRSK at 100 = 3,000 USDC -> Tier 1 (from 0), no confirmation needed.
+    const t1 = (await w.sim.preview(w.account, open('30'))).value.perpetual!;
+    expect(t1.riskTier).toEqual({
+      current: null,
+      projected: 1,
+      maxLeverageBps: 200_000,
+      maintenanceRate: a('0.025'),
+      confirmRequired: false,
+    });
+    // 60 XRSK at 100 = 6,000 USDC -> Tier 2 (from 5,000), confirmation required with Tier 2's 10x cap and 5% maintenance.
+    const t2 = (await w.sim.preview(w.account, open('60'))).value.perpetual!;
+    expect(t2.riskTier).toEqual({
+      current: null,
+      projected: 2,
+      maxLeverageBps: 100_000,
+      maintenanceRate: a('0.05'),
+      confirmRequired: true,
+    });
+    // Reduce-only close never requires tier confirmation.
+    const close = (await w.sim.preview(w.account, open('30', { side: 'sell', type: 'market', timeInForce: 'IOC', reduceOnly: true }))).value
+      .perpetual!;
+    expect(close.riskTier?.confirmRequired).toBe(false);
+  });
+
+  it('publishes and enforces a widened dynamic price band on XRSK-PERP, then returns to the usual 5% band (J-derivatives-02 #8)', async () => {
+    const w = world();
+    w.sim.deposit(w.account, 'USDC', a('10000'), 'chain:tiers:d4');
+    await w.run({ kind: 'update_leverage', symbol: XRSK, leverageBps: 50_000, marginMode: 'isolated' });
+    const usual = await marketOf(w);
+    expect(usual.priceBand).toEqual({
+      known: true,
+      value: {
+        widthBps: a('500'),
+        usualWidthBps: a('500'),
+        bandReference: a('100'),
+        bandLow: a('95'),
+        bandHigh: a('105'),
+        widened: false,
+        reason: null,
+      },
+    });
+    // 109 is outside the usual 5% band (95..105).
+    expect((await refusal(w.sim.preview(w.account, open('1', { price: a('109') })))).code).toBe('price_outside_venue_band');
+
+    // Widen to 12% (88..112): 109 passes, 115 refuses naming the widened band.
+    w.sim.setDynamicPriceBand(XRSK, { widthBps: a('1200'), reason: 'TEST: widened while futures price is 7% away from the mark' });
+    const wide = await marketOf(w);
+    expect(wide.priceBandBps).toBe(a('1200'));
+    expect(wide.priceBand).toEqual({
+      known: true,
+      value: {
+        widthBps: a('1200'),
+        usualWidthBps: a('500'),
+        bandReference: a('100'),
+        bandLow: a('88'),
+        bandHigh: a('112'),
+        widened: true,
+        reason: 'TEST: widened while futures price is 7% away from the mark',
+      },
+    });
+    expect((await w.sim.preview(w.account, open('1', { price: a('109') }))).value).toBeTruthy();
+    const past = await refusal(w.sim.preview(w.account, open('1', { price: a('115') })));
+    expect(past.code).toBe('price_outside_venue_band');
+    expect(past.detail).toContain('from 88 to 112 USDC');
+
+    // Cleared: back to 5%, and 109 refuses again.
+    w.sim.setDynamicPriceBand(XRSK, null);
+    expect((await marketOf(w)).priceBand).toEqual(usual.priceBand);
+    expect((await refusal(w.sim.preview(w.account, open('1', { price: a('109') })))).code).toBe('price_outside_venue_band');
   });
 });

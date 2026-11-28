@@ -10,7 +10,7 @@ import { createPayMutationGuard, createPersonalPayApi, type PersonalPayApi } fro
 import { OfferForm } from './OfferForm';
 import { DisputeProgress, EscrowPath, OfferTabs, OrderFilterTabs, TakeOfferPanel } from './P2PDepth';
 import { TakeAvailable, TakeFailureNote, TakeQuoteDetails, TakeReviewDetails } from './TakeOffer';
-import { CounterpartyMetrics, CounterpartyName } from '../P2PCounterparty';
+import { CounterpartyMetrics, CounterpartyName } from '../p2p-counterparty/CounterpartyRoom';
 import { TraderName, TraderSummary } from './Trader';
 
 const BUYER = 'b0000000-0000-4000-8000-000000000001';
@@ -33,6 +33,10 @@ const trade = (over: Partial<Trade> = {}): Trade => ({
   escrowedAt: '2026-10-17T00:01:00Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...over,
 });
 const offer: Offer = {
@@ -50,6 +54,17 @@ const offer: Offer = {
   terms: '',
   status: 'active',
   createdAt: '2026-10-17T00:00:00Z',
+  totalAmount: '500',
+  filledAmount: '0',
+  tradesCompleted: 0,
+  nonInstantMethods: [],
+  acceptsNonInstant: false,
+  releaseWindowSeconds: null,
+  pauseReason: null,
+  closeReason: null,
+  visibility: 'public',
+  statusSince: '2026-10-17T00:00:00Z',
+  relistedFrom: null,
 };
 
 it('shows the buyer whose turn it is and what they can do', () => {
@@ -185,6 +200,15 @@ it('names a trader by handle, never by account id, and says what the record retu
       merchant: null,
       handle: 'test_friend',
       memberSince: null,
+      // Identity not connected: nothing is known about the member.
+      profile: { status: 'unwired' as const, code: 'p2p.public_profile_unwired' as const },
+      trades30d: 0,
+      completionRate30d: null,
+      completionRateTotal: null,
+      completionDefinition: { numerator: 'completed', denominator: 'escrowed', window30d: '30 days', noHistory: 'none yet' },
+      avgPaySecs: null,
+      rating: null,
+      verification: null,
     },
   };
   const name = renderToString(<TraderName record={record} />);
@@ -193,11 +217,13 @@ it('names a trader by handle, never by account id, and says what the record retu
   expect(summary).toContain('120 orders');
   expect(summary).toContain('98.5%');
   expect(summary).toContain('releases in about 3 min');
-  // Identity not connected (no profile status): nothing is known about the member, so it stays "Member".
+  // Identity not connected (profile unwired): nothing is known about the member, so it stays "Member".
   const unnamed = renderToString(<TraderName record={{ ok: true, data: { ...record.data, handle: null } }} />);
   expect(unnamed).toContain('Member');
   const absent = renderToString(
-    <TraderName record={{ ok: true, data: { ...record.data, handle: null, profile: { status: 'absent' } } }} />,
+    <TraderName
+      record={{ ok: true, data: { ...record.data, handle: null, profile: { status: 'absent', code: 'p2p.public_profile_absent' } } }}
+    />,
   );
   expect(absent).toContain('—');
   expect(absent).toContain('No public handle');
@@ -280,6 +306,14 @@ const reputation = (over: Partial<import('../schemas').Reputation> = {}): import
   merchant: null,
   handle: null,
   memberSince: null,
+  profile: { status: 'unwired', code: 'p2p.public_profile_unwired' },
+  trades30d: 0,
+  completionRate30d: null,
+  completionRateTotal: null,
+  completionDefinition: { numerator: 'completed', denominator: 'escrowed', window30d: '30 days', noHistory: 'none yet' },
+  avgPaySecs: null,
+  rating: null,
+  verification: null,
   ...over,
 });
 
@@ -311,7 +345,11 @@ it('names the counterparty by handle, or says there is none, and never by accoun
   expect(named).toContain('@test_friend');
   const unnamed = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation() }} />);
   expect(unnamed).toContain('Member');
-  const absent = renderToString(<CounterpartyName resource={{ status: 'ready', data: reputation({ profile: { status: 'absent' } }) }} />);
+  const absent = renderToString(
+    <CounterpartyName
+      resource={{ status: 'ready', data: reputation({ profile: { status: 'absent', code: 'p2p.public_profile_absent' } }) }}
+    />,
+  );
   expect(absent).toContain('—');
   expect(absent).toContain('No public handle');
   const failed = renderToString(

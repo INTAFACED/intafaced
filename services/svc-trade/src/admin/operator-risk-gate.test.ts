@@ -28,6 +28,7 @@ function fakeSql(row: Record<string, string | null> | null, open = '0'): Sql {
                 slippage_cap: null,
                 throttle: null,
                 circuit_breaker: null,
+                min_notional: null,
                 operator_id: 'op',
                 approver_id: 'ap',
                 reason: 'test',
@@ -42,7 +43,7 @@ function fakeSql(row: Record<string, string | null> | null, open = '0'): Sql {
     if (text.includes('count(*)')) return Promise.resolve([{ n: open }]);
     throw new Error(`unexpected query ${text}`);
   };
-  return tag as unknown as Sql;
+  return tag as Sql;
 }
 
 const touch = (bid: string | null, ask: string | null) => async (): Promise<Touch> => ({
@@ -68,6 +69,13 @@ describe('validateLimits: the band is a fraction above 0 and below 1', () => {
   it('refuses 0, 1 and more', () => {
     for (const collar of ['0', '1', '1.5', '65000']) {
       expect(() => validateLimits({ ...blank, collar })).toThrow(expect.objectContaining({ code: 'risk_limit_not_exact' }));
+    }
+  });
+  it('validates minNotional as a positive decimal string or null', () => {
+    expect(validateLimits({ ...blank, minNotional: '5' }).minNotional).toBe('5');
+    expect(validateLimits({ ...blank, minNotional: null }).minNotional).toBeNull();
+    for (const bad of ['0', '-1', 'abc']) {
+      expect(() => validateLimits({ ...blank, minNotional: bad })).toThrow(expect.objectContaining({ code: 'risk_limit_not_exact' }));
     }
   });
 });
@@ -105,24 +113,40 @@ describe('published pair rules (J-cex-spot-04 step 6)', () => {
   const book = touch('99.99', '100.01');
 
   it('no band published: a priced order refuses trade.price_band_unset, never a default band', async () => {
-    for (const row of [null, { throttle: '20' }]) {
+    for (const row of [null, { throttle: '20', min_notional: '1' }]) {
       const error = await refusal(assertOperatorRiskOnPlace(fakeSql(row), MARKET, 'u', order, book));
       expect(error.code).toBe('trade.price_band_unset');
       expect(error.data).toEqual({ rule: 'price band' });
     }
     // A market order has no price to band; its protection is the slippage cap, refused elsewhere when unset.
-    await assertOperatorRiskOnPlace(fakeSql({ throttle: '20' }), MARKET, 'u', { ...order, price: null, rests: false }, book);
+    await assertOperatorRiskOnPlace(
+      fakeSql({ throttle: '20', min_notional: '1' }),
+      MARKET,
+      'u',
+      { ...order, price: null, rests: false },
+      book,
+    );
   });
 
   it('no cap published: an order that can rest refuses trade.open_orders_cap_unset; one that cannot rest goes', async () => {
-    const error = await refusal(assertOperatorRiskOnPlace(fakeSql({ collar: '0.1' }), MARKET, 'u', order, book));
+    const error = await refusal(assertOperatorRiskOnPlace(fakeSql({ collar: '0.1', min_notional: '1' }), MARKET, 'u', order, book));
     expect(error.code).toBe('trade.open_orders_cap_unset');
     expect(error.data).toEqual({ rule: 'open-order cap' });
-    await assertOperatorRiskOnPlace(fakeSql({ collar: '0.1' }), MARKET, 'u', { ...order, rests: false }, book);
+    await assertOperatorRiskOnPlace(fakeSql({ collar: '0.1', min_notional: '1' }), MARKET, 'u', { ...order, rests: false }, book);
   });
 
-  it('both published: the order goes', async () => {
-    await assertOperatorRiskOnPlace(fakeSql({ collar: '0.1', throttle: '20' }), MARKET, 'u', order, book);
+  it('no minimum published: refuses trade.min_notional_unset, never a default minimum', async () => {
+    const error = await refusal(assertOperatorRiskOnPlace(fakeSql({ collar: '0.1', throttle: '20' }), MARKET, 'u', order, book));
+    expect(error.code).toBe('trade.min_notional_unset');
+    expect(error.data).toEqual({ rule: 'minimum order value' });
+  });
+
+  it('band, cap and minimum published: the order goes, and an order below the published minimum refuses', async () => {
+    await assertOperatorRiskOnPlace(fakeSql({ collar: '0.1', throttle: '20', min_notional: '1' }), MARKET, 'u', order, book);
+    const small = await refusal(
+      assertOperatorRiskOnPlace(fakeSql({ collar: '0.1', throttle: '20', min_notional: '200' }), MARKET, 'u', order, book),
+    );
+    expect(small.code).toBe('trade.below_min_notional');
   });
 
   it("a bracket's protective exit is never refused for a rule the pair has not published", async () => {

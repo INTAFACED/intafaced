@@ -2,12 +2,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 import { SupportedAssetsView } from './SupportedAssets';
 import type { SupportedAsset } from './supported-assets-reads';
 
@@ -35,7 +39,7 @@ const cell = (id: string, col: string) => row(id).querySelector(`[data-col="${co
 
 // TEST rows, not published settings.
 const asset = (over: Partial<SupportedAsset>): SupportedAsset => ({
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   kind: 'crypto',
   precision: 6,
   networks: [
@@ -55,8 +59,8 @@ describe('supported assets and networks', () => {
       <SupportedAssetsView
         resource={ready([
           asset({}),
-          asset({ assetId: 'OLD', precision: 18, networks: [], defaultNetworkId: null, allowedActions: [], state: 'retired' }),
-          asset({ assetId: 'PAUSED', precision: 2, state: 'halted' }),
+          asset({ assetId: asAssetId('OLD'), precision: 18, networks: [], defaultNetworkId: null, allowedActions: [], state: 'retired' }),
+          asset({ assetId: asAssetId('PAUSED'), precision: 2, state: 'halted' }),
         ])}
         reload={() => undefined}
       />,
@@ -80,6 +84,17 @@ describe('supported assets and networks', () => {
     expect(cell('PAUSED', 'state')).toContain('Paused');
     expect(host.querySelector('a[href="/uc/recharge"]')).not.toBeNull();
     expect(host.querySelector('a[href="/uc/withdraw"]')).not.toBeNull();
+  });
+
+  it("on the launch model, a retired asset's history link asks for the records of the places that hold it, not our ledger", async () => {
+    await mount(
+      <SupportedAssetsView
+        resource={ready([asset({ assetId: asAssetId('OLD'), networks: [], defaultNetworkId: null, allowedActions: [], state: 'retired' })])}
+        reload={() => undefined}
+        sourceRecords
+      />,
+    );
+    expect(row('OLD').querySelector('a')!.getAttribute('href')).toBe('/money/balance/OLD?source=all');
   });
 
   it('an empty registry says nothing is published; a refusal is named with a retry; loading shows no rows', async () => {

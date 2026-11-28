@@ -1,25 +1,22 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { isAddress, type Address, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { AccountRegistry, bindingMessage, MemoryAccountStore } from '../accounts/registry.js';
-import { badgeClaimMessage, badgeEligibility, claimBadge, type BadgeDeps } from '../nft/founding-badge.js';
-import { memBadgeStore } from '../nft/founding-badge.test-store.js';
+import type { Address, Hex } from 'viem';
+import { AccountRegistry, MemoryAccountStore } from '../accounts/registry.js';
 import { ProtocolChain } from './client.js';
 import { chainIdentityReader } from './identity.js';
 
 /**
  * A TEST chain started again, end to end over HTTP: this file serves a node on a port, stops it, and serves a new chain
  * on the same port and chain id with a new block 0, as anvil does on every start (its genesis carries its start time).
- * The real `ProtocolChain` reads the new genesis through viem, and what was read from the first chain (a badge mint, a
- * deployed account) reads as absent on the second. It never touches a shared chain: a restart there would break every
+ * The real `ProtocolChain` reads the new genesis through viem, and a deployment recorded on the second chain is labelled
+ * with the second chain's genesis, never the first's. It never touches a shared chain: a restart there would break every
  * other test on it.
  */
 const CHAIN_ID = 31337;
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
-const OWNER = privateKeyToAccount(`0x${'55'.repeat(32)}`);
 const ACCOUNT = '33333333-3333-4333-8333-333333333333';
+const ADDRESS = '0x4444444444444444444444444444444444444444' as Address;
 const Z32 = `0x${'0'.repeat(64)}`;
 
 /** Block 0 of a chain whose genesis hash is `hash`: the fields viem's block formatter reads. */
@@ -83,7 +80,7 @@ async function stopChain(): Promise<void> {
 afterEach(stopChain);
 
 describe('a TEST chain started again (over HTTP)', () => {
-  it('reads a new genesis; a badge minted and an account deployed on the old chain read as absent on the new one', async () => {
+  it('reads a new genesis, and a deployment recorded after the restart carries the new one', async () => {
     const port = await startChain(`0x${'a1'.repeat(32)}`);
     const chain = new ProtocolChain({
       chainId: CHAIN_ID,
@@ -95,38 +92,23 @@ describe('a TEST chain started again (over HTTP)', () => {
     // No reuse window: each call reads block 0, so the restart is seen at once.
     const identity = chainIdentityReader(chain, 0);
 
-    const store = memBadgeStore([ACCOUNT]);
-    const mints: Address[] = [];
-    const deps: BadgeDeps = {
-      store,
-      minter: { signerFor: () => ({ mint: async (to) => (mints.push(to), `0x${String(mints.length).padStart(64, '0')}` as Hex) }) },
-      window: { opensAt: new Date(Date.now() - 60_000), closesAt: new Date(Date.now() + 60_000) },
-      now: () => new Date(),
-    };
-    const accounts = new AccountRegistry(new MemoryAccountStore(), { chainId: CHAIN_ID, factory: ZERO, implementation: ZERO }, identity);
-    const address = accounts.predict(OWNER.address);
-    expect(isAddress(address)).toBe(true);
-    const claim = async () =>
-      claimBadge(
-        deps,
-        ACCOUNT,
-        { address, owner: OWNER.address },
-        { chainId: CHAIN_ID, identity, mainnet: false, restartable: true },
-        await OWNER.signMessage({ message: badgeClaimMessage({ accountId: ACCOUNT, chainId: CHAIN_ID, address }) }),
-      );
+    const store = new MemoryAccountStore();
+    await store.upsert({
+      userId: ACCOUNT,
+      chainId: CHAIN_ID,
+      address: ADDRESS,
+      owner: ADDRESS,
+      userSalt: Z32 as Hex,
+      deployed: false,
+      verifiedAt: null,
+    });
+    const accounts = new AccountRegistry(store, { chainId: CHAIN_ID }, identity);
 
     const first = await identity();
     expect(first).toMatchObject({ chainId: CHAIN_ID });
     expect(first.genesisHash).toMatch(/^0x[0-9a-f]{64}$/);
-    expect((await claim()).genesisHash).toBe(first.genesisHash);
-    await accounts.claim({
-      userId: ACCOUNT,
-      owner: OWNER.address,
-      address,
-      signature: await OWNER.signMessage({ message: bindingMessage({ userId: ACCOUNT, chainId: CHAIN_ID, address }) }),
-      deployed: true,
-    });
-    expect((await accounts.accountsOf(ACCOUNT, 1))[0]?.deployed).toBe(true);
+    await accounts.recordDeployment(ADDRESS);
+    expect(await accounts.ownerOfRecord(ADDRESS)).toMatchObject({ deployed: true, deployedGenesisHash: first.genesisHash });
 
     await stopChain();
     // While the chain is down the identity refuses rather than answer with the old genesis.
@@ -137,12 +119,7 @@ describe('a TEST chain started again (over HTTP)', () => {
     expect(second.genesisHash).toBe(`0x${'b2'.repeat(32)}`);
     expect(second.genesisHash).not.toBe(first.genesisHash);
 
-    expect(await badgeEligibility(deps, ACCOUNT, { chainId: CHAIN_ID, identity, mainnet: false, restartable: true })).toMatchObject({
-      claimed: false,
-      txHash: null,
-    });
-    expect((await claim()).genesisHash).toBe(second.genesisHash);
-    expect(mints).toHaveLength(2);
-    expect((await accounts.accountsOf(ACCOUNT, 1))[0]?.deployed).toBe(false);
+    await accounts.recordDeployment(ADDRESS);
+    expect(await accounts.ownerOfRecord(ADDRESS)).toMatchObject({ deployed: true, deployedGenesisHash: second.genesisHash });
   });
 });

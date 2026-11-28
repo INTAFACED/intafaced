@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { inject } from 'vitest';
 import { encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { claimsOf, hashOf, identityCall, proveEmail, randomHandle, totpCode, type Claims, type Issued } from './identity';

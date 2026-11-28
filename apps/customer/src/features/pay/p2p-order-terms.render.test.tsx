@@ -41,6 +41,10 @@ const trade = (terms: Trade['terms']): Trade => ({
   escrowedAt: '2026-10-23T20:00:01.000Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...(terms === undefined ? {} : { terms }),
 });
 
@@ -65,7 +69,7 @@ async function terms(order: Trade) {
     ),
   );
   await act(async () => undefined);
-  return host.querySelector('.p2p-order-facts')!;
+  return host.querySelector('[data-testid="p2p-order-facts"]')!;
 }
 
 describe('P2P order page terms (J-p2p-01 #5)', () => {

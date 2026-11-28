@@ -1,0 +1,869 @@
+import { abs, add, compare, div, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import {
+  type AsOf,
+  type MaybeKnown,
+  type UserVenueAccount,
+  type UserVenueAccountMode,
+  type VenueAccountMode,
+  type UserVenueAgent,
+  type UserVenueAccountSummary,
+  type UserVenueBalance,
+  type UserVenueFill,
+  type UserVenueLeverage,
+  type UserVenueFunding,
+  type UserVenueMarket,
+  type UserVenueOrder,
+  type UserVenueOrderRecord,
+  type UserVenuePosition,
+  type UserVenueWithdrawal,
+  VENUE_CANDLE_INTERVALS,
+  type VenueBestPrices,
+  type VenuePerpetualPrice,
+  type VenueBook,
+  type VenueBookLevel,
+  type VenueCandle,
+  type VenueCandleInterval,
+  type VenuePrint,
+  type VenueFeeStatus,
+  type VenueFeeTier,
+  type VenueOrderStatus,
+  type VenueTimeInForce,
+} from '@intafaced/venue-contracts';
+import {
+  BPS_PER_X,
+  FILLS_GRID_MS,
+  FILLS_PAGE_CAP,
+  HyperliquidCore,
+  PERP_COLLATERAL_ASSET,
+  PERP_QUOTE,
+  amt,
+  arr,
+  int,
+  messageOf,
+  obj,
+  refusal,
+  str,
+  type HlBook,
+  type HlBookLevel,
+  type HyperliquidTestnetOptions,
+  type Json,
+} from './core.js';
+import {
+  BUILDER_FEE_CAP_BPS,
+  DEFAULT_MAX_OPEN_ORDERS,
+  MIN_ORDER_NOTIONAL,
+  PERP_CONTRACT_SIZE,
+  unreadMarketTerms,
+  type ReadMarketTerms,
+} from './market-terms.js';
+import { rateToBps, tenthsToBps, unit, PERP_MAX_DECIMALS, SPOT_MAX_DECIMALS } from './wire.js';
+
+/** The venue's `userAbstraction` answers, as our account modes. */
+const ABSTRACTION_MODE: Readonly<Record<string, VenueAccountMode>> = {
+  default: 'standard',
+  disabled: 'standard',
+  unifiedAccount: 'unified',
+  portfolioMargin: 'portfolio_margin',
+};
+
+/** The candle intervals `candleSnapshot` takes among ours: it has no 6h. */
+const HL_CANDLE_INTERVALS: ReadonlySet<VenueCandleInterval> = new Set([
+  '1m',
+  '3m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '2h',
+  '4h',
+  '12h',
+  '1d',
+  '1w',
+]);
+
+/** The zero address: every account with no volume of its own shares its fee schedule. */
+const NO_ACCOUNT = '0x0000000000000000000000000000000000000000';
+
+/**
+ * Every read the Hyperliquid testnet adapter answers from `POST /info`: the listing as `UserVenueMarket`s, the book and
+ * mids, and the account's balances, orders, fills, positions, withdrawals, builder-fee approval, agents and leverage.
+ * A new `UserVenue` read goes here, never in `venue.ts`.
+ */
+export abstract class HyperliquidReads extends HyperliquidCore {
+  protected constructor(options: HyperliquidTestnetOptions) {
+    super(options);
+  }
+
+  async markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
+    const { bySymbol } = await this.loadMarkets();
+    let fees: { [key: string]: Json } | null = null;
+    if (account) fees = obj(await this.info({ type: 'userFees', user: this.user(account) }), 'userFees');
+    const fee = (field: string): MaybeKnown<Amount> =>
+      fees && typeof fees[field] === 'string' ? { known: true, value: rateToBps(fees[field]) } : { known: false };
+    const { marks, fundings } = await this.perpFigures();
+    const known = <T>(value: T | undefined): MaybeKnown<T> => (value === undefined ? { known: false } : { known: true, value });
+    const list: UserVenueMarket[] = [...bySymbol.values()].map((m) => {
+      const read: ReadMarketTerms = {
+        symbol: m.symbol,
+        kind: m.kind,
+        baseAsset: m.base,
+        quoteAsset: m.quote,
+        orderTypes: ['limit', 'market'],
+        timeInForce: ['GTC', 'IOC', 'ALO'],
+        marginModes: m.kind === 'spot' ? [] : m.onlyIsolated ? ['isolated'] : ['cross', 'isolated'],
+        maxLeverageBps: m.maxLeverage === null ? null : m.maxLeverage * BPS_PER_X,
+        // The finest price step a non-integer price may use; the venue also caps prices at 5 significant figures.
+        tickSize: unit((m.kind === 'spot' ? SPOT_MAX_DECIMALS : PERP_MAX_DECIMALS) - m.szDecimals),
+        lotSize: unit(m.szDecimals),
+        minOrderNotional: MIN_ORDER_NOTIONAL,
+        maxOpenOrders: DEFAULT_MAX_OPEN_ORDERS,
+        makerFeeBps: fee(m.kind === 'spot' ? 'userSpotAddRate' : 'userAddRate'),
+        takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
+        builderFeeCapBps: { known: true, value: BUILDER_FEE_CAP_BPS[m.kind] },
+        // "Stop orders" and "take profit orders" are "triggered when the mark price reaches the trigger price", on
+        // perpetuals (Hyperliquid's order-types page, read 27 Nov 2026); a spot market takes none here.
+        triggerSources: m.kind === 'perpetual' ? ['mark'] : [],
+        // The venue's own word on it: `meta` and `spotMeta` list the markets Hyperliquid trades and flag a delisted perp
+        // (`isDelisted`, dropped by `loadMarkets`); it publishes no halt, limit-only or cancel-only state, so a listed
+        // market is trading. Never null here, which a reader takes as not known (and the markets list as not open).
+        status: 'trading',
+        // The contract strip (J-derivatives-01 #4): the venue's own figures for a perpetual; spot has no contract.
+        contractSize: m.kind === 'perpetual' ? { known: true, value: PERP_CONTRACT_SIZE } : { known: false },
+        mark: known(m.kind === 'perpetual' ? marks.get(m.coin) : undefined),
+        funding: known(m.kind === 'perpetual' ? fundings.get(m.coin) : undefined),
+      };
+      // What this adapter does not read from the venue: `market-terms.ts`, never here. Who listed a HIP-3 market is read
+      // with the listing: the DEX's own name for itself (`perpDexs` fullName).
+      const listedBy: UserVenueMarket['listedBy'] = m.dex
+        ? { known: true, value: { kind: 'hip3', name: m.dex.fullName } }
+        : { known: false };
+      return { ...read, ...unreadMarketTerms(), listedBy };
+    });
+    return this.asOf(list);
+  }
+
+  /**
+   * Each perpetual's mark now (`metaAndAssetCtxs` `markPx`, per perp DEX) and its funding as the venue publishes it
+   * (`predictedFundings`, the venue's own `HlPerp` entry: rate per interval, interval and next payment), by coin. A read
+   * that fails, or a coin with no entry, is left out, so its figure reads not known, never guessed; the listing stays up.
+   */
+  private async perpFigures(): Promise<{ marks: Map<string, Amount>; fundings: Map<string, UserVenueFunding> }> {
+    const marks = new Map<string, Amount>();
+    const fundings = new Map<string, UserVenueFunding>();
+    // A named DEX whose read fails is already warned of and left out by the listing; only the main one warns here.
+    const [ctxs, predicted] = await Promise.all([
+      this.perDex(async (dex) => {
+        try {
+          return arr(await this.info({ type: 'metaAndAssetCtxs', ...dex }), 'metaAndAssetCtxs');
+        } catch (error) {
+          if (dex.dex === undefined) this.warn(`venue listing: marks left not known: ${messageOf(error)}`);
+          return null;
+        }
+      }),
+      this.info({ type: 'predictedFundings' }).then(
+        (answer) => answer,
+        (error: unknown) => {
+          this.warn(`venue listing: funding left not known: ${messageOf(error)}`);
+          return null;
+        },
+      ),
+    ]);
+    for (const both of ctxs) {
+      if (!both) continue;
+      const meta = both[0];
+      const universe = meta && typeof meta === 'object' && !Array.isArray(meta) && Array.isArray(meta.universe) ? meta.universe : [];
+      const assetCtxs = Array.isArray(both[1]) ? both[1] : [];
+      universe.forEach((u, i) => {
+        const ctx = assetCtxs[i];
+        if (!u || typeof u !== 'object' || Array.isArray(u) || typeof u.name !== 'string') return;
+        if (!ctx || typeof ctx !== 'object' || Array.isArray(ctx) || typeof ctx.markPx !== 'string') return;
+        const mark = this.figure(() => amt(ctx.markPx, 'markPx'), `mark for ${u.name}`);
+        if (mark !== undefined) marks.set(u.name, mark);
+      });
+    }
+    if (Array.isArray(predicted)) {
+      for (const row of predicted) {
+        if (!Array.isArray(row) || typeof row[0] !== 'string' || !Array.isArray(row[1])) continue;
+        const own = row[1].find((v) => Array.isArray(v) && v[0] === 'HlPerp');
+        const f = Array.isArray(own) && own[1] && typeof own[1] === 'object' && !Array.isArray(own[1]) ? own[1] : null;
+        if (!f || typeof f.fundingRate !== 'string' || typeof f.nextFundingTime !== 'number' || typeof f.fundingIntervalHours !== 'number')
+          continue;
+        const rate = this.figure(() => amt(f.fundingRate, 'fundingRate'), `funding for ${row[0]}`);
+        if (rate === undefined) continue;
+        fundings.set(row[0], { rate, intervalSeconds: f.fundingIntervalHours * 3600, nextFundingAt: new Date(f.nextFundingTime) });
+      }
+    }
+    return { marks, fundings };
+  }
+
+  /** One coin's figure, or undefined with a warning when the venue's value is not a decimal: that figure reads not known. */
+  private figure(read: () => Amount, what: string): Amount | undefined {
+    try {
+      return read();
+    } catch (error) {
+      this.warn(`venue listing: ${what} left not known: ${messageOf(error)}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * The venue's top-of-book levels for `symbol` (`l2Book`), best first: bids high to low, asks low to high.
+   * A read for hand-run tools (the live conformance runner picks prices from it); not part of `UserVenue`.
+   */
+  async l2Book(symbol: string): Promise<AsOf<HlBook>> {
+    const m = await this.market(symbol);
+    const book = obj(await this.info({ type: 'l2Book', coin: m.coin }), 'l2Book');
+    const [bids, asks] = arr(book.levels, 'l2Book levels');
+    const side = (levels: Json | undefined, what: string): HlBookLevel[] =>
+      arr(levels, what).map((l) => {
+        const level = obj(l, `${what}[]`);
+        return { price: amt(level.px, 'px'), size: amt(level.sz, 'sz') };
+      });
+    return this.asOf(
+      { symbol: m.symbol, bids: side(bids, 'bids'), asks: side(asks, 'asks') },
+      typeof book.time === 'number' ? book.time : undefined,
+    );
+  }
+
+  /**
+   * `UserVenue.book`: the top `depth` levels of each side of the venue's own book for `symbol`, from `l2Book`, best
+   * first. `unknown_market` for a symbol it does not list, `venue_down` when the read fails.
+   */
+  async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
+    if (!Number.isSafeInteger(depth) || depth < 1) throw new RangeError(`book depth must be a whole number above 0, not ${depth}`);
+    const read = await this.l2Book(symbol);
+    const side = (levels: readonly HlBookLevel[]): VenueBookLevel[] =>
+      levels.slice(0, depth).map((l) => ({ price: l.price, amount: l.size }));
+    return { ...read, value: { symbol: read.value.symbol, bids: side(read.value.bids), asks: side(read.value.asks) } };
+  }
+
+  /** The venue's mid price of every listed market (`allMids`), by our symbol. A coin we do not list is left out. */
+  async mids(): Promise<AsOf<ReadonlyMap<string, Amount>>> {
+    const { byCoin } = await this.loadMarkets();
+    const answers = await this.perDex(async (dex) => obj(await this.info({ type: 'allMids', ...dex }), 'allMids'));
+    const out = new Map<string, Amount>();
+    for (const [coin, px] of answers.flatMap((answer) => Object.entries(answer))) {
+      const m = byCoin.get(coin);
+      if (m) out.set(m.symbol, amt(px, `mid of ${coin}`));
+    }
+    return this.asOf(out);
+  }
+
+  /**
+   * `UserVenue.bestPrices`: the best bid and ask of the venue's public book (`l2Book`), no account. A side with no
+   * level is `null`. `unknown_market` for a symbol it does not list.
+   */
+  async bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
+    const read = await this.l2Book(symbol);
+    return {
+      ...read,
+      value: { symbol: read.value.symbol, bid: read.value.bids[0]?.price ?? null, ask: read.value.asks[0]?.price ?? null },
+    };
+  }
+
+  /**
+   * `UserVenue.perpetualPrices`: every listed perpetual's mark, oracle, previous-day price and 24h volumes from
+   * `metaAndAssetCtxs`, one read per DEX (the same answer `positions` reads its marks from, so the two share it). The
+   * contexts are indexed by that answer's own universe; a coin we do not list, or a context with no mark, is left out.
+   */
+  async perpetualPrices(): Promise<AsOf<readonly VenuePerpetualPrice[]>> {
+    const { byCoin } = await this.loadMarkets();
+    const dexes = await this.perDex(async (dex) => arr(await this.info({ type: 'metaAndAssetCtxs', ...dex }), 'metaAndAssetCtxs'));
+    const optional = (value: Json | undefined, what: string): Amount | undefined =>
+      typeof value === 'string' ? amt(value, what) : undefined;
+    const list: VenuePerpetualPrice[] = [];
+    for (const both of dexes) {
+      const universe = arr(obj(both[0], 'metaAndAssetCtxs meta').universe, 'metaAndAssetCtxs universe');
+      const ctxs = arr(both[1], 'asset contexts');
+      universe.forEach((u, i) => {
+        const coin = str(obj(u, 'universe entry').name, 'universe name');
+        const m = byCoin.get(coin);
+        const ctx = ctxs[i] === undefined ? undefined : obj(ctxs[i], 'asset ctx');
+        if (!m || m.kind !== 'perpetual' || !ctx || typeof ctx.markPx !== 'string') return;
+        const published = {
+          indexPrice: optional(ctx.oraclePx, 'oraclePx'),
+          openPrice: optional(ctx.prevDayPx, 'prevDayPx'),
+          baseVolume: optional(ctx.dayBaseVlm, 'dayBaseVlm'),
+          volume: optional(ctx.dayNtlVlm, 'dayNtlVlm'),
+        };
+        const price: VenuePerpetualPrice = { symbol: m.symbol, markPrice: amt(ctx.markPx, 'markPx') };
+        for (const [key, value] of Object.entries(published)) if (value !== undefined) Object.assign(price, { [key]: value });
+        list.push(price);
+      });
+    }
+    list.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    return this.asOf(list);
+  }
+
+  /**
+   * `UserVenue.trades`: the venue's newest public prints on `symbol` (`recentTrades`), newest first, at most `limit`.
+   * The venue's `side` is the taker's: `B` a buy, `A` a sell. Its trade id is `tid`, or the trade's hash when the id is
+   * past what a JSON number holds exactly. `unknown_market` for a symbol it does not list.
+   */
+  async trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
+    if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError(`trades limit must be a whole number above 0, not ${limit}`);
+    const m = await this.market(symbol);
+    const rows = arr(await this.info({ type: 'recentTrades', coin: m.coin }), 'recentTrades').map((raw) => {
+      const t = obj(raw, 'recentTrades[]');
+      const side = str(t.side, 'side');
+      return {
+        tradeId: typeof t.tid === 'number' && Number.isSafeInteger(t.tid) ? String(t.tid) : str(t.hash, 'hash'),
+        symbol: m.symbol,
+        price: amt(t.px, 'px'),
+        amount: amt(t.sz, 'sz'),
+        takerSide: side === 'B' ? ('buy' as const) : side === 'A' ? ('sell' as const) : null,
+        tradedAt: new Date(int(t.time, 'time')),
+      };
+    });
+    rows.sort((x, y) => y.tradedAt.getTime() - x.tradedAt.getTime());
+    return this.asOf(rows.slice(0, limit), rows[0]?.tradedAt.getTime());
+  }
+
+  /**
+   * `UserVenue.candles`: the venue's own candles on `symbol` (`candleSnapshot`), oldest first, the newest `limit` of them
+   * (from `since` when given). An interval the venue does not publish (6h) is refused `not_offered`; `unknown_market`
+   * for a symbol it does not list.
+   */
+  async candles(
+    symbol: string,
+    interval: VenueCandleInterval,
+    query: number | { readonly limit: number; readonly since?: Date },
+  ): Promise<AsOf<readonly VenueCandle[]>> {
+    const { limit, since } = typeof query === 'number' ? { limit: query, since: undefined } : query;
+    if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError(`candle limit must be a whole number above 0, not ${limit}`);
+    if (!HL_CANDLE_INTERVALS.has(interval)) throw refusal(this.venue.id, 'not_offered', `this venue publishes no ${interval} candles`);
+    const m = await this.market(symbol);
+    const stepMs = VENUE_CANDLE_INTERVALS[interval] * 1000;
+    // The window ends where the current candle ends, not at this millisecond, so every desk asking within one candle asks
+    // the same read and shares it (`shareReads`); the venue answers only candles that have opened.
+    const endTime = (Math.floor(this.clock().getTime() / stepMs) + 1) * stepMs - 1;
+    const startTime = since ? since.getTime() : endTime + 1 - limit * stepMs;
+    const rows = arr(
+      await this.info({ type: 'candleSnapshot', req: { coin: m.coin, interval, startTime, endTime } }),
+      'candleSnapshot',
+    ).flatMap((raw) => {
+      const c = obj(raw, 'candleSnapshot[]');
+      // An interval with no print is not a candle (`VenueCandle`): the venue sends one with n 0, which the chart carries over.
+      if (c.n === 0) return [];
+      return {
+        openAt: new Date(int(c.t, 't')),
+        openPrice: amt(c.o, 'o'),
+        highPrice: amt(c.h, 'h'),
+        lowPrice: amt(c.l, 'l'),
+        closePrice: amt(c.c, 'c'),
+        baseVolume: amt(c.v, 'v'),
+      };
+    });
+    rows.sort((x, y) => x.openAt.getTime() - y.openAt.getTime());
+    return this.asOf(rows.slice(-limit));
+  }
+
+  // ── account reads ──────────────────────────────────────────────────────
+
+  async balances(account: UserVenueAccount): Promise<AsOf<readonly UserVenueBalance[]>> {
+    const { spot, perps, time } = await this.spotAndPerps(this.user(account));
+    const list: UserVenueBalance[] = [...spot];
+    // The perp account's USDC is a balance of its own beside spot USDC, named apart so the two never read as one.
+    for (const p of perps) list.push({ ...p, asset: PERP_COLLATERAL_ASSET });
+    list.sort((a, b) => a.asset.localeCompare(b.asset));
+    return this.asOf(list, time);
+  }
+
+  /**
+   * The account's mode (J-derivatives-29 #1), as the venue's `userAbstraction` reports it: `default` and `disabled` keep
+   * spot and perps apart (standard), `unifiedAccount` and `portfolioMargin` hold one balance for each. In standard mode
+   * its spot balances and its perps USDC, each named `USDC` as the venue names it. The venue reports no daily action
+   * count (its `userRateLimit` is a running request allowance, not a day's actions), so `actions` is null, never a guess.
+   * A mode the venue names that we don't know is `null`: the app says "not known" and refuses a move.
+   */
+  async accountMode(account: UserVenueAccount): Promise<AsOf<UserVenueAccountMode>> {
+    const user = this.user(account);
+    const [reported, both] = await Promise.all([this.info({ type: 'userAbstraction', user }), this.spotAndPerps(user)]);
+    const mode = typeof reported === 'string' ? (ABSTRACTION_MODE[reported] ?? null) : null;
+    const standard = mode === 'standard';
+    return this.asOf({ mode, spot: standard ? both.spot : null, perps: standard ? both.perps : null, actions: null }, both.time);
+  }
+
+  /** The account's spot balances, and its perp account's USDC (named `USDC`; none while it holds nothing). */
+  private async spotAndPerps(user: string): Promise<{ spot: UserVenueBalance[]; perps: UserVenueBalance[]; time: number | undefined }> {
+    const [perp, spotState] = await Promise.all([
+      this.info({ type: 'clearinghouseState', user }),
+      this.info({ type: 'spotClearinghouseState', user }),
+    ]);
+    const p = obj(perp, 'clearinghouseState');
+    const summary = obj(p.marginSummary, 'marginSummary');
+    const accountValue = amt(summary.accountValue, 'accountValue');
+    const withdrawable = amt(p.withdrawable, 'withdrawable');
+    const spot: UserVenueBalance[] = [];
+    for (const b of arr(obj(spotState, 'spotClearinghouseState').balances, 'spot balances')) {
+      const bal = obj(b, 'spot balance');
+      const total = amt(bal.total, 'spot total');
+      const hold = amt(bal.hold, 'spot hold');
+      spot.push({ asset: str(bal.coin, 'spot coin'), free: sub(total, hold), locked: hold, total });
+    }
+    spot.sort((a, b) => a.asset.localeCompare(b.asset));
+    const perps: UserVenueBalance[] = [];
+    if (accountValue !== ZERO || withdrawable !== ZERO) {
+      // The venue reports the perp account's value and what can be withdrawn; what is held is the difference.
+      perps.push({ asset: PERP_QUOTE, free: withdrawable, locked: sub(accountValue, withdrawable), total: accountValue });
+    }
+    return { spot, perps, time: typeof p.time === 'number' ? p.time : undefined };
+  }
+
+  /**
+   * The perp account's margin summary as the venue reports it: its value (`marginSummary.accountValue`), the margin its
+   * positions hold (`totalMarginUsed`), what can be withdrawn, and the cross maintenance requirement. The ratio is that
+   * requirement over the value, rounded up; unknown with no value above zero. No cross figure is derived here.
+   */
+  async accountSummary(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>> {
+    const p = obj(await this.info({ type: 'clearinghouseState', user: this.user(account) }), 'clearinghouseState');
+    const summary = obj(p.marginSummary, 'marginSummary');
+    const equity = amt(summary.accountValue, 'accountValue');
+    const maintenance = amt(p.crossMaintenanceMarginUsed, 'crossMaintenanceMarginUsed');
+    return this.asOf(
+      {
+        asset: PERP_COLLATERAL_ASSET,
+        equity,
+        free: amt(p.withdrawable, 'withdrawable'),
+        usedMargin: amt(summary.totalMarginUsed, 'totalMarginUsed'),
+        maintenanceMargin: maintenance,
+        marginRatio: compare(equity, ZERO) > 0 ? { known: true, value: div(maintenance, equity, 'ceil') } : { known: false },
+      },
+      typeof p.time === 'number' ? p.time : undefined,
+    );
+  }
+
+  private async toOrder(
+    account: UserVenueAccount,
+    raw: { [key: string]: Json },
+    status: VenueOrderStatus | null,
+    leverageOf: (coin: string) => Promise<number | null>,
+  ): Promise<UserVenueOrder> {
+    const coin = str(raw.coin, 'order coin');
+    const m = await this.marketOfCoin(coin);
+    const price = amt(raw.limitPx, 'limitPx');
+    const remaining = amt(raw.sz, 'sz');
+    const original = raw.origSz !== undefined ? amt(raw.origSz, 'origSz') : remaining;
+    const filled = sub(original, remaining);
+    const side = raw.side === 'B' ? 'buy' : 'sell';
+    const orderType = typeof raw.orderType === 'string' ? raw.orderType : 'Limit';
+    const tif: VenueTimeInForce = raw.tif === 'Ioc' ? 'IOC' : raw.tif === 'Alo' ? 'ALO' : 'GTC';
+    const resolved: VenueOrderStatus = status ?? (compare(filled, ZERO) > 0 ? 'partially_filled' : 'open');
+    const live = resolved === 'open' || resolved === 'partially_filled';
+    let locked = ZERO;
+    let lockedAsset = m?.quote ?? PERP_QUOTE;
+    if (m && live) {
+      if (m.kind === 'spot') {
+        // The venue holds the quote notional of a resting buy and the base of a resting sell.
+        if (side === 'buy') locked = mul(price, remaining, 'ceil');
+        else {
+          locked = remaining;
+          lockedAsset = m.base;
+        }
+      } else {
+        lockedAsset = PERP_COLLATERAL_ASSET;
+        const lev = raw.reduceOnly === true ? null : await leverageOf(coin);
+        // Initial margin of the open part at the account's leverage: our reading of the venue's rule, not a figure it reports.
+        if (lev !== null) locked = div(mul(price, remaining, 'ceil'), parseAmount(String(lev)), 'ceil');
+      }
+    }
+    const origin =
+      raw.isLiquidation === true || /liquidat/i.test(orderType)
+        ? ('liquidation' as const)
+        : raw.isTrigger === true
+          ? /take\s*profit/i.test(orderType)
+            ? ('take_profit' as const)
+            : ('stop' as const)
+          : ('user' as const);
+    return {
+      ...triggerOf(raw, resolved),
+      venueOrderId: raw.oid !== undefined ? String(int(raw.oid, 'oid')) : null,
+      venueClientOrderId: typeof raw.cloid === 'string' ? raw.cloid.toLowerCase() : null,
+      symbol: m?.symbol ?? coin,
+      side,
+      type: /market/i.test(orderType) ? 'market' : 'limit',
+      timeInForce: tif,
+      price,
+      amount: original,
+      filled,
+      remaining: live ? remaining : ZERO,
+      averagePrice: null,
+      status: resolved,
+      locked,
+      lockedAsset,
+      reduceOnly: raw.reduceOnly === true,
+      origin,
+      originRef: null,
+    };
+  }
+
+  private leverageLookup(account: UserVenueAccount): (coin: string) => Promise<number | null> {
+    const seen = new Map<string, Promise<number | null>>();
+    return (coin) => {
+      if (!seen.has(coin)) {
+        seen.set(
+          coin,
+          this.info({ type: 'activeAssetData', user: this.user(account), coin }).then((d) => {
+            const lev = obj(d, 'activeAssetData').leverage;
+            return lev ? int(obj(lev, 'leverage').value, 'leverage value') : null;
+          }),
+        );
+      }
+      return seen.get(coin)!;
+    };
+  }
+
+  /**
+   * One read per perp DEX the listing names: the main one (its request unchanged, no `dex`), then each HIP-3 DEX with
+   * `dex`. The venue keeps each DEX's positions, orders and marks apart.
+   */
+  protected perDex<T>(read: (dex: Record<string, Json>) => Promise<T>): Promise<T[]> {
+    return Promise.all([read({}), ...this.perpDexs.map((dex) => read({ dex }))]);
+  }
+
+  async openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {
+    const user = this.user(account);
+    const raw = (
+      await this.perDex(async (dex) => arr(await this.info({ type: 'frontendOpenOrders', user, ...dex }), 'open orders'))
+    ).flat();
+    const lev = this.leverageLookup(account);
+    const list: UserVenueOrder[] = [];
+    for (const r of raw) list.push(await this.toOrder(account, obj(r, 'open order'), null, lev));
+    return this.asOf(list);
+  }
+
+  /**
+   * The account's order history (J-cex-spot-06 #1): Hyperliquid's `historicalOrders`, its 2000 most recent orders, each
+   * the order as last reported with its status. An open entry's part-filled state comes from its sizes; the time placed is
+   * the order's own `timestamp`. Newest placed first.
+   */
+  async orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
+    const raw = arr(await this.info({ type: 'historicalOrders', user: this.user(account) }), 'historical orders');
+    const lev = this.leverageLookup(account);
+    const list: UserVenueOrderRecord[] = [];
+    for (const entry of raw) {
+      const wrapped = obj(entry, 'historical order');
+      const order = obj(wrapped.order, 'historical order.order');
+      const venueStatus = str(wrapped.status, 'historical order status');
+      const status = mapOrderStatus(venueStatus);
+      list.push({
+        order: withCancelReason(await this.toOrder(account, order, status === 'open' ? null : status, lev), venueStatus),
+        placedAt: new Date(int(order.timestamp, 'order timestamp')),
+      });
+    }
+    list.sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime());
+    return this.asOf(list);
+  }
+
+  async orderByClientId(account: UserVenueAccount, cloid: string): Promise<AsOf<UserVenueOrder | null>> {
+    const answer = obj(await this.info({ type: 'orderStatus', user: this.user(account), oid: cloid.toLowerCase() }), 'orderStatus');
+    if (answer.status === 'unknownOid') return this.asOf(null);
+    const wrapped = obj(answer.order, 'orderStatus.order');
+    const venueStatus = str(wrapped.status, 'order status');
+    const raw = obj(wrapped.order, 'orderStatus.order.order');
+    const status = mapOrderStatus(venueStatus);
+    // An open order's part-filled state comes from its sizes.
+    const order = withCancelReason(
+      await this.toOrder(account, raw, status === 'open' ? null : status, this.leverageLookup(account)),
+      venueStatus,
+    );
+    return this.asOf(order, typeof wrapped.statusTimestamp === 'number' ? wrapped.statusTimestamp : undefined);
+  }
+
+  /**
+   * Every fill since `since`. The venue caps one answer at `FILLS_PAGE_CAP`
+   * fills (and keeps only the 10000 most recent), so this pages: each next
+   * page starts at the last fill's millisecond, not after it, so fills that
+   * share that millisecond are neither dropped nor counted twice (deduped by
+   * the fill id, `fillIdOf`). It stops on a short page, or a page that adds nothing.
+   * The docs' general pagination note says ranged answers return 500
+   * elements; the per-endpoint 2000 is the one used, and the "adds nothing"
+   * stop keeps a smaller cap from looping.
+   */
+  async fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
+    const seen = new Map<string, { [key: string]: Json }>();
+    /** Every fill id a page answered, before `since` too: paging stops on a page that adds none. */
+    const paged = new Set<string>();
+    // Read from the hour `since` falls in (`FILLS_GRID_MS`), so asks a few seconds apart are one shared read; the
+    // fills before `since` are left out below.
+    const sinceMs = since.getTime();
+    let startTime = Math.floor(sinceMs / FILLS_GRID_MS) * FILLS_GRID_MS;
+    for (;;) {
+      const page = arr(await this.info({ type: 'userFillsByTime', user: this.user(account), startTime, aggregateByTime: false }), 'fills');
+      let added = 0;
+      let lastTime = startTime;
+      for (const entry of page) {
+        const f = obj(entry, 'fill');
+        const id = fillIdOf(f);
+        const time = int(f.time, 'fill time');
+        lastTime = Math.max(lastTime, time);
+        if (!paged.has(id)) {
+          paged.add(id);
+          added += 1;
+          if (time >= sinceMs) seen.set(id, f);
+        }
+      }
+      if (page.length < FILLS_PAGE_CAP || added === 0) break;
+      if (lastTime === startTime) {
+        // A full page all in one millisecond: the next page would be the same one. Refuse loudly rather than drop fills.
+        throw refusal(this.venue.id, 'venue_rejected', `more than ${FILLS_PAGE_CAP} fills at ${startTime}: cannot page past them`);
+      }
+      startTime = lastTime;
+    }
+    const list: (UserVenueFill & { readonly tid: string })[] = [];
+    for (const [fillId, f] of seen) {
+      const coin = str(f.coin, 'fill coin');
+      const m = await this.marketOfCoin(coin);
+      const totalFee = amt(f.fee, 'fill fee');
+      const builderFee = f.builderFee !== undefined ? amt(f.builderFee, 'fill builderFee') : ZERO;
+      const dir = typeof f.dir === 'string' ? f.dir : '';
+      const perp = m?.kind === 'perpetual';
+      list.push({
+        fillId,
+        tid: String(int(f.tid, 'tid')),
+        venueClientOrderId: typeof f.cloid === 'string' ? f.cloid.toLowerCase() : null,
+        symbol: m?.symbol ?? coin,
+        side: f.side === 'B' ? 'buy' : 'sell',
+        price: amt(f.px, 'fill px'),
+        amount: amt(f.sz, 'fill sz'),
+        role: f.crossed === true ? 'taker' : 'maker',
+        // The venue's `fee` includes the builder fee (our reading; checked on the live run): the venue's own line is the rest.
+        venueFee: sub(totalFee, builderFee),
+        builderFee,
+        feeAsset: str(f.feeToken, 'feeToken'),
+        realisedPnl: perp && !dir.startsWith('Open') ? amt(f.closedPnl, 'closedPnl') : null,
+        filledAt: new Date(int(f.time, 'fill time')),
+      });
+    }
+    list.sort(
+      (x, y) =>
+        x.filledAt.getTime() - y.filledAt.getTime() || compareTid(x.tid, y.tid) || (x.symbol < y.symbol ? -1 : x.symbol > y.symbol ? 1 : 0),
+    );
+    return this.asOf(list.map(({ tid: _tid, ...fill }) => fill));
+  }
+
+  async positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>> {
+    const user = this.user(account);
+    const dexes = await this.perDex(async (dex) => {
+      const [state, ctxs] = await Promise.all([
+        this.info({ type: 'clearinghouseState', user, ...dex }),
+        this.info({ type: 'metaAndAssetCtxs', ...dex }),
+      ]);
+      // The mark comes from the same answer's own universe: its contexts are indexed by that list, not by a cached one.
+      const both = arr(ctxs, 'metaAndAssetCtxs');
+      const universe = arr(obj(both[0], 'metaAndAssetCtxs meta').universe, 'metaAndAssetCtxs universe');
+      const assetCtxs = arr(both[1], 'asset contexts');
+      const marks = new Map<string, Json>();
+      universe.forEach((u, i) => {
+        const ctx = assetCtxs[i];
+        if (ctx) marks.set(str(obj(u, 'universe entry').name, 'universe name'), ctx);
+      });
+      return { s: obj(state, 'clearinghouseState'), marks };
+    });
+    const markOf = (marks: Map<string, Json>, coin: string): Amount | null => {
+      const ctx = marks.get(coin);
+      return ctx ? amt(obj(ctx, 'asset ctx').markPx, 'markPx') : null;
+    };
+    const time = dexes[0]?.s.time;
+    const list: UserVenuePosition[] = [];
+    for (const { s: dexState, marks } of dexes)
+      for (const ap of arr(dexState.assetPositions, 'assetPositions')) {
+        const p = obj(obj(ap, 'assetPosition').position, 'position');
+        const coin = str(p.coin, 'position coin');
+        const szi = amt(p.szi, 'szi');
+        if (szi === ZERO) continue;
+        const leverage = obj(p.leverage, 'position leverage');
+        const mark = markOf(marks, coin);
+        if (mark === null) throw refusal(this.venue.id, 'venue_rejected', `no mark price reported for ${coin}`);
+        list.push({
+          symbol: await this.symbolOfCoin(coin),
+          side: compare(szi, ZERO) > 0 ? 'long' : 'short',
+          size: abs(szi),
+          entryPrice: amt(p.entryPx, 'entryPx'),
+          markPrice: mark,
+          unrealisedPnl: amt(p.unrealizedPnl, 'unrealizedPnl'),
+          marginMode: leverage.type === 'isolated' ? 'isolated' : 'cross',
+          margin: amt(p.marginUsed, 'marginUsed'),
+          leverageBps: int(leverage.value, 'leverage value') * BPS_PER_X,
+          liquidationPrice: typeof p.liquidationPx === 'string' ? { known: true, value: parseAmount(p.liquidationPx) } : { known: false },
+        });
+      }
+    list.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    return this.asOf(list, typeof time === 'number' ? time : undefined);
+  }
+
+  async withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>> {
+    if (!/^\d+$/.test(nonce)) throw refusal(this.venue.id, 'venue_rejected', `nonce ${nonce} is not a millisecond nonce`);
+    // The ledger entry is stamped at or after the signed nonce; start a minute before it in case of clock skew.
+    const startTime = Math.max(0, Number(nonce) - 60_000);
+    const raw = arr(await this.info({ type: 'userNonFundingLedgerUpdates', user: this.user(account), startTime }), 'ledger updates');
+    for (const entry of raw) {
+      const e = obj(entry, 'ledger update');
+      const delta = obj(e.delta, 'ledger delta');
+      if (delta.type !== 'withdraw' || String(delta.nonce) !== nonce) continue;
+      return this.asOf(
+        {
+          nonce,
+          // The asset the intent named: withdraw3 draws on the perpetual account's USDC.
+          asset: PERP_COLLATERAL_ASSET,
+          amount: amt(delta.usdc, 'withdraw usdc'),
+          // The venue's ledger entry names no destination: we know it only for withdrawals this instance signed and sent;
+          // otherwise it is honestly unknown (null), never a made-up value.
+          destination: this.withdrawalDestinations.get(nonce) ?? null,
+          // The ledger shows the debit; it does not report when the bridge paid out.
+          status: 'pending',
+          fee: typeof delta.fee === 'string' ? { known: true, value: parseAmount(delta.fee) } : { known: false },
+          // The ledger entry reports one fee and no separate network fee for the bridge's send: not known, never 0.
+          networkFee: { known: false },
+        },
+        typeof e.time === 'number' ? e.time : undefined,
+      );
+    }
+    return this.asOf(null);
+  }
+
+  /**
+   * `UserVenue.feeStatus` from `userFees` (J-cex-spot-10 #2 #6): the published tiers are `feeSchedule`'s base rates (from
+   * zero) and its `tiers.vip` rows by `ntlCutoff`, named by their place ("Tier 0" the base), as the venue names none; the
+   * account's volume is the sum of its `dailyUserVlm` days (`userCross` + `userAdd`) and its rates are `user*Rate`.
+   * Hyperliquid reports no tier name and no time it last placed the account, so both are not known (`null`). With no
+   * account, the schedule is read for the zero address, which every account shares.
+   */
+  async feeStatus(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>> {
+    const user = account ? this.user(account) : NO_ACCOUNT;
+    const fees = obj(await this.info({ type: 'userFees', user }), 'userFees');
+    const rate = (o: { [key: string]: Json }, field: string): MaybeKnown<Amount> =>
+      typeof o[field] === 'string' ? { known: true, value: rateToBps(o[field]) } : { known: false };
+    const ratesOf = (o: { [key: string]: Json }, prefix: '' | 'spot') => ({
+      makerFeeBps: rate(o, prefix ? 'spotAdd' : 'add'),
+      takerFeeBps: rate(o, prefix ? 'spotCross' : 'cross'),
+    });
+    let tiers: VenueFeeTier[] | null = null;
+    if (fees.feeSchedule !== undefined) {
+      const schedule = obj(fees.feeSchedule, 'feeSchedule');
+      const vip = schedule.tiers === undefined ? [] : arr(obj(schedule.tiers, 'feeSchedule.tiers').vip ?? [], 'feeSchedule.tiers.vip');
+      tiers = [
+        { name: 'Tier 0', fromVolume: ZERO, spot: ratesOf(schedule, 'spot'), perpetual: ratesOf(schedule, '') },
+        ...vip.map((raw, i) => {
+          const t = obj(raw, 'vip tier');
+          return { name: `Tier ${i + 1}`, fromVolume: amt(t.ntlCutoff, 'ntlCutoff'), spot: ratesOf(t, 'spot'), perpetual: ratesOf(t, '') };
+        }),
+      ];
+    }
+    let volume: MaybeKnown<Amount> = { known: false };
+    if (Array.isArray(fees.dailyUserVlm)) {
+      let total = ZERO;
+      for (const raw of fees.dailyUserVlm) {
+        const day = obj(raw, 'dailyUserVlm day');
+        total = add(add(total, amt(day.userCross, 'userCross')), amt(day.userAdd, 'userAdd'));
+      }
+      volume = { known: true, value: total };
+    }
+    const own = (taker: string, maker: string) => ({ makerFeeBps: rate(fees, maker), takerFeeBps: rate(fees, taker) });
+    return this.asOf({
+      // Hyperliquid charges by the account's tier on every market; `markets()` with no account carries no rate.
+      ratesByTier: true,
+      schedule: { tiers, volumeAsset: PERP_QUOTE, volumeDays: 14 },
+      account: account
+        ? {
+            tierName: null,
+            volume,
+            spot: own('userSpotCrossRate', 'userSpotAddRate'),
+            perpetual: own('userCrossRate', 'userAddRate'),
+            tierUpdatedAt: null,
+          }
+        : null,
+    });
+  }
+
+  async builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
+    const tenths = await this.info({ type: 'maxBuilderFee', user: account.owner.toLowerCase(), builder: builder.toLowerCase() });
+    return this.asOf(tenthsToBps(int(tenths, 'maxBuilderFee')));
+  }
+
+  async agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
+    const raw = arr(await this.info({ type: 'extraAgents', user: account.owner.toLowerCase() }), 'extraAgents');
+    return this.asOf(
+      raw.map((entry) => {
+        const a = obj(entry, 'agent');
+        return {
+          address: str(a.address, 'agent address').toLowerCase(),
+          name: typeof a.name === 'string' ? a.name : '',
+          validUntil: typeof a.validUntil === 'number' ? new Date(a.validUntil) : null,
+        };
+      }),
+    );
+  }
+
+  async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
+    const m = await this.market(symbol);
+    if (m.kind !== 'perpetual') return this.asOf(null);
+    const data = obj(await this.info({ type: 'activeAssetData', user: this.user(account), coin: m.coin }), 'activeAssetData');
+    if (!data.leverage) return this.asOf(null);
+    const lev = obj(data.leverage, 'leverage');
+    return this.asOf({
+      symbol,
+      leverageBps: int(lev.value, 'leverage value') * BPS_PER_X,
+      marginMode: lev.type === 'isolated' ? 'isolated' : 'cross',
+    });
+  }
+}
+
+/**
+ * A fill's id, unique everywhere: the fill's time, its coin and the venue's trade id, `<time>:<coin>:<tid>`. The venue's
+ * `tid` alone is not unique: "For a globally unique trade id, use (block_time, coin, tid)" (Hyperliquid's websocket
+ * subscriptions page, read 10 Nov 2026), so two trades on different coins can share it. The id is born here and becomes
+ * the builder-fee ledger key, so it must never collapse two fills into one (owner decision D6, 10 Nov 2026). Time and
+ * `tid` are whole numbers, so the coin is everything between the first and the last colon, even a coin with a colon.
+ */
+function fillIdOf(f: { readonly [key: string]: Json }): string {
+  return `${int(f.time, 'fill time')}:${str(f.coin, 'fill coin')}:${int(f.tid, 'tid')}`;
+}
+
+/** Venue trade ids are whole numbers as decimal strings: order them as numbers, without a `number`. */
+function compareTid(x: string, y: string): number {
+  return x.length - y.length || (x < y ? -1 : x > y ? 1 : 0);
+}
+
+/**
+ * The venue's own word for why it cancelled an order, where it is one we name (J-derivatives-04 #7): `selfTradeCanceled`,
+ * cancelled by its self-trade rule because the account's own new order would have traded with it. Other words leave it
+ * unsaid.
+ */
+export function withCancelReason<T extends Pick<UserVenueOrder, 'cancelReason'>>(order: T, venueStatus: string): T {
+  return venueStatus === 'selfTradeCanceled' ? { ...order, cancelReason: 'self_trade' } : order;
+}
+
+/**
+ * A trigger order's trigger as the venue reports it: `isTrigger` with its `triggerPx`, judged on the mark price;
+ * a take profit by its `orderType` ("Take Profit Market", "Take Profit Limit"), else a stop loss. It is `waiting` while the
+ * order is open and was not triggered (`triggered`, or a status past open), `failed` when the venue rejected it. An
+ * ordinary order, or a trigger the venue reports without its price, carries none.
+ */
+function triggerOf(
+  raw: { readonly [key: string]: Json },
+  status: VenueOrderStatus,
+): Pick<UserVenueOrder, 'trigger'> | Record<string, never> {
+  if (raw.isTrigger !== true || typeof raw.triggerPx !== 'string') return {};
+  const orderType = typeof raw.orderType === 'string' ? raw.orderType : '';
+  const fired = raw.triggered === true || (status !== 'open' && status !== 'canceled' && status !== 'rejected');
+  return {
+    trigger: {
+      price: amt(raw.triggerPx, 'triggerPx'),
+      source: 'mark',
+      role: /take\s*profit/i.test(orderType) ? 'take_profit' : 'stop_loss',
+      state: status === 'rejected' ? 'failed' : fired ? 'triggered' : 'waiting',
+      triggeredAt: null,
+      failure: status === 'rejected' ? 'the venue rejected the order its trigger sent' : null,
+    },
+  };
+}
+
+/** The venue's order status words to ours. An unknown word is loud, never guessed. */
+export function mapOrderStatus(venueStatus: string): VenueOrderStatus {
+  if (venueStatus === 'open' || venueStatus === 'triggered') return 'open';
+  if (venueStatus === 'filled') return 'filled';
+  if (venueStatus === 'rejected' || venueStatus.endsWith('Rejected')) return 'rejected';
+  if (venueStatus === 'canceled' || venueStatus.endsWith('Canceled') || venueStatus === 'scheduledCancel') return 'canceled';
+  throw new Error(`venue order status "${venueStatus}" is not one this adapter knows`);
+}

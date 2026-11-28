@@ -60,6 +60,9 @@ export interface ReconcileResult {
   readonly detail: string;
 }
 
+/** The one zone a market may sit in (J-cex-spot-14 #7). */
+export type MarketZone = 'higher_risk';
+
 export interface Market {
   readonly id: string;
   readonly symbol: string;
@@ -77,6 +80,18 @@ export interface Market {
   readonly listedAt: Date | null;
   /** The date a delisted market leaves the board (J-cex-spot-14 #1); null when none is set or the read did not load it. */
   readonly delistsAt?: Date | null;
+  /**
+   * When a new listing's opening window ends (J-cex-spot-14 #7). Until then a market or conditional order is refused
+   * with `trade.opening_window` and a limit order is taken. Null: no window (or the read did not load it).
+   */
+  readonly openingWindowEndsAt?: Date | null;
+  /**
+   * The higher-risk zone (J-cex-spot-14 #7, SP-markets-data-02): a zone market takes limit orders only, each worth at
+   * most `zoneOrderCap` in the quote asset. Null or absent: outside the zone (or the read did not load it).
+   */
+  readonly zone?: MarketZone | null;
+  /** A zone market's owner-set cap on one order's value, in the quote asset. Null: unset, so the market takes no order. */
+  readonly zoneOrderCap?: Amount | null;
   readonly assetClass: AssetClass;
   /**
    * When this market accepts orders.
@@ -313,6 +328,11 @@ export type TradeErrorCode =
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
   | 'trade.mode_limit_only'
+  /** A new listing inside its opening window: only limit orders are taken until it ends (SP-markets-data-02). */
+  | 'trade.opening_window'
+  | 'trade.higher_risk_zone'
+  | 'trade.zone_setting_unset'
+  | 'trade.zone_cap_exceeded'
   /** The retail price improvement layer has no priority class (SP-markets-data-04): an order asking for it is refused. */
   | 'trade.rpi_unavailable'
   /** Cancel-only mode: a new order is refused; cancel works. */
@@ -518,6 +538,11 @@ export type TradeErrorCode =
    */
   | 'trade.cancel_ahead_of_fill'
   /**
+   * `finalize` refused an engine-miss release (#8560): the miss was not first sighted the owner's floor ago with no
+   * listing since, or trade.fills show a fill. Reconcile only; the hold stays.
+   */
+  | 'trade.engine_miss_unproven'
+  /**
    * Operator `reconcileOrder` funded engine-miss: `trade.fills` does not prove
    * no fill. Hold stays. Never an automatic refund (lost fill looks like this).
    */
@@ -563,6 +588,8 @@ export type TradeErrorCode =
   | 'trade.slippage_cap_unset'
   /** Venue spot market order refused: TRADE_MARKET_SPREAD_LIMIT_BPS blank / non-integer / out of 1–5000. */
   | 'trade.spread_limit_unset'
+  /** A stop's or a reduce-only close's worst price refused: TRADE_CLOSE_SLIPPAGE_BPS blank / non-integer / out of 1–5000. */
+  | 'trade.close_slippage_unset'
   | 'trade.slippage_tolerance_invalid'
   /**
    * Market sell or flatten with no owner protection floor. Preview and place
@@ -573,6 +600,8 @@ export type TradeErrorCode =
   | 'trade.price_band_unset'
   /** No operator open-order cap is published for the pair: an order that can rest is refused, never capped by a default. */
   | 'trade.open_orders_cap_unset'
+  /** No operator minimum order value is published for the pair: orders are refused, never floored by a default. */
+  | 'trade.min_notional_unset'
   /**
    * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
    * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.
@@ -643,6 +672,10 @@ export type TradeErrorCode =
   | 'trade.algo_kind_not_built'
   /** CB-execution-08: a schedule's parameters are fixed at create, as in the web; amend is refused. */
   | 'trade.algo_params_immutable'
+  /** An algo amend asked for more quantity: it only goes down (SP-conditional-algo-04). */
+  | 'trade.amend_qty_up'
+  /** An algo amend asked for no more than is already scheduled: cancel stops the order. */
+  | 'trade.algo_amend_below_placed'
   /**
    * Resume would stretch the schedule past 2× the order's own durationMs
    * (ADR 2026-08-08). Trader may cancel-and-recreate; parent stays paused.
@@ -778,7 +811,11 @@ export type TradeErrorCode =
    * Pre-market conversion (or params read) refused: the owner has not set the flat funding rate
    * and the mark clamp band for this market. Blank stays blank; the market row is left as it was.
    */
-  | 'trade.premarket_params_unset';
+  | 'trade.premarket_params_unset'
+  /** Historical book snapshot interval (`TRADE_HISTORY_BOOK_INTERVAL_MS`) is blank; no book dataset is built. */
+  | 'trade.history_book_interval_unset'
+  /** Requested historical dataset id does not exist. */
+  | 'trade.history_dataset_not_found';
 
 export class TradeError extends Error {
   /** Exact decimal strings and asset codes. Absent when the refusal has no amounts. */

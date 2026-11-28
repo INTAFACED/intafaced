@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import * as theirs from '../../../../../services/svc-trade/src/admin/maker-programme-model';
+import * as ours from './maker-programme-model';
 import {
   checkMember,
   checkPlan,
@@ -13,8 +12,6 @@ import {
 } from './maker-programme-model';
 import { memberPayloadHash, parseMarketPlans, parseTerms, planPayloadHash, termsPayloadHash } from './maker-programme-view';
 import { memberDraft, planDraft, termsDraft } from './maker-programme-drafts';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 // The same TEST values and pinned hashes as svc-trade `src/admin/maker-programme-model.test.ts`.
 const TERMS: TermsInput = {
@@ -50,11 +47,85 @@ const value = <T>(c: { ok: true; value: T } | { ok: false }) => {
   return c.value;
 };
 
+// Each field blank, padded, out of range or of the wrong form: the refusals both models give, and the values they bind.
+const ODD: readonly (string | null)[] = [
+  '',
+  '   ',
+  null,
+  ' 7 ',
+  '0',
+  '0.0',
+  '-1',
+  '-2.5',
+  '1.5',
+  '1e3',
+  '99.9999',
+  '100',
+  '100.0001',
+  '101',
+  '9999',
+  '99999',
+  '100000',
+  'abc',
+  'usdt',
+  'USDT',
+  '2027-02-29',
+  '2028-02-29',
+  '2027-13-01',
+  '55555555-5555-4555-8555-55555555555A',
+  ' 55555555-5555-4555-8555-555555555555 ',
+  'active',
+  'other',
+  'x'.repeat(41),
+  'x'.repeat(2001),
+];
+function* each<T extends object>(base: T): Generator<T> {
+  for (const key of Object.keys(base)) {
+    if (typeof (base as Record<string, unknown>)[key] !== 'string') continue;
+    for (const odd of ODD) yield { ...base, [key]: odd };
+  }
+}
+function* termsCases(): Generator<TermsInput> {
+  yield TERMS;
+  yield { ...TERMS, tiers: [] };
+  yield { ...TERMS, tiers: [TERMS.tiers[0]!, { ...TERMS.tiers[0]!, name: 'test gold' }] };
+  yield { ...TERMS, tiers: Array.from({ length: 11 }, (_, i) => ({ ...TERMS.tiers[0]!, name: `TEST ${i}` })) };
+  yield* each(TERMS);
+  for (const tier of each(TERMS.tiers[0]!)) yield { ...TERMS, tiers: [tier] };
+}
+function* memberCases(): Generator<MemberInput> {
+  yield MEMBER;
+  yield* each(MEMBER);
+  for (const status of ['suspended', 'exited', null, 'other']) yield { ...MEMBER, status: status as MemberInput['status'] };
+}
+function* planCases(): Generator<PlanInput> {
+  yield PLAN;
+  yield { ...PLAN, makers: [] };
+  yield { ...PLAN, makers: [PLAN.makers[0]!, PLAN.makers[0]!] };
+  yield {
+    ...PLAN,
+    makers: Array.from({ length: 21 }, (_, i) => ({
+      ...PLAN.makers[0]!,
+      accountId: `55555555-5555-4555-8555-5555555555${String(i).padStart(2, '0')}`,
+    })),
+  };
+  yield* each(PLAN);
+  for (const maker of each(PLAN.makers[0]!)) yield { ...PLAN, makers: [maker] };
+}
+
 describe('maker programme in the console (J-cex-spot-20 #8)', () => {
-  it('applies svc-trade’s own rule: this model is the same file, byte for byte', () => {
-    const ours = readFileSync(join(here, 'maker-programme-model.ts'), 'utf8');
-    const theirs = readFileSync(join(here, '../../../../../services/svc-trade/src/admin/maker-programme-model.ts'), 'utf8');
-    expect(ours).toBe(theirs);
+  it('applies svc-trade’s own rule: the same exports, codes and answer for every input', () => {
+    expect(Object.keys(ours).sort()).toEqual(Object.keys(theirs).sort());
+    for (const [name, v] of Object.entries(theirs))
+      if (typeof v !== 'function') expect((ours as Record<string, unknown>)[name], name).toEqual(v);
+    const same = <T>(check: (o: typeof ours, input: T) => unknown, input: T, what: string) =>
+      expect(check(ours, input), what).toEqual(check(theirs, input));
+    for (const input of termsCases()) same((m, i) => m.checkTerms(i), input, JSON.stringify(input));
+    for (const input of memberCases()) same((m, i) => m.checkMember(i), input, JSON.stringify(input));
+    for (const input of planCases()) same((m, i) => m.checkPlan(i), input, JSON.stringify(input));
+    same((m, i) => m.termsApprovalBody('3', i), TERMS, 'terms body');
+    same((m, i) => m.memberApprovalBody('3', i), MEMBER, 'member body');
+    same((m, i) => m.planApprovalBody(MARKET, '3', i), PLAN, 'plan body');
   });
 
   it('binds approvals to the same hashes svc-trade computes', () => {

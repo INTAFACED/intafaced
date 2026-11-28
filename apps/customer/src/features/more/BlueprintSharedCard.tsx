@@ -1,25 +1,29 @@
+// volt-room: /blueprint/shared/:cardId
 import { useLayoutEffect, useRef, useState } from 'react';
-import { useSession } from '../session/session';
-import { Button, Dialog, Field, Panel } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { ReadingTemplate, SelectField, Sheet } from '@intafaced/ui/lit/templates';
+import { useSession } from '../session';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { navigate } from '../../app/location';
-import { safeCardSvg } from './Blueprint';
+import { BLUEPRINT_CARD_OF } from '@intafaced/contracts/blueprint-procedures';
+import { safeCardSvg } from './blueprint-card-svg';
 import { blueprintSharedCardCopy } from './blueprint-shared-card-copy';
+import { t as moreText } from './copy';
+import { moreRoomRoutesCopy } from './more-room-routes-copy';
+import { preservePaperHref } from './trade-context';
+import { currentRoute, subscribeRoute } from '../../shared/route-watch';
 import {
-  currentSharedCardRoute,
   sharedCardDimensions,
   sharedCardFailure,
   sharedCardHref,
-  sharedCardResponse,
+  sharedCardMatches,
   sharedCardRoute,
   sharedCardSelection,
-  subscribeSharedCardRoute,
   type SharedCard,
   type SharedCardSelection,
 } from './blueprint-shared-card-contract';
-import './blueprint-shared-card.css';
 
-type Lease = { api: ApiClient; actor: string | null; session: object | null; route: ReturnType<typeof currentSharedCardRoute> };
+type Lease = { api: ApiClient; actor: string | null; session: object | null; route: ReturnType<typeof currentRoute> };
 function useViewerLease(invalidate: () => void) {
   const { api, userId, session } = useSession();
   const [, refresh] = useState(0);
@@ -27,7 +31,7 @@ function useViewerLease(invalidate: () => void) {
     mounted = useRef(false),
     revoke = useRef(invalidate);
   revoke.current = invalidate;
-  const route = currentSharedCardRoute();
+  const route = currentRoute();
   if (
     !current.current ||
     current.current.api !== api ||
@@ -40,7 +44,7 @@ function useViewerLease(invalidate: () => void) {
   const lease = current.current;
   useLayoutEffect(() => {
     mounted.current = true;
-    const unsubscribe = subscribeSharedCardRoute(() => {
+    const unsubscribe = subscribeRoute(() => {
       current.current = null;
       revoke.current();
       refresh((n) => n + 1);
@@ -54,7 +58,7 @@ function useViewerLease(invalidate: () => void) {
   }, []);
   // canWrite is the synchronous client/session identity lease, not a service permission.
   const admits = () =>
-    mounted.current && current.current === lease && !!lease.actor && lease.api.canWrite() && currentSharedCardRoute() === lease.route;
+    mounted.current && current.current === lease && !!lease.actor && lease.api.canWrite() && currentRoute() === lease.route;
   return { lease, admits };
 }
 type Intent = { selection: Readonly<SharedCardSelection>; lease: Lease; controller: AbortController };
@@ -65,6 +69,31 @@ type View =
   | { status: 'ready'; artifact: Artifact }
   | { status: 'failed'; intent: Intent; failure: ReturnType<typeof sharedCardFailure> | 'unsafe'; code?: string };
 type Draft = { userId: string; size: string };
+
+/**
+ * /blueprint/shared/:cardId on the reading template: a Blueprint card someone shared, read by its account and size. The
+ * person's own Blueprint, its crew and its erasure stay in the Blueprint room, linked here.
+ */
+export function BlueprintSharedRoom({ path, paper }: { path: string; paper: boolean }) {
+  const routes = moreRoomRoutesCopy.useCopy();
+  return (
+    <div data-room="blueprint-shared">
+      <ReadingTemplate
+        title={routes.t('sharedCard')}
+        description={moreText('moreroutes.a.profile.you.can.keep.private.share')}
+        state={{ kind: 'ready' }}
+        body={<BlueprintSharedCard path={path} />}
+        related={
+          <p>
+            <a className="lt-link" href={preservePaperHref('/blueprint', paper)}>
+              {routes.t('open')}
+            </a>
+          </p>
+        }
+      />
+    </div>
+  );
+}
 
 export function BlueprintSharedCard({ path }: { path: string }) {
   const { t, languageFor } = blueprintSharedCardCopy.useCopy();
@@ -107,8 +136,9 @@ export function BlueprintSharedCard({ path }: { path: string }) {
     setView({ status: 'loading', intent });
     let result: ApiResult<SharedCard>;
     try {
-      result = await lease.api.query('blueprint', 'cardOf', intent.selection, sharedCardResponse(intent.selection), {
+      result = await lease.api.call(BLUEPRINT_CARD_OF, intent.selection, {
         signal: intent.controller.signal,
+        accept: sharedCardMatches(intent.selection),
       });
     } catch {
       result = { ok: false, reason: 'unreachable', message: '' };
@@ -173,165 +203,165 @@ export function BlueprintSharedCard({ path }: { path: string }) {
   const modal = full && fullRef.current === full && artifactCurrent(full.artifact) ? full : null;
   const parsed = sharedCardSelection.safeParse(draft);
   return (
-    <section className="blueprint-shared" aria-label={t('title')} lang={languageFor('title')}>
-      <Panel title={t('title')}>
-        <p className="muted">{t('intro')}</p>
-        <form
-          className="blueprint-shared-controls"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!draftCurrent()) return;
-            const selection = sharedCardSelection.safeParse(draft);
-            if (!selection.success) {
-              setInvalid(true);
-              return;
-            }
-            const href = sharedCardHref(selection.data);
-            const current = new URL(lease.route.href);
-            if (current.pathname + current.search + current.hash !== href) {
-              // Navigation retires this lease; the new route dispatches exactly once.
-              navigate(href, true);
-              return;
-            }
-            void read(selection.data);
-          }}
-        >
-          <Field
-            label={t('account')}
-            value={draft.userId}
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={36}
-            onChange={(event) => edit({ ...draft, userId: event.target.value })}
-            error={invalid ? t('invalid') : undefined}
-          />
-          <label className="field">
-            <span>{t('size')}</span>
-            <select value={draft.size} onChange={(event) => edit({ ...draft, size: event.target.value })}>
-              <option value="portrait">{t('portrait')}</option>
-              <option value="landscape">{t('landscape')}</option>
-            </select>
-          </label>
-          <Button type="submit" disabled={!parsed.success || !lease.actor}>
-            {t('open')}
-          </Button>
-        </form>
-        {selected && dimensions && (
-          <div className={`blueprint-shared-result ${selected.size}`}>
-            <div className="blueprint-shared-context">
-              <span className="muted">{t('requested')}</span>
-              <code>{selected.userId}</code>
-              <span className="muted">
-                {t(selected.size)} · {dimensions.width} × {dimensions.height}
-              </span>
-            </div>
-            {visible && view.status === 'loading' && <p role="status">{t('loading')}</p>}
-            {artifact && (
-              <>
-                <img
-                  className="blueprint-shared-image"
-                  src={artifact.url}
-                  alt={t('alt')}
-                  width={artifact.card.width}
-                  height={artifact.card.height}
-                  onError={() => {
+    <section aria-labelledby="blueprint-shared-title" data-blueprint-shared lang={languageFor('title')}>
+      <h2 id="blueprint-shared-title">{t('title')}</h2>
+      <p>{t('intro')}</p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!draftCurrent()) return;
+          const selection = sharedCardSelection.safeParse(draft);
+          if (!selection.success) {
+            setInvalid(true);
+            return;
+          }
+          const href = sharedCardHref(selection.data);
+          const current = new URL(lease.route.href);
+          if (current.pathname + current.search + current.hash !== href) {
+            // Navigation retires this lease; the new route dispatches exactly once.
+            navigate(href, true);
+            return;
+          }
+          void read(selection.data);
+        }}
+      >
+        <Field
+          label={t('account')}
+          value={draft.userId}
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={36}
+          onChange={(event) => edit({ ...draft, userId: event.target.value })}
+          error={invalid ? t('invalid') : undefined}
+        />
+        <SelectField
+          label={t('size')}
+          value={draft.size}
+          onChange={(size) => edit({ ...draft, size })}
+          options={[
+            { value: 'portrait', label: t('portrait') },
+            { value: 'landscape', label: t('landscape') },
+          ]}
+        />
+        <Button tone="primary" type="submit" disabled={!parsed.success || !lease.actor}>
+          {t('open')}
+        </Button>
+      </form>
+      {selected && dimensions && (
+        <div data-size={selected.size}>
+          <p data-part="context">
+            <span>{t('requested')}</span> <code>{selected.userId}</code>{' '}
+            <span>
+              {t(selected.size)} · {dimensions.width} × {dimensions.height}
+            </span>
+          </p>
+          {visible && view.status === 'loading' && <p role="status">{t('loading')}</p>}
+          {artifact && (
+            <>
+              <img
+                data-part="image"
+                src={artifact.url}
+                alt={t('alt')}
+                width={artifact.card.width}
+                height={artifact.card.height}
+                onError={() => {
+                  if (!artifactCurrent(artifact)) return;
+                  URL.revokeObjectURL(artifact.url);
+                  artifactRef.current = null;
+                  fullRef.current = null;
+                  setFull(null);
+                  setView({ status: 'failed', intent: artifact.intent, failure: 'invalidResponse' });
+                }}
+              />
+              <div className="lt-actions" data-part="actions">
+                <Button
+                  tone="secondary"
+                  onClick={() => {
                     if (!artifactCurrent(artifact)) return;
-                    URL.revokeObjectURL(artifact.url);
-                    artifactRef.current = null;
-                    fullRef.current = null;
-                    setFull(null);
-                    setView({ status: 'failed', intent: artifact.intent, failure: 'invalidResponse' });
+                    const opened = { artifact };
+                    fullRef.current = opened;
+                    setFull(opened);
                   }}
-                />
-                <div className="blueprint-shared-actions">
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      if (!artifactCurrent(artifact)) return;
-                      const opened = { artifact };
-                      fullRef.current = opened;
-                      setFull(opened);
-                    }}
-                  >
-                    {t('full')}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      if (!artifactCurrent(artifact)) return;
-                      const link = document.createElement('a');
-                      link.href = artifact.url;
-                      link.download = `identity-blueprint-${artifact.intent.selection.size}.svg`;
-                      link.click();
-                    }}
-                  >
-                    {t('download')}
-                  </Button>
-                  {artifact.card.raster.status === 'unavailable' ? (
-                    <aside className="blueprint-shared-note">
-                      <strong>{t('png')}</strong>
-                      <p>
-                        {t(
-                          artifact.card.raster.code === 'blueprint.card_renderer_unconfigured'
-                            ? 'pngUnconfigured'
-                            : artifact.card.raster.code === 'blueprint.card_renderer_unreachable'
-                              ? 'pngUnreachable'
-                              : 'pngProtocol',
-                        )}
-                      </p>
-                    </aside>
-                  ) : (
-                    <p className="muted">{t('pngAvailable')}</p>
-                  )}
-                  <p className="muted">{t('original')}</p>
-                </div>
-              </>
-            )}
-            {failure && (
-              <div className="blueprint-shared-failure" role="status">
-                <h3>{t(failure.failure === 'unsafe' ? 'invalidResponse' : failure.failure)}</h3>
-                <p>
-                  {t(
-                    failure.failure === 'unavailable'
-                      ? 'unavailableDetail'
-                      : failure.failure === 'unsafe'
-                        ? 'unsafe'
-                        : failure.failure === 'forbidden'
-                          ? 'forbiddenDetail'
-                          : failure.failure === 'routeUnavailable'
-                            ? 'routeDetail'
-                            : failure.failure === 'invalidResponse'
-                              ? 'invalidResponseDetail'
-                              : failure.failure === 'unauthorized'
-                                ? 'unauthorizedDetail'
-                                : 'failedDetail',
-                  )}
-                </p>
-                {failure.code && failure.failure !== 'unavailable' && <code>{failure.code}</code>}
-                {failure.failure === 'unauthorized' ? (
-                  <a
-                    className="button button--secondary"
-                    href={`/login?redirect=${encodeURIComponent(new URL(lease.route.href).pathname + new URL(lease.route.href).search)}`}
-                  >
-                    {t('signIn')}
-                  </a>
+                >
+                  {t('full')}
+                </Button>
+                <Button
+                  tone="secondary"
+                  onClick={() => {
+                    if (!artifactCurrent(artifact)) return;
+                    const link = document.createElement('a');
+                    link.href = artifact.url;
+                    link.download = `identity-blueprint-${artifact.intent.selection.size}.svg`;
+                    link.click();
+                  }}
+                >
+                  {t('download')}
+                </Button>
+                {artifact.card.raster.status === 'unavailable' ? (
+                  <aside>
+                    <strong>{t('png')}</strong>
+                    <p>
+                      {t(
+                        artifact.card.raster.code === 'blueprint.card_renderer_unconfigured'
+                          ? 'pngUnconfigured'
+                          : artifact.card.raster.code === 'blueprint.card_renderer_unreachable'
+                            ? 'pngUnreachable'
+                            : 'pngProtocol',
+                      )}
+                    </p>
+                  </aside>
                 ) : (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      if (intentCurrent(failure.intent)) void read(failure.intent.selection);
-                    }}
-                  >
-                    {t('retry')}
-                  </Button>
+                  <p>{t('pngAvailable')}</p>
                 )}
+                <p>{t('original')}</p>
               </div>
-            )}
-          </div>
-        )}
-      </Panel>
+            </>
+          )}
+          {failure && (
+            <div role="status" data-part="failure">
+              <h3>{t(failure.failure === 'unsafe' ? 'invalidResponse' : failure.failure)}</h3>
+              <p>
+                {t(
+                  failure.failure === 'unavailable'
+                    ? 'unavailableDetail'
+                    : failure.failure === 'unsafe'
+                      ? 'unsafe'
+                      : failure.failure === 'forbidden'
+                        ? 'forbiddenDetail'
+                        : failure.failure === 'routeUnavailable'
+                          ? 'routeDetail'
+                          : failure.failure === 'invalidResponse'
+                            ? 'invalidResponseDetail'
+                            : failure.failure === 'unauthorized'
+                              ? 'unauthorizedDetail'
+                              : 'failedDetail',
+                )}
+              </p>
+              {failure.code && failure.failure !== 'unavailable' && <code>{failure.code}</code>}
+              {failure.failure === 'unauthorized' ? (
+                <a
+                  className="lt-button lt-button-secondary"
+                  href={`/login?redirect=${encodeURIComponent(new URL(lease.route.href).pathname + new URL(lease.route.href).search)}`}
+                >
+                  {t('signIn')}
+                </a>
+              ) : (
+                <Button
+                  tone="secondary"
+                  onClick={() => {
+                    if (intentCurrent(failure.intent)) void read(failure.intent.selection);
+                  }}
+                >
+                  {t('retry')}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       {modal && (
-        <Dialog
+        <Sheet
+          open
           title={t('full')}
           onClose={() => {
             if (fullRef.current !== modal || !artifactCurrent(modal.artifact)) return;
@@ -339,10 +369,10 @@ export function BlueprintSharedCard({ path }: { path: string }) {
             setFull(null);
           }}
         >
-          <div className="blueprint-shared-full" tabIndex={0} role="region" aria-label={t('alt')}>
+          <div tabIndex={0} role="region" aria-label={t('alt')}>
             <img src={modal.artifact.url} alt={t('alt')} width={modal.artifact.card.width} height={modal.artifact.card.height} />
           </div>
-        </Dialog>
+        </Sheet>
       )}
     </section>
   );
@@ -356,7 +386,7 @@ export function BlueprintMentorCardAction({ subject, available }: { subject: str
   const captured = current.current;
   return (
     <Button
-      variant="secondary"
+      tone="secondary"
       lang={languageFor('view')}
       onClick={() => {
         if (!admits() || current.current !== captured || !captured.available()) return;

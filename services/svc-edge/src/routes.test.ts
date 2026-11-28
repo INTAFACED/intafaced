@@ -75,6 +75,16 @@ describe('route resolution', () => {
     expect(book?.path).toBe('/api/v1/orderbook/BTC%2FUSDT');
   });
 
+  it('sends only the stream-token path to identity, at the same path, as part of trade (J-developer-09 #2)', () => {
+    const token = resolve('/api/v1/stream/token');
+    expect(token?.upstream.envVar).toBe('IDENTITY_URL');
+    expect(token?.upstream.module).toBe('trade');
+    expect(token?.path).toBe('/api/v1/stream/token');
+    // Its neighbours stay on trade.
+    expect(resolve('/api/v1/stream')?.upstream.envVar).toBe('TRADE_URL');
+    expect(resolve('/api/v1/stream/tokens')?.upstream.envVar).toBe('TRADE_URL');
+  });
+
   it('does not let /api/v1 steal /api/trade (longer prefix wins)', () => {
     const r = resolve('/api/trade/trpc/markets.list');
     expect(r?.upstream.prefix).toBe('/api/trade');
@@ -171,6 +181,20 @@ describe('unwired upstreams refuse in staging/prod, fall back in dev', () => {
   it('keeps the local default in dev/test so a laptop still boots', () => {
     expect(resolveUpstreamBase(pay, () => undefined, 'dev')).toEqual({ base: 'http://localhost:4006' });
     expect(resolveUpstreamBase(pay, () => undefined, 'test')).toEqual({ base: 'http://localhost:4006' });
+  });
+
+  it('refuses an upstream EDGE_UPSTREAMS_OFF names as unwired in every APP_ENV, even with its URL set (#11075)', () => {
+    const env = (name: string) =>
+      name === 'EDGE_UPSTREAMS_OFF' ? 'P2P_URL, PAY_URL' : name === 'PAY_URL' ? 'http://pay.internal:4006' : undefined;
+    for (const appEnv of ['dev', 'test', 'staging', 'prod']) expect(resolveUpstreamBase(pay, env, appEnv)).toEqual({ unwired: true });
+    const bank = UPSTREAMS.find((u) => u.prefix === '/api/bank')!;
+    expect(resolveUpstreamBase(bank, env, 'dev')).toEqual({ base: 'http://localhost:4009' });
+    const table = Object.fromEntries(readyRoutes(env).map((r) => [r.prefix, r]));
+    expect(table['/api/pay']?.configured).toBe(false);
+    // A name only counts whole: PAY_URLX turns nothing off.
+    expect(resolveUpstreamBase(pay, (name) => (name === 'EDGE_UPSTREAMS_OFF' ? 'PAY_URLX' : undefined), 'dev')).toEqual({
+      base: 'http://localhost:4006',
+    });
   });
 
   it('lists configured vs absent on /ready without leaking URLs or saying wired', () => {

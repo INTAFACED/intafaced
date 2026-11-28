@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { customerStepUpPayloadHash, type ActionApproval, type ActionApprovalConsumeInput } from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
+import { customerStepUpPayloadHash } from '@intafaced/contracts/customer-step-up';
 import type { Sql } from 'postgres';
 import { ActionApprovalConsumeError, type ActionApprovalConsumer } from './action-approval-consume.js';
 import {

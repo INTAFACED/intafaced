@@ -7,7 +7,7 @@ import { TradeError } from '../spot/types.js';
 import { attachAlgoRestRoutes, type AlgoRestPort } from './algo-rest.js';
 import type { TwapParent } from './types.js';
 
-const OWNER = { userId: '11111111-1111-4111-8111-111111111111', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const OWNER = { userId: '11111111-1111-4111-8111-111111111111', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as Principal;
 const T0 = new Date('2026-10-31T00:00:00Z');
 
 function parent(over: Partial<TwapParent> = {}): TwapParent {
@@ -35,7 +35,7 @@ function parent(over: Partial<TwapParent> = {}): TwapParent {
     triggerPrice: null,
     triggeredAt: null,
     ...over,
-  } as unknown as TwapParent;
+  } as TwapParent;
 }
 
 /** An algo port that records each call and answers what the test sets. */
@@ -174,7 +174,7 @@ describe('the algo order public API (CB-execution-08, J-copy-bots-otc-19 #7)', (
 
   it('a key without trade:write is refused scope.denied, and a write from a region that may not trade is refused, with no engine call', async () => {
     const { algo, calls } = fakeAlgo();
-    await mount(algo, { principal: { ...OWNER, scopes: ['trade:read'] } as unknown as Principal });
+    await mount(algo, { principal: { ...OWNER, scopes: ['trade:read'] } as Principal });
     const write = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: TWAP });
     expect(write.statusCode).toBe(403);
     expect(write.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });
@@ -231,5 +231,81 @@ describe('the algo order public API (CB-execution-08, J-copy-bots-otc-19 #7)', (
     const res = await app.inject({ method: 'GET', url: '/api/v1/algo' });
     expect(res.statusCode).toBe(503);
     expect(res.json()).toMatchObject({ code: 'ExchangeNotAvailable', intafacedCode: 'trade.algo_unavailable' });
+  });
+});
+
+describe('the algo order API: create, amend, cancel and query with one state for every kind (SP-conditional-algo-04, J-cex-spot-15 #6)', () => {
+  it('creates, reads, amends the quantity down and cancels, each answer with its filled quantity and state', async () => {
+    const { algo, calls } = fakeAlgo({
+      createTwap: async () => parent(),
+      getAlgo: async () => parent({ totalQty: parseAmount('0.001') }),
+      amendAlgo: async () => parent({ totalQty: parseAmount('0.001') }),
+      cancelAlgo: async () => parent({ status: 'cancelled', totalQty: parseAmount('0.001') }),
+      algoProgress: async () => ({ filledQty: '0' }),
+    });
+    await mount(algo);
+    const made = await app.inject({ method: 'POST', url: '/api/v1/algo/orders', payload: { ...TWAP, kind: 'twap' } });
+    expect(made.statusCode, made.body).toBe(200);
+    expect(made.json()).toMatchObject({ id: 'algo-1', totalQty: '0.002', filledQty: '0', state: 'live' });
+    const amended = await app.inject({ method: 'PATCH', url: '/api/v1/algo/orders/algo-1', payload: { totalQty: '0.001' } });
+    expect(amended.statusCode, amended.body).toBe(200);
+    expect(amended.json()).toMatchObject({ totalQty: '0.001', state: 'live' });
+    const read = await app.inject({ method: 'GET', url: '/api/v1/algo/orders/algo-1' });
+    expect(read.json()).toMatchObject({ id: 'algo-1', totalQty: '0.001', filledQty: '0', state: 'live' });
+    const gone = await app.inject({ method: 'DELETE', url: '/api/v1/algo/orders/algo-1' });
+    expect(gone.json()).toMatchObject({ status: 'cancelled', state: 'canceled' });
+    expect(calls.map(([name]) => name)).toEqual([
+      'createTwap',
+      'algoProgress',
+      'amendAlgo',
+      'algoProgress',
+      'getAlgo',
+      'algoProgress',
+      'cancelAlgo',
+      'algoProgress',
+    ]);
+    expect(calls[2]).toEqual(['amendAlgo', ['algo-1', { totalQty: parseAmount('0.001') }]]);
+  });
+
+  it('answers a larger quantity by its code, and refuses an empty, unknown-field or non-decimal amend before the engine is asked', async () => {
+    const { algo, calls } = fakeAlgo({
+      amendAlgo: async () => {
+        throw new TradeError('only goes down', 'trade.amend_qty_up');
+      },
+    });
+    await mount(algo);
+    const up = await app.inject({ method: 'PATCH', url: '/api/v1/algo/orders/algo-1', payload: { totalQty: '0.003' } });
+    expect(up.statusCode).toBe(400);
+    expect(up.json()).toMatchObject({ intafacedCode: 'trade.amend_qty_up' });
+    for (const payload of [{}, { limitPrice: '1' }, { totalQty: 3 }, { totalQty: '-1' }]) {
+      const res = await app.inject({ method: 'PATCH', url: '/api/v1/algo/orders/algo-1', payload });
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+      expect(res.json().code, JSON.stringify(payload)).toBe('InvalidOrder');
+    }
+    expect(calls.map(([name]) => name)).toEqual(['amendAlgo']);
+  });
+
+  it('moves a trigger, and a read-only key may not amend or cancel', async () => {
+    const { algo, calls } = fakeAlgo({
+      amendAlgo: async () => parent({ triggerPrice: parseAmount('90') }),
+      algoProgress: async () => ({ filledQty: '0' }),
+    });
+    await mount(algo);
+    const moved = await app.inject({ method: 'PATCH', url: '/api/v1/algo/orders/algo-1', payload: { triggerPrice: '90' } });
+    expect(moved.json()).toMatchObject({ triggerPrice: '90', state: 'live' });
+    expect(calls[0]).toEqual(['amendAlgo', ['algo-1', { triggerPrice: parseAmount('90') }]]);
+    await app.close();
+    const readOnly = { ...OWNER, scopes: ['trade:read'] } as Principal;
+    const second = fakeAlgo({});
+    await mount(second.algo, { principal: readOnly });
+    for (const [method, url] of [
+      ['PATCH', '/api/v1/algo/orders/algo-1'],
+      ['DELETE', '/api/v1/algo/orders/algo-1'],
+    ] as const) {
+      const res = await app.inject({ method, url, payload: method === 'PATCH' ? { totalQty: '0.001' } : undefined });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ intafacedCode: 'scope.denied' });
+    }
+    expect(second.calls).toEqual([]);
   });
 });

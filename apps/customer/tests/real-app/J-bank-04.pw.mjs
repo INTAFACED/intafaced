@@ -3,23 +3,38 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, fund, journeyState, staffFreeze, toUnits, signOutBrowser } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, staffFreeze, toUnits, signOutBrowser } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { partnerBookMoves, partnerMainBalance } from './partner.mjs';
 import { keptSession } from '../../../../tooling/scripts/kept-session.mjs';
 
 // J-bank-04, in the running app (docs/roadmap/journeys.json): I send money to a person from the bank's Transfers room.
 // One test per step, titled "J-bank-04 #<n>", run in order on TEST accounts: A sends (with an authenticator app), B
-// receives, and C is frozen by staff. The stack's gates publish TEST send terms for USDT and USDC with a zero fee
-// (`local-test-gates.mjs apply`) and none for BTC; every number here is a TEST number on the local stack, and balances
-// are read through each person's own API. #5 sends abroad through Pay's global send on the TEST stand-in, whose TEST
+// receives, and C is frozen by staff. #1 to #4 keep the adapted words (OWNER 226, CUSTODY-DELTA): A's and B's money is
+// at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`), A funded there with TEST 100 USDT
+// (`testPartner.fund`), so a send is the partner's one move, both balances are the partner's figures read through each
+// person's own bank API, and our ledger posts nothing. B holds TEST 10 there already. The stack's gates publish TEST send terms for USDT and USDC with a
+// zero fee (`local-test-gates.mjs apply`) and none for BTC; every number here is a TEST number on the local stack. #4 compares the app's figures
+// with the partner's own book: the TEST partner bank's record of each person's balance and moves, read on loopback straight
+// from the stand-in (svc-bank src/partner/test-partner-record.ts, venue.mjs venueRecord and venueBalance). #5 to
+// #7 are the global send, still on the custodial layer: their sender is a second TEST person, G, whose money the ledger
+// holds, until that send is made through the partner too. #5 sends abroad through Pay's global send on the TEST stand-in, whose TEST
 // catalogue puts a USDT send of 500 or more on hold for a compliance look: staff ask for a document and release it by
 // API with the stack's founder sessions. #6 follows a send that left (the tracker and its signed receipt) and cancels one
 // on hold, under the TEST auto-cancel window of 72 hours. Not here yet: #7 (it lands with its own slice).
 const J = 'J-bank-04';
 const AMOUNT = '40';
 const NOTE = 'Lunch, TEST';
-const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const PARTNER_BANK = 'TEST partner bank';
+/** #1 to #4: A and B, held at the TEST partner. #5 to #7: G and its recipient, held on the custodial layer. */
+const atPartner = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const onLedger = journeyState(`${J}-global-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+/** The people the running step acts as: each test names them first (`as`). */
+let run = atPartner;
+const as = (state) => {
+  run = state;
+};
 
 test.describe.configure({ mode: 'default' });
 
@@ -44,6 +59,8 @@ async function signInToken() {
   }).then((r) => r.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${sender.email} refused`);
+  // A's user id, which names A's record at the partner (#4).
+  if (login.result.data.userId) run.write({ senderId: login.result.data.userId });
   return token;
 }
 
@@ -69,12 +86,92 @@ async function asSender(url, init = {}) {
   return send();
 }
 
-/** A's free USDT from the ledger, through A's own API. */
-async function senderUsdt() {
-  const res = await asSender(`${EDGE}/api/v1/account/balance`);
+/** A GET with someone's own session token. */
+const withToken = (token) => (url) => fetch(url, { headers: { origin: ORIGIN, authorization: `Bearer ${token}` } });
+
+/** The ledger's free USDT, through the person's own API (`get` carries their session). */
+async function ledgerUsdtVia(get) {
+  const res = await get(`${EDGE}/api/v1/account/balance`);
   return (await res.json()).balances?.USDT?.free ?? '0';
 }
-const usdt = async (who) => (await (await api(who)).balances()).USDT?.free ?? '0';
+
+/** The USDT main balance as the partner bank reports it, through the person's own bank API; the space says who holds it. */
+async function partnerUsdtVia(get) {
+  const res = await get(`${EDGE}/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.result?.data) throw new Error(`spaces.list refused: ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
+  const main = body.result.data.find((space) => space.kind === 'primary' && space.assetId === 'USDT');
+  expect(main?.heldAt?.label, 'the main USDT balance is the partner bank’s figure').toBe(PARTNER_BANK);
+  return main.balance;
+}
+
+/** The sender's USDT: the partner's figure for A (#1 to #4), the ledger's for G (#5 to #7). */
+async function senderUsdt() {
+  return run === atPartner ? partnerUsdtVia(asSender) : ledgerUsdtVia(asSender);
+}
+
+/** The user id behind someone with no authenticator app, from their own sign-in: it names their record at the partner. */
+async function userIdOf(who) {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  }).then((r) => r.json());
+  const userId = login?.result?.data?.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} named no user id`);
+  return userId;
+}
+
+/** A's user id, kept from A's own sign-in. */
+async function senderId() {
+  if (!run.read().senderId) await senderToken();
+  const id = run.read().senderId;
+  if (!id) throw new Error(`${J}: A's sign-in named no user id`);
+  return id;
+}
+
+/** A session token for someone with no authenticator app. */
+async function tokenOf(who) {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  }).then((r) => r.json());
+  const token = login?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  return token;
+}
+
+/** Someone else's USDT, in the same book as the sender's. */
+const usdt = async (who) => {
+  const get = withToken(await tokenOf(who));
+  return run === atPartner ? partnerUsdtVia(get) : ledgerUsdtVia(get);
+};
+/**
+ * What the ledger holds for someone with no authenticator app (the sender's is read on its kept session): for a person
+ * held at the partner it never changes, because the ledger posts nothing.
+ */
+const ledgerUsdt = async (who) => ledgerUsdtVia(withToken(await tokenOf(who)));
+
+/** `who`'s bank money held at the TEST partner from now on, through their own bank API. */
+async function holdAtPartner(token) {
+  const res = await fetch(`${EDGE}/api/bank/trpc/testPartner.set`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ custody: 'off' }),
+  });
+  expect(res.status, 'testPartner.set custody off').toBe(200);
+}
+
+/** TEST money paid in at the partner for the person, once per `fundId`. */
+async function fundAtPartner(token, fundId, assetId, amount) {
+  const res = await fetch(`${EDGE}/api/bank/trpc/testPartner.fund`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ fundId, assetId, amount }),
+  });
+  expect(res.status, `testPartner.fund ${amount} ${assetId}`).toBe(200);
+}
 
 /** A signs in with password and a fresh code. */
 async function signInSender(page) {
@@ -88,15 +185,30 @@ async function signInSender(page) {
   await expect(page).not.toHaveURL(/\/login/);
 }
 
-/** The people, made on first use: B is verified, A is verified, holds TEST 100 USDT and has an authenticator app. */
+/**
+ * The people, made on first use: the recipient is verified, the sender is verified, holds TEST 100 USDT and has an
+ * authenticator app. For #1 to #4 both are held at the TEST partner and the 100 is paid in there; for #5 to #7 the
+ * ledger holds them, as before.
+ */
 async function people(page) {
   const now = run.read();
   if (now.sender && now.recipient && now.secret) return now;
-  const recipient = await signUp(page, 'jb4r');
+  const partnerHeld = run === atPartner;
+  const recipient = await signUp(page, partnerHeld ? 'jb4r' : 'jb4q');
   await verify(page, recipient);
-  const sender = await signUp(page, 'jb4s');
+  const sender = await signUp(page, partnerHeld ? 'jb4s' : 'jb4g');
   await verify(page, sender);
-  expect(fund(sender.email, 'USDT', '100').tx).toBeTruthy();
+  if (partnerHeld) {
+    // The recipient holds TEST 10 at the partner already, so their main USDT account is on the partner's record.
+    const theirs = await tokenOf(recipient);
+    await holdAtPartner(theirs);
+    await fundAtPartner(theirs, `${J}-b-usdt`, 'USDT', '10');
+    const token = await tokenOf(sender);
+    await holdAtPartner(token);
+    await fundAtPartner(token, `${J}-a-usdt`, 'USDT', '100');
+  } else {
+    expect(fund(sender.email, 'USDT', '100').tx).toBeTruthy();
+  }
   await page.goto('/login');
   await page.fill('input[name=identifier]', sender.email);
   await page.fill('input[name=password]', sender.password);
@@ -138,7 +250,9 @@ test(`${J} #1 opens Send and picks the rail: each rail has its own form, and wit
 }) => {
   test.setTimeout(300_000);
   // Step 1 starts the journey again: new people, no sends.
-  run.reset({});
+  atPartner.reset({});
+  onLedger.reset({});
+  as(atPartner);
   await people(page);
   await signInSender(page);
   const before = await senderUsdt();
@@ -206,6 +320,7 @@ test(`${J} #2 adds a recipient: forms per country, a name check and an invite, a
   page,
 }) => {
   test.setTimeout(300_000);
+  as(atPartner);
   await people(page);
   await signInSender(page);
   const before = await senderUsdt();
@@ -261,7 +376,7 @@ test(`${J} #2 adds a recipient: forms per country, a name check and an invite, a
   await invite.getByLabel('Their email').fill('bea.test@example.com');
   await invite.getByRole('button', { name: 'Send the invite' }).click();
   await expect(invite.getByTestId('payee-invite-answer')).toHaveText(
-    'Invites are sent by email, and email delivery is switched off in this build. Reference: bank.payee_invite_unwired',
+    'Invites are sent by email, and email delivery is switched off in this build.',
     { timeout: 30_000 },
   );
   // Sending to the new payee inside the window refuses with its end time; nothing is asked for, kept or taken.
@@ -272,10 +387,7 @@ test(`${J} #2 adds a recipient: forms per country, a name check and an invite, a
   await source.selectOption({ label: (await source.locator('option', { hasText: 'USDT' }).first().innerText()).trim() });
   await panel.getByLabel('Amount to send').fill('10');
   await panel.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(panel.getByTestId('rail-send-problem')).toHaveText(
-    `New recipient: money can go to them from ${ends}. Reference: bank.payee_cooling_active`,
-    { timeout: 30_000 },
-  );
+  await expect(panel.getByTestId('rail-send-problem')).toHaveText(`New recipient: money can go to them from ${ends}.`, { timeout: 30_000 });
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(panel.getByTestId('rail-send-row')).toHaveCount(1);
   expect(toUnits(await senderUsdt())).toBe(toUnits(before));
@@ -283,8 +395,9 @@ test(`${J} #2 adds a recipient: forms per country, a name check and an invite, a
 
 test(`${J} #3 reviews the transfer: fee lines that add up, and Confirm off with the missing fee named`, async ({ page }) => {
   test.setTimeout(240_000);
+  as(atPartner);
   const dialog = await reviewSend(page);
-  const { recipient, sender } = run.read();
+  const { recipient } = run.read();
   const received = await usdt(recipient);
   await expect(dialog).toContainText(`@${recipient.handle}`);
   const rows = dialog.getByTestId('review-terms-row');
@@ -310,7 +423,7 @@ test(`${J} #3 reviews the transfer: fee lines that add up, and Confirm off with 
     body: JSON.stringify({ assetId: 'BTC' }),
   });
   expect(added.status, 'add BTC to the account').toBe(200);
-  expect(fund(sender.email, 'BTC', '0.01').tx).toBeTruthy();
+  await fundAtPartner(await senderToken(), `${J}-a-btc`, 'BTC', '0.01');
   const btc = await reviewSend(page, { asset: 'BTC', value: '0.001', signedIn: true });
   const blocked = btc.getByTestId('review-terms-blocked');
   await expect(blocked).toContainText('No fee or sending limit is published for BTC');
@@ -325,10 +438,21 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   browser,
 }) => {
   test.setTimeout(300_000);
+  as(atPartner);
   const dialog = await reviewSend(page, { note: NOTE });
   const { recipient } = run.read();
   const before = await usdt(recipient);
   const senderBefore = await senderUsdt();
+  // What the ledger holds for each of them: a send the partner makes posts nothing to it.
+  const ledgerBefore = { sender: await ledgerUsdtVia(asSender), recipient: await ledgerUsdt(recipient) };
+  // The partner's own book of each of them, read on loopback from the TEST partner, never through our doors.
+  const partnerHolds = (userId) => partnerMainBalance(userId, 'USDT');
+  const ids = { sender: await senderId(), recipient: await userIdOf(recipient) };
+  const bookBefore = { sender: await partnerHolds(ids.sender), recipient: await partnerHolds(ids.recipient) };
+  const movesBefore = await partnerBookMoves(ids.sender);
+  // The app's figures are the partner's own.
+  expect(toUnits(before)).toBe(toUnits(bookBefore.recipient));
+  expect(toUnits(senderBefore)).toBe(toUnits(bookBefore.sender));
   // A send to another person needs a fresh second factor for exactly this send, with its note.
   const stepUp = dialog.getByTestId('step-up-confirm');
   await expect(stepUp).toContainText('Confirm it’s you');
@@ -336,21 +460,49 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   await stepUp.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(dialog.getByTestId('step-up-confirm')).toHaveCount(0, { timeout: 30_000 });
   await expect(dialog).not.toContainText('Nothing was sent');
+  // The partner reports the 40 at the recipient and 40 less at the sender, and the ledger holds what it held before.
   await expect.poll(async () => toUnits(await usdt(recipient)), { timeout: 30_000 }).toBe(toUnits(before) + toUnits(AMOUNT));
   expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
+  expect(await ledgerUsdtVia(asSender)).toBe(ledgerBefore.sender);
+  expect(await ledgerUsdt(recipient)).toBe(ledgerBefore.recipient);
+  // The partner's own book: one move of 40 from A to B's main account, keyed by the transfer, and each balance moved by
+  // exactly 40, equal to what the app shows.
+  const sent = (await partnerBookMoves(ids.sender)).slice(movesBefore.length);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({
+    from: { owner: ids.sender, assetId: 'USDT' },
+    to: { owner: ids.recipient, assetId: 'USDT', spaceId: null },
+  });
+  expect(toUnits(sent[0].amount)).toBe(toUnits(AMOUNT));
+  expect(sent[0].key).toMatch(/^bank\.transfer\.p2p:.+:0$/);
+  const bookAfter = { sender: await partnerHolds(ids.sender), recipient: await partnerHolds(ids.recipient) };
+  expect(toUnits(bookAfter.sender)).toBe(toUnits(bookBefore.sender) - toUnits(AMOUNT));
+  expect(toUnits(bookAfter.recipient)).toBe(toUnits(bookBefore.recipient) + toUnits(AMOUNT));
+  expect(toUnits(await senderUsdt())).toBe(toUnits(bookAfter.sender));
+  expect(toUnits(await usdt(recipient))).toBe(toUnits(bookAfter.recipient));
 
   // C is frozen by staff after A picked them (a frozen account is not found by handle at all): the bank refuses the
   // send before any posting, and it is never shown as sent.
   const other = await (await browser.newContext()).newPage();
   const frozen = await signUp(other, 'jb4c');
   await verify(other, frozen);
+  await holdAtPartner(await tokenOf(frozen));
+  const frozenId = await userIdOf(frozen);
   const refused = await reviewSend(page, { to: frozen, value: '1', signedIn: true });
   await staffFreeze(frozen);
   const confirm = refused.getByTestId('step-up-confirm');
   await confirm.getByLabel('Authenticator code').fill(await code());
   await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(refused).toContainText('That person cannot receive this right now. Nothing was sent.', { timeout: 30_000 });
+  // Never shown as sent: the dialog keeps the refusal, the partner moved nothing more, and the ledger posted nothing.
+  await expect(refused).not.toContainText('Sent');
   expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
+  expect(await ledgerUsdtVia(asSender)).toBe(ledgerBefore.sender);
+  // The partner's own book agrees: no move after the one send, A still holds what it held after it, and C holds nothing.
+  expect(await partnerBookMoves(ids.sender)).toHaveLength(movesBefore.length + 1);
+  expect(await partnerHolds(ids.sender)).toBe(bookAfter.sender);
+  expect(await partnerBookMoves(frozenId)).toEqual([]);
+  expect(toUnits(await partnerHolds(frozenId))).toBe(0n);
 });
 
 let founderSessions;
@@ -415,6 +567,7 @@ test(`${J} #5 meets a compliance hold: the send waits, the bank asks for a docum
   page,
 }) => {
   test.setTimeout(360_000);
+  as(onLedger);
   const { sender } = await people(page);
   expect(fund(sender.email, 'USDT', '600').tx).toBeTruthy();
   await signInSender(page);
@@ -477,6 +630,7 @@ test(`${J} #6 watches the tracker, downloads a signed receipt with the ledger id
   page,
 }) => {
   test.setTimeout(360_000);
+  as(onLedger);
   const { sender } = await people(page);
   expect(fund(sender.email, 'USDT', '600').tx).toBeTruthy();
   await signInSender(page);
@@ -531,6 +685,7 @@ test(`${J} #7 sends to the wrong person and asks for it back: what can be asked,
   page,
 }) => {
   test.setTimeout(360_000);
+  as(onLedger);
   const { sender } = await people(page);
   expect(fund(sender.email, 'USDT', '100').tx).toBeTruthy();
   await signInSender(page);

@@ -1,7 +1,10 @@
 import type { KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
+import type { ApiVersion } from '@intafaced/contracts/api-versions';
+import { ApiVersionDefaults } from '../api-version-default.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { z } from 'zod';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   approveKycCase,
   assertRejectable,
@@ -151,7 +154,8 @@ export { isEmailConfirmed };
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
-import { currentRequestIp, currentUserAgent } from './request-meta.js';
+import { currentRequestIp, currentRequestRegion, currentUserAgent } from './request-meta.js';
+import { recordSignInSignal } from '../account/safety.js';
 import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
 import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
@@ -186,6 +190,7 @@ import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import { credentialsFor, type PasskeyPurpose } from './passkey-purposes.js';
 import type { RankService } from '../rank/rank-service.js';
 import { effectiveIdleSeconds, endOldestBeyondLimit, type SessionLimits } from './session-limits.js';
+import { SELF_FREEZE_REASONS, SUB_ACCOUNT_KINDS } from '@intafaced/contracts/identity-call-schemas';
 
 /**
  * AUTH (§4.1, §9).
@@ -224,6 +229,7 @@ export class AuthError extends Error {
       | 'auth.webauthn_invalid'
       | 'auth.webauthn_not_enrolled'
       | 'auth.webauthn_unconfigured'
+      | 'identity.screening_unset'
       | 'auth.domain_not_allowed'
       | 'auth.sub_account_required'
       | 'auth.sub_account_denied'
@@ -296,10 +302,7 @@ export class AuthError extends Error {
 /** Sign-in's `details` for a non-active account, once the person proved who they are. Only `closed` is final. */
 const accountStateOf = (status: string) => ({ accountState: status === 'closed' ? ('closed' as const) : ('frozen' as const) });
 
-/** Blank / non-integer / out of 1..200 KYC pending queue limit. Never invent 50. */
-export const SELF_FREEZE_REASONS = ['compromise', 'temporary', 'personal'] as const;
 export type SelfFreezeReason = (typeof SELF_FREEZE_REASONS)[number];
-export const SUB_ACCOUNT_KINDS = ['standard', 'managed', 'derivatives', 'spot'] as const;
 export type SubAccountKind = (typeof SUB_ACCOUNT_KINDS)[number];
 /** 5 to 20 letters or digits. */
 export const SUB_ACCOUNT_NICKNAME = /^[A-Za-z0-9]{5,20}$/;
@@ -459,18 +462,183 @@ export interface KycRecordView {
   createdAt: Date;
 }
 
-interface KycRow {
-  id: string;
-  user_id: string;
-  tier: KycTier;
-  jurisdiction: string;
-  provider_ref: string | null;
-  status: KycRecordView['status'];
-  reviewed_by: string | null;
-  reviewed_at: Date | null;
-  expires_at: Date | null;
-  created_at: Date;
-}
+// The rows this service reads, as the database returns them (postgres.js default types: int4 and bool as numbers and
+// booleans, int8 and count(*) as strings, timestamptz as Date, citext and enums as text, jsonb already parsed). Parsed
+// where they are read, so a renamed or retyped column fails at the read instead of flowing on with the wrong value.
+
+/** users.status (enum user_status). */
+const UserStatus = z.enum(['active', 'frozen', 'closed']);
+/** kyc_records.tier (enum kyc_tier). */
+const KycTierValue = z.enum(['none', 'basic', 'full', 'institutional']);
+
+const KycRow = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  tier: KycTierValue,
+  jurisdiction: z.string(),
+  provider_ref: z.string().nullable(),
+  status: z.enum(['pending', 'approved', 'rejected', 'expired']),
+  reviewed_by: z.string().nullable(),
+  reviewed_at: z.date().nullable(),
+  expires_at: z.date().nullable(),
+  created_at: z.date(),
+});
+type KycRow = z.infer<typeof KycRow>;
+
+const IdRow = z.object({ id: z.string() });
+const UserIdRow = z.object({ user_id: z.string() });
+const StatusRow = z.object({ status: UserStatus });
+const IdStatusRow = z.object({ id: z.string(), status: UserStatus });
+const RevokedRow = z.object({ revoked: z.boolean() });
+const HashRow = z.object({ hash: z.string() });
+const PinnedRow = z.object({ pinned: z.boolean() });
+const IntCountRow = z.object({ n: z.number() });
+const TextCountRow = z.object({ n: z.string() });
+const HandleEmailRow = z.object({ handle: z.string(), email: z.string() });
+const IdHandleRow = z.object({ id: z.string(), handle: z.string() });
+const PasswordStatusRow = z.object({ password_hash: z.string(), status: UserStatus });
+const SecondStepUserRow = z.object({
+  id: z.string(),
+  status: UserStatus,
+  totp_secret: z.string().nullable(),
+  passkey_second_step: z.boolean(),
+  webauthn_creds: z.unknown(),
+});
+const FirstFactorUserRow = SecondStepUserRow.extend({ password_hash: z.string() });
+const PasswordChangeUserRow = z.object({
+  password_hash: z.string(),
+  status: UserStatus,
+  totp_secret: z.string().nullable(),
+  webauthn_creds: z.unknown(),
+  handle: z.string(),
+  email: z.string(),
+});
+const FactorUserRow = z.object({ totp_secret: z.string().nullable(), status: UserStatus, webauthn_creds: z.unknown() });
+const TotpEnrolUserRow = z.object({ email: z.string(), totp_secret: z.string().nullable(), webauthn_creds: z.unknown() });
+const WebauthnEnrolUserRow = z.object({
+  email: z.string(),
+  handle: z.string(),
+  totp_secret: z.string().nullable(),
+  webauthn_creds: z.unknown(),
+});
+const WebauthnCredsRow = z.object({ webauthn_creds: z.unknown() });
+const PasskeyUserRow = z.object({ id: z.string(), status: UserStatus, webauthn_creds: z.unknown() });
+const RecoveryHashesRow = z.object({ recovery_code_hashes: z.unknown() });
+/** users.totp_last_step is int8, so it arrives as a string. */
+const TotpLastStepRow = z.object({ totp_last_step: z.string().nullable() });
+const EmailVerifiedRow = z.object({ email: z.string(), email_verified_at: z.date().nullable() });
+const EmailProofRow = z.object({ id: z.string(), email_verified_at: z.date().nullable() });
+const SelfViewRow = z.object({ handle: z.string(), email_verified_at: z.date().nullable() });
+const AccountStateRow = z.object({ id: z.string(), status: UserStatus, archived: z.boolean() });
+/** profiles is LEFT JOINed, so its columns may be null. */
+const CampaignParticipantRow = z.object({
+  id: z.string(),
+  status: UserStatus,
+  account_type: z.string().nullable(),
+  region: z.string().nullable(),
+});
+const HandleLookupRow = z.object({ id: z.string(), handle: z.string(), handle_discoverable: z.boolean() });
+const PayeeCardRow = z.object({ display_name: z.string().nullable(), member_since: z.string(), handle_discoverable: z.boolean() });
+const PayeeConsentRow = z.object({
+  phone: z.string().nullable(),
+  payee_email_consent: z.boolean(),
+  payee_phone_consent: z.boolean(),
+  status: UserStatus,
+  email_verified_at: z.date().nullable(),
+  phone_verified_at: z.date().nullable(),
+});
+const SelfFreezeRow = z.object({ reason: z.enum(SELF_FREEZE_REASONS), since: z.date() });
+const SessionTierRow = z.object({ tier: KycTierValue, reviewed_by: z.string().nullable() });
+const OwnershipRow = z.object({ id: z.string(), user_id: z.string(), revoked: z.boolean() });
+const LiveSessionRow = OwnershipRow.extend({ expires_at: z.date() });
+const SessionClaimsRow = z.object({ family_id: z.string(), trusted_device_id: z.string().nullable() });
+const NewSessionRow = z.object({ id: z.string(), family_id: z.string() });
+const SessionChainRow = z.object({ id: z.string(), successor_id: z.string().nullable() });
+const GraceSuccessorRow = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  revoked: z.boolean(),
+  mfa: z.boolean(),
+  expires_at: z.date(),
+  family_id: z.string(),
+  trusted_device_id: z.string().nullable(),
+});
+const RecoverSuccessorRow = GraceSuccessorRow.extend({
+  rotated_at: z.date().nullable(),
+  successor_id: z.string().nullable(),
+  idle_signout_seconds: z.number().nullable(),
+  idle_for: z.number(),
+});
+const RefreshRow = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  revoked: z.boolean(),
+  mfa: z.boolean(),
+  expires_at: z.date(),
+  user_status: UserStatus,
+  rotated_at: z.date().nullable(),
+  successor_id: z.string().nullable(),
+  successor_refresh: z.string().nullable(),
+  device: z.string().nullable(),
+  family_id: z.string(),
+  ip: z.string().nullable(),
+  user_agent: z.string().nullable(),
+  trusted_device_id: z.string().nullable(),
+  idle_signout_seconds: z.number().nullable(),
+  idle_for: z.number(),
+  active_since: z.date(),
+});
+const ApiKeyAuthRow = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  scopes: z.array(z.string()),
+  expires_at: z.date().nullable(),
+  mode: z.string(),
+  domain_whitelist: z.array(z.string()),
+  account_id: z.string().nullable(),
+});
+/** users is LEFT JOINed, so its status may be null. */
+const DeadApiKeyRow = z.object({ revoked: z.boolean(), expires_at: z.date().nullable(), status: UserStatus.nullable() });
+const ApiKeyListRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  key_prefix: z.string(),
+  scopes: z.array(z.string()),
+  last_used_at: z.date().nullable(),
+  revoked: z.boolean(),
+  mode: z.string(),
+  require_signature: z.boolean(),
+  require_non_empty_ip_allowlist: z.boolean(),
+  ip_allowlist: z.array(z.string()),
+});
+const PayStepUpProofRow = z.object({
+  user_id: z.string(),
+  session_id: z.string(),
+  expires_at: z.date(),
+  bound_action: z.string().nullable(),
+});
+const ProofIdRow = z.object({ proof_id: z.string() });
+const ExpiresAtRow = z.object({ expires_at: z.date() });
+/** sub_accounts.frozen is int4. */
+const SubAccountListRow = z.object({
+  id: z.string(),
+  label: z.string(),
+  purpose: z.string().nullable(),
+  revoked: z.boolean(),
+  frozen: z.number(),
+  kind: z.enum(SUB_ACCOUNT_KINDS),
+  nickname: z.string().nullable(),
+  created_at: z.date(),
+});
+const SubAccountSessionRow = z.object({ family_id: z.string(), trusted_device_id: z.string().nullable(), mfa: z.boolean() });
+const SubAccountRow = z.object({
+  id: z.string(),
+  parent_user_id: z.string(),
+  revoked: z.boolean(),
+  frozen: z.number(),
+  label: z.string(),
+});
+const SubAccountOwnershipRow = z.object({ id: z.string(), parent_user_id: z.string(), revoked: z.boolean() });
 
 function toKycRecord(row: KycRow): KycRecordView {
   return {
@@ -501,7 +669,7 @@ export type PayStepUpGrant = {
 
 /** What a guarded API-key action runs on: one open transaction, shared with its audit row. */
 export type ApiKeyActionScope = {
-  readonly tx: Sql;
+  readonly tx: Queryable;
   createApiKey: (input: Parameters<AuthService['createApiKey']>[0]) => ReturnType<AuthService['createApiKey']>;
   revokeApiKey: (userId: string, keyId: string, cause?: ApiKeyRevokedBy) => Promise<boolean>;
 };
@@ -580,7 +748,7 @@ export function predecessorSealCleanup(userId: string, sessionId: string): { tex
   };
 }
 
-export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: string): Promise<void> {
+export async function clearPredecessorSeal(tx: Queryable, userId: string, sessionId: string): Promise<void> {
   const query = predecessorSealCleanup(userId, sessionId);
   await tx.unsafe(query.text, query.values);
 }
@@ -651,7 +819,7 @@ export class AuthService {
   private emailConfirmSubjectKey: string | undefined;
   private emailConfirmNow: () => Date = () => new Date();
   /** Live founder directory. Unset means no founder desk scopes (fail closed). */
-  private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
+  private founderDirectory: { isFounder(userId: string, query?: Queryable): Promise<boolean> } | undefined;
   /** Lead-published founder grant. Blank grants nothing. */
   private founderSessionScopes: readonly Scope[] = [];
   /** The config string whose sha256 is written on each founder issuance. */
@@ -664,6 +832,26 @@ export class AuthService {
   /** Sets the owner's idle sign-out and device limit, parsed at start by `parseSessionLimits`. */
   setSessionLimits(limits: SessionLimits): void {
     this.sessionLimits = limits;
+  }
+
+  /**
+   * True while the owner's blocked-countries list is not set (J-identity-22 #1). index.ts sets it to `countryListUnset`;
+   * a service built without it (a unit test) asks nothing.
+   */
+  private countryListUnset: (() => boolean) | undefined;
+
+  /** Sets the blocked-countries read: while it answers true, no sign-in door opens a session. */
+  setCountryListGate(unset: () => boolean): void {
+    this.countryListUnset = unset;
+  }
+
+  /** Refuses every sign-in while the blocked-countries list is not set; before any account is read, so it names none. */
+  private assertCountryListSet(): void {
+    if (this.countryListUnset?.())
+      throw new AuthError(
+        'Sign-in is paused: the blocked-countries list is not set. Nobody can sign in until it is.',
+        'identity.screening_unset',
+      );
   }
 
   constructor(
@@ -858,10 +1046,15 @@ export class AuthService {
     device?: string;
     ip?: string;
     deviceKey?: string | null;
+    /** Throws to refuse the draft's address before any account is made (the invited-list gate). */
+    admit?: (email: string) => void;
   }): Promise<{ session: SessionTokens; accountType: AccountType; referrerId: string | null }> {
-    const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) =>
-      this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash),
-    );
+    // A code asked for before the list was switched off makes no account while it is off (J-identity-22 #1).
+    this.assertCountryListSet();
+    const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) => {
+      input.admit?.(d.email);
+      return this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash);
+    });
     const session = await this.finishRegistration(userId, {
       handle: draft.handle,
       email: draft.email,
@@ -1065,6 +1258,7 @@ export class AuthService {
 
   /** Code sign-in step 1: the same answer for every name; an active account is mailed a code. */
   async loginCodeRequest(input: { identifier: string }): Promise<LoginCodeAccepted> {
+    this.assertCountryListSet();
     return requestLoginCode(this.loginCodeDeps(), input);
   }
 
@@ -1088,9 +1282,9 @@ export class AuthService {
   }): Promise<SessionTokens> {
     const deps = this.loginCodeDeps();
     const { userId, codeHash } = await checkLoginCode(deps, input);
-    const [user] = await this.sql<
-      Array<{ id: string; status: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown }>
-    >`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`;
+    const [user] = SecondStepUserRow.array().parse(
+      await this.sql`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`,
+    );
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     // The code proved the mailbox, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
@@ -1152,7 +1346,7 @@ export class AuthService {
     base: readonly Scope[],
     userId: string,
     mfa: boolean,
-    query: Sql | undefined,
+    query: Queryable | undefined,
     gates: { readonly apiKey?: boolean; readonly subAccount?: boolean },
   ): Promise<{
     scopes: Scope[];
@@ -1212,11 +1406,13 @@ export class AuthService {
    * The caller's TEST staff role: their confirmed email's entry in the TEST roster, or null. With no roster (production)
    * it is always null and reads nothing. An unconfirmed email never counts, so a sign-up alone cannot take a role.
    */
-  async staffTestRole(userId: string, query?: Sql): Promise<StaffTestRoleName | null> {
+  async staffTestRole(userId: string, query?: Queryable): Promise<StaffTestRoleName | null> {
     if (this.staffTestRoster === undefined) return null;
-    const rows = await (query ?? this.sql)<Array<{ email: string | null; email_verified_at: Date | string | null }>>`
+    const rows = EmailVerifiedRow.array().parse(
+      await (query ?? this.sql)`
       SELECT email::text AS email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row || row.email_verified_at === null) return null;
     return staffTestRoleFor(this.staffTestRoster, row.email);
@@ -1224,7 +1420,7 @@ export class AuthService {
 
   /** One audit row for a live founder issuance. A non-founder writes nothing. */
   private async recordFounderScopeGrant(
-    query: Sql,
+    query: Queryable,
     userId: string,
     sessionId: string,
     founder: boolean,
@@ -1316,6 +1512,8 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
+    // No account is made while the blocked-countries list is not set (J-identity-22 #1).
+    this.assertCountryListSet();
     policyRefusal(() => {
       assertPasswordShape(input.password);
       assertPasswordNotIdentity(input.password, input);
@@ -1327,23 +1525,23 @@ export class AuthService {
   }
 
   /** The user, profile and rank rows of a new account, inside the caller's transaction. */
-  private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+  private async insertNewUser(tx: Queryable, input: RegisterInput, passwordHash: string): Promise<string> {
     // A handle someone gave up in a change is never handed out again (PP-send-request-03); the claim lock is shared with
     // a handle change, so the check below sees settled rows.
     await lockHandleClaim(tx, input.handle);
     if (await handleRetiredByOther(tx, input.handle, null)) throw new AuthError('That handle is taken', 'auth.handle_taken');
-    const clash = await tx<
-      Array<{ handle: string; email: string }>
-    >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
+    const clash = HandleEmailRow.array().parse(
+      await tx`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`,
+    );
     for (const row of clash) {
       if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
         throw new AuthError('That handle is taken', 'auth.handle_taken');
       }
       throw new AuthError('An account with that email already exists', 'auth.email_taken');
     }
-    const inserted = await tx<
-      Array<{ id: string }>
-    >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
+    const inserted = IdRow.array().parse(
+      await tx`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`,
+    );
     const id = inserted[0]!.id;
     await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
     await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
@@ -1360,7 +1558,7 @@ export class AuthService {
    */
   async registerInvitedStaff(
     input: { email: string; password: string; deviceKey?: string | null },
-    claim: (tx: Sql, userId: string) => Promise<void>,
+    claim: (tx: Queryable, userId: string) => Promise<void>,
   ): Promise<string> {
     const handle = `staff_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
     policyRefusal(() => {
@@ -1474,9 +1672,9 @@ export class AuthService {
           if (await this.founderPairPinned(tx)) throw closed();
           if (await this.founderInviteSpent(tx, hash)) throw usedError();
           const id = await this.insertNewUser(tx, input, passwordHash);
-          const claimed = await tx<
-            Array<{ hash: string }>
-          >`INSERT INTO founder_invites_used (hash, user_id) VALUES (${hash}, ${id}) ON CONFLICT (hash) DO NOTHING RETURNING hash`;
+          const claimed = HashRow.array().parse(
+            await tx`INSERT INTO founder_invites_used (hash, user_id) VALUES (${hash}, ${id}) ON CONFLICT (hash) DO NOTHING RETURNING hash`,
+          );
           if (claimed.length !== 1) throw usedError();
           return id;
         },
@@ -1506,20 +1704,20 @@ export class AuthService {
     if (!config) return false;
     if (now.getTime() >= config.expiresAt.getTime()) return false;
     if (await this.founderPairPinned(this.sql)) return false;
-    const spent = await this.sql<
-      Array<{ n: number }>
-    >`SELECT count(*)::int AS n FROM founder_invites_used WHERE hash IN ${this.sql(config.hashes as string[])}`;
+    const spent = IntCountRow.array().parse(
+      await this.sql`SELECT count(*)::int AS n FROM founder_invites_used WHERE hash IN ${this.sql(config.hashes as string[])}`,
+    );
     return (spent[0]?.n ?? 0) < config.hashes.length;
   }
 
   /** The founder pair is pinned permanently by the first verified boot (founder-controls.ts). */
-  private async founderPairPinned(q: Sql): Promise<boolean> {
-    const rows = await q<Array<{ pinned: boolean }>>`SELECT true AS pinned FROM founder_control_configuration LIMIT 1`;
+  private async founderPairPinned(q: Queryable): Promise<boolean> {
+    const rows = PinnedRow.array().parse(await q`SELECT true AS pinned FROM founder_control_configuration LIMIT 1`);
     return rows.length > 0;
   }
 
-  private async founderInviteSpent(q: Sql, hash: string): Promise<boolean> {
-    const rows = await q<Array<{ hash: string }>>`SELECT hash FROM founder_invites_used WHERE hash = ${hash}`;
+  private async founderInviteSpent(q: Queryable, hash: string): Promise<boolean> {
+    const rows = HashRow.array().parse(await q`SELECT hash FROM founder_invites_used WHERE hash = ${hash}`);
     return rows.length > 0;
   }
 
@@ -1531,6 +1729,7 @@ export class AuthService {
     ip?: string;
     deviceKey?: string | null;
   }): Promise<SessionTokens> {
+    this.assertCountryListSet();
     const user = await this.passFirstFactor(input);
     // A locked-out reset whose wait has passed completes at a sign-in by password alone: the authenticator app goes, with
     // every session. A sign-in that brings a code is the person who still has the app or a recovery code.
@@ -1593,18 +1792,11 @@ export class AuthService {
     passkey_second_step: boolean;
     webauthn_creds: unknown;
   }> {
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        password_hash: string;
-        status: string;
-        totp_secret: string | null;
-        passkey_second_step: boolean;
-        webauthn_creds: unknown;
-      }>
-    >`SELECT id, password_hash, status, totp_secret, passkey_second_step, webauthn_creds FROM users
+    const rows = FirstFactorUserRow.array().parse(
+      await this.sql`SELECT id, password_hash, status, totp_secret, passkey_second_step, webauthn_creds FROM users
       WHERE handle = ${input.identifier} OR email = ${input.identifier}
-         OR id = (SELECT user_id FROM signin_phones WHERE phone = ${signinPhone(input.identifier)})`;
+         OR id = (SELECT user_id FROM signin_phones WHERE phone = ${signinPhone(input.identifier)})`,
+    );
     const user = rows[0];
     // Reserve the password guess BEFORE verifying it (see attempt-lockout.ts). Unknown
     // identifiers have no row and keep answering `invalid_credentials`. A locked
@@ -1696,7 +1888,7 @@ export class AuthService {
     // An expired or spent challenge (or one this service never issued) asks for the password again.
     if (!held?.userId) throw new AuthError('This sign-in step timed out', 'auth.second_step_expired');
     const userId = held.userId;
-    const [user] = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId}`;
+    const [user] = StatusRow.array().parse(await this.sql`SELECT status FROM users WHERE id = ${userId}`);
     if (!user) return refuse();
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
     await this.reserve(userId, 'mfa');
@@ -1721,9 +1913,9 @@ export class AuthService {
     userId: string,
     input: { totpCode?: string; device?: string; ip?: string; deviceKey?: string | null },
   ): Promise<SessionTokens> {
-    const [user] = await this.sql<
-      Array<{ id: string; status: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown }>
-    >`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`;
+    const [user] = SecondStepUserRow.array().parse(
+      await this.sql`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`,
+    );
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     // The provider proved the identity, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
@@ -1774,10 +1966,12 @@ export class AuthService {
    * sign-in and refresh (step-up). A session that is not the user's, was revoked or has expired mints nothing.
    */
   private async sessionClaimsOf(userId: string, sessionId: string): Promise<{ familyId: string; trustedDeviceId: string | null }> {
-    const rows = await this.sql<Array<{ family_id: string; trusted_device_id: string | null }>>`
+    const rows = SessionClaimsRow.array().parse(
+      await this.sql`
       SELECT family_id, trusted_device_id FROM sessions
       WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) throw new AuthError('Session not found', 'auth.session_invalid');
     return { familyId: row.family_id, trustedDeviceId: row.trusted_device_id };
@@ -1787,18 +1981,20 @@ export class AuthService {
     userId: string,
     options: { device?: string | undefined; ip?: string | undefined; mfa: boolean; trustedDeviceId?: string | null },
   ): Promise<SessionTokens> {
+    // Every door that opens a session (password, code, passkey, wallet, provider, device approval, sign-up) ends here.
+    this.assertCountryListSet();
     const refreshToken = generateToken(48);
     const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
     const inserted = await transaction(
       this.sql,
       async (tx) => {
-        const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
+        const [user] = StatusRow.array().parse(await tx`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`);
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
         // The owner's device limit (I-signin-sessions-06): a sign-in beyond it ends the oldest device, under the users lock.
         const endedIds = await endOldestBeyondLimit(tx, userId, this.sessionLimits.maxConcurrent);
-        const rows = await tx<
-          Array<{ id: string; family_id: string }>
-        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id, family_id`;
+        const rows = NewSessionRow.array().parse(
+          await tx`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id, family_id`,
+        );
         return { rows, endedIds };
       },
       { isolation: 'read committed' },
@@ -1815,6 +2011,8 @@ export class AuthService {
     const sessionId = inserted.rows[0]!.id;
     const familyId = inserted.rows[0]!.family_id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
+    // The location signal (BK-safe-01): kept only under the person's consent, and never fails the sign-in.
+    await recordSignInSignal(this.sql, { userId, sessionId, region: currentRequestRegion() }, (detail, msg) => this.log.warn(detail, msg));
     // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
       this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
@@ -1847,29 +2045,10 @@ export class AuthService {
     // Resolve the owner grant before the row lock. A pay round trip must not
     // sit inside the session transaction.
     const peek = this.ownerPayScopeSource
-      ? await this.sql<Array<{ user_id: string }>>`SELECT user_id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1`
+      ? UserIdRow.array().parse(await this.sql`SELECT user_id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1`)
       : [];
     const peekedUserId = peek[0]?.user_id;
     const peekedScopes = peekedUserId ? await this.scopesForNewAccessToken(peekedUserId) : null;
-    type RefreshRow = {
-      id: string;
-      user_id: string;
-      revoked: boolean;
-      mfa: boolean;
-      expires_at: Date;
-      user_status: string;
-      rotated_at: Date | null;
-      successor_id: string | null;
-      successor_refresh: string | null;
-      device: string | null;
-      family_id: string;
-      ip: string | null;
-      user_agent: string | null;
-      trusted_device_id: string | null;
-      idle_signout_seconds: number | null;
-      idle_for: number;
-      active_since: Date;
-    };
     type RefreshOutcome =
       | { kind: 'idle'; sessionId: string }
       | { kind: 'reuse'; userId: string; sessionId: string }
@@ -1886,9 +2065,9 @@ export class AuthService {
         }
       | { kind: 'rotated'; previousSessionId: string; tokens: SessionTokens };
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
-      const rows = await tx<
-        RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id, u.idle_signout_seconds, floor(extract(epoch FROM now() - coalesce(s.active_at, s.last_used_at, s.created_at)))::int AS idle_for, coalesce(s.active_at, s.last_used_at, s.created_at) AS active_since FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      const rows = RefreshRow.array().parse(
+        await tx`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id, u.idle_signout_seconds, floor(extract(epoch FROM now() - coalesce(s.active_at, s.last_used_at, s.created_at)))::int AS idle_for, coalesce(s.active_at, s.last_used_at, s.created_at) AS active_since FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`,
+      );
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -1953,9 +2132,9 @@ export class AuthService {
       // lifetime setting is not published, so the refresh TTL measured from the first login is the bound.
       const expiresAt = new Date(Math.min(Date.now() + this.tokens.refreshTtlSeconds * 1000, session.expires_at.getTime()));
       // The successor stays on the predecessor's trusted device (I-signin-sessions-07).
-      const nextSession = await tx<
-        Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id, active_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, ${session.trusted_device_id}, ${options.idle === true ? session.active_since : null}) RETURNING id`;
+      const nextSession = IdRow.array().parse(
+        await tx`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id, active_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, ${session.trusted_device_id}, ${options.idle === true ? session.active_since : null}) RETURNING id`,
+      );
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const { tier, tradingCleared } = await this.sessionTier(session.user_id, tx);
@@ -2046,7 +2225,7 @@ export class AuthService {
   }
 
   private async graceTokens(
-    tx: Sql,
+    tx: Queryable,
     session: {
       rotated_at: Date | null;
       successor_id: string | null;
@@ -2059,19 +2238,11 @@ export class AuthService {
     if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
     const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
     if (!nextToken) return null;
-    const rows = await tx<
-      Array<{
-        id: string;
-        user_id: string;
-        revoked: boolean;
-        mfa: boolean;
-        expires_at: Date;
-        family_id: string;
-        trusted_device_id: string | null;
-      }>
-    >`
+    const rows = GraceSuccessorRow.array().parse(
+      await tx`
       SELECT id, user_id, revoked, mfa, expires_at, family_id, trusted_device_id FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
-    `;
+    `,
+    );
     const successor = rows[0];
     if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
     const { tier, tradingCleared } = await this.sessionTier(successor.user_id, tx);
@@ -2107,7 +2278,7 @@ export class AuthService {
    * caller burns the family. Does not rotate, revoke, or insert.
    */
   private async recoverTokens(
-    tx: Sql,
+    tx: Queryable,
     session: {
       id: string;
       user_id: string;
@@ -2128,25 +2299,13 @@ export class AuthService {
     if (!Number.isFinite(age) || age <= this.reuseGraceMs || age > this.recoveryMs) return null;
     const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
     if (!nextToken) return null;
-    const rows = await tx<
-      Array<{
-        id: string;
-        user_id: string;
-        revoked: boolean;
-        mfa: boolean;
-        expires_at: Date;
-        rotated_at: Date | null;
-        successor_id: string | null;
-        family_id: string;
-        trusted_device_id: string | null;
-        idle_signout_seconds: number | null;
-        idle_for: number;
-      }>
-    >`
+    const rows = RecoverSuccessorRow.array().parse(
+      await tx`
       SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, s.rotated_at, s.successor_id, s.family_id, s.trusted_device_id,
         u.idle_signout_seconds, floor(extract(epoch FROM now() - coalesce(s.active_at, s.last_used_at, s.created_at)))::int AS idle_for
       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ${session.successor_id} FOR UPDATE OF s
-    `;
+    `,
+    );
     const successor = rows[0];
     if (!successor || successor.user_id !== session.user_id) return null;
     if (successor.revoked !== false) return null;
@@ -2214,9 +2373,11 @@ export class AuthService {
 
   async logout(refreshToken: string): Promise<void> {
     const hash = hashToken(refreshToken);
-    const rows = await this.sql<Array<{ id: string; successor_id: string | null }>>`
+    const rows = SessionChainRow.array().parse(
+      await this.sql`
       SELECT id, successor_id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1
-    `;
+    `,
+    );
     const root = rows[0];
     if (!root) return;
     await this.sql`
@@ -2278,9 +2439,9 @@ export class AuthService {
     if (actor.delegated) {
       throw new AuthError('Sign in yourself to change your password; an API key or sub-account cannot', 'auth.mfa_required');
     }
-    const rows = await this.sql<
-      Array<{ password_hash: string; status: string; totp_secret: string | null; webauthn_creds: unknown; handle: string; email: string }>
-    >`SELECT password_hash, status, totp_secret, webauthn_creds, handle, email FROM users WHERE id = ${userId}`;
+    const rows = PasswordChangeUserRow.array().parse(
+      await this.sql`SELECT password_hash, status, totp_secret, webauthn_creds, handle, email FROM users WHERE id = ${userId}`,
+    );
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
@@ -2314,23 +2475,21 @@ export class AuthService {
     }
     const nextHash = await hashPassword(input.newPassword);
     const { revokedIds, noticed } = await transaction(this.sql, async (tx) => {
-      const locked = await tx<
-        Array<{ password_hash: string; status: string }>
-      >`SELECT password_hash, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      const locked = PasswordStatusRow.array().parse(await tx`SELECT password_hash, status FROM users WHERE id = ${userId} FOR UPDATE`);
       // A parallel change already moved the hash: the password we verified is no longer the current one.
       if (!locked[0] || locked[0].password_hash !== user.password_hash) {
         throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
       }
       if (locked[0].status !== 'active') throw new AuthError(`Account is ${locked[0].status}`, 'auth.account_frozen');
       await assertNotSecurityLocked(tx, userId);
-      const live = await tx<
-        Array<{ id: string }>
-      >`SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`;
+      const live = IdRow.array().parse(
+        await tx`SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`,
+      );
       if (!live[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
       await tx`UPDATE users SET password_hash = ${nextHash}, updated_at = now() WHERE id = ${userId}`;
-      const revoked = await tx<
-        Array<{ id: string }>
-      >`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`;
+      const revoked = IdRow.array().parse(
+        await tx`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`,
+      );
       await recordSuccess(tx, userId, 'password');
       const noticed = await queuePasswordChangedNotice(tx, { userId, now: this.passwordResetNow() });
       return { revokedIds: revoked.map((r) => r.id), noticed };
@@ -2407,8 +2566,10 @@ export class AuthService {
     if (input.actor.delegated) {
       throw new AuthError('Sign in yourself to freeze your account; an API key or sub-account cannot', 'auth.mfa_required');
     }
-    const rows = await this.sql<Array<{ password_hash: string; status: string }>>`
-      SELECT password_hash, status FROM users WHERE id = ${input.userId}`;
+    const rows = PasswordStatusRow.array().parse(
+      await this.sql`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`,
+    );
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
@@ -2433,8 +2594,10 @@ export class AuthService {
     if (input.actor.delegated) {
       throw new AuthError('Sign in yourself to secure your account; an API key or sub-account cannot', 'auth.mfa_required');
     }
-    const rows = await this.sql<Array<{ password_hash: string; status: string }>>`
-      SELECT password_hash, status FROM users WHERE id = ${input.userId}`;
+    const rows = PasswordStatusRow.array().parse(
+      await this.sql`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`,
+    );
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
@@ -2447,6 +2610,31 @@ export class AuthService {
     if (opened.sessionsEnded > 0) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, caseId: opened.caseId, changed: opened.changed }, 'identity.compromise_started');
     return opened;
+  }
+
+  /**
+   * The person's own password, for a change to their step-up extras (BK-safe-01). Counts on the password lockout like a
+   * sign-in. An API key or sub-account is refused: the person signs in themselves.
+   */
+  async confirmOwnPassword(input: { userId: string; actor: FactorActor; password: string }): Promise<void> {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    const rows = PasswordStatusRow.array().parse(
+      await this.sql`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`,
+    );
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
+    await this.reserve(input.userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.password))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    await recordSuccess(this.sql, input.userId, 'password');
+  }
+
+  /** The database the account's own safety settings live in (account/safety.ts). */
+  get safetySql(): Sql {
+    return this.sql;
   }
 
   /** The person's open compromised-account case, or null (J-identity-13 #3 to #5). */
@@ -2490,15 +2678,15 @@ export class AuthService {
   }
 
   async selfFreezeStatus(userId: string): Promise<{ frozen: boolean; reason: SelfFreezeReason | null; since: Date | null }> {
-    const rows = await this.sql<Array<{ reason: SelfFreezeReason; since: Date }>>`
-      SELECT reason, since FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`;
+    const rows = SelfFreezeRow.array().parse(
+      await this.sql`
+      SELECT reason, since FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`,
+    );
     return rows[0] ? { frozen: true, reason: rows[0].reason, since: rows[0].since } : { frozen: false, reason: null, since: null };
   }
 
   async getSessionOwnership(sessionId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
-    const rows = await this.sql<
-      Array<{ id: string; user_id: string; revoked: boolean }>
-    >`SELECT id, user_id, revoked FROM sessions WHERE id = ${sessionId} LIMIT 1`;
+    const rows = OwnershipRow.array().parse(await this.sql`SELECT id, user_id, revoked FROM sessions WHERE id = ${sessionId} LIMIT 1`);
     const row = rows[0];
     if (!row) return null;
     return { id: row.id, userId: row.user_id, revoked: row.revoked };
@@ -2509,9 +2697,9 @@ export class AuthService {
     if (!id) {
       throw new AuthError('Session not found', 'auth.session_denied');
     }
-    const rows = await this.sql<
-      Array<{ id: string; user_id: string; revoked: boolean; expires_at: Date }>
-    >`SELECT id, user_id, revoked, expires_at FROM sessions WHERE id = ${id} LIMIT 1`;
+    const rows = LiveSessionRow.array().parse(
+      await this.sql`SELECT id, user_id, revoked, expires_at FROM sessions WHERE id = ${id} LIMIT 1`,
+    );
     const row = rows[0];
     if (!row) {
       throw new AuthError('Session not found', 'auth.session_denied');
@@ -2526,9 +2714,7 @@ export class AuthService {
   private async tryRedeemRecoveryCode(userId: string, code: string): Promise<number | null> {
     const hash = hashToken(code.trim());
     return transaction(this.sql, async (tx) => {
-      const rows = await tx<
-        Array<{ recovery_code_hashes: unknown }>
-      >`SELECT recovery_code_hashes FROM users WHERE id = ${userId} FOR UPDATE`;
+      const rows = RecoveryHashesRow.array().parse(await tx`SELECT recovery_code_hashes FROM users WHERE id = ${userId} FOR UPDATE`);
       const hashes = asStringList(rows[0]?.recovery_code_hashes);
       const idx = hashes.indexOf(hash);
       if (idx < 0) return null;
@@ -2539,18 +2725,17 @@ export class AuthService {
   }
 
   private async consumeTotpCode(userId: string, secret: string, code: string, at?: Date): Promise<void> {
-    const matched = matchTotpStep(secret, code, at ? { at } : {});
-    if (matched === null) {
+    if (matchTotpStep(secret, code, at ? { at } : {}) === null) {
       throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     }
     await transaction(this.sql, async (tx) => {
-      const rows = await tx<
-        Array<{ totp_last_step: string | number | bigint | null }>
-      >`SELECT totp_last_step FROM users WHERE id = ${userId} FOR UPDATE`;
+      const rows = TotpLastStepRow.array().parse(await tx`SELECT totp_last_step FROM users WHERE id = ${userId} FOR UPDATE`);
       if (!rows[0]) throw new AuthError('User not found', 'auth.not_found');
       const lastRaw = rows[0].totp_last_step;
       const lastStep = lastRaw === null || lastRaw === undefined ? null : BigInt(lastRaw);
-      if (lastStep !== null && matched <= lastStep) {
+      // Only an unspent step matches: a fresh code equal to a spent step's code is still this step's code.
+      const matched = matchTotpStep(secret, code, { ...(at ? { at } : {}), after: lastStep });
+      if (matched === null) {
         throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
       }
       // A replay guard, not a change to the record: updated_at stays (the restore watermark reads it as a write).
@@ -2565,14 +2750,12 @@ export class AuthService {
         'auth.totp_key_missing',
       );
     }
-    const rows = await this.sql<
-      Array<{ email: string; totp_secret: string | null; webauthn_creds: unknown }>
-    >`SELECT email, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const rows = TotpEnrolUserRow.array().parse(await this.sql`SELECT email, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`);
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     // Gate first (a refused caller learns nothing about TOTP state), then the
     // already-enrolled conflict. Unlocked: nothing is written here.
-    checkMayAddFactor(user, actor);
+    checkMayAddFactor({ totp_secret: user.totp_secret, webauthn_creds: user.webauthn_creds }, actor);
     if (user.totp_secret) throw new AuthError('Two-factor is already enrolled', 'auth.mfa_already_enrolled');
     const secret = generateSecret();
     const recoveryCodes = generateRecoveryCodes();
@@ -2624,9 +2807,9 @@ export class AuthService {
   }
 
   async startWebauthnRegistration(userId: string, actor: FactorActor): Promise<RegistrationOptionsJSON> {
-    const rows = await this.sql<
-      Array<{ email: string; handle: string; totp_secret: string | null; webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT email, handle, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const rows = WebauthnEnrolUserRow.array().parse(
+      await this.sql`SELECT email, handle, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`,
+    );
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     checkMayAddFactor(user, actor);
@@ -2641,9 +2824,7 @@ export class AuthService {
     actor: FactorActor,
     response: RegistrationResponseJSON,
   ): Promise<{ credentialId: string }> {
-    const rows = await this.sql<
-      Array<{ webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
+    const rows = WebauthnCredsRow.array().parse(await this.sql`SELECT webauthn_creds FROM users WHERE id = ${userId}`);
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     const clientChallenge = readClientChallenge(response.response.clientDataJSON);
@@ -2665,7 +2846,7 @@ export class AuthService {
     const existingCount = await transaction(this.sql, async (tx) => {
       // Locks the user row and applies the factor rule in the same transaction as the write.
       await assertMayAddFactor(tx, userId, actor, true);
-      const locked = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
+      const locked = WebauthnCredsRow.array().parse(await tx`SELECT webauthn_creds FROM users WHERE id = ${userId}`);
       if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
       const existing = asCredentialList(locked[0].webauthn_creds);
       if (existing.some((c) => c.credentialId === stored.credentialId)) {
@@ -2694,9 +2875,9 @@ export class AuthService {
   async startWebauthnAuthentication(identifier: string): Promise<AuthenticationOptionsJSON> {
     // The decoy ids come from the server secret; without it the answer would be an empty list that gives accounts away.
     if (!this.tokens.secret) throw new AuthError('The sign-in secret is not set', 'auth.webauthn_unconfigured');
-    const rows = await this.sql<
-      Array<{ id: string; status: string; webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`;
+    const rows = PasskeyUserRow.array().parse(
+      await this.sql`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`,
+    );
     const user = rows[0];
     const challenge = generateChallenge();
     // Passkeys bound to sign-in are the only ones offered when any is (passkey-purposes.ts).
@@ -2716,9 +2897,9 @@ export class AuthService {
     response: AuthenticationResponseJSON,
     options: { device?: string; ip?: string } = {},
   ): Promise<SessionTokens> {
-    const rows = await this.sql<
-      Array<{ id: string; status: string; webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`;
+    const rows = PasskeyUserRow.array().parse(
+      await this.sql`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`,
+    );
     const user = rows[0];
     const refuse = (): never => {
       throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
@@ -2752,7 +2933,7 @@ export class AuthService {
     purpose?: PasskeyPurpose,
   ): Promise<void> {
     await transaction(this.sql, async (tx) => {
-      const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
+      const rows = WebauthnCredsRow.array().parse(await tx`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`);
       if (!rows[0]) return refuse();
       const creds = asCredentialList(rows[0].webauthn_creds);
       const responseId = normalizeCredId(response.id);
@@ -2779,9 +2960,7 @@ export class AuthService {
     limit: number,
   ): Promise<Array<{ credentialId: string; createdAt: string; transports?: string[] }>> {
     const published = publishedWebauthnListLimit(limit);
-    const rows = await this.sql<
-      Array<{ webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
+    const rows = WebauthnCredsRow.array().parse(await this.sql`SELECT webauthn_creds FROM users WHERE id = ${userId}`);
     if (!rows[0]) throw new AuthError('User not found', 'auth.not_found');
     return asCredentialList(rows[0].webauthn_creds)
       .map((c) => ({
@@ -2797,7 +2976,7 @@ export class AuthService {
     assertMayRemoveFactor(actor);
     const target = normalizeCredId(credentialId);
     return transaction(this.sql, async (tx) => {
-      const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
+      const rows = WebauthnCredsRow.array().parse(await tx`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`);
       if (!rows[0]) throw new AuthError('User not found', 'auth.not_found');
       const creds = asCredentialList(rows[0].webauthn_creds);
       const next = creds.filter((c) => c.credentialId !== target);
@@ -2811,9 +2990,7 @@ export class AuthService {
   }
 
   async startWebauthnStepUp(userId: string) {
-    const rows = await this.sql<
-      Array<{ id: string; status: string; webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT id, status, webauthn_creds FROM users WHERE id = ${userId}`;
+    const rows = PasskeyUserRow.array().parse(await this.sql`SELECT id, status, webauthn_creds FROM users WHERE id = ${userId}`);
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
@@ -2839,7 +3016,7 @@ export class AuthService {
     /** True only when this create asked for pay:refund / pay:payout under a step-up token. */
     payStepUp?: boolean;
     /** Run on this open transaction instead of starting one (used by `withApiKeyAction`). */
-    executor?: Sql;
+    executor?: Queryable;
   }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; scopes: string[] }> {
     assertDelegateCannotGrant(input.grantorKid);
     assertDelegatableScopes(input.scopes, input.grantorScopes, { payStepUp: input.payStepUp === true });
@@ -2850,14 +3027,14 @@ export class AuthService {
       throw new AuthError('A sandbox key can only hold pay scopes', 'auth.sandbox_scope_not_pay');
     }
     const { key, hash, prefix } = generateApiKey(mode);
-    const insert = async (tx: Sql) => {
-      const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;
+    const insert = async (tx: Queryable) => {
+      const [user] = StatusRow.array().parse(await tx`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`);
       if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
-      const own = await tx<Array<{ id: string }>>`SELECT id FROM account_self_freezes WHERE user_id = ${input.userId} AND state = 'frozen'`;
+      const own = IdRow.array().parse(await tx`SELECT id FROM account_self_freezes WHERE user_id = ${input.userId} AND state = 'frozen'`);
       if (own[0]) throw new AuthError('You froze this account', 'identity.account_frozen_self');
-      return tx<
-        Array<{ id: string }>
-      >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
+      return IdRow.array().parse(
+        await tx`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`,
+      );
     };
     const rows = input.executor ? await insert(input.executor) : await transaction(this.sql, insert, { isolation: 'read committed' });
     return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };
@@ -2872,17 +3049,10 @@ export class AuthService {
     /** The sub-account a portfolio-scoped key is bound to (DV-sub-accounts-01); null on the account's own keys. */
     accountId: string | null;
   } | null> {
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        user_id: string;
-        scopes: string[];
-        expires_at: Date | null;
-        mode: string | null;
-        domain_whitelist: string[] | null;
-        account_id: string | null;
-      }>
-    >`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist, account_id FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
+    const rows = ApiKeyAuthRow.array().parse(
+      await this
+        .sql`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist, account_id FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`,
+    );
     const row = rows[0];
     if (!row) return null;
     if (row.expires_at && row.expires_at.getTime() < Date.now()) return null;
@@ -2905,11 +3075,13 @@ export class AuthService {
    * also revokes the account's keys and the holder needs to know the account, not the key, is the cause.
    */
   private async deadApiKeyRefusal(key: string): Promise<AuthError> {
-    const rows = await this.sql<Array<{ revoked: boolean; expires_at: Date | null; status: string | null }>>`
+    const rows = DeadApiKeyRow.array().parse(
+      await this.sql`
       SELECT k.revoked, k.expires_at, u.status
       FROM api_keys k LEFT JOIN users u ON u.id = k.user_id
       WHERE k.key_hash = ${hashToken(key)}
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) return new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (row.status !== null && row.status !== 'active') return new AuthError(`Account is ${row.status}`, 'auth.account_frozen');
@@ -2933,19 +3105,21 @@ export class AuthService {
     ipAllowlist?: string[];
     /** The key's rate limit for the edge (`installApiKeyRateExchange`); null while no tier is set. */
     rateLimit?: KeyRateLimit | null;
+    /** The account's default API version, applied by the edge to a call with no version header; null while not set. */
+    apiVersionDefault: ApiVersion | null;
   }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw await this.deadApiKeyRefusal(key);
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {
       throw new AuthError('API key is not allowed from this origin', 'auth.domain_not_allowed');
     }
-    const users = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${verified.userId}`;
+    const users = StatusRow.array().parse(await this.sql`SELECT status FROM users WHERE id = ${verified.userId}`);
     const user = users[0];
     if (!user) throw new AuthError('Account not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
     if (verified.accountId) {
       // A portfolio-scoped key lives only as long as its sub-account: a revoked (deleted) sub-account's key is dead.
-      const bound = await this.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sub_accounts WHERE id = ${verified.accountId}`;
+      const bound = RevokedRow.array().parse(await this.sql`SELECT revoked FROM sub_accounts WHERE id = ${verified.accountId}`);
       if (!bound[0] || bound[0].revoked) throw new AuthError('API key is revoked', 'auth.api_key_revoked');
     }
     const { tier, tradingCleared } = await this.sessionTier(verified.userId);
@@ -2964,14 +3138,23 @@ export class AuthService {
       },
       this.tokens,
     );
-    return { accessToken, expiresAt, userId: verified.userId, keyId: verified.keyId, scopes: verified.scopes, mode: verified.mode };
+    const apiVersionDefault = await new ApiVersionDefaults(this.sql).versionOf(verified.userId);
+    return {
+      accessToken,
+      expiresAt,
+      userId: verified.userId,
+      keyId: verified.keyId,
+      scopes: verified.scopes,
+      mode: verified.mode,
+      apiVersionDefault,
+    };
   }
 
   /**
    * Revoke one key, recording why: `owner` (the person, also a rotation's old key) unless the caller says otherwise,
    * `system` when a create or rotation undoes a key it made but never handed over.
    */
-  async revokeApiKey(userId: string, keyId: string, cause: ApiKeyRevokedBy = 'owner', executor?: Sql): Promise<boolean> {
+  async revokeApiKey(userId: string, keyId: string, cause: ApiKeyRevokedBy = 'owner', executor?: Queryable): Promise<boolean> {
     const result = await (executor ??
       this
         .sql)`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = ${cause} WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
@@ -2979,9 +3162,7 @@ export class AuthService {
   }
 
   async getApiKeyOwnership(keyId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
-    const rows = await this.sql<
-      Array<{ id: string; user_id: string; revoked: boolean }>
-    >`SELECT id, user_id, revoked FROM api_keys WHERE id = ${keyId} LIMIT 1`;
+    const rows = OwnershipRow.array().parse(await this.sql`SELECT id, user_id, revoked FROM api_keys WHERE id = ${keyId} LIMIT 1`);
     const row = rows[0];
     if (!row) return null;
     return { id: row.id, userId: row.user_id, revoked: row.revoked };
@@ -3004,20 +3185,10 @@ export class AuthService {
 
   async listApiKeys(userId: string, limit: number) {
     const published = publishedApiKeysListLimit(limit);
-    return this.sql<
-      Array<{
-        id: string;
-        name: string;
-        key_prefix: string;
-        scopes: string[];
-        last_used_at: Date | null;
-        revoked: boolean;
-        mode: string;
-        require_signature: boolean;
-        require_non_empty_ip_allowlist: boolean;
-        ip_allowlist: string[] | null;
-      }>
-    >`SELECT id, name, key_prefix, scopes, last_used_at, revoked, mode, require_signature, require_non_empty_ip_allowlist, ip_allowlist FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+    return ApiKeyListRow.array().parse(
+      await this
+        .sql`SELECT id, name, key_prefix, scopes, last_used_at, revoked, mode, require_signature, require_non_empty_ip_allowlist, ip_allowlist FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`,
+    );
   }
 
   /**
@@ -3033,9 +3204,11 @@ export class AuthService {
     const claimer = this.merchantEmailInviteClaimer;
     if (!claimer) return;
     try {
-      const rows = await this.sql<Array<{ email: string; email_verified_at: Date | string | null }>>`
+      const rows = EmailVerifiedRow.array().parse(
+        await this.sql`
         SELECT email::text AS email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
-      `;
+      `,
+      );
       const row = rows[0];
       if (!row?.email || !isEmailConfirmed(row)) return;
       await claimer.claim({ userId, email: row.email });
@@ -3051,11 +3224,13 @@ export class AuthService {
    */
   async sessionTier(
     userId: string,
-    sql: Sql = this.sql,
+    sql: Queryable = this.sql,
   ): Promise<{ tier: 'none' | 'basic' | 'full' | 'institutional'; tradingCleared: boolean }> {
-    const rows = await sql<Array<{ tier: 'basic' | 'full' | 'institutional'; reviewed_by: string | null }>>`
+    const rows = SessionTierRow.array().parse(
+      await sql`
       SELECT tier, reviewed_by FROM kyc_records
-      WHERE user_id = ${userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > now())`;
+      WHERE user_id = ${userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > now())`,
+    );
     const order = { none: 0, basic: 1, full: 2, institutional: 3 } as const;
     let tier: 'none' | 'basic' | 'full' | 'institutional' = 'none';
     let tradingCleared = false;
@@ -3070,14 +3245,14 @@ export class AuthService {
    * The highest level an operator approved, unlapsed. A trading-checks clear is never one: it opens trading alone, read
    * through the token's `trd` (`sessionTier`), so every gate and lookup that reads the level sees none (OWNER 258 (4)).
    */
-  async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {
+  async kycTier(userId: string, sql: Queryable = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {
     return (await this.sessionTier(userId, sql)).tier;
   }
 
   async accountState(userId: string): Promise<AccountState | null> {
-    const rows = await this.sql<
-      Array<{ id: string; status: 'active' | 'frozen' | 'closed'; archived: boolean }>
-    >`SELECT id, status, archived_at IS NOT NULL AS archived FROM users WHERE id = ${userId} LIMIT 1`;
+    const rows = AccountStateRow.array().parse(
+      await this.sql`SELECT id, status, archived_at IS NOT NULL AS archived FROM users WHERE id = ${userId} LIMIT 1`,
+    );
     const user = rows[0];
     if (!user) return null;
     return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id), archived: user.archived };
@@ -3089,13 +3264,13 @@ export class AuthService {
    */
   async campaignParticipant(userId: string): Promise<CampaignParticipant | null> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
-    const rows = await this.sql<
-      Array<{ id: string; status: 'active' | 'frozen' | 'closed'; account_type: string | null; region: string | null }>
-    >`
+    const rows = CampaignParticipantRow.array().parse(
+      await this.sql`
       SELECT u.id, u.status, p.account_type, p.region
       FROM users u LEFT JOIN profiles p ON p.user_id = u.id
       WHERE u.id = ${userId} LIMIT 1
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) return null;
     const region = row.region?.trim().toUpperCase() ?? '';
@@ -3115,9 +3290,11 @@ export class AuthService {
    */
   async emailProof(userId: string): Promise<EmailProof | null> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
-    const rows = await this.sql<Array<{ id: string; email_verified_at: Date | string | null }>>`
+    const rows = EmailProofRow.array().parse(
+      await this.sql`
       SELECT id, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) return null;
     return { userId: row.id, emailProof: isEmailConfirmed(row) ? 'accepted' : 'missing' };
@@ -3137,9 +3314,11 @@ export class AuthService {
    * `identity.me`. Null only when the account row is gone.
    */
   async selfView(userId: string): Promise<{ handle: string; emailVerified: boolean } | null> {
-    const rows = await this.sql<Array<{ handle: string; email_verified_at: Date | string | null }>>`
+    const rows = SelfViewRow.array().parse(
+      await this.sql`
       SELECT handle, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) return null;
     return { handle: row.handle, emailVerified: isEmailConfirmed(row) };
@@ -3150,9 +3329,11 @@ export class AuthService {
    * user id comes from the session. Null when the account is gone.
    */
   async selfEmail(userId: string): Promise<{ email: string; emailVerified: boolean } | null> {
-    const rows = await this.sql<Array<{ email: string | null; email_verified_at: Date | string | null }>>`
+    const rows = EmailVerifiedRow.array().parse(
+      await this.sql`
       SELECT email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row?.email) return null;
     return { email: row.email, emailVerified: isEmailConfirmed(row) };
@@ -3169,8 +3350,10 @@ export class AuthService {
    * from everyone but its owner.
    */
   async findActiveByHandle(handle: string): Promise<{ userId: string; handle: string; discoverable: boolean } | null> {
-    const rows = await this.sql<Array<{ id: string; handle: string; handle_discoverable: boolean }>>`
-      SELECT id, handle, handle_discoverable FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
+    const rows = HandleLookupRow.array().parse(
+      await this.sql`
+      SELECT id, handle, handle_discoverable FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`,
+    );
     const row = rows[0];
     return row ? { userId: row.id, handle: row.handle, discoverable: row.handle_discoverable } : null;
   }
@@ -3181,10 +3364,12 @@ export class AuthService {
    * closed and missing are the same null. Never an email, phone or legal name.
    */
   async payeeCardOf(userId: string): Promise<{ name: string | null; memberSince: string; discoverable: boolean } | null> {
-    const rows = await this.sql<Array<{ display_name: string | null; member_since: string; handle_discoverable: boolean }>>`
+    const rows = PayeeCardRow.array().parse(
+      await this.sql`
       SELECT p.display_name, to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM') AS member_since, u.handle_discoverable
         FROM users u LEFT JOIN profiles p ON p.user_id = u.id
-       WHERE u.id = ${userId} AND u.status = 'active' LIMIT 1`;
+       WHERE u.id = ${userId} AND u.status = 'active' LIMIT 1`,
+    );
     const row = rows[0];
     return row ? { name: row.display_name, memberSince: row.member_since, discoverable: row.handle_discoverable } : null;
   }
@@ -3200,7 +3385,8 @@ export class AuthService {
   async searchPayee(query: { email: string } | { phone: string }): Promise<{ userId: string; handle: string } | null> {
     const rows =
       'email' in query
-        ? await this.sql<Array<{ id: string; handle: string }>>`
+        ? IdHandleRow.array().parse(
+            await this.sql`
             SELECT id, handle FROM users
              WHERE email = ${query.email}
                AND status = 'active'
@@ -3211,8 +3397,10 @@ export class AuthService {
              WHERE c.channel = 'email' AND c.target = ${query.email}
                AND c.verified_at IS NOT NULL
                AND u.status = 'active'
-             LIMIT 3`
-        : await this.sql<Array<{ id: string; handle: string }>>`
+             LIMIT 3`,
+          )
+        : IdHandleRow.array().parse(
+            await this.sql`
             SELECT id, handle FROM users
              WHERE phone = ${query.phone}
                AND status = 'active'
@@ -3223,7 +3411,8 @@ export class AuthService {
              WHERE c.channel = 'phone' AND c.target = ${query.phone}
                AND c.verified_at IS NOT NULL
                AND u.status = 'active'
-             LIMIT 3`;
+             LIMIT 3`,
+          );
     // One address that names two accounts (a sign-in address taken after another account proved it to receive by)
     // pays no one: a payment never goes to whichever row the database happened to return first.
     const ids = new Set(rows.map((row) => row.id));
@@ -3241,19 +3430,12 @@ export class AuthService {
     input: { emailConsent?: boolean; phoneConsent?: boolean; phone?: string | null },
   ): Promise<{ emailConsent: boolean; phoneConsent: boolean; phoneOnFile: boolean }> {
     return transaction(this.sql, async (tx) => {
-      const rows = await tx<
-        Array<{
-          phone: string | null;
-          payee_email_consent: boolean;
-          payee_phone_consent: boolean;
-          status: string;
-          email_verified_at: Date | string | null;
-          phone_verified_at: Date | string | null;
-        }>
-      >`
+      const rows = PayeeConsentRow.array().parse(
+        await tx`
         SELECT phone, payee_email_consent, payee_phone_consent, status, email_verified_at, phone_verified_at
           FROM users WHERE id = ${userId} FOR UPDATE
-      `;
+      `,
+      );
       const row = rows[0];
       if (!row || row.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
       let phone = row.phone;
@@ -3308,11 +3490,11 @@ export class AuthService {
 
   async submitKyc(input: { userId: string; tier: SubmittableKycTier; jurisdiction: string; providerRef?: string }): Promise<KycRecordView> {
     return transaction(this.sql, async (tx) => {
-      const users = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
+      const users = IdRow.array().parse(await tx`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`);
       if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
-      const existing = await tx<
-        KycRow[]
-      >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE user_id = ${input.userId} AND ((status = 'approved' AND (expires_at IS NULL OR expires_at > now())) OR (status = 'pending' AND tier = ${input.tier})) ORDER BY created_at DESC`;
+      const existing = KycRow.array().parse(
+        await tx`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE user_id = ${input.userId} AND ((status = 'approved' AND (expires_at IS NULL OR expires_at > now())) OR (status = 'pending' AND tier = ${input.tier})) ORDER BY created_at DESC`,
+      );
       // A trading-checks clear is never an approved level (OWNER 258 (4)): it never answers a request for the bank's own
       // verification, and never counts as the level held.
       const levels = existing.filter((r) => r.status !== 'approved' || r.reviewed_by !== TRADING_CHECKS_REVIEWER);
@@ -3324,9 +3506,9 @@ export class AuthService {
       await assertRequestable(tx, this.kycCapabilities, input.userId, input.tier);
       // Too many rejected requests in the owner's window: refused with the seconds left (I-kyc-compliance-10).
       await assertAttemptsLeft(tx, this.kycAttemptLimit, input.userId);
-      const inserted = await tx<
-        KycRow[]
-      >`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status) VALUES (${input.userId}, ${input.tier}, ${input.jurisdiction}, ${input.providerRef ?? null}, 'pending') RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
+      const inserted = KycRow.array().parse(
+        await tx`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status) VALUES (${input.userId}, ${input.tier}, ${input.jurisdiction}, ${input.providerRef ?? null}, 'pending') RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`,
+      );
       const record = toKycRecord(inserted[0]!);
       // The case opens with the record, in this transaction (I-kyc-compliance-01).
       const caseId = await openKycCase(tx, record);
@@ -3340,16 +3522,17 @@ export class AuthService {
 
   async listKycRecords(userId: string, limit: number): Promise<KycRecordView[]> {
     const published = publishedKycRecordsListLimit(limit);
-    const rows = await this.sql<
-      KycRow[]
-    >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+    const rows = KycRow.array().parse(
+      await this
+        .sql`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`,
+    );
     return rows.map(toKycRecord);
   }
 
   /** A person's KYC cases, newest first, with their history and the owner's reason text (I-kyc-compliance-01). */
   async listKycCases(userId: string, limit: number, reasons: KycRejectReasons): Promise<KycCase[]> {
     const published = publishedKycRecordsListLimit(limit);
-    const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
+    const users = IdRow.array().parse(await this.sql`SELECT id FROM users WHERE id = ${userId}`);
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     return listKycCases(this.sql, userId, published, reasons);
   }
@@ -3362,7 +3545,7 @@ export class AuthService {
 
   /** A person's capabilities, every one with its state (I-kyc-compliance-07). An unknown person is `auth.not_found`. */
   async listKycCapabilities(userId: string, reasons: KycRejectReasons): Promise<KycCapabilitiesOutput> {
-    const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
+    const users = IdRow.array().parse(await this.sql`SELECT id FROM users WHERE id = ${userId}`);
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     // A trading-checks clear holds trading alone, never the custody or transfer the level `basic` maps to.
     const { tier, tradingCleared } = await this.sessionTier(userId);
@@ -3387,7 +3570,7 @@ export class AuthService {
     reasons: KycRejectReasons;
   }): Promise<KycCapabilitiesOutput> {
     await transaction(this.sql, async (tx) => {
-      const users = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
+      const users = IdRow.array().parse(await tx`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`);
       if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
       assertNotOwnKyc(input.userId, [input.reviewerId, ...input.approvalParties]);
       await deactivateCapability(tx, { ...input, by: input.reviewerId, at: new Date() });
@@ -3405,16 +3588,18 @@ export class AuthService {
 
   async listPendingKyc(limit: number): Promise<KycRecordView[]> {
     const published = publishedKycPendingLimit(limit);
-    const rows = await this.sql<
-      KycRow[]
-    >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE status = 'pending' ORDER BY created_at ASC LIMIT ${published}`;
+    const rows = KycRow.array().parse(
+      await this
+        .sql`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE status = 'pending' ORDER BY created_at ASC LIMIT ${published}`,
+    );
     return rows.map(toKycRecord);
   }
 
   async getKycRecord(recordId: string): Promise<KycRecordView | null> {
-    const rows = await this.sql<
-      KycRow[]
-    >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${recordId}`;
+    const rows = KycRow.array().parse(
+      await this
+        .sql`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${recordId}`,
+    );
     return rows[0] ? toKycRecord(rows[0]) : null;
   }
 
@@ -3433,9 +3618,9 @@ export class AuthService {
   }): Promise<KycRecordView> {
     assertOperatorKycReview({ service: input.service, kid: input.kid });
     const outcome = await transaction(this.sql, async (tx) => {
-      const rows = await tx<
-        KycRow[]
-      >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${input.recordId} FOR UPDATE`;
+      const rows = KycRow.array().parse(
+        await tx`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${input.recordId} FOR UPDATE`,
+      );
       const row = rows[0];
       if (!row) throw new AuthError('KYC record not found', 'auth.not_found');
       assertNotOwnKyc(row.user_id, [input.reviewerId, input.confirmActorId, ...input.approvalParties]);
@@ -3443,9 +3628,9 @@ export class AuthService {
       if (row.status !== 'pending') {
         throw new AuthError(`KYC record is ${row.status}; only a pending record can be approved`, 'auth.kyc_not_pending');
       }
-      const updated = await tx<
-        KycRow[]
-      >`UPDATE kyc_records SET status = 'approved', reviewed_at = now(), reviewed_by = ${input.reviewerId}, expires_at = ${input.expiresAt ?? null} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
+      const updated = KycRow.array().parse(
+        await tx`UPDATE kyc_records SET status = 'approved', reviewed_at = now(), reviewed_by = ${input.reviewerId}, expires_at = ${input.expiresAt ?? null} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`,
+      );
       const record = toKycRecord(updated[0]!);
       const at = record.reviewedAt ?? new Date();
       const caseId = await approveKycCase(tx, toKycRecord(row), { by: input.reviewerId, at });
@@ -3476,9 +3661,9 @@ export class AuthService {
   }): Promise<KycRecordView> {
     assertOperatorKycReview({ service: input.service, kid: input.kid });
     return transaction(this.sql, async (tx) => {
-      const rows = await tx<
-        KycRow[]
-      >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${input.recordId} FOR UPDATE`;
+      const rows = KycRow.array().parse(
+        await tx`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${input.recordId} FOR UPDATE`,
+      );
       const row = rows[0];
       if (!row) throw new AuthError('KYC record not found', 'auth.not_found');
       assertNotOwnKyc(row.user_id, [input.reviewerId, input.confirmActorId, ...input.approvalParties]);
@@ -3497,9 +3682,9 @@ export class AuthService {
       if (row.status !== 'pending') {
         throw new AuthError(`KYC record is ${row.status}; only a pending record can be rejected`, 'auth.kyc_not_pending');
       }
-      const updated = await tx<
-        KycRow[]
-      >`UPDATE kyc_records SET status = 'rejected', reviewed_at = now(), reviewed_by = ${input.reviewerId} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
+      const updated = KycRow.array().parse(
+        await tx`UPDATE kyc_records SET status = 'rejected', reviewed_at = now(), reviewed_by = ${input.reviewerId} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`,
+      );
       const record = toKycRecord(updated[0]!);
       const at = record.reviewedAt ?? new Date();
       const caseId = await rejectKycCase(tx, toKycRecord(row), { ...decision, at });
@@ -3538,9 +3723,7 @@ export class AuthService {
     userId: string,
     purpose: PasskeyPurpose,
   ): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
-    const rows = await this.sql<
-      Array<{ status: string; totp_secret: string | null; webauthn_creds: unknown }>
-    >`SELECT status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const rows = FactorUserRow.array().parse(await this.sql`SELECT status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`);
     const user = rows[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
@@ -3580,15 +3763,16 @@ export class AuthService {
     if (Number(hasTotp) + Number(hasRecovery) + Number(hasWebauthn) !== 1) {
       throw new AuthError('Provide exactly one of a TOTP code, a recovery code or a WebAuthn assertion', 'auth.mfa_invalid');
     }
-    const users = await this.sql<
-      Array<{ totp_secret: string | null; status: string; webauthn_creds: unknown }>
-    >`SELECT totp_secret, status, webauthn_creds FROM users WHERE id = ${input.userId}`;
+    const users = FactorUserRow.array().parse(
+      await this.sql`SELECT totp_secret, status, webauthn_creds FROM users WHERE id = ${input.userId}`,
+    );
     const user = users[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
-    const sessions = await this.sql<
-      Array<{ id: string }>
-    >`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`;
+    const sessions = IdRow.array().parse(
+      await this
+        .sql`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`,
+    );
     if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
     if (hasRecovery) {
       // Recovery codes belong to the authenticator app: none without it. Counted before the code is looked at.
@@ -3645,15 +3829,16 @@ export class AuthService {
     if (hasTotp === hasWebauthn) {
       throw new AuthError('Provide either a TOTP code or a WebAuthn assertion', 'auth.mfa_invalid');
     }
-    const users = await this.sql<
-      Array<{ totp_secret: string | null; status: string; webauthn_creds: StoredWebAuthnCredential[] }>
-    >`SELECT totp_secret, status, webauthn_creds FROM users WHERE id = ${input.userId}`;
+    const users = FactorUserRow.array().parse(
+      await this.sql`SELECT totp_secret, status, webauthn_creds FROM users WHERE id = ${input.userId}`,
+    );
     const user = users[0];
     if (!user) throw new AuthError('User not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
-    const sessions = await this.sql<
-      Array<{ id: string }>
-    >`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`;
+    const sessions = IdRow.array().parse(
+      await this
+        .sql`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`,
+    );
     if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
     if (hasTotp) {
       if (!user.totp_secret) {
@@ -3748,9 +3933,11 @@ export class AuthService {
     proof: PayStepUpFactorProof,
   ): Promise<'totp' | 'passkey' | 'proof'> {
     if ('proofId' in proof) {
-      const rows = await this.sql<Array<{ user_id: string; session_id: string; expires_at: Date; bound_action: string | null }>>`
+      const rows = PayStepUpProofRow.array().parse(
+        await this.sql`
         SELECT user_id, session_id, expires_at, bound_action FROM pay_step_up_proofs WHERE proof_id = ${proof.proofId}
-      `;
+      `,
+      );
       const row = rows[0];
       // A proof issued for an API-key action is never a pay proof.
       if (!row || row.bound_action !== null || row.user_id !== userId || row.session_id !== sessionId) {
@@ -3760,9 +3947,11 @@ export class AuthService {
       if (expires.getTime() <= Date.now()) {
         throw new AuthError('This confirmation timed out. Confirm again.', 'auth.step_up_expired');
       }
-      const sessions = await this.sql<Array<{ id: string }>>`
+      const sessions = IdRow.array().parse(
+        await this.sql`
         SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()
-      `;
+      `,
+      );
       if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
       return 'proof';
     }
@@ -3836,7 +4025,8 @@ export class AuthService {
       async (tx) => {
         let proofId: string | null = null;
         if ('proofId' in proof) {
-          const consumed = await tx<Array<{ proof_id: string }>>`
+          const consumed = ProofIdRow.array().parse(
+            await tx`
             UPDATE pay_step_up_proofs
             SET consumed_at = clock_timestamp()
             WHERE proof_id = ${proof.proofId}
@@ -3847,28 +4037,33 @@ export class AuthService {
               AND consumed_at IS NULL
               AND expires_at > clock_timestamp()
             RETURNING proof_id
-          `;
+          `,
+          );
           if (!consumed[0]) {
-            const stale = await tx<Array<{ expires_at: Date }>>`
+            const stale = ExpiresAtRow.array().parse(
+              await tx`
               SELECT expires_at FROM pay_step_up_proofs
               WHERE proof_id = ${proof.proofId} AND user_id = ${input.userId} AND session_id = ${input.sessionId}
                 AND bound_action = ${input.action} AND consumed_at IS NULL AND expires_at <= clock_timestamp()
-            `;
+            `,
+            );
             throw new AuthError(
               stale[0] ? 'This confirmation timed out. Confirm again.' : 'A fresh confirmation is required. Confirm again.',
               stale[0] ? 'auth.step_up_expired' : 'auth.step_up_required',
             );
           }
           proofId = consumed[0].proof_id;
-          const sessions = await tx<Array<{ id: string }>>`
+          const sessions = IdRow.array().parse(
+            await tx`
             SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()
-          `;
+          `,
+          );
           if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
         }
         const scope: ApiKeyActionScope = {
-          tx: tx as unknown as Sql,
-          createApiKey: (create) => this.createApiKey({ ...create, executor: tx as unknown as Sql }),
-          revokeApiKey: (userId, keyId, cause) => this.revokeApiKey(userId, keyId, cause, tx as unknown as Sql),
+          tx: tx,
+          createApiKey: (create) => this.createApiKey({ ...create, executor: tx }),
+          revokeApiKey: (userId, keyId, cause) => this.revokeApiKey(userId, keyId, cause, tx),
         };
         const result = await run(scope);
         await tx`
@@ -3911,18 +4106,18 @@ export class AuthService {
 
   async freezeIdentity(userId: string): Promise<{ userId: string; status: 'frozen'; subAccountsRevoked: number; apiKeysRevoked: number }> {
     const result = await transaction(this.sql, async (tx) => {
-      const users = await tx<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
+      const users = IdStatusRow.array().parse(await tx`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`);
       if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
       // A closed account stays closed: freezing it would let a later unfreeze reopen it.
       if (users[0].status === 'closed') throw new AuthError('Closed accounts cannot be frozen', 'auth.account_frozen');
       await tx`UPDATE users SET status = 'frozen', updated_at = now() WHERE id = ${userId}`;
       await tx`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;
-      const revokedRows = await tx<
-        Array<{ id: string }>
-      >`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${userId} AND revoked = false RETURNING id`;
-      const revokedKeys = await tx<
-        Array<{ id: string }>
-      >`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${userId} AND revoked = false RETURNING id`;
+      const revokedRows = IdRow.array().parse(
+        await tx`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${userId} AND revoked = false RETURNING id`,
+      );
+      const revokedKeys = IdRow.array().parse(
+        await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${userId} AND revoked = false RETURNING id`,
+      );
       return { userId, status: 'frozen' as const, subAccountsRevoked: revokedRows.length, apiKeysRevoked: revokedKeys.length };
     });
     await syncNavigatorSessionsClosedForUser(this.sql, userId);
@@ -3930,7 +4125,7 @@ export class AuthService {
   }
 
   async unfreezeIdentity(userId: string): Promise<{ userId: string; status: 'active' }> {
-    const users = await this.sql<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1`;
+    const users = IdStatusRow.array().parse(await this.sql`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1`);
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     if (users[0].status === 'closed') {
       throw new AuthError('Closed accounts cannot be unfrozen', 'auth.account_frozen');
@@ -3955,7 +4150,7 @@ export class AuthService {
     if (kind !== 'standard' && (kind === 'derivatives' || !this.subAccountKinds.has(kind))) {
       throw new AuthError(`Sub-account kind ${kind} is not offered`, 'auth.sub_account_kind_unavailable');
     }
-    const users = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} LIMIT 1`;
+    const users = StatusRow.array().parse(await this.sql`SELECT status FROM users WHERE id = ${userId} LIMIT 1`);
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     if (users[0].status !== 'active') {
       throw new AuthError(`Account is ${users[0].status}`, 'auth.account_frozen');
@@ -3965,12 +4160,12 @@ export class AuthService {
       throw new AuthError('IDENTITY_MAX_SUB_ACCOUNTS is unset — owner must publish a live-partition cap', 'auth.sub_account_cap_unset');
     }
     return transaction(this.sql, async (tx) => {
-      const locked = await tx<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
+      const locked = IdStatusRow.array().parse(await tx`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`);
       if (!locked[0]) throw new AuthError('User not found', 'auth.not_found');
       if (locked[0].status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
-      const live = await tx<
-        Array<{ n: string }>
-      >`SELECT count(*)::text AS n FROM sub_accounts WHERE parent_user_id = ${userId} AND revoked = false`;
+      const live = TextCountRow.array().parse(
+        await tx`SELECT count(*)::text AS n FROM sub_accounts WHERE parent_user_id = ${userId} AND revoked = false`,
+      );
       const count = Number(live[0]?.n ?? '0');
       if (count >= cap) {
         throw new AuthError(
@@ -3979,14 +4174,14 @@ export class AuthService {
         );
       }
       if (nickname !== undefined) {
-        const taken = await tx<
-          Array<{ id: string }>
-        >`SELECT id FROM sub_accounts WHERE parent_user_id = ${userId} AND lower(nickname) = ${nickname.toLowerCase()} LIMIT 1`;
+        const taken = IdRow.array().parse(
+          await tx`SELECT id FROM sub_accounts WHERE parent_user_id = ${userId} AND lower(nickname) = ${nickname.toLowerCase()} LIMIT 1`,
+        );
         if (taken[0]) throw new AuthError('Nickname already used on this account', 'auth.sub_account_nickname_taken');
       }
-      const rows = await tx<
-        Array<{ id: string }>
-      >`INSERT INTO sub_accounts (parent_user_id, label, purpose, kind, nickname) VALUES (${userId}, ${label}, ${purpose ?? null}, ${kind}, ${nickname ?? null}) RETURNING id`;
+      const rows = IdRow.array().parse(
+        await tx`INSERT INTO sub_accounts (parent_user_id, label, purpose, kind, nickname) VALUES (${userId}, ${label}, ${purpose ?? null}, ${kind}, ${nickname ?? null}) RETURNING id`,
+      );
       return rows[0]!;
     });
   }
@@ -4007,18 +4202,10 @@ export class AuthService {
     }>
   > {
     const published = publishedSubAccountsListLimit(limit);
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        label: string;
-        purpose: string | null;
-        revoked: boolean;
-        frozen: number;
-        kind: SubAccountKind;
-        nickname: string | null;
-        created_at: Date;
-      }>
-    >`SELECT id, label, purpose, revoked, frozen, kind, nickname, created_at FROM sub_accounts WHERE parent_user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+    const rows = SubAccountListRow.array().parse(
+      await this
+        .sql`SELECT id, label, purpose, revoked, frozen, kind, nickname, created_at FROM sub_accounts WHERE parent_user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`,
+    );
     return rows.map((r) => ({
       id: r.id,
       label: r.label,
@@ -4049,16 +4236,20 @@ export class AuthService {
     sessionId: string;
     subAccountId: string;
   }): Promise<{ accessToken: string; expiresAt: Date; userId: string; subAccountId: string; label: string }> {
-    const [user] = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId}`;
+    const [user] = StatusRow.array().parse(await this.sql`SELECT status FROM users WHERE id = ${input.userId}`);
     if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
-    const [session] = await this.sql<Array<{ family_id: string; trusted_device_id: string | null; mfa: boolean }>>`
+    const [session] = SubAccountSessionRow.array().parse(
+      await this.sql`
       SELECT family_id, trusted_device_id, mfa FROM sessions
       WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()
-    `;
+    `,
+    );
     if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
-    const [sub] = await this.sql<Array<{ id: string; parent_user_id: string; revoked: boolean; frozen: number | string; label: string }>>`
+    const [sub] = SubAccountRow.array().parse(
+      await this.sql`
       SELECT id, parent_user_id, revoked, frozen, label FROM sub_accounts WHERE id = ${input.subAccountId} LIMIT 1
-    `;
+    `,
+    );
     if (!sub || sub.parent_user_id !== input.userId) {
       throw new AuthError('Sub-account not found or not owned by caller', 'auth.sub_account_denied');
     }
@@ -4083,9 +4274,9 @@ export class AuthService {
   }
 
   async getSubAccountOwnership(subAccountId: string): Promise<{ id: string; parentUserId: string; revoked: boolean } | null> {
-    const rows = await this.sql<
-      Array<{ id: string; parent_user_id: string; revoked: boolean }>
-    >`SELECT id, parent_user_id, revoked FROM sub_accounts WHERE id = ${subAccountId} LIMIT 1`;
+    const rows = SubAccountOwnershipRow.array().parse(
+      await this.sql`SELECT id, parent_user_id, revoked FROM sub_accounts WHERE id = ${subAccountId} LIMIT 1`,
+    );
     const row = rows[0];
     if (!row) return null;
     return { id: row.id, parentUserId: row.parent_user_id, revoked: row.revoked };
@@ -4229,3 +4420,4 @@ export function signinPhone(identifier: string): string {
   if (!/^\+[0-9 ()-]+$/.test(trimmed)) return '';
   return `+${trimmed.replace(/\D/g, '')}`;
 }
+export { SUB_ACCOUNT_KINDS };

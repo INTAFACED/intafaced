@@ -1,14 +1,21 @@
+// volt-room: /oauth/authorize
 import { useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
-import { EmptyState, Failure, Loading, Page } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
-import { appsCopy, scopeCopyKey } from '../developers/apps/apps-copy';
-import { Refused } from '../developers/apps/AppsRoom';
-import { decideAuthorize, previewAuthorize } from '../developers/apps/oauth-api';
-import { followableRedirect, parseAuthorizeSearch } from '../developers/apps/oauth-model';
-import '../developers/apps/apps.css';
+import { useSession } from '../session';
+import { Empty, Failure, Loading } from './kit-parts';
+import {
+  appsCopy,
+  decideAuthorize,
+  followableRedirect,
+  parseAuthorizeSearch,
+  previewAuthorize,
+  Refused,
+  scopeCopyKey,
+} from '../developers';
+import { leaveTo } from '../../app/location';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -33,30 +40,40 @@ export function OAuthConsent() {
   const sent = useRef(false);
   const [refused, setRefused] = useState<Refusal | null>(null);
   const [stopped, setStopped] = useState<'no-redirect' | 'done' | null>(null);
-  const eyebrow = t('consentEyebrow');
   if (!parsed.ok)
     return (
-      <Page eyebrow={eyebrow} title={t('problemTitle')}>
-        <div className="consent-room" role="alert">
-          <p>{t('problemBody')}</p>
-          <p>{t(`problem_${parsed.problem}` as const)}</p>
-        </div>
-      </Page>
+      <FlowTemplate
+        title={t('problemTitle')}
+        state={{ kind: 'ready' }}
+        step={
+          <div className="lt-stack" role="alert">
+            <p className="lt-muted">{t('problemBody')}</p>
+            <p>{t(`problem_${parsed.problem}` as const)}</p>
+          </div>
+        }
+      />
     );
   if (!userId)
     return (
-      <Page eyebrow={eyebrow} title={t('consentSignedOutTitle')}>
-        <EmptyState
-          title={t('consentSignedOutTitle')}
-          action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
-              {t('signIn')}
-            </a>
-          }
-        >
-          {t('consentSignedOutBody')}
-        </EmptyState>
-      </Page>
+      <FlowTemplate
+        title={t('consentSignedOutTitle')}
+        state={{ kind: 'ready' }}
+        step={
+          <Empty
+            title={t('consentSignedOutTitle')}
+            action={
+              <a
+                className="lt-button lt-button-primary"
+                href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}
+              >
+                {t('signIn')}
+              </a>
+            }
+          >
+            {t('consentSignedOutBody')}
+          </Empty>
+        }
+      />
     );
   async function decide(decision: 'allow' | 'deny') {
     if (sent.current || !request) return;
@@ -76,61 +93,78 @@ export function OAuthConsent() {
       return setStopped('no-redirect');
     }
     setStopped('done');
-    location.assign(target);
+    leaveTo(target);
   }
-  if (preview.resource.status === 'loading') return <Loading label={t('consentLoading')} />;
+  if (preview.resource.status === 'loading')
+    return <FlowTemplate title={t('consentLoading')} state={{ kind: 'ready' }} step={<Loading label={t('consentLoading')} />} />;
   if (preview.resource.status === 'failed')
     return (
-      <Page eyebrow={eyebrow} title={t('consentFailed')}>
-        <div className="consent-room">
-          {preview.resource.failure.code?.startsWith('oauth.') ? (
-            <Refused failure={preview.resource.failure} t={t} />
-          ) : (
-            <Failure result={preview.resource.failure} retry={preview.reload} />
-          )}
-        </div>
-      </Page>
+      <FlowTemplate
+        title={t('consentFailed')}
+        state={{ kind: 'ready' }}
+        step={
+          <div className="lt-stack">
+            {preview.resource.failure.code?.startsWith('oauth.') ? (
+              <Refused failure={preview.resource.failure} t={t} />
+            ) : (
+              <Failure result={preview.resource.failure} retry={preview.reload} />
+            )}
+          </div>
+        }
+      />
     );
   const info = preview.resource.data;
   return (
-    <Page eyebrow={eyebrow} title={t('consentTitle', { app: info.appName })}>
-      <div className="consent-room" data-testid="oauth-consent">
-        {info.logoUrl ? <img src={info.logoUrl} alt="" width={48} height={48} referrerPolicy="no-referrer" /> : null}
-        {info.appDescription ? <p>{info.appDescription}</p> : null}
-        {info.developerOwnAccount ? <p className="risk-note">{t('consentOwn')}</p> : null}
-        <p>{t('consentLead', { app: info.appName })}</p>
-        <ul className="consent-scopes">
-          {info.scopes.map((scope) => {
-            const key = scopeCopyKey(scope);
-            return (
-              <li key={scope}>
-                <strong>{key ? t(key) : scope}</strong>
-                <br />
-                <code>{scope}</code>
-                {key ? null : <span className="muted"> · {t('consentNoDescription')}</span>}
-              </li>
-            );
-          })}
-        </ul>
-        <p className="muted">{t('consentNote')}</p>
-        {stopped === 'done' ? <p role="status">{t('consentDone')}</p> : null}
-        {stopped === 'no-redirect' ? (
-          <p role="alert">
-            {t('consentNoRedirect')} <a href="/home">{t('consentGoBack')}</a>
-          </p>
-        ) : null}
-        {refused ? <Refused failure={refused} t={t} /> : null}
-        {stopped ? null : (
-          <div className="consent-actions">
-            <Button disabled={busy !== null} onClick={() => decide('allow')}>
-              {busy === 'allow' ? t('sending') : t('allow')}
-            </Button>
-            <Button variant="secondary" disabled={busy !== null} onClick={() => decide('deny')}>
-              {busy === 'deny' ? t('sending') : t('deny')}
-            </Button>
+    <div data-testid="oauth-consent">
+      <FlowTemplate
+        title={t('consentTitle', { app: info.appName })}
+        description={info.appDescription ?? undefined}
+        state={{ kind: 'ready' }}
+        step={
+          <div className="lt-stack">
+            {info.logoUrl ? <img src={info.logoUrl} alt="" width={48} height={48} referrerPolicy="no-referrer" /> : null}
+            {info.developerOwnAccount ? <p className="lt-note lt-note-warn">{t('consentOwn')}</p> : null}
+            <p>{t('consentLead', { app: info.appName })}</p>
+            <ul className="lt-list lt-list-rule">
+              {info.scopes.map((scope) => {
+                const key = scopeCopyKey(scope);
+                return (
+                  <li key={scope} className="lt-stack-tight">
+                    <strong>{key ? t(key) : scope}</strong>
+                    <span>
+                      <code className="lt-mono">{scope}</code>
+                      {key ? null : <span className="lt-muted"> · {t('consentNoDescription')}</span>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="lt-muted">{t('consentNote')}</p>
+            {stopped === 'done' ? <p role="status">{t('consentDone')}</p> : null}
+            {stopped === 'no-redirect' ? (
+              <p role="alert">
+                {t('consentNoRedirect')}{' '}
+                <a className="lt-link" href="/home">
+                  {t('consentGoBack')}
+                </a>
+              </p>
+            ) : null}
+            {refused ? <Refused failure={refused} t={t} /> : null}
           </div>
-        )}
-      </div>
-    </Page>
+        }
+        actions={
+          stopped ? undefined : (
+            <div className="lt-actions">
+              <Button tone="primary" disabled={busy !== null} onClick={() => decide('allow')}>
+                {busy === 'allow' ? t('sending') : t('allow')}
+              </Button>
+              <Button tone="secondary" disabled={busy !== null} onClick={() => decide('deny')}>
+                {busy === 'deny' ? t('sending') : t('deny')}
+              </Button>
+            </div>
+          )
+        }
+      />
+    </div>
   );
 }

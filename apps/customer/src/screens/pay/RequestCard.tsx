@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link2, Share2 } from 'lucide-react';
+import { AmountField, AssetIcon, Button, EmptyState, StatusNote, useToast } from '@intafaced/ui/lit';
+import { KeyValue, SelectField, Skeleton, TextField } from '@intafaced/ui/lit/templates';
 import {
   addRequest,
-  AmountInput,
-  Button,
-  CoinIcon,
+  classifyFailure,
   cleanAmount,
   cleanNote,
   createPersonalPayApi,
@@ -15,19 +15,12 @@ import {
   removeRequest,
   requestPath,
   requestRoomHref,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-  StateBlock,
   useSession,
-  useToast,
   type PaymentRequest,
   type RequestEntry,
 } from './deps';
 import { payCopy } from './copy';
+import { SpacesRefused } from './SpacesRefused';
 import { personalCopy } from './personal-copy';
 import { absoluteLink, canShare, copyText, shareLink } from './share';
 import { QrCode } from './QrCode';
@@ -47,14 +40,20 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
   const { api, userId } = useSession();
   const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
   const { t } = personalCopy.useCopy();
-  const [assets, setAssets] = useState<{ owner: string | null; value: 'loading' | 'error' | string[] }>({ owner: null, value: 'loading' });
+  const [assets, setAssets] = useState<{ owner: string | null; value: 'loading' | 'error' | { refused: string } | string[] }>({
+    owner: null,
+    value: 'loading',
+  });
   const [attempt, setAttempt] = useState(0);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     void pay.spaces(controller.signal).then((result) => {
       if (controller.signal.aborted) return;
-      setAssets({ owner: userId, value: result.ok ? receivableAssets(result.data) : 'error' });
+      if (result.ok) return setAssets({ owner: userId, value: receivableAssets(result.data) });
+      // A refusal (a person not yet verified) is said in its own words; only a read that broke is a failure.
+      const failure = classifyFailure(result);
+      setAssets({ owner: userId, value: failure.kind === 'refused' ? { refused: failure.code } : 'error' });
     });
     return () => controller.abort();
   }, [pay, userId, attempt]);
@@ -62,36 +61,45 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
 
   if (identity.status === 'loading' || loaded === 'loading')
     return (
-      <div className="pay-body pay-body--skeleton" aria-busy="true" data-testid="request-loading">
-        <Skeleton height={104} />
-        <Skeleton height={132} />
-        <Skeleton height={56} circle />
+      <div className="lt-stack" aria-busy="true" data-testid="request-loading">
+        <Skeleton shape="figure" />
+        <Skeleton shape="form" count={2} />
       </div>
     );
   if (identity.status === 'error')
     return (
-      <StateBlock kind="error" title={payCopy.t('Couldn’t load your details')} onRetry={identity.retry} retryLabel={payCopy.t('Retry')} />
+      <StatusNote
+        tone="error"
+        title={payCopy.t('Couldn’t load your details')}
+        actions={<Button onClick={identity.retry}>{payCopy.t('Retry')}</Button>}
+      />
     );
   if (loaded === 'error')
     return (
-      <StateBlock
-        kind="error"
+      <StatusNote
+        tone="error"
         title={payCopy.t('Couldn’t load your balances')}
-        onRetry={() => {
-          setAssets({ owner: null, value: 'loading' });
-          setAttempt((n) => n + 1);
-        }}
-        retryLabel={payCopy.t('Retry')}
+        actions={
+          <Button
+            onClick={() => {
+              setAssets({ owner: null, value: 'loading' });
+              setAttempt((n) => n + 1);
+            }}
+          >
+            {payCopy.t('Retry')}
+          </Button>
+        }
       />
     );
+  if (!Array.isArray(loaded)) return <SpacesRefused code={loaded.refused} />;
   const payeeId = identity.status === 'handles' ? identity.handle : (userId ?? '');
   return (
-    <div className="pay-body" data-testid="request-card">
+    <div className="lt-stack" data-testid="request-card">
       {loaded.length === 0 ? null : <AskAPerson assets={loaded} onSent={() => setRevision((n) => n + 1)} />}
       <RequestLists revision={revision} />
-      <p className="pay-hint">{t('reqIntro')}</p>
+      <p className="lt-hint">{t('reqIntro')}</p>
       {loaded.length === 0 ? (
-        <StateBlock kind="empty" title={t('reqNoAssetsTitle')} body={t('reqNoAssetsBody')} />
+        <EmptyState title={t('reqNoAssetsTitle')} body={t('reqNoAssetsBody')} />
       ) : (
         <CreateRequest userId={userId as string} payeeId={payeeId} assets={loaded} />
       )}
@@ -110,7 +118,6 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
   const [list, setList] = useState<RequestEntry[]>(() => readRequests(userId));
   const [shownCode, setShownCode] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const items = useMemo(() => Object.fromEntries(assets.map((code) => [code, code])), [assets]);
   const chosen = assets.includes(asset) ? asset : (assets[0] ?? '');
   const valid = cleanAmount(amount);
   const reason = valid === null ? t('reqNeedAmount') : chosen === '' ? t('reqNeedAsset') : null;
@@ -146,32 +153,27 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
   return (
     <>
       {made ? (
-        <div className="pay-block" data-testid="request-made">
-          <h3 className="pay-section-title">{t('reqReady')}</h3>
-          <p className="pay-hint">{t('reqReadyHint')}</p>
+        <div className="lt-stack" data-testid="request-made">
+          <h3>{t('reqReady')}</h3>
+          <p className="lt-hint">{t('reqReadyHint')}</p>
           <QrCode value={absoluteLink(made.path)} />
-          <p className="pay-link" data-testid="request-link">
+          <p className="lt-mono" data-testid="request-link">
             {absoluteLink(made.path)}
           </p>
-          {failed ? (
-            <p className="pay-problem" role="alert">
-              {t('copyLinkFailed')}
-            </p>
-          ) : null}
-          <div className="pay-row-actions">
-            <Button variant="primary" size={40} onClick={() => void copy(made)}>
+          {failed ? <StatusNote tone="error">{t('copyLinkFailed')}</StatusNote> : null}
+          <div className="lt-actions">
+            <Button tone="primary" onClick={() => void copy(made)}>
               <Link2 size={16} aria-hidden="true" />
               {t('copyLink')}
             </Button>
             {canShare() ? (
-              <Button variant="secondary" size={40} onClick={() => void share(made)}>
+              <Button tone="secondary" onClick={() => void share(made)}>
                 <Share2 size={16} aria-hidden="true" />
                 {t('share')}
               </Button>
             ) : null}
             <Button
-              variant="ghost"
-              size={40}
+              tone="quiet"
               onClick={() => {
                 setMade(null);
                 setAmount('');
@@ -184,94 +186,68 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
         </div>
       ) : (
         <form
-          className="pay-body"
+          className="lt-stack"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
             create();
           }}
         >
-          <div className="pay-field" data-testid="request-amount-field">
-            <span className="pay-field__label">{t('reqAmount')}</span>
-            <div className="pay-field__main">
-              <Select items={items} value={chosen} onValueChange={(value) => typeof value === 'string' && setAsset(value)}>
-                <SelectTrigger className="pay-asset" aria-label={t('reqAsset')}>
-                  {chosen ? <CoinIcon asset={chosen} size={28} /> : null}
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {assets.map((code) => (
-                    <SelectItem key={code} value={code}>
-                      {code}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <AmountInput
-                size="hero"
-                aria-label={t('reqAmount')}
-                value={amount}
-                onValueChange={setAmount}
-                precision={18}
-                placeholder="0"
-                className="pay-amount"
-              />
-            </div>
-          </div>
-          <div className="pay-field">
-            <label className="pay-field__label" htmlFor="request-note">
-              {t('reqNote')}
-            </label>
-            <input
-              id="request-note"
-              className="pay-text"
-              type="text"
-              value={note}
-              maxLength={NOTE_MAX}
-              autoComplete="off"
-              placeholder={t('notePlaceholder')}
-              onChange={(event) => setNote(event.target.value)}
+          <div className="lt-stack" data-testid="request-amount-field">
+            <SelectField label={t('reqAsset')} value={chosen} options={assets} onChange={setAsset} />
+            <AmountField
+              size="hero"
+              label={t('reqAmount')}
+              value={amount}
+              onChange={setAmount}
+              precision={18}
+              placeholder="0"
+              unit={chosen ? <AssetIcon asset={chosen} /> : undefined}
             />
-            <span className="pay-hint">{t('reqNoteHint')}</span>
           </div>
-          <Button type="submit" variant="primary" size={56} fullWidth disabled={reason !== null} data-testid="request-create">
+          <TextField
+            id="request-note"
+            label={t('reqNote')}
+            type="text"
+            value={note}
+            maxLength={NOTE_MAX}
+            autoComplete="off"
+            placeholder={t('notePlaceholder')}
+            hint={t('reqNoteHint')}
+            onChange={setNote}
+          />
+          <Button type="submit" tone="primary" size="lg" block disabled={reason !== null} data-testid="request-create">
             {reason ?? t('reqCreate')}
           </Button>
         </form>
       )}
 
-      <div className="pay-reason" role="note">
-        <p className="pay-reason__title">{t('reqDeviceOnlyTitle')}</p>
-        <p className="pay-reason__body">{t('reqDeviceOnlyBody')}</p>
-      </div>
+      <StatusNote title={t('reqDeviceOnlyTitle')}>{t('reqDeviceOnlyBody')}</StatusNote>
 
-      <div className="pay-block" data-testid="request-list">
-        <h3 className="pay-section-title">{t('reqListTitle')}</h3>
+      <div className="lt-stack" data-testid="request-list">
+        <h3>{t('reqListTitle')}</h3>
         {list.length === 0 ? (
-          <p className="pay-empty">{t('reqListEmpty')}</p>
+          <EmptyState title={t('reqListEmpty')} />
         ) : (
-          <ul className="pay-list">
+          <ul className="lt-rows">
             {list.map((entry) => (
               <li key={entry.id} data-testid="request-row">
-                <div className="pay-list__main">
+                <div className="lt-actions">
                   <span>{entry.amount && entry.asset ? `${entry.amount} ${entry.asset}` : t('reqAnyAmount')}</span>
-                  <span className="pay-list__sub">{when(entry.at)}</span>
+                  <span className="lt-muted">{when(entry.at)}</span>
                 </div>
-                {entry.note ? <div className="pay-list__sub">{entry.note}</div> : null}
+                {entry.note ? <div className="lt-muted">{entry.note}</div> : null}
                 {shownCode === entry.id ? <QrCode value={absoluteLink(entry.path)} /> : null}
-                <div className="pay-row-actions">
-                  <Button variant="secondary" size={32} nativeButton={false} render={<a href={requestRoomHref(entry.id)} />}>
+                <div className="lt-actions">
+                  <a className="lt-button lt-button-secondary" href={requestRoomHref(entry.id)}>
                     {t('reqDetails')}
-                  </Button>
-                  <Button variant="secondary" size={32} onClick={() => void copy(entry)}>
-                    {t('copyLink')}
-                  </Button>
-                  <Button variant="secondary" size={32} onClick={() => setShownCode(shownCode === entry.id ? null : entry.id)}>
+                  </a>
+                  <Button onClick={() => void copy(entry)}>{t('copyLink')}</Button>
+                  <Button onClick={() => setShownCode(shownCode === entry.id ? null : entry.id)}>
                     {shownCode === entry.id ? t('reqHideCode') : t('reqShowCode')}
                   </Button>
                   <Button
-                    variant="ghost"
-                    size={32}
+                    tone="quiet"
                     onClick={() => {
                       removeRequest(userId, entry.id);
                       setList(readRequests(userId));
@@ -285,10 +261,10 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
             ))}
           </ul>
         )}
-        <Button variant="secondary" size={40} disabled aria-describedby="request-cancel-reason">
+        <Button disabled aria-describedby="request-cancel-reason">
           {t('reqCancel')}
         </Button>
-        <p className="pay-hint" id="request-cancel-reason">
+        <p className="lt-hint" id="request-cancel-reason">
           {t('reqCancelReason')}
         </p>
       </div>
@@ -309,65 +285,53 @@ function PayARequest() {
     setChecked({ kind: 'ok', request, path: requestPath(request) });
   }
   return (
-    <div className="pay-block" data-testid="request-pay">
-      <h3 className="pay-section-title">{t('reqPayTitle')}</h3>
-      <p className="pay-hint">{t('reqPayIntro')}</p>
-      <div className="pay-field">
-        <label className="pay-field__label" htmlFor="request-pay-link">
-          {t('reqPayLabel')}
-        </label>
-        <input
-          id="request-pay-link"
-          className="pay-text"
-          type="text"
-          value={raw}
-          autoComplete="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          placeholder={t('reqPayPlaceholder')}
-          onChange={(event) => {
-            setRaw(event.target.value);
-            setChecked({ kind: 'idle' });
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              check();
-            }
-          }}
-        />
-      </div>
-      {checked.kind === 'invalid' ? (
-        <p className="pay-problem" role="alert">
-          {t('reqPayInvalid')}
-        </p>
+    <div className="lt-stack" data-testid="request-pay">
+      <h3>{t('reqPayTitle')}</h3>
+      <p className="lt-hint">{t('reqPayIntro')}</p>
+      <TextField
+        id="request-pay-link"
+        label={t('reqPayLabel')}
+        type="text"
+        value={raw}
+        autoComplete="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        placeholder={t('reqPayPlaceholder')}
+        onChange={(value) => {
+          setRaw(value);
+          setChecked({ kind: 'idle' });
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            check();
+          }
+        }}
+      />
+      {checked.kind === 'invalid' ? <StatusNote tone="error">{t('reqPayInvalid')}</StatusNote> : null}
+      {checked.kind === 'ok' ? (
+        <div data-testid="request-pay-summary">
+          <KeyValue
+            rows={[
+              { label: t('reqPayWho'), value: checked.request.kind === 'handle' ? `@${checked.request.to}` : checked.request.to },
+              {
+                label: t('reqPayAmount'),
+                value:
+                  checked.request.amount && checked.request.asset
+                    ? `${checked.request.amount} ${checked.request.asset}`
+                    : t('reqAnyAmount'),
+              },
+              ...(checked.request.note ? [{ label: t('reqPayNote'), value: checked.request.note }] : []),
+            ]}
+          />
+        </div>
       ) : null}
       {checked.kind === 'ok' ? (
-        <dl className="pay-quote" data-testid="request-pay-summary">
-          <div>
-            <dt>{t('reqPayWho')}</dt>
-            <dd>{checked.request.kind === 'handle' ? `@${checked.request.to}` : checked.request.to}</dd>
-          </div>
-          <div>
-            <dt>{t('reqPayAmount')}</dt>
-            <dd>
-              {checked.request.amount && checked.request.asset ? `${checked.request.amount} ${checked.request.asset}` : t('reqAnyAmount')}
-            </dd>
-          </div>
-          {checked.request.note ? (
-            <div>
-              <dt>{t('reqPayNote')}</dt>
-              <dd>{checked.request.note}</dd>
-            </div>
-          ) : null}
-        </dl>
-      ) : null}
-      {checked.kind === 'ok' ? (
-        <Button variant="primary" size={48} fullWidth onClick={() => navigate(checked.path)} data-testid="request-pay-continue">
+        <Button tone="primary" size="lg" block onClick={() => navigate(checked.path)} data-testid="request-pay-continue">
           {t('reqPayContinue')}
         </Button>
       ) : (
-        <Button variant="secondary" size={48} fullWidth disabled={raw.trim() === ''} onClick={check}>
+        <Button size="lg" block disabled={raw.trim() === ''} onClick={check}>
           {t('reqPayCheck')}
         </Button>
       )}

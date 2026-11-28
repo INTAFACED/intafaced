@@ -26,9 +26,11 @@
  * App token, issues on project-state). Every failure warns: this runs only in steps that can't fail their job
  * (continue-on-error), and the seal waits whatever it does.
  */
+import { runJobs } from './run-jobs.mjs';
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { VERDICT_STEPS, isJudgeDown, reviewRan } from './review-marker.mjs';
+import { countCall } from './api-count.mjs';
 
 export const CONTEXT = 'judge';
 export const ISSUE_REPO = 'INTAFACED/project-state';
@@ -69,6 +71,10 @@ export function issueBody({ source, line, action, signIn, signInUrl, runUrl, now
   ].join('\n');
 }
 
+/** Whether a head's newest `judge` status is the proof read's pending down one (downStatus "proof read"). */
+export const isProofReadDown = (status) =>
+  status?.state === 'pending' && String(status?.description ?? '').startsWith('judge down: proof read.');
+
 /** Whether a CI review job has a verdict: a verdict step that concluded success or failure. */
 export const hasVerdict = (job) =>
   (job?.steps ?? []).some((s) => VERDICT_STEPS.includes(s?.name) && ['success', 'failure'].includes(s?.conclusion));
@@ -81,9 +87,12 @@ export const hasVerdict = (job) =>
  * tests and its journeys, and the judge reads it now: project-state OWNER 302; a FAIL there opens a fix issue,
  * afterMergeIssue); heads in the order their newest run was made, oldest first, open ones before merged ones, at most `cap`. Heads whose newest run is still
  * going, heads with no run, and this run's own head are left. Returns { targets, left }: `left` counts heads past the cap
- * found without a verdict (heads not reached within JOBS_READ_CAP job reads are not counted).
+ * found without a verdict (heads not reached within JOBS_READ_CAP job reads are not counted). An open head whose review
+ * has a verdict is also taken when its newest `judge` status (`judgeOf(sha)`, one read each, counted in JOBS_READ_CAP)
+ * is the proof read's pending down one: that head's builder waits on `proof v2 read`, and only a re-run reads it again.
+ * (Failure it prevents: #10609 waited eight hours after the judge was back, until its run was re-run by hand; #10771.)
  */
-export async function catchUpTargets({ pulls, runs, jobsOf, repo, skipSha, cap = CATCH_UP_CAP }) {
+export async function catchUpTargets({ pulls, runs, jobsOf, judgeOf, repo, skipSha, cap = CATCH_UP_CAP }) {
   const byHead = new Map();
   for (const r of runs ?? []) {
     if (r?.event !== 'pull_request_target' || r?.path !== '.github/workflows/ci-review.yml') continue;
@@ -119,7 +128,12 @@ export async function catchUpTargets({ pulls, runs, jobsOf, repo, skipSha, cap =
       }
     }
     if (reads >= JOBS_READ_CAP && !found) break;
-    if (!found || hasVerdict(found.job) || (h.pull.state !== 'open' && !isJudgeDown(found.job))) continue;
+    if (!found) continue;
+    if (hasVerdict(found.job)) {
+      if (h.pull.state !== 'open' || !judgeOf || reads >= JOBS_READ_CAP) continue;
+      reads++;
+      if (!isProofReadDown(await judgeOf(h.pull.head.sha))) continue;
+    } else if (h.pull.state !== 'open' && !isJudgeDown(found.job)) continue;
     if (targets.length < cap) targets.push({ pull: h.pull, run: found.run });
     else left++;
   }
@@ -138,6 +152,7 @@ async function call(token, method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(30_000),
   });
+  countCall(res);
   const text = await res.text();
   // A refusal or a limit stops this script: never retried here (AGENTS.md, GitHub and git).
   if ((res.status === 403 && !/already running/i.test(text)) || res.status === 429)
@@ -154,7 +169,7 @@ const openIssues = async (token, label = LABEL, title = ISSUE_TITLE) => {
 /** The second-key issue's body: the first key's error line and the one action, before the second key runs out too. */
 export function keyIssueBody({ line, runUrl, now = new Date() }) {
   return [
-    'The CI review runs on its second key, `CLAUDE_CODE_OAUTH_TOKEN_2`: its first key, `CLAUDE_CODE_OAUTH_TOKEN`, was refused or used up, so each reviewer call is asked again on the second. PRs still get their verdicts.',
+    'The CI review runs on its second key, `CLAUDE_CODE_OAUTH_TOKEN_2`, or a later spare (`_3` to `_5`): its first key, `CLAUDE_CODE_OAUTH_TOKEN`, was refused or used up, so each reviewer call is asked again on the next spare that is set. PRs still get their verdicts.',
     '',
     `- **First key's error:** \`${String(line || '(not given)').replace(/`/g, "'")}\``,
     `- **Since:** ${times(now)}, ${runUrl}`,
@@ -167,7 +182,9 @@ export function keyIssueBody({ line, runUrl, now = new Date() }) {
 /** Which key answered: `second` opens the one second-key issue (none while one is open), `first` closes it. */
 async function keyIssue(which) {
   const { RUN_URL = '', LINE = '', ISSUE_TOKEN } = process.env;
-  console.log(`reviewer key: ${which}${which === 'second' ? ' (CLAUDE_CODE_OAUTH_TOKEN_2); renew CLAUDE_CODE_OAUTH_TOKEN' : ''}`);
+  console.log(
+    `reviewer key: ${which}${which === 'second' ? ' (a spare, CLAUDE_CODE_OAUTH_TOKEN_2 to _5); renew CLAUDE_CODE_OAUTH_TOKEN' : ''}`,
+  );
   if (!ISSUE_TOKEN) return console.log(`::warning::no project-state issues token, so no "${KEY_ISSUE_TITLE}" issue is read or written`);
   const open = await openIssues(ISSUE_TOKEN, KEY_LABEL, KEY_ISSUE_TITLE);
   if (which === 'first') {
@@ -280,7 +297,12 @@ async function backCatchUp(source) {
     repo: REPO,
     skipSha: HEAD_SHA,
     jobsOf: async (run) =>
-      (await call(GH_TOKEN, 'GET', `/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`)).json?.jobs ?? [],
+      (await runJobs(`/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest`, async (p) => (await call(GH_TOKEN, 'GET', p)).json)) ?? [],
+    // The newest status first (GitHub's order), as backStatus reads it.
+    judgeOf: async (sha) => {
+      const st = await call(GH_TOKEN, 'GET', `/repos/${REPO}/commits/${sha}/statuses?per_page=100`);
+      return (Array.isArray(st.json) ? st.json : []).find((x) => x?.context === CONTEXT) ?? null;
+    },
   });
   // A whole run re-run: its own Start the seal job starts that head's seal when the review ends.
   const done = [];
@@ -291,7 +313,7 @@ async function backCatchUp(source) {
   console.log(
     [
       done.length
-        ? `Re-ran the CI review on the oldest ${done.length} PR heads with no verdict (open, or merged while the judge was down): ${done.join(', ')}.`
+        ? `Re-ran the CI review on the oldest ${done.length} PR heads with no verdict or a down proof read (open, or merged while the judge was down): ${done.join(', ')}.`
         : 'No open PR head, and no PR merged while the judge was down, was left without a verdict.',
       left ? `${left} more head(s) have no verdict past the cap of ${CATCH_UP_CAP}; the re-runs' own catch-ups take them.` : '',
     ]

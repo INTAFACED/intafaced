@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import http from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -116,11 +117,19 @@ describe('the agent account on the TEST venue', () => {
       stepUp: su.check,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
-      // Blank: its one market order is on a perpetual, which the owner's price protection does not bound.
-      slippageCapBps: null,
+      // Set so perpetual market opens are allowed under the slippage cap rule (J-derivatives-02 #5).
+      slippageCapBps: 50,
+      closeSlippageBps: 1000,
       now: () => new Date(),
     });
-    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
   }
   let topUps = 0;
   beforeEach(() => {
@@ -180,9 +189,17 @@ describe('the agent account on the TEST venue', () => {
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
     });
-    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values: VALUES, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values: VALUES,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
     expect((await accounts.terms()).agentPermission).toEqual({ venue: sim.venue.displayName, reach: 'owner_accounts' });
     expect((await create200()).agentPermission.reach).toBe('owner_accounts');
   });
@@ -196,9 +213,17 @@ describe('the agent account on the TEST venue', () => {
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       now: () => new Date(),
     });
-    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values: VALUES, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values: VALUES,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
     const terms = await accounts.terms();
     expect(terms.agentPermission).toBeNull();
     expect(terms.ceiling).not.toBeNull();
@@ -603,6 +628,26 @@ describe('the agent account on the TEST venue', () => {
       // Nor one the venue never opened for this person at all.
       await expect(moveOwn('0x00000000000000000000000000000000000000ab', '10', `own:move:${owner}:${id()}`)).rejects.toMatchObject({
         code: 'trade.venue_sub_account_not_own',
+      });
+    });
+
+    it("refuses a position move into or out of an agent account's sub-account, before anything is stored or signed (J-derivatives-05 #7)", async () => {
+      const v = await signAll(await create200());
+      const movePosition = (subAccount: string, direction: 'into_sub_account' | 'out_of_sub_account', moveKey: string) =>
+        door.prepare(principal, {
+          owner,
+          signer: { role: 'owner', address: owner },
+          intent: { kind: 'move_position', subAccount, direction, symbol: 'BTC-PERP', moveKey },
+        });
+      for (const direction of ['into_sub_account', 'out_of_sub_account'] as const) {
+        const moveKey = `position-move:${owner}:${id()}`;
+        await expect(movePosition(v.subAccount!, direction, moveKey)).rejects.toMatchObject({ code: 'trade.venue_sub_account_not_own' });
+        expect(await actions.find(USER, moveKey)).toBeNull();
+      }
+      // A sub-account opened as the person's own passes that check: the venue is then asked, and this one moves no position.
+      const own = await openOwn(`TEST own ${id()}`);
+      await expect(movePosition(own, 'into_sub_account', `position-move:${owner}:${id()}`)).rejects.toMatchObject({
+        refusal: { code: 'not_offered', detail: `${sim.venue.displayName} moves no open position between accounts` },
       });
     });
 

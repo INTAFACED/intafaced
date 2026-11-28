@@ -1,17 +1,41 @@
-// hand-declared-ok: svc-token's governance outputs are declared in its router; packages/contracts has no token schemas yet
 import { useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  TOKEN_CREATE_PROPOSAL,
+  TOKEN_DELEGATE,
+  TOKEN_DELEGATION,
+  TOKEN_EDIT_PROPOSAL,
+  TOKEN_FOLLOW_SPACE,
+  TOKEN_GOVERNANCE_CANCEL,
+  TOKEN_GOVERNANCE_HOME,
+  TOKEN_LIST_PROPOSALS,
+  TOKEN_TREASURY,
+} from '@intafaced/contracts/token-procedures';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
-import { Button, DataTable, EmptyState, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, Select, TextArea } from './common';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { TextAreaField } from '@intafaced/ui/lit/templates';
+import { Details, Limit } from './catalogue-parts';
+import { EmptyNote, KitRead, ScrollTable, Section } from './volt-parts';
 import { governanceRoomCopy } from './governance-room-copy';
-import { VOTING_TYPES } from './TokenVoting';
+import { paperRefusal } from './action-state';
+import { usePaperMode } from './paper-context';
+import { TOKEN_VOTING_TYPES, type TokenVotingType } from '@intafaced/contracts/token-governance';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+
+/**
+ * The room's one way to send a write: in the simulated view (`?simulated=true`) it answers the paper refusal and sends
+ * nothing, as `useAction` does for the other More rooms.
+ */
+function useWrite() {
+  const paper = usePaperMode();
+  return <R,>(send: () => Promise<R>): Promise<R | Refusal> => (paper ? Promise.resolve(paperRefusal()) : send());
+}
 type T = ReturnType<typeof governanceRoomCopy.forLocale>['t'];
 
 const KINDS = ['listing', 'fee_param', 'curriculum', 'grant'] as const;
@@ -21,49 +45,13 @@ const PAGE = 50;
 const PAGE_CAP = 200;
 
 const iso = z.string().datetime({ offset: true });
-const proposalSchema = z.object({
-  id: z.string().min(1).max(512),
-  kind: z.enum(KINDS),
-  status: z.enum(STATUSES),
-  opensAt: iso,
-  closesAt: iso,
-  createdAt: iso,
-  title: z.string().nullable(),
-  bodyMd: z.string().nullable(),
-  authorId: z.string().nullable(),
-  /** Set when a governance moderator, admin or controller cancelled it. Its votes stay. */
-  cancel: z.object({ reason: z.string(), at: iso }).nullable(),
-  counts: z.object({
-    votes: z.number().int().nonnegative(),
-    for: z.number().int().nonnegative(),
-    against: z.number().int().nonnegative(),
-    abstain: z.number().int().nonnegative(),
-  }),
-});
-type Proposal = z.infer<typeof proposalSchema>;
-const accessCode = z.enum([
-  'token.proposer_rule_unset',
-  'token.proposal_limit_unset',
-  'token.proposal_not_allowed',
-  'token.proposal_limit_reached',
-]);
-const homeSchema = z.object({
-  spaceId: z.string(),
-  following: z.boolean(),
-  proposal: z.object({ code: accessCode.nullable(), minStake: decimalSchema.nullable() }),
-});
-type Home = z.infer<typeof homeSchema>;
-const followSchema = z.object({ spaceId: z.string(), following: z.boolean() });
-const delegationSchema = z.object({ delegateeUserId: z.null(), blocker: z.literal('no_chain_service') });
-const treasurySchema = z.object({
-  minted: decimalSchema.nullable(),
-  burned: decimalSchema,
-  bought: decimalSchema.nullable(),
-  toRewards: decimalSchema.nullable(),
-  distributed: decimalSchema.nullable(),
-  lastBuyback: z.object({ bought: decimalSchema, burned: decimalSchema, toRewards: decimalSchema, executedAt: iso }).nullable(),
-});
-
+type Proposal = ProcedureOutput<typeof TOKEN_LIST_PROPOSALS>[number];
+type Home = ProcedureOutput<typeof TOKEN_GOVERNANCE_HOME>;
+/** This room's own check over a proposal: every instant it shows is a real ISO timestamp. */
+const instantsRead = (p: Proposal) =>
+  [p.opensAt, p.closesAt, p.createdAt, ...(p.cancel ? [p.cancel.at] : [])].every((at) => iso.safeParse(at).success);
+/** The stake a proposal needs is an exact decimal, as this room displays it. */
+const homeReads = (h: Home) => h.proposal.minStake === null || decimalSchema.safeParse(h.proposal.minStake).success;
 /** A UTC minute for a service timestamp; the `datetime` attribute keeps the exact value. */
 function When({ at }: { at: string }) {
   return <time dateTime={at}>{`${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`}</time>;
@@ -147,13 +135,13 @@ export function GovernanceSpace() {
   const t = useWords();
   const api = useApi();
   const { userId } = useSession();
-  const home = useResource((signal) => api.query('token', 'governanceHome', undefined, homeSchema, { signal }), `gov-home:${userId}`);
+  const home = useResource((signal) => api.call(TOKEN_GOVERNANCE_HOME, undefined, { signal, accept: homeReads }), `gov-home:${userId}`);
   return (
-    <Panel title={t('space')} aria-label={t('space')}>
-      <Read resource={home.resource} retry={home.reload}>
+    <Section title={t('space')} aria-label={t('space')} className="lt-stack">
+      <KitRead resource={home.resource} retry={home.reload}>
         {(h) => <SpaceCard home={h} t={t} onChanged={home.reload} />}
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }
 
@@ -180,28 +168,32 @@ export function GovernanceProposals({
   // The create request's retry handle lives here, not in the form, so closing and reopening the form after no answer
   // still resends under the same handle. Changed content is a new request with a new handle.
   const attempt = useRef<{ request: string; handle: string } | null>(null);
-  const home = useResource((signal) => api.query('token', 'governanceHome', undefined, homeSchema, { signal }), `gov-home:${userId}`);
+  const home = useResource((signal) => api.call(TOKEN_GOVERNANCE_HOME, undefined, { signal, accept: homeReads }), `gov-home:${userId}`);
+  const listStatus = STATUSES.find((s) => s === status);
+  const listKind = KINDS.find((k) => k === kind);
   const list = useResource(
     (signal) =>
-      api.query(
-        'token',
-        'listProposals',
-        { limit, ...(status !== 'all' ? { status } : {}), ...(kind !== 'all' ? { kind } : {}), ...(q.trim() ? { q: q.trim() } : {}) },
-        z.array(proposalSchema).max(limit),
-        { signal },
+      api.call(
+        TOKEN_LIST_PROPOSALS,
+        {
+          limit,
+          ...(listStatus ? { status: listStatus } : {}),
+          ...(listKind ? { kind: listKind } : {}),
+          ...(q.trim() ? { q: q.trim() } : {}),
+        },
+        { signal, accept: (rows) => rows.length <= limit && rows.every(instantsRead) },
       ),
     `gov-list:${userId}:${status}:${kind}:${q.trim()}:${limit}`,
   );
   const filtered = status !== 'all' || kind !== 'all' || q.trim() !== '';
   return (
-    <Panel
-      title={t('proposals')}
-      actions={
-        <Button variant="secondary" onClick={() => setComposing((open) => !open)} aria-expanded={composing}>
+    <Section className="lt-stack">
+      <div className="lt-toolbar">
+        <h2>{t('proposals')}</h2>
+        <Button tone="secondary" onClick={() => setComposing((open) => !open)} aria-expanded={composing}>
           {t('newProposal')}
         </Button>
-      }
-    >
+      </div>
       {composing && (
         <ProposalForm
           t={t}
@@ -220,7 +212,7 @@ export function GovernanceProposals({
       {cancelling && (
         <CancelForm key={cancelling.id} t={t} proposal={cancelling} onDone={list.reload} onClose={() => setCancelling(null)} />
       )}
-      <div className="more-toolbar">
+      <div className="lt-toolbar">
         <Select
           label={t('status')}
           value={status}
@@ -235,14 +227,17 @@ export function GovernanceProposals({
         />
         <Field label={t('search')} type="search" value={q} onChange={(e) => setQ(e.target.value)} maxLength={200} />
       </div>
-      <Read resource={list.resource} retry={list.reload}>
+      <KitRead resource={list.resource} retry={list.reload}>
         {(rows) =>
           rows.length === 0 ? (
-            <EmptyState title={filtered ? t('emptyFiltered') : t('emptyAll')} />
+            <EmptyNote title={filtered ? t('emptyFiltered') : t('emptyAll')} />
           ) : (
             <>
               <p data-testid="proposals-count">{t('count', { count: String(rows.length), limit: String(limit) })}</p>
-              <DataTable label={t('proposals')} headers={[t('hTitle'), t('hKind'), t('hStatus'), t('hVoting'), t('hVotes'), t('hActions')]}>
+              <ScrollTable
+                label={t('proposals')}
+                headers={[t('hTitle'), t('hKind'), t('hStatus'), t('hVoting'), t('hVotes'), t('hActions')]}
+              >
                 {rows.map((row) => (
                   <tr key={row.id} data-proposal-id={row.id}>
                     <td>{row.title ?? t('untitled')}</td>
@@ -268,9 +263,9 @@ export function GovernanceProposals({
                       })}
                     </td>
                     <td>
-                      <div className="more-inline">
+                      <div className="lt-actions">
                         <Button
-                          variant="ghost"
+                          tone="quiet"
                           aria-label={inspectLabel(row.id)}
                           aria-pressed={selectedId === row.id}
                           aria-controls="token-selected-proposal"
@@ -279,13 +274,13 @@ export function GovernanceProposals({
                           {t('inspect')}
                         </Button>
                         {row.status === 'draft' && row.authorId === userId ? (
-                          <Button variant="ghost" onClick={() => setEditing(row)}>
+                          <Button tone="quiet" onClick={() => setEditing(row)}>
                             {t('edit')}
                           </Button>
                         ) : null}
                         {row.status === 'draft' || row.status === 'open' ? (
                           <Button
-                            variant="ghost"
+                            tone="quiet"
                             aria-label={t('cancelFor', { title: row.title ?? t('untitled') })}
                             onClick={() => setCancelling(row)}
                           >
@@ -296,25 +291,26 @@ export function GovernanceProposals({
                     </td>
                   </tr>
                 ))}
-              </DataTable>
+              </ScrollTable>
               <Limit count={rows.length} limit={limit} cap={PAGE_CAP} onChange={setLimit} />
             </>
           )
         }
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }
 
 function SpaceCard({ home, t, onChanged }: { home: Home; t: T; onChanged: () => void }) {
   const api = useApi();
+  const write = useWrite();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Refusal | null>(null);
   // A follow press always asks to follow: pressing it again (or from a page that was out of date) changes nothing.
   async function follow() {
     setBusy(true);
     setFailure(null);
-    const result = await api.mutate('token', 'followSpace', { following: true }, followSchema);
+    const result = await write(() => api.call(TOKEN_FOLLOW_SPACE, { following: true }));
     setBusy(false);
     if (!result.ok) setFailure(result);
     onChanged();
@@ -323,12 +319,7 @@ function SpaceCard({ home, t, onChanged }: { home: Home; t: T; onChanged: () => 
     <>
       <Details items={[[t('space'), t('spaceName')]]} />
       <p>{t('spaceBody')}</p>
-      <Button
-        variant={home.following ? 'secondary' : 'primary'}
-        aria-pressed={home.following}
-        disabled={busy}
-        onClick={() => void follow()}
-      >
+      <Button tone={home.following ? 'secondary' : 'primary'} aria-pressed={home.following} disabled={busy} onClick={() => void follow()}>
         {home.following ? t('following') : t('follow')}
       </Button>
       <p>
@@ -355,8 +346,9 @@ function ProposalForm({
   onClose: () => void;
 }) {
   const api = useApi();
-  const [kind, setKind] = useState<string>(editing?.kind ?? '');
-  const [votingType, setVotingType] = useState<string>('basic');
+  const write = useWrite();
+  const [kind, setKind] = useState<(typeof KINDS)[number] | ''>(editing?.kind ?? '');
+  const [votingType, setVotingType] = useState<TokenVotingType>('basic');
   const [choices, setChoices] = useState('');
   const [title, setTitle] = useState(editing?.title ?? '');
   const [body, setBody] = useState(editing?.bodyMd ?? '');
@@ -377,7 +369,9 @@ function ProposalForm({
         opensAt: opens !== localValue(editing.opensAt) ? instant(opens) : undefined,
         closesAt: closes !== localValue(editing.closesAt) ? instant(closes) : undefined,
       };
-      const result = await api.mutate('token', 'editProposal', { proposalId: editing.id, title, bodyMd: body, ...window }, proposalSchema);
+      const result = await write(() =>
+        api.call(TOKEN_EDIT_PROPOSAL, { proposalId: editing.id, title, bodyMd: body, ...window }, { accept: instantsRead }),
+      );
       setBusy(false);
       setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
       if (result.ok || result.reason === 'uncertain') onDone();
@@ -398,20 +392,26 @@ function ProposalForm({
     ]);
     if (attempt && attempt.current?.request !== request) attempt.current = { request, handle: `proposal-form:${userId}:${Date.now()}` };
     const handle = attempt?.current?.handle ?? `proposal-form:${userId}:${Date.now()}`;
-    const result = await api.mutate(
-      'token',
-      'createProposal',
-      {
-        kind,
-        body: {},
-        handle,
-        title,
-        bodyMd: body,
-        ...(votingType !== 'basic' ? { votingType, choices: choiceList } : {}),
-        ...(discussion ? { discussionLink: discussion } : {}),
-        ...window,
-      },
-      proposalSchema,
+    // The kind select is required, so the browser sends no form without one.
+    if (kind === '') {
+      setBusy(false);
+      return;
+    }
+    const result = await write(() =>
+      api.call(
+        TOKEN_CREATE_PROPOSAL,
+        {
+          kind,
+          body: {},
+          handle,
+          title,
+          bodyMd: body,
+          ...(votingType !== 'basic' ? { votingType, choices: choiceList } : {}),
+          ...(discussion ? { discussionLink: discussion } : {}),
+          ...window,
+        },
+        { accept: instantsRead },
+      ),
     );
     setBusy(false);
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
@@ -419,13 +419,13 @@ function ProposalForm({
     if (result.ok || result.reason === 'uncertain') onDone();
   }
   return (
-    <form aria-label={name} onSubmit={(e) => void submit(e)} className="more-grid">
+    <form aria-label={name} onSubmit={(e) => void submit(e)} className="lt-stack">
       <h3>{name}</h3>
       {access && <p role="note">{accessNote(access, t)}</p>}
       {!editing && (
-        <label className="field">
+        <label className="lt-field">
           <span>{t('kind')}</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} required>
+          <select value={kind} onChange={(e) => setKind(KINDS.find((k) => k === e.target.value) ?? '')} required>
             <option value="">{t('chooseKind')}</option>
             {KINDS.map((k) => (
               <option key={k} value={k}>
@@ -436,10 +436,10 @@ function ProposalForm({
         </label>
       )}
       {!editing && (
-        <label className="field">
+        <label className="lt-field">
           <span>{t('votingType')}</span>
-          <select value={votingType} onChange={(e) => setVotingType(e.target.value)}>
-            {VOTING_TYPES.map((type) => (
+          <select value={votingType} onChange={(e) => setVotingType(TOKEN_VOTING_TYPES.find((v) => v === e.target.value) ?? 'basic')}>
+            {TOKEN_VOTING_TYPES.map((type) => (
               <option key={type} value={type}>
                 {t(type)}
               </option>
@@ -449,22 +449,22 @@ function ProposalForm({
       )}
       {!editing && votingType !== 'basic' && (
         <>
-          <TextArea label={t('choices')} value={choices} onChange={setChoices} />
-          <p className="muted">{t('choicesHint')}</p>
+          <TextAreaField label={t('choices')} value={choices} onChange={setChoices} />
+          <p className="lt-muted">{t('choicesHint')}</p>
         </>
       )}
       <Field label={t('title')} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
-      <TextArea label={t('body')} value={body} onChange={setBody} />
+      <TextAreaField label={t('body')} value={body} onChange={setBody} />
       {!editing && <Field label={t('discussion')} type="url" value={discussion} onChange={(e) => setDiscussion(e.target.value)} />}
-      <div className="more-inline">
+      <div className="lt-toolbar">
         <Field label={t('opens')} type="datetime-local" value={opens} onChange={(e) => setOpens(e.target.value)} hint={t('windowHint')} />
         <Field label={t('closes')} type="datetime-local" value={closes} onChange={(e) => setCloses(e.target.value)} />
       </div>
-      <div className="more-toolbar">
-        <Button type="submit" disabled={busy}>
+      <div className="lt-actions">
+        <Button tone="primary" type="submit" disabled={busy}>
           {editing ? t('save') : t('submit')}
         </Button>
-        <Button variant="ghost" onClick={onClose}>
+        <Button tone="quiet" onClick={onClose}>
           {t('close')}
         </Button>
       </div>
@@ -480,6 +480,7 @@ function ProposalForm({
  */
 function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal; onDone: () => void; onClose: () => void }) {
   const api = useApi();
+  const write = useWrite();
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ ok: true } | { ok: false; failure: Refusal } | null>(null);
@@ -487,23 +488,23 @@ function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal
     event.preventDefault();
     setBusy(true);
     setOutcome(null);
-    const result = await api.mutate('token', 'governance.cancel', { proposalId: proposal.id, reason }, proposalSchema);
+    const result = await write(() => api.call(TOKEN_GOVERNANCE_CANCEL, { proposalId: proposal.id, reason }, { accept: instantsRead }));
     setBusy(false);
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
     if (result.ok || result.reason === 'uncertain') onDone();
   }
   const name = t('cancelFor', { title: proposal.title ?? t('untitled') });
   return (
-    <form aria-label={name} onSubmit={(e) => void submit(e)} className="more-grid">
+    <form aria-label={name} onSubmit={(e) => void submit(e)} className="lt-stack">
       <h3>{name}</h3>
       <p role="note">{t('cancelNote')}</p>
-      <TextArea label={t('cancelReason')} value={reason} onChange={setReason} />
-      <p className="muted">{t('cancelReasonHint')}</p>
-      <div className="more-toolbar">
-        <Button type="submit" variant="danger" disabled={busy}>
+      <TextAreaField label={t('cancelReason')} value={reason} onChange={setReason} />
+      <p className="lt-muted">{t('cancelReasonHint')}</p>
+      <div className="lt-actions">
+        <Button type="submit" tone="down" disabled={busy}>
           {t('cancelSubmit')}
         </Button>
-        <Button variant="ghost" onClick={onClose}>
+        <Button tone="quiet" onClick={onClose}>
           {t('close')}
         </Button>
       </div>
@@ -516,39 +517,37 @@ function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal
 export function GovernanceDelegation() {
   const t = useWords();
   const api = useApi();
+  const write = useWrite();
   const { userId } = useSession();
-  const read = useResource(
-    (signal) => api.query('token', 'delegation', undefined, delegationSchema, { signal }),
-    `gov-delegation:${userId}`,
-  );
+  const read = useResource((signal) => api.call(TOKEN_DELEGATION, undefined, { signal }), `gov-delegation:${userId}`);
   const [delegatee, setDelegatee] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Refusal | null>(null);
   async function delegate() {
     setBusy(true);
     setFailure(null);
-    const result = await api.mutate('token', 'delegate', { delegateeUserId: delegatee.trim() || null }, z.unknown());
+    const result = await write(() => api.call(TOKEN_DELEGATE, { delegateeUserId: delegatee.trim() || null }));
     setBusy(false);
     if (!result.ok) setFailure(result);
     read.reload();
   }
   return (
-    <Panel title={t('delegation')} aria-label={t('delegation')}>
-      <Read resource={read.resource} retry={read.reload}>
+    <Section title={t('delegation')} aria-label={t('delegation')} className="lt-stack">
+      <KitRead resource={read.resource} retry={read.reload}>
         {() => (
           <p data-testid="delegation-state">
             {t('delegationNone')} {t('delegationBlocked')}
           </p>
         )}
-      </Read>
-      <div className="more-inline">
+      </KitRead>
+      <div className="lt-toolbar">
         <Field label={t('delegatee')} value={delegatee} onChange={(e) => setDelegatee(e.target.value)} maxLength={128} />
-        <Button variant="secondary" disabled={busy} onClick={() => void delegate()}>
+        <Button tone="secondary" disabled={busy} onClick={() => void delegate()}>
           {t('delegate')}
         </Button>
       </div>
       {failure && <p role="alert">{refusalWords(failure, t)}</p>}
-    </Panel>
+    </Section>
   );
 }
 
@@ -556,14 +555,14 @@ export function GovernanceTreasury() {
   const t = useWords();
   const api = useApi();
   const { userId } = useSession();
-  const read = useResource((signal) => api.query('token', 'treasury', undefined, treasurySchema, { signal }), `gov-treasury:${userId}`);
+  const read = useResource((signal) => api.call(TOKEN_TREASURY, undefined, { signal }), `gov-treasury:${userId}`);
   const figure = (value: string | null): ReactNode => value ?? t('notReported');
   return (
-    <Panel title={t('treasury')} aria-label={t('treasury')}>
+    <Section title={t('treasury')} aria-label={t('treasury')} className="lt-stack">
       <p>{t('treasuryBody')}</p>
-      <Read resource={read.resource} retry={read.reload}>
+      <KitRead resource={read.resource} retry={read.reload}>
         {(view) => (
-          <dl className="more-details">
+          <dl className="lt-kv">
             {(
               [
                 ['treasury-minted', t('minted'), figure(view.minted)],
@@ -593,7 +592,7 @@ export function GovernanceTreasury() {
             ))}
           </dl>
         )}
-      </Read>
-    </Panel>
+      </KitRead>
+    </Section>
   );
 }

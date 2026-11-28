@@ -810,12 +810,12 @@ test('Spec2 regression older unknown stays uncertain while unrelated setup alone
   await auth(page).getByRole('button', { name: 'Start authenticator setup', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Start authenticator setup', exact: true }).click();
   await expect.poll(() => writeCount(state, 'totp.enrol')).toBe(1);
-  const oldCard = page.locator('.security__unknown').filter({ hasText: credential });
+  const oldCard = page.locator('[data-testid="security__unknown"]').filter({ hasText: credential });
   await expect(oldCard.getByRole('heading', { name: 'Confirmation not received', exact: true })).toBeVisible();
   await expect(oldCard.getByRole('heading', { name: 'Sending the original action', exact: true })).toHaveCount(0);
   await expect(
     page
-      .locator('.security__unknown')
+      .locator('[data-testid="security__unknown"]')
       .filter({ hasText: 'Authenticator setup' })
       .getByRole('heading', { name: 'Sending the original action', exact: true }),
   ).toBeVisible();
@@ -960,9 +960,11 @@ test('setup readiness announces only nonsecret preparation and continues keyboar
   await expect(announcement).toHaveText(readyMessage);
   await expect(announcement).toHaveAttribute('aria-live', 'polite');
   await expect(announcement).toHaveAttribute('aria-atomic', 'true');
-  expect(await originalLiveNode.evaluate((node) => node.isConnected && node === document.querySelector('.security__announcement'))).toBe(
-    true,
-  );
+  expect(
+    await originalLiveNode.evaluate(
+      (node) => node.isConnected && node === document.querySelector('[data-testid="security__announcement"]'),
+    ),
+  ).toBe(true);
   expect(await announcement.evaluate((node, secret) => !node.textContent.includes(secret), state.lastSetup.secret)).toBe(true);
   expect(await announcement.evaluate((node, uri) => !node.textContent.includes(uri), state.lastSetup.uri)).toBe(true);
   expect(state.lastSetup.recoveryCodes.some((value) => readyMessage.includes(value))).toBe(false);

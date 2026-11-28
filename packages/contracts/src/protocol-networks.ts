@@ -19,14 +19,15 @@ export const FORBIDDEN_NETWORK_KINDS = ['mainnet', 'intachain'] as const;
 export const NETWORK_KIND_FORBIDDEN = 'protocol.network_kind_forbidden' as const;
 export const NETWORK_PARAMS_UNSET = 'protocol.network_params_unset' as const;
 
+// A pattern, not a predicate, so the rule travels in the call records' export (`procedures/<service>.schema.json`).
 const httpsUrl = z
   .string()
   .url()
-  .refine((url) => url.startsWith('https://'), 'must be https://');
+  .regex(/^https:\/\//, 'must be https://');
 const rpcUrl = z
   .string()
   .url()
-  .refine((url) => /^https?:\/\//.test(url), 'must be http(s)://');
+  .regex(/^https?:\/\//, 'must be http(s)://');
 
 export const networkEntrySchema = z.object({
   chainId: z.number().int().positive(),

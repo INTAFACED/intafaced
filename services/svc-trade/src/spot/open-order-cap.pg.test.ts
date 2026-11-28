@@ -8,7 +8,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
@@ -31,7 +31,7 @@ const BOB = '22222222-2222-4222-8222-222222222222';
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_open_cap_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -403,8 +403,8 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     await expect(place('pub-1')).rejects.toMatchObject({ code: 'trade.price_band_unset', data: { rule: 'price band' } });
     await db.sql`
       INSERT INTO trade.operator_risk_limits
-        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, operator_id, approver_id, reason, approval_id)
-      VALUES (gen_random_uuid(), ${btc.id}, 1, '0.1', NULL, NULL, NULL, NULL, 'op', 'ap', 'test', gen_random_uuid())`;
+        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, min_notional, operator_id, approver_id, reason, approval_id)
+      VALUES (gen_random_uuid(), ${btc.id}, 1, '0.1', NULL, NULL, NULL, NULL, '1', 'op', 'ap', 'test', gen_random_uuid())`;
     const caught = await place('pub-2').catch((e: unknown) => e);
     expect(caught).toMatchObject({ code: 'trade.open_orders_cap_unset', data: { rule: 'open-order cap' } });
     expect(toCcxtError(caught)?.status).toBe(503);
@@ -414,8 +414,15 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     await place('pub-ioc', { tif: 'IOC' });
     await db.sql`
       INSERT INTO trade.operator_risk_limits
-        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, operator_id, approver_id, reason, approval_id)
-      VALUES (gen_random_uuid(), ${btc.id}, 2, '0.1', NULL, NULL, '20', NULL, 'op', 'ap', 'test', gen_random_uuid())`;
+        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, min_notional, operator_id, approver_id, reason, approval_id)
+      VALUES (gen_random_uuid(), ${btc.id}, 2, '0.1', NULL, NULL, '20', NULL, NULL, 'op', 'ap', 'test', gen_random_uuid())`;
+    const noMin = await place('pub-min').catch((e: unknown) => e);
+    expect(noMin).toMatchObject({ code: 'trade.min_notional_unset', data: { rule: 'minimum order value' } });
+    expect(toCcxtError(noMin)?.status).toBe(503);
+    await db.sql`
+      INSERT INTO trade.operator_risk_limits
+        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, min_notional, operator_id, approver_id, reason, approval_id)
+      VALUES (gen_random_uuid(), ${btc.id}, 3, '0.1', NULL, NULL, '20', NULL, '1', 'op', 'ap', 'test', gen_random_uuid())`;
     await place('pub-3');
   });
 });

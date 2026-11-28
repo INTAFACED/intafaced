@@ -1,7 +1,10 @@
 import 'server-only';
-import { supportVerificationCheckSchema, supportVerificationChecksSchema } from '@intafaced/contracts/support-verification-checks';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
+import {
+  SUPPORT_DESK_READ_DISCLOSURE,
+  SUPPORT_DESK_RECORD_VERIFICATION_CHECK,
+  SUPPORT_DESK_VERIFICATION_CHECKS,
+} from '@intafaced/contracts/support-desk-settings-procedures';
+import { founderRecordCall, type FounderCallContext, type FounderCallResult, partFrom, type PartLabels } from '@/lib/desk';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import type { SupportVerificationView, VerificationRequest } from './verification';
 
@@ -16,7 +19,7 @@ export async function loadVerification(
   ticketId: string,
   now: Date = new Date(),
 ): Promise<SupportVerificationView> {
-  const result = await founderCall(ctx, 'support', 'verificationChecks', 'GET', { ticketId }, parseWith(supportVerificationChecksSchema));
+  const result = await founderRecordCall(ctx, SUPPORT_DESK_VERIFICATION_CHECKS, { ticketId });
   return { asOf: now.toISOString(), checks: partFrom(result, (c) => c, LABELS) };
 }
 
@@ -26,14 +29,11 @@ export async function loadVerification(
  */
 export function runVerification(ctx: FounderCallContext, request: VerificationRequest): Promise<FounderCallResult<unknown>> {
   if (request.action === 'check') {
-    return founderCall(
-      ctx,
-      'support',
-      'recordVerificationCheck',
-      'POST',
-      { ticketId: request.ticketId, kind: request.kind, value: request.value },
-      parseWith(supportVerificationCheckSchema),
-    );
+    return founderRecordCall(ctx, SUPPORT_DESK_RECORD_VERIFICATION_CHECK, {
+      ticketId: request.ticketId,
+      kind: request.kind,
+      value: request.value,
+    });
   }
-  return founderCall(ctx, 'support', 'readDisclosure', 'GET', { ticketId: request.ticketId, kind: request.what }, () => null);
+  return founderRecordCall(ctx, SUPPORT_DESK_READ_DISCLOSURE, { ticketId: request.ticketId, kind: request.what });
 }

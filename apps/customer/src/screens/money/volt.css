@@ -1,0 +1,188 @@
+/*
+ * Volt on Money.
+ * The headline becomes the money object, a matte black card holding the total in the wide grotesk with its cents a step
+ * back and the cash and crypto split; the first action beside it carries the screen's one spark. Role tokens only;
+ * unlayered so it overrides Money's own sheet (in `@layer components`).
+ */
+:root .money-head {
+  align-items: stretch;
+}
+:root .money-head__main {
+  /* the card is dark in both schemes, so the text names it reads are re-pointed at the object's own colours */
+  --if-fg: var(--lit-object-fg);
+  --if-fg-2: color-mix(in srgb, var(--lit-object-fg) 70%, transparent);
+  --color-fg: var(--lit-object-fg);
+  --color-fg-2: color-mix(in srgb, var(--lit-object-fg) 70%, transparent);
+  --color-fg-3: color-mix(in srgb, var(--lit-object-fg) 62%, transparent);
+  --color-muted: color-mix(in srgb, var(--lit-object-fg) 70%, transparent);
+  --color-up-text: var(--lit-up);
+  --color-down-text: var(--lit-down);
+  --if-up-text: var(--lit-up);
+  --if-down-text: var(--lit-down);
+  position: relative;
+  flex: 1 1 auto;
+  max-inline-size: 36rem;
+  min-block-size: 13rem;
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1.5rem 1.375rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-object-bg);
+  color: var(--lit-object-fg);
+  box-shadow: var(--lit-object-shadow);
+}
+:root .money-total {
+  block-size: auto;
+  margin-block-start: auto;
+  padding-block-start: 2rem;
+  --money-hero: clamp(2.5rem, 11vw, 4rem);
+  /* the loaded figure's height while it loads too: NumberFlow pads its digits twice by half its mask (0.25em), each
+     rounded to a whole pixel, above and below, at line-height 1; the card must not grow when the figure arrives */
+  min-block-size: calc(2rem + var(--money-hero) + 4 * round(nearest, 0.125 * var(--money-hero), 1px));
+}
+:root .money-total [data-slot='hero-number'] {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: var(--money-hero);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+/* Pro keeps its denser hero (UI-SPEC 5.3: 32/40), in Volt's face */
+:root .if-money[data-density='pro'] .money-total {
+  min-block-size: auto;
+}
+:root .if-money[data-density='pro'] .money-total [data-slot='hero-number'] {
+  font-size: var(--if-text-hero-pro);
+  line-height: var(--if-leading-hero-pro);
+}
+:root .money-total [data-slot='hero-number'] ::part(fraction),
+:root .money-total [data-slot='hero-number'] ::part(decimal) {
+  color: color-mix(in srgb, var(--lit-object-fg) 55%, transparent);
+  font-weight: 500;
+}
+:root .money-split {
+  margin-block-start: 0.75rem;
+  color: var(--if-fg-2);
+}
+
+/* The assets list: stone slabs. */
+:root .money-card {
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+  border-color: transparent;
+}
+/* The holdings' column head stays one line ("Amount · Value"), so the card's head never breaks mid-label. */
+:root .money-card thead .money-num {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+:root .money-card thead .money-num__value {
+  display: inline;
+}
+
+/*
+ * Assets with the venue door on (owner's pick A, "Ledger"): layout only. Every figure, face, panel and the one lit key
+ * come from the kit's parts (lt-panel, Tag, HeroFigure, lt-button, Shares); this sheet only places them.
+ */
+/* The total on the start side, the action keys on the end side of the same row. */
+:root .money-where__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+}
+:root .money-where__total {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-inline-size: 0;
+}
+:root .money-where__total > h2 {
+  margin: 0;
+}
+:root .money-where__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* A figure in a source's table stays on one line; the table's own region scrolls when the column is narrow. */
+:root .money-where__table td.lt-num {
+  white-space: nowrap;
+}
+/* The split: one thin bar across, its legend on one line under it, the grouping control at the line's end. */
+:root .money-where__alloc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem var(--lit-gap-item);
+}
+:root .money-where__alloc-legend,
+:root .money-where__alloc-legend .lt-parts {
+  display: contents;
+}
+:root .money-where__alloc-legend .lt-parts-bar {
+  grid-column: 1 / -1;
+}
+:root .money-where__alloc-legend .lt-parts-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+}
+:root .money-where__alloc-legend .lt-parts-list li {
+  display: inline-flex;
+  gap: 0.375rem;
+  min-block-size: 0;
+  border: 0;
+}
+:root .money-where__alloc-legend .lt-parts-swatch {
+  display: none;
+}
+:root .money-where__alloc-note {
+  grid-column: 1;
+}
+:root .money-where__alloc-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--lit-gap-item);
+}
+/* A source's panel head: chip and name, when it was read, and its value, on one row that wraps on a phone. */
+:root .money-where__panel-head {
+  flex-wrap: wrap;
+}
+:root .money-where__cell-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* The asset's symbol with its info mark on one line; its full name under them. */
+:root .money-where__asset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+:root .money-where__address {
+  min-inline-size: 0;
+}
+:root .money-where__entries {
+  display: inline-flex;
+  text-decoration: none;
+}
+@media (max-width: 47.9375rem) {
+  :root .money-where__actions {
+    justify-content: flex-start;
+  }
+}
+/* The three tiles' bar (the owner's Money target): the tiles above are its legend, so the bar draws alone. */
+:root .money-where__tiles-bar .lt-parts-list {
+  display: none;
+}
+/* The sections in each column stand apart by the kit's section gap, with no panel round them (the Money target). */
+:root .money-where__side,
+:root .money-where__sections {
+  gap: var(--lit-gap-section);
+}

@@ -7,13 +7,12 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-const state: { session: { userId: string } | null; restoring: boolean; restoreFailed: boolean } = {
+const state: { session: { userId: string } | null; restoreFailed: boolean } = {
   session: null,
-  restoring: false,
   restoreFailed: false,
 };
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   return { ...real, useSession: () => ({ ...state }) };
 });
 
@@ -22,7 +21,6 @@ import { PublicHeader } from './PublicRoutes';
 beforeEach(() => {
   vi.stubGlobal('location', { search: '', pathname: '/help', hash: '' });
   state.session = null;
-  state.restoring = false;
   state.restoreFailed = false;
 });
 
@@ -51,13 +49,6 @@ describe('public header follows the session', () => {
     }
   });
 
-  it('says neither while the session check has not answered', () => {
-    state.restoring = true;
-    const html = renderToString(<PublicHeader path="/help" />);
-    expect(html).not.toContain('Sign in');
-    expect(html).not.toContain('Open your account');
-  });
-
   it('points to the account, where Retry lives, when the session check could not reach the service', () => {
     state.restoreFailed = true;
     const html = renderToString(<PublicHeader path="/help" />);
@@ -74,7 +65,19 @@ describe('public header follows the session', () => {
 
   it('keeps the public navigation', () => {
     const html = renderToString(<PublicHeader path="/help" />);
+    // The family pages' one top bar (25 Nov): Markets, Fees and Help. About is in the footer.
+    expect(html).toContain('href="/trade/markets"');
+    expect(html).toContain('href="/fees"');
     expect(html).toContain('href="/help"');
-    expect(html).toContain('href="/about-us"');
+  });
+
+  it('leaves Create account off an invitation, whose card carries it with the token, and keeps the invite elsewhere', () => {
+    const token = '22222222-2222-4222-8222-222222222222';
+    vi.stubGlobal('location', { search: `?token=${token}`, pathname: '/invite', hash: '' });
+    const invite = renderToString(<PublicHeader path="/invite" />);
+    expect(invite).not.toContain('public-signup');
+    vi.stubGlobal('location', { search: `?invite=${token}`, pathname: '/help', hash: '' });
+    const help = renderToString(<PublicHeader path="/help" />);
+    expect(help).toContain(`href="/register?invite=${token}" class="public-signup"`);
   });
 });

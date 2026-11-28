@@ -10,6 +10,7 @@ import {
   ProviderUnavailableError,
   TEST_PROVIDER_DISPLAY_NAME,
   embeddedWalletFromSetting,
+  identityProvisionAdapter,
   testProviderAdapter,
   type EmbeddedWalletProviderAdapter,
   type EmbeddedWalletSetting,
@@ -36,7 +37,6 @@ function fakeProvider(over: Partial<EmbeddedWalletProviderAdapter> = {}) {
       byOwner.set(input.ownerRef, wallet);
       return wallet;
     },
-    getWallet: async () => null,
     ...over,
   };
   return { adapter, calls };
@@ -60,11 +60,22 @@ async function refusal(work: () => Promise<unknown>): Promise<{ code: string; me
 }
 
 describe('the owner’s provider setting', () => {
-  it('blank is unset; privy and turnkey are known but unwired; TEST:test is the TEST provider on the test stack only', () => {
+  it('blank is unset; privy is known but unwired; turnkey needs svc-identity’s URL; TEST:test is the TEST provider on the test stack only', () => {
     expect(embeddedWalletFromSetting(undefined, undefined, 'production')).toEqual({ kind: 'unset' });
     expect(embeddedWalletFromSetting('  ', undefined, 'production')).toEqual({ kind: 'unset' });
     expect(embeddedWalletFromSetting('privy', undefined, 'production')).toEqual({ kind: 'unwired', id: 'privy' });
-    expect(embeddedWalletFromSetting('turnkey', undefined, 'production')).toEqual({ kind: 'unwired', id: 'turnkey' });
+    expect(() => embeddedWalletFromSetting('turnkey', undefined, 'production')).toThrow(/turnkey needs IDENTITY_URL.*Refusing to boot/);
+    expect(() => embeddedWalletFromSetting('turnkey', undefined, 'production', fetch, undefined, 'not a url')).toThrow(
+      /needs IDENTITY_URL/,
+    );
+    const owner = embeddedWalletFromSetting('turnkey', undefined, 'production', fetch, undefined, 'http://svc-identity:4002');
+    // Named without the vendor (user-facing copy names no partner), and offering no export or recovery in this build yet.
+    expect(owner.kind === 'ready' && owner.adapter.info).toEqual({
+      id: 'turnkey',
+      displayName: 'your wallet provider',
+      test: false,
+      capabilities: { export: false, recovery: false },
+    });
     const test = embeddedWalletFromSetting('TEST:test', URL, 'test');
     expect(test.kind === 'ready' && test.adapter.info).toEqual({
       id: 'test',
@@ -73,6 +84,21 @@ describe('the owner’s provider setting', () => {
       capabilities: { export: true, recovery: true },
     });
     expect(embeddedWalletFromSetting('TEST:test', URL, 'dev').kind).toBe('ready');
+    // The same TEST provider standing in for one whose plan offers no key export (J-wallet-22 #5).
+    const noExport = embeddedWalletFromSetting('TEST:test-no-export', URL, 'test');
+    expect(noExport.kind === 'ready' && noExport.adapter.info.capabilities).toEqual({ export: false, recovery: true });
+    expect(() => embeddedWalletFromSetting('TEST:test-no-export', URL, 'production')).toThrow(/TEST value .* Refusing to boot/);
+  });
+
+  it('boots the TEST provider in the beta posture (staging, INTAFACED_BETA_POSTURE test-networks), loopback URL still required', () => {
+    expect(embeddedWalletFromSetting('TEST:test', URL, 'staging', fetch, 'test-networks').kind).toBe('ready');
+    expect(() => embeddedWalletFromSetting('TEST:test', 'https://provider.example', 'staging', fetch, 'test-networks')).toThrow(/loopback/);
+    for (const [env, beta] of [
+      ['prod', 'test-networks'],
+      ['staging', 'mainnet'],
+      ['staging', undefined],
+    ] as const)
+      expect(() => embeddedWalletFromSetting('TEST:test', URL, env, fetch, beta)).toThrow(/TEST value .* Refusing to boot/);
   });
 
   it('refuses to boot on a TEST provider outside dev or test, a missing or non-loopback URL, or an unknown provider', () => {
@@ -200,7 +226,80 @@ describe('the TEST provider adapter over HTTP', () => {
         providerName: 'TEST wallet provider',
       });
     }
-    expect(await testProviderAdapter(URL, answer(404, { error: 'not_found' })).getWallet('nope')).toBeNull();
+  });
+});
+
+describe('the owner’s provider, made through svc-identity', () => {
+  const IDENTITY = 'http://svc-identity:4002';
+  const FORWARDED = { 'x-intafaced-principal': 'p', 'x-intafaced-principal-sig': 's', 'x-intafaced-region': 'DE' };
+  const WALLET_ID = 'sub-1/wallet-1';
+  type Sent = { url: string; method: string; headers: Headers; body: string };
+  function identity(status: number, body: unknown) {
+    const sent: Sent[] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      sent.push({ url: String(input), method: String(init?.method), headers: new Headers(init?.headers), body: String(init?.body) });
+      return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
+    };
+    return { fetcher, sent };
+  }
+  const make = (fetcher: typeof fetch, forwarded: Record<string, string> | undefined = FORWARDED) =>
+    identityProvisionAdapter(IDENTITY, fetcher).createWallet({
+      ownerRef: ALICE,
+      idempotencyKey: embeddedWalletKey(ALICE),
+      passkey: PASSKEY,
+      ...(forwarded ? { forwarded } : {}),
+    });
+
+  it('asks svc-identity’s record with the person’s own signed principal and the passkey only, and keeps its answer', async () => {
+    const { fetcher, sent } = identity(200, { result: { data: { walletId: WALLET_ID, address: ADDRESS.toLowerCase(), ownerRef: ALICE } } });
+    expect(await make(fetcher)).toEqual({ walletId: WALLET_ID, address: ADDRESS, ownerRef: ALICE });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.url).toBe(`${IDENTITY}/trpc/embeddedWallet.provision`);
+    expect(sent[0]!.method).toBe('POST');
+    expect(JSON.parse(sent[0]!.body)).toEqual({ passkey: PASSKEY });
+    for (const [name, value] of Object.entries(FORWARDED)) expect(sent[0]!.headers.get(name)).toBe(value);
+  });
+
+  it('with no signed-in person on the request nothing is asked, and it is down', async () => {
+    const { fetcher, sent } = identity(200, {});
+    await expect(make(fetcher, {})).rejects.toMatchObject({ name: 'ProviderUnavailableError', providerName: 'your wallet provider' });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('a 409 is the provider refusing the passkey; no answer, any other error, non-JSON or no wallet is down; nothing recorded', async () => {
+    const refused = deps({ kind: 'ready', adapter: identityProvisionAdapter(IDENTITY, identity(409, {}).fetcher) });
+    const err = await createEmbeddedWallet(refused, { userId: ALICE, passkey: PASSKEY, forwarded: FORWARDED }).catch((e: unknown) => e);
+    expect((err as EmbeddedWalletRefusedError).code).toBe('wallet.embedded_wallet_mismatch');
+    expect(refused.store.rows.size).toBe(0);
+    const downs: Array<typeof fetch> = [
+      async () => {
+        throw new TypeError('fetch failed');
+      },
+      identity(503, {}).fetcher,
+      identity(412, {}).fetcher,
+      identity(401, {}).fetcher,
+      identity(200, '<html>').fetcher,
+      identity(200, { result: { data: { walletId: WALLET_ID, address: 'not-an-address', ownerRef: ALICE } } }).fetcher,
+    ];
+    for (const fetcher of downs) {
+      const d = deps({ kind: 'ready', adapter: identityProvisionAdapter(IDENTITY, fetcher) });
+      const down = await createEmbeddedWallet(d, { userId: ALICE, passkey: PASSKEY, forwarded: FORWARDED }).catch((e: unknown) => e);
+      expect((down as EmbeddedWalletRefusedError).code).toBe('wallet.embedded_provider_down');
+      expect(d.store.rows.size).toBe(0);
+    }
+  });
+
+  it('a wallet svc-identity says is someone else’s is never recorded', async () => {
+    const d = deps({
+      kind: 'ready',
+      adapter: identityProvisionAdapter(
+        IDENTITY,
+        identity(200, { result: { data: { walletId: WALLET_ID, address: ADDRESS, ownerRef: BOB } } }).fetcher,
+      ),
+    });
+    const err = await createEmbeddedWallet(d, { userId: ALICE, passkey: PASSKEY, forwarded: FORWARDED }).catch((e: unknown) => e);
+    expect((err as EmbeddedWalletRefusedError).code).toBe('wallet.embedded_wallet_mismatch');
+    expect(d.store.rows.size).toBe(0);
   });
 });
 
@@ -256,6 +355,8 @@ describe('embeddedWallet.* mounted', () => {
     expect(await alice.embeddedWallet.status()).toEqual({
       provider: { id: 'test', displayName: 'TEST wallet provider', test: true, capabilities: { export: true, recovery: true } },
       wallet: null,
+      // The owner's gas-sponsor setting is blank (J-wallet-24 #2): no sponsored deposit is offered.
+      gasSponsor: { set: false, code: 'wallet.gas_sponsor_unset' },
     });
     const made = await alice.embeddedWallet.create({ passkey: PASSKEY });
     expect(made).toEqual({
@@ -276,12 +377,80 @@ describe('embeddedWallet.* mounted', () => {
     expect((await caller(d, signedIn(BOB)).embeddedWallet.status()).wallet).toBeNull();
   });
 
+  it('status names where the person’s own wallet is kept, not the setting’s provider, so the room signs there (#10582)', async () => {
+    const store = new MemoryEmbeddedWalletStore();
+    // Alice made hers at the TEST provider; the setting then moved to the owner's provider.
+    await createEmbeddedWallet(deps({ kind: 'ready', adapter: fakeProvider().adapter }, store), { userId: ALICE, passkey: PASSKEY }, T0);
+    const owner = deps({ kind: 'ready', adapter: identityProvisionAdapter(URL, async () => new Response('{}', { status: 500 })) }, store);
+    const alice = await caller(owner).embeddedWallet.status();
+    expect(alice.provider).toEqual({
+      id: 'test',
+      displayName: 'TEST wallet provider',
+      test: true,
+      capabilities: { export: true, recovery: true },
+    });
+    expect(alice.wallet).toMatchObject({ provider: 'test', test: true });
+    // Bob has none: the room names the setting's provider, where his would be made.
+    expect((await caller(owner, signedIn(BOB)).embeddedWallet.status()).provider).toEqual({
+      id: 'turnkey',
+      displayName: 'your wallet provider',
+      test: false,
+      capabilities: { export: false, recovery: false },
+    });
+    // A blank setting still names where an existing wallet is kept; creating still refuses it.
+    expect((await caller(deps({ kind: 'unset' }, store)).embeddedWallet.status()).provider).toMatchObject({ id: 'test', test: true });
+    expect((await caller(deps({ kind: 'unset' }, store), signedIn(BOB)).embeddedWallet.status()).provider).toBeNull();
+    // A wallet at the owner's provider under a TEST setting is named as the owner's, never TEST.
+    store.rows.set(embeddedWalletKey(BOB), {
+      userId: BOB,
+      idempotencyKey: embeddedWalletKey(BOB),
+      provider: 'turnkey',
+      providerWalletId: 'sub-org/wallet',
+      address: ADDRESS,
+      test: false,
+      createdAt: T0,
+    });
+    expect(
+      (await caller(deps({ kind: 'ready', adapter: fakeProvider().adapter }, store), signedIn(BOB)).embeddedWallet.status()).provider,
+    ).toEqual({
+      id: 'turnkey',
+      displayName: 'your wallet provider',
+      test: false,
+      capabilities: { export: false, recovery: false },
+    });
+  });
+
+  it('create with the owner’s provider passes the person’s own edge-signed principal on to svc-identity, byte for byte', async () => {
+    const seen: Headers[] = [];
+    const fetcher: typeof fetch = async (_input, init) => {
+      seen.push(new Headers(init?.headers));
+      return new Response(JSON.stringify({ result: { data: { walletId: 'sub-1/wallet-1', address: ADDRESS, ownerRef: ALICE } } }));
+    };
+    const ctx = signedIn(ALICE);
+    const d = deps({ kind: 'ready', adapter: identityProvisionAdapter('http://svc-identity:4002', fetcher) });
+    const made = await caller(d, ctx).embeddedWallet.create({ passkey: PASSKEY });
+    expect(made.wallet).toMatchObject({
+      provider: 'turnkey',
+      providerWalletId: 'sub-1/wallet-1',
+      address: ADDRESS,
+      test: false,
+      holdsKey: false,
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.get('x-intafaced-principal')).toBe(ctx.forwardedPrincipal!.raw);
+    expect(seen[0]!.get('x-intafaced-principal-sig')).toBe(ctx.forwardedPrincipal!.signature);
+  });
+
   it('refuses with the code leading the message; nothing wired reads as a blank setting', async () => {
     await expect(caller(undefined).embeddedWallet.create({ passkey: PASSKEY })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: expect.stringMatching(/^wallet\.embedded_provider_unset:/),
     });
-    expect(await caller(undefined).embeddedWallet.status()).toEqual({ provider: null, wallet: null });
+    expect(await caller(undefined).embeddedWallet.status()).toEqual({
+      provider: null,
+      wallet: null,
+      gasSponsor: { set: false, code: 'wallet.gas_sponsor_unset' },
+    });
     const down = deps({
       kind: 'ready',
       adapter: fakeProvider({
@@ -327,5 +496,47 @@ describe('embeddedWallet.* mounted', () => {
     const d = deps({ kind: 'ready', adapter: fakeProvider().adapter });
     await expect(caller(d, signedOut).embeddedWallet.status()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     await expect(caller(d, signedOut).embeddedWallet.create({ passkey: PASSKEY })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(caller(d, signedOut).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+  });
+
+  it('outcome counts a provider outcome only against the person’s own wallet at a provider outside the stack', async () => {
+    const store = new MemoryEmbeddedWalletStore();
+    const lines: unknown[] = [];
+    const d = { ...deps({ kind: 'unset' }, store), outcomes: (line: unknown) => lines.push(line) };
+    // No wallet: nothing to count.
+    expect(await caller(d).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: false });
+    // A TEST wallet spends nothing at the owner's provider: not counted.
+    store.rows.set(embeddedWalletKey(ALICE), {
+      userId: ALICE,
+      idempotencyKey: embeddedWalletKey(ALICE),
+      provider: 'test',
+      providerWalletId: 'w-1',
+      address: ADDRESS,
+      test: true,
+      createdAt: T0,
+    });
+    expect(await caller(d).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: false });
+    expect(lines).toEqual([]);
+    store.rows.set(embeddedWalletKey(BOB), {
+      userId: BOB,
+      idempotencyKey: embeddedWalletKey(BOB),
+      provider: 'turnkey',
+      providerWalletId: 'sub-org/wallet',
+      address: ADDRESS,
+      test: false,
+      createdAt: T0,
+    });
+    expect(await caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'quota', status: 429 })).toEqual({ recorded: true });
+    expect(await caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'down', status: null })).toEqual({ recorded: true });
+    expect(lines).toEqual([
+      { msg: 'protocol.embedded_provider_outcome', provider: 'turnkey', outcome: 'quota', status: 429, at: expect.any(String) },
+      { msg: 'protocol.embedded_provider_outcome', provider: 'turnkey', outcome: 'down', status: null, at: expect.any(String) },
+    ]);
+    // An outcome the record does not name is refused at the door.
+    await expect(caller(d, signedIn(BOB)).embeddedWallet.outcome({ outcome: 'busy' as 'quota', status: 429 })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
   });
 });

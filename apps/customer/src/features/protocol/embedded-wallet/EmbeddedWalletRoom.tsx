@@ -1,22 +1,26 @@
+// volt-room: /wallet/embedded
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Tag } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
-import type {
-  EmbeddedWalletPasskey,
-  ProtocolEmbeddedWalletProvider,
-  ProtocolEmbeddedWalletRecord,
+import {
+  GAS_SPONSOR_UNSET,
+  type EmbeddedWalletPasskey,
+  type ProtocolEmbeddedWalletProvider,
+  type ProtocolEmbeddedWalletRecord,
 } from '@intafaced/contracts/protocol-embedded-wallet';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { createVenueWalletApi, type VenueConnection } from '../venue-wallet/venue-wallet-api';
 import { venueWalletCopy } from '../venue-wallet/venue-wallet-copy';
 import { venueRefusal } from '../venue-wallet/VenueWalletRoom';
 import { createEmbeddedWalletApi } from './embedded-wallet-api';
 import { embeddedWalletCopy, type EmbeddedWalletCopyKey } from './embedded-wallet-copy';
+import { noteEmbeddedWalletMade } from './EmbeddedWalletAnnouncer';
 import { embeddedWalletClient, type ClientFailure } from './provider-client';
+import { VenueDeposit } from './VenueDeposit';
 import { TradingSession } from './TradingSession';
 
 /**
@@ -80,10 +84,19 @@ export function clientRefusal(failure: ClientFailure, provider: ProtocolEmbedded
         body: t('downBody', { provider: name }),
         reference: 'wallet.embedded_provider_down',
       };
+    case 'busy':
+      return {
+        variant: 'unreachable',
+        title: t('busyTitle'),
+        body: t('busyBody', { provider: name }),
+        reference: 'wallet.embedded_provider_busy',
+      };
     case 'refused':
       return { variant: 'refused', title: t('refusedTitle'), body: t('refusedBody', { provider: name }), reference: 'provider_refused' };
     case 'unsupported':
       return { variant: 'refused', title: t('unsupportedTitle'), body: t('unsupportedBody'), reference: 'passkey_unsupported' };
+    case 'chain':
+      return { variant: 'refused', title: t('chainTitle'), body: t('chainBody'), reference: 'chain_refused' };
     case 'spent':
       return { variant: 'refused', title: t('spentTitle'), body: t('spentBody', { provider: name }), reference: 'wallet.export_spent' };
     default:
@@ -98,7 +111,13 @@ export function EmbeddedWalletRoom() {
   const embedded = useMemo(() => createEmbeddedWalletApi(api), [api]);
   const venue = useMemo(() => createVenueWalletApi(api), [api]);
   const status = useResource(
-    (signal) => (userId ? embedded.status(signal) : Promise.resolve({ ok: true as const, data: { provider: null, wallet: null } })),
+    (signal) =>
+      userId
+        ? embedded.status(signal)
+        : Promise.resolve({
+            ok: true as const,
+            data: { provider: null, wallet: null, gasSponsor: { set: false as const, code: GAS_SPONSOR_UNSET } },
+          }),
     `embedded-wallet:${userId ?? 'out'}`,
   );
   const connections = useResource(
@@ -119,7 +138,7 @@ export function EmbeddedWalletRoom() {
   const read = status.resource.status === 'ready' ? status.resource.data : null;
   const provider = read?.provider ?? null;
   const wallet = made ?? read?.wallet ?? null;
-  const client = embeddedWalletClient(provider);
+  const client = embeddedWalletClient(provider, wallet, embedded.report);
   const name = providerName(provider, t);
   const listed = connections.resource.status === 'ready' ? connections.resource.data.connections : [];
   const fromServer = wallet ? listed.find((c) => c.address.toLowerCase() === wallet.address.toLowerCase()) : undefined;
@@ -191,6 +210,7 @@ export function EmbeddedWalletRoom() {
       }
       pendingPasskey.current = null;
       setMade(result.data.wallet);
+      noteEmbeddedWalletMade();
     });
 
   const connect = () =>
@@ -268,100 +288,114 @@ export function EmbeddedWalletRoom() {
       state={state}
       steps={{ labels: [t('stepCreate'), t('stepPasskey'), t('stepReady')], current }}
       step={
-        <section data-panel="embedded-wallet">
-          {provider ? <p data-embedded-provider>{t('keptBy', { provider: name })}</p> : null}
-          <p>{t('noSeed')}</p>
-          {wallet ? (
-            <>
-              <h2>{t('walletTitle')}</h2>
-              <dl>
-                <div>
-                  <dt>{t('walletAddress')}</dt>
-                  <dd>
-                    <span data-embedded-address>{wallet.address}</span>{' '}
-                    {wallet.test ? (
-                      <Tag tone="neutral" data-test-label>
-                        TEST
-                      </Tag>
-                    ) : null}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t('walletProvider')}</dt>
-                  <dd>{name}</dd>
-                </div>
-                <div>
-                  <dt>{t('walletId', { provider: name })}</dt>
-                  <dd data-embedded-wallet-id>{wallet.providerWalletId}</dd>
-                </div>
-              </dl>
-              {wallet.test ? <p>{t('testWallet')}</p> : null}
-              <p data-embedded-record>{t('recordNote', { provider: name })}</p>
-              <section aria-label={t('venueTitle')}>
-                <h2>{t('venueTitle')}</h2>
-                {connection ? (
-                  <p>
-                    {t('venueConnected')}{' '}
-                    <time dateTime={connection.expiresAt} data-testid="embedded-venue-expires">
-                      {time(connection.expiresAt)}
-                    </time>
-                  </p>
-                ) : null}
-                {connection && !live ? <p role="status">{t('venueExpired')}</p> : null}
-                <p>{t('venueNote')}</p>
-                {!live ? (
-                  <Button disabled={busy || !client} onClick={() => void connect()}>
-                    {connection ? t('venueSignAgain') : t('venueConnect')}
-                  </Button>
-                ) : null}
-              </section>
-              {userId ? (
-                <TradingSession
-                  api={api}
-                  userId={userId}
-                  wallet={wallet}
-                  client={client}
-                  providerFailure={(failure) => clientRefusal(failure, provider, t).body}
-                  t={t}
-                />
-              ) : null}
-              <section aria-label={t('ownTitle')}>
-                <h2>{t('ownTitle')}</h2>
-                <p>{t('ownNote', { provider: name })}</p>
-                {provider?.capabilities.export ? (
-                  <>
-                    <p data-export-once>{t('exportOnce', { provider: name })}</p>
-                    <Button disabled={busy || !client} onClick={() => void exportKey()}>
-                      {t('exportKey')}
+        <>
+          <section data-panel="embedded-wallet">
+            {provider ? <p data-embedded-provider>{t('keptBy', { provider: name })}</p> : null}
+            <p>{t('noSeed')}</p>
+            {wallet ? (
+              <>
+                <h2>{t('walletTitle')}</h2>
+                <dl>
+                  <div>
+                    <dt>{t('walletAddress')}</dt>
+                    <dd>
+                      <span data-embedded-address>{wallet.address}</span>{' '}
+                      {wallet.test ? (
+                        <Tag tone="neutral" data-test-label>
+                          TEST
+                        </Tag>
+                      ) : null}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('walletProvider')}</dt>
+                    <dd>{name}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('walletId', { provider: name })}</dt>
+                    <dd data-embedded-wallet-id>{wallet.providerWalletId}</dd>
+                  </div>
+                </dl>
+                {wallet.test ? <p>{t('testWallet')}</p> : null}
+                <p data-embedded-record>{t('recordNote', { provider: name })}</p>
+                <section aria-label={t('venueTitle')}>
+                  <h2>{t('venueTitle')}</h2>
+                  {connection ? (
+                    <p>
+                      {t('venueConnected')}{' '}
+                      <time dateTime={connection.expiresAt} data-testid="embedded-venue-expires">
+                        {time(connection.expiresAt)}
+                      </time>
+                    </p>
+                  ) : null}
+                  {connection && !live ? <p role="status">{t('venueExpired')}</p> : null}
+                  <p>{t('venueNote')}</p>
+                  {!live ? (
+                    <Button tone="primary" disabled={busy || !client} onClick={() => void connect()}>
+                      {connection ? t('venueSignAgain') : t('venueConnect')}
                     </Button>
-                  </>
-                ) : (
-                  <p>{t('exportNone', { provider: name })}</p>
-                )}{' '}
-                {provider?.capabilities.recovery ? (
-                  <Button disabled={busy || !client} onClick={() => void addRecovery()}>
-                    {t('recoveryAdd')}
-                  </Button>
-                ) : (
-                  <p>{t('recoveryNone', { provider: name })}</p>
-                )}
-                {notice ? <p role="status">{notice}</p> : null}
-                {exported ? (
-                  <section aria-label={t('exportTitle', { provider: name })} data-provider-export>
-                    <h3>{t('exportTitle', { provider: name })}</h3>
-                    <p>{t('exportWarning')}</p>
-                    <pre data-exported-key>{exported}</pre>
-                    <Button onClick={() => setExported(null)}>{t('exportHide')}</Button>
-                  </section>
+                  ) : null}
+                </section>
+                {userId ? (
+                  <TradingSession
+                    api={api}
+                    userId={userId}
+                    wallet={wallet}
+                    client={client}
+                    providerFailure={(failure) => clientRefusal(failure, provider, t).body}
+                    t={t}
+                  />
                 ) : null}
-              </section>
-            </>
+                <section aria-label={t('ownTitle')}>
+                  <h2>{t('ownTitle')}</h2>
+                  <p>{t('ownNote', { provider: name })}</p>
+                  {provider?.capabilities.export ? (
+                    <>
+                      <p data-export-once>{t('exportOnce', { provider: name })}</p>
+                      <Button tone="primary" disabled={busy || !client} onClick={() => void exportKey()}>
+                        {t('exportKey')}
+                      </Button>
+                    </>
+                  ) : (
+                    <p>{t('exportNone', { provider: name })}</p>
+                  )}{' '}
+                  {provider?.capabilities.recovery ? (
+                    <Button tone="primary" disabled={busy || !client} onClick={() => void addRecovery()}>
+                      {t('recoveryAdd')}
+                    </Button>
+                  ) : (
+                    <p>{t('recoveryNone', { provider: name })}</p>
+                  )}
+                  {notice ? <p role="status">{notice}</p> : null}
+                  {exported ? (
+                    <section aria-label={t('exportTitle', { provider: name })} data-provider-export>
+                      <h3>{t('exportTitle', { provider: name })}</h3>
+                      <p>{t('exportWarning')}</p>
+                      <pre data-exported-key>{exported}</pre>
+                      <Button tone="primary" onClick={() => setExported(null)}>
+                        {t('exportHide')}
+                      </Button>
+                    </section>
+                  ) : null}
+                </section>
+              </>
+            ) : null}
+          </section>
+          {wallet ? (
+            // Its own panel, beside the wallet's: Deposit to the venue (J-wallet-24).
+            <VenueDeposit
+              api={api}
+              wallet={wallet}
+              client={client}
+              gasSponsorCode={read?.gasSponsor.code ?? GAS_SPONSOR_UNSET}
+              providerFailure={(failure) => clientRefusal(failure, provider, t).body}
+            />
           ) : null}
-        </section>
+        </>
       }
       actions={
         wallet ? null : (
-          <Button variant="primary" loading={busy} disabled={busy} onClick={() => void create()}>
+          <Button tone="primary" aria-busy={busy || undefined} disabled={busy} onClick={() => void create()}>
             {busy ? t('creating') : t('create')}
           </Button>
         )

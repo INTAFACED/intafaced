@@ -1,0 +1,258 @@
+import {
+  TRPCError,
+  type AnyTRPCRouter,
+  type TRPCCreateRouterOptions,
+  type TRPCMutationProcedure,
+  type TRPCQueryProcedure,
+} from '@trpc/server';
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { threadId } from 'node:worker_threads';
+import type { z } from 'zod';
+import type { Principal } from '@intafaced/auth';
+import { NO_INPUT, type Access, type ProcedureRecord, type RefusalStatus, type TrpcTransport } from './procedure.js';
+import {
+  anyScopeProcedure,
+  protectedProcedure,
+  publicJurisdictionProcedure,
+  publicProcedure,
+  router,
+  personProcedure,
+  scopedProcedure,
+  serviceProcedureFor,
+  signedInProcedure,
+  type Context,
+  type ServiceCheck,
+} from './trpc.js';
+
+/**
+ * Mounts a service's tRPC surface from its records. The record decides the path, query or mutation,
+ * the guard, the input and output schemas, and which named refusals may leave. The service supplies only handlers and
+ * one function that reads its own refusal type (`refusalOf`), once per service, never per call.
+ */
+
+/**
+ * The guard a `founder` record is mounted behind: the serving service's own founder check, built on `protectedProcedure`,
+ * which reads the founder entitlement live and puts the founder's user id on the context as `founderUserId`.
+ */
+export type FounderGuard = Pick<typeof protectedProcedure, '_def'>;
+/** The guard as the mount uses it: its own added context (`founderUserId`) is typed by the record's handler, not here. */
+const asBuilder = (guard: FounderGuard) => guard as typeof protectedProcedure;
+
+/**
+ * What the service hands the mount of its own, once: the reader of its refusals, and with it the founder guard when it
+ * mounts `founder` records. A service with no `founder` record passes its refusal reader alone; a `founder` record mounted
+ * without the guard fails at start-up.
+ */
+export type ServiceParts =
+  | RefusalOf
+  | {
+      readonly refusalOf: RefusalOf;
+      readonly founder?: FounderGuard;
+      /** The service's own guard checks, by the name a record's `access.check` gives (`GuardOptions.check`). */
+      readonly checks?: Readonly<Record<string, ServiceCheck>>;
+    };
+
+const partsOf = (parts: ServiceParts) =>
+  typeof parts === 'function' ? { refusalOf: parts, founder: undefined, checks: undefined } : parts;
+
+type HandlerContext<A extends Access> = A extends { readonly caller: 'founder' }
+  ? Context & { principal: Principal; founderUserId: string }
+  : A extends { readonly caller: 'scope' | 'anyScope' | 'signedIn' | 'person' }
+    ? Context & { principal: Principal }
+    : Context;
+
+/** What a handler receives: the guarded context and the parsed input. */
+export type RecordHandler<R extends ProcedureRecord> = (args: {
+  /**
+   * A `scope`, `anyScope`, `signedIn` or `person` record's guard has verified the principal, so its handler reads it without a check of
+   * its own; a `founder` record's guard has also named the founder (`founderUserId`).
+   */
+  ctx: HandlerContext<R['access']>;
+  input: z.output<R['input']>;
+  /** Aborted when the caller goes away, for a handler whose outside reads should stop with it. */
+  signal?: AbortSignal | undefined;
+}) => Promise<z.input<R['output']>> | z.input<R['output']>;
+
+/** Reads a thrown value as one of the service's named refusals, already in its wire form; `undefined` when it is not one. */
+export type RefusalOf = (err: unknown) => { readonly code: string; readonly error: TRPCError } | undefined;
+
+/** A refusal the record does not list, or lists with another status. */
+export class UndeclaredRefusalError extends Error {
+  readonly record: string;
+  readonly code: string;
+  constructor(sent: {
+    readonly record: string;
+    readonly code: string;
+    readonly status: string;
+    readonly declared: RefusalStatus | undefined;
+  }) {
+    super(
+      `${sent.record} refused ${sent.code} as ${sent.status}, but its record ${sent.declared === undefined ? 'does not list it' : `says ${sent.declared}`}`,
+    );
+    this.name = 'UndeclaredRefusalError';
+    this.record = sent.record;
+    this.code = sent.code;
+  }
+}
+
+/**
+ * With `PROCEDURE_REFUSALS_SEEN` set to a directory (a service's test run), each refusal sent is noted there as
+ * `<record>\t<code>\t<status>`, so the run can show that every refusal a record lists is produced by some test, and the
+ * call-records codemod can list what a new record's handler was seen to send (tooling/codemod/call-records/refusals.mjs).
+ */
+function noteSent(record: string, code: string, status: string): void {
+  const dir = process.env.PROCEDURE_REFUSALS_SEEN;
+  if (dir) appendFileSync(join(dir, `${process.pid}-${threadId}.tsv`), `${record}\t${code}\t${status}\n`);
+}
+
+function guardFor(
+  name: string,
+  access: Access,
+  {
+    founder,
+    checks,
+  }: { readonly founder?: FounderGuard | undefined; readonly checks?: Readonly<Record<string, ServiceCheck>> | undefined },
+) {
+  switch (access.caller) {
+    case 'public':
+      return publicProcedure;
+    case 'jurisdiction':
+      return publicJurisdictionProcedure(access.module, access.plane);
+    case 'scope':
+      return scopedProcedure(access.scope, {
+        ...(access.module === undefined ? {} : { module: access.module }),
+        ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.tier === undefined ? {} : { tier: access.tier }),
+        ...(access.person === undefined ? {} : { person: access.person }),
+        ...(access.ownSession === undefined ? {} : { ownSession: access.ownSession }),
+        ...(access.check === undefined ? {} : { check: checkFor(name, access.check, checks) }),
+      });
+    case 'anyScope':
+      return anyScopeProcedure(access.scopes, {
+        ...(access.module === undefined ? {} : { module: access.module }),
+        ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.check === undefined ? {} : { check: checkFor(name, access.check, checks) }),
+      });
+    case 'service':
+      return serviceProcedureFor(access.callers, access.forbidden === undefined ? {} : { forbidden: access.forbidden });
+    case 'person':
+      return personProcedure(access.scope ?? null, {
+        ...(access.module === undefined ? {} : { module: access.module }),
+        ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.tier === undefined ? {} : { tier: access.tier }),
+      });
+    case 'signedIn':
+      return signedInProcedure({
+        ...(access.module === undefined ? {} : { module: access.module }),
+        ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.check === undefined ? {} : { check: checkFor(name, access.check, checks) }),
+      });
+    case 'founder':
+      if (founder === undefined) throw new Error(`${name} is founder-only: mount it with the service's founder guard`);
+      return asBuilder(founder);
+  }
+}
+
+/** The check a record names, from the service's parts: a record naming one the service did not hand over fails at start-up. */
+function checkFor(name: string, check: string, checks: Readonly<Record<string, ServiceCheck>> | undefined): ServiceCheck {
+  const found = checks?.[check];
+  if (found === undefined) throw new Error(`${name} names the check ${check}: mount it with the service's checks`);
+  return found;
+}
+
+/**
+ * One tRPC procedure from one record, typed from the record (its handler's input and reply, and the procedure a caller
+ * sees), for a router not made from records yet. `mountRecords` mounts a whole router.
+ */
+export function mountRecord<const R extends TrpcRecord>(record: R, handler: RecordHandler<R>, parts: ServiceParts): MountedProcedure<R>;
+export function mountRecord(
+  record: ProcedureRecord,
+  handler: RecordHandler<ProcedureRecord>,
+  parts: ServiceParts,
+): TRPCQueryProcedure<Def<ProcedureRecord>> | TRPCMutationProcedure<Def<ProcedureRecord>>;
+export function mountRecord(record: ProcedureRecord, handler: RecordHandler<ProcedureRecord>, parts: ServiceParts) {
+  if (record.transport !== 'trpc') throw new Error(`${record.name} is a plain HTTP door; mount it with its HTTP adapter`);
+  const given = partsOf(parts);
+  const guarded = guardFor(record.name, record.access, given);
+  const typed = record.input === NO_INPUT ? guarded : guarded.input(record.input);
+  const withOutput = typed.output(record.output);
+  const resolve = async ({ ctx, input, signal }: { ctx: Context; input: unknown; signal?: AbortSignal | undefined }) => {
+    try {
+      return await handler({ ctx, input, signal });
+    } catch (err) {
+      const refusal = given.refusalOf(err);
+      if (refusal === undefined) throw err;
+      const declared = record.refusals[refusal.code];
+      noteSent(record.name, refusal.code, refusal.error.code);
+      // Outside tests an unlisted refusal is sent unchanged, so the wire is what the handler says.
+      if (declared !== refusal.error.code && process.env.PROCEDURE_REFUSALS_STRICT === '1') {
+        throw new UndeclaredRefusalError({ record: record.name, code: refusal.code, status: refusal.error.code, declared });
+      }
+      throw refusal.error;
+    }
+  };
+  return record.kind === 'query' ? withOutput.query(resolve) : withOutput.mutation(resolve);
+}
+
+type HandlerMap<Rs extends readonly ProcedureRecord[]> = { [R in Rs[number] as R['name']]: RecordHandler<R> };
+
+type TrpcRecord = ProcedureRecord & TrpcTransport;
+type CallerInput<R extends ProcedureRecord> = R['input'] extends typeof NO_INPUT ? void : z.input<R['input']>;
+type Def<R extends ProcedureRecord> = { input: CallerInput<R>; output: z.output<R['output']>; meta: unknown };
+/** The tRPC procedure a record mounts as, so `createCaller` and clients are typed from the record. */
+type MountedProcedure<R extends ProcedureRecord> = R extends { kind: 'mutation' }
+  ? TRPCMutationProcedure<Def<R>>
+  : TRPCQueryProcedure<Def<R>>;
+/** `a.b.c` as `{ a: { b: { c: V } } }`. */
+type Nest<P extends string, V> = P extends `${infer Head}.${infer Tail}` ? { [K in Head]: Nest<Tail, V> } : { [K in P]: V };
+type Merge<U> = (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+/** The router a list of records mounts as: each record's procedure at its dotted path. */
+export type RecordRouterShape<Rs extends readonly ProcedureRecord[]> = Merge<
+  { [I in keyof Rs]: Rs[I] extends TrpcRecord ? Nest<Rs[I]['path'], MountedProcedure<Rs[I]>> : never }[number]
+>;
+type RecordRouter<Rs extends readonly ProcedureRecord[]> = ReturnType<typeof router<RecordRouterShape<Rs> & TRPCCreateRouterOptions>>;
+
+type Mounted = ReturnType<typeof mountRecord>;
+interface Tree {
+  [key: string]: Tree | Mounted;
+}
+const isTree = (node: Tree | Mounted): node is Tree => !('_def' in node);
+
+/**
+ * A service's whole router from its records: one handler per record name, nothing else. A handler with no record, or a
+ * record with no handler, fails at startup, and so does a `founder` record mounted without the service's founder guard.
+ * Dotted paths (`basisOverride.set`) become nested routers.
+ */
+export function mountRecords<const Rs extends readonly ProcedureRecord[]>(
+  records: Rs,
+  handlers: NoInfer<HandlerMap<Rs>>,
+  parts: ServiceParts,
+): RecordRouter<Rs>;
+export function mountRecords(records: readonly ProcedureRecord[], handlers: object, parts: ServiceParts): AnyTRPCRouter {
+  const byName = new Map<string, RecordHandler<ProcedureRecord>>(Object.entries(handlers));
+  const names = new Set(records.map((r) => r.name));
+  for (const name of byName.keys()) if (!names.has(name)) throw new Error(`handler ${name} has no record`);
+  const tree: Tree = {};
+  for (const record of records) {
+    const handler = byName.get(record.name);
+    if (handler === undefined) throw new Error(`record ${record.name} has no handler`);
+    if (record.transport !== 'trpc') throw new Error(`${record.name} is not a tRPC record`);
+    const segments = record.path.split('.');
+    const leaf = segments.pop();
+    if (leaf === undefined) throw new Error(`${record.name} has an empty path`);
+    let node = tree;
+    for (const part of segments) {
+      const child = node[part] ?? {};
+      if (!isTree(child)) throw new Error(`${record.path} mounts under the procedure ${part}`);
+      node[part] = child;
+      node = child;
+    }
+    if (node[leaf] !== undefined) throw new Error(`two records mount ${record.path}`);
+    node[leaf] = mountRecord(record, handler, parts);
+  }
+  // tRPC 11 takes nested plain objects as nested routers.
+  return router(tree);
+}
+
+export { TRPCError };

@@ -13,7 +13,9 @@
  * The confirmation is spent before the take's own checks run, so a take refused after it still opens the window:
  * the window says the person proved a factor here, not that an order was placed.
  */
-import { ACTION_APPROVAL_CONSUME_FAILED, customerStepUpPayloadHash, type ActionApproval } from '@intafaced/contracts';
+import type { ActionApproval } from '@intafaced/contracts';
+import { ACTION_APPROVAL_CONSUME_FAILED } from '@intafaced/contracts/action-approval-client';
+import { customerStepUpPayloadHash } from '@intafaced/contracts/customer-step-up';
 import type { Sql } from 'postgres';
 import { ActionApprovalConsumeError, type ActionApprovalConsumer } from './action-approval-consume.js';
 

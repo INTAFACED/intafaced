@@ -29,11 +29,12 @@ import {
  * default, signed by you, with counsel reviewing at launch prep. Until a list exists, the live app lets nobody in."
  */
 const ROWS_LIST = screeningListFromRows();
+const AGREED_CODES = ['CU', 'IR', 'KP', 'SY', 'UA-43', 'UA-40', 'UA-14', 'UA-09', 'UA-65', 'UA-23'];
 const PRODUCTION_LIKE = ['prod', 'staging', undefined, '', 'production', 'DEV'] as const;
 
 describe('the rows', () => {
   it('are the agreed set, one per jurisdiction, each citing OFAC and marked as the agents’ reading', () => {
-    expect(SANCTIONED_LIST_ROWS.map((r) => r.region)).toEqual(['CU', 'IR', 'KP', 'SY', 'UA-43', 'UA-40', 'UA-14', 'UA-09']);
+    expect(SANCTIONED_LIST_ROWS.map((r) => r.region)).toEqual(AGREED_CODES);
     for (const r of SANCTIONED_LIST_ROWS) {
       expect(r.sourceUrl, r.region).toBe(OFAC_SANCTIONS_PROGRAMS_URL);
       expect(r.reading, r.region).toBe(SANCTIONED_ROW_READING);
@@ -166,7 +167,7 @@ describe('which list a process screens with', () => {
 });
 
 describe('residence and citizenship read the same rows', () => {
-  it.each(['CU', 'IR', 'KP', 'SY', 'UA-43', 'UA-40', 'UA-14', 'UA-09'])('a citizen of %s is refused, wherever they live', (citizenship) => {
+  it.each(AGREED_CODES)('a citizen of %s is refused, wherever they live', (citizenship) => {
     const d = checkCitizenship({ citizenship, screening: ROWS_LIST });
     expect(d.allowed).toBe(false);
     expect(d.code).toBe('denied.region_blocked');
@@ -180,7 +181,7 @@ describe('residence and citizenship read the same rows', () => {
   });
 
   it('a listed subdivision covers only itself: the rest of Ukraine, and Ukraine as a whole, are served', () => {
-    for (const region of ['UA-43', 'UA-40', 'UA-14', 'UA-09']) {
+    for (const region of ['UA-43', 'UA-40', 'UA-14', 'UA-09', 'UA-65', 'UA-23']) {
       expect(checkAccess({ module: 'pay', plane: 'fiat', region, kycTier: 'full', screening: ROWS_LIST, business: [] }).code, region).toBe(
         'denied.region_blocked',
       );
@@ -195,6 +196,19 @@ describe('residence and citizenship read the same rows', () => {
     expect(checkCitizenship({ citizenship: 'UA-30', screening: ROWS_LIST }).allowed).toBe(true);
     // Ukraine alone cannot say whether a person is served, so sign-up asks for the region.
     expect(hasSubdivisionRows('UA', ROWS_LIST, [])).toBe(true);
+  });
+
+  it.each(['UA-65', 'UA-23'])('%s refuses a sign-up and a trade like the other Ukrainian rows', (region) => {
+    // Sign-up reads residence as svc-identity's sign-up does: the identity module at tier none.
+    const signUp = checkAccess({ module: 'identity', plane: 'fiat', region, kycTier: 'none', screening: ROWS_LIST, business: [] });
+    expect(signUp.code).toBe('denied.region_blocked');
+    expect(signUp.blockedBy).toBe('screening');
+    const trade = checkAccess({ module: 'trade', plane: 'fiat', region, kycTier: 'full', screening: ROWS_LIST, business: [] });
+    expect(trade.code).toBe('denied.region_blocked');
+    expect(trade.blockedBy).toBe('screening');
+    const citizen = checkCitizenship({ citizenship: region, screening: ROWS_LIST });
+    expect(citizen.code).toBe('denied.region_blocked');
+    expect(citizen.blockedBy).toBe('screening');
   });
 
   it('an unlisted citizenship is served', () => {

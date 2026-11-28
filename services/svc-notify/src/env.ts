@@ -204,6 +204,12 @@ const schema = serviceEnvSchema
        */
       NOTIFY_EMAIL_TEST_OUTBOX: blankAsAbsent(z.string().optional()),
       /**
+       * The TEST push stand-in (J-home-ia-05 #4): an absolute file the push channel writes each message to, labelled TEST, while
+       * no push gateway is set; with NOTIFY_PUSH_PUBLIC_KEY it lets a TEST device register. Refused at boot unless APP_ENV is
+       * exactly dev or test. Unset: push refuses honestly and no device registers.
+       */
+      NOTIFY_PUSH_TEST_OUTBOX: blankAsAbsent(z.string().optional()),
+      /**
        * Ports an alert webhook may post to, comma separated (`443`). NO DEFAULT. Blank refuses every webhook save
        * (`notify.alert_webhook_ports_unset`).
        */
@@ -232,6 +238,14 @@ const schema = serviceEnvSchema
        * empty or trade is down.
        */
       TRADE_URL: blankAsAbsent(z.string().url().optional()),
+
+      /**
+       * The launch desk's read-only Telegram alerts (telegram/desk.ts). The bot token is a secret; blank or unset turns the
+       * channel off with `notify.telegram_token_unset`. The webhook secret (32+ characters) is the header the bot API sends
+       * with every update; without it the webhook refuses every update. svc-trade's `venue.deskSnapshot` is read at TRADE_URL.
+       */
+      NOTIFY_TELEGRAM_BOT_TOKEN: blankAsAbsent(z.string().min(1).optional()),
+      NOTIFY_TELEGRAM_WEBHOOK_SECRET: blankAsAbsent(z.string().min(32).optional()),
 
       /**
        * Owner-published page size for live mark `GET /api/v1/markets?limit=`.
@@ -318,6 +332,14 @@ const schema = serviceEnvSchema
        * (`notify.alert_trigger_log_retention_unset`); alerts still fire.
        */
       NOTIFY_ALERT_TRIGGER_LOG_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
+
+      /**
+       * The owner's account plan table (BK-acct-04): the one owner value svc-bank also reads, set once for both.
+       * `{ "defaultPlanId", "plans": [{ "id", "name", … }] }`. Alert quotas are set per plan on the charts settings page
+       * (J-charts-desk-18 #6). NO DEFAULT: blank or not in shape, no plan quota applies, the page says the plans are not set,
+       * and the deployment's NOTIFY_ALERT_MAX_ACTIVE_PRICE still holds.
+       */
+      BANK_PLANS_JSON: z.string().optional(),
 
       /** Days a notification row is kept. Blank / unset keeps every row, and `inboxPolicy` says so. */
       NOTIFY_INBOX_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),

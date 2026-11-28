@@ -1,13 +1,13 @@
 import { lazy, Suspense } from 'react';
-import { Loading } from '../shared/ui';
+import { RoomLoading } from './RoomLoading';
 import { appCopy } from './app-copy';
 
-const TradeRoutes = lazy(() => import('../features/trade').then((module) => ({ default: module.TradeRoutes })));
+const TradeRoutes = lazy(() => import('../features/trade/TradeRoutes').then((module) => ({ default: module.TradeRoutes })));
 const PayRoutes = lazy(() => import('../features/pay').then((module) => ({ default: module.PayRoutes })));
-const MoneyRoutes = lazy(() => import('../features/money').then((module) => ({ default: module.MoneyRoutes })));
+const MoneyRoutes = lazy(() => import('../features/money/MoneyRoutes').then((module) => ({ default: module.MoneyRoutes })));
 export const preloadAccountRoutes = () => import('../features/account/AccountRoutes').then((module) => ({ default: module.AccountRoutes }));
 const AccountRoutes = lazy(preloadAccountRoutes);
-const MoreRoutes = lazy(() => import('../features/more').then((module) => ({ default: module.MoreRoutes })));
+const MoreRoutes = lazy(() => import('../features/more/MoreRoutes').then((module) => ({ default: module.MoreRoutes })));
 
 export type LegacyArea = 'money' | 'trade' | 'pay' | 'more' | 'person';
 
@@ -32,15 +32,7 @@ export function LegacyRoom({ area, path }: { area: LegacyArea; path: string }) {
     );
   return (
     <div className={area === 'pay' ? 'if-business' : 'legacy-room'}>
-      <Suspense
-        fallback={
-          <div data-testid="page" className="page">
-            <Loading room label={t('Opening room')} />
-          </div>
-        }
-      >
-        {view}
-      </Suspense>
+      <Suspense fallback={<RoomLoading label={t('Opening room')} />}>{view}</Suspense>
     </div>
   );
 }

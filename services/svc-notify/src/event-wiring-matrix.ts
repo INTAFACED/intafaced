@@ -162,6 +162,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row trade.copy.skipped for the follower, the reason in words, once per follow and leader fill',
   },
   {
+    event: 'recurringBuySuspended',
+    durable: 'notify-recurring-buy-suspended',
+    subject: 'intafaced.trade.recurring_buy.paused',
+    effect: 'Inbox row trade.recurring_buy.suspended for the person, once per recurring buy and slot',
+  },
+  {
     event: 'copyStopped',
     durable: 'notify-copy-stopped',
     subject: 'intafaced.trade.copy.stopped',
@@ -173,6 +179,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     subject: 'intafaced.agents.usage_alert.crossed',
     effect:
       'Inbox row agents.usage_alert.crossed for the owner of an own agent whose monthly spend reached their alert, once per agent and month',
+  },
+  {
+    event: 'agentAlertFired',
+    durable: 'notify-agent-alert-fired',
+    subject: 'intafaced.agents.alert.triggered',
+    effect:
+      'Inbox row agents.alert.fired for the operator who stored an agent alert rule that went above its threshold, sent out of app on every confirmed channel, once per rule and window',
   },
   {
     event: 'agentApprovalRequested',
@@ -237,6 +250,38 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     durable: 'notify-venue-delisting',
     subject: 'intafaced.trade.venue_delisting.created',
     effect: 'One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key',
+  },
+  {
+    event: 'venueRiskAlerted',
+    durable: 'notify-venue-risk-alert',
+    subject: 'intafaced.trade.venue_risk_alert.crossed',
+    effect:
+      'One inbox row for the person per margin alert, margin call or liquidation alert on a venue position, once per alert key, sent out of app',
+  },
+  {
+    event: 'coreOpsReconciliationAlertOpened',
+    durable: 'notify-recon-alert-opened',
+    subject: 'intafaced.core-ops.reconciliation_alert.opened',
+    effect: 'One reconciliation alert feed row when an alert is opened, once per business key (no inbox row, no out-of-app send)',
+  },
+  {
+    event: 'coreOpsReconciliationAlertUpdated',
+    durable: 'notify-recon-alert-updated',
+    subject: 'intafaced.core-ops.reconciliation_alert.updated',
+    effect:
+      'One reconciliation alert feed row when an alert is acknowledged, snoozed, unsnoozed or reopened, once per business key (no inbox row, no out-of-app send)',
+  },
+  {
+    event: 'coreOpsReconciliationAlertResolved',
+    durable: 'notify-recon-alert-resolved',
+    subject: 'intafaced.core-ops.reconciliation_alert.resolved',
+    effect: 'One reconciliation alert feed row when an alert is resolved, once per business key (no inbox row, no out-of-app send)',
+  },
+  {
+    event: 'coreOpsReconciliationAlertAccepted',
+    durable: 'notify-recon-alert-accepted',
+    subject: 'intafaced.core-ops.reconciliation_alert.accepted',
+    effect: 'One reconciliation alert feed row when an alert is accepted, once per business key (no inbox row, no out-of-app send)',
   },
 ] as const;
 

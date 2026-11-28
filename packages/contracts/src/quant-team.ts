@@ -59,25 +59,6 @@ export const quantTeamSchema = z.object({
 });
 export type QuantTeam = z.infer<typeof quantTeamSchema>;
 
-export const quantTeamSetInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  memberId: z.string().trim().min(1).max(64),
-  role: z.enum(QUANT_TEAM_ROLES),
-  liveControl: z.boolean(),
-});
-
-export const quantTeamRemoveInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  memberId: z.string().guid(),
-});
-
-export const quantSupportGrantInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  seconds: z.number().int(),
-  /** The grants the screen read: the key of this grant is `quant.grant:<strategy>:<seq>`, so a retry is the same grant. */
-  seq: z.number().int().min(0),
-});
-
 /** One strategy shared with the caller, as their list shows it. */
 export const quantSharedStrategySchema = z.object({
   strategyId: z.string(),
@@ -103,14 +84,6 @@ export const quantSharedOpenSchema = z.object({
   lock: quantEditLockSchema,
 });
 export type QuantSharedOpen = z.infer<typeof quantSharedOpenSchema>;
-
-export const quantTeamSaveInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  /** The version the screen read: the save's key is `quant.team.save:<strategy>:<member>:v<n>`. */
-  baseVersion: z.number().int().positive(),
-  name: z.string().trim().min(1).max(128),
-  releaseNote: z.string().max(2000).optional(),
-});
 
 /** `ops.strategy.source`, support's read: source only under an active grant, else metadata only. */
 export const quantSupportSourceSchema = z.object({

@@ -1,14 +1,18 @@
+// volt-room: /dex/pools/new
 import { useEffect, useId, useMemo, useState } from 'react';
 import { POOL_FEE_CAP_BPS } from '@intafaced/contracts/protocol-liquidity';
+import { Button, Field } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { ServiceOffNotice } from '../../../shared/service-off';
-import { Button, Field, Loading, Panel } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { networkLabel } from '../blockers';
-import { WatchShell } from '../watch/AddressPage';
+import { Banner } from '../volt/frame';
+import { Loading, Panel } from '../volt/parts';
+import { watchCopy } from '../watch/copy';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { liquidityCopy } from './copy';
 import { amountText, bpsPercent, percentToBps, priceText, toUnits } from './format';
@@ -143,7 +147,7 @@ export function NewPool() {
   const ready =
     !busy && !!wallet.address && !!a && !!b && a.address !== b.address && unitsA !== null && unitsB !== null && usableFee !== null;
   const select = (id: string, label: string, value: string, set: (v: string) => void) => (
-    <label className="field">
+    <label className="lt-field">
       <span id={id}>{label}</span>
       <select value={value} onChange={(event) => set(event.target.value)} aria-labelledby={id}>
         <option value="">{t('chooseToken')}</option>
@@ -157,98 +161,115 @@ export function NewPool() {
   );
 
   return (
-    <WatchShell title={t('newTitle')} description={t('network', { network })}>
-      {signing.panel}
-      <Panel title={t('newTitle')}>
-        {!wallet.address && <NoWalletNote t={t} />}
-        {noNetwork && <ServiceOffNotice code="rail.crypto" action={t('actionCreate')} role="status" />}
-        {pairs.resource.status === 'loading' && <Loading label={t('newTitle')} />}
-        <form
-          aria-label={t('newTitle')}
-          className="protocol-quote"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void create();
-          }}
-        >
-          {select(ids.a, t('firstToken'), tokenA, setTokenA)}
-          {select(ids.b, t('secondToken'), tokenB, setTokenB)}
-          <label className="field">
-            <span id={ids.tier}>{t('feeTier')}</span>
-            <select value={tier} onChange={(event) => setTier(event.target.value)} aria-labelledby={ids.tier}>
-              <option value="">{t('chooseTier')}</option>
-              {tierList.map((bps) => (
-                <option key={bps} value={String(bps)}>
-                  {`${bpsPercent(bps)}%`}
-                </option>
-              ))}
-              <option value={CUSTOM}>{t('customTier')}</option>
-            </select>
-          </label>
-          {tiersUnset && <p role="note">{t('tiersUnset')}</p>}
-          {tiers.resource.status === 'failed' && !tiersUnset && (
-            <p role="note">{t('tiersUnread', { reason: tiers.resource.failure.message })}</p>
-          )}
-          {tier === CUSTOM && (
-            <Field
-              label={t('customFee')}
-              hint={t('customFeeHint')}
-              inputMode="decimal"
-              value={customFee}
-              onChange={(event) => setCustomFee(event.target.value)}
-            />
-          )}
-          {feeProblem && <p role="alert">{feeProblem}</p>}
-          {existing ? (
-            <>
-              <p role="status">{t('exists')}</p>
-              <p className="muted">{t('existsNote')}</p>
-              <a className="button button--primary" href={`/dex/pools/${existing.toLowerCase()}/add`}>
-                {t('addLiquidity')}
-              </a>
-            </>
-          ) : (
-            <>
-              <Field
-                label={t('firstAmount')}
-                hint={a?.name}
-                inputMode="decimal"
-                value={amountA}
-                onChange={(event) => setAmountA(event.target.value)}
-              />
-              <Field
-                label={t('secondAmount')}
-                hint={b?.name}
-                inputMode="decimal"
-                value={amountB}
-                onChange={(event) => setAmountB(event.target.value)}
-              />
-              {a && b && unitsA !== null && unitsB !== null && (
-                <p className="numeric" data-testid="starting-price">
-                  {t('startingPrice', { a: a.name, price: priceText(unitsA, a.decimals, unitsB, b.decimals), b: b.name })}
+    <div lang={watchCopy.forLocale(language).renderedLocale}>
+      <FlowTemplate
+        title={t('newTitle')}
+        description={t('network', { network })}
+        state={{ kind: 'ready' }}
+        step={
+          <div className="lt-stack">
+            <Banner />
+            {signing.panel}
+            <Panel title={t('newTitle')}>
+              {!wallet.address && <NoWalletNote t={t} />}
+              {noNetwork && <ServiceOffNotice code="rail.crypto" action={t('actionCreate')} role="status" />}
+              {pairs.resource.status === 'loading' && <Loading label={t('newTitle')} />}
+              <form
+                aria-label={t('newTitle')}
+                className="lt-stack"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void create();
+                }}
+              >
+                {select(ids.a, t('firstToken'), tokenA, setTokenA)}
+                {select(ids.b, t('secondToken'), tokenB, setTokenB)}
+                <label className="lt-field">
+                  <span id={ids.tier}>{t('feeTier')}</span>
+                  <select value={tier} onChange={(event) => setTier(event.target.value)} aria-labelledby={ids.tier}>
+                    <option value="">{t('chooseTier')}</option>
+                    {tierList.map((bps) => (
+                      <option key={bps} value={String(bps)}>
+                        {`${bpsPercent(bps)}%`}
+                      </option>
+                    ))}
+                    <option value={CUSTOM}>{t('customTier')}</option>
+                  </select>
+                </label>
+                {tiersUnset && <p role="note">{t('tiersUnset')}</p>}
+                {tiers.resource.status === 'failed' && !tiersUnset && (
+                  <p role="note">{t('tiersUnread', { reason: tiers.resource.failure.message })}</p>
+                )}
+                {tier === CUSTOM && (
+                  <Field
+                    label={t('customFee')}
+                    hint={t('customFeeHint')}
+                    inputMode="decimal"
+                    value={customFee}
+                    onChange={(event) => setCustomFee(event.target.value)}
+                  />
+                )}
+                {feeProblem && <p role="alert">{feeProblem}</p>}
+                {existing ? (
+                  <>
+                    <p role="status">{t('exists')}</p>
+                    <p className="lt-muted">{t('existsNote')}</p>
+                    <a className="lt-button lt-button-primary" href={`/dex/pools/${existing.toLowerCase()}/add`}>
+                      {t('addLiquidity')}
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <Field
+                      label={t('firstAmount')}
+                      hint={a?.name}
+                      inputMode="decimal"
+                      value={amountA}
+                      onChange={(event) => setAmountA(event.target.value)}
+                    />
+                    <Field
+                      label={t('secondAmount')}
+                      hint={b?.name}
+                      inputMode="decimal"
+                      value={amountB}
+                      onChange={(event) => setAmountB(event.target.value)}
+                    />
+                    {a && b && unitsA !== null && unitsB !== null && (
+                      <p className="lt-num" data-testid="starting-price">
+                        {t('startingPrice', { a: a.name, price: priceText(unitsA, a.decimals, unitsB, b.decimals), b: b.name })}
+                      </p>
+                    )}
+                    <p className="lt-muted">{t('firstDepositor')}</p>
+                    <Button tone="primary" type="submit" disabled={!ready}>
+                      {t('createPool')}
+                    </Button>
+                  </>
+                )}
+              </form>
+              {created && (
+                <p role="status">
+                  {t('created', { address: created })}{' '}
+                  <a className="lt-link" href={`/dex/pools/${created.toLowerCase()}`}>
+                    {created}
+                  </a>
                 </p>
               )}
-              <p className="muted">{t('firstDepositor')}</p>
-              <Button type="submit" disabled={!ready}>
-                {t('createPool')}
-              </Button>
-            </>
-          )}
-        </form>
-        {created && (
-          <p role="status">
-            {t('created', { address: created })} <a href={`/dex/pools/${created.toLowerCase()}`}>{created}</a>
-          </p>
-        )}
-        {problem && 'words' in problem && <p role="alert">{problem.words}</p>}
-        {signing.gateProblem && <p role="alert">{signing.gateProblem}</p>}
-      </Panel>
-      <Button variant="secondary" onClick={() => navigate('/dex/pools')}>
-        {t('backToPools')}
-      </Button>{' '}
-      <Button variant="secondary" onClick={() => navigate('/dex')}>
-        {t('backToDex')}
-      </Button>
-    </WatchShell>
+              {problem && 'words' in problem && <p role="alert">{problem.words}</p>}
+              {signing.gateProblem && <p role="alert">{signing.gateProblem}</p>}
+            </Panel>
+          </div>
+        }
+        actions={
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => navigate('/dex/pools')}>
+              {t('backToPools')}
+            </Button>
+            <Button tone="secondary" onClick={() => navigate('/dex')}>
+              {t('backToDex')}
+            </Button>
+          </div>
+        }
+      />
+    </div>
   );
 }

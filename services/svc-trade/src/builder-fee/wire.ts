@@ -9,9 +9,10 @@ import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { env } from '../env.js';
 import type { JobHost } from '../futures/job-host.js';
+import { AccountPace, accountPaceSetting } from '../venue/account-pace.js';
 import { SqlPreparedActionStore } from '../venue/prepared-action-store.js';
 import { parseBuilderFee, type UserVenueDoor } from '../venue/user-venue-door.js';
-import type { UserVenue } from '@intafaced/venue-contracts';
+import type { UserVenue, UserVenueAccount } from '@intafaced/venue-contracts';
 import { collectBuilderFees, type BuilderFeeClaimReader } from './builder-fee-collect.js';
 import { SqlOwnFundsSweepStore } from './own-funds-sweep-store.js';
 import { sweepOwnFunds, type OwnFundsSweepDeps } from './own-funds-sweep.js';
@@ -21,6 +22,9 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { postBuilderFees, type BuilderFeePosterDeps } from './builder-fee-poster.js';
 import { builderFeeRecon, type BuilderFeeReconDeps } from './builder-fee-recon.js';
 import { SqlBuilderFeeStore } from './builder-fee-store.js';
+import { checkBuilderModes, parseAlertContact, type BuilderModeDeps } from './builder-mode.js';
+import { SqlBuilderModeAlertStore } from './builder-mode-store.js';
+import { BUILDER_MODE_ALERTS_LISTED } from '@intafaced/contracts/trade-builder-mode-procedures';
 
 export function wireBuilderFees(deps: {
   sql: Sql;
@@ -32,7 +36,42 @@ export function wireBuilderFees(deps: {
   const { sql, ledger, userVenue, userVenueDoors, log } = deps;
   const builderFeeStore = new SqlBuilderFeeStore(sql);
   const venueActions = new SqlPreparedActionStore(sql);
+  // J-ops-console-28: our builder address's mode at each venue, checked on the job host and on every read of the console's
+  // view; one alert per episode out of the required mode, to the owner's named contact.
+  const builderModeAlerts = new SqlBuilderModeAlertStore(sql);
+  const builderMode: BuilderModeDeps = {
+    doors: userVenueDoors,
+    builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS)?.address ?? null,
+    contact: parseAlertContact(env.TRADE_BUILDER_MODE_ALERT_CONTACT),
+    store: builderModeAlerts,
+    onOpened: (alert) =>
+      log.error(
+        {
+          alert: 'trade.builder_mode_not_collected',
+          escalatedTo: alert.contact,
+          venueId: alert.venueId,
+          builder: alert.builder,
+          mode: alert.modeSeen,
+          required: alert.requiredMode,
+        },
+        'builder fees not collected: our builder address left the mode the venue requires',
+      ),
+    onCleared: (alert) =>
+      log.warn(
+        {
+          job: 'venue.builder_mode',
+          cleared: 'trade.builder_mode_not_collected',
+          venueId: alert.venueId,
+          builder: alert.builder,
+          mode: alert.clearedMode,
+        },
+        'builder mode alert cleared: our builder address is in the required mode again',
+      ),
+    now: () => new Date(),
+  };
   const builderFees = {
+    /** One person's builder fees on one venue account, with each fee's ledger transaction (J-derivatives-12 #4). */
+    ofUser: (userId: string, account: UserVenueAccount, since: Date) => builderFeeStore.ofUser(userId, account, since),
     recon: (from: Date, to: Date) =>
       builderFeeRecon(
         {
@@ -47,19 +86,47 @@ export function wireBuilderFees(deps: {
         from,
         to,
       ),
+    /** Our builder address's mode at each venue, checked now, and the latest alerts (J-ops-console-28). */
+    accountMode: async () => {
+      const check = await checkBuilderModes(builderMode);
+      return { ...check, asOf: new Date(), alerts: await builderModeAlerts.recent(BUILDER_MODE_ALERTS_LISTED) };
+    },
   };
 
   /** The poster and the recon on the futures job host; index.ts calls it where they have always been scheduled. */
   function scheduleJobs(host: JobHost): void {
+    if (userVenueDoors.length > 0 && builderMode.builder !== null) {
+      host.every('venue.builder_mode', env.TRADE_BUILDER_MODE_CHECK_INTERVAL_MS, async () => {
+        const check = await checkBuilderModes(builderMode);
+        if (check.alerting.status === 'refused' && check.venues.some((v) => v.verdict === 'not_collected')) {
+          log.warn(
+            {
+              job: 'venue.builder_mode',
+              reason: check.alerting.code,
+              venues: check.venues.filter((v) => v.verdict === 'not_collected').map((v) => v.venueId),
+            },
+            'builder fees not collected, and no alert contact is named',
+          );
+        }
+      });
+    }
     // Our builder fee on our users' venue fills, posted once per fill while the door is on (D-venue-07), on every venue an
     // order can be routed to (J-derivatives-28): each venue's accounts, fills and keys are its own, so one venue that can't
     // be read or stops its run leaves the others' fills posted, and the job still fails for the next tick to retry it.
     if (userVenueDoors.length > 0 && env.TRADE_BUILDER_FEE_POSTER === 'on') {
+      const perMinute = accountPaceSetting(
+        env.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE,
+        'TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE',
+      );
+      // One pace per venue: each venue limits its own reads.
+      const paces = new Map(userVenueDoors.map((door) => [door, perMinute === null ? null : new AccountPace(perMinute, () => new Date())]));
       host.every('venue.builder_fees', env.TRADE_BUILDER_FEE_POSTER_INTERVAL_MS, async () => {
         const stopped: unknown[] = [];
         for (const door of userVenueDoors) {
+          const pace = paces.get(door) ?? null;
           try {
             const run = await postBuilderFees({
+              ...(pace ? { pace } : {}),
               venue: () => door.venue(),
               ledger,
               store: builderFeeStore,

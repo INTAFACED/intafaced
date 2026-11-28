@@ -25,7 +25,27 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 vi.mock('../../features/session/session', () => ({
-  useSession: () => ({ userId: 'u1', api: { query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) } }),
+  useSession: () => ({
+    userId: 'u1',
+    api: {
+      query: () => new Promise(() => {}),
+      mutate: () => new Promise(() => {}),
+      call(
+        this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+        record: { kind: string; module: string; path: string; output: unknown },
+        input?: unknown,
+        opts?: unknown,
+      ) {
+        return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+          record.module,
+          record.path,
+          input,
+          record.output,
+          opts,
+        ]);
+      },
+    },
+  }),
 }));
 // The chart's own order controls read open orders through the desk's data; these tests place none.
 vi.mock('../trade/desk/data', () => ({
@@ -63,6 +83,10 @@ vi.mock('./market-state', async (original) => ({
 vi.mock('./history', async (original) => ({
   ...(await original<typeof import('./history')>()),
   useChartHistory: () => ({ state: world.history, load: async () => world.history, oldestReachable: 0 }),
+}));
+vi.mock('./venue-charts', async (original) => ({
+  ...(await original<typeof import('./venue-charts')>()),
+  useVenueChartMarkets: () => ({ status: 'off' }),
 }));
 vi.mock('./owner-values', async (original) => ({
   ...(await original<typeof import('./owner-values')>()),
@@ -387,7 +411,7 @@ describe('chart workbench', () => {
 
   it('says so for an interval the stream does not serve', async () => {
     await open('/charts/BTC-USDT', '?interval=3m', () => new FakeSocket());
-    expect(host.querySelector('[data-testid="chart-feed"]')?.textContent).toContain('This interval is read from the service');
+    expect(host.querySelector('[data-testid="chart-feed"]')?.textContent).toContain('This interval refreshes every 10 seconds');
   });
 
   it('shows the empty, error and refused states from the candle read', async () => {
@@ -439,7 +463,7 @@ describe('chart workbench', () => {
       select('Price source').dispatchEvent(new Event('change', { bubbles: true }));
     });
     const note = host.querySelector('[data-code="trade.chart.basis_unpublished"]');
-    expect(note?.textContent).toContain('can’t draw Best bid');
+    expect(note?.textContent).toContain('Best bid is unavailable here');
     expect(select('Price source').value).toBe('last');
   });
 

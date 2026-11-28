@@ -1,3 +1,4 @@
+import { startCustodyLayer } from '../local-test-state.mjs';
 import { STATEMENT_RAILS, railStatementEnv } from '../local-test-rail-statements.mjs';
 
 /**
@@ -15,12 +16,16 @@ function outsideSnapshot() {
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'ledger',
+  // The Rust binary (crates/svc-ledger), built by the stack (ensureRustBinaries); it applies its own migrations
+  // (`svc-ledger migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-ledger', PORTS.ledger),
     DATABASE_URL: dbUrl('svc_ledger', secrets),
     LEDGER_POSTING_ENABLED: 'true',
-    // The TEST stack runs the custodial layer for the journeys marked Later (OWNER 226 keeps it built, switched off at launch).
-    LEDGER_CUSTODY_LAYER: 'on',
+    // The stack's one custody switch (startCustodyLayer): on for the journeys marked Later (OWNER 226 keeps it built,
+    // switched off at launch); `LOCAL_STACK_CUSTODY_LAYER=off` on a start runs it as launch does (the beta, #11019).
+    LEDGER_CUSTODY_LAYER: startCustodyLayer(),
     // LOCAL TEST bound, not an owner decision: this process's clock may drift this far from the database's before a post
     // refuses, and a joint-restore cut-off must be this far past before the ledger fixes its position as of it.
     LEDGER_CLOCK_SKEW_BOUND_MS: '1000',
@@ -33,6 +38,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // (local-test-rail-statements.mjs), so a per-rail outside control compares rail:<rail> with the rail's own word.
     // Rail local-test is the TEST mint and has none.
     ...Object.fromEntries(STATEMENT_RAILS.map((rail) => [railStatementEnv(rail), `${urlOf('rail-statements')}/statement`])),
+    // LOCAL TEST: the TEST venue and TEST partner report their side of our own records from their own lines
+    // (local-test-own-reports.mjs), so a report control compares the ledger with what each of them said (J-ops-console-07 #4).
+    LEDGER_RECONCILE_REPORT_VENUE_URL: `${urlOf('rail-statements')}/report`,
+    LEDGER_RECONCILE_REPORT_PARTNER_URL: `${urlOf('rail-statements')}/report`,
     // LOCAL TEST: crypto-native's open items are the custody deposits svc-pay holds open, read over its signed door.
     LEDGER_RECONCILE_OPEN_ITEMS_CRYPTO_NATIVE_URL: `${urlOf('pay')}/internal/custody/open-items`,
   }),

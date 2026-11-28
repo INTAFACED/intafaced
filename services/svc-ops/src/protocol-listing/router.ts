@@ -1,25 +1,22 @@
 import { TRPCError } from '@trpc/server';
-import {
-  protocolOpsActionResultSchema,
-  protocolOpsHiddenOutputSchema,
-  protocolOpsMarketDelistInputSchema,
-  protocolOpsMarketRestoreInputSchema,
-  protocolOpsMarketsListOutputSchema,
-  protocolOpsPoolHideInputSchema,
-  protocolOpsPoolRestoreInputSchema,
-  protocolOpsPoolsListOutputSchema,
-  protocolOpsReasonCodesOutputSchema,
-  protocolOpsReasonCodesSetInputSchema,
-  publicProcedure,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+import { protocolOpsHiddenOutputSchema } from '@intafaced/contracts/protocol-ops';
+import { publicProcedure, router } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED, OpsError } from '../codes.js';
 import type { ListingDesk } from './wiring.js';
 import type { ReasonCodesInForce } from './reason-codes.js';
 import type { ListingRow } from './store.js';
-
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
+import {
+  OPS_PROTOCOL_LISTING_POOLS_LIST,
+  OPS_PROTOCOL_LISTING_MARKETS_LIST,
+  OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+  OPS_PROTOCOL_LISTING_POOLS_HIDE,
+  OPS_PROTOCOL_LISTING_POOLS_RESTORE,
+  OPS_PROTOCOL_LISTING_MARKETS_DELIST,
+  OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+  OPS_PROTOCOL_LISTING_REASON_CODES_SET,
+} from '@intafaced/contracts/ops-protocol-listing-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 function deskError(err: unknown): never {
   if (err instanceof OpsError) {
@@ -67,9 +64,9 @@ const hiddenOf = (row: ListingRow) =>
 export function createProtocolListingRouter(desk: ListingDesk | undefined) {
   return router({
     pools: router({
-      list: scopedProcedure('admin:read', guards)
-        .output(protocolOpsPoolsListOutputSchema)
-        .query(async () => {
+      list: mountRecord(
+        OPS_PROTOCOL_LISTING_POOLS_LIST,
+        async () => {
           try {
             const d = require(desk);
             const rows = await d.store.list('pool');
@@ -80,32 +77,36 @@ export function createProtocolListingRouter(desk: ListingDesk | undefined) {
           } catch (err) {
             return deskError(err);
           }
-        }),
-      hide: scopedProcedure('admin:write', guards)
-        .input(protocolOpsPoolHideInputSchema)
-        .output(protocolOpsActionResultSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        opsRefusal,
+      ),
+      hide: mountRecord(
+        OPS_PROTOCOL_LISTING_POOLS_HIDE,
+        async ({ ctx, input }) => {
           try {
             return await require(desk).desk.hidePool(ctx.principal.userId, input);
           } catch (err) {
             return deskError(err);
           }
-        }),
-      restore: scopedProcedure('admin:write', guards)
-        .input(protocolOpsPoolRestoreInputSchema)
-        .output(protocolOpsActionResultSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        opsRefusal,
+      ),
+      restore: mountRecord(
+        OPS_PROTOCOL_LISTING_POOLS_RESTORE,
+        async ({ ctx, input }) => {
           try {
             return await require(desk).desk.restorePool(ctx.principal.userId, input);
           } catch (err) {
             return deskError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
     }),
     markets: router({
-      list: scopedProcedure('admin:read', guards)
-        .output(protocolOpsMarketsListOutputSchema)
-        .query(async () => {
+      list: mountRecord(
+        OPS_PROTOCOL_LISTING_MARKETS_LIST,
+        async () => {
           try {
             const d = require(desk);
             const rows = await d.store.list('market');
@@ -113,54 +114,61 @@ export function createProtocolListingRouter(desk: ListingDesk | undefined) {
           } catch (err) {
             return deskError(err);
           }
-        }),
-      delist: scopedProcedure('admin:write', guards)
-        .input(protocolOpsMarketDelistInputSchema)
-        .output(protocolOpsActionResultSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        opsRefusal,
+      ),
+      delist: mountRecord(
+        OPS_PROTOCOL_LISTING_MARKETS_DELIST,
+        async ({ ctx, input }) => {
           try {
             return await require(desk).desk.delistMarket(ctx.principal.userId, input);
           } catch (err) {
             return deskError(err);
           }
-        }),
-      restore: scopedProcedure('admin:write', guards)
-        .input(protocolOpsMarketRestoreInputSchema)
-        .output(protocolOpsActionResultSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        opsRefusal,
+      ),
+      restore: mountRecord(
+        OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+        async ({ ctx, input }) => {
           try {
             return await require(desk).desk.restoreMarket(ctx.principal.userId, input);
           } catch (err) {
             return deskError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
     }),
     /**
      * The reasons a hide or delist may name. Reading is `admin:read`; replacing the whole list is `admin:write` and is logged with
      * who made it. The list in force is the newest edit, else the deployment setting, else the built-in default.
      */
     reasonCodes: router({
-      list: scopedProcedure('admin:read', guards)
-        .output(protocolOpsReasonCodesOutputSchema)
-        .query(async () => {
+      list: mountRecord(
+        OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+        async () => {
           try {
             const d = require(desk);
             return reasonCodesOutput(await d.reasonCodes.inForce(), d.now());
           } catch (err) {
             return deskError(err);
           }
-        }),
-      set: scopedProcedure('admin:write', guards)
-        .input(protocolOpsReasonCodesSetInputSchema)
-        .output(protocolOpsReasonCodesOutputSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        opsRefusal,
+      ),
+      set: mountRecord(
+        OPS_PROTOCOL_LISTING_REASON_CODES_SET,
+        async ({ ctx, input }) => {
           try {
             const d = require(desk);
             return reasonCodesOutput(await d.reasonCodes.set(input.codes, ctx.principal.userId), d.now());
           } catch (err) {
             return deskError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
     }),
     /**
      * The public hide list: ids only, no reason and no signer. Without storage it refuses; a reader must never take an

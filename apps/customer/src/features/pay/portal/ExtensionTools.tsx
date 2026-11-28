@@ -1,50 +1,12 @@
-import { useState, type ReactNode } from 'react';
-import { StatusTag, Button } from '@intafaced/ui';
+import { type ReactNode } from 'react';
+import { StatusTag } from '@intafaced/ui';
 import { Field } from '../ui-kit';
-import { DateTime } from './ui/DateTime';
-import { useNow, useUrlParam } from './hooks';
-import { buildCsv, downloadText } from './csv';
+import { useUrlParam } from './hooks';
 import { NotLive, SelectField } from './components';
 import { extensionCopy as c } from './extension-copy';
 
 export function Arrives({ reason, children }: { reason: string; children: ReactNode }) {
   return <NotLive reason={reason}>{children}</NotLive>;
-}
-export function PortalBack({ href = '/pay/merchant', children }: { href?: string; children?: ReactNode }) {
-  return (
-    <a className="text-link" href={href}>
-      {children ?? c.t('backHome')}
-    </a>
-  );
-}
-export { CopyReference } from './ui/CopyReference';
-
-// Keep list-window affordances shared across the extension pages.
-
-export function ReadStamp({ at }: { at: string | null }) {
-  const now = useNow();
-  if (!at) return null;
-  return (
-    <div className="pp-asof" role="status">
-      <span>
-        {c.t('readAt')} <DateTime value={at} />
-      </span>
-      {now - Date.parse(at) > 300_000 && <p className="pp-callout pp-callout--warn">{c.t('staleRead')}</p>}
-    </div>
-  );
-}
-export function WindowExport({ headers, rows, at, name }: { headers: string[]; rows: unknown[][]; at: string | null; name: string }) {
-  return (
-    <Button
-      variant="secondary"
-      disabled={!at || !rows.length}
-      onClick={() => {
-        if (at) downloadText(`${name}.csv`, buildCsv(headers, rows, { generatedAt: new Date().toISOString(), asOf: at }));
-      }}
-    >
-      {c.t('exportShown')}
-    </Button>
-  );
 }
 export const recordStates = ['active', 'revoked', 'disabled', 'pending', 'delivered', 'failed', 'dead'] as const;
 export type RecordStatus = (typeof recordStates)[number];

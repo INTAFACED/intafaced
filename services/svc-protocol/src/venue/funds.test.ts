@@ -44,7 +44,7 @@ function fakeChain(opts: {
       const key = `${call.address}:${call.functionName}`;
       if (!(key in values)) throw new Error(`unexpected read ${key}`);
       return values[key];
-    }) as unknown as VenueChain['readContract'],
+    }) as VenueChain['readContract'],
   };
 }
 

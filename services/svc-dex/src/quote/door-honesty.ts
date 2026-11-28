@@ -1,5 +1,5 @@
-import { z } from 'zod';
-import { BEST_EX_CLAIM_UNSET, refuseBestExClaim, type BestExClaimVerdict } from '@intafaced/venue-adapter';
+import type { DexDoorHonesty } from '@intafaced/contracts/dex-procedures';
+import { refuseBestExClaim, type BestExClaimVerdict } from '@intafaced/venue-adapter';
 
 /**
  * Q-dex leftover — the internal book is ledger-settled.
@@ -15,51 +15,9 @@ import { BEST_EX_CLAIM_UNSET, refuseBestExClaim, type BestExClaimVerdict } from 
  *
  * Empty `DEX_EXTERNAL_VENUES` is not a live external venue. This payload names
  * `externalVenueWired: false` rather than inventing a row.
+ *
+ * Its wire shape is svc-dex's records' (`@intafaced/contracts/dex-procedures`, `dexDoorHonestySchema`).
  */
-
-export const dexInternalBookHonestySchema = z.discriminatedUnion('enabled', [
-  z.object({
-    enabled: z.literal(true),
-    priced: z.boolean().optional(),
-    custodial: z.literal(true),
-    plane: z.literal('fiat'),
-    venueKind: z.literal('internal'),
-    amm: z.literal(false),
-  }),
-  z.object({
-    enabled: z.literal(false),
-    amm: z.literal(false),
-  }),
-]);
-
-/** Wire shape of `refuseBestExClaim` — ranking is not a certified claim. */
-export const dexBestExHonestySchema = z.union([
-  z.object({ ok: z.literal(true), claimed: z.literal(false) }),
-  z.object({
-    ok: z.literal(true),
-    claimed: z.literal(true),
-    ownerBestExLaw: z.string().min(1),
-  }),
-  z.object({
-    ok: z.literal(false),
-    reason: z.literal('best_ex_unset'),
-    code: z.literal(BEST_EX_CLAIM_UNSET),
-    detail: z.string(),
-  }),
-]);
-
-export const dexDoorHonestySchema = z.object({
-  serviceHoldsBalances: z.literal(false),
-  internalBook: dexInternalBookHonestySchema,
-  ammVenueWired: z.boolean(),
-  /** Operator `DEX_EXTERNAL_VENUES`. Default empty — not a shipped live venue. */
-  externalVenueWired: z.boolean(),
-  bestEx: dexBestExHonestySchema,
-});
-
-export type DexInternalBookHonesty = z.infer<typeof dexInternalBookHonestySchema>;
-export type DexBestExHonesty = z.infer<typeof dexBestExHonestySchema>;
-export type DexDoorHonesty = z.infer<typeof dexDoorHonestySchema>;
 
 export type DexBestExHonestyInput = {
   readonly ownerBestExLaw?: string | boolean | null;

@@ -4,14 +4,18 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, fromUnits, fund, journeyState, json, toUnits, tool } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
-import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, fromUnits, fund, journeyState, json, toUnits } from './stack.mjs';
+import { signUp, verify } from './desk.mjs';
+import { addAuthenticator } from './identity-factors.mjs';
+import { CHAIN_ID, TOKEN_USD, fundOnTestChain } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueRecord } from './venue.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
+import { bankPerson, cardsOf, staffDoors, stepUpRuleOf } from './bank-desk.mjs';
+import { data as reply } from './campaign-desk.mjs';
+import { chainTransfers, chainUsd, mineBlocks, tokenUsdUnits as usdUnits } from './chain-node.mjs';
+import { userVenue } from './venue-room.mjs';
 
 // J-bank-13, in the running app (docs/roadmap/journeys.json): I get a card. One TEST account, signed up in Germany,
 // verified and funded with TEST 100 USDT, starts on /bank/cards/new. The stack's card issuer is the simulator
@@ -40,28 +44,13 @@ import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-te
 // add is refused; with it offered, the #7 card goes into a phone wallet as the partner reports its token.
 const J = 'J-bank-13';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const { person, code, signInPerson } = bankPerson({ run, J });
 const ADDRESS = { name: 'Ada TEST', line1: '1 TEST Strasse', city: 'Berlin', postalCode: '10115', country: 'DE' };
 const MOVED = { name: 'Ada TEST', line1: '9 TEST Allee', city: 'Hamburg', postalCode: '20095', country: 'DE' };
 
 test.describe.configure({ mode: 'default' });
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
-
-function person() {
-  const { who } = run.read();
-  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
-  return who;
-}
-
-/** The next authenticator code, once #5 has set one up, keeping its step so no code is ever used twice. */
-async function code() {
-  const state = run.read();
-  if (!state.secret) return undefined;
-  const { totp } = await totpLib();
-  const next = await nextCode(totp, state.secret, state.step);
-  run.write({ step: next.step });
-  return next.code;
-}
 
 /** The person's own svc-bank API through Edge, with a session of its own (not the browser's). */
 const kept = new Map();
@@ -114,43 +103,9 @@ async function bank(who = person()) {
   return client;
 }
 
-/** Signs the person in on the page; once #5 set up an authenticator, with a fresh code too. */
-async function signInPerson(page) {
-  const who = person();
-  const totpCode = await code();
-  if (!totpCode) return signIn(page, who);
-  await page.goto('/login');
-  await page.fill('input[name=totp]', totpCode);
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: /^sign in$/i }).click();
-  await expect(page).not.toHaveURL(/\/login/);
-}
-
-let gatesCtx;
-async function founders() {
-  gatesCtx ??= (async () => {
-    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-    const ctx = await gates.makeContext({ log: () => {} });
-    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
-  })();
-  return gatesCtx;
-}
-/** One card-issuer event through the bank's ops door, approved by two founders as the simulator's stand-in requires. */
-async function cardEvent(actionType, procedure, fields) {
-  const { gates, ctx, sessions } = await founders();
-  const approval = await gates.twoPerson(ctx, sessions, {
-    actionType,
-    targetService: 'svc-bank',
-    targetId: actionType,
-    expectedVersion: '1',
-    payloadHash: gates.bankPayloadHash(actionType, fields),
-    policyVersion: gates.MARKERS.policyVersion,
-  });
-  const res = await ctx.edge.mutate('bank', procedure, { ...fields, ...approval }, await sessions.a.treasuryToken());
-  expect(res.status, res.text.slice(0, 300)).toBe(200);
-  return res.json.result.data;
-}
+const { founders, cardEvent } = staffDoors();
+const cards = cardsOf(bank);
+const stepUpRule = stepUpRuleOf(kept);
 const authorize = (cardId, amount) =>
   cardEvent('bank.card_authorize', 'ops.cardAuthorize', { cardId, authorizationRef: `jb13-${randomUUID()}`, amount });
 const capture = (cardId, authorizationRef, amount) =>
@@ -175,29 +130,9 @@ async function printer(cardId, state, carried = {}) {
   return body;
 }
 
-async function cards() {
-  const res = await (await bank()).query('cards.list', { limit: 50 });
-  expect(res.ok, JSON.stringify(res.body ?? {}).slice(0, 300)).toBe(true);
-  return res.data;
-}
 const cardOf = async (id) => (await cards()).find((card) => card.id === id);
 /** The card's own panel on /bank/cards, by its four-digit tail. */
 const panel = (page, card) => page.getByTestId(`card-${card.id}`);
-
-/** The bank's step-up rule on the stack (BANK_STEP_UP_MONEY_OUT): `required` for #5's restart only. */
-function stepUpRule(required) {
-  const key = 'LOCAL_STACK_BANK_STEP_UP_MONEY_OUT';
-  const before = process.env[key];
-  if (required) process.env[key] = 'required';
-  else delete process.env[key];
-  try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
-  } finally {
-    if (before === undefined) delete process.env[key];
-    else process.env[key] = before;
-  }
-  kept.clear();
-}
 
 test(`${J} #1 opens Cards and the product list: eligibility by country with the reason, a country off the list refused bank.card_not_eligible, the count limit and the cardholder terms`, async ({
   page,
@@ -618,11 +553,6 @@ async function ledgerTx(txId) {
 // ── #7: the cashback programme, our own money, the person's wallet ──────────────────────────────────────────────────
 
 const USDC = 'USDC';
-const reply = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
 
 /**
  * This run's TEST card cashback programme: a campaign whose one earning rule owes, for each `bank.card_cashback.earned`,
@@ -677,18 +607,6 @@ async function fundPotFromBuilderFees(amount) {
     .toBe('posted');
 }
 
-/** Restarts trade with the user-venue door on (it starts the TEST venue) or off, and puts this process's env back. */
-function userVenue(on) {
-  const before = process.env.LOCAL_STACK_USER_VENUE;
-  if (on) process.env.LOCAL_STACK_USER_VENUE = 'on';
-  else delete process.env.LOCAL_STACK_USER_VENUE;
-  try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
-    else process.env.LOCAL_STACK_USER_VENUE = before;
-  }
-}
 let doorTurnedOn = false;
 test.afterAll(() => {
   if (doorTurnedOn) userVenue(false);
@@ -744,6 +662,7 @@ async function earnBuilderFees(session) {
   );
   const buyer = `${J}-buyer-${RUN}`;
   await testDeposit(otherTraderKey(buyer).address, USDC, '400000', `seed:${buyer}:USDC`);
+  const bidKey = `order:${buyer}:bid:${Date.now()}`;
   const bid = await otherTraderRun(buyer, {
     kind: 'place_order',
     symbol: 'BTC-USDC',
@@ -753,62 +672,44 @@ async function earnBuilderFees(session) {
     price: '59990',
     timeInForce: 'GTC',
     reduceOnly: false,
-    clientOrderKey: `order:${buyer}:bid:${Date.now()}`,
+    clientOrderKey: bidKey,
     builderFee: null,
   });
   expect(bid, JSON.stringify(bid).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
-  for (let i = 0; i < sells; i += 1) {
-    await door(session, {
-      kind: 'place_order',
-      symbol: 'BTC-USDC',
-      side: 'sell',
-      type: 'limit',
-      amount: String(size),
-      price: '59990',
-      timeInForce: 'GTC',
-      reduceOnly: false,
-      clientOrderKey: `order:${J}:${RUN}:${Date.now()}:${i}`,
-      builderFee: null,
-    });
+  // The TEST maker's own bid at this price sits ahead of the buyer's in time, so the sells fill it first and part of the
+  // buyer's bid is left resting above the maker's next level. It is cancelled once the sells are done, so no later file
+  // on this stack meets a TEST bid it did not place (#8546: J-cex-spot-02 #7's sell filled at once against the remainder).
+  try {
+    for (let i = 0; i < sells; i += 1) {
+      await door(session, {
+        kind: 'place_order',
+        symbol: 'BTC-USDC',
+        side: 'sell',
+        type: 'limit',
+        amount: String(size),
+        price: '59990',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: `order:${J}:${RUN}:${Date.now()}:${i}`,
+        builderFee: null,
+      });
+    }
+    await expect
+      .poll(
+        async () => {
+          const body = await venueRecord(traderOwner, '/fills', { since: since.toISOString() });
+          return body.value.filter((f) => f.feeAsset === USDC && !/^0(\.0+)?$/.test(f.builderFee)).length;
+        },
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(sells);
+  } finally {
+    const left = (await venueRecord(otherTraderKey(buyer).address, '/open-orders')).value.filter((o) => o.symbol === 'BTC-USDC');
+    if (left.length) await otherTraderRun(buyer, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: bidKey });
   }
-  await expect
-    .poll(
-      async () => {
-        const body = await venueRecord(traderOwner, '/fills', { since: since.toISOString() });
-        return body.value.filter((f) => f.feeAsset === USDC && !/^0(\.0+)?$/.test(f.builderFee)).length;
-      },
-      { timeout: 30_000 },
-    )
-    .toBeGreaterThanOrEqual(sells);
+  // Nothing of the buyer's rests on BTC-USDC now, as the venue's own record says.
+  expect((await venueRecord(otherTraderKey(buyer).address, '/open-orders')).value.filter((o) => o.symbol === 'BTC-USDC')).toEqual([]);
   return status.builder.address;
-}
-
-/** TEST USD (base units) `address` holds on the TEST chain, read from the node itself. */
-async function chainUsd(address) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_call',
-      params: [{ to: TOKEN_USD.address, data: `0x70a08231${address.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'],
-    }),
-  });
-  return BigInt((await res.json()).result);
-}
-
-/** Mines `n` empty blocks on the stack's TEST chain (`evm_mine`, the TEST chain's own control). */
-async function mineBlocks(n) {
-  for (let i = 0; i < n; i += 1) {
-    const res = await fetch(testChain().gateUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'evm_mine', params: [] }),
-    });
-    const body = await res.json();
-    if (body.error) throw new Error(`evm_mine: ${JSON.stringify(body.error)}`);
-  }
 }
 
 /**
@@ -841,28 +742,6 @@ async function claimOurBuilderFees(builder) {
   const claimed = await testVenue('/test/builder-claim', { builder });
   expect(claimed.status, JSON.stringify(claimed.body)).toBe(200);
 }
-
-const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-/** The TEST chain's own receipt of `txHash`: the token transfers it made, as { token, to, value } (read from the chain). */
-async function chainTransfers(txHash) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [txHash] }),
-  });
-  const receipt = (await res.json()).result;
-  expect(receipt, `the TEST chain has a receipt for ${txHash}`).toBeTruthy();
-  expect(receipt.status).toBe('0x1');
-  return receipt.logs
-    .filter((l) => l.topics[0] === TRANSFER_TOPIC)
-    .map((l) => ({ token: l.address.toLowerCase(), to: `0x${l.topics[2].slice(26)}`, value: BigInt(l.data) }));
-}
-
-/** A decimal TEST USD amount in the token's base units (6 decimals), exactly. */
-const usdUnits = (amount) => {
-  const [w, f = ''] = amount.split('.');
-  return BigInt(w + f.padEnd(TOKEN_USD.decimals, '0'));
-};
 
 /** The person's own campaigns API through Edge, on the bank client's session. */
 async function campaignsAs(api, procedure, input) {

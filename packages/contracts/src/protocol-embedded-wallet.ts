@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Wire types for the embedded self-custody wallet (J-wallet-22), version 1: svc-protocol's `embeddedWallet.*`, signed in.
  *
- * A person gets their own wallet with a passkey and no seed phrase (OWNER 237). The key is made and kept by the owner's
+ * A person gets their own wallet with a passkey and no seed phrase. The key is made and kept by the owner's
  * embedded-wallet provider and signs only after the person's own passkey; INTAFACED's record holds the address and the
  * provider's wallet id, never key material. The record has no key field, and the provider is reached through one
  * adapter behind a provider interface, so the provider the owner picks plugs in as one adapter. Export and recovery are
@@ -39,6 +39,19 @@ export const embeddedWalletPasskeySchema = z.object({
   publicKey: base64url.max(400),
   /** COSE algorithm. ES256 (-7) only. */
   algorithm: z.literal(-7),
+  /**
+   * The passkey's WebAuthn registration, which a provider that binds a passkey only from its registration needs (the
+   * owner's provider does): the challenge the page made it with, its client data and its attestation object, and how
+   * the device reaches it. None of it can sign. Omitted, such a provider refuses the passkey and nothing is made.
+   */
+  registration: z
+    .object({
+      challenge: base64url.max(200),
+      clientDataJson: base64url.max(4000),
+      attestationObject: base64url.max(8000),
+      transports: z.array(z.enum(['ble', 'internal', 'nfc', 'usb', 'hybrid', 'smart-card'])).max(6),
+    })
+    .optional(),
 });
 export type EmbeddedWalletPasskey = z.infer<typeof embeddedWalletPasskeySchema>;
 
@@ -68,11 +81,19 @@ export const protocolEmbeddedWalletRecordSchema = z.object({
 });
 export type ProtocolEmbeddedWalletRecord = z.infer<typeof protocolEmbeddedWalletRecordSchema>;
 
+/**
+ * The owner's gas-sponsor setting is blank (J-wallet-24 #2): INTAFACED pays no one's network fee, so no sponsored deposit
+ * is offered, and a person whose wallet holds none of the chain's gas token adds it themselves.
+ */
+export const GAS_SPONSOR_UNSET = 'wallet.gas_sponsor_unset' as const;
+
 export const protocolEmbeddedWalletStatusOutputSchema = z.object({
   /** Null while the owner's provider setting is blank: creating refuses `wallet.embedded_provider_unset`. */
   provider: protocolEmbeddedWalletProviderSchema.nullable(),
   /** The person's one wallet, or null when they have none yet. */
   wallet: protocolEmbeddedWalletRecordSchema.nullable(),
+  /** Whether INTAFACED pays the network fee of a deposit: never while the owner's setting is blank. */
+  gasSponsor: z.object({ set: z.literal(false), code: z.literal(GAS_SPONSOR_UNSET) }),
 });
 export type ProtocolEmbeddedWalletStatus = z.infer<typeof protocolEmbeddedWalletStatusOutputSchema>;
 
@@ -85,3 +106,22 @@ export const protocolEmbeddedWalletCreateOutputSchema = z.object({
 
 /** The business key one person's embedded wallet is made under. One per person, ever. */
 export const embeddedWalletKey = (personId: string) => `wallet:embedded:${personId}`;
+
+/**
+ * How one signature request at the owner's wallet provider ended, as the person's own page saw it. The page
+ * signs at the provider directly, so this is the only way the stack learns that the provider has started refusing:
+ * `signed` it signed; `quota` it answered 429, over its signing limit, which the person cannot fix; `refused` any other
+ * refusal; `down` no answer or a server error. Nothing about the payload, the signature or the passkey travels.
+ */
+export const EMBEDDED_PROVIDER_OUTCOMES = ['signed', 'quota', 'refused', 'down'] as const;
+export type EmbeddedProviderOutcome = (typeof EMBEDDED_PROVIDER_OUTCOMES)[number];
+
+export const protocolEmbeddedWalletOutcomeInputSchema = z.object({
+  outcome: z.enum(EMBEDDED_PROVIDER_OUTCOMES),
+  /** The provider's HTTP status, or null when it did not answer. */
+  status: z.number().int().min(100).max(599).nullable(),
+});
+export const protocolEmbeddedWalletOutcomeOutputSchema = z.object({
+  /** False when the person has no wallet at a provider outside the stack, so there was nothing to count. */
+  recorded: z.boolean(),
+});

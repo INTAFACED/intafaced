@@ -42,6 +42,17 @@ const offer = (patch: Partial<Offer>): Offer => ({
   terms: '',
   status: 'active',
   createdAt: '2026-10-24T05:00:00.000Z',
+  totalAmount: '500',
+  filledAmount: '0',
+  tradesCompleted: 0,
+  nonInstantMethods: [],
+  acceptsNonInstant: false,
+  releaseWindowSeconds: null,
+  pauseReason: null,
+  closeReason: null,
+  visibility: 'public',
+  statusSince: '2026-10-17T00:00:00Z',
+  relistedFrom: null,
   ...patch,
 });
 const trade = (settlement: Trade['settlement']): Trade => ({
@@ -62,6 +73,10 @@ const trade = (settlement: Trade['settlement']): Trade => ({
   escrowedAt: '2026-10-24T05:00:01.000Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...(settlement ? { settlement } : {}),
 });
 

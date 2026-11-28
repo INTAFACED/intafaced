@@ -1,0 +1,92 @@
+{
+  "blank GET /markets valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "blank GET /markets valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  },
+  "set GET /markets valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"markets\":[\"BTC-USDT\"],\"venueHalted\":false,\"halted\":[],\"haltedSince\":{},\"venueHaltedSince\":null,\"prelaunch\":[],\"expired\":[],\"delisted\":[],\"reduceOnly\":[],\"postOnly\":[]}"
+  }
+}

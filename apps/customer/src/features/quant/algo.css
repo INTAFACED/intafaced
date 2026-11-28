@@ -110,3 +110,83 @@
 .quant-source [data-op='added'] {
   color: var(--if-up-text);
 }
+
+/* The Data room (J-algo-dev-16 #2): one coverage bar per dataset; a gap is the bar's own background, never filled. */
+.quant-lake-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--if-space-3);
+}
+.quant-lake-symbol {
+  display: grid;
+  gap: var(--if-space-2);
+  margin-block: var(--if-space-3);
+}
+.quant-lake-dataset {
+  display: grid;
+  gap: var(--if-space-1);
+}
+.quant-lake-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--if-space-0-5) var(--if-space-3);
+  margin: 0;
+}
+.quant-lake-bar {
+  position: relative;
+  block-size: 0.75rem;
+  background: var(--if-panel);
+  border-radius: var(--if-r-sm);
+  overflow: hidden;
+}
+.quant-lake-covered {
+  position: absolute;
+  inset-block: 0;
+  background: var(--if-lime);
+}
+
+/* The Preview editor's gutter: each line's number (or its breakpoint) in a fixed column apart from the code. */
+.preview-code .preview-gutter {
+  min-inline-size: 2rem;
+  min-block-size: 1.75rem;
+  margin-inline-end: var(--if-space-2);
+  text-align: end;
+}
+
+.preview-code code {
+  font-family: var(--lit-font-mono);
+}
+
+/* The tester's controls: the link to the real backtest keeps its own space after the two buttons. */
+.preview-controls {
+  align-items: center;
+}
+.preview-controls > .lt-link {
+  margin-inline-start: var(--if-space-2);
+}
+
+/* The optimiser's sample passes fit a phone: headers may wrap, cells keep a small inline gap, figures end-aligned
+   under their headers. */
+table.preview-passes {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.preview-passes :is(th, td) {
+  padding-inline: var(--if-space-1);
+  white-space: normal;
+  text-align: end;
+}
+.preview-passes :is(th, td):first-child {
+  padding-inline-start: 0;
+  text-align: start;
+}
+.preview-passes :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+/* What follows a button sits clear of it, never on its edge: the save state, an engine's sample log (look gate, #10890). */
+.quant-save > p,
+.more-columns .button + * {
+  margin-block-start: var(--lit-gap-item);
+}

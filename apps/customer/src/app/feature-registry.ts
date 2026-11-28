@@ -1,3 +1,4 @@
+import { betaAccess, betaHides, betaRooms, type BetaNeed } from './beta-volt';
 import { hasPattern, matchPath } from './path-match';
 
 /**
@@ -9,6 +10,10 @@ import { hasPattern, matchPath } from './path-match';
  *
  * `hidden` stays as a mechanism (the lookups below, and every `isHiddenPath` consumer, still honour it) but no row uses
  * it, and no build redirects a hidden path any more: a Docker build behaves exactly like `vite dev`.
+ *
+ * The beta's build alone (owner decision, 23 Nov 2026: "Hide unfinished screens from the beta's menus") also drops from
+ * its menus, lists and links each `blocked` row's rooms and each row whose `needs` the signed-in account lacks
+ * (`betaOffFeatureFor`); the rooms keep their routes, and every other build shows them all.
  */
 export type FeatureStatus = 'live' | 'blocked' | 'hidden';
 export type FeatureTab = 'home' | 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public';
@@ -28,10 +33,22 @@ export interface Feature {
   tab: FeatureTab;
   /** Evidence for rows that were re-checked on the local stack. */
   checked?: string;
+  /** What the signed-in account must have for the beta's menus to show the rooms (beta-volt.ts): a business account, the venue door on, or a venue that offers staking or vaults. */
+  needs?: BetaNeed;
 }
 
-// `/pay/checkout` is the payer-facing hosted checkout: it stays public and is not hidden here.
+// A business's own rooms. `/pay/checkout` is the merchant's checkout room; the payer opens it from a shared link, which
+// the beta's menus rule never touches.
+/** Where a person opens a business account: for someone who has none yet, so the beta's menus never ask for one. */
+const businessOnboardingPaths = [
+  '/pay/onboarding',
+  '/pay/onboarding/business',
+  '/pay/onboarding/verification',
+  '/pay/onboarding/go-live',
+  '/identbusiness',
+];
 const businessPaySlugs = [
+  'checkout',
   'refunds',
   'refunds/new',
   'refunds/:refundId',
@@ -69,10 +86,6 @@ const businessPaySlugs = [
   'developer/webhooks',
   'developer/webhooks/:endpointId',
   'developer/deliveries',
-  'onboarding',
-  'onboarding/business',
-  'onboarding/verification',
-  'onboarding/go-live',
   'team',
   'exports',
   'notifications',
@@ -124,10 +137,11 @@ export const features: readonly Feature[] = [
     id: 'supported-assets',
     label: 'Supported assets',
     paths: ['/uc/assets'],
-    status: 'blocked',
-    reason: 'svc-ledger’s asset registry through svc-bank; unproven on main',
-    unlock: 'J-wallet-01 #5 green in the Real-app journeys run on main',
+    status: 'live',
+    reason: 'svc-ledger’s asset registry through svc-bank, proven on main',
+    unlock: 'already live',
     tab: 'money',
+    checked: 'Real-app journeys run 11655, J-wallet-01 #5',
   },
   {
     id: 'repeat-buy',
@@ -212,6 +226,26 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-salary',
+    label: 'Salary',
+    paths: ['/bank/salary'],
+    status: 'blocked',
+    reason:
+      "Salary by direct deposit is rail.bank: the partner bank's account details and the payroll network's credits and reversals; with no network wired every salary read refuses rail.bank, and the reversal window is an owner value: blank, a reversal refuses bank.direct_deposit_reversal_window_unset",
+    unlock: 'J-bank-30 passing on main',
+    tab: 'money',
+  },
+  {
+    id: 'bank-account',
+    label: 'Your bank account',
+    paths: ['/bank/account'],
+    status: 'blocked',
+    reason:
+      "Onboarding, information requests, reviews, closure and data requests are the partner bank's; the owner's requirements, an answer's size cap and the reopen window are owner values: blank, each refuses with its own code",
+    unlock: 'J-bank-17 #1 #2 #4 #5 #6 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-limits',
     label: 'Limits, fees and plan',
     paths: ['/bank/limits'],
@@ -290,9 +324,19 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-add-money',
+    label: 'Add money',
+    paths: ['/bank/ramps/new'],
+    status: 'live',
+    reason: 'Card, bank pull and bank transfer purchases run through the configured pay-in partner',
+    unlock: 'already live',
+    tab: 'money',
+    checked: 'Real-app journeys run 11655, J-wallet-01 #3 and J-bank-02 #1 to #7',
+  },
+  {
     id: 'bank-ramps',
     label: 'Add money and cash out',
-    paths: ['/bank/ramps', '/bank/ramps/new', '/bank/ramps/accounts', '/bank/ramps/cash-out'],
+    paths: ['/bank/ramps', '/bank/ramps/accounts', '/bank/ramps/cash-out'],
     status: 'blocked',
     reason:
       'No payment partner is connected (rail.bank, rail.card), so no linked bank account can be verified; J-bank-02 proves only the refused ending',
@@ -315,6 +359,23 @@ export const features: readonly Feature[] = [
     status: 'blocked',
     reason: 'No Real-app journey proves this room; a business has no account of its own in this build (bank.company_account_unwired)',
     unlock: 'a proof run of this room, with the evidence',
+    tab: 'money',
+  },
+  {
+    id: 'bank-credit-previews',
+    label: 'Credit previews',
+    paths: [
+      '/bank/loans/overdraft',
+      '/bank/loans/personal',
+      '/bank/loans/schedule',
+      '/bank/cards/credit-card',
+      '/bank/cards/credit',
+      '/bank/business/loan',
+    ],
+    status: 'blocked',
+    reason:
+      'Overdraft, personal and business loans, credit cards and revolving credit are not offered: their engines are not built and need a licence INTAFACED does not hold, so the bank refuses every action with preview.engine_not_built',
+    unlock: 'a lending licence and a built engine, then J-bank-12 passing on main with a real offer',
     tab: 'money',
   },
   {
@@ -490,25 +551,59 @@ export const features: readonly Feature[] = [
     tab: 'pay',
   },
   {
+    id: 'developer-apps',
+    label: 'Registered apps',
+    paths: ['/developers/apps'],
+    status: 'live',
+    reason:
+      "A developer registers an app, reads its status and changes a server app's secret through svc-identity; while the owner has not published the token lifetimes the room says so (oauth.lifetime_unset) and no app can sign a person in.",
+    unlock: 'already live',
+    tab: 'person',
+    checked:
+      'apps.render.test.tsx: registration, the one-time secret and the oauth.lifetime_unset notice; J-cex-spot-15 #1 opens it (issue 11177)',
+  },
+  {
     id: 'oauth-apps',
-    label: 'Registered apps and app sign-in',
-    paths: ['/developers/apps', '/oauth/authorize'],
+    label: 'App sign-in',
+    paths: ['/oauth/authorize'],
     status: 'blocked',
     reason:
-      'oauth.lifetime_unset: the owner has not published the authorisation code and access token lifetimes, no service accepts an issued token, and the operator approval queue is not in the admin app',
+      'oauth.lifetime_unset: the owner has not published the authorisation code and access token lifetimes, so no app can sign a person in and no token is issued',
     unlock:
-      'publish OAUTH_CODE_TTL_SECONDS and OAUTH_ACCESS_TOKEN_TTL_SECONDS, add the token check to the services and the approval queue to admin',
+      'publish OAUTH_CODE_TTL_SECONDS and OAUTH_ACCESS_TOKEN_TTL_SECONDS, and add the token check to the services that will accept an app token',
     tab: 'person',
+  },
+  {
+    id: 'developer-permissions',
+    label: 'API permissions reference',
+    paths: ['/developers/permissions'],
+    status: 'live',
+    reason: 'Published permission-to-endpoint table from the exchange contract, proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked: 'Real-app journeys run 11739, J-developer-03 #7',
+  },
+  {
+    id: 'developer-idempotency',
+    label: 'Idempotent order placement',
+    paths: ['/developers/idempotency'],
+    status: 'live',
+    reason: 'Published API idempotency, retry and cursor pagination rules, proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked: 'Real-app journeys run 11739, J-developer-05 #5',
   },
   {
     id: 'developer-portal',
     label: 'Developer portal',
     paths: ['/developers', '/developers/*'],
-    status: 'blocked',
+    status: 'live',
     reason:
-      'developer.hosts: no read for the owner host settings is connected, so every base address reads host not set; most section pages are not written',
-    unlock: 'add the developer.hosts read in the payments settings and publish the section pages',
+      'The portal reads the published hosts, terms and bot policy from svc-trade (developer-portal-rest.ts): a blank owner setting reads not set and refuses with its typed code. A section whose page is not written shows the slice it waits for.',
+    unlock: 'already live',
     tab: 'public',
+    checked:
+      'Real-app journeys run 12722 on main (2026-11-27): J-developer-01 #1 to #7 and J-cex-spot-15 #1 to #4, #6 and #7 passed. /developers/apps has its own developer-apps row.',
   },
   {
     id: 'trade-news-calendar',
@@ -520,21 +615,19 @@ export const features: readonly Feature[] = [
     tab: 'trade',
   },
   {
+    id: 'p2p-contract-escrow',
+    label: 'Person-to-person (contract escrow)',
+    paths: ['/p2p', '/ctc', '/uc/order', '/p2p/orders', '/p2p/orders/*'],
+    status: 'live',
+    reason: 'Browsing offers and trading with contract escrow on /p2p and /uc/order run on svc-p2p and svc-protocol, proven on main',
+    unlock: 'already live',
+    tab: 'pay',
+    checked: '2026-11-24, Real-app journeys run 11739 (J-p2p-21 #1 to #5 passed on the real stack with proof v2 FAITHFUL reads).',
+  },
+  {
     id: 'p2p',
     label: 'Person-to-person',
-    paths: [
-      '/p2p',
-      '/ctc',
-      '/uc/ad',
-      '/uc/ad/*',
-      '/uc/order',
-      '/p2p/orders',
-      '/p2p/orders/*',
-      '/p2p/access',
-      '/p2p/methods',
-      '/chat',
-      '/checkuser',
-    ],
+    paths: ['/uc/ad', '/uc/ad/*', '/p2p/access', '/p2p/methods', '/chat', '/checkuser'],
     status: 'blocked',
     reason: "Needs owner's instrument encryption provider",
     unlock: 'owner',
@@ -543,8 +636,9 @@ export const features: readonly Feature[] = [
   {
     id: 'business-pay',
     label: 'Business Pay and business account',
-    paths: [...businessPaySlugs.map((slug) => `/pay/${slug}`), '/identbusiness'],
+    paths: businessPaySlugs.map((slug) => `/pay/${slug}`),
     status: 'live',
+    needs: 'business',
     reason: 'The rooms open from the signed-in session: business access comes from merchant.myAccess, with no separate provider',
     unlock: 'already live',
     tab: 'pay',
@@ -552,8 +646,61 @@ export const features: readonly Feature[] = [
       '2026-10-22, real svc-pay on the local stack (apps/customer/tests/real-app/J-merchant-01.pw.mjs and, since 2026-10-29, the room walk in J-merchant-01-team.pw.mjs): a person with no business is led to setup, and the owner of a business whose verification has not started opens every /pay room from navigation with no refused read.',
   },
   {
+    id: 'business-onboarding',
+    label: 'Opening a business account',
+    paths: businessOnboardingPaths,
+    status: 'live',
+    reason: 'Setup opens from the signed-in session, as Business Pay does',
+    unlock: 'already live',
+    tab: 'pay',
+    checked: 'as business-pay: J-merchant-01.pw.mjs leads a person with no business to setup.',
+  },
+  {
+    id: 'user-venue',
+    label: "Trading on the customer's own venue account",
+    paths: ['/trade/account', '/trade/positions', '/uc/trading-permissions', '/fees'],
+    status: 'live',
+    needs: 'venue',
+    reason:
+      "The rooms read svc-trade's user-venue door (/api/v1/venue/status); with TRADE_USER_VENUE_URL unset it answers off and each room says so",
+    unlock: 'already live where the door is on',
+    tab: 'trade',
+  },
+  {
+    id: 'user-venue-staking',
+    label: "Staking on the customer's own venue account",
+    paths: ['/trade/staking'],
+    status: 'live',
+    needs: 'staking',
+    reason: "The room reads the venue's own staking terms (/api/v1/venue/staking); a venue that offers none refuses not_offered",
+    unlock: 'already live where the door is on and the venue offers staking',
+    tab: 'trade',
+  },
+  {
+    id: 'user-venue-vaults',
+    label: "Vaults on the customer's own venue account",
+    paths: ['/trade/vaults'],
+    status: 'live',
+    needs: 'vaults',
+    reason: "The room reads the venue's own vault list (/api/v1/venue/vaults); a venue that offers none refuses not_offered",
+    unlock: 'already live where the door is on and the venue offers vaults',
+    tab: 'trade',
+  },
+  {
+    id: 'agents',
+    label: 'Agents',
+    paths: ['/agents', '/agents/new', '/agents/connect', '/agents/:agentId'],
+    status: 'live',
+    reason:
+      'The agents catalogue, builder, outside-assistant connect and own-agent rooms run on svc-agents and svc-trade from the signed-in session',
+    unlock: 'already live',
+    tab: 'more',
+    checked:
+      '2026-11-24, Real-app journeys run 11600 (J-agents-08 #1 to #7) and run 11739 (J-agents-21 #1 to #19 passed on the real stack with proof v2 FAITHFUL and SHOWN pictures).',
+  },
+  {
     id: 'more-rooms',
-    label: 'Academy, Agents, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
+    label: 'Academy, Agents extras, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
     paths: [
       '/academy',
       '/academy/learning',
@@ -565,13 +712,9 @@ export const features: readonly Feature[] = [
       '/academy/learning/course/:slug',
       '/academy/learning/course/:slug/assignment/:itemId',
       '/academy/:slug',
-      '/agents',
       '/agents/team',
       '/agents/approvals',
-      '/agents/connect',
-      '/agents/new',
       '/agents/runs/:runId',
-      '/agents/:agentId',
       '/quant',
       '/quant/sandbox',
       '/quant/strategies',
@@ -579,8 +722,12 @@ export const features: readonly Feature[] = [
       '/quant/studio',
       '/quant/shared',
       '/quant/shared/:strategyId',
+      '/quant/library',
+      '/quant/library/:listingId',
       '/quant/live',
       '/quant/live/:runId',
+      '/quant/limits',
+      '/quant/data',
       '/quant/backtest',
       '/quant/editor',
       '/quant/tester',
@@ -639,6 +786,7 @@ export const features: readonly Feature[] = [
       '/uc/promotion/mycards',
       '/uc/promotion/mypromotion',
       '/uc/promotion/points',
+      '/uc/promotion/perks',
       '/uc/invitingmining',
       '/uc/paydividends',
     ],
@@ -657,12 +805,66 @@ export const features: readonly Feature[] = [
     tab: 'person',
   },
   {
+    id: 'notices',
+    label: 'Notices',
+    paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id'],
+    status: 'live',
+    reason: 'svc-notify serves published notices on /notice and /notice/:id (with /announcement aliases), proven on main',
+    unlock: 'already live',
+    tab: 'public',
+    checked:
+      '2026-11-24, Real-app journeys run 11739 (J-cex-spot-10 #10 passed on the real stack with proof v2 FAITHFUL and SHOWN picture).',
+  },
+  {
     id: 'public-extras',
-    label: 'Notices, Lab, App, Partner',
-    paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id', '/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
+    label: 'Lab, App, Partner',
+    paths: ['/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
     status: 'blocked',
     reason: 'No service behind them; what the Lab holds is an owner decision',
     unlock: 'per feature; the Lab when the owner records what it holds',
+    tab: 'public',
+  },
+  {
+    id: 'official-channels',
+    label: 'Official channels and scam guides',
+    paths: ['/help/official-channels'],
+    status: 'live',
+    reason:
+      'svc-support serves the published official channel list (and an honest unpublished state when blank) alongside the scam guides on /help/official-channels',
+    unlock: 'already live',
+    tab: 'public',
+    checked: '2026-11-24, Real-app journeys run 11739 (J-identity-13 #1 passed on the real stack with proof v2 FAITHFUL).',
+  },
+  {
+    id: 'platform-status',
+    label: 'Platform status',
+    paths: ['/status'],
+    status: 'live',
+    reason:
+      "svc-notify serves the founders' status components and maintenance notices, and each market's trading mode is its own reported state; with no components set the page says so and shows no overall status",
+    unlock: 'already live',
+    tab: 'public',
+    checked:
+      '2026-11-27, Real-app journeys run 12722 on main (J-cex-spot-14 #2, #3, #4 and #5 passed on the real stack; their only hidden path was /status).',
+  },
+  {
+    id: 'owner-blank-pages',
+    label: 'Trading rulebook, support chat and the money mule policy',
+    paths: ['/rulebook', '/support/chat', '/help/mule-policy'],
+    status: 'blocked',
+    reason:
+      'Owner values not set: the published rulebook, support hours and the mule policy wording, so each page says it is blank or shows TEST text',
+    unlock: 'the owner publishes the rulebook and the mule policy, and sets support hours',
+    tab: 'public',
+  },
+  {
+    id: 'chain-protocol',
+    label: 'INTACHAIN explorer and the Protocol room',
+    paths: ['/chain', '/chain/*', '/protocol', '/protocol/*'],
+    status: 'blocked',
+    reason:
+      'Every action in these rooms carries a standing blocker (features/protocol/blockers.ts roomStandingBlockers: no chain service, no bridge service, not audited), so each room only reads a test network and says it is not launched',
+    unlock: 'INTACHAIN runs its chain service and the external audit is published',
     tab: 'public',
   },
   {
@@ -672,13 +874,10 @@ export const features: readonly Feature[] = [
       '/help',
       '/helplist',
       '/helpdetail',
-      '/help/official-channels',
-      '/help/mule-policy',
       '/help/category/:id',
       '/help/section/:id',
       '/support',
       '/support/new',
-      '/support/chat',
       '/support/tickets',
       '/support/tickets/:ticketId',
       '/support/guest/verify',
@@ -748,8 +947,38 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
         })),
   );
 }
+/**
+ * In the beta's build only, the row that keeps `path` out of the menus: one switched off (`blocked`), or one whose `needs`
+ * the signed-in account lacks. A room comes back by itself when its row goes live or the account gains what it needs.
+ */
+export function betaOffFeatureFor(path: string, access = betaAccess()): Feature | undefined {
+  if (!betaRooms()) return undefined;
+  // An exact live row (such as /developers/permissions or /developers/idempotency inside /developers/*) takes precedence over a broader blocked wildcard.
+  if (
+    features.some(
+      (feature) =>
+        feature.status === 'live' &&
+        (feature.needs === undefined || access[feature.needs]) &&
+        feature.paths.some((pattern) => pattern === path),
+    )
+  )
+    return undefined;
+  return features.find(
+    (feature) =>
+      (feature.status === 'blocked' || (feature.needs !== undefined && !access[feature.needs])) &&
+      feature.paths.some((pattern) => patternMatches(pattern, path)),
+  );
+}
+/**
+ * In the beta's build only, whether the beta leaves `path` out: a room not yet in Volt, switched off, or not the account's.
+ * The one test for the menus (isHiddenPath), every drawn link (beta-links.ts) and every move in code (location.ts).
+ */
+export function betaHidden(path: string): boolean {
+  return betaHides(path) || betaOffFeatureFor(path) !== undefined;
+}
+/** Hidden by a feature row, or, in the beta's build only, by betaHidden. */
 export function isHiddenPath(path: string): boolean {
-  return hiddenFeatureFor(path) !== undefined;
+  return hiddenFeatureFor(path) !== undefined || betaHidden(path);
 }
 
 const tabHomes: Record<FeatureTab, string> = {

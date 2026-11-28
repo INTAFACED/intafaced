@@ -11,7 +11,7 @@ export type StatusTone = 'done' | 'progress' | 'action' | 'failed';
 const toneOf: Record<Tone, StatusTone> = { good: 'done', neutral: 'progress', attention: 'action', bad: 'failed' };
 
 /** The chip itself, for a page that has its own words. */
-export function ToneChip({ tone, label, tip }: { tone: StatusTone; label: string; tip?: string }) {
+function ToneChip({ tone, label, tip }: { tone: StatusTone; label: string; tip?: string }) {
   return (
     <span data-testid="pp-chip" className={`pp-chip pp-chip--${tone}`} title={tip} aria-label={tip ? `${label} (${tip})` : undefined}>
       {label}
@@ -66,13 +66,24 @@ const fresh: Record<string, Record<string, readonly [UiKey, UiKey, Tone]>> = {
   },
 };
 
+/** The words and tone for one entity's status: its label, the tip that explains it, and the tone that backs it up. */
+export function statusWords(
+  entity: StatusEntity,
+  value: string,
+  t: (key: PlainKey) => string,
+  u: (key: UiKey) => string,
+): { tone: StatusTone; label: string; tip?: string } {
+  const legacy = (chips as Record<string, Record<string, readonly [PlainKey, PlainKey, Tone]>>)[entity]?.[value];
+  if (legacy) return { tone: toneOf[legacy[2]], label: t(legacy[0]), tip: t(legacy[1]) };
+  const next = fresh[entity]?.[value];
+  if (next) return { tone: toneOf[next[2]], label: u(next[0]), tip: u(next[1]) };
+  // A status the vocabulary has not met is shown as the service sent it, in the quiet tone, never hidden.
+  return { tone: 'progress', label: value };
+}
+
 export function StatusChip({ entity, value }: { entity: StatusEntity; value: string }) {
   const { t } = portalCopy.useCopy();
   const { t: u } = uiCopy.useCopy();
-  const legacy = (chips as Record<string, Record<string, readonly [PlainKey, PlainKey, Tone]>>)[entity]?.[value];
-  if (legacy) return <ToneChip tone={toneOf[legacy[2]]} label={t(legacy[0])} tip={t(legacy[1])} />;
-  const next = fresh[entity]?.[value];
-  if (next) return <ToneChip tone={toneOf[next[2]]} label={u(next[0])} tip={u(next[1])} />;
-  // A status the vocabulary has not met is shown as the service sent it, in the quiet tone, never hidden.
-  return <ToneChip tone="progress" label={value} />;
+  const words = statusWords(entity, value, t, u);
+  return <ToneChip tone={words.tone} label={words.label} tip={words.tip} />;
 }

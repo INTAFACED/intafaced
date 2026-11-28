@@ -22,6 +22,7 @@
 import type { Amount } from '@intafaced/ledger-client';
 import { PayError } from '../payment-service.js';
 import { MAX_ATTEMPTS_PER_CYCLE, type StallReason } from './charge-cycle.js';
+import { CARD_MANDATE_CHARGE_SOCKET, PRECHARGE_NOTIFY_SOCKET } from '@intafaced/contracts/pay-subscription-procedures';
 
 /** Paths that may be stored. Anything else is refuse-closed (no silent crypto). */
 export const SUBSCRIPTION_PATHS = ['crypto_invoice', 'card'] as const;
@@ -40,9 +41,6 @@ export function normaliseSubscriptionPath(path: string | undefined): Subscriptio
     path: raw,
   });
 }
-
-/** §13 — customer inbox via svc-notify is still a socket. Attempt recording is not. */
-export const PRECHARGE_NOTIFY_SOCKET = 'socket.pay-precharge-notify' as const;
 
 /** Named refuse when a caller invents `notified: true`. */
 export const PRECHARGE_NOTIFY_UNPUBLISHED = 'pay.precharge_notify_unpublished' as const;
@@ -72,13 +70,6 @@ export type SubscriptionPreChargeNotify = (event: {
   readonly assetId: string;
   readonly idempotencyKey: string;
 }) => void | boolean | PreChargeNotifyDelivery | Promise<void | boolean | PreChargeNotifyDelivery>;
-
-/**
- * Card auto-pull rides the acquiring commercial socket. The rail port can store
- * a mandate reference once an acquirer exists; charge-against-mandate is still
- * not on the port, and inventing it here would invent a second money path.
- */
-export const CARD_MANDATE_CHARGE_SOCKET = 'socket.psp-partners' as const;
 
 /** Stall reason when bounded dunning spends every attempt on a period. */
 export const DUNNING_STALL_REASON: StallReason = 'arrears';
@@ -367,3 +358,4 @@ export function subscriptionsProductPosture(): {
     reconsent: { priceOrCeilingChange: 'refuse', code: 'pay.subscription_reconsent_required' },
   };
 }
+export { CARD_MANDATE_CHARGE_SOCKET, PRECHARGE_NOTIFY_SOCKET };

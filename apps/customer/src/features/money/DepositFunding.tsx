@@ -3,7 +3,7 @@ import { Button } from '../../shared/ui';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { refusalCopy } from '../../data/refusals';
 import { displayAmount } from '../../shared/money';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { QrCode } from '../../screens/pay/QrCode';
 import type { Resource } from '../../shared/resource';
@@ -68,7 +68,7 @@ export function DepositNetworkPicker({ asset, catalogue, networkId, onNetwork, r
           : null;
   const choices = networks.length + halted.length;
   return (
-    <label className="field">
+    <label className="lt-field">
       <span>{t('network')}</span>
       <select value={networkId} onChange={(event) => onNetwork(event.target.value)} disabled={choices === 0} aria-describedby={why}>
         {choices === 0 ? (
@@ -133,7 +133,7 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
                     : t('registryNotAllowed', { asset, network: off.label })}
               </p>
               <a className="text-link" href="/uc/assets">
-                {t('registryLink')} ↗
+                {t('registryLink')} <span aria-hidden="true">↗</span>
               </a>
             </>
           ) : (
@@ -186,7 +186,7 @@ function VerifyFirst({ code }: { code: string }) {
       <strong>{words.title}</strong>
       <p>{words.body}</p>
       {words.action && (
-        <a className="text-link" href={words.action.href}>
+        <a className="lt-link" href={words.action.href}>
           {words.action.label}
         </a>
       )}
@@ -253,7 +253,7 @@ export function IssuedAddress({
         <div className="bd-address" data-testid="deposit-address">
           <p>{t('addressLead', { asset, network: network.label })}</p>
           <p>
-            <strong data-testid="numeric" className="numeric" style={{ overflowWrap: 'anywhere' }}>
+            <strong data-testid="numeric" className="lt-num" style={{ overflowWrap: 'anywhere' }}>
               {address}
             </strong>
           </p>
@@ -262,7 +262,7 @@ export function IssuedAddress({
             <div role="note">
               <strong>{t('memoTitle')}</strong>
               <p>{t('memoNote')}</p>
-              <p data-testid="numeric" className="numeric">
+              <p data-testid="numeric" className="lt-num">
                 {memo}
               </p>
               <CopyButton value={memo} label={t('copyMemo')} />
@@ -278,7 +278,7 @@ export function IssuedAddress({
   return (
     <div className="bd-address">
       <NetworkNotes asset={asset} network={network} />
-      <label className="field">
+      <label className="lt-field">
         <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
         <span>{t(hasNotes ? 'ackLabelNotes' : 'ackLabel', { asset, network: network.label })}</span>
       </label>

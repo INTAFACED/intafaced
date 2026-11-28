@@ -3,7 +3,8 @@
  * A typed-in confirmActorId is not two people.
  */
 import { createHash } from 'node:crypto';
-import { actionApprovalSchema, TRPCError } from '@intafaced/contracts';
+import { actionApprovalSchema } from '@intafaced/contracts/action-approval';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { AuthService } from './auth-service.js';
 import type { FreezeService } from '../affiliates/freeze-service.js';
 import { ActionApprovalError, type ActionApprovalService } from './action-approval-service.js';

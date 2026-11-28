@@ -12,7 +12,7 @@
  *                                                     the test part's input alone from a local clone, for the proof runs
  *
  * Why it exists: proof v2's post-merge reach reads voided 545 proofs over one harness change that, judged once in its
- * own PR, altered nothing the tests observe (project-state research/system-design-2026-11-07/E1-RESULT.md). The test
+ * own PR, altered nothing the tests observe (project-state product/E1-RESULT.md). The test
  * part rules before merge instead, and the seal (review-marker.mjs, JUDGE_CHECK) waits for its Test verdict step on the
  * exact head whenever judgeReason names a changed file. A FAIL stands for its head and its code, like the review's.
  *
@@ -25,12 +25,13 @@
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { join, dirname, posix } from 'node:path';
+import { join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 // The default branch's copy: the job runs this file from the default branch's checkout (ci-review.yml), never the pull
 // request's, so the money rule below is main's.
 import { moneyRule, manifestsAt } from './journey-verdict.mjs';
 import { JOURNEY_FILE, JUDGE_PATHS, judgedFile } from './judged-paths.mjs';
+import { countCall, fetchFailure } from './api-count.mjs';
 
 export { JOURNEY_FILE, JUDGE_PATHS, judgedFile };
 
@@ -283,7 +284,7 @@ export function parseDiff(text) {
     }
     if (!cur.hunk && line.startsWith('new file mode')) cur.oldPath = null;
     if (!cur.hunk && line.startsWith('deleted file mode')) cur.newPath = null;
-    if (!cur.hunk && (/^Binary files /.test(line) || line.startsWith('GIT binary patch'))) cur.binary = true;
+    if (!cur.hunk && (line.startsWith('Binary files ') || line.startsWith('GIT binary patch'))) cur.binary = true;
     if (!cur.hunk && /^(rename|copy) from /.test(line)) {
       cur.moved = line.startsWith('rename') ? 'rename' : 'copy';
       cur.oldPath = line.replace(/^(rename|copy) from /, '');
@@ -399,6 +400,31 @@ export function stepsTouched({ journey, before, after, removed, added }) {
   }
   return { own, fileLevel, all };
 }
+
+/**
+ * The steps a head retires, of `wordless` (steps whose own test changed and that have no words at project-state): those
+ * the head has no test titled for in any journey file (`headTests`, a Set of step ids) and that the head's
+ * docs/roadmap/journeys.json (`headList`, its parsed text, or null when unreadable) no longer lists. Removing a step
+ * from that list needs the owner's `Journey-retired:` line (journey-list-guard.mjs), so a step leaves only when the words,
+ * the list and the test all agree it is gone. A step still listed, or whose test the head still has, stays a FAIL: a
+ * live step can't lose its test, and a test can't be judged against words that don't exist. An unreadable list retires
+ * nothing (fail closed). (Failure it prevents: #9324, #10592, a retired step's test could never be removed.)
+ */
+export function retiredSteps({ wordless, headTests, headList }) {
+  if (!Array.isArray(headList)) return new Set();
+  const listed = new Set(headList.flatMap((j) => (Array.isArray(j?.steps) ? j.steps.map((st) => `${j.id} #${Number(st?.n)}`) : [])));
+  return new Set(wordless.filter((s) => !headTests.has(s) && !listed.has(s)));
+}
+
+const ROADMAP_JOURNEYS = 'docs/roadmap/journeys.json';
+/** The head's docs/roadmap/journeys.json, parsed, or null when it is missing or not JSON. */
+const headListAt = async (src, head) => {
+  try {
+    return JSON.parse((await src.read(head, ROADMAP_JOURNEYS)) ?? 'null');
+  } catch {
+    return null;
+  }
+};
 
 // ── What the journeys import ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -636,7 +662,12 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
     if (users.length === 0) continue; // e.g. a look sweep or a file no journey reaches: no step to judge
     const names = new Set([...changedNames(before.get(f.path), f.removed), ...changedNames(after.get(f.path), f.added)]);
     let n = 0;
-    for (const jf of users) for (const s of allStepsOf(jf)) if (!own.has(s)) (reached.set(s, reached.get(s) ?? jf), n++);
+    for (const jf of users)
+      for (const s of allStepsOf(jf))
+        if (!own.has(s)) {
+          reached.set(s, reached.get(s) ?? jf);
+          n++;
+        }
     changes.push({ file: f.path, kind: 'shared', reaches: n, journeys: users.length, names: [...names] });
   }
   for (const s of own) reached.delete(s);
@@ -664,11 +695,23 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
     }
   for (const s of pool) if (sample.length < Math.min(SAMPLE_STEPS, pool.length) && !sample.includes(s)) sample.push(s);
 
-  // A step whose test changed but that has no words can't be judged adequate to them: a FAIL line, without the model.
+  // A step whose test changed but that has no words can't be judged adequate to them: a FAIL line, without the model,
+  // unless the head retires it (retiredSteps): no test titled for it in any journey file at the head, and no longer
+  // listed in the head's journeys.json.
   const deterministic = [...declared];
   const ownList = [...own].sort();
-  for (const s of ownList)
-    if (!stepWords.has(s))
+  const wordless = ownList.filter((s) => !stepWords.has(s));
+  let retired = new Set();
+  if (wordless.length > 0) {
+    const headTests = new Set();
+    for (const jf of journeyFiles) {
+      const text = after.has(jf) ? after.get(jf) : await src.read(head, jf);
+      for (const t of testsIn(text, journeyOfFile(jf))) headTests.add(t.step);
+    }
+    retired = retiredSteps({ wordless, headTests, headList: await headListAt(src, head) });
+  }
+  for (const s of wordless)
+    if (!retired.has(s))
       deterministic.push({
         step: s,
         line: `no step words for ${s} at project-state ${wordsRef}; a test can't be judged against words that don't exist`,
@@ -694,7 +737,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
       deterministic,
       required,
       setAside,
-      facts: { own: own.size, reached: reached.size, sample: 0, changes },
+      facts: { own: own.size, reached: reached.size, sample: 0, changes, retired: [...retired] },
     };
 
   // The prompt, in priority order, until the budget runs out.
@@ -829,6 +872,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
       changes: changes.map(({ names: _n, ...c }) => c),
       left: left.length,
       bytes: size,
+      retired: [...retired],
     },
   };
 }
@@ -952,6 +996,8 @@ export function summaryLines(v, set) {
   }
   for (const l of (v.lines ?? []).filter((x) => x.kind === 'step')) out.push(`- ${l.id}: **${l.verdict}**: ${redact(l.why, set)}`);
   for (const d of v.deterministic ?? []) out.push(`- ${d.step}: **FAIL**: ${d.line}`);
+  for (const s of v.facts?.retired ?? [])
+    out.push(`- ${s}: retired: no words at project-state, no test for it at the head, and the head's journeys.json no longer lists it`);
   for (const f of v.findings ?? []) out.push(`- ${f}`);
   if (v.note) out.push('', `note: ${v.note}`);
   return out;
@@ -963,7 +1009,10 @@ async function getText(path, accept, token) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
+  }).catch((e) => {
+    throw new Error(fetchFailure(path, e));
   });
+  countCall(res);
   const text = await res.text();
   if (res.status === 403 || res.status === 429)
     throw new Error(`GitHub ${res.status} on GET ${path.split('?')[0]}: stopping, not retrying`);
@@ -1006,11 +1055,11 @@ export function readWordsLocal(dir) {
 }
 
 /**
- * In CI: the diff and its merge base from the compare API (two calls), and the files' text from two shallow git fetches
+ * In CI: the diff and its merge base from the compare API (two calls; one when the caller gives the diff it read), and the files' text from two shallow git fetches
  * of the public repository into the default branch's checkout (no token, and no file is checked out or run), so a PR
  * that touches hundreds of files costs no API calls per file. The import graph is the default branch's checkout.
  */
-export function ciSource(repo, token, graphRoot) {
+export function ciSource(repo, token, graphRoot, known = null) {
   const git = (...a) => execFileSync('git', ['-C', graphRoot, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   return {
     diff: async (base, head) => {
@@ -1018,10 +1067,16 @@ export function ciSource(repo, token, graphRoot) {
       if (c.status !== 200) throw new Error(`could not read the comparison ${base.slice(0, 7)}...${head.slice(0, 7)}: HTTP ${c.status}`);
       const mergeBase = String(JSON.parse(c.text)?.merge_base_commit?.sha ?? '');
       if (!SHA40.test(mergeBase)) throw new Error('the comparison names no merge base');
-      const r = await getText(`/repos/${repo}/compare/${base}...${head}`, 'application/vnd.github.v3.diff', token);
-      if (r.status !== 200) throw new Error(`could not read the diff ${base.slice(0, 7)}...${head.slice(0, 7)}: HTTP ${r.status}`);
+      // `known`: the compare diff of this exact base...head the caller already read (ci-review.mjs cmdDiff), used as it
+      // is rather than read again.
+      let diff = known && known.base === base && known.head === head && typeof known.diff === 'string' ? known.diff : null;
+      if (diff === null) {
+        const r = await getText(`/repos/${repo}/compare/${base}...${head}`, 'application/vnd.github.v3.diff', token);
+        if (r.status !== 200) throw new Error(`could not read the diff ${base.slice(0, 7)}...${head.slice(0, 7)}: HTTP ${r.status}`);
+        diff = r.text;
+      }
       git('fetch', '--no-tags', '--quiet', '--depth=1', 'origin', mergeBase, head);
-      return { diff: r.text, mergeBase };
+      return { diff, mergeBase };
     },
     read: async (sha, p) => {
       try {
@@ -1049,20 +1104,87 @@ const roadmapAt = (read, manifests) => ({
   manifests,
 });
 
+/** git's empty tree, and its own defaults for every setting that shapes a diff's text (a local config never counts). */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const DIFF_DEFAULTS = [
+  'diff.noprefix=false',
+  'diff.mnemonicPrefix=false',
+  'diff.srcPrefix=a/',
+  'diff.dstPrefix=b/',
+  'diff.context=3',
+  'diff.interHunkContext=0',
+  'diff.indentHeuristic=true',
+  'diff.suppressBlankEmpty=false',
+  'diff.algorithm=myers',
+  'diff.relative=false',
+  'diff.renames=true',
+  'core.quotePath=true',
+  'core.autocrlf=false',
+].flatMap((c) => ['-c', c]);
+
 export function gitSource(clone, graphSha) {
   const git = (...a) => execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  // Each sha's regular files are listed once (one ls-tree) and each blob read once, the import graph's code files in one
+  // `git cat-file --batch` (about 0.3 s): the graph probes thousands of paths, and one git call per probe took 105 s on
+  // intafaced #8496. Only a regular file's text, as before: a symlink, a submodule or a directory is null.
+  const trees = new Map();
+  const texts = new Map();
+  const filesAt = (sha) => {
+    if (!trees.has(sha)) {
+      const m = new Map();
+      for (const l of git('ls-tree', '-r', '-z', '--full-tree', sha).split('\0')) {
+        const r = /^100(?:644|755) blob ([0-9a-f]+)\t([^]+)$/.exec(l);
+        if (r) m.set(r[2], r[1]);
+      }
+      trees.set(sha, m);
+      if (sha === graphSha) {
+        const blobs = [...new Set([...m].filter(([p]) => /\.(mjs|cjs|js|mts|ts|tsx|json)$/.test(p)).map(([, b]) => b))];
+        const out = execFileSync('git', ['-C', clone, 'cat-file', '--batch'], { input: `${blobs.join('\n')}\n`, maxBuffer: 1 << 30 });
+        for (let at = 0; at < out.length;) {
+          const nl = out.indexOf(10, at);
+          const [blob, type, size] = out.subarray(at, nl).toString('latin1').split(' ');
+          if (type !== 'blob') throw new Error(`git cat-file --batch: ${blob} is ${type}`);
+          texts.set(blob, out.subarray(nl + 1, nl + 1 + Number(size)).toString('utf8'));
+          at = nl + 2 + Number(size);
+        }
+      }
+    }
+    return trees.get(sha);
+  };
   const show = (sha, p) => {
     try {
-      if (!/^100(644|755) blob /.test(git('ls-tree', sha, '--', p))) return null;
-      return git('show', `${sha}:${p}`);
+      const blob = filesAt(sha).get(p);
+      if (!blob) return null;
+      if (!texts.has(blob)) texts.set(blob, git('cat-file', 'blob', blob));
+      return texts.get(blob);
     } catch {
       return null;
     }
   };
   return {
     diff: async (base, head) => ({
-      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees.
-      diff: git('diff', '--no-color', '--no-ext-diff', '--find-renames', `${base}...${head}`),
+      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees. The compare API
+      // reads no .gitattributes (its `-diff` lockfile comes as text: #8458's 33075 bytes, 793 here without this) and no
+      // one's git config: attributes from the empty tree, and git's own defaults for what shapes a diff.
+      diff: execFileSync(
+        'git',
+        [
+          '-C',
+          clone,
+          `--attr-source=${EMPTY_TREE}`,
+          ...DIFF_DEFAULTS,
+          'diff',
+          '--no-color',
+          '--no-ext-diff',
+          '-O/dev/null', // no diff.orderFile: the files in git's own order
+          '--find-renames',
+          `${base}...${head}`,
+        ],
+        {
+          encoding: 'utf8',
+          maxBuffer: 256 * 1024 * 1024,
+        },
+      ),
       mergeBase: git('merge-base', base, head).trim(),
     }),
     read: async (sha, p) => show(sha, p),

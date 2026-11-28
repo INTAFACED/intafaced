@@ -2,6 +2,23 @@ import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 import { NAVIGATOR_SIGNER_URL, TEST_CHAIN_ID } from '../local-test-chain.mjs';
 
+/**
+ * The stack's empty-catalogue profile: `LOCAL_STACK_AGENTS_CATALOGUE=off` on a start or restart of agents runs svc-agents
+ * on a database of its own, made new on each such start: svc-agents' migrations, then, once the service is up, every
+ * agent its boot stored taken out again, so the stored catalogue holds none (local-test-stack.mjs
+ * resetAgentsEmptyCatalogue, emptyAgentsCatalogue). Agents can then be seen with none published (J-agents-01 #1) while
+ * the shared stack's agents stay where they are. The stack records which database agents runs on, and a start that wants
+ * the other one restarts agents onto it.
+ */
+export const AGENTS_EMPTY_CATALOGUE_DB = 'intafaced_local_test_agents_empty';
+export const agentsCatalogueOff = (env = process.env) => env.LOCAL_STACK_AGENTS_CATALOGUE === 'off';
+/** `url` with its database name replaced by the empty-catalogue database's; the role, password, host, port and query stay. */
+export function onEmptyAgentsDb(url) {
+  const u = new URL(url);
+  u.pathname = `/${AGENTS_EMPTY_CATALOGUE_DB}`;
+  return u.toString();
+}
+
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
@@ -33,12 +50,23 @@ function routingTable() {
  * #1): the HTTP model adapter, which every route reports as "live", pointed at a TEST address nothing answers at, with a
  * TEST key. No model vendor is reached and nothing is spent: every live run fails at the engine, so a test run that
  * still answers proves it never asked the live engine.
+ * `LOCAL_STACK_AGENTS_UPSTREAM_URL` (a loopback address only) points that adapter at a TEST engine a journey runs itself,
+ * so a run on the live adapter is answered and the journey sees what reached it (J-agents-20 #4). Nothing else is accepted.
  */
+function upstreamUrl() {
+  const url = process.env.LOCAL_STACK_AGENTS_UPSTREAM_URL;
+  if (!url) return 'http://127.0.0.1:9';
+  if (!/^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(url)) {
+    throw new Error(`LOCAL_STACK_AGENTS_UPSTREAM_URL must be a TEST loopback address (http://127.0.0.1:<port>), not ${url}`);
+  }
+  return url;
+}
+
 function engine(STATE) {
   if (process.env.LOCAL_STACK_AGENTS_SANDBOX_ENGINE === 'off') {
     return {
       AGENTS_PROVIDER: 'upstream',
-      AGENTS_UPSTREAM_BASE_URL: 'http://127.0.0.1:9',
+      AGENTS_UPSTREAM_BASE_URL: upstreamUrl(),
       AGENTS_UPSTREAM_API_KEY: 'TEST',
       AGENTS_UPSTREAM_TIMEOUT_MS: '1000',
     };
@@ -100,9 +128,12 @@ export function navigatorTrading(chain) {
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
   name: 'agents',
+  // The Rust binary (crates/svc-agents), built by the stack (ensureRustBinaries); it applies its own migrations
+  // (`svc-agents migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-agents', PORTS.agents),
-    DATABASE_URL: dbUrl('svc_agents', secrets),
+    DATABASE_URL: agentsCatalogueOff() ? onEmptyAgentsDb(dbUrl('svc_agents', secrets)) : dbUrl('svc_agents', secrets),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
     ACADEMY_URL: urlOf('academy'),

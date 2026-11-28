@@ -34,6 +34,60 @@ import {
  * window; the consumer-side `idempotent()` wrapper covers everything beyond it.
  */
 
+/**
+ * JetStream API request wait: 15 s instead of the nats client's 5 s default so a busy broker handling
+ * `CONSUMER.CREATE` or `STREAM.UPDATE` answers without timing out mid-boot.
+ */
+export const JS_API_TIMEOUT_MS = 15_000;
+
+/** The nats client's codes for a call that got no answer in time or lost its way, never a server refusal. */
+export const TRANSIENT_JS_CODES: ReadonlySet<string> = new Set([
+  'TIMEOUT',
+  '503',
+  '408',
+  'CONNECTION_REFUSED',
+  'CONNECTION_CLOSED',
+  'CONNECTION_TIMEOUT',
+  'DISCONNECT',
+]);
+
+/** How long an idempotent JetStream setup call retries transient misses before giving up. */
+export const JS_SETUP_RETRY_FOR_MS = 30_000;
+const JS_SETUP_PAUSE_MS = 1_000;
+
+export interface JetStreamRetryOptions {
+  retryForMs?: number;
+  pauseMs?: number;
+  now?: () => number;
+  pause?: (ms: number) => Promise<void>;
+}
+
+function errorCode(err: unknown): string {
+  if (typeof err !== 'object' || err === null || !('code' in err)) return '';
+  return String(err.code);
+}
+
+/**
+ * Run an idempotent JetStream boot/setup call (`jetstreamManager`, `ensureStream`, `ensureConsumer`,
+ * `consumers.get`), retrying transient NATS misses (`TRANSIENT_JS_CODES`) until `retryForMs` has passed.
+ * A server refusal or any other error stops at once; a transient miss past the deadline throws that error.
+ */
+export async function retryTransientJetStream<T>(op: () => Promise<T>, opts: JetStreamRetryOptions = {}): Promise<T> {
+  const retryForMs = opts.retryForMs ?? JS_SETUP_RETRY_FOR_MS;
+  const pauseMs = opts.pauseMs ?? JS_SETUP_PAUSE_MS;
+  const now = opts.now ?? Date.now;
+  const pause = opts.pause ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const until = now() + retryForMs;
+  for (;;) {
+    try {
+      return await op();
+    } catch (err) {
+      if (!TRANSIENT_JS_CODES.has(errorCode(err)) || now() >= until) throw err;
+      await pause(pauseMs);
+    }
+  }
+}
+
 export interface JetStreamBusOptions {
   servers: string;
   /** The service publishing — becomes envelope.producer. */
@@ -42,28 +96,54 @@ export interface JetStreamBusOptions {
   /** Services whose streams this process is responsible for creating. */
   ownedStreams?: readonly ModuleId[];
   name?: string;
+  /** Override retry timing for boot/subscribe JetStream API calls (used by deterministic tests). */
+  setupRetry?: JetStreamRetryOptions;
 }
 
 export class JetStreamEventBus implements EventBus {
-  private constructor(
-    private readonly nc: NatsConnection,
-    private readonly js: JetStreamClient,
-    private readonly jsm: JetStreamManager,
-    private readonly opts: Required<Pick<JetStreamBusOptions, 'producer' | 'streamPrefix'>>,
-    private readonly subs: Subscription[] = [],
-  ) {}
+  private readonly nc: NatsConnection;
+  private readonly js: JetStreamClient;
+  private readonly jsm: JetStreamManager;
+  private readonly opts: Required<Pick<JetStreamBusOptions, 'producer' | 'streamPrefix'>>;
+  private readonly subs: Subscription[] = [];
+  private readonly setupRetry?: JetStreamRetryOptions;
+
+  private constructor(init: {
+    nc: NatsConnection;
+    js: JetStreamClient;
+    jsm: JetStreamManager;
+    opts: Required<Pick<JetStreamBusOptions, 'producer' | 'streamPrefix'>>;
+    setupRetry?: JetStreamRetryOptions;
+  }) {
+    this.nc = init.nc;
+    this.js = init.js;
+    this.jsm = init.jsm;
+    this.opts = init.opts;
+    this.setupRetry = init.setupRetry;
+  }
 
   static async connect(opts: JetStreamBusOptions): Promise<JetStreamEventBus> {
     const nc = await connect({ servers: opts.servers, name: opts.name ?? opts.producer });
-    const jsm = await nc.jetstreamManager();
-    const js = nc.jetstream();
     const prefix = opts.streamPrefix ?? 'INTAFACED';
+    try {
+      const jsm = await retryTransientJetStream(() => nc.jetstreamManager({ timeout: JS_API_TIMEOUT_MS }), opts.setupRetry);
+      const js = nc.jetstream({ timeout: JS_API_TIMEOUT_MS });
 
-    for (const service of opts.ownedStreams ?? []) {
-      await ensureStream(jsm, service, prefix);
+      for (const service of opts.ownedStreams ?? []) {
+        await retryTransientJetStream(() => ensureStream(jsm, service, prefix), opts.setupRetry);
+      }
+
+      return new JetStreamEventBus({
+        nc,
+        js,
+        jsm,
+        opts: { producer: opts.producer, streamPrefix: prefix },
+        setupRetry: opts.setupRetry,
+      });
+    } catch (err) {
+      if (typeof nc.close === 'function') await nc.close().catch(() => undefined);
+      throw err;
     }
-
-    return new JetStreamEventBus(nc, js, jsm, { producer: opts.producer, streamPrefix: prefix });
   }
 
   async publish<K extends EventName>(name: K, payload: Payload<K>, opts: PublishOptions = {}): Promise<Envelope<Payload<K>>> {
@@ -79,22 +159,27 @@ export class JetStreamEventBus implements EventBus {
 
     const maxDeliver = opts.maxDeliver ?? DEFAULT_MAX_DELIVER;
 
-    await ensureConsumer(this.jsm, stream, {
-      durable_name: opts.durable,
-      ack_policy: AckPolicy.Explicit,
-      deliver_policy: DeliverPolicy.All,
-      filter_subject: def.subject,
-      max_deliver: maxDeliver,
-      ack_wait: ACK_WAIT_NS,
-    });
+    await retryTransientJetStream(
+      () =>
+        ensureConsumer(this.jsm, stream, {
+          durable_name: opts.durable,
+          ack_policy: AckPolicy.Explicit,
+          deliver_policy: DeliverPolicy.All,
+          filter_subject: def.subject,
+          max_deliver: maxDeliver,
+          ack_wait: ACK_WAIT_NS,
+        }),
+      this.setupRetry,
+    );
 
-    const consumer = await this.js.consumers.get(stream, opts.durable);
+    const consumer = await retryTransientJetStream(() => this.js.consumers.get(stream, opts.durable), this.setupRetry);
     const messages = await consumer.consume();
 
     let stopped = false;
     const pump = (async () => {
       for await (const msg of messages) {
         if (stopped) break;
+        announceDelivered(def.subject, opts.durable, () => msg.info.redeliveryCount);
         try {
           const env = decodeEnvelope(msg.data);
           // Version, schema, and drift. A message carrying a field this build
@@ -147,6 +232,29 @@ export class JetStreamEventBus implements EventBus {
    */
   whenClosed(): Promise<void> {
     return this.nc.closed().then(() => undefined);
+  }
+}
+
+/** The `event` of the line the bus writes for each message it delivers (announceDelivered). */
+export const BUS_DELIVERED = 'bus.delivered';
+
+/**
+ * One line, in the consuming service's own output, for each message the bus
+ * hands to a handler: its time, subject, durable and attempt. A handler that
+ * logs nothing and serves no request otherwise leaves no trace that it ran, so
+ * the journey recorder (tooling/scripts/journey-reach.mjs) could not tie the
+ * service to the journey running at that moment, and every change to a
+ * subscribing service had to run the whole journey suite (intafaced #8657).
+ * The line holds no payload. Pino's shape (`level` 30 is info, `time` in ms),
+ * on stdout, because this package depends on no logger. Never throws.
+ */
+function announceDelivered(subject: string, durable: string, attempt: () => number): void {
+  try {
+    console.log(
+      JSON.stringify({ level: 30, time: Date.now(), event: BUS_DELIVERED, subject, durable, attempt: attempt(), msg: 'bus delivered' }),
+    );
+  } catch {
+    // A delivery is never held up by its own log line.
   }
 }
 

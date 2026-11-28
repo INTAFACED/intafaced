@@ -466,8 +466,8 @@ test(`${J} #6 closes the position: the venue's realised result; the ledger posts
   await page.getByTestId('venue-blotter').getByRole('button', { name: 'History' }).click();
   const closed = page.getByTestId('venue-history').locator(`tr[data-closed="${SYMBOL}"]`);
   await expect(closed).toBeVisible({ timeout: 15_000 });
-  expect(sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), realised)).toBe(true);
-  expect(sameDecimal(await closed.locator('[data-cell="builder-fees"]').innerText(), builderFees)).toBe(true);
+  await expect.poll(async () => sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), realised)).toBe(true);
+  await expect.poll(async () => sameDecimal(await closed.locator('[data-cell="builder-fees"]').innerText(), builderFees)).toBe(true);
 
   // Our ledger posts our builder fee once per fill, at the venue's amount (the poster's own cadence), and nothing of
   // the person's: the venue holds the collateral and the position, so their ledger accounts read as before the close.
@@ -813,7 +813,11 @@ test(`${J} #10 holds a stock perpetual through a TEST split: the position settle
       status: 'canceled',
     });
     expect((await venueRecord(owner, '/positions')).value.filter((p) => p.symbol === MARGINED)).toEqual([]);
-    await page.getByTestId('venue-blotter').getByRole('button', { name: 'Orders' }).click();
+    // The page shows the position settled once its next read lands; until then the held row (and its
+    // "Exit orders XSTD-PERP" button) is still drawn, so the tab is pressed by its exact name, after the row is gone.
+    await page.getByTestId('venue-blotter').getByRole('button', { name: 'Positions', exact: true }).click();
+    await expect(page.getByTestId('venue-positions').locator(`tr[data-symbol="${MARGINED}"]`)).toHaveCount(0, { timeout: 20_000 });
+    await page.getByTestId('venue-blotter').getByRole('button', { name: 'Open orders', exact: true }).click();
     await expect(page.getByTestId('venue-blotter').getByText(order.venueClientOrderId)).toHaveCount(0);
 
     // The result of the settlement in my history: the venue's own figures, with the time.

@@ -1,18 +1,15 @@
 import { useId, useMemo, useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
-import { useVenueMode } from '../trade/use-venue-mode';
-import { venueApi } from '../trade/venue-api';
-import { VenueFrame, WalletBar, useOwner } from '../trade/venue/VenueKit';
-import { Read, Select } from './common';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Failure, Field, Panel, Read } from './agent-room/parts';
+import { useVenueMode, venueApi, VenueFrame, WalletBar, useOwner } from '../trade';
 import { agentAccessCopy } from './agent-access-copy';
 import type { Failed } from './AgentGuardrails';
 import {
   OWN_AGENT_POLICY_ACTIONS,
   OWN_AGENT_POLICY_EFFECTS,
   OWN_AGENT_POLICY_SCOPES,
-  ownAgentAccessSchema,
   ownAgentPolicySchema,
   type OwnAgentAccess,
   type OwnAgent,
@@ -21,6 +18,15 @@ import {
   type OwnAgentPolicyEffect,
   type OwnAgentPolicyScope,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_POLICY_GET,
+  AGENTS_OWN_ACCESS_GET,
+  AGENTS_OWN_ACCESS_GRANT,
+  AGENTS_OWN_POLICY_ADD,
+  AGENTS_OWN_POLICY_REMOVE,
+  AGENTS_OWN_POLICY_REQUIRE,
+} from '@intafaced/contracts/agents-own-procedures';
+import { callAs, type AppProcedure } from '../../shared/api';
 
 /**
  * An own agent's Access page (AG-spend-02, J-agents-08 #1 #2): the person's allow and deny rules by action and account,
@@ -52,10 +58,7 @@ function Refused({ failed }: { failed: Failed }) {
 export function AccessPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentAccessCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.policy.get', { id: agent.id }, ownAgentPolicySchema, { signal }),
-    `own-policy:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_POLICY_GET, { id: agent.id }, { signal }), `own-policy:${agent.id}`);
   return (
     <Panel title={t('accessTitle')} role="region" aria-label={t('accessTitle')}>
       <Read resource={loaded.resource} retry={loaded.reload}>
@@ -76,15 +79,15 @@ function AccountAccess({ agent }: { agent: OwnAgent }) {
   return (
     <section role="region" aria-label={t('accountAccessTitle')}>
       <h3>{t('accountAccessTitle')}</h3>
-      <p className="muted">{t('accountAccessIntro')}</p>
+      <p className="lt-muted">{t('accountAccessIntro')}</p>
       {mode.mode === 'on' ? (
         <VenueFrame mode={mode}>
           <AccountAccessGrant agent={agent} venueId={mode.status.available ? mode.status.venue.id : null} />
         </VenueFrame>
       ) : mode.mode === 'checking' ? (
-        <p className="muted">{t('accountAccessChecking')}</p>
+        <p className="lt-muted">{t('accountAccessChecking')}</p>
       ) : (
-        <p className="muted">{t('accountAccessOff')}</p>
+        <p className="lt-muted">{t('accountAccessOff')}</p>
       )}
     </section>
   );
@@ -99,10 +102,7 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
     (signal) => (owner ? venue.subAccounts(owner, signal) : Promise.resolve({ ok: true as const, data: null })),
     `venue-subs:${owner ?? 'none'}`,
   );
-  const stored = useResource(
-    (signal) => api.query('agents', 'own.access.get', { id: agent.id }, ownAgentAccessSchema, { signal }),
-    `own-access:${agent.id}`,
-  );
+  const stored = useResource((signal) => api.call(AGENTS_OWN_ACCESS_GET, { id: agent.id }, { signal }), `own-access:${agent.id}`);
   const [access, setAccess] = useState<OwnAgentAccess | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
   const [endsIn, setEndsIn] = useState('');
@@ -119,12 +119,14 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
     setRefused(null);
     try {
       const subAccounts = listed.value.filter((s) => chosen.has(s.subAccount));
-      const res = await api.mutate(
-        'agents',
-        'own.access.grant',
-        { id: agent.id, grantKey, venueId, owner, subAccounts, endsInDays: endsIn.trim() === '' ? null : endsIn.trim() },
-        ownAgentAccessSchema,
-      );
+      const res = await api.call(AGENTS_OWN_ACCESS_GRANT, {
+        id: agent.id,
+        grantKey,
+        venueId,
+        owner,
+        subAccounts,
+        endsInDays: endsIn.trim() === '' ? null : endsIn.trim(),
+      });
       if (!res.ok) return setRefused(res);
       setAccess(res.data);
       setGrantKey(crypto.randomUUID());
@@ -137,11 +139,11 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
     <>
       <WalletBar />
       {!owner ? (
-        <p className="muted">{t('connectFirst')}</p>
+        <p className="lt-muted">{t('connectFirst')}</p>
       ) : subs.resource.status === 'failed' ? (
         <p role="alert">{t('subAccountsRefused')}</p>
       ) : listed && listed.value.length === 0 ? (
-        <p className="muted">{t('noSubAccounts')}</p>
+        <p className="lt-muted">{t('noSubAccounts')}</p>
       ) : listed ? (
         <form
           aria-label={t('accountAccessTitle')}
@@ -151,7 +153,7 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
           }}
         >
           {listed.value.map((sub) => (
-            <label key={sub.subAccount} className="agent-surface-choice">
+            <label key={sub.subAccount} className="lt-field">
               <input
                 type="checkbox"
                 checked={chosen.has(sub.subAccount)}
@@ -174,7 +176,7 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
             disabled={busy}
             onChange={(event) => setEndsIn(event.target.value)}
           />
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {t('grantAccess')}
           </Button>
           {refused ? <Refused failed={refused} /> : null}
@@ -192,7 +194,7 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
           ))}
         </DataTable>
       ) : shown ? (
-        <p className="muted">{t('noGrants')}</p>
+        <p className="lt-muted">{t('noGrants')}</p>
       ) : null}
     </>
   );
@@ -210,11 +212,11 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
   const [busy, setBusy] = useState(false);
   // The tick shows the person's choice at once; the service's answer then sets it, or a refusal puts it back.
   const [required, setRequired] = useState(stored.rulesRequired);
-  async function send(procedure: string, input: Record<string, unknown>) {
+  async function send(procedure: AppProcedure, input: Record<string, unknown>) {
     setBusy(true);
     setRefused(null);
     try {
-      const res = await api.mutate('agents', procedure, { id: agent.id, ...input }, ownAgentPolicySchema);
+      const res = await callAs(api, procedure, { id: agent.id, ...input }, ownAgentPolicySchema);
       if (!res.ok) {
         setRequired(policy.rulesRequired);
         return setRefused(res);
@@ -230,12 +232,12 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
   }
   return (
     <>
-      <p className="muted">{t('accessIntro')}</p>
+      <p className="lt-muted">{t('accessIntro')}</p>
       <form
         aria-label={t('newRule')}
         onSubmit={(event) => {
           event.preventDefault();
-          void send('own.policy.add', { effect, action, scope });
+          void send(AGENTS_OWN_POLICY_ADD, { effect, action, scope });
         }}
       >
         <Select
@@ -256,7 +258,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
           onChange={(value) => setScope(value as OwnAgentPolicyScope)}
           options={OWN_AGENT_POLICY_SCOPES.map((value) => ({ value, label: t(`scope_${value}`) }))}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('addRule')}
         </Button>
       </form>
@@ -269,7 +271,12 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
               <td>{t(`action_${rule.action}`)}</td>
               <td>{t(`scope_${rule.scope}`)}</td>
               <td>
-                <Button type="button" disabled={busy} onClick={() => void send('own.policy.remove', { ruleId: rule.id })}>
+                <Button
+                  tone="primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void send(AGENTS_OWN_POLICY_REMOVE, { ruleId: rule.id })}
+                >
                   {t('remove')}
                 </Button>
               </td>
@@ -277,10 +284,10 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
           ))}
         </DataTable>
       ) : (
-        <p className="muted">{t('noRules')}</p>
+        <p className="lt-muted">{t('noRules')}</p>
       )}
       {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
-      <label className="agent-surface-choice" htmlFor={requiredId}>
+      <label className="lt-field" htmlFor={requiredId}>
         <input
           id={requiredId}
           type="checkbox"
@@ -289,12 +296,12 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
           aria-describedby={`${requiredId}-hint`}
           onChange={(event) => {
             setRequired(event.target.checked);
-            void send('own.policy.require', { rulesRequired: event.target.checked });
+            void send(AGENTS_OWN_POLICY_REQUIRE, { rulesRequired: event.target.checked });
           }}
         />
         <span>{t('required')}</span>
       </label>
-      <p className="muted" id={`${requiredId}-hint`}>
+      <p className="lt-muted" id={`${requiredId}-hint`}>
         {t('requiredHint')}
       </p>
       <DataTable label={t('decisionsTable')} headers={[t('colAction'), t('colOutcome')]}>

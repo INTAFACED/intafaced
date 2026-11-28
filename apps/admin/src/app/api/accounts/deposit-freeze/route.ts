@@ -2,7 +2,7 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { readFreezeRequest } from '@/lib/deposit-freezes/model';
 import { freezeDepositAddress } from '@/lib/deposit-freezes/server';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { refusalResponse, stepResponse } from '@/lib/desk/step-route';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { moduleDisabledResponse } from '@/lib/modules';

@@ -1,23 +1,18 @@
 /**
- * Lit glass: the frozen contracts every lane builds against.
+ * Volt: the frozen contracts every lane builds against.
  *
  * This file names things; it holds no values and no styling. Values live in `./tokens.ts`, components in
- * `./components/`, templates in `./templates/`, the 3D objects in `./fx/`. A name added here goes through the
+ * `./components/`, templates in `./templates/`. A name added here goes through the
  * kit's owner (the lit lead); removing or renaming one is a breaking change for every room built on it.
  *
- * The look is scoped: it only applies under `data-look="lit"` on the root element, and only the customer app
- * loads `@intafaced/ui/lit/lit.css`. The founder console (apps/admin) never imports anything under `lit/`
- * (`lit.test.ts` checks that). With the look switched off, the same role tokens resolve to today's skin, so a
- * room moved onto a template shows its new layout in the old colours, flat, never a mix of two skins.
+ * Volt is the customer app's only look (the owner's pick, 2026-11-21): the app's page carries `data-look="lit"` on its
+ * root from its first byte (apps/customer/index.html), and only the customer app loads `@intafaced/ui/lit/lit.css`.
+ * The founder console (apps/admin) never imports anything under `lit/` (`lit.test.ts` checks that). Without
+ * `data-look` (the kit gallery's flat view) the same role tokens resolve to today's skin.
  */
 
-/** The `data-look` value that switches the skin on. */
+/** The `data-look` value the customer app's root carries. */
 export const LIT_LOOK = 'lit' as const;
-
-/** `data-accent` on the root. Blue is the default (owner decision, 26 Oct 2026); the others are a switch. */
-export const accents = ['blue', 'ember', 'violet', 'emerald'] as const;
-export type Accent = (typeof accents)[number];
-export const defaultAccent: Accent = 'blue';
 
 /**
  * `data-surfaces` on the root. `solid` replaces every glass and translucent surface with an opaque one and
@@ -28,7 +23,7 @@ export const defaultAccent: Accent = 'blue';
 export const surfaceModes = ['glass', 'solid'] as const;
 export type SurfaceMode = (typeof surfaceModes)[number];
 
-/** `data-theme` on the root, as the app already uses it. Dark ships; light values exist and are tested. */
+/** `data-theme` on the root, as the app already uses it. The beta is dark only; light values exist, are tested and stay behind the scheme switch. */
 export const schemes = ['dark', 'light'] as const;
 export type Scheme = (typeof schemes)[number];
 
@@ -37,7 +32,7 @@ export const modes = ['simple', 'pro'] as const;
 export type Mode = (typeof modes)[number];
 
 /**
- * Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`) hold a colour in the
+ * Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`, `object-bg`, `object-spark-bg`) hold a colour in the
  * flat skin and a gradient in the lit skin, so they are only ever used with the `background` shorthand. Every
  * other colour role is a plain colour in every skin. Shadow roles are `box-shadow` values.
  *
@@ -55,7 +50,7 @@ export const roles = {
   'text-1': 'Primary text and money figures',
   'text-2': 'Secondary text and labels',
   'text-3': 'Tertiary text; still 4.5:1 on solid surfaces',
-  'text-disabled': 'Disabled text only; exempt from contrast',
+  'text-disabled': 'Disabled text only; still 4.5:1 on every solid surface, quieter than text-3',
   line: 'Hairline dividers',
   'line-strong': 'Outlines of fields and tables',
 
@@ -106,6 +101,13 @@ export const roles = {
   'key-shadow': 'Shadow stack of an action key',
   'key-lit-bg': 'The one key that is the light',
   'key-lit-shadow': 'Glow and wall of the lit key',
+
+  // The money object (a card, a stack, a coin): the account drawn as a thing you hold, in both schemes.
+  'object-bg': 'The money object face. Image role: use with the `background` shorthand only',
+  'object-fg': 'Text and figures on the money object face',
+  'object-shadow': 'Edge light and weight of the money object (shadow stack)',
+  'object-spark-bg': "The money object lit as the screen's one spark. Image role: `background` shorthand only",
+  'object-spark-fg': 'Text and figures on the lit money object',
   'control-bg': 'Input, select, segmented control body',
   'control-rim': 'Their outline at rest',
   'control-rim-active': 'Their outline when focused or selected (not the focus ring)',
@@ -132,6 +134,9 @@ export const roles = {
   'font-ui': 'Interface face',
   'font-mono': 'Fine print, codes, tick scales',
   'font-figure': 'Money figures (tabular numerals)',
+  'cents-size': "A big figure's cents, as a share of the figure's size",
+  'cents-shift': "How far a big figure's cents sit above its baseline",
+  'cents-tone': "The colour of a big figure's cents",
 
   // Shape
   'radius-panel': 'Panels and cards',
@@ -282,8 +287,13 @@ export const components = {
   Button: 'tone primary (metal, one per view) | secondary (dark pill) | quiet',
   ActionKey: 'Icon key with caption (Add, Send, Buy); `lit` for the one key that is the light',
   Switch: 'Glass disc knob toggle',
-  Segmented: 'Ranges, Buy/Sell, Simple/Pro',
-  Field: 'Input with label, hint and typed error',
+  Segmented: 'Ranges, Buy/Sell, Simple/Pro: a named group of pressed buttons, one pressed, the arrow keys moving focus between them',
+  ToggleChips:
+    "A list's filter chips: a named group of pressed buttons, one on at a time, optionally pressed off; the arrow keys move between them",
+  Field: 'Input with label, hint and typed error; a decorative mark before the text (the @ of a handle) and a control after it (Paste)',
+  SelectField: 'A labelled native list to pick from, in the field look',
+  TextField: 'A labelled box of several lines, with hint and typed error, in the field look',
+  Choice: 'A tick or round choice with its words on one row',
   Figure: 'A money figure from a decimal string (never a number), with TEST and stale marks',
   Change: 'Up or down change as text, with sign and arrow, never colour alone',
   FinePrint: 'Mono micro text for codes and scales (never legal text)',
@@ -301,17 +311,81 @@ export const components = {
   Logo: 'Mark, wordmark or lockup, drawn by the brand set from the kit files in packages/ui/brand',
   Stage: 'Host for a 3D object (from ./fx), with poster first and a flat tier; never on confirm or review',
   EqualChoice: '(B2) Two or more choices of equal weight: cooling-off, payee check, scam stop',
-  Table: '(B2) Table with a phone row form (rows become stacked cards under compact)',
+  Table:
+    '(B2) Table with a phone row form (rows become stacked cards under compact); sortable headers (aria-sort), row and cell data marks, and window virtualisation for long lists',
   Sheet: '(B2) Bottom sheet on phone, side sheet on computer; a glass layer',
+  Dialog: '(B2) A modal dialog in the middle of the screen, named by its title: a review before a step, or one short task',
   Stepper: '(B2) Steps of a flow',
   Skeleton: '(B2) Loading placeholder shaped like the content, never a flash of "no records"',
   KeyValue: '(B2) Label and value rows (review, receipt, details)',
   StatusChip: '(B2) Money status: pending, failed, done, unknown, with words not colour alone',
   Tabs: "(B2) A door's room row",
+  SectionTabs:
+    "(B2) A room's own sections as pressed buttons, the Tabs row for sections the room switches itself; the arrow keys move between them",
+  RoomBar:
+    "(B2) A room's own bar (an asset's name, price and sections), drawn first by the frame and staying under the top bar's measured bottom edge as the page scrolls",
+  Disclosure: '(B2) Sections that fold: a heading button each, the open body a region named by it',
+  Checkbox: '(B2) A tick with its words on one row',
   LineChart: '(B2) Price or value over time',
   AreaChart: '(B2) Value over time with a lit fill',
+  Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
+  Candles:
+    "(B2) Candles over time: rise and fall from role tokens and in words (data-rising, each candle's title), placed by time so a gap stays a gap; an honest empty line for none",
   Bars: '(B2) Bars (volume, monthly totals)',
+  QrCode:
+    '(B2) A scannable code: dark modules on a light ground in every theme, a four-module quiet zone, a bounded size, a name for a screen reader and its text on the figure',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  SplitGrid: 'One, two or four panels with borders the person drags to resize them (SplitCell, SplitBorder): the chart grid',
+  TimeLine:
+    '(B2) A line placed by time, so a gap keeps its real width; a zero line, a readout by pointer or arrow keys, an honest empty line for none',
+  ChartBox: "(B2) A chart's box of definite size (22.5rem high, full width) for a library that draws into it, or a state in its place",
+  ChartCanvas: '(B2) The named figure inside a ChartBox and the element a charting library draws into, filling the box',
+  AssetIcon: "An asset's round mark: the kit's artwork for a listed asset, a lettered disc for any other, never a guessed logo",
+  InfoTip: 'A short explanation behind an (i) button: opens on hover, focus and tap, closes on Escape; also the description',
+  HeroFigure: 'The one large figure a room is about: masked when balances are hidden, a dash when there is none, never animated',
+  Fold: 'A group closed until opened (small balances), with its count: the native disclosure',
+  CardStack: 'The account as two cards you hold, each a link: matte black metal in front, the lit card behind',
+  AmountField:
+    'The box an amount of money is typed into: a decimal string (inputMode decimal, never a number), its unit beside it, what is available and a Max key under it, a refusal announced',
+  Toast:
+    'A short confirmation at the top of the screen (ToastProvider once, useToast().add), announced politely; never the only place a result is shown',
+  Payee: 'The person money is about to go to, as the lookup found them: face, name, handle, a confirmed badge and a tick; nothing guessed',
+  StatusNote:
+    'Where something stands, in the flow (still confirming, held for review, could not load): title, words, the caller’s actions; polite, an alert only for a failure',
+  PageGrid:
+    "The page's width, gutter and columns (split 8:4, hero 5:7, even, full): one column under 64rem of its own width, a step larger on an ultra-wide screen",
+  PageColumn: 'One column of a PageGrid, its panels stacked with the page gap; span all for a band across every column',
+  TileRow: 'A row of equal tiles that wraps by width (narrow 11rem, card 14rem, wide 18rem)',
+  PanelHead: "A panel's head: its title as a heading at the start, an aside at the end",
+  MarketTable:
+    'Markets as a table: mark, symbol and name; price, 24h change, 7-day line and volume end-aligned in tabular digits; a row action shown on hover; placeholder rows while loading',
+  MoverTile: 'One market as a tile: symbol and change, the price large, its line',
+  ActionRow: 'A row of equal action keys: wide bars beside their words, square keys with the word under on a phone',
+  ActionButton: 'One action key of an ActionRow; `primary` for the one lit key',
+  PanelSection: "A panel's section under a hairline: its title and an aside on one row, then its body",
+  ProgressSegments: 'Progress as N segments, the done ones lit, said in words',
+  ActivityRow: 'One line of activity: a circle, what and when, the signed amount at the end (in reads up), masked with hide-balances',
+  ActivityList: 'The named list ActivityRows sit in',
+  ButtonLink: "A link drawn as the kit's Button (primary, secondary, quiet; sm, md, lg): a call to action that goes somewhere",
+  ChoiceTile:
+    "One answer of a short choice drawn as a tile (title and a quiet line); the browser's own radio inside a fieldset, sent with the form",
+  RadioTrack: "Two or three answers on one sunken pill track, each the browser's own radio; sent with the form, may start unanswered",
+  WalletCard:
+    'The hero object of the auth pages: a tilted matte card with the brand mark, a label and a short value, lit by one soft spark',
+  Display: "The page's display headline in the wide face, with an optional dimmed second line",
+  SectionTitle: "A front page's section title in the wide face, a step under Display",
+  LiveDot: 'A small glowing dot in the up colour beside its words; grey when off',
+  TrustStrip: 'Equal cells in one panel divided by hairlines: a title, an optional badge, a short body',
+  WarnBadge: 'A warn-toned pill for a value that is not real yet',
+  FeaturedMarket: 'The busiest market in a sunken tile: mark and name, the price large, its change, its chart filling the end',
+  MarketBoard: "A markets screen's board: its panels in a column on the page, the region it fills drawing no panel",
+  MarketHero:
+    'One market large: chips to pick it, mark and name, the price at the big-figure size, its move, one action, six figures, its day as a soft chart beside them',
+  MarketBoardSkeleton: 'The board at its final size while the markets load: the hero and a row of mover tiles',
+  Dim: 'Quieter words inside a hero or a board head',
+  ToolbarEnd: "A toolbar's end slot (a search), a whole row on a phone",
+  FootNotes: 'Short quiet lines under a list, a bold lead on each',
+  StarToggle: "A market's favourite star, grey when off and white when on",
 } as const;
 export type ComponentName = keyof typeof components;
 

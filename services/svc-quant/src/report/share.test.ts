@@ -176,7 +176,7 @@ describe('backtest report and share link (AL-report-03)', () => {
           level: 'warn',
           code: 'margin_event',
           ts: '2026-10-20T07:00:00.000Z',
-          values: { kind: 'stop_out', price: '100', level: '50' },
+          values: { kind: 'venue_close', price: '100', level: '50' },
         },
         { level: 'warn', code: 'bare', ts: null, values: {} },
       ],
@@ -185,7 +185,7 @@ describe('backtest report and share link (AL-report-03)', () => {
       { name: 'assumption', value: 'name open_position_marked_at_last_close' },
       { name: 'assumption', value: 'name risk_limits_not_simulated' },
       { name: 'gap', value: 'from 2026-10-20T04:00:00.000Z, to 2026-10-20T06:00:00.000Z' },
-      { name: 'margin_event', value: 'kind stop_out, price 100, level 50' },
+      { name: 'margin_event', value: 'kind venue_close, price 100, level 50' },
       { name: 'bare', value: 'no time' },
     ]);
     await expect(b.backtest.report({ runId: run.runId })).rejects.toMatchObject({ code: 'NOT_FOUND' });

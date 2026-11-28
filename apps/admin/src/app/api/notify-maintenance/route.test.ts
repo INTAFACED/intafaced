@@ -100,6 +100,10 @@ const DEFINITION = {
   updatedAt: '2026-10-23T10:00:00.000Z',
   publicOrigin: null,
 };
+// The rest of what svc-notify sends with every definition and every notice (their records' replies), which this desk does not show.
+const wireDefinition = (d: object) => ({ ...d, noticeCategories: null });
+const NOTICE_WIRE = { kind: 'maintenance', asset: null, network: null, phase: null, changelog: null, category: null, audience: 'everyone' };
+const wireNotice = (n: object) => ({ ...n, ...NOTICE_WIRE });
 const DRAFT = {
   op: 'draft',
   title: 'TEST database upgrade',
@@ -116,8 +120,8 @@ describe('maintenance desk BFF', () => {
     configure();
     upstream({
       'statusPage.maintenance.windows': () => ok([WINDOW]),
-      'statusPage.definition': () => ok(DEFINITION),
-      'actionApproval.list': () => ok({ approvals: [] }),
+      'statusPage.definition': () => ok(wireDefinition(DEFINITION)),
+      'actionApproval.list': () => ok({ approvals: [], pageFull: false }),
     });
     const body = await (await GET(get())).json();
     expect(body.windows).toEqual({ kind: 'ok', data: [WINDOW] });
@@ -125,15 +129,15 @@ describe('maintenance desk BFF', () => {
     expect(body.approvals).toEqual({ kind: 'ok', data: [] });
     upstream({
       'statusPage.maintenance.windows': () => ok([{ ...WINDOW, state: 'paused' }]),
-      'statusPage.definition': () => ok(DEFINITION),
-      'actionApproval.list': () => ok({ approvals: [] }),
+      'statusPage.definition': () => ok(wireDefinition(DEFINITION)),
+      'actionApproval.list': () => ok({ approvals: [], pageFull: false }),
     });
     expect((await (await GET(get())).json()).windows.kind).toBe('failed');
   });
 
   it('drafts a maintenance notice with its offsets distinct and largest first, keyed by its content', async () => {
     configure();
-    const c = upstream({ 'notify.draftNotice': () => ok(WINDOW.notice) });
+    const c = upstream({ 'notify.draftNotice': () => ok(wireNotice(WINDOW.notice)) });
     expect(await (await POST(post(DRAFT))).json()).toEqual({ ok: true, what: 'drafted' });
     await POST(post(DRAFT));
     const [a, b] = calls(c).map((x) => JSON.parse(String(x.init.body)));
@@ -150,7 +154,7 @@ describe('maintenance desk BFF', () => {
 
   it('a draft with no offsets sends none; a malformed window or offset is refused before any service call', async () => {
     configure();
-    const c = upstream({ 'notify.draftNotice': () => ok(WINDOW.notice) });
+    const c = upstream({ 'notify.draftNotice': () => ok(wireNotice(WINDOW.notice)) });
     await POST(post({ ...DRAFT, reminderOffsets: '' }));
     expect(sent(c, 'notify.draftNotice').reminderOffsets).toBeNull();
     for (const bad of [
@@ -186,7 +190,7 @@ describe('maintenance desk BFF', () => {
 
   it('the four-eyes publish of a window goes through the notice proposal, keyed by the approval', async () => {
     configure();
-    const c = upstream({ 'notify.publishNotice': () => ok(WINDOW.notice) });
+    const c = upstream({ 'notify.publishNotice': () => ok(wireNotice(WINDOW.notice)) });
     await POST(post({ op: 'publish', noticeId: WINDOW_ID, approvalId: 'appr-1', operationId: 'op-1' }));
     expect(sent(c, 'notify.publishNotice')).toEqual({
       id: WINDOW_ID,

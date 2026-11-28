@@ -2,6 +2,7 @@
 // piece 5): after a file that restarts a service, a stack whose status is not healthy is started again, and what was
 // done is said in words; a healthy stack is left alone. Run: node tooling/scripts/real-app-services.test.mjs
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 
 const { healStack, downRows, withoutOff, blankServices } = await import('../../apps/customer/tests/real-app/services.mjs');
 
@@ -137,12 +138,66 @@ const BLANK = { code: 0, timedOut: false, stdout: '{"agents":["LOCAL_STACK_AGENT
     LOCAL_STACK_HOSTS_X: 'on',
     HOME: 'off',
   });
+  // The custody switch is the stack's own start setting, not an owner value a file blanked: a restore that restarts a
+  // blanked service keeps it, so a custody-off shard stays custody off (#11102: on run 45977414925, shard 6, the
+  // restore after J-agents-01 restarted every service custody on, J-agents-02 then funded a customer in our ledger, and
+  // svc-ledger refused to boot custody off again on that balance, which took the ledger down for the rest of the shard).
+  assert.deepEqual(withoutOff({ LOCAL_STACK_HOSTS: 'off', LOCAL_STACK_CUSTODY_LAYER: 'off' }), { LOCAL_STACK_CUSTODY_LAYER: 'off' });
 }
-// The stack records the off values each process started with (local-test-stack.mjs offOverrides).
+// The stack records the off values each process started with (local-test-stack.mjs startProc), and its `overrides`
+// command answers them for each live service it can restart: a process started with LOCAL_STACK_*=off is named with
+// those variables, sorted; one started without any is not named.
 {
-  const src = (await import('node:fs')).readFileSync(new URL('./local-test-stack.mjs', import.meta.url), 'utf8');
-  assert.match(src, /\.\.\.\(off\.length \? \{ offOverrides: off \} : \{\}\)/, 'startProc records offOverrides');
-  assert.match(src, /cmd === 'overrides'/, "the stack tool answers 'overrides'");
+  const { spawnSync } = await import('node:child_process');
+  const { mkdtempSync, mkdirSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const stackUrl = new URL('./local-test-stack.mjs', import.meta.url);
+  const state = mkdtempSync(join(tmpdir(), 'stack-overrides-'));
+  mkdirSync(join(state, 'logs'), { recursive: true });
+  mkdirSync(join(state, 'run'), { recursive: true });
+  const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('LOCAL_STACK_')));
+  const start = (name, offs) => {
+    const env = { ...clean, LOCAL_STACK_STATE: state, ...Object.fromEntries(offs.map((k) => [k, 'off'])) };
+    const r = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `const { startProc } = await import(${JSON.stringify(stackUrl.href)});
+         console.log(startProc(${JSON.stringify(name)}, [process.execPath, '-e', 'setInterval(() => {}, 1000)'], process.env, process.cwd()));`,
+      ],
+      { env, encoding: 'utf8' },
+    );
+    assert.equal(r.status, 0, r.stderr);
+    return Number(r.stdout.trim().split('\n').at(-1));
+  };
+  const pids = [];
+  try {
+    pids.push(start('customer', ['LOCAL_STACK_WS_UPSTREAM', 'LOCAL_STACK_HOSTS']));
+    pids.push(start('invitation', []));
+    // A service started custody off with nothing blanked is not named: the switch is the stack's, not an override.
+    pids.push(start('apex', ['LOCAL_STACK_CUSTODY_LAYER']));
+    const r = spawnSync(process.execPath, [fileURLToPath(stackUrl), 'overrides'], {
+      env: { ...clean, LOCAL_STACK_STATE: state },
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(
+      JSON.parse(r.stdout),
+      { customer: ['LOCAL_STACK_HOSTS', 'LOCAL_STACK_WS_UPSTREAM'] },
+      "startProc records each process's off values, and 'overrides' answers them for a live restartable service only",
+    );
+  } finally {
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+    rmSync(state, { recursive: true, force: true });
+  }
 }
 // The restore's budget: a restart file gets about 100 s for the start; one that also moves the market gets too little.
 {

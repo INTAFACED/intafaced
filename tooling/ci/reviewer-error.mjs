@@ -120,7 +120,9 @@ export function resetOf(result, now = new Date()) {
   if (month < 0) return said;
   const day = t[2] ? Number(t[2]) : now.getUTCDate();
   let at = Date.UTC(now.getUTCFullYear(), month, day, hour, Number(t[4] ?? 0));
-  if (at < now.getTime() - 2 * 86_400_000) at = Date.UTC(now.getUTCFullYear() + 1, month, day, hour, Number(t[4] ?? 0));
+  // A time with no date is the next one: 'resets 3pm' said at 15:28 UTC is tomorrow's 3pm (Nov 25: project-state#4075 said today's).
+  if (!t[2] && at <= now.getTime()) at += 86_400_000;
+  else if (at < now.getTime() - 2 * 86_400_000) at = Date.UTC(now.getUTCFullYear() + 1, month, day, hour, Number(t[4] ?? 0));
   const bali = new Date(at + 8 * 3_600_000);
   const hm = `${String(bali.getUTCHours()).padStart(2, '0')}:${String(bali.getUTCMinutes()).padStart(2, '0')}`;
   const mon = MONTHS[bali.getUTCMonth()];
@@ -160,7 +162,7 @@ export function classify(text, code, now = new Date(), err = '') {
   // Only the API's or the CLI's own error text is read: a status the API sent, or a short error result. A used-up or
   // refused key, or a usage limit, also needs the API's status (or stderr, below): a short error result alone could be
   // shaped by the model, and those classes must never be read from the change's own text.
-  const own = sent || (a.is_error === true && !/^error_max/.test(String(a.subtype ?? '')) && errorText(a));
+  const own = sent || (a.is_error === true && !String(a.subtype ?? '').startsWith('error_max') && errorText(a));
   const words = own ? result : '';
   const reset = sent ? resetOf(result, now) : null;
   if (sent && (USED_UP.test(words) || (status === 'limit' && reset)))

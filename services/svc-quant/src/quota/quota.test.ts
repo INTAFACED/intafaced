@@ -41,7 +41,10 @@ function signed(userId: string, scopes: string[] = ['trade:read']) {
 }
 
 function setup(defaultProfile: string | null = 'TEST default') {
-  const quota = createMemoryQuota({ defaultProfile });
+  const quota = createMemoryQuota({
+    defaultProfile,
+    sandbox: { wall_clock_ms: 5_000n, memory_bytes: 1_000_000n, output_bytes: 1_000_000n },
+  });
   const app = createQuantRouter({
     wired: true,
     venueVaultSet: false,
@@ -234,7 +237,13 @@ describe('quotas by plan (AL-limits-01)', () => {
     expect(parseQuotaSeed('{"profile":"TEST developer","limits":{"runs":"10"}}')).toEqual({
       profile: 'TEST developer',
       limits: { runs: '10' },
+      sandbox: {},
     });
+    expect(parseQuotaSeed('{"profile":"TEST developer","limits":{},"sandbox":{"wall_clock_ms":"2000"}}')?.sandbox).toEqual({
+      wall_clock_ms: '2000',
+    });
+    expect(() => parseQuotaSeed('{"profile":"TEST x","limits":{},"sandbox":{"cpu":"1"}}')).toThrow(/unknown sandbox limit/);
+    expect(() => parseQuotaSeed('{"profile":"TEST x","limits":{},"sandbox":{"memory_bytes":"lots"}}')).toThrow(/whole number/);
     expect(() => parseQuotaSeed('{"profile":"Pro","limits":{"runs":"10"}}')).toThrow(/TEST/);
     expect(() => parseQuotaSeed('{"profile":"TEST x","limits":{"seats":"10"}}')).toThrow(/unknown resource/);
     expect(() => parseQuotaSeed('{"profile":"TEST x","limits":{"runs":"ten"}}')).toThrow(/whole number/);

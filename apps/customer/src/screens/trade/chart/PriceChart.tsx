@@ -8,15 +8,16 @@
  * Colours come from the app's tokens at mount (`--if-*`), never from literals here.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { chartValue } from '../../../shared/chart-value';
 import { usePreferences } from '../../../shared/preferences';
 import type { Candle } from '../../../data/types';
 import type { ChartInterval } from './candles';
+import type { ChartApi, ChartOrderHost, ChartSeries } from '../../charts/chart-host';
 import {
   fillMarkers,
   legendValues,
   movingAverage,
   planUpdate,
-  priceCoordinate,
   priceFormat,
   stepOf,
   toBar,
@@ -26,25 +27,12 @@ import {
   type Marker,
 } from './chart-data';
 
-interface SeriesApi {
-  setData(data: unknown[]): void;
-  update(point: unknown): void;
-  applyOptions(options: Record<string, unknown>): void;
-  createPriceLine(options: Record<string, unknown>): unknown;
-  removePriceLine(line: unknown): void;
-}
+// The library's own objects, as the chart seam types them (charts/chart-host.ts): the same ones `onHost` hands out.
+type SeriesApi = ChartSeries;
 interface CrosshairParam {
   time?: number;
 }
-interface ChartApiLike {
-  addSeries(definition: unknown, options?: Record<string, unknown>, pane?: number): SeriesApi;
-  removeSeries(series: SeriesApi): void;
-  remove(): void;
-  panes(): Array<{ setStretchFactor(factor: number): void }>;
-  timeScale(): { fitContent(): void };
-  subscribeCrosshairMove(handler: (param: CrosshairParam) => void): void;
-  unsubscribeCrosshairMove(handler: (param: CrosshairParam) => void): void;
-}
+type ChartApiLike = ChartApi;
 interface Engine {
   createChart(host: HTMLElement, options: Record<string, unknown>): ChartApiLike;
   CandlestickSeries: unknown;
@@ -66,6 +54,11 @@ interface Colors {
   accent: string;
   ma: [string, string, string];
 }
+const hasEmptyColour = (c: Colors) =>
+  Object.values(c)
+    .flat()
+    .some((value) => value === '');
+
 function readColors(): Colors {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim();
@@ -86,6 +79,11 @@ function readColors(): Colors {
 export interface ChartOrderLine {
   price: string;
   side: 'buy' | 'sell';
+  /** The line's own words (a position's entry, stop, target or liquidation); without it, the side's word. */
+  title?: string;
+  /** Its colour: up, down or a quiet neutral; without it, the side's colour. Solid unless `dashed`. */
+  tone?: 'up' | 'down' | 'neutral';
+  dashed?: boolean;
 }
 
 export interface PriceChartProps {
@@ -100,6 +98,11 @@ export interface PriceChartProps {
   /** IANA zone, or undefined for the device's own. Times on the axis and legend follow the person's setting. */
   timeZone: string | undefined;
   labels: { buy: string; sell: string; open: string; high: string; low: string; close: string; change: string; chart: string };
+  /**
+   * Hands the chart to what draws on it from outside (the venue desk's orders on the chart, J-charts-desk-15) once its
+   * main series is ready, again when that series is recreated, and null when the chart goes.
+   */
+  onHost?: (host: ChartOrderHost | null) => void;
 }
 
 const MA_PERIODS = [5, 10, 20] as const;
@@ -123,7 +126,7 @@ export function tickMark(seconds: number, kind: number, zone: Zone): string {
   return stamp(seconds, zone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }
 
-export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderLines, fills, timeZone, labels }: PriceChartProps) {
+export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderLines, fills, timeZone, labels, onHost }: PriceChartProps) {
   const { upColor, language } = usePreferences();
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
@@ -137,6 +140,9 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
   const fittedFor = useRef<string | null>(null);
   const latest = useRef(candles);
   latest.current = candles;
+  // The host for the parts drawn from outside (onHost): handed over with each new main series, taken back with the chart.
+  const handHost = useRef(onHost);
+  handHost.current = onHost;
   const [ready, setReady] = useState(0); // bumps whenever the main series is (re)created
   const [hover, setHover] = useState<number | null>(null);
 
@@ -168,6 +174,9 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
       const lib = engineOf();
       if (closed || !host.current || !lib) return;
       const c = readColors();
+      // A colour token that reads empty (the page's styles not applied, as under a test DOM) would make the library throw
+      // "Failed to parse color" outside any caller; with no colours there is nothing honest to draw, so the frame stays empty.
+      if (hasEmptyColour(c)) return;
       api = lib.createChart(host.current, {
         autoSize: true,
         layout: {
@@ -215,6 +224,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
     });
     return () => {
       closed = true;
+      handHost.current?.(null);
       if (api && onMove) api.unsubscribeCrosshairMove(onMove);
       api?.remove();
       chart.current = null;
@@ -251,6 +261,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
           });
     // The axis follows the first series on it (the averages were added first), so they carry the price format too.
     averages.current.forEach((s) => s.applyOptions({ visible: mode === 'candles', priceFormat: priceFormat(tickSize, language) }));
+    if (host.current) handHost.current?.({ chart: api, main: main.current, element: host.current, tickSize });
     setReady((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, tickSize, language, ready === 0]);
@@ -294,12 +305,12 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
     lines.current.forEach((line) => series.removePriceLine(line));
     lines.current = orderLines.map((order) =>
       series.createPriceLine({
-        price: priceCoordinate(order.price),
-        color: order.side === 'buy' ? c.up : c.down,
+        price: chartValue(order.price),
+        color: order.tone === 'neutral' ? c.text : (order.tone ?? (order.side === 'buy' ? 'up' : 'down')) === 'up' ? c.up : c.down,
         lineWidth: 1,
-        lineStyle: 2,
+        lineStyle: order.dashed === false ? 0 : 2,
         axisLabelVisible: true,
-        title: order.side === 'buy' ? labels.buy : labels.sell,
+        title: order.title ?? (order.side === 'buy' ? labels.buy : labels.sell),
       }),
     );
   }, [orderLines, ready, labels.buy, labels.sell]);
@@ -337,37 +348,45 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
   const legend = focus ? legendValues(focus, tickSize, language) : null;
 
   return (
-    <div className="pc-root" role="img" aria-label={labels.chart}>
-      <div ref={host} data-testid="pc-host" className="pc-host" />
-      {legend && focus ? (
-        <div data-testid="pc-legend" className="pc-legend" aria-hidden="true">
-          <span className="pc-time">{formatTime(Math.floor(focus.t / 1000))}</span>
-          <span className="pc-ohlc">
-            {labels.open} <b>{legend.open}</b>
-          </span>
-          <span className="pc-ohlc">
-            {labels.high} <b>{legend.high}</b>
-          </span>
-          <span className="pc-ohlc">
-            {labels.low} <b>{legend.low}</b>
-          </span>
-          <span className="pc-ohlc">
-            {labels.close} <b>{legend.close}</b>
-          </span>
-          <span className="pc-change" data-direction={legend.direction}>
-            {labels.change} {legend.change}
-          </span>
-          {mode === 'candles' ? (
-            <span className="pc-ma">
-              {MA_PERIODS.map((p, i) => (
-                <span key={p} className={`pc-ma-${i + 1}`}>
-                  MA({p})
-                </span>
-              ))}
+    <div className="lt-stack-tight lt-tight">
+      {/* The named picture is the legend's strip; the plot stays outside it, because the engine draws the attribution
+          link the licence asks for inside the plot, and an image may hold no link (axe nested-interactive). */}
+      <div role="img" aria-label={labels.chart}>
+        {legend && focus ? (
+          <div data-testid="pc-legend" className="lt-row lt-note lt-num" aria-hidden="true">
+            <span>{formatTime(Math.floor(focus.t / 1000))}</span>
+            <span data-testid="pc-ohlc">
+              {labels.open} <b>{legend.open}</b>
             </span>
-          ) : null}
-        </div>
-      ) : null}
+            <span data-testid="pc-ohlc">
+              {labels.high} <b>{legend.high}</b>
+            </span>
+            <span data-testid="pc-ohlc">
+              {labels.low} <b>{legend.low}</b>
+            </span>
+            <span data-testid="pc-ohlc">
+              {labels.close} <b>{legend.close}</b>
+            </span>
+            <span className="lt-signed" data-direction={legend.direction}>
+              {labels.change} {legend.change}
+            </span>
+            {mode === 'candles' ? (
+              <span className="lt-line-key">
+                {MA_PERIODS.map((p, i) => (
+                  <span key={p} data-line={i + 1}>
+                    MA({p})
+                  </span>
+                ))}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {/* The plot's own positioned box: the order marks drawn over it (VenueChartOrders, portalled into the host's parent)
+          take their coordinates from the plot's top, not from above the legend strip. */}
+      <div className="lt-canvas">
+        <div ref={host} data-testid="pc-host" className="lt-chart-host" />
+      </div>
     </div>
   );
 }

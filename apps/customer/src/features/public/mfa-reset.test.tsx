@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { AuthForm } from './AuthForm';
 
 // "I lost my authenticator" on /login (I-signin-sessions-12, J-identity-05 #2): offered with the second step, it asks for
@@ -126,7 +126,7 @@ describe('I lost my authenticator', () => {
     await submit('Start the reset');
     await act(async () => {
       await vi.waitFor(() =>
-        expect(host.querySelector('.public-auth-mfa-reset [role=status]')?.textContent).toContain(
+        expect(host.querySelector('[data-testid="public-auth-mfa-reset"] [role=status]')?.textContent).toContain(
           'Your second step is being reset. It waits until',
         ),
       );
@@ -227,6 +227,6 @@ describe('I lost my authenticator', () => {
     await lostAuthenticator();
     await submit('Back to sign in');
     expect(field('password')).not.toBeNull();
-    expect(host.querySelector('.public-auth-mfa-reset')).toBeNull();
+    expect(host.querySelector('[data-testid="public-auth-mfa-reset"]')).toBeNull();
   });
 });

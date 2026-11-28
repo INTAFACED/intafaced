@@ -5,6 +5,7 @@ import '../../../shared/styles.css';
 import '../../../features/public/public.css';
 import '../../../app/redesign.css';
 import '../../../app/shell.css';
+import '../../../app/lit-look-styles';
 import './harness-tokens.css';
 import { StrictMode, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';

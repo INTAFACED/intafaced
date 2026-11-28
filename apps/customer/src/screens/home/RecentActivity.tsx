@@ -1,20 +1,18 @@
+import { ActivityList, ActivityRow, AssetIcon } from '@intafaced/ui/lit';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import {
-  Amount,
   classifyRefusal,
   detailHref,
   fmtAmount,
   groupActivity,
   refusalCopy,
-  Skeleton,
-  StateBlock,
   type ActivityFeed,
   type ActivityItem,
   type Loadable,
 } from './deps';
 import { HOME_LINKS } from './links';
-import { STATE_IN_COLUMN } from './panel';
+import { Ghost, StateBlock } from './volt-parts';
 import { usePreferences } from '../../shared/preferences';
 import { RECENT_ACTIVITY_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
 import type { ActivityLimit } from './recent-activity-limit';
@@ -49,26 +47,22 @@ export function RecentActivity({
   activity,
   limit,
   hidden,
-  className = 'home-section',
   testId,
 }: {
   activity: Loadable<ActivityFeed>;
   /** The owner's count of rows (`useRecentActivityLimit`). */
   limit: ActivityLimit;
   hidden: boolean;
-  className?: string;
   testId?: string;
 }) {
   const { t } = homeCopy.useCopy();
   const { timeZone } = usePreferences();
   return (
-    <section data-testid={testId} className={className} aria-labelledby="home-activity-title">
-      <div className="home-section__head">
-        <h2 className="home-h2" id="home-activity-title">
-          {t('Recent activity')}
-        </h2>
+    <section data-testid={testId} className="lt-stack" aria-labelledby="home-activity-title">
+      <div className="lt-title-row">
+        <h2 id="home-activity-title">{t('Recent activity')}</h2>
         {activity.status === 'ready' && limit.state !== 'loading' ? (
-          <a className="home-link" href={HOME_LINKS.activity}>
+          <a className="lt-link" href={HOME_LINKS.activity}>
             {t('See all')}
           </a>
         ) : null}
@@ -76,69 +70,50 @@ export function RecentActivity({
       {limit.state === 'unset' ? (
         <StateBlock
           kind="refused"
-          className={STATE_IN_COLUMN}
           title={t('Activity limit unset')}
           body={t('Activity limit unset body')}
           code={RECENT_ACTIVITY_LIMIT_UNSET}
         />
       ) : limit.state === 'failed' ? (
-        <StateBlock
-          kind="error"
-          className={STATE_IN_COLUMN}
-          title={t('Couldn’t load your activity')}
-          onRetry={limit.retry}
-          retryLabel={t('Try again')}
-        />
+        <StateBlock kind="error" title={t('Couldn’t load your activity')} onRetry={limit.retry} retryLabel={t('Try again')} />
       ) : activity.status === 'loading' || limit.state === 'loading' ? (
-        <div data-testid="home-activity" className="home-activity" aria-hidden="true">
-          {[0, 1, 2].map((index) => (
-            <div data-testid="home-activity__row" className="home-activity__row" key={index}>
-              <Skeleton width={120} height={36} />
-              <Skeleton width={88} height={20} />
-            </div>
-          ))}
+        <div data-testid="home-activity" aria-hidden="true">
+          <div data-testid="home-activity__row">
+            <Ghost shape="rows" count={3} />
+          </div>
         </div>
       ) : activity.status === 'empty' ? (
-        <StateBlock kind="empty" className={STATE_IN_COLUMN} title={t('No activity yet')} body={t('No activity body')} />
+        <StateBlock kind="empty" title={t('No activity yet')} body={t('No activity body')} />
       ) : activity.status === 'ready' ? (
-        <ul data-testid="home-activity" className="home-activity">
-          {groupActivity(activity.data.items)
-            .groups.slice(0, limit.count)
-            .map((group) => {
-              const item = group.main;
-              const when = dayTime(item.postedAt, timeZone);
-              return (
-                <li key={group.id}>
-                  <a data-testid="home-activity__row" className="home-activity__row" href={detailHref(group)}>
-                    <span className="home-activity__what">
-                      <span data-testid="home-activity__kind" className="home-activity__kind">
-                        {t(LABEL[item.kind])}
-                      </span>
-                      {when ? (
-                        <span data-testid="home-activity__when" className="home-activity__when">
-                          {when}
-                        </span>
-                      ) : null}
-                    </span>
-                    <Amount
-                      data-testid="home-activity__amount"
-                      className="home-activity__amount"
-                      value={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}
-                      hidden={hidden}
-                    />
-                  </a>
-                </li>
-              );
-            })}
-        </ul>
+        <div data-testid="home-activity">
+          <ActivityList label={t('Recent activity')}>
+            {groupActivity(activity.data.items)
+              .groups.slice(0, limit.count)
+              .map((group) => {
+                const item = group.main;
+                return (
+                  <ActivityRow
+                    key={group.id}
+                    icon={<AssetIcon asset={item.asset} />}
+                    title={t(LABEL[item.kind])}
+                    time={dayTime(item.postedAt, timeZone) ?? ''}
+                    amount={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}
+                    direction={item.direction}
+                    href={detailHref(group)}
+                    hidden={hidden}
+                    marks={{
+                      row: { 'data-testid': 'home-activity__row', 'data-dir': item.direction },
+                      title: { 'data-testid': 'home-activity__kind' },
+                      time: { 'data-testid': 'home-activity__when' },
+                      amount: { 'data-testid': 'home-activity__amount' },
+                    }}
+                  />
+                );
+              })}
+          </ActivityList>
+        </div>
       ) : activity.status === 'error' ? (
-        <StateBlock
-          kind="error"
-          className={STATE_IN_COLUMN}
-          title={t('Couldn’t load your activity')}
-          onRetry={activity.retry}
-          retryLabel={t('Try again')}
-        />
+        <StateBlock kind="error" title={t('Couldn’t load your activity')} onRetry={activity.retry} retryLabel={t('Try again')} />
       ) : (
         <Refused code={activity.code} />
       )}
@@ -153,11 +128,7 @@ export function RecentActivity({
 function Refused({ code }: { code: string }) {
   const { t } = homeCopy.useCopy();
   if (classifyRefusal(code) === 'verify')
-    return (
-      <StateBlock kind="empty" className={STATE_IN_COLUMN} title={t('Activity after verify')} body={t('Activity after verify body')} />
-    );
+    return <StateBlock kind="empty" title={t('Activity after verify')} body={t('Activity after verify body')} />;
   const copy = refusalCopy(code);
-  return (
-    <StateBlock kind="refused" className={STATE_IN_COLUMN} title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />
-  );
+  return <StateBlock kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />;
 }

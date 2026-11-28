@@ -1,0 +1,610 @@
+#!/usr/bin/env node
+// The portability step of the call-records codemod: a record the export refuses (`procedure-strict-schema.ts`) for a
+// construct with an exact JSON form gets that form in its schema's own source, so the record is written instead of
+// left by hand. Each finding is followed from the record's `input` or `output` through the schema's source (consts,
+// imports, `z.object`, `z.array`, unions, records, `.extend`) to the node it names:
+//
+//   - `z.unknown()`, on the wire, is any JSON value (an absent key is refused, as zod 4 reads a key): it becomes
+//     `jsonValueSchema` (`z.json()`, which the export writes whole), its `.optional()` or `.nullable()` kept as written.
+//   - `/^(?!-)[a-z0-9-]+.../` (a lookahead that only bars the first character of the class after it) becomes the same
+//     language without the lookahead: `/^[a-z0-9][a-z0-9-]*.../`.
+//
+//   - `z.date()` or `z.coerce.date()` in the answer of a call a Rust door serves (`--door`) becomes
+//     `z.iso.datetime({ offset: true })`: the answer reaches the caller as JSON, where a Date is its ISO string, and that
+//     string is what every caller already reads (`z.string().datetime({ offset: true })`, as the hand records write it).
+//     A service that mounts its records checks its handler's Date against the answer, so there it stays, named.
+//
+//   - a `.refine(..., message)` stays as written and is named in the record, in its message's words: an answer's in
+//     `outputChecks`, an input's in `checks` with a placeholder sample per check, which samples.mjs replaces with an input
+//     that check alone refuses. A `.superRefine` is named the same way, in the words of each issue it raises
+//     (`ctx.addIssue({ message })`); one that raises an issue with no message written, or a refine with none, is left.
+//     On a door run (`--door`) a refine with no message takes the door's own name for it, as its words (door-refine.mjs).
+//
+// Any other construct, or a path the walk can't follow, is left as it is and printed by name.
+//
+//   node tooling/codemod/call-records/portable.mjs --unportable <samples.mjs --unportable output> [--write] <record file.ts> ...
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
+import { applyEdits, bindingOf, forget, keyOf, literal, load, resolveRelative, text, walk } from './ast.mjs';
+import { doorRefines, squash, wordsOf } from './door-refine.mjs';
+
+const REPO = resolve(new URL('../../..', import.meta.url).pathname);
+const CONTRACTS = join(REPO, 'packages/contracts/src');
+const UNKNOWN = 'z.unknown (no shape: accepts anything)';
+const REFINEMENT = '.refine/.superRefine (a TypeScript predicate the export drops)';
+const LOOKAROUND = /^regex \/(.*)\/ uses lookaround/;
+const DATE = 'Date object (not JSON)';
+const ISO = 'z.iso.datetime({ offset: true })';
+
+/** `label cannot be exported without losing meaning: at (construct); ...` as `{ label, findings }`. */
+export function parseWhy(why) {
+  const m = /^(\S+) cannot be exported without losing meaning: (.*)$/s.exec(why);
+  if (!m) return undefined;
+  const findings = m[2].split(/; (?=\S+ \()/).map((f) => {
+    const i = f.indexOf(' (');
+    return { at: f.slice(0, i), construct: f.slice(i + 2, -1) };
+  });
+  return { label: m[1], findings };
+}
+
+/** `views[].filter` after the root as steps: `{ prop }`, `{ elem }`, `{ option }`, `{ value }`. */
+function stepsOf(at, root) {
+  const out = [];
+  const re = /\.([A-Za-z_$][\w$]*)|\[\]|\|(\d+)|\{value\}|\[(\d+)\]|\{key\}/gy;
+  let rest = at.slice(root.length);
+  re.lastIndex = 0;
+  let m;
+  while ((m = re.exec(rest))) {
+    if (m[1] !== undefined) out.push({ prop: m[1] });
+    else if (m[0] === '[]') out.push({ elem: true });
+    else if (m[2] !== undefined) out.push({ option: Number(m[2]) });
+    else if (m[0] === '{value}') out.push({ value: true });
+    else return undefined;
+    if (re.lastIndex === rest.length) return out;
+  }
+  return rest.length === 0 ? out : undefined;
+}
+
+const unwrap = (n) => {
+  while (n && (n.type === 'ParenthesizedExpression' || n.type === 'TSAsExpression' || n.type === 'TSSatisfiesExpression')) n = n.expression;
+  return n;
+};
+
+/** An identifier to the expression it names: a local const, or a top-level const of the file it is imported from. */
+function follow(q, n) {
+  for (let i = 0; i < 20; i++) {
+    n = unwrap(n);
+    if (n?.type !== 'Identifier') return { q, n };
+    const b = bindingOf(q, n, n.name);
+    if (b.kind === 'var' && b.declarator.init) {
+      n = b.declarator.init;
+      continue;
+    }
+    if (b.kind !== 'import') return undefined;
+    const file = b.from.startsWith('.')
+      ? resolveRelative(q.file, b.from)
+      : b.from.startsWith('@intafaced/contracts')
+        ? resolveRelative(join(CONTRACTS, 'x.ts'), `./${b.from === '@intafaced/contracts' ? 'index' : b.from.split('/').pop()}.js`)
+        : undefined;
+    if (!file) return undefined;
+    q = load(file);
+    const d = top(q, b.imported);
+    if (d.kind !== 'var' || !d.declarator.init) {
+      // `export * from` / `export { x } from` in the index: look in every file it re-exports.
+      const again = reexported(q, b.imported);
+      if (!again) return undefined;
+      ({ q, n } = again);
+      continue;
+    }
+    n = d.declarator.init;
+  }
+  return undefined;
+}
+
+/** A file's top-level binding of `name` (`bindingOf` reads scopes from a node's parents, so from a top-level node). */
+const top = (q, name) => bindingOf(q, q.program.body[0] ?? q.program, name);
+
+function reexported(q, name) {
+  for (const s of q.program.body) {
+    if ((s.type !== 'ExportAllDeclaration' && s.type !== 'ExportNamedDeclaration') || !s.source) continue;
+    if (s.type === 'ExportNamedDeclaration' && !s.specifiers.some((x) => (x.exported.name ?? x.exported.value) === name)) continue;
+    const file = resolveRelative(q.file, s.source.value);
+    if (!file) continue;
+    const r = load(file);
+    const d = top(r, name);
+    if (d.kind === 'var' && d.declarator.init) return { q: r, n: d.declarator.init };
+  }
+  return undefined;
+}
+
+/** The method chain of a schema expression, outermost first, and the call it starts from (`z.object(...)`). */
+function chainOf(n) {
+  const methods = [];
+  n = unwrap(n);
+  while (n?.type === 'CallExpression' && n.callee.type === 'MemberExpression' && !n.callee.computed) {
+    const obj = unwrap(n.callee.object);
+    if (obj?.type === 'Identifier' && obj.name === 'z') return { base: n, factory: n.callee.property.name, methods };
+    methods.push({ name: n.callee.property.name, call: n, receiver: obj });
+    n = obj;
+  }
+  return { base: n, factory: undefined, methods };
+}
+
+/** The expression a single-return arrow or function returns, or undefined. */
+function returnedExpr(fn) {
+  fn = unwrap(fn);
+  if (!fn || !/^(ArrowFunctionExpression|FunctionExpression|FunctionDeclaration)$/.test(fn.type)) return undefined;
+  if (fn.body.type !== 'BlockStatement') return unwrap(fn.body);
+  const body = fn.body.body;
+  if (body.length === 1 && body[0].type === 'ReturnStatement' && body[0].argument) return unwrap(body[0].argument);
+  return undefined;
+}
+
+/** Follows a function identifier to its declaration or arrow init, locally or through an import. */
+function followFunction(q, id) {
+  let fn = id;
+  for (let i = 0; i < 5 && unwrap(fn)?.type === 'Identifier'; i++) {
+    const b = bindingOf(q, fn, unwrap(fn).name);
+    if (b.kind === 'function') return { q, fn: b.declaration };
+    if (b.kind === 'var' && b.declarator.init) {
+      fn = b.declarator.init;
+      continue;
+    }
+    if (b.kind === 'import') {
+      const file = b.from.startsWith('.')
+        ? resolveRelative(q.file, b.from)
+        : b.from.startsWith('@intafaced/contracts')
+          ? resolveRelative(join(CONTRACTS, 'x.ts'), `./${b.from === '@intafaced/contracts' ? 'index' : b.from.split('/').pop()}.js`)
+          : undefined;
+      if (!file) break;
+      q = load(file);
+      const d = top(q, b.imported);
+      if (d.kind === 'function') return { q, fn: d.declaration };
+      if (d.kind === 'var' && d.declarator.init) {
+        fn = d.declarator.init;
+        continue;
+      }
+    }
+    break;
+  }
+  fn = unwrap(fn);
+  return fn && /^(ArrowFunctionExpression|FunctionExpression|FunctionDeclaration)$/.test(fn.type) ? { q, fn } : undefined;
+}
+
+/** The node one step down from a schema expression, with the file it is in. */
+function down(q, n, step) {
+  const f = follow(q, n);
+  if (!f) return undefined;
+  ({ q, n } = f);
+  const { base, factory, methods } = chainOf(n);
+  // `.array()` and `.extend({...})` on the way: the element is the receiver; an extended key may be in the extension.
+  for (const m of methods) {
+    if (step.elem && m.name === 'array') return { q, n: m.receiver };
+    if (step.prop && (m.name === 'extend' || m.name === 'safeExtend')) {
+      const hit = propIn(q, m.call.arguments[0], step.prop);
+      if (hit) return hit;
+    }
+  }
+  if (!factory) {
+    // A chain on another schema (`base.extend(...)`, `x.optional()`): keep looking in what it starts from.
+    return base && base !== n ? down(q, base, step) : undefined;
+  }
+  const a = base.arguments;
+  if (factory === 'lazy') {
+    const inner = returnedExpr(a[0]);
+    return inner ? down(q, inner, step) : undefined;
+  }
+  if (step.prop && (factory === 'object' || factory === 'strictObject' || factory === 'looseObject')) return propIn(q, a[0], step.prop);
+  if (step.elem && factory === 'array') return { q, n: a[0] };
+  if (step.option !== undefined && (factory === 'union' || factory === 'discriminatedUnion')) {
+    const list = follow(q, factory === 'union' ? a[0] : a[1]);
+    const el = list?.n?.type === 'ArrayExpression' ? list.n.elements[step.option] : undefined;
+    return el ? { q: list.q, n: el } : undefined;
+  }
+  if (step.value && factory === 'record') return { q, n: a[1] };
+  return undefined;
+}
+
+/** A key of an object shape (spreads of another shape followed), with the file it is in. */
+function propIn(q, shapeNode, name) {
+  const f = follow(q, shapeNode);
+  if (!f || f.n?.type !== 'ObjectExpression') return undefined;
+  for (const pr of [...f.n.properties].reverse()) {
+    if (pr.type === 'Property' && keyOf(pr) === name) return { q: f.q, n: pr.value, prop: pr };
+    if (pr.type === 'SpreadElement') {
+      // `...other.shape`: the key may be in that schema.
+      const arg = unwrap(pr.argument);
+      const inner = arg?.type === 'MemberExpression' && !arg.computed && arg.property.name === 'shape' ? arg.object : arg;
+      const hit = inner?.type === 'MemberExpression' ? undefined : (down(f.q, inner, { prop: name }) ?? propIn(f.q, inner, name));
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
+
+/** The record's `input` or `output` expression in its record file, by the record's name. */
+function recordSide(files, name, side) {
+  for (const file of files) {
+    const q = load(file);
+    let hit;
+    walk(q.program, (n) => {
+      if (hit || n.type !== 'ObjectExpression') return;
+      const nameProp = n.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'name');
+      if (!nameProp || literal(nameProp.value) !== name) return;
+      const prop = n.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === side);
+      if (prop) hit = { q, n: prop.value, prop, record: n };
+    });
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** `^(?!c)[...]+rest` with `c` one character of the class: the class without `c`, then the class `*`. */
+export function withoutLeadingLookahead(source) {
+  const m = /^\^\(\?!(\\?.)\)\[([^\]]+)\]\+(.*)$/s.exec(source);
+  if (!m) return undefined;
+  const [, bar, cls, rest] = m;
+  const plain = bar.replace(/^\\/, '');
+  // Only a class written as ranges and single characters, where the barred one is a single character in it.
+  if (!/^(?:[a-z]-[a-z]|[A-Z]-[A-Z]|[0-9]-[0-9]|\\?[^\\\]])+$/.test(cls) || !cls.endsWith(plain) || plain.length !== 1) return undefined;
+  const first = cls.slice(0, -plain.length);
+  if (!first || first.endsWith('\\')) return undefined;
+  return `^[${first}][${cls}]*${rest}`;
+}
+
+/** The edit that makes one finding portable, or the reason it stays. */
+/** The call that starts a schema's chain (`z.unknown()` under `.optional()`), with the methods chained on it. */
+function chainStart(node) {
+  let start = node;
+  const methods = [];
+  while (
+    start?.type === 'CallExpression' &&
+    start.callee.type === 'MemberExpression' &&
+    unwrap(start.callee.object)?.type === 'CallExpression'
+  ) {
+    methods.push(start.callee.property.name);
+    start = unwrap(start.callee.object);
+  }
+  return { start, methods };
+}
+const WRAPPERS = ['optional', 'nullable', 'nullish', 'describe', 'meta'];
+
+function fix(target, construct) {
+  // A name for the schema (`domain` for `z.string().regex(...)`): the edit lands where it is written.
+  const found = follow(target.q, target.n);
+  if (!found) return { why: 'the codemod cannot follow the schema to it' };
+  const { q } = found;
+  const node = unwrap(found.n);
+  if (construct === UNKNOWN) {
+    const { start, methods } = chainStart(node);
+    if (!(start?.type === 'CallExpression' && text(q, start.callee) === 'z.unknown' && start.arguments.length === 0))
+      return { why: 'its z.unknown() is not written here as z.unknown()' };
+    if (methods.some((m) => !WRAPPERS.includes(m))) return { why: `its z.unknown() carries ${methods.join(', ')}` };
+    // zod 4: a key `z.unknown()` is required (absent is refused), so `jsonValueSchema` with the same chain is exact.
+    return { q, edit: { start: start.start, end: start.end, text: 'jsonValueSchema' }, needs: 'jsonValueSchema' };
+  }
+  if (construct === DATE) {
+    const { start, methods } = chainStart(node);
+    if (!(start?.type === 'CallExpression' && /^z(\.coerce)?\.date$/.test(text(q, start.callee)) && start.arguments.length === 0))
+      return { why: 'its Date is not written here as z.date() or z.coerce.date()' };
+    if (methods.some((m) => !WRAPPERS.includes(m))) return { why: `its Date carries ${methods.join(', ')}` };
+    return { q, edit: { start: start.start, end: start.end, text: ISO } };
+  }
+  const look = LOOKAROUND.exec(construct);
+  if (look) {
+    let hit;
+    walk(node, (m) => {
+      if (!hit && m.type === 'Literal' && m.regex && m.regex.pattern === look[1]) hit = m;
+    });
+    if (!hit) return { why: 'its regex is not written here as a literal' };
+    const plain = withoutLeadingLookahead(hit.regex.pattern);
+    if (!plain) return { why: `regex /${hit.regex.pattern}/ has a lookaround with no plain form the codemod knows` };
+    return { q, edit: { start: hit.start, end: hit.end, text: `/${plain}/${hit.regex.flags}` } };
+  }
+  return { why: construct };
+}
+
+/**
+ * The `.refine(..., message)` a refined schema carries where it is written: its words, and a name for the check (the
+ * schema's own name when it has one, else the key it sits under). A `.superRefine` says what its issues' messages say.
+ */
+function refinementOf(target, doorNames) {
+  let found = follow(target.q, target.n);
+  let named = unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name : undefined;
+  // `accountArchiveStateSchema.nullable()`, `z.lazy(() => X).nullable().default(null)`, or a single-return helper
+  // (`unique(schema, max)`): unwrap wrappers, lazy getters and helper calls to reach the schema carrying the refinement.
+  const transparent = (name) => WRAPPERS.includes(name) || name === 'default' || name === 'readonly';
+  for (let i = 0; found && i < 10; i++) {
+    const { base, factory, methods } = chainOf(found.n);
+    if (factory === 'lazy' && methods.every((m) => transparent(m.name))) {
+      const inner = returnedExpr(base.arguments[0]);
+      if (!inner) break;
+      found = follow(found.q, inner);
+      continue;
+    }
+    if (!factory && methods.length && methods.every((m) => transparent(m.name))) {
+      if (unwrap(base)?.type === 'Identifier') named = unwrap(base).name;
+      found = follow(found.q, base);
+      continue;
+    }
+    const call = !factory && !methods.length ? unwrap(found.n) : undefined;
+    if (call?.type === 'CallExpression' && call.callee.type === 'Identifier') {
+      const resolved = followFunction(found.q, call.callee);
+      const inner = resolved && returnedExpr(resolved.fn);
+      if (!inner) break;
+      named = call.callee.name;
+      found = { q: resolved.q, n: inner };
+      continue;
+    }
+    break;
+  }
+  if (!found) return { why: 'the codemod cannot follow the schema to it' };
+  const says = [];
+  // The door's names for the refines written with no message (door-refine.mjs).
+  const byDoor = [];
+  for (const m of chainOf(found.n).methods) {
+    if (m.name === 'superRefine') {
+      const r = superRefineWords(found.q, m.call.arguments[0]);
+      if (r.why) return r;
+      says.push(...r.says);
+      continue;
+    }
+    if (m.name !== 'refine') continue;
+    const msg = m.call.arguments[1];
+    const words =
+      literal(msg) ??
+      (msg?.type === 'ObjectExpression'
+        ? literal(msg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
+        : undefined);
+    if (!words) {
+      const fn = m.call.arguments[0];
+      const doorName = fn && msg === undefined ? doorNames?.get(squash(text(found.q, fn))) : undefined;
+      if (!doorName) return { why: 'its .refine has no message to name the rule by' };
+      byDoor.push(doorName);
+      says.push(wordsOf(doorName));
+      continue;
+    }
+    says.push(words);
+  }
+  if (!says.length) return { why: "its refinement is not a .refine written in the schema's chain" };
+  const own = named ? named.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
+  // One refine, named by the door: the record's check takes the door's name, so both sides call the rule the same.
+  const name = byDoor.length === 1 && says.length === 1 ? byDoor[0] : `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
+  return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
+}
+
+/**
+ * The words of a `.superRefine`: the `message` of each `ctx.addIssue({ ..., message })` its function raises, written as
+ * a string. The function is written inline, or named (a function or const in its file, or imported). One issue raised
+ * without written words leaves the whole refinement, as a `.refine` with no message does: its rule has no words to name.
+ */
+function superRefineWords(q, fn) {
+  for (let i = 0; i < 5 && unwrap(fn)?.type === 'Identifier'; i++) {
+    const b = bindingOf(q, fn, unwrap(fn).name);
+    if (b.kind === 'function') fn = b.declaration;
+    else if (b.kind === 'var' && b.declarator.init) fn = b.declarator.init;
+    else if (b.kind === 'import' && b.from.startsWith('.')) {
+      const file = resolveRelative(q.file, b.from);
+      if (!file) break;
+      q = load(file);
+      const d = top(q, b.imported);
+      fn = d.kind === 'function' ? d.declaration : d.kind === 'var' ? d.declarator.init : undefined;
+    } else break;
+  }
+  fn = unwrap(fn);
+  if (!fn || !/^(ArrowFunctionExpression|FunctionExpression|FunctionDeclaration)$/.test(fn.type))
+    return { why: 'its .superRefine is not a function the codemod can read' };
+  const says = [];
+  let unnamed = false;
+  walk(fn.body, (n) => {
+    if (n.type !== 'CallExpression' || n.callee.type !== 'MemberExpression') return;
+    const prop = n.callee.property?.name;
+    if (prop === 'push' && n.callee.object.type === 'MemberExpression' && n.callee.object.property?.name === 'issues') unnamed = true;
+    if (prop !== 'addIssue') return;
+    const arg = unwrap(n.arguments[0]);
+    const words =
+      arg?.type === 'ObjectExpression'
+        ? literal(arg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
+        : literal(arg);
+    if (words === undefined) unnamed = true;
+    else if (!says.includes(words)) says.push(words);
+  });
+  if (unnamed) return { why: 'its .superRefine raises an issue with no message written as a string' };
+  if (!says.length) return { why: 'its .superRefine raises no issue the codemod can read' };
+  return { says };
+}
+
+/** `{ name: { at, says }, ... }`, one entry per refinement, at every place it sits, and the names it gave. */
+function checksText(named) {
+  const used = new Set();
+  const entries = [...named.values()].map((c) => {
+    let name = c.name;
+    for (let i = 2; used.has(name); i++) name = `${c.name}_${i}`;
+    used.add(name);
+    const at = c.at.length === 1 ? JSON.stringify(c.at[0]) : `[${c.at.map((a) => JSON.stringify(a)).join(', ')}]`;
+    return `${name}: { at: ${at}, says: ${JSON.stringify(c.says)} }`;
+  });
+  return { text: `{ ${entries.join(', ')} }`, names: [...used] };
+}
+
+/** Where a file imports `jsonValueSchema` from. */
+const jsonValueFrom = (file) =>
+  file.startsWith(CONTRACTS) ? './procedure-strict-schema.js' : '@intafaced/contracts/procedure-strict-schema';
+
+export function plan(skipped, recordFiles, { door = false, doorNames } = {}) {
+  const edits = new Map();
+  const left = [];
+  const replays = new Set();
+  const add = (q, edit, needs) => {
+    if (!edits.has(q.file)) edits.set(q.file, { edits: new Map(), needs: new Set() });
+    const f = edits.get(q.file);
+    f.edits.set(`${edit.start}:${edit.end}`, edit);
+    if (needs) f.needs.add(needs);
+  };
+  for (const why of Object.values(skipped)) {
+    const parsed = parseWhy(why);
+    if (!parsed) continue;
+    const side = parsed.label.endsWith('.input') ? 'input' : parsed.label.endsWith('.output') ? 'output' : undefined;
+    const name = parsed.label.slice(0, parsed.label.lastIndexOf('.'));
+    const start = side && recordSide(recordFiles, name, side);
+    const named = new Map();
+    for (const f of parsed.findings) {
+      const root = side === 'input' ? 'input' : parsed.label;
+      const steps = f.at.startsWith(root) ? stepsOf(f.at, root) : undefined;
+      let target = start && steps ? { q: start.q, n: start.n } : undefined;
+      for (const step of steps ?? []) target = target && down(target.q, target.n, step);
+      if (target && side && f.construct === REFINEMENT) {
+        // A refinement stays where it is and is named in the record, in its own words: an answer's in `outputChecks`, an
+        // input's in `checks` (samples.mjs then finds the input that check alone refuses).
+        const r = refinementOf(target, doorNames);
+        if (r.why) left.push({ record: name, at: f.at, why: r.why });
+        else {
+          const at = `${side}${f.at.slice(root.length)}`;
+          if (!named.has(r.key)) named.set(r.key, { name: r.name, says: r.says, at: [] });
+          if (!named.get(r.key).at.includes(at)) named.get(r.key).at.push(at);
+        }
+        continue;
+      }
+      // A door's input is its own zod tree (`schemas.json`), held to the record part for part: it keeps its z.unknown().
+      if (door && side === 'input' && f.construct === UNKNOWN) {
+        left.push({ record: name, at: f.at, why: "the door's input runs z.unknown() here, and a door record's input is the door's" });
+        continue;
+      }
+      if (f.construct === DATE && !(door && side === 'output')) {
+        left.push({
+          record: name,
+          at: f.at,
+          why:
+            side === 'output'
+              ? "a Date answer of a service that mounts its records: its handler's Date is checked against it"
+              : 'a Date in the input',
+        });
+        continue;
+      }
+      const r = target ? fix(target, f.construct) : { why: 'the codemod cannot follow the schema to it' };
+      if (r.needs === 'jsonValueSchema') {
+        const svc = /service: '(svc-[a-z-]+)'/.exec(start.q.src)?.[1];
+        if (svc) replays.add(svc);
+      }
+      if (r.edit) add(r.q, r.edit, r.needs);
+      else left.push({ record: name, at: f.at, why: r.why });
+    }
+    if (named.size) {
+      const key = side === 'input' ? 'checks' : 'outputChecks';
+      const samples = start.record.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'samples')?.value;
+      if (start.record.properties.some((pr) => pr.type === 'Property' && keyOf(pr) === key)) {
+        for (const c of named.values()) for (const at of c.at) left.push({ record: name, at, why: `the record already has ${key}` });
+      } else if (side === 'input' && samples?.type !== 'ArrayExpression') {
+        for (const c of named.values())
+          for (const at of c.at) left.push({ record: name, at, why: 'its samples are not written as a list' });
+      } else {
+        const { text: checks, names } = checksText(named);
+        add(start.q, { start: start.prop.end, end: start.prop.end, text: `, ${key}: ${checks}` });
+        // An input check needs a sample it alone refuses, or the record does not load: a placeholder per check, which
+        // samples.mjs replaces with the real one.
+        if (side === 'input') {
+          const end = samples.elements.length ? samples.elements.at(-1).end : samples.start + 1;
+          const sep = samples.elements.length ? ', ' : '';
+          add(start.q, { start: end, end, text: `${sep}${names.map((n) => `{ verdict: 'refuse', input: 42, by: '${n}' }`).join(', ')}` });
+        }
+      }
+    }
+  }
+  return { edits, left, replays };
+}
+
+/**
+ * The wire replay of a service whose records now read `jsonValueSchema` where main had `z.unknown()`: its request
+ * sampler reads a schema that accepts any JSON value as main's `{}` read, `null`, so it sends main's requests and still
+ * compares every answer byte for byte. Without it the sampler takes the first JSON kind (`"x"`), a request main never
+ * sent.
+ */
+const REPLAY_LINE = '  if (acceptsAnyJson(schema)) return null;';
+const REPLAY_HELPER = `
+/**
+ * \`jsonValueSchema\` (z.json()) as JSON Schema: a choice of every JSON kind. Main had \`z.unknown()\` there (\`{}\`), which
+ * the sampler read as null; this reads the same, so the replay sends main's request (tooling/codemod/call-records/portable.mjs).
+ */
+function acceptsAnyJson(schema: unknown): boolean {
+  if (typeof schema !== 'object' || schema === null) return false;
+  const options = (schema as { anyOf?: unknown }).anyOf;
+  if (!Array.isArray(options)) return false;
+  const kinds = new Set(options.map((o: unknown) => (typeof o === 'object' && o !== null ? (o as { type?: unknown }).type : undefined)));
+  return ['string', 'number', 'boolean', 'null', 'array', 'object'].every((k) => kinds.has(k));
+}
+`;
+export function withReplayJson(src) {
+  if (src.includes('function acceptsAnyJson(')) return src;
+  const m = /^function sample\([^)]*\)[^{]*\{\n/m.exec(src);
+  // A replay that sends only its own written-out requests (svc-quant's) reads no schema, so there is nothing to teach;
+  // one that reads schemas through another sampler can't be taught here.
+  if (!m) return /schema\.json|toJSONSchema|anyOf/.test(src) ? undefined : src;
+  const at = m.index + m[0].length;
+  return `${src.slice(0, at)}${REPLAY_LINE}\n${src.slice(at).trimEnd()}\n${REPLAY_HELPER}`;
+}
+
+function writeReplays(services) {
+  const out = [];
+  for (const svc of services) {
+    const file = join(REPO, 'services', svc, 'src/wire-replay.test.ts');
+    let src;
+    try {
+      src = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    const next = withReplayJson(src);
+    if (next === undefined) throw new Error(`${relative(REPO, file)}: no \`function sample(\` to teach jsonValueSchema`);
+    if (next !== src) {
+      writeFileSync(file, next);
+      out.push(relative(REPO, file));
+    }
+  }
+  return out;
+}
+
+function write(edits) {
+  for (const [file, f] of edits) {
+    let src = applyEdits(readFileSync(file, 'utf8'), [...f.edits.values()]);
+    for (const name of f.needs) {
+      if (
+        new RegExp(`\\b${name}\\b[^;]*\\} from`).test(
+          src
+            .split('\n')
+            .filter((l) => l.startsWith('import'))
+            .join('\n'),
+        )
+      )
+        continue;
+      const from = jsonValueFrom(file);
+      const lastImport = [...src.matchAll(/^import [^;]+;\n/gm)].at(-1);
+      const at = lastImport ? lastImport.index + lastImport[0].length : 0;
+      src = `${src.slice(0, at)}import { ${name} } from '${from}';\n${src.slice(at)}`;
+    }
+    writeFileSync(file, src);
+    forget(file);
+  }
+}
+
+function main() {
+  const argv = process.argv.slice(2);
+  const i = argv.indexOf('--unportable');
+  const skipped = JSON.parse(readFileSync(argv[i + 1], 'utf8'));
+  const d = argv.indexOf('--door');
+  const files = argv.filter((a, j) => j !== i && j !== i + 1 && (d < 0 || j !== d + 1) && !a.startsWith('--')).map((f) => resolve(f));
+  const { edits, left, replays } = plan(skipped, files, { door: d >= 0, doorNames: d >= 0 ? doorRefines(argv[d + 1]) : undefined });
+  const replayFiles = argv.includes('--write') ? (write(edits), writeReplays(replays)) : [];
+  console.log(
+    JSON.stringify(
+      {
+        fixed: [...edits.values()].reduce((n, f) => n + f.edits.size, 0),
+        files: [...[...edits.keys()].map((f) => relative(REPO, f)), ...replayFiles],
+        left,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) main();

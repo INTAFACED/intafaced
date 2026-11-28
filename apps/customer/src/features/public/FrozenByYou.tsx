@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { AccountRestriction } from '@intafaced/contracts/identity-account-status';
-import { Button } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
-import { accountStatusCopy } from '../account/account-status-copy';
-import { selfFreezeCopy } from '../account/self-freeze-copy';
+import { accountStatusCopy, selfFreezeCopy } from '../account';
 import { frozenByYouCopy } from './frozen-by-you-copy';
 
 /**
@@ -16,10 +15,13 @@ export function FrozenByYou({
   freeze,
   onContinue,
   onSecurity,
+  heading = 'h1',
 }: {
   freeze: AccountRestriction;
   onContinue: () => void;
   onSecurity: () => void;
+  /** `none` when the room frame draws the single `h1`. */
+  heading?: 'h1' | 'none';
 }) {
   const { t, languageFor } = frozenByYouCopy.useCopy();
   const freezeCopy = selfFreezeCopy.useCopy();
@@ -40,13 +42,16 @@ export function FrozenByYou({
     <section
       data-testid="frozen-by-you"
       data-state="frozen_self"
-      className="public-auth-recovery-used stack"
+      className="lt-stack"
       role="status"
-      aria-labelledby="frozen-by-you-title"
+      aria-labelledby={heading === 'h1' ? 'frozen-by-you-title' : undefined}
+      aria-label={heading === 'none' ? freezeCopy.t('frozenTitle') : undefined}
     >
-      <h1 id="frozen-by-you-title" lang={freezeCopy.languageFor('frozenTitle')}>
-        {freezeCopy.t('frozenTitle')}
-      </h1>
+      {heading === 'h1' && (
+        <h1 id="frozen-by-you-title" lang={freezeCopy.languageFor('frozenTitle')}>
+          {freezeCopy.t('frozenTitle')}
+        </h1>
+      )}
       {freeze.since && (
         <p data-testid="frozen-by-you__since" lang={languageFor('since')}>
           {t('since', { date: stamp(freeze.since, timeZone) })}
@@ -78,10 +83,14 @@ export function FrozenByYou({
             ? t('liftNow')
             : freezeCopy.t('liftWaitUnset')}
       </p>
-      <Button onClick={onSecurity}>{t('security')}</Button>
-      <Button variant="secondary" onClick={onContinue}>
-        {t('continue')}
-      </Button>
+      <div className="lt-actions">
+        <Button tone="primary" onClick={onSecurity}>
+          {t('security')}
+        </Button>
+        <Button tone="secondary" onClick={onContinue}>
+          {t('continue')}
+        </Button>
+      </div>
     </section>
   );
 }

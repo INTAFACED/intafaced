@@ -2,14 +2,19 @@ import { useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { Button } from '@intafaced/ui/lit';
+import { TextAreaField } from '@intafaced/ui/lit/templates';
+import { FailureNote, Waiting } from '../more';
+import { useSession } from '../session';
+import { usePreferences } from '../../shared/preferences';
+import { inviteTimeText } from './invite-time';
 import { referrerChangeCopy as copy } from './referrer-change-copy';
+import { IDENTITY_AFFILIATES_MY_REBIND, IDENTITY_AFFILIATES_WITHDRAW_REBIND } from '@intafaced/contracts/identity-affiliates-procedures';
 
 // The person's reviewed referrer change (CM-referral-01, J-campaigns-05 #5 and #6): the latest request and its state,
 // and, after a link attach was refused, the offer to ask for one. A second person decides; this screen never does.
 // hand-declared-ok: svc-identity's affiliates procedures have no browser-safe schema in packages/contracts yet
-export const rebindSchema = z.object({
+const rebindSchema = z.object({
   requestId: z.string().uuid(),
   state: z.enum(['submitted', 'under_review', 'approved', 'rejected', 'withdrawn', 'expired']),
   fromReferrerId: z.string().uuid().nullable(),
@@ -36,15 +41,12 @@ const OPEN = new Set<Rebind['state']>(['submitted', 'under_review']);
 export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
   const { api } = useSession();
   const { t, requestedLocale } = copy.useCopy();
-  const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'affiliates.myRebind', undefined, rebindSchema.nullable(), { signal }),
-    'referral-rebind',
-  );
+  const { timeZone } = usePreferences();
+  const { resource, reload } = useResource((signal) => api.call(IDENTITY_AFFILIATES_MY_REBIND, undefined, { signal }), 'referral-rebind');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<Refusal | null>(null);
-  const when = (value: string) =>
-    `${new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value))} UTC`;
+  const when = (value: string) => inviteTimeText(value, requestedLocale, timeZone);
 
   async function send(run: () => Promise<ApiResult<Rebind>>) {
     setBusy(true);
@@ -57,22 +59,22 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
   }
   const request = (token: string) =>
     send(() => api.mutate('identity', 'affiliates.requestRebind', { token, reason: reason.trim() }, rebindSchema));
-  const withdraw = (requestId: string) => send(() => api.mutate('identity', 'affiliates.withdrawRebind', { requestId }, rebindSchema));
+  const withdraw = (requestId: string) => send(() => api.call(IDENTITY_AFFILIATES_WITHDRAW_REBIND, { requestId }));
 
   const latest = resource.status === 'ready' ? resource.data : null;
   // A request saved but not yet filed is filed by asking again, so only one under review hides the offer.
   const canOffer = offerToken !== null && resource.status === 'ready' && latest?.state !== 'under_review';
   return (
-    <section className="invitation__window invitation__change" aria-label={t('title')}>
+    <section className="lt-stack" aria-label={t('title')}>
       <h3>{t('title')}</h3>
       {resource.status === 'loading' ? (
-        <Loading />
+        <Waiting />
       ) : resource.status === 'failed' ? (
         <div lang="und">
-          <Failure result={resource.failure} retry={reload} />
+          <FailureNote result={resource.failure} retry={reload} />
         </div>
       ) : !latest ? (
-        <p className="muted">{t('none')}</p>
+        <p className="lt-hint">{t('none')}</p>
       ) : (
         <div>
           <p role="status" data-rebind={latest.state}>
@@ -81,10 +83,10 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
               appliedAt: latest.appliedAt ? when(latest.appliedAt) : '',
             })}
           </p>
-          <dl>
+          <dl className="lt-kv">
             <div>
               <dt>{t('toReferrer')}</dt>
-              <dd lang="zxx" data-testid="invitation__private" className="invitation__private">
+              <dd lang="zxx" data-testid="invitation__private" className="lt-mono lt-wrap">
                 {latest.toReferrerId}
               </dd>
             </div>
@@ -106,7 +108,7 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
             )}
           </dl>
           {OPEN.has(latest.state) && (
-            <Button variant="secondary" disabled={busy} onClick={() => void withdraw(latest.requestId)}>
+            <Button tone="secondary" disabled={busy} onClick={() => void withdraw(latest.requestId)}>
               {t('withdraw')}
             </Button>
           )}
@@ -114,27 +116,25 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
       )}
       {canOffer && (
         <form
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             void request(offerToken);
           }}
         >
           <h4>{t('offerTitle')}</h4>
-          <p className="muted">{t('offerBody')}</p>
-          <label htmlFor="referrer-change-reason">{t('reasonLabel')}</label>
-          <textarea
+          <p className="lt-hint">{t('offerBody')}</p>
+          <TextAreaField
             id="referrer-change-reason"
+            label={t('reasonLabel')}
+            hint={t('reasonHelp')}
             value={reason}
             minLength={3}
             maxLength={500}
             required
-            aria-describedby="referrer-change-help"
-            onChange={(event) => setReason(event.target.value)}
+            onChange={setReason}
           />
-          <p id="referrer-change-help" className="muted">
-            {t('reasonHelp')}
-          </p>
-          <Button type="submit" disabled={busy || reason.trim().length < 3}>
+          <Button tone="primary" type="submit" disabled={busy || reason.trim().length < 3}>
             {t(busy ? 'sending' : 'submit')}
           </Button>
         </form>
@@ -149,7 +149,7 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
           </div>
         ) : (
           <div lang="und">
-            <Failure result={refused} />
+            <FailureNote result={refused} />
           </div>
         ))}
     </section>

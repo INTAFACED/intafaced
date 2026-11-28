@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import type { FounderCallContext } from '@/lib/desk/founder-call';
+import type { DeskRequest, FounderCallContext } from '@/lib/desk';
 import { governanceExecute } from './server';
 
 const ctx: FounderCallContext = {
@@ -43,7 +42,7 @@ describe('governance role change step-up', () => {
     const calls = stub((procedure) => {
       if (procedure === 'stepUp.begin') return trpcOk({ challengeId: 'ch_1', totp: true });
       if (procedure === 'stepUp.complete') return trpcOk({ stepUpApprovalId: 'su_1', scope: 'token.step_up.governance.setRole' });
-      return trpcOk({ userId: target, role: 'moderator', revision: 4 });
+      return trpcOk({ userId: target, role: 'moderator', revision: 4, confirmOperatorId: 'founder-2' });
     });
     const reply = await governanceExecute(ctx)(roleSet, { ...ids, stepUpCode: '123456' });
     expect(reply).toMatchObject({ ok: true });

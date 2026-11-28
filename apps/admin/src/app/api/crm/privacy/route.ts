@@ -11,8 +11,17 @@ import {
   crmRetentionReviewInputSchema,
   crmRetentionReviewSchema,
 } from '@intafaced/contracts';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeRecordCall } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import {
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_PRIVACY_RETENTION_REVIEW_STATUS,
+  OPS_OUTREACH_PRIVACY_PREVIEW,
+  OPS_OUTREACH_PRIVACY_STATUS,
+  OPS_OUTREACH_PRIVACY_RETENTION_REVIEW,
+  OPS_OUTREACH_PRIVACY_BEGIN,
+  OPS_OUTREACH_PRIVACY_ADVANCE,
+} from '@intafaced/contracts/ops-outreach-procedures';
 
 export const dynamic = 'force-dynamic';
 type Schema<T> = { safeParse(value: unknown): { success: true; data: T } | { success: false } };
@@ -47,13 +56,13 @@ export async function GET(request: Request) {
       return response(
         output(
           crmRetentionStatusSchema,
-          await founderEdgeCall(config, 'ops', 'outreach.privacyRetentionStatus', 'GET', {}, session.accessToken),
+          await founderEdgeRecordCall(config, OPS_OUTREACH_PRIVACY_RETENTION_STATUS, undefined, session.accessToken),
         ),
       );
     }
     if (action === 'privacyRetentionReviewStatus') {
       const selection = input(crmRetentionReviewStatusInputSchema, raw);
-      const review = await founderEdgeCall(config, 'ops', 'outreach.privacyRetentionReviewStatus', 'GET', selection, session.accessToken);
+      const review = await founderEdgeRecordCall(config, OPS_OUTREACH_PRIVACY_RETENTION_REVIEW_STATUS, selection, session.accessToken);
       const parsed = review === null ? null : output(crmRetentionReviewSchema, review);
       bound(parsed === null || parsed.canonicalContactId === selection.canonicalContactId);
       return response(parsed);
@@ -62,7 +71,7 @@ export async function GET(request: Request) {
       const selection = input(crmErasurePreviewInputSchema, raw);
       const preview = output(
         crmErasurePreviewSchema,
-        await founderEdgeCall(config, 'ops', 'outreach.privacyPreview', 'GET', selection, session.accessToken),
+        await founderEdgeRecordCall(config, OPS_OUTREACH_PRIVACY_PREVIEW, selection, session.accessToken),
       );
       const canonical = preview.contacts.find((c) => c.contactId === selection.canonicalContactId);
       bound(
@@ -83,7 +92,7 @@ export async function GET(request: Request) {
       const selection = input(crmErasureStatusInputSchema, 'intentId' in raw ? { intentId: raw.intentId } : { canonicalContactId });
       const receipt = output(
         crmErasureStatusSchema,
-        await founderEdgeCall(config, 'ops', 'outreach.privacyStatus', 'GET', selection, session.accessToken),
+        await founderEdgeRecordCall(config, OPS_OUTREACH_PRIVACY_STATUS, selection, session.accessToken),
       );
       bound(receipt.canonicalContactId === canonicalContactId && (!('intentId' in selection) || receipt.intentId === selection.intentId));
       return response(receipt);
@@ -104,7 +113,7 @@ export async function POST(request: Request) {
       const selection = input(crmRetentionReviewInputSchema, body.input);
       const receipt = output(
         crmRetentionReviewSchema,
-        await founderEdgeCall(config, 'ops', 'outreach.privacyRetentionReview', 'POST', selection, session.accessToken),
+        await founderEdgeRecordCall(config, OPS_OUTREACH_PRIVACY_RETENTION_REVIEW, selection, session.accessToken),
       );
       bound(
         receipt.canonicalContactId === selection.canonicalContactId &&
@@ -121,7 +130,7 @@ export async function POST(request: Request) {
       const selection = input(crmErasureBeginInputSchema, body.input);
       const receipt = output(
         crmErasureStatusSchema,
-        await founderEdgeCall(config, 'ops', 'outreach.privacyBegin', 'POST', selection, session.accessToken),
+        await founderEdgeRecordCall(config, OPS_OUTREACH_PRIVACY_BEGIN, selection, session.accessToken),
       );
       bound(receipt.canonicalContactId === selection.canonicalContactId && receipt.requestedBy === session.userId.toLowerCase());
       return response(receipt);
@@ -135,11 +144,9 @@ export async function POST(request: Request) {
     // Any current founder may advance. requestedBy belongs to the original intent, not the advancing actor.
     const before = output(
       crmErasureStatusSchema,
-      await founderEdgeCall(
+      await founderEdgeRecordCall(
         config,
-        'ops',
-        'outreach.privacyStatus',
-        'GET',
+        OPS_OUTREACH_PRIVACY_STATUS,
         input(crmErasureStatusInputSchema, { intentId: value.input.intentId }),
         session.accessToken,
       ),
@@ -151,7 +158,7 @@ export async function POST(request: Request) {
     );
     const after = output(
       crmErasureStatusSchema,
-      await founderEdgeCall(config, 'ops', 'outreach.privacyAdvance', 'POST', value.input, session.accessToken),
+      await founderEdgeRecordCall(config, OPS_OUTREACH_PRIVACY_ADVANCE, value.input, session.accessToken),
     );
     bound(
       after.intentId === before.intentId &&

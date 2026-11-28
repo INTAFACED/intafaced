@@ -32,6 +32,8 @@ import {
   type AgentMoveRecord,
 } from './agent-account-store.js';
 import type { UserVenueDoor } from './user-venue-door.js';
+import type { AccountFreezeRead } from '../quant/live-run/ports.js';
+import { assertNotSelfFrozen } from './self-freeze.js';
 
 /**
  * THE AGENT ACCOUNT (J-agents-21 #1 #3 #4 #5 #13 #14; spec AG-outside-01, the venue form of OWNER 183 (1)).
@@ -117,7 +119,10 @@ export type AgentAccountCode =
   | 'agents.markets_unset'
   | 'agents.order_above_bound'
   | 'agents.price_past_bound'
-  | 'agents.market_not_allowed';
+  | 'agents.market_not_allowed'
+  // The owner's own freeze (self-freeze.ts, J-wallet-13 #2): no agent permission is made or changed while it is on.
+  | 'trade.account_frozen_self'
+  | 'trade.freeze_unavailable';
 
 export class AgentAccountError extends Error {
   constructor(
@@ -159,6 +164,8 @@ export interface AgentAccountsDeps {
   readonly store: AgentAccountStore;
   readonly stepUp: StepUpCheck;
   readonly values: AgentAccountValues;
+  /** The owner's own freeze, read from identity on each call that makes or changes an agent permission (null refuses). */
+  readonly freeze: AccountFreezeRead | null;
   readonly now: () => Date;
 }
 
@@ -393,6 +400,7 @@ export class AgentAccounts {
     } catch (error) {
       capErrorAs(error);
     }
+    await assertNotSelfFrozen(this.deps.freeze, principal.userId, 'making an agent account');
     const existing = await this.deps.store.find(principal.userId, accountId);
     if (existing) {
       if (existing.owner !== owner || existing.cap !== cap || existing.fundAmount !== fund || existing.asset !== v.asset) {
@@ -677,6 +685,10 @@ export class AgentAccounts {
     if (move && move.state !== 'pending') {
       throw new AgentAccountError('agents.account_not_open', `move ${move.moveId} is already ${move.state}`, 409);
     }
+    // J-wallet-13 #2: opening the account, approving its agent and moving money in give an agent more to act with: none
+    // is sent while the owner's own freeze is on. A move back out is the person's own and still passes.
+    if (!move || move.direction === 'into_sub_account')
+      await assertNotSelfFrozen(this.deps.freeze, a.userId, "signing an agent account's permission or funding");
     await this.deps.door.submit(principal, key, signature, { agentAccount: true });
     return this.advance(principal, accountId);
   }
@@ -725,6 +737,7 @@ export class AgentAccounts {
     const a = await this.account(principal, accountId);
     const moveId = uuid(req.moveId, 'moveId');
     const amount = positive(req.amount, 'amount');
+    if (direction === 'into_sub_account') await assertNotSelfFrozen(this.deps.freeze, a.userId, 'funding an agent account');
     if (await this.deps.store.find(principal.userId, moveId)) {
       throw new AgentAccountError('agents.account_key_reused', `${moveId} is an agent account's id; a move needs its own id`, 409);
     }
@@ -771,6 +784,7 @@ export class AgentAccounts {
     assertPerson(principal);
     const a = await this.account(principal, accountId);
     const cap = positive(req.cap, 'cap');
+    await assertNotSelfFrozen(this.deps.freeze, a.userId, "changing an agent account's cap");
     if (this.deps.values.ceiling === null) {
       throw new AgentAccountError('agents.account_ceiling_unset', 'the owner has published no ceiling for agent accounts', 422);
     }
@@ -801,6 +815,7 @@ export class AgentAccounts {
   ): Promise<AgentAccountView> {
     assertPerson(principal);
     const a = await this.account(principal, accountId);
+    await assertNotSelfFrozen(this.deps.freeze, a.userId, "changing an agent account's limits");
     const v = this.deps.values;
     const given = (['maxOrderNotional', 'maxLeverage', 'maxDailyLoss'] as const).filter((k) => req[k] !== undefined);
     if (given.length === 0) invalid('name at least one of maxOrderNotional, maxLeverage and maxDailyLoss');

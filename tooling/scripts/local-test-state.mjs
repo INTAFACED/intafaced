@@ -2,11 +2,29 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
-/** The Postgres client and server binaries the local test stack uses: LOCAL_STACK_PG_BIN, else Homebrew, else Debian's 16. */
-export function localPgBin(env = process.env) {
+const listDir = (dir) => {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The Postgres client and server binaries the local test stack uses: LOCAL_STACK_PG_BIN, else Homebrew's (macOS), else
+ * the newest major Debian and Ubuntu install under /usr/lib/postgresql (Linux), else Debian's 16 (so the error names it).
+ */
+export function localPgBin(env = process.env, { exists = fs.existsSync, list = listDir } = {}) {
   if (env.LOCAL_STACK_PG_BIN) return env.LOCAL_STACK_PG_BIN;
-  return fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin';
+  if (exists('/opt/homebrew/bin/pg_ctl')) return '/opt/homebrew/bin';
+  const debian = list('/usr/lib/postgresql')
+    .filter((major) => /^\d+$/.test(major))
+    .sort((a, b) => Number(b) - Number(a))
+    .map((major) => `/usr/lib/postgresql/${major}/bin`)
+    .find((bin) => exists(`${bin}/pg_ctl`));
+  return debian ?? '/usr/lib/postgresql/16/bin';
 }
 
 /** As root (a cloud container's default user) the database runs as this OS user: initdb and postgres refuse root. */
@@ -16,6 +34,7 @@ export function localPgOsUser(env = process.env, uid = process.getuid?.()) {
 
 // The state folder rule lives in local-test-facts.mjs, so the journeys read it without this script.
 import { localStackState } from './local-test-facts.mjs';
+import { profileOff } from './local-stack-profile.mjs';
 
 export { localStackState };
 
@@ -54,6 +73,20 @@ export function stackCustodyOff(stateDir = localStackState()) {
     return false;
   }
   return custodyLayerOf(records) === 'off';
+}
+
+/**
+ * The custody switch this stack starts its services with (OWNER 226, OWNER 288): `LOCAL_STACK_CUSTODY_LAYER` on a start,
+ * `on` when unset, for the journeys marked Later: custody. Every service that carries `LEDGER_CUSTODY_LAYER` (svc-ledger,
+ * svc-bank, svc-pay, svc-trade, svc-matching: local-stack-services/) takes this one value, so the stack never runs a
+ * ledger and a book on different switches. `off` runs them as the launch build does (the beta, #11019).
+ */
+export function startCustodyLayer(env = process.env) {
+  const value = env.LOCAL_STACK_CUSTODY_LAYER ?? '';
+  if (value === '') return 'on';
+  if (value !== 'on' && value !== 'off')
+    throw new Error(`LOCAL_STACK_CUSTODY_LAYER is "${value}"; leave it unset (on), or set it to on or off.`);
+  return value;
 }
 
 /** stackCustodyLayer's reading of the process records alone (pure): svc-ledger's recorded switch, `on` when unrecorded. */
@@ -165,7 +198,14 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
       name === 'customer'
         ? [path.join(marker.repo, 'tooling', 'scripts', 'local-test-stack.mjs'), '__serve-customer']
         : [path.join(marker.repo, 'services', `svc-${name}`, 'dist', 'index.js')];
-    if (!record?.argv || record.argv.length !== entry.length + 1 || !entry.every((value, i) => record.argv[i + 1] === value))
+    // A Node service may start with this checkout's code-reach preload first (service-reach.mjs), and nothing else.
+    const preload = ['--import', pathToFileURL(path.join(marker.repo, 'tooling', 'scripts', 'service-reach.mjs')).href];
+    const rest = record?.argv?.slice(1) ?? [];
+    const args = name !== 'customer' && preload.every((value, i) => rest[i] === value) ? rest.slice(preload.length) : rest;
+    // A Rust service (local-stack-services/<name>.mjs says `rust: true`) runs this checkout's own release binary, alone.
+    const rustBinary = path.join(marker.repo, 'crates', `svc-${name}`, 'dist', `svc-${name}`);
+    const ownBinary = record?.argv?.length === 1 && record.argv[0] === rustBinary;
+    if (!ownBinary && (!record?.argv || args.length !== entry.length || !entry.every((value, i) => args[i] === value)))
       refuse(`${name} checkout differs`);
     checks.push({
       name,
@@ -186,11 +226,125 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
   return { stateDir, marker };
 }
 
+/**
+ * A tester compose stack's marker (docker-compose.tester.yml, written by local-test-compose-env.mjs): `runtime: compose`.
+ * Its services run in containers, so no process ID or listener of theirs is visible to check. Its proof instead is the
+ * stack id: compose-env draws it at random and writes it both into the marker and into the env file compose starts that
+ * stack's Postgres with (`-c intafaced.tester_stack_id=<id>`), so only the database that compose up started answers it.
+ */
+export const COMPOSE_RUNTIME = 'compose';
+const STACK_ID_RE = /^[0-9a-f]{32}$/;
+
+/**
+ * What answers on the compose marker's loopback ports, read by a child process so this check stays synchronous like the
+ * process check: the stack id the database on the Postgres port was started with (as the compose role `svc_<x>`, whose
+ * password is the compose default), and each named service's /health status. Never reads anything else.
+ */
+function readComposeStack(marker, services) {
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  const script = `
+    const { createRequire } = require('node:module');
+    const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+    (async () => {
+      const out = { stackId: null, health: {} };
+      try {
+        const load = createRequire(input.pkg)('postgres');
+        const sql = (load.default ?? load)(input.db, { max: 1, ssl: false, connect_timeout: 5, onnotice: () => {} });
+        try { out.stackId = (await sql.unsafe("SELECT current_setting('intafaced.tester_stack_id', true) AS id"))[0]?.id ?? null; }
+        finally { await sql.end({ timeout: 2 }); }
+      } catch (err) { out.dbError = String(err?.code ?? err?.message ?? err); }
+      for (const [name, port] of input.services) {
+        try { out.health[name] = (await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(5000) })).status; }
+        catch { out.health[name] = 0; }
+      }
+      process.stdout.write(JSON.stringify(out));
+    })();`;
+  const input = {
+    pkg: path.join(repo, 'services', 'svc-p2p', 'package.json'),
+    db: `postgres://svc_p2p:svc_p2p@127.0.0.1:${marker.ports.postgres}/${marker.database.name}`,
+    services: services.map((name) => [name, marker.ports[name]]),
+  };
+  const res = spawnSync(process.execPath, ['-e', script], { input: JSON.stringify(input), encoding: 'utf8', timeout: 30_000 });
+  try {
+    return JSON.parse(res.stdout);
+  } catch {
+    return { stackId: null, health: {}, dbError: (res.stderr || res.error?.message || 'no answer').slice(0, 200) };
+  }
+}
+
+/** Runs one read-only query on `db` in a child process (the image has no psql); its rows as text, null as ''. */
+function runComposeSql(db, sql) {
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  const script = `
+    const { createRequire } = require('node:module');
+    const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+    (async () => {
+      const load = createRequire(input.pkg)('postgres');
+      const sql = (load.default ?? load)(input.db, { max: 1, ssl: false, connect_timeout: 5, onnotice: () => {} });
+      try {
+        const rows = await sql.unsafe(input.sql).values();
+        process.stdout.write(JSON.stringify(rows.map((r) => r.map((v) => (v === null ? '' : String(v))))));
+      } finally { await sql.end({ timeout: 2 }); }
+    })().catch((err) => { process.stderr.write(String(err?.code ?? err?.message ?? err)); process.exit(1); });`;
+  const input = { pkg: path.join(repo, 'services', 'svc-p2p', 'package.json'), db, sql };
+  const res = spawnSync(process.execPath, ['-e', script], { input: JSON.stringify(input), encoding: 'utf8', timeout: 30_000 });
+  if (res.status !== 0) throw new Error(`compose database read failed: ${(res.stderr || res.error?.message || 'no answer').slice(0, 300)}`);
+  return JSON.parse(res.stdout);
+}
+
+/**
+ * One read on a compose marker's loopback Postgres as a service role, with compose's own LOCAL TEST password (the role's
+ * name, tooling/infra/postgres-init): what the gates read with psql on a `pnpm local:stack` stack. Refuses anything but a
+ * compose marker whose database is on loopback at its Postgres port, and any role but a service's own.
+ */
+export function composeSqlRead(marker, role, sql, { run = runComposeSql } = {}) {
+  if (marker?.runtime !== COMPOSE_RUNTIME) refuse('not a compose marker');
+  const db = marker.database ?? {};
+  if (db.host !== '127.0.0.1' || String(db.port) !== String(marker.ports?.postgres) || !/^\d+$/.test(String(db.port)))
+    refuse('compose database is not the marker loopback Postgres');
+  if (!/^[A-Za-z0-9_]+$/.test(db.name ?? '')) refuse('compose database is not the marker loopback Postgres');
+  if (!/^svc_[a-z0-9_]+$/.test(String(role))) refuse(`"${role}" is not a service role`);
+  return run(`postgres://${role}:${role}@127.0.0.1:${db.port}/${db.name}`, sql);
+}
+
+/**
+ * Pure ownership check of a compose marker: the database on its loopback Postgres port was started with its stack id, and
+ * each named service on its loopback port answers its health check. Stale files alone never pass: a stack id is drawn per
+ * state folder, so another stack on the same ports does not hold it.
+ */
+export function assertComposeOwnership({ marker, services, read = readComposeStack }) {
+  if (marker?.kind !== 'intafaced-local-test-stack' || marker.runtime !== COMPOSE_RUNTIME) refuse('not a compose marker');
+  if (!STACK_ID_RE.test(String(marker.stackId ?? ''))) refuse('compose marker has no stack id');
+  const db = marker.database ?? {};
+  if (
+    db.host !== '127.0.0.1' ||
+    !/^\d+$/.test(String(db.port)) ||
+    String(db.port) !== String(marker.ports?.postgres) ||
+    !/^[A-Za-z0-9_]+$/.test(db.name ?? '')
+  )
+    refuse('compose database is not the marker loopback Postgres');
+  for (const name of services) if (!/^\d+$/.test(String(marker.ports?.[name] ?? ''))) refuse(`compose marker has no ${name} port`);
+  const seen = read(marker, services);
+  if (seen.stackId !== marker.stackId)
+    refuse(`the database on 127.0.0.1:${db.port} is not this compose stack's${seen.dbError ? ` (${seen.dbError})` : ''}`);
+  for (const name of services) if (seen.health?.[name] !== 200) refuse(`${name} does not answer on its loopback port`);
+  return { marker };
+}
+
 /** Check selected Postgres and service PID/argv/start time/listeners without exposing their environment. */
-export function assertActiveLocalStack({ stateDir = localStackState(), services = DEFAULT_SERVICES } = {}) {
+export function assertActiveLocalStack({ stateDir = localStackState(), services = DEFAULT_SERVICES.filter((n) => !profileOff(n)) } = {}) {
   let marker, records, postgres;
   try {
     marker = JSON.parse(fs.readFileSync(path.join(stateDir, 'LOCAL-TEST-STACK.json'), 'utf8'));
+  } catch {
+    refuse('missing ownership records');
+  }
+  if (marker?.runtime === COMPOSE_RUNTIME) {
+    // A compose stack has no customer process of its own on a stack port; its other services are checked.
+    const named = services.filter((name) => name !== 'customer');
+    return { stateDir, ...assertComposeOwnership({ marker, services: named }) };
+  }
+  try {
     records = JSON.parse(fs.readFileSync(path.join(stateDir, 'run', 'processes.json'), 'utf8'));
     postgres = fs.readFileSync(path.join(stateDir, 'data', 'postgres', 'postmaster.pid'), 'utf8').split('\n');
   } catch {

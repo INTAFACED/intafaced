@@ -5,6 +5,8 @@ export const securityCopy = defineCopy(
   {
     title: 'Security',
     description: 'Passkeys, two-step sign-in and where you’re signed in.',
+    explain:
+      'Each change here is checked against the account you are signed in to, and some ask you to confirm it is you first. Removing a passkey does not sign out your current sessions; signing out everywhere does, this device included.',
     passkeys: 'Passkeys',
     stepUpBody:
       'This change needs your second step first. Confirm it is you with your authenticator code or a passkey, and the change goes ahead.',

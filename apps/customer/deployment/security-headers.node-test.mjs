@@ -22,7 +22,10 @@ function locations(source) {
   while ((match = start.exec(source))) {
     let depth = 1,
       i = start.lastIndex;
-    while (depth && i < source.length) ((depth += source[i] === '{' ? 1 : source[i] === '}' ? -1 : 0), i++);
+    while (depth && i < source.length) {
+      depth += source[i] === '{' ? 1 : source[i] === '}' ? -1 : 0;
+      i++;
+    }
     found.push({ match: match[1], body: source.slice(start.lastIndex, i - 1) });
   }
   return found;
@@ -142,9 +145,12 @@ const cspOf = (rendered) =>
       .map(([name, ...sources]) => [name, sources]),
   );
 
-test('unset deploy variables give the tight default: no external connect or media origin, no bare wss:', () => {
+/** The embedded wallet's provider API, which the page signs at directly (J-wallet-22 #8): the one fixed external connect origin. */
+const WALLET_PROVIDER_API = 'https://api.turnkey.com';
+
+test('unset deploy variables give the tight default: only the wallet provider as external connect origin, no media origin, no bare wss:', () => {
   const csp = cspOf(renderSecurityHeaders());
-  assert.deepEqual(csp['connect-src'], ["'self'"]);
+  assert.deepEqual(csp['connect-src'], ["'self'", WALLET_PROVIDER_API]);
   assert.deepEqual(csp['media-src'], ["'self'", 'blob:']);
 });
 
@@ -156,7 +162,7 @@ test('deploy variables name the LiveKit and storage origins exactly, never a wil
       CUSTOMER_MEDIA_ORIGINS: 'https://a.example.com https://*.cdn.example.com',
     }),
   );
-  assert.deepEqual(csp['connect-src'], ["'self'", 'wss://lk.example.com', 'https://lk.example.com']);
+  assert.deepEqual(csp['connect-src'], ["'self'", 'wss://lk.example.com', 'https://lk.example.com', WALLET_PROVIDER_API]);
   assert.deepEqual(csp['media-src'], [
     "'self'",
     'blob:',
@@ -169,17 +175,19 @@ test('deploy variables name the LiveKit and storage origins exactly, never a wil
     "'self'",
     'wss://lk.example.com:7443',
     'https://lk.example.com:7443',
+    WALLET_PROVIDER_API,
   ]);
   assert.deepEqual(cspOf(renderSecurityHeaders({ CUSTOMER_LIVEKIT_ORIGIN: 'ws://localhost:7880' }))['connect-src'], [
     "'self'",
     'ws://localhost:7880',
     'http://localhost:7880',
+    WALLET_PROVIDER_API,
   ]);
 });
 
 test('the sandbox API origin is added to connect-src exactly, https only (J-developer-15 #7)', () => {
   const csp = cspOf(renderSecurityHeaders({ CUSTOMER_SANDBOX_API_ORIGIN: 'https://sandbox-api.example.com' }));
-  assert.deepEqual(csp['connect-src'], ["'self'", 'https://sandbox-api.example.com']);
+  assert.deepEqual(csp['connect-src'], ["'self'", 'https://sandbox-api.example.com', WALLET_PROVIDER_API]);
   for (const bad of [
     'http://sandbox-api.example.com',
     'https://*.example.com',

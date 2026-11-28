@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { ProtocolSessionKey, ProtocolSessionsList } from '@intafaced/contracts/protocol-sessions';
-import { Button, DataTable, Dialog, EmptyState, Failure, Field, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, Dialog, EmptyState, Failure, Field, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useReveal } from '../../../shared/reveal';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
-import { REGION_BLOCKED_CODE } from '../region';
+import { isRegionBlocked } from '../region';
 import { formatUnits } from '../swap/swap-math';
 import { walletCopy } from './copy';
 import { RepresentationPanel } from './RepresentationPanel';
-import { isFactoryUnset } from './AccountsPanel';
+import { isFactoryUnset, toWei, utcTime } from './wallet-text';
 import { sessionCopy } from './session-copy';
 import { shortContract } from './transfer';
 import { useWallet, waitMined } from './WalletProvider';
@@ -29,18 +31,6 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const SELECTOR = /^0x[0-9a-fA-F]{8}$/;
 const MAX_HOURS = 720;
 
-/** "2026-11-07 08:30 UTC": one clock for everyone, as the chain keeps it. */
-export function utcTime(iso: string): string {
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
-}
-
-/** A decimal amount of native currency in wei; null when it is not a plain number of at most 18 decimals. */
-export function toWei(text: string): string | null {
-  const match = /^(\d{1,30})(?:\.(\d{1,18}))?$/.exec(text.trim());
-  if (!match) return null;
-  return (BigInt(match[1]!) * 10n ** 18n + BigInt((match[2] ?? '').padEnd(18, '0'))).toString();
-}
-
 /**
  * /wallet/session-keys (D-portfolio-wallet-02): every session key the connected wallet's smart account granted, read from
  * the chain (`sessions.list`), each with its scope, cap, expiry, last use and status; Revoke per key and Revoke all in one
@@ -59,7 +49,7 @@ export function SessionKeysPanel() {
       : tw('needsWallet');
   return (
     <Panel title={t('title')}>
-      <p className="muted">{t('note')}</p>
+      <p className="lt-hint">{t('note')}</p>
       <p role="note">{t('never')}</p>
       {ready && wallet.address ? <OwnedSessions owner={wallet.address} /> : <KeysTable t={t} empty={blocker} />}
     </Panel>
@@ -97,26 +87,26 @@ function KeysTable({
         const live = key.status === 'active' || key.status === 'not_yet_valid';
         return (
           <tr key={key.key} data-session-key={key.key}>
-            <td className="numeric">{key.key}</td>
+            <td className="lt-mono">{key.key}</td>
             <td>
               {t('scope', {
                 selectors: key.selectors.join(', '),
                 targets: key.targets.map((target) => shortContract(target)).join(', '),
               })}
             </td>
-            <td className="numeric">
+            <td className="lt-mono">
               {t('cap', {
                 cap: formatUnits(BigInt(key.spendLimitWei), 18, 18),
                 currency: 'ETH',
                 spent: formatUnits(BigInt(key.spentWei), 18, 18),
               })}
             </td>
-            <td className="numeric">{utcTime(new Date(key.validUntil * 1000).toISOString())}</td>
-            <td className="numeric">{key.lastUsedAt ? utcTime(key.lastUsedAt) : t('never_used')}</td>
+            <td className="lt-mono">{utcTime(new Date(key.validUntil * 1000).toISOString())}</td>
+            <td className="lt-mono">{key.lastUsedAt ? utcTime(key.lastUsedAt) : t('never_used')}</td>
             <td>{revoking ? <span role="status">{t('revoking')}</span> : t(`status_${key.status}`)}</td>
             <td>
               {live && onRevoke && !revoking && (
-                <Button variant="secondary" disabled={busy} onClick={() => onRevoke(key.key)}>
+                <Button tone="secondary" disabled={busy} onClick={() => onRevoke(key.key)}>
                   {t('revoke')}
                 </Button>
               )}
@@ -186,7 +176,7 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
       setPending(null);
       return setProblem(
         t(
-          gate.code === REGION_BLOCKED_CODE
+          isRegionBlocked(gate.code)
             ? 'refused_region'
             : gate.code === 'compliance.representation_unset'
               ? 'refused_representation_unset'
@@ -316,11 +306,12 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
           }}
         />
       )}
-      <p className="muted numeric">{t('account', { address: account })}</p>
-      {data && <p className="muted">{t('asOf', { block: data.blockNumber, time: utcTime(data.blockTime), from: data.logsFromBlock })}</p>}
+      <p className="lt-hint lt-mono">{t('account', { address: account })}</p>
+      {data && <p className="lt-hint">{t('asOf', { block: data.blockNumber, time: utcTime(data.blockTime), from: data.logsFromBlock })}</p>}
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      <div className="actions">
+      <div className="lt-actions">
         <Button
+          tone="primary"
           disabled={pending !== null}
           onClick={() => {
             setProblem(null);
@@ -330,10 +321,10 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
         >
           {t('newKey')}
         </Button>{' '}
-        <Button variant="secondary" disabled={!canRevokeAll || pending !== null} onClick={() => void act({ kind: 'revokeAll' })}>
+        <Button tone="secondary" disabled={!canRevokeAll || pending !== null} onClick={() => void act({ kind: 'revokeAll' })}>
           {t('revokeAll')}
         </Button>{' '}
-        <span className="muted">{t('revokeAllNote')}</span>
+        <span className="lt-hint">{t('revokeAllNote')}</span>
       </div>
       {resource.status === 'loading' && <p role="status">{t('reading')}</p>}
       <KeysTable
@@ -377,6 +368,9 @@ function NewKeyDialog({
   const [cap, setCap] = useState('0');
   const [hours, setHours] = useState('24');
   const [invalid, setInvalid] = useState<string | null>(null);
+  const said = invalid ?? problem;
+  // Why the key is refused lands under the form's last field, below a short window's fold: brought into view as it arrives.
+  const reveal = useReveal<HTMLParagraphElement>(said ?? '', { onMount: true });
   function submit(event: FormEvent) {
     event.preventDefault();
     const list = selectors
@@ -402,8 +396,8 @@ function NewKeyDialog({
   }
   return (
     <Dialog title={t('newKey')} onClose={onClose}>
-      <form className="protocol-quote" onSubmit={submit}>
-        <p className="muted">{t('newKeyNote')}</p>
+      <form onSubmit={submit}>
+        <p className="lt-hint">{t('newKeyNote')}</p>
         <Field label={t('keyLabel')} hint={t('keyHint')} value={key} onChange={(event) => setKey(event.target.value)} />
         <Field label={t('targetLabel')} value={target} onChange={(event) => setTarget(event.target.value)} />
         <Field
@@ -420,12 +414,16 @@ function NewKeyDialog({
           value={hours}
           onChange={(event) => setHours(event.target.value)}
         />
-        {(invalid ?? problem) && <p role="alert">{invalid ?? problem}</p>}
-        <div className="actions">
-          <Button type="submit" disabled={busy}>
+        {said && (
+          <p ref={reveal} role="alert">
+            {said}
+          </p>
+        )}
+        <div className="lt-actions">
+          <Button tone="primary" type="submit" disabled={busy}>
             {t('grant')}
           </Button>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {t('cancel')}
           </Button>
         </div>

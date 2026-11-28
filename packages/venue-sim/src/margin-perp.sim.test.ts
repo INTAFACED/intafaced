@@ -93,8 +93,9 @@ describe("TEST venue simulator: a market on its deployer's own margin account (J
     expect(m.openInterest).toEqual({ known: true, value: { size: ZERO, capSize: a('500') } });
     for (const other of markets.filter((x) => x.symbol !== XSTD)) {
       expect(other.marginAccount).toEqual({ known: false });
-      // J-derivatives-02's TEST perpetual XRSK-PERP also reports its open interest (margin-tiers.sim.test.ts).
-      if (other.symbol !== 'XRSK-PERP') expect(other.openInterest).toEqual({ known: false });
+      // J-derivatives-02's TEST perpetual XRSK-PERP (margin-tiers.sim.test.ts) and J-derivatives-14's XDEV-PERP also report
+      // their open interest.
+      if (other.symbol !== 'XRSK-PERP' && other.symbol !== 'XDEV-PERP') expect(other.openInterest).toEqual({ known: false });
     }
     expect(await refusal(w.sim.marketMargin(w.account, 'XSTK-PERP'))).toMatchObject({ code: 'not_offered' });
   });

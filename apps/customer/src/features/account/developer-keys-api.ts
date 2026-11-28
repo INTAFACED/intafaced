@@ -3,13 +3,7 @@ import {
   API_KEY_REVOKE_REASON_MAX,
   apiKeyCreateOutputSchema,
   apiKeyCreateRequestId,
-  apiKeyDetailSchema,
-  apiKeyListOutputSchema,
-  apiKeyRevokeOutputSchema,
-  apiKeyScopesOutputSchema,
   apiKeySetExpiryOutputSchema,
-  developerSetRoleOutputSchema,
-  developerTeamSchema,
   type DeveloperRole,
   type DeveloperTeam,
   apiKeyRotateOutputSchema,
@@ -22,9 +16,19 @@ import {
   type ApiKeyRevokeOutput,
   type ApiKeyScopeEntry,
 } from '@intafaced/contracts/api-keys';
+import {
+  IDENTITY_DEVELOPER_KEYS_GET,
+  IDENTITY_DEVELOPER_KEYS_LIST,
+  IDENTITY_DEVELOPER_KEYS_REVOKE,
+  IDENTITY_DEVELOPER_KEYS_ROTATION_REQUEST,
+  IDENTITY_DEVELOPER_KEYS_SCOPES,
+  IDENTITY_DEVELOPER_KEYS_SET_TEAM_ROLE,
+  IDENTITY_DEVELOPER_KEYS_TEAM,
+} from '@intafaced/contracts/identity-developer-keys-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { requestPasskeyAssertion } from '../session/webauthn';
+import { requestPasskeyAssertion } from '../session';
 import type { ApiKeysCopyKey } from './api-keys-copy';
 import { subaccountsIn, type Subaccount } from './subaccount-guards';
 
@@ -32,11 +36,11 @@ import { subaccountsIn, type Subaccount } from './subaccount-guards';
 const LIST_LIMIT = 200;
 
 export function readDeveloperKeys(api: ApiClient, signal: AbortSignal): Promise<ApiResult<ApiKeyList>> {
-  return api.query('identity', 'developerKeys.list', { limit: LIST_LIMIT }, apiKeyListOutputSchema, { signal });
+  return api.call(IDENTITY_DEVELOPER_KEYS_LIST, { limit: LIST_LIMIT }, { signal });
 }
 
 export function readKeyScopes(api: ApiClient, signal: AbortSignal): Promise<ApiResult<{ scopes: ApiKeyScopeEntry[] }>> {
-  return api.query('identity', 'developerKeys.scopes', undefined, apiKeyScopesOutputSchema, { signal });
+  return api.call(IDENTITY_DEVELOPER_KEYS_SCOPES, undefined, { signal });
 }
 
 /** The most sub-accounts the key form offers at once; the owner's sub-account cap is far below it. */
@@ -59,7 +63,7 @@ export function readMyOrgs(api: ApiClient, signal: AbortSignal): Promise<ApiResu
 
 /** One organisation's developer area as the person sees it: their role, why they may not manage keys, and its keys. */
 export function readDeveloperTeam(api: ApiClient, orgId: string, signal: AbortSignal): Promise<ApiResult<DeveloperTeam>> {
-  return api.query('identity', 'developerKeys.team', { orgId }, developerTeamSchema, { signal });
+  return api.call(IDENTITY_DEVELOPER_KEYS_TEAM, { orgId }, { signal });
 }
 
 /** The owner gives a member a developer role, or takes it away. The request id is new per press; a repeat changes nothing. */
@@ -73,7 +77,7 @@ export function developerRoleRequestId(orgId: string, userId: string, roleVersio
 }
 
 export function setDeveloperRole(api: ApiClient, orgId: string, userId: string, role: DeveloperRole | null, requestId: string) {
-  return api.mutate('identity', 'developerKeys.setTeamRole', { orgId, userId, role, requestId }, developerSetRoleOutputSchema);
+  return api.call(IDENTITY_DEVELOPER_KEYS_SET_TEAM_ROLE, { orgId, userId, role, requestId });
 }
 
 /** Revokes an organisation's key; only its owner or a key admin may, and the service decides. */
@@ -83,12 +87,7 @@ export function revokeOrgKey(api: ApiClient, orgId: string, keyId: string, reaso
     const code = 'identity.key_revoke_reason_invalid';
     return Promise.resolve({ ok: false, reason: 'error', code, message: code });
   }
-  return api.mutate(
-    'identity',
-    'developerKeys.revoke',
-    { keyId, orgId, ...(trimmed ? { reason: trimmed } : {}) },
-    apiKeyRevokeOutputSchema,
-  );
+  return api.call(IDENTITY_DEVELOPER_KEYS_REVOKE, { keyId, orgId, ...(trimmed ? { reason: trimmed } : {}) });
 }
 
 export type Preset = 'read' | 'trade' | 'lead' | 'copy' | 'custom';
@@ -133,7 +132,7 @@ async function proofFor(api: ApiClient, factor: Factor, signal?: AbortSignal) {
 
 /** One key with its IP policy and the owner's idle period (`/uc/safe/api-keys/:keyId`). */
 export function readDeveloperKey(api: ApiClient, keyId: string, signal: AbortSignal): Promise<ApiResult<ApiKeyDetail>> {
-  return api.query('identity', 'developerKeys.get', { keyId }, apiKeyDetailSchema, { signal });
+  return api.call(IDENTITY_DEVELOPER_KEYS_GET, { keyId }, { signal });
 }
 
 /**
@@ -151,9 +150,7 @@ export function revokeDeveloperKey(
     const code = 'identity.key_revoke_reason_invalid';
     return Promise.resolve({ ok: false, reason: 'error', code, message: code });
   }
-  return api.mutate('identity', 'developerKeys.revoke', { keyId, ...(trimmed ? { reason: trimmed } : {}) }, apiKeyRevokeOutputSchema, {
-    signal,
-  });
+  return api.call(IDENTITY_DEVELOPER_KEYS_REVOKE, { keyId, ...(trimmed ? { reason: trimmed } : {}) }, { signal });
 }
 
 /**
@@ -255,10 +252,13 @@ const REFUSALS = new Set<string>([
   'identity.portfolio_key_cap_unset',
   'identity.portfolio_key_cap_reached',
   'auth.agent_scope_forbidden',
+  'identity.rate_limits_unset',
   'identity.developer_roles_unset',
   'identity.developer_role_read_only',
   'identity.developer_role_none',
   'identity.delegated_refused',
+  // The owner's own freeze (J-wallet-13 #2).
+  'identity.account_frozen_self',
   'auth.passkey_missing',
   'auth.passkey_verify_unavailable',
 ]);
@@ -306,14 +306,11 @@ export async function rotateDeveloperKey(
   );
 }
 
-const rotationRequestSchema = z.object({
-  request: z.object({ requestId: z.string(), keyId: z.string(), overlapSeconds: z.number().int(), createdAt: z.string() }).nullable(),
-});
-export type RotationRequestRead = z.infer<typeof rotationRequestSchema>;
+export type RotationRequestRead = ProcedureOutput<typeof IDENTITY_DEVELOPER_KEYS_ROTATION_REQUEST>;
 
 /** The rotation a key asked for itself, waiting for its owner (DV-keys-04, J-developer-07 #3), or none. */
 export function readRotationRequest(api: ApiClient, keyId: string, signal: AbortSignal): Promise<ApiResult<RotationRequestRead>> {
-  return api.query('identity', 'developerKeys.rotationRequest', { keyId }, rotationRequestSchema, { signal });
+  return api.call(IDENTITY_DEVELOPER_KEYS_ROTATION_REQUEST, { keyId }, { signal });
 }
 
 /** The owner approves a key's own rotation request with a fresh passkey: one replacement, shown once. */

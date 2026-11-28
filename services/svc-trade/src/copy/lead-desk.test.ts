@@ -90,6 +90,8 @@ describe('presentLeadEarnings', () => {
     appliedShareBps: 1000,
     amount: parseAmount(amount),
     at: new Date(Date.UTC(2026, 10, 12, 9)),
+    venueFillId: `venue-${fill}`,
+    ledgerKey: `fee-share:builder-fee:test-venue:acct:venue-${fill}:lead-trader:l-1`,
   });
 
   it('shows each fee-share row and its sum per asset, with the profit-share sentence and no profit figure', () => {
@@ -108,6 +110,9 @@ describe('presentLeadEarnings', () => {
       appliedShareBps: 1000,
       amount: '0.007',
       at: '2026-11-12T09:00:00.000Z',
+      venueFillId: 'venue-a',
+      ledgerKey: 'fee-share:builder-fee:test-venue:acct:venue-a:lead-trader:l-1',
+      owedBy: 'intafaced',
     });
     expect(JSON.stringify(out)).not.toMatch(/pnl|profitAmount|return|unreali[sz]ed|roi/i);
   });

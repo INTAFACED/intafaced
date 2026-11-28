@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createApiClient } from '../shared/api';
-import { classifyRefusal } from './refusal-codes';
+import { EXACT, PREFIXES, SUFFIXES, classifyRefusal } from './refusal-codes';
 import { refusalCopy } from './refusals';
 
 describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
@@ -21,6 +20,11 @@ describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
     // trade send.
     expect(classifyRefusal('trade.account_restricted')).toBe('tradingOnHold');
     expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
+    // The owner's own freeze names itself, never a hold the person must ask support about (J-wallet-13 #2).
+    expect(classifyRefusal('identity.account_frozen_self')).toBe('frozenByYou');
+    expect(classifyRefusal('trade.account_frozen_self')).toBe('frozenByYou');
+    expect(classifyRefusal('agents.identity.owner_frozen_self')).toBe('frozenByYou');
+    expect(refusalCopy('identity.account_frozen_self').body).toContain('own wallet and venue account, which only your wallet controls');
   });
 });
 
@@ -119,12 +123,16 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     expect(refusalCopy('trade.protection_unset').title).toBe('Price protection isn’t set');
     expect(refusalCopy('trade.protection_unset').body).toContain('Use a limit order instead.');
   });
-  it('a band or open-order cap the market has not published: named, never defaulted', () => {
+  it('a band, open-order cap or minimum the market has not published: named, never defaulted', () => {
     expect(refusalCopy('trade.price_band_unset')).toEqual({
       title: 'No price band is published',
       body: 'This market takes no priced orders until it publishes the range of prices it accepts. Nothing was sent.',
     });
     expect(refusalCopy('trade.open_orders_cap_unset').title).toBe('No open-order limit is published');
+    expect(refusalCopy('trade.min_notional_unset')).toEqual({
+      title: 'No minimum order value is published',
+      body: 'This market takes no orders until it publishes its smallest order value. Nothing was sent.',
+    });
   });
   it('price band: the edges when the screen has them, the rule in words when it does not', () => {
     expect(refusalCopy('trade.price_band', { low: '90.00', high: '110.00' })).toEqual({
@@ -257,9 +265,10 @@ describe('classifyRefusal', () => {
   });
 
   it("never says the account is held for the ledger's platform-wide pause (I-kyc-compliance-17, ENGINE FRZ-1)", () => {
-    const source = readFileSync(new URL('./refusal-codes.ts', import.meta.url), 'utf8');
-    const ledgerCodes = [...source.matchAll(/'(ledger\.[a-z_.]+)'/g)].map((m) => m[1]!);
-    expect(ledgerCodes.length).toBeGreaterThan(0);
+    const sorted = [...Object.keys(EXACT), ...PREFIXES.map(([prefix]) => prefix)].filter((code) => code.startsWith('ledger.'));
+    expect(sorted.length).toBeGreaterThan(0);
+    // Every ledger code the table sorts, the operator freeze writes, and one it has never seen.
+    const ledgerCodes = [...sorted, 'ledger.freeze', 'ledger.freeze_attributed', 'ledger.not_seen_before'];
     for (const code of ledgerCodes) expect(classifyRefusal(code), code).not.toBe('accountOnHold');
     expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
   });
@@ -306,9 +315,24 @@ describe('scheduled order refusals', () => {
 });
 
 describe('customer words', () => {
-  it('no banned word appears in refusals.ts (checked as the E2E run does)', () => {
-    const source = readFileSync(new URL('./refusals.ts', import.meta.url), 'utf8');
-    expect(source).not.toMatch(/unavailable|not connected|restricted|fixture|lifecycle/i);
+  it('no banned word is in any message refusals.ts gives, for every code the table sorts (as the E2E run checks)', () => {
+    const codes = [
+      ...Object.keys(EXACT),
+      ...PREFIXES.map(([prefix]) => `${prefix}x`),
+      ...SUFFIXES.map(([suffix]) => `x${suffix}`),
+      'x.never_sorted',
+    ];
+    const contexts = [
+      {},
+      { asset: 'BTC', available: '1', recipient: '@a', pair: 'BTC-USDT', helpHref: '/help', low: '1', high: '2', cap: '3', open: '3' },
+    ];
+    for (const code of codes)
+      for (const context of contexts) {
+        const copy = refusalCopy(code, context);
+        expect(`${copy.title} ${copy.body} ${copy.action?.label ?? ''} ${copy.reference ?? ''}`, code).not.toMatch(
+          /unavailable|not connected|restricted|fixture|lifecycle/i,
+        );
+      }
   });
   it('no banned word reaches a customer through any message', () => {
     const codes = [

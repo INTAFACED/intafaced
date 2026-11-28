@@ -67,6 +67,11 @@ export const UPSTREAMS: readonly Upstream[] = [
   // reached under a different contract, so the kill-switch must treat the two
   // as one module or halting the market would only halt half of it.
   { prefix: '/api/v1', module: 'trade', envVar: 'TRADE_URL', devUrl: 'http://localhost:4004', preservePath: true },
+  // The private stream's short-lived token (J-developer-09 #2): svc-identity cuts it from the key's own exchanged
+  // principal, so it is served there, at the same absolute path. Longest prefix wins, so only this one path leaves
+  // `/api/v1`. `module: 'trade'` and not 'identity': the token opens the private trade stream, so halting trade halts
+  // it too, and a key bound to the trade product reaches it as it reaches every other `/api/v1` path.
+  { prefix: '/api/v1/stream/token', module: 'trade', envVar: 'IDENTITY_URL', devUrl: 'http://localhost:4002', preservePath: true },
   { prefix: '/api/token', module: 'token', envVar: 'TOKEN_URL', devUrl: 'http://localhost:4003' },
   { prefix: '/api/agents', module: 'agents', envVar: 'AGENTS_URL', devUrl: 'http://localhost:4008' },
   { prefix: '/api/bank', module: 'bank', envVar: 'BANK_URL', devUrl: 'http://localhost:4009' },
@@ -218,7 +223,7 @@ export function resolve(pathname: string): Resolved | null {
 }
 
 /**
- * Service surfaces (`/internal/…`) must never cross this door.
+ * Service surfaces (`/internal/…`) and TEST doors (`/test/…`, `/test-…`, `/test_…`) must never cross this door.
  *
  * Pay, identity, token, bank, trade, p2p all mount cron/stake/rank jobs at
  * `/internal/*`, authenticated by `INTERNAL_SERVICE_SECRET`. The edge strips
@@ -226,9 +231,40 @@ export function resolve(pathname: string): Resolved | null {
  * here — but forwarding the path still makes the door a probe surface, and
  * a service-side auth bug would become an internet bug. 404, same as an
  * unlisted prefix: do not advertise that the job exists.
+ *
+ * A TEST door (a stand-in partner's own book, a TEST age or refund door) is for a test on the service's own port, and
+ * its "loopback only" check reads the socket, which on a shared host is the edge's own (project-state #2711). So the
+ * edge refuses the whole TEST namespace by name: a new TEST door named the usual way is closed without a new rule.
  */
 export function isS2sPath(path: string): boolean {
-  return path === '/internal' || path.startsWith('/internal/');
+  const name = firstSegmentName(path);
+  return name === null || name === 'internal' || isTestDoorName(name);
+}
+
+/** `test`, or `test-` / `test_` and more: never `testnet` or `tests`, which name product paths, not TEST doors. */
+function isTestDoorName(name: string): boolean {
+  return name === 'test' || name.startsWith('test-') || name.startsWith('test_');
+}
+
+/**
+ * The first segment of `path` as a router behind the edge could read it: escapes decoded, `\` read as `/`, empty
+ * segments skipped, a `;` parameter dropped, Unicode compatibility forms folded (`ｉ` is `i`), case and surrounding
+ * whitespace or dots ignored. The raw comparison it replaced let `/%69nternal/x` through (project-state #2703).
+ * Null for a path that cannot be decoded, which `isS2sPath` refuses: a path nobody can read is not a public door.
+ */
+function firstSegmentName(path: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return null;
+  }
+  const first = decoded.split(/[\\/]+/).find((segment) => segment.length > 0) ?? '';
+  return first
+    .split(';')[0]!
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/^[\s.]+|[\s.]+$/g, '');
 }
 
 /**
@@ -237,8 +273,19 @@ export function isS2sPath(path: string): boolean {
  */
 export const UPSTREAM_ENFORCED_ENVS = ['staging', 'prod'] as const;
 
+/**
+ * Upstreams a deployment runs without (`EDGE_UPSTREAMS_OFF`, a comma list of their env vars, e.g. `P2P_URL,DEX_URL`): the
+ * hosted beta starts only the launch desk's services. Each refuses as unwired in every APP_ENV, never a fall back
+ * to its local default nor a 502 that reads as a network fault, so the app says plainly that it is not connected here.
+ */
+export function upstreamOff(upstream: Upstream, envLookup: (name: string) => string | undefined): boolean {
+  const raw = envLookup('EDGE_UPSTREAMS_OFF') ?? '';
+  return raw.split(',').some((name) => name.trim() === upstream.envVar);
+}
+
 /** Env var nonempty — configuration, not a live hop. `/ready` must not call this wired. */
 export function isUpstreamConfigured(upstream: Upstream, envLookup: (name: string) => string | undefined): boolean {
+  if (upstreamOff(upstream, envLookup)) return false;
   const raw = envLookup(upstream.envVar);
   return typeof raw === 'string' && raw.trim().length > 0;
 }
@@ -248,6 +295,7 @@ export function resolveUpstreamBase(
   envLookup: (name: string) => string | undefined,
   appEnv: string,
 ): { readonly base: string } | { readonly unwired: true } {
+  if (upstreamOff(upstream, envLookup)) return { unwired: true };
   const raw = envLookup(upstream.envVar);
   if (typeof raw === 'string' && raw.trim().length > 0) {
     return { base: raw.replace(/\/$/, '') };

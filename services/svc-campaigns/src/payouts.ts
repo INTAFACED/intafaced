@@ -106,6 +106,7 @@ type IntentRow = {
   amount: string;
   attempts: number;
   form: 'paid' | 'locked' | 'bonus';
+  reason: string | null;
 };
 
 type SettleRow = { reward_key: string; account_id: string; asset: string; amount: string; settle: 'unlock' | 'forfeit'; form: string };
@@ -135,19 +136,42 @@ export interface PayoutSagaOptions {
   reconcileAfterSeconds: number | null;
   /** Owner value: the most INTAFACED may owe in rewards, per campaign and in total. Unset refuses every Owe. */
   rewardCeiling?: RewardCeiling;
+  /**
+   * The account checks every reward passes before anything is owed or posted (J-campaigns-18, `risk.ts`): a frozen account's
+   * reward is withheld, one whose own risk signals reached the owner's threshold is held for review, and one with signals
+   * while the threshold is blank waits. Absent: no check (unit tests of the saga alone).
+   */
+  gate?: RewardGate;
 }
+
+/** What the account check says of one reward before it is owed or posted. */
+export type GateVerdict =
+  { kind: 'pass' } | { kind: 'hold'; reason: string } | { kind: 'withhold'; reason: string } | { kind: 'wait'; reason: string };
+
+export interface RewardGate {
+  judge(accountId: string): Promise<GateVerdict>;
+}
+
+/** Where each verdict leaves the reward, and its redemption log line. */
+const STOPPED: Record<Exclude<GateVerdict['kind'], 'pass'>, { state: string; outcome: string }> = {
+  hold: { state: 'review', outcome: 'held' },
+  withhold: { state: 'withheld', outcome: 'withheld' },
+  wait: { state: 'pending_retry', outcome: 'refused' },
+};
 
 export class PayoutSaga {
   readonly reconcileAfterSeconds: number | null;
   private readonly sql: Sql;
   private readonly ledger: LedgerClient;
   private readonly rewardCeiling: RewardCeiling;
+  private readonly gate: RewardGate | null;
 
   constructor(options: PayoutSagaOptions) {
     this.sql = options.sql;
     this.ledger = options.ledger;
     this.reconcileAfterSeconds = options.reconcileAfterSeconds;
     this.rewardCeiling = options.rewardCeiling ?? REWARD_CEILING_UNSET;
+    this.gate = options.gate ?? null;
   }
 
   /**
@@ -164,8 +188,18 @@ export class PayoutSaga {
         OR (${retry} AND state IN ${this.sql(RETRYABLE)})
         OR (${retry} AND state = 'posting' AND last_attempt_at < now() - make_interval(secs => ${stale}))
       )
-      RETURNING reward_key, campaign_id, account_id, asset, amount::text AS amount, attempts, form`;
+      RETURNING reward_key, campaign_id, account_id, asset, amount::text AS amount, attempts, form, reason`;
     if (!row) return false;
+    if (this.gate) {
+      // Judged before anything is owed or posted; a check that could not be made waits, and the reconciler tries again.
+      const verdict: GateVerdict = await this.gate
+        .judge(row.account_id)
+        .catch(() => ({ kind: 'wait' as const, reason: 'campaigns.risk_unread' }));
+      if (verdict.kind !== 'pass') {
+        await this.stop(row, verdict);
+        return true;
+      }
+    }
     if (owesReward(row)) {
       await this.recordOwe(row.reward_key, await this.owe(row));
       return true;
@@ -185,6 +219,20 @@ export class PayoutSaga {
     }
     await this.recordIntent(row.reward_key, answer);
     return true;
+  }
+
+  /** Leaves a reward the account check stopped where its verdict says, with no ledger call; one log line per new reason. */
+  private async stop(row: IntentRow, verdict: Exclude<GateVerdict, { kind: 'pass' }>): Promise<void> {
+    const to = STOPPED[verdict.kind];
+    await transaction(this.sql, async (tx) => {
+      const moved = await tx`
+        UPDATE campaigns.reward_intents SET state = ${to.state}, reason = ${verdict.reason}, updated_at = now()
+        WHERE reward_key = ${row.reward_key} AND state = 'posting'`;
+      if (moved.count === 0 || (verdict.kind === 'wait' && row.reason === verdict.reason)) return;
+      await tx`
+        INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+        VALUES (${row.reward_key}, ${to.outcome}, ${verdict.reason})`;
+    });
   }
 
   /**

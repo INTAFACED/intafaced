@@ -7,6 +7,10 @@ import { awayBid, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit
 // J-portfolio-03, in the running app (docs/roadmap/journeys.json): "I find any movement of my money, open its detail, and
 // annotate it". One test per step, titled "J-portfolio-03 #<n>", run in order on one TEST account funded with TEST 1000
 // USDT. Every row is checked against the bank's own activity read and the ledger balances, never against fixtures.
+// On the launch model, where INTAFACED holds none of the customer's money, steps #1, #3, #4 and #5 read each place that
+// holds the money, not our ledger: those steps are J-portfolio-03-venue.pw.mjs's. The tests here keep #1's, #3's, #4's
+// and #5's ledger branch (the custodial layer, kept and switched off) as it is, titled for the door off; #2 #6 #7 #8 stay
+// steps of this file.
 //
 // The kinds this stack can make: a deposit (the TEST welcome funds), a trade, a conversion (Convert, settled from the
 // house's TEST inventory), an order set aside, a cancelled order and a move to one of the person's own spaces. Earn has no rate configured on the stack (`earn.pools` refuses, a blank setting
@@ -25,7 +29,7 @@ test.use({ timezoneId: ZONE });
 
 function account() {
   const who = run.read().account;
-  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
+  if (!who) throw new Error(`${J}'s first test made no account, so this step has no one to act as`);
   return who;
 }
 
@@ -152,7 +156,7 @@ async function restBuy(page, who, percent, amount) {
   return order;
 }
 
-test(`${J} #1 opens /money/activity: every kind of movement in one list, in plain words, with signed amounts and local time`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): opens /money/activity: every kind of movement in one list, in plain words, with signed amounts and local time`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -279,7 +283,7 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
 // #1's convert part: a conversion settles as a house fill, the reason a desk order filled by the house also posts
 // (svc-trade convert/settle.ts). The fill's own `product: convert` makes the bank call it a conversion. The bank's kind
 // filter keeps it apart: Convert lists the conversion alone, Trade never lists it.
-test(`${J} #1 a conversion is listed as a convert, not as a desk trade`, async () => {
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): a conversion is listed as a convert, not as a desk trade`, async () => {
   const who = account();
   const res = await bankRead(who, 'activity.list', { kind: ['convert'], limit: 50 });
   expect(res.status, `activity.list kind convert: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(200);
@@ -409,7 +413,7 @@ test(`${J} #2 filters by date, asset, type, account, address and year, and sorts
   await expect(activity(page)).toContainText('No ZZZ activity');
 });
 
-test(`${J} #3 reads a traded order: its lines share one row, a cancelled order is one row, a resting order is set aside`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): reads a traded order: its lines share one row, a cancelled order is one row, a resting order is set aside`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -487,7 +491,7 @@ test(`${J} #3 reads a traded order: its lines share one row, a cancelled order i
   await expect(resting.getByTestId('money-act__status')).toHaveText('Set aside');
 });
 
-test(`${J} #4 opens an entry: its linked lines as one group with the shared reference, and from a purchase a link to the coin`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): opens an entry: its linked lines as one group with the shared reference, and from a purchase a link to the coin`, async ({
   page,
 }) => {
   const who = account();
@@ -538,7 +542,7 @@ test(`${J} #4 opens an entry: its linked lines as one group with the shared refe
   await expect(page).toHaveURL(/\/coin\/BTC/);
 });
 
-test(`${J} #5 opens Trades: one row per trade with price, total and fee, and partial fills grouped under their order and its type`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): opens Trades: one row per trade with price, total and fee, and partial fills grouped under their order and its type`, async ({
   page,
 }) => {
   const who = account();
@@ -743,7 +747,7 @@ test(`${J} #8 opens activity when it is empty, fails or is refused: a way forwar
     tool('local-test-stack.mjs', 'start', '--only', 'bank');
   }
   // Back up, Try again loads the next page under the rows that stayed.
-  await activity(page).locator('.money-more').getByRole('button', { name: 'Try again' }).click();
+  await activity(page).getByTestId('money-more').getByRole('button', { name: 'Try again' }).click();
   await expect.poll(async () => rows(page).count(), { timeout: 30_000 }).toBeGreaterThan(firstPage);
   expect((await rows(page).allInnerTexts()).slice(0, firstPage)).toEqual(shown);
   expect(lineCount).toBeGreaterThan(50);

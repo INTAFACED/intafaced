@@ -38,7 +38,13 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // (maker 0.08%, taker 0.10%), so every other journey on the stack trades at the rates it always did. TEST groups hold
 // markets no other journey trades: ETH/USDC at zero fee, and IFC/USDT, which #3 leaves blank for a moment. #5-#6 add a
 // TEST tier programme only for as long as they run, and #11 once more. #9 adds TEST terms for paying fees in IFC and a
-// TEST stake-discount ladder, and takes the terms away again. Step 7 joins this file with the slice that builds it.
+// TEST stake-discount ladder, and takes the terms away again. #7 is three tests, one for each clause of its words (the
+// benefits listed, an unsupported file refused, an approval with no trial amount refused): the step passes when all
+// three do. The founder console's review of an application is the operator's side of #7, titled "part of", and counts
+// for no step.
+// At launch the person trades on their own venue account: #1 #2 #3 #4 #6 #9 #10 #11 are proven there, in
+// J-cex-spot-10-venue.pw.mjs. Their checks here, of today's custodial desk, are kept and titled "part of", so they count
+// for no step.
 const J = 'J-cex-spot-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -241,7 +247,7 @@ async function checkOf(page, act) {
   return res.json();
 }
 
-test(`${J} #1 previews a maker limit and a taker market: the fee line names the role and its rate, from the order check`, async ({
+test(`${J}, part of #1, checked on today's custodial desk: previews a maker limit and a taker market: the fee line names the role and its rate, from the order check`, async ({
   page,
 }) => {
   const who = await fundedTrader(page, 'js10', '5000');
@@ -270,7 +276,7 @@ test(`${J} #1 previews a maker limit and a taker market: the fee line names the 
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 });
 
-test(`${J} #2 opens the public fee page: maker and taker by pair group and tier, a blank one "not set", the network fee apart`, async ({
+test(`${J}, part of #2, checked on today's custodial desk: opens the public fee page: maker and taker by pair group and tier, a blank one "not set", the network fee apart`, async ({
   page,
 }) => {
   await publish(SCHEDULE, 'TEST schedule by pair group and tier');
@@ -303,7 +309,9 @@ test(`${J} #2 opens the public fee page: maker and taker by pair group and tier,
   }
 });
 
-test(`${J} #3 orders on a market whose fee is blank: refused "Fee schedule not set" before anything is held`, async ({ page }) => {
+test(`${J}, part of #3, checked on today's custodial desk: orders on a market whose fee is blank: refused "Fee schedule not set" before anything is held`, async ({
+  page,
+}) => {
   // Two schedule versions (blank, then restored) on top of the desk.
   test.setTimeout(180_000);
   const who = account();
@@ -344,7 +352,7 @@ test(`${J} #3 orders on a market whose fee is blank: refused "Fee schedule not s
   }
 });
 
-test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a maker rebate on the other, never a negative fee`, async ({
+test(`${J}, part of #4, checked on today's custodial desk: fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a maker rebate on the other, never a negative fee`, async ({
   page,
 }) => {
   // A schedule version (and its restore) on top of two fills and two desks.
@@ -454,9 +462,9 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
   }
 });
 
-// Held for #4 only, passed or not: the next step's IFC/USDT book is quoted again.
+// Held for the custodial check of #4 only, passed or not: the next step's IFC/USDT book is quoted again.
 test.afterEach(() => {
-  if (test.info().title.startsWith(`${J} #4 `)) tool('local-test-market.mjs', 'release', 'IFC/USDT');
+  if (test.info().title.startsWith(`${J}, part of #4,`)) tool('local-test-market.mjs', 'release', 'IFC/USDT');
 });
 
 test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is excluded, and the next threshold`, async ({ page }) => {
@@ -520,7 +528,7 @@ test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is
   await expect(page.locator('[data-tier-page=thresholds-not-set]')).toHaveText('Thresholds not set. Every account is on the regular tier.');
 });
 
-test(`${J} #6 crosses the threshold during the day: the tier changes at the next snapshot, and its row shows the figures`, async ({
+test(`${J}, part of #6, checked on today's custodial desk: crosses the threshold during the day: the tier changes at the next snapshot, and its row shows the figures`, async ({
   page,
 }) => {
   // Two schedule versions, a fill, and a wait of up to three minutes for the snapshot.
@@ -618,8 +626,9 @@ const TEST_BENEFITS = [
   },
 ];
 
-test(`${J} part of #7 opens VIP benefits: each tier's published benefits, the person's own tier marked, a blank cell "not set"`, async ({
+test(`${J} #7 opens VIP benefits: each tier's published benefits, the person's own tier marked, a blank cell "not set"`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(150_000);
   const who = account();
@@ -642,6 +651,8 @@ test(`${J} part of #7 opens VIP benefits: each tier's published benefits, the pe
     await expect(regular.locator('td')).toHaveText(['not set', 'not set', 'not set', 'not set', 'not set']);
     const vip = table.locator('tr[data-benefits=test-vip-1]');
     await expect(vip.locator('td')).toHaveText(['Yes', 'No', 'not set', '20', 'up to 250000 USDT']);
+    // The step's picture: the benefits listed, before the table is taken away again below.
+    await stepPicture();
   } finally {
     await publish(SCHEDULE, 'benefits table off');
   }
@@ -655,8 +666,9 @@ const TEST_APPLICATION = { proofTypes: ['application/pdf', 'image/png'], maxByte
 /** A TEST proof: the smallest well-formed PDF header and a line naming it TEST. */
 const TEST_PDF = Buffer.from('%PDF-1.4\n% TEST proof of VIP status elsewhere, not a real statement\n%%EOF\n');
 
-test(`${J} part of #7 applies with a proof file: a type not accepted is refused naming the accepted ones, a PDF waits for review`, async ({
+test(`${J} #7 applies with a proof file: a type not accepted is refused naming the accepted ones, a PDF waits for review`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   // Its own fresh applicant: an application is never deleted, so a step re-run alone must not meet the last one.
@@ -684,6 +696,8 @@ test(`${J} part of #7 applies with a proof file: a type not accepted is refused 
     await send.click();
     expect((await answer).status()).toBe(400);
     await expect(card.locator('[data-vip-result=refused]')).toHaveText('Not sent: text/plain is not an accepted file. Accepted: PDF, PNG.');
+    // The step's picture: the unsupported file refused, before the card goes on to the next file.
+    await stepPicture();
 
     // Named a PDF but not one: refused by its bytes, not its name.
     await file.setInputFiles({ name: 'statement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('TEST not a pdf') });
@@ -729,8 +743,9 @@ test(`${J} part of #7 applies with a proof file: a type not accepted is refused 
   await expect(card.locator('tr[data-vip-application=pending]')).toHaveCount(1);
 });
 
-test(`${J} part of #7 compliance approves with no trial published: the grant is refused vip.trial_unset, then granted once one is`, async ({
+test(`${J} #7 compliance approves with no trial published: the grant is refused vip.trial_unset, then granted once one is`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   // Its own fresh applicant, as above.
@@ -774,6 +789,8 @@ test(`${J} part of #7 compliance approves with no trial published: the grant is 
     await expect(card.locator('tr[data-vip-application=approved_no_trial] td').last()).toHaveText('Approved, no trial period set');
     await expect(page.locator('[data-tier-page=tier] h2')).toHaveText('Your tier: Regular');
     await expect(page.locator('[data-tier-page=trial]')).toHaveCount(0);
+    // The step's picture: the approval with no trial amount, and no trial on the person's tier.
+    await stepPicture();
 
     // Once the owner publishes a trial, the grant goes through with its own approval: the tier is the trial's until it ends.
     const trial = { tierId: 'test-vip-1', days: 1 };
@@ -794,7 +811,7 @@ test(`${J} part of #7 compliance approves with no trial published: the grant is 
   }
 });
 
-test(`${J} part of #7 compliance decides in the founder console: the proof saved for a reason, a second founder approves, the trial starts`, async ({
+test(`${J}, part of #7, compliance decides in the founder console: the proof saved for a reason, a second founder approves, the trial starts`, async ({
   page,
   browser,
 }) => {
@@ -968,7 +985,9 @@ const TEST_LADDER = {
   ],
 };
 
-test(`${J} #9 chooses to pay trading fees in IFC: the published discount with its decay, the fee posting in IFC`, async ({ page }) => {
+test(`${J}, part of #9, checked on today's custodial desk: chooses to pay trading fees in IFC: the published discount with its decay, the fee posting in IFC`, async ({
+  page,
+}) => {
   // A ladder, a stake, a schedule version and its restore around one desk order.
   test.setTimeout(240_000);
   const who = account();
@@ -1044,13 +1063,13 @@ test(`${J} #9 chooses to pay trading fees in IFC: the published discount with it
     await page.reload();
     await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
     await tab(page, 'Trade history').click();
-    await expect(page.locator(`tr[data-fill="${fills[0].id}"] td[class*=dk-num]`).last()).toContainText(/^0\.0\d+ IFC/);
+    await expect(page.locator(`tr[data-fill="${fills[0].id}"] > td`).last()).toContainText(/^0\.0\d+ IFC/);
   } finally {
     await publish(SCHEDULE, 'no fee token terms again');
   }
 });
 
-test(`${J} #10 a fee change is on the notice board before it takes effect, and an order placed before then keeps its fees`, async ({
+test(`${J}, part of #10, checked on today's custodial desk: a fee change is on the notice board before it takes effect, and an order placed before then keeps its fees`, async ({
   page,
 }) => {
   // Three schedule versions (one a minute and a half ahead), a four-eyes notice, a fill and a desk.
@@ -1128,7 +1147,9 @@ test(`${J} #10 a fee change is on the notice board before it takes effect, and a
   }
 });
 
-test(`${J} #11 reads the fee and volume API: the same rates and volume as the screen`, async ({ page }) => {
+test(`${J}, part of #11, checked on today's custodial desk: reads the fee and volume API: the same rates and volume as the screen`, async ({
+  page,
+}) => {
   // A schedule version with the programme, a wait of up to three minutes for its snapshot, then none.
   test.setTimeout(360_000);
   const who = account();

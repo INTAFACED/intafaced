@@ -8,7 +8,7 @@
  */
 import type { Sql } from 'postgres';
 import { revokeAllApiKeys } from './revoke-all-api-keys.js';
-import { assertOwnLiveSession, redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
+import { redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
 
 export class RedeemRecoveryRevokeKeysError extends Error {
   constructor(

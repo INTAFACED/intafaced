@@ -12,20 +12,25 @@ const wallet = {
   guard: { ok: true },
   code: vi.fn(),
   sign: vi.fn(),
+  read: vi.fn(),
 };
 const representationStatus = vi.fn();
 const TOKEN = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token A', symbol: 'TESTA', decimals: 6 };
 const ammPairs = vi.fn();
-vi.mock('./WalletProvider', () => ({ useWallet: () => wallet }));
+vi.mock('./WalletProvider', async (original) => ({ ...(await original<typeof import('./WalletProvider')>()), useWallet: () => wallet }));
 vi.mock('../api', () => ({ createProtocolApi: () => ({ representationStatus, representationAccept: vi.fn(), ammPairs }) }));
 vi.mock('../../session/session', () => ({ useApi: () => ({}) }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement, root: Root;
 
+/** The control a field's label names, whether the label wraps it or points at it by id. */
 const field = (label: RegExp) => {
-  const span = [...host.ownerDocument.querySelectorAll('label span')].find((node) => label.test(node.textContent ?? ''));
-  return span?.parentElement?.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+  const found = [...host.ownerDocument.querySelectorAll('label')].find((node) =>
+    label.test((node.querySelector('span') ?? node).textContent ?? ''),
+  );
+  return (found?.querySelector('input, select') ?? (found?.htmlFor ? host.ownerDocument.getElementById(found.htmlFor) : null)) as
+    HTMLInputElement | HTMLSelectElement;
 };
 const type = async (element: HTMLInputElement | HTMLSelectElement, value: string) => {
   await act(async () => {
@@ -57,6 +62,7 @@ beforeEach(() => {
   wallet.address = ME;
   wallet.code.mockReset().mockResolvedValue('0x');
   wallet.sign.mockReset().mockResolvedValue({ status: 'sent', hash: `0x${'a'.repeat(64)}` });
+  wallet.read.mockReset().mockResolvedValue({ status: '0x1', blockNumber: '0x10', gasUsed: '0x5208', effectiveGasPrice: '0x3b9aca00' });
   representationStatus.mockReset().mockResolvedValue({ ok: true, data: { accepted: true } });
   ammPairs.mockReset().mockResolvedValue({ ok: true, data: { factory: TOKEN.address, blockNumber: '1', tokens: [TOKEN], pools: [] } });
 });
@@ -72,6 +78,32 @@ const mount = async (props: { to?: string; token?: string } = {}) => {
 };
 
 describe('Send', () => {
+  it('shows the network fee the mined transfer paid, read from its receipt, exactly', async () => {
+    await mount();
+    await fill(FRIEND, '1');
+    await click('Review');
+    await type(field(/^Last four characters/), '9ee7');
+    await click('Send');
+    await act(async () => {
+      await vi.waitFor(() => expect(text()).toContain('Network fee: 0.000021 ETH, read from the network'));
+    });
+    expect(wallet.read).toHaveBeenCalledWith('eth_getTransactionReceipt', [`0x${'a'.repeat(64)}`]);
+    expect(host.ownerDocument.querySelector('[data-testid="send-network-fee"]')?.getAttribute('data-fee-units')).toBe('21000000000000');
+  });
+
+  it('says the network fee is not known when the receipt does not name the price paid, never 0', async () => {
+    wallet.read.mockResolvedValue({ status: '0x1', blockNumber: '0x10', gasUsed: '0x5208' });
+    await mount();
+    await fill(FRIEND, '1');
+    await click('Review');
+    await type(field(/^Last four characters/), '9ee7');
+    await click('Send');
+    await act(async () => {
+      await vi.waitFor(() => expect(text()).toContain('Network fee: not known.'));
+    });
+    expect(text()).not.toContain('Network fee: 0');
+  });
+
   it('needs the last four characters before it sends exactly the reviewed amount to the reviewed address', async () => {
     await mount();
     await fill(FRIEND, '1.5');

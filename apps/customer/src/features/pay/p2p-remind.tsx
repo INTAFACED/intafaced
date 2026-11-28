@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { PayFailure } from './components';
-import { Button } from '@intafaced/ui';
+import { PayFailure } from './volt/parts';
+import { Button } from '@intafaced/ui/lit';
 import { formatDateTime } from './portal/ui/format';
 import type { PersonalPayApi } from './pay-api';
 import { remindCopy } from './p2p-remind-copy';
@@ -42,9 +42,9 @@ export function RemindSeller({ trade, pay, onSent }: { trade: Trade; pay: Person
   // svc-p2p's refusals in this room's words, with the time or count it sent.
   const refusal = failure ? refusalText(t, failure, time) : null;
   return (
-    <div className="stack" data-testid="order-remind">
+    <div className="lt-stack" data-testid="order-remind">
       <Button
-        variant="secondary"
+        tone="secondary"
         disabled={!open || sending}
         onClick={async () => {
           setSending(true);
@@ -61,10 +61,10 @@ export function RemindSeller({ trade, pay, onSent }: { trade: Trade; pay: Person
       >
         {t('remind')}
       </Button>
-      <p className="muted">{note}</p>
-      {reminders?.lastAt ? <p className="muted">{t('sentToSeller', { time: time(reminders.lastAt) })}</p> : null}
+      <p className="lt-muted">{note}</p>
+      {reminders?.lastAt ? <p className="lt-muted">{t('sentToSeller', { time: time(reminders.lastAt) })}</p> : null}
       {refusal ? (
-        <p data-testid="failure" className="failure" role="status">
+        <p data-testid="failure" className="lt-refusal" role="status">
           {refusal}
         </p>
       ) : failure ? (
@@ -91,7 +91,7 @@ export function SellerReminder({ reminders }: { reminders: TradeReminders | null
   const { t, requestedLocale } = remindCopy.useCopy();
   if (!reminders?.lastAt) return null;
   return (
-    <p className="muted" role="status" data-testid="order-reminder">
+    <p className="lt-muted" role="status" data-testid="order-reminder">
       {t('sellerReminded', { time: formatDateTime(reminders.lastAt, requestedLocale)?.short ?? reminders.lastAt })}
     </p>
   );

@@ -1,6 +1,6 @@
 import type { QuantBacktestResult } from '@intafaced/contracts/quant-algo';
 import { parseAmount } from '../../shared/money';
-import { toCsv } from '../more/depth-csv';
+import { toCsv } from '../more';
 
 export interface EquityMarker {
   readonly x: string;

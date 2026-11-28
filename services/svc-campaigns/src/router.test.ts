@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import type { CampaignService } from './campaigns.js';
@@ -43,6 +45,7 @@ function setup(schedule: string | undefined = undefined) {
         claimKey: `drop:${input.dropId}:${input.accountId}`,
         kind: 'entitlement' as const,
         claimedAt: '2026-10-24T12:00:00.000Z',
+        reward: null,
       },
       created: true,
       remaining: 2,
@@ -100,13 +103,13 @@ function setup(schedule: string | undefined = undefined) {
     campaigns,
     tasks,
     api: (c: Context) =>
-      createCampaignsRouter(
-        drops as unknown as DropService,
-        campaigns as unknown as CampaignService,
-        tasks as unknown as TaskService,
-        {} as VoucherService,
-        {} as WatchService,
-      ).createCaller(c),
+      createCampaignsRouter({
+        drops: drops as unknown as DropService,
+        campaigns: campaigns as unknown as CampaignService,
+        tasks: tasks as unknown as TaskService,
+        vouchers: {} as VoucherService,
+        watch: {} as WatchService,
+      }).createCaller(c),
   };
 }
 
@@ -116,7 +119,7 @@ describe('campaigns router', () => {
   it('claims for the signed-in account, never one named in the request', async () => {
     const { drops, api } = setup();
     const out = await api(await ctx(['campaigns:read', 'campaigns:write'])).drops.claim({ dropId: 'drop_1' });
-    expect(drops.claim).toHaveBeenCalledWith({ dropId: 'drop_1', accountId: ME });
+    expect(drops.claim).toHaveBeenCalledWith({ dropId: 'drop_1', accountId: ME, forwarded: expect.any(Object) });
     expect(out.claim.claimKey).toBe(`drop:drop_1:${ME}`);
     await expect(
       api(await ctx(['campaigns:write'])).drops.claim({ dropId: 'drop_1', accountId: 'someone-else' } as never),
@@ -227,5 +230,27 @@ describe('campaigns router', () => {
     expect(parseTgeSchedule('   ')).toBeNull();
     expect(() => parseTgeSchedule('soon')).toThrow(/CAMPAIGNS_TGE_SCHEDULE_JSON/);
     expect(() => parseTgeSchedule('{"claimOpensAt":"2026-12-01"}')).toThrow(/CAMPAIGNS_TGE_SCHEDULE_JSON/);
+  });
+});
+
+/**
+ * `router.ts` composes only, so a change to one feature never edits the file every other feature shares. A procedure
+ * written there is refused with the place it belongs.
+ */
+function proceduresWrittenIn(source: string): string[] {
+  return source
+    .split('\n')
+    .map((line, i) => ({ line, at: i + 1 }))
+    .filter(({ line }) => /\b(scopedProcedure|opsProcedure|publicProcedure|serviceProcedureFor)\b|\.(query|mutation)\(/.test(line))
+    .map(({ line, at }) => `router.ts:${at}: ${line.trim()}`);
+}
+
+describe('router.ts', () => {
+  it("defines no procedure: each feature's procedures live in its own routes/<feature>.ts", () => {
+    const source = readFileSync(fileURLToPath(new URL('./router.ts', import.meta.url)), 'utf8');
+    expect(
+      proceduresWrittenIn(source),
+      'Write the procedure in services/svc-campaigns/src/routes/<feature>.ts and spread that file into createCampaignsRouter',
+    ).toEqual([]);
   });
 });

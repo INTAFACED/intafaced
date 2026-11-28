@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { findRoom } from '../../app/navigation';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { DevelopersRoutes } from './DevelopersRoutes';
 import { ENVIRONMENTS, PROTOCOLS, SECTIONS, connectivityOptions, developersRoute, hostTable } from './developers-model';
 import {
@@ -43,13 +43,18 @@ describe('developer portal model', () => {
 });
 
 describe('developer portal pages', () => {
-  it('home lists every audience and every section, none hidden, with the hosts link', () => {
+  const visible = (markup: string) => markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  it('home lists every audience and every section, none hidden, with the hosts link and plain customer wording', () => {
     const html = renderToString(<DevelopersRoutes path="/developers" />);
+    const shown = visible(html);
     for (const section of SECTIONS) expect(html).toContain(`href="/developers/${section.id}"`);
     expect(html).toContain('href="/developers/hosts"');
-    expect(html).toContain('Exchange API');
-    expect(html).toContain('Best practice');
-    expect(html).toContain('No access tiers are published');
+    expect(shown).toContain('Exchange API');
+    expect(shown).toContain('Best practice');
+    expect(shown).toContain('No separate access tiers are published.');
+    expect(shown).not.toContain('in this build');
+    expect(shown).not.toContain('Page in this portal');
+    expect(shown).not.toMatch(/DV-[a-z-]+-\d{2}/);
   });
   it('hosts page reads the published hosts before it draws a row, and writes no address of its own', () => {
     const html = renderToString(
@@ -58,12 +63,26 @@ describe('developer portal pages', () => {
       </SessionProvider>,
     );
     expect(html).toContain('Base addresses');
+    expect(visible(html)).not.toContain('when the owner has set it');
     expect(html).not.toMatch(/data-host-state=/);
     expect(html).not.toMatch(/https?:\/\//);
   });
-  it('a section without a page names that, and a published one links to it', () => {
-    expect(renderToString(<DevelopersRoutes path="/developers/fix" />)).toContain('No page is published for this section');
+  it('a section without a page names its plain blocker, and a published one links to it', () => {
+    const fix = renderToString(<DevelopersRoutes path="/developers/fix" />);
+    const shown = visible(fix);
+    expect(shown).toContain('No page is published for this section. It is waiting on FIX onboarding and session policy.');
+    expect(shown).not.toContain('in this build');
+    expect(shown).not.toMatch(/DV-[a-z-]+-\d{2}/);
+    expect(fix).toContain('data-waits-for="DV-fix-01"');
     expect(renderToString(<DevelopersRoutes path="/developers/webhooks" />)).toContain('href="/pay/developer/webhooks"');
+  });
+  it('strategy API page links to API keys with a plain label and avoids internal RPC jargon', () => {
+    const html = renderToString(<DevelopersRoutes path="/developers/quant" />);
+    const shown = visible(html);
+    expect(html).toContain('href="/uc/safe/api-keys/new"');
+    expect(shown).toContain('Create an API key');
+    expect(html).not.toContain('>/uc/safe/api-keys/new<');
+    expect(shown).not.toContain('tRPC');
   });
   it('an address that names no section says so and links back', () => {
     const html = renderToString(<DevelopersRoutes path="/developers/no-such" />);

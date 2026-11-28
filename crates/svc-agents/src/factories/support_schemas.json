@@ -1,0 +1,196 @@
+{
+  "nodes": [
+    {
+      "t": "object",
+      "shape": [
+        ["id", 1],
+        ["titleKey", 2],
+        ["bodyKey", 3],
+        ["version", 4],
+        ["revision", 6],
+        ["published", 8],
+        ["category", 10],
+        ["tags", 12],
+        ["audience", 15],
+        ["title", 17],
+        ["body", 19],
+        ["language", 21],
+        ["sectionId", 23]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "optional", "in": 5 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "optional", "in": 7 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "optional", "in": 9 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 11 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "optional", "in": 13 },
+    { "t": "array", "el": 14, "checks": [{ "k": "max_length", "n": 20 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "optional", "in": 16 },
+    { "t": "enum", "values": ["public", "signed_in", "staff"] },
+    { "t": "optional", "in": 18 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "optional", "in": 20 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 20000 }
+      ]
+    },
+    { "t": "optional", "in": 22 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 2 },
+        { "k": "max_length", "n": 32 }
+      ]
+    },
+    { "t": "optional", "in": 24 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 26],
+        ["userId", 27],
+        ["category", 28],
+        ["subject", 29],
+        ["body", 30],
+        ["messageHeaders", 31],
+        ["status", 34],
+        ["assigneeId", 35],
+        ["mergedInto", 37],
+        ["customerStatus", 40],
+        ["createdAt", 42],
+        ["updatedAt", 43]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "enum",
+      "values": ["account", "trading", "deposit_withdraw", "phishing", "fraud_report", "other", "complaint", "bereavement", "scam"]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 10000 }
+      ]
+    },
+    { "t": "optional", "in": 32 },
+    { "t": "nullable", "in": 33 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 10000, "msg": "support.headers_too_long" }
+      ]
+    },
+    { "t": "enum", "values": ["open", "pending", "on_hold", "resolved", "closed"] },
+    { "t": "nullable", "in": 36 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 38 },
+    { "t": "nullable", "in": 39 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 41 },
+    { "t": "enum", "values": ["awaiting_reply", "open", "solved"] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["userId", 45],
+        ["status", 46],
+        ["kycTier", 47],
+        ["archived", 48]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "enum", "values": ["active", "frozen", "closed"] },
+    { "t": "enum", "values": ["none", "basic", "full", "institutional"] },
+    { "t": "optional", "in": 49 },
+    { "t": "boolean" }
+  ],
+  "roots": { "article": 0, "ticket": 25, "account": 44 }
+}

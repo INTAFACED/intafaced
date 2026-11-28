@@ -3,6 +3,7 @@
  * into drawing coordinates, and only into coordinates: nothing it returns is a price or an amount anyone acts on. The
  * curve's values themselves come from desk/order-flow.ts, in scaled bigint.
  */
+import { chartValue } from '../../../shared/chart-value';
 export interface DepthGeometryPoint {
   price: string;
   /** The cumulative size drawn, in the chosen units. */
@@ -25,12 +26,12 @@ export function depthGeometry(
   height: number,
 ): DepthGeometry {
   const all = [...bids, ...asks];
-  const prices = all.map((p) => Number(p.price));
+  const prices = all.map((p) => chartValue(p.price));
   const low = Math.min(...prices);
   const high = Math.max(...prices);
-  const top = Math.max(...all.map((p) => Number(p.amount)), 0);
-  const xOf = (price: string) => (high === low ? width / 2 : ((Number(price) - low) / (high - low)) * width);
-  const yOf = (amount: string) => (top <= 0 ? height : height - (Number(amount) / top) * (height - 4));
+  const top = Math.max(...all.map((p) => chartValue(p.amount)), 0);
+  const xOf = (price: string) => (high === low ? width / 2 : ((chartValue(price) - low) / (high - low)) * width);
+  const yOf = (amount: string) => (top <= 0 ? height : height - (chartValue(amount) / top) * (height - 4));
   const path = (points: readonly DepthGeometryPoint[]) => {
     if (points.length === 0) return '';
     let d = `M ${xOf(points[0]!.price).toFixed(1)} ${height}`;

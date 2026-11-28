@@ -5,7 +5,8 @@ import { test, expect } from './journey.mjs';
 import { journeyState, restartWithSetting } from './stack.mjs';
 import { holderAgain, keyHolder, makeKey, withKey } from './developer.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
+import { openVenuePage, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-developer-05, in the running app (docs/roadmap/journeys.json): place an order over the API without ever doubling it.
 // One test per step, titled "J-developer-05 #<n>". The developer is a TEST account with a passkey and one live Trade
@@ -13,7 +14,8 @@ import { testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.m
 // straight to Edge with the key, and no SDK is used. Orders go to the person's own account on the stack's TEST venue
 // through svc-trade's user-venue door (switched on for this file only): the program signs each prepared order with the
 // person's TEST wallet key, as a bot holding that key would. The venue is the record of every order; the ledger posts
-// nothing. Every figure is TEST.
+// nothing. Every figure is TEST. Each step ends where the developer looks in the app: the order's own page or the open
+// orders of their connected TEST wallet for what the venue holds, and /developers/idempotency for the codes it names.
 const J = 'J-developer-05';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
@@ -82,6 +84,51 @@ async function place(s, idempotencyKey) {
 const venueOrdersWith = async (owner, cloid) =>
   (await venueRecord(owner, '/open-orders')).value.filter((o) => o.venueClientOrderId === cloid);
 
+/** The venue open orders of the connected wallet, the Orders room's open view. */
+const OPEN_ORDERS = '/trade/orders?product=venue&view=open';
+
+/** The developer signed in on a fresh page, their TEST wallet connected, at a venue orders page (`path`). */
+async function venueScreen(browser, s, path) {
+  const page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
+  await openVenuePage(page, s.who, path, s.walletKey);
+  return page;
+}
+
+/** The open orders the app shows for the connected wallet, by client order id, once they have loaded. */
+async function shownOpen(page) {
+  const open = page.getByTestId('venue-open-orders');
+  await expect(open.locator('tbody tr[data-client-order-id]').first()).toBeVisible({ timeout: 20_000 });
+  return open.locator('tbody tr[data-client-order-id]').evaluateAll((rows) => rows.map((r) => r.dataset.clientOrderId));
+}
+
+/** A fact row of the order's own page, by its label. */
+const fact = (page, label) =>
+  page
+    .getByTestId('venue-order-facts')
+    .getByTestId('venue-order-row')
+    .filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) })
+    .locator('dd');
+
+/** From the open orders, the order's own page for one client order id: the venue's open buy of BUY.amount. */
+async function seeOrder(page, cloid) {
+  await expect.poll(async () => (await shownOpen(page)).filter((id) => id === cloid).length).toBe(1);
+  await page.getByTestId('venue-open-orders').locator(`tbody tr[data-client-order-id="${cloid}"]`).getByTestId('venue-order-link').click();
+  await expect(page).toHaveURL(new RegExp(`/trade/orders/${cloid}$`, 'i'));
+  await expect(page.getByTestId('venue-order-heading')).toContainText(`Buy ${SYMBOL}`, { timeout: 20_000 });
+  await expect(page.getByTestId('venue-order-heading').locator('[data-cell="status"]')).toHaveText('Open');
+  await expect(fact(page, 'Venue client order ID')).toHaveText(cloid);
+  // The quantity first sent, as the venue writes it (0.001 to its own fraction digits), never a changed one.
+  await expect(fact(page, 'Amount')).toHaveText(/^0\.0010* BTC$/);
+}
+
+/** /developers/idempotency's rule naming one code, as the developer reads it. */
+async function seeRule(page, words) {
+  await page.goto('/developers/idempotency');
+  const rules = page.getByTestId('developers-idempotency-rules');
+  await expect(rules.getByRole('heading', { name: 'One order per key', exact: true })).toBeVisible();
+  await expect(rules).toContainText(words);
+}
+
 /** One TEST switch on this account only, on the TEST venue (packages/venue-sim `/test/account-switches`). */
 async function accountSwitch(owner, body) {
   const r = await testVenue('/test/account-switches', { owner, ...body });
@@ -108,7 +155,10 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
-test(`${J} #1 places an order with an Idempotency-Key: the order is accepted with its id, and the venue has it under the key as its client order id`, async () => {
+test(`${J} #1 places an order with an Idempotency-Key: the order is accepted with its id, and the venue has it under the key as its client order id`, async ({
+  browser,
+  stepPicture,
+}) => {
   const s = state();
   const k = keyFor(1);
   const { prepared, sent, cloid } = await place(s, k);
@@ -124,9 +174,20 @@ test(`${J} #1 places an order with an Idempotency-Key: the order is accepted wit
   expect(onVenue[0]).toMatchObject({ venueOrderId: id, status: 'open', symbol: SYMBOL, side: 'buy' });
   expect(sent.headers.get('idempotent-replayed')).toBeNull();
   run.write({ first: { key: k, cloid, id, answer: sent.body } });
+  // The developer opens the order in the app: the venue holds it, open, under the id the key gave it.
+  const page = await venueScreen(browser, s, OPEN_ORDERS);
+  try {
+    await seeOrder(page, cloid);
+    await stepPicture(page);
+  } finally {
+    await page.context().close();
+  }
 });
 
-test(`${J} #2 retries the same key and body: the stored response comes back, marked replayed, and the venue still has one order`, async () => {
+test(`${J} #2 retries the same key and body: the stored response comes back, marked replayed, and the venue still has one order`, async ({
+  browser,
+  stepPicture,
+}) => {
   const s = state();
   const first = s.first;
   if (!first) throw new Error(`${J} #1 placed no order, so there is nothing to retry`);
@@ -140,9 +201,23 @@ test(`${J} #2 retries the same key and body: the stored response comes back, mar
   expect(resent.body.outcome).toEqual(first.answer.outcome);
   expect(resent.body.outcome.order.venueOrderId).toBe(first.id);
   expect(await venueOrdersWith(s.owner, first.cloid)).toHaveLength(1);
+  // The app's open orders for the wallet hold that order once.
+  const page = await venueScreen(browser, s, OPEN_ORDERS);
+  try {
+    await expect.poll(async () => (await shownOpen(page)).filter((id) => id === first.cloid).length).toBe(1);
+    const row = page.getByTestId('venue-open-orders').locator(`tbody tr[data-client-order-id="${first.cloid}"]`);
+    await expect(row).toHaveCount(1);
+    await row.scrollIntoViewIfNeeded();
+    await stepPicture(page);
+  } finally {
+    await page.context().close();
+  }
 });
 
-test(`${J} #3 retries the same key with a changed quantity: the idempotency conflict code, and no second order`, async () => {
+test(`${J} #3 retries the same key with a changed quantity: the idempotency conflict code, and no second order`, async ({
+  browser,
+  stepPicture,
+}) => {
   const s = state();
   const k = keyFor(3);
   const { sent, cloid } = await place(s, k);
@@ -154,9 +229,25 @@ test(`${J} #3 retries the same key with a changed quantity: the idempotency conf
   expect(onVenue).toHaveLength(1);
   // The order on the venue is the first one, at its own quantity.
   expect(Number(onVenue[0].amount)).toBe(Number(BUY.amount));
+  const page = await venueScreen(browser, s, OPEN_ORDERS);
+  try {
+    // In the app the one order is still the first, at its own quantity.
+    await seeOrder(page, cloid);
+    // The code the developer got is the one the docs name for a changed order under the same key.
+    await seeRule(
+      page,
+      `The same key with a changed order (another quantity, price or side) answers 409 with the code ${changed.body.intafacedCode}.`,
+    );
+    await stepPicture(page);
+  } finally {
+    await page.context().close();
+  }
 });
 
-test(`${J} #4 sends two requests with the same key at once: the second gets the in-progress code, and the venue has one order`, async () => {
+test(`${J} #4 sends two requests with the same key at once: the second gets the in-progress code, and the venue has one order`, async ({
+  browser,
+  stepPicture,
+}) => {
   const s = state();
   const k = keyFor(4);
   const prepared = await prepare(s, k);
@@ -179,11 +270,23 @@ test(`${J} #4 sends two requests with the same key at once: the second gets the 
   expect(second.status, JSON.stringify(second.body)).toBe(409);
   expect(second.body.intafacedCode).toBe('idempotency.in_progress');
   expect(second.headers.get('retry-after')).toBe('1');
-  expect(await venueOrdersWith(s.owner, prepared.body.prepared.venueClientOrderId)).toHaveLength(1);
+  const cloid = prepared.body.prepared.venueClientOrderId;
+  expect(await venueOrdersWith(s.owner, cloid)).toHaveLength(1);
+  const page = await venueScreen(browser, s, OPEN_ORDERS);
+  try {
+    // In the app the wallet's open orders hold that order once.
+    await expect.poll(async () => (await shownOpen(page)).filter((id) => id === cloid).length).toBe(1);
+    // The code the second request got is the one the docs name for a request sent while the first is being sent.
+    await seeRule(page, `answers 409 with the code ${second.body.intafacedCode} and a retry-after header`);
+    await stepPicture(page);
+  } finally {
+    await page.context().close();
+  }
 });
 
 test(`${J} #5 times out or gets a 5xx after the order is sent: the docs say accepted is not final; read by key it is unknown until the venue answers; a retry on the same key never creates a second venue order`, async ({
   browser,
+  stepPicture,
 }) => {
   const s = state();
   // The docs page says it, in the app.
@@ -191,12 +294,13 @@ test(`${J} #5 times out or gets a 5xx after the order is sent: the docs say acce
   try {
     await page.goto('/developers/idempotency');
     const final = page.getByTestId('developers-idempotency-final');
-    await expect(final.getByRole('heading', { name: 'Accepted is not final' })).toBeVisible();
+    await expect(final.getByRole('heading', { name: 'Accepted is not final', exact: true })).toBeVisible();
     await expect(final).toContainText('Read the order by key with GET /api/v1/venue/orders/by-key');
     await expect(final).toContainText('It reads unknown until the venue answers, never failed or filled.');
     await expect(final).toContainText(
       'A retry on the same key sends the same signed order again, so the venue never creates a second order.',
     );
+    await stepPicture(page);
   } finally {
     await page.close();
   }
@@ -272,7 +376,10 @@ test(`${J} #5 times out or gets a 5xx after the order is sent: the docs say acce
   expect(await venueOrdersWith(s.owner, cloid5)).toHaveLength(1);
 });
 
-test(`${J} #6 lists orders with a cursor over three pages: each venue order once, the next cursor empty at the end; a blank largest page refuses a list call with a limit`, async () => {
+test(`${J} #6 lists orders with a cursor over three pages: each venue order once, the next cursor empty at the end; a blank largest page refuses a list call with a limit`, async ({
+  browser,
+  stepPicture,
+}) => {
   test.setTimeout(300_000);
   const s = state();
   // Enough orders for three pages of two, whatever earlier steps left.
@@ -322,4 +429,16 @@ test(`${J} #6 lists orders with a cursor over three pages: each venue order once
     restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
   }
   expect((await listed()).status).toBe(200);
+
+  // The app's open orders for the wallet: the same venue orders, each once.
+  const page = await venueScreen(browser, s, OPEN_ORDERS);
+  try {
+    await expect.poll(async () => (await shownOpen(page)).length).toBe(venueOrders.length);
+    const shown = await shownOpen(page);
+    expect(new Set(shown).size).toBe(shown.length);
+    expect([...shown].sort()).toEqual(venueOrders.map((o) => o.venueClientOrderId).sort());
+    await stepPicture(page);
+  } finally {
+    await page.context().close();
+  }
 });

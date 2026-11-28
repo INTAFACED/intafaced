@@ -11,43 +11,31 @@
 # must match), then plants one edit in a copy and requires `verify` to fail on it, so every build also proves the check
 # a pull request is held to.
 #
-# Triggers: a manual run, and every Real-app journeys run on main that finished green (push or schedule; a manual run
-# on main is full too). Both run the copy of this file on the default branch for workflow_run; a manual run on a branch
-# runs that branch's copy, still with a read-only token. No pull request event reaches this workflow, and it reads no
-# pull request text.
+# Trigger: a dispatch. Main trust's `map` job (main-trust.yml) starts one on main after each Real-app journeys run on main
+# that finished green (push, schedule or dispatch), with its own token; that dispatch runs this file's copy on main, and
+# only such a build counts (journey-reach-map.mjs mapBuilds: started by the workflow token, its commit in main's
+# history). A manual run counts for nothing; on a branch it runs that branch's copy, still with a read-only token. No
+# pull request event reaches this workflow, and it reads no pull request text. (Until 24 Nov 2026 every journeys run on
+# main started a `workflow_run` here, and its job skipped for every one that wasn't green: 460 of 534 runs in the 3 days
+# to 24 Nov 09:00 UTC. GitHub can't start a workflow_run only for a green run, so Main trust, which already runs after
+# each one, starts the build instead: project-state#4001, step 4a.)
 name: Touched-journeys map
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: [Real-app journeys]
-    types: [completed]
 
 permissions: {}
 
-# Only a run whose job builds shares a group (a newer build replaces an older one): the group's condition is the build
-# job's `if`, word for word. Every other Real-app journeys run (a pull request's, a red one) also starts this workflow,
-# and its job skips; with github.ref (always main for workflow_run) it cancelled main's build in progress (runs
-# 42522896030, 42532262144, 42535543684 on 8 Nov), so it gets a group of its own (review 7594-R1 F1).
+# A newer build replaces an older one still running. Main trust's dispatches (github-actions[bot]) share one group, so
+# a person's dispatch, which counts for nothing, never cancels one of them.
 concurrency:
-  group: >-
-    journey-reach-map-${{ (github.event_name == 'workflow_dispatch' ||
-    (github.event.workflow_run.conclusion == 'success' &&
-    github.event.workflow_run.head_branch == 'main' &&
-    github.event.workflow_run.head_repository.full_name == github.repository &&
-    contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event))) && github.ref || github.run_id }}
+  group: journey-reach-map-${{ github.ref }}-${{ github.actor == 'github-actions[bot]' && 'main-trust' || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   build:
     name: Build the map from main's runs
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository &&
-       contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30 # healthy run: a few minutes, most of it downloading the newest whole runs' reports twice (build, then verify)
     permissions:
       contents: read

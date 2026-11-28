@@ -2,9 +2,10 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
+import { DAY, utcDay } from './clock.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { setPartner } from './partner.mjs';
+import { partnerBookMoves, setPartner } from './partner.mjs';
 import { answerAfterNavigation } from './navigation.mjs';
 
 // J-bank-16, in the running app (docs/roadmap/journeys.json): I see where my money goes: statements, insights, limits
@@ -12,7 +13,8 @@ import { answerAfterNavigation } from './navigation.mjs';
 // two TEST deposits this month, is the person: every figure below is the partner's, and our ledger posts nothing. The
 // partner records every line now, so the month with the person's activity is this month: for #1 the
 // browser's clock is set to the first minute of next month, so this month is a month that is over to the person, as it
-// would be to anyone downloading it then. The bank reads the lines as they stand.
+// would be to anyone downloading it then. The bank reads the lines as they stand. Steps 1 and 6 compare the app's figures
+// with the TEST partner's own book, read on loopback (partner.mjs), never through our doors.
 // Steps 1 to 3 (BK-acct-07): a month's PDF statement with every line the partner reports, its hash proof and the same per-coin total
 // the activity list shows for those days, and a range across months refused; a search of the activity, and a bank
 // letter refused `rail.bank` (no banking partner); tax statements refused `vendor.tax` (no tax provider).
@@ -33,7 +35,6 @@ function person() {
   return who;
 }
 
-const utcDay = (at) => at.toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const monthStart = (now = new Date()) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 const nextMonthStart = (now = new Date()) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
@@ -78,6 +79,13 @@ async function atPartner(who, ...amounts) {
   }
 }
 
+/** The partner's own book of `userId`'s USDT moves between two times: what it reports, never what our doors say. */
+async function bookMoves(userId, from, to) {
+  return (await partnerBookMoves(userId)).filter(
+    (m) => (m.from.owner === userId || m.to.owner === userId) && m.from.assetId === 'USDT' && m.movedAt >= from && m.movedAt <= to,
+  );
+}
+
 /** The person's USDT lines folded as a reader would: money in minus money out, and how many lines. */
 function usdtNet(lines) {
   const usdt = lines.filter((line) => line.asset === 'USDT');
@@ -87,6 +95,7 @@ function usdtNet(lines) {
 
 test(`${J} #1 exports a month as PDF: every line the partner reports, a hash proof and the same total as the activity list; a range across months is refused`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const who = await signUp(page, 'bk16');
@@ -107,7 +116,20 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
     expect(line.heldAt?.label).toBe(PARTNER_BANK);
     expect(line.txId).toMatch(/^test-partner-move-/);
   }
+  // Every line is one the partner's own book reports for the month, and the book reports no line the bank left out.
+  const { userId } = await api(who);
+  const book = await bookMoves(userId, monthStart().toISOString(), new Date(nextMonthStart().getTime() - 1).toISOString());
+  expect(book).toHaveLength(2);
+  expect(lines.map((line) => line.txId).sort()).toEqual(book.map((m) => m.id).sort());
+  for (const m of book) {
+    const line = lines.find((l) => l.txId === m.id);
+    expect(toUnits(line.amount)).toBe(toUnits(m.amount));
+    expect(line.direction).toBe(m.to.owner === userId ? 'in' : 'out');
+  }
   const usdt = usdtNet(lines);
+  // The partner's own net for the month, money in minus money out, is the total the bank shows.
+  const bookNet = book.reduce((sum, m) => sum + (m.to.owner === userId ? toUnits(m.amount) : -toUnits(m.amount)), 0n);
+  expect(toUnits(usdt.net)).toBe(bookNet);
   const totalWords = `USDT: ${usdt.net} (${usdt.count} lines)`;
 
   // The activity list's total for this month's days, as the person reads it on Activity.
@@ -133,6 +155,7 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
   // Every line the partner reported for the month is in the file, by the partner's reference.
   expect(text).toContain(`Rows: ${lines.length}`);
   for (const line of lines) expect(text).toContain(line.txId);
+  for (const m of book) expect(text).toContain(m.id);
   // The same total as the activity list, in the file and beside it.
   expect(text).toContain(`Total USDT: ${usdt.net} \\(${usdt.count} lines\\)`);
   await expect(page.getByTestId('statement-centre-totals').locator('li[data-asset="USDT"]')).toHaveText(totalWords);
@@ -142,6 +165,7 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
   await expect(page.getByTestId('statement-centre-status')).toHaveText(
     `Downloaded ${file.suggestedFilename()}: ${lines.length} lines. Fingerprint ${fingerprint}; support can check it.`,
   );
+  await stepPicture(page);
 
   // A range that crosses months is refused, and nothing is saved.
   await centre(page)
@@ -149,7 +173,7 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
     .check();
   await centre(page)
     .getByLabel('From (UTC)', { exact: true })
-    .fill(utcDay(new Date(monthStart().getTime() - 86_400_000)));
+    .fill(utcDay(monthStart().getTime() - DAY));
   await centre(page).getByLabel('To (UTC)', { exact: true }).fill(today);
   await centre(page).getByRole('combobox', { name: 'Format' }).selectOption('pdf');
   let saved = false;
@@ -312,6 +336,7 @@ test(`${J} #5 compares two months and reads "left to spend": each category per m
 
 test(`${J} #6 opens Limits, fees and plan: the partner's daily send limit, used today, remaining and fee, and our own plan fee, each named; a blank fee reads "not set"`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const who = person();
@@ -322,6 +347,14 @@ test(`${J} #6 opens Limits, fees and plan: the partner's daily send limit, used 
   expect(limits.data).toMatchObject({ held: true, label: PARTNER_BANK, usedToday: '80' });
   expect(toUnits(limits.data.remainingToday)).toBe(toUnits(limits.data.dailyLimit) - toUnits('80'));
   expect(limits.data.sendFee).not.toBeNull();
+  // Used today is what the partner's own book says left the person today: the 80 paid out in #4, and nothing else.
+  const dayStart = new Date(`${utcDay(new Date())}T00:00:00.000Z`).toISOString();
+  const sentToday = (await bookMoves(client.userId, dayStart, new Date().toISOString())).filter(
+    (m) => m.from.owner === client.userId && m.to.owner !== client.userId,
+  );
+  const bookUsed = sentToday.reduce((sum, m) => sum + toUnits(m.amount), 0n);
+  expect(bookUsed).toBe(toUnits('80'));
+  expect(toUnits(limits.data.usedToday)).toBe(bookUsed);
 
   await signIn(page, who);
   await page.goto('/bank/limits');
@@ -371,6 +404,7 @@ test(`${J} #6 opens Limits, fees and plan: the partner's daily send limit, used 
     await expect(row).toContainText(`${plan.price} ${plan.assetId} a month`);
     await expect(row).toHaveAttribute('data-blocker', plan.blocker ?? '');
   }
+  await stepPicture(page);
 });
 
 let jobCtx;
@@ -390,7 +424,6 @@ async function job(procedure, input) {
   expect(res.status, `${procedure}: ${JSON.stringify(parsed).slice(0, 300)}`).toBe(200);
   return parsed.result.data;
 }
-const DAY = 86_400_000;
 
 test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee after a full withdrawal`, async ({ page }) => {
   test.setTimeout(240_000);
@@ -412,7 +445,7 @@ test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee afte
   // is run for this one account, so no other account on the stack is touched.
   const asOf = new Date(Date.now() + (rule.inactiveDays + 1) * DAY);
   const first = await job('ops.runDormancy', { at: asOf.toISOString(), userIds: [userId] });
-  const debitDate = new Date(asOf.getTime() + rule.noticeLeadDays * DAY).toISOString().slice(0, 10);
+  const debitDate = utcDay(asOf.getTime() + rule.noticeLeadDays * DAY);
   expect(first.noticed).toEqual([{ userId, assetId: 'USDT', fee: '5', debitDate }]);
   // Run again: the same notice, not a second one.
   expect((await job('ops.runDormancy', { at: asOf.toISOString(), userIds: [userId] })).noticed).toEqual([]);

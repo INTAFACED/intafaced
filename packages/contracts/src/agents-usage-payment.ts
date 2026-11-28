@@ -4,7 +4,7 @@ import { z } from 'zod';
  * AGENTS USAGE PAYMENT: the S2S door svc-agents uses to learn how a person pays for agent usage, and to collect one
  * sealed usage window from them (J-agents-01; launch money model, docs/adr/2026-11-10-launch-money-model.md).
  *
- * At launch INTAFACED holds no customer money (OWNER 226). A usage window is earned in our ledger as owed by the person
+ * At launch INTAFACED holds no customer money. A usage window is earned in our ledger as owed by the person
  * (`chargeEarn`), and collected from their payment method by their partner, which carries the payment out for them; the
  * partner's payment id is the one fact the ledger's `chargeCollect` is keyed on. svc-agents never reads svc-bank's
  * tables or the partner; it asks this route, signed as `svc-agents`.
@@ -12,6 +12,10 @@ import { z } from 'zod';
  *   read     where the person's money is held, and, at the partner, what it reports as available in that asset.
  *   collect  one payment from the person's main balance at the partner to INTAFACED's own account there, under the
  *            window's business key: the same key is the same payment, once, however many times it is asked.
+ *
+ * A business team's run (J-agents-11) is paid by the business: the request names `businessId`, the member is still
+ * `userId`, and svc-bank answers for the business's payment method (its first administrator's main balance at the
+ * partner; a business account holds no money of its own), never the member's.
  *
  * `heldBy: 'ledger'` is the custodial layer (the journeys marked Later): the window is charged on the ledger as before.
  * `heldBy: 'none'` is a person with no payment method: nothing can be collected, and a run refuses before it starts.
@@ -24,7 +28,15 @@ const decimal = z.string().regex(/^\d{1,30}(\.\d{1,18})?$/);
 const asset = z.string().regex(/^[A-Z0-9]{2,16}$/);
 
 export const agentsUsagePaymentRequestSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('read'), userId: z.string().uuid(), assetId: asset }).strict(),
+  z
+    .object({
+      action: z.literal('read'),
+      userId: z.string().uuid(),
+      assetId: asset,
+      /** A team run's business: the business pays, not the member (`userId`). */
+      businessId: z.string().uuid().optional(),
+    })
+    .strict(),
   z
     .object({
       action: z.literal('collect'),
@@ -33,6 +45,8 @@ export const agentsUsagePaymentRequestSchema = z.discriminatedUnion('action', [
       amount: decimal,
       /** The window's business key (`agent.usage:<session>:<window>`): one key is one payment. */
       chargeKey: z.string().regex(/^agent\.usage:[^\s]{1,160}$/),
+      /** A team run's business: the business pays, not the member (`userId`). */
+      businessId: z.string().uuid().optional(),
     })
     .strict(),
 ]);
@@ -48,6 +62,8 @@ export const AGENTS_USAGE_PAYMENT_REFUSALS = [
   'reply_lost',
   /** svc-ledger's posting freeze is on, or could not be read. */
   'posting_frozen',
+  /** An operator's stop on this partner's moves is on, or could not be read. */
+  'partner_stopped',
   /** The person's money is not at a partner (custodial, or no payment method): nothing to collect from there. */
   'not_partner_held',
 ] as const;

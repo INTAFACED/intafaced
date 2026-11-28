@@ -11,7 +11,7 @@ import {
   publishedNotices,
 } from './notices.mjs';
 import { expectServiceOff } from './service-off.mjs';
-import { api, ORIGIN, tool } from './stack.mjs';
+import { api, ORIGIN, restartWith, tool } from './stack.mjs';
 import { answerAfterNavigation, answersAfterNavigation } from './navigation.mjs';
 
 // J-home-ia-06, in the running app (docs/roadmap/journeys.json): I see announcements and maintenance on Home. Tests titled
@@ -22,8 +22,8 @@ const RUN = Date.now().toString(36);
 // This run's own notices end inside the wait the next run gives them.
 const WINDOW_MINUTES = NOTICE_DRAIN_MINUTES - 1;
 
-// Serial: each step builds on the board the one before left; the service-down case, which restarts svc-notify, is last. The BLOCKED steps are in J-home-ia-06-blocked.pw.mjs, so
-// their red by name never skips a built step.
+// Serial: each step builds on the board the one before left. The two cases that restart a service (svc-notify down, then
+// svc-ops with the strip count blank) are last, so a red there skips no step.
 test.describe.configure({ mode: 'serial' });
 
 let page;
@@ -266,21 +266,37 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   await context.grantPermissions(['notifications']);
   const person = await context.newPage();
   const who = await signUp(person, 'hmo');
-  // Notifications: allowing this device needs the push delivery gateway, which the stack leaves unset.
+  const client = await api(who);
+  // What this person's account holds where each press could store something, read from the services, not the page.
+  const targets = async () => (await client.get('/api/notify/trpc/notify.targets')).body.result.data;
+  const methods = async () => (await client.get('/api/identity/trpc/signinMethods')).body.result.data;
+  const [targetsBefore, methodsBefore] = [await targets(), await methods()];
+  expect(Array.isArray(targetsBefore), JSON.stringify(targetsBefore)).toBe(true);
+  expect(Array.isArray(methodsBefore?.providers), JSON.stringify(methodsBefore)).toBe(true);
+  // Every call the page makes from here on, so "nothing was sent" is read from the wire.
+  const calls = [];
+  person.on('request', (req) => calls.push({ method: req.method(), url: req.url() }));
+
+  // Notifications: pressing "Allow notifications on this device" needs the push delivery gateway, which the stack leaves
+  // unset. The press reaches svc-notify for the gateway's key, which answers there is none.
   await person.goto('/notifications?view=settings');
   const push = person.locator('[data-testid="nf-channelcard"][data-channel="push"]');
+  const keyRead = person.waitForResponse((res) => res.url().includes('/notify.pushKey'));
   await push.getByRole('button', { name: 'Allow notifications on this device' }).click();
+  const key = await (await keyRead).json();
+  expect(key?.result?.data, JSON.stringify(key)).toEqual({ publicKey: null, unsetCode: 'notify.push_key_unset' });
   const pushed = await expectServiceOff(push.locator('[data-not-connected]'), 'vendor.push', 'Registering this device');
-  // Web3: staking needs the INTACHAIN launch go-ahead. Same component, same sentence, its own code.
-  await person.goto('/chain/validators');
-  const stake = person.locator('[data-action="stake"]');
-  await expect(stake.getByRole('button', { name: 'Stake' })).toBeDisabled();
-  const staked = await expectServiceOff(stake.locator('[data-not-connected]'), 'chain.go', 'Stake');
+  // Nothing moved: no device address was sent, and the account holds no push target.
+  expect(calls.filter((call) => call.url.includes('/notify.registerTarget'))).toEqual([]);
+  const targetsAfter = await targets();
+  expect(targetsAfter.filter((row) => row.channel === 'push')).toEqual([]);
+  expect(targetsAfter).toEqual(targetsBefore);
+
   // Security: linking a social account is a live button; pressing it reaches identity, which answers that the outside
   // sign-in provider is off, and the card says the same sentence with that code.
   await person.goto('/uc/safe');
-  const methods = person.getByTestId('security__signin-methods');
-  const social = methods
+  const signin = person.getByTestId('security__signin-methods');
+  const social = signin
     .getByRole('listitem', { name: 'Social account', exact: true })
     .getByRole('button', { name: 'Link a social account' });
   await expect(social).toBeEnabled();
@@ -288,7 +304,27 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   await social.click();
   const refused = await (await started).json();
   expect(refusalCode(refused), JSON.stringify(refused)).toBe('idp.social');
-  const linked = await expectServiceOff(methods.locator('[data-not-connected]'), 'idp.social', 'Signing in with a social account');
+  // The refusal carries no way to go on: no provider address to follow.
+  expect(refused?.result, JSON.stringify(refused)).toBeUndefined();
+  const linked = await expectServiceOff(signin.locator('[data-not-connected]'), 'idp.social', 'Signing in with a social account');
+  // Nothing moved: the page left for no provider, and the account's sign-in methods are as they were, no provider added.
+  await expect(person).toHaveURL(/\/uc\/safe/);
+  const methodsAfter = await methods();
+  expect(methodsAfter.providers).toEqual([]);
+  expect(methodsAfter).toEqual(methodsBefore);
+
+  // Web3: staking needs the INTACHAIN launch go-ahead. The room draws Stake but cannot run it, so the button is disabled:
+  // a press runs nothing, sends nothing to the chain, and the same component says the same sentence with its own code.
+  await person.goto('/chain/validators');
+  const stake = person.locator('[data-action="stake"]');
+  const stakeButton = stake.getByRole('button', { name: 'Stake' });
+  await expect(stakeButton).toBeDisabled();
+  const sentBefore = calls.length;
+  await stakeButton.click({ force: true });
+  await expect(person).toHaveURL(/\/chain\/validators$/);
+  // A write is a POST (tRPC mutations and REST writes alike); a press that ran nothing sends none.
+  expect(calls.slice(sentBefore).filter((call) => call.method !== 'GET')).toEqual([]);
+  const staked = await expectServiceOff(stake.locator('[data-not-connected]'), 'chain.go', 'Stake');
   // The whole sentence, its dependency words included, is the shared copy's own, for each code.
   // The dependency words are written here, not read from the app's copy (src/shared/service-off.tsx), so a wrong
   // wording there turns this red.
@@ -305,7 +341,6 @@ test(`${J} #5 an action the shell cannot run because an outside service is off s
   const empty = pop.locator('[data-slot="state-block"][data-kind="empty"]', { hasText: "You're all caught up." });
   const rows = pop.getByTestId('nf-row');
   await expect(empty.or(rows.first())).toBeVisible();
-  const client = await api(who);
   const inbox = async () =>
     (await client.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 8 }))}`)).body.result.data.items
       .length;
@@ -345,4 +380,31 @@ test(`${J} #1 with the notice service down, Home draws no strip and no banner, t
       page.off('console', onConsole);
     }
   });
+});
+
+// Last: it restarts svc-ops. Not a step of its own: the owner's strip count is a blank owner value, which refuses with
+// its typed code rather than drawing any number of notices (AGENTS.md floor 8).
+test(`${J} with the owner's strip count blank, Home refuses home.notice_strip_limit_unset and the strip says "not set"`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // Home's strip shows as many of the latest announcements as the owner's strip count (svc-ops home.config,
+  // OPS_HOME_NOTICE_STRIP_LIMIT). The stack sets a TEST count for the other steps; here svc-ops restarts with it blank.
+  const blankCount = (blank) => restartWith('ops', 'LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT', !blank);
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  const person = await context.newPage();
+  blankCount(true);
+  try {
+    await signUp(person, 'hml');
+    // With the strip count blank, Home's strip says it is not set, with the typed code, rather than drawing any number
+    // of notices.
+    await person.goto('/home');
+    await expect(person.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
+    const unset = person.locator('[data-code="home.notice_strip_limit_unset"]');
+    await expect(unset).toContainText(/not set/i, { timeout: 15_000 });
+    await expect(person.locator('[data-testid="home-notice"][data-kind="announcement"]')).toHaveCount(0);
+  } finally {
+    blankCount(false);
+    await context.close();
+  }
 });

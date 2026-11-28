@@ -738,7 +738,7 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
     const perpFree = bal(startBalances, PERP_COLLATERAL_ASSET).free;
     if (compare(add(spotFree, perpFree), add(spotNeed, perpNeed)) < 0) {
       throw new Refused(
-        `trader holds ${fmt(spotFree)} spot and ${fmt(perpFree)} perp USDC free; the run needs about ${fmt(spotNeed)} spot and ${fmt(perpNeed)} perp. Top it up from the testnet faucet.`,
+        `trader holds ${fmt(spotFree)} spot and ${fmt(perpFree)} perp USDC free; the run needs about ${fmt(spotNeed)} spot and ${fmt(perpNeed)} perp. The faucet paid this account its one claim (19 Nov 2026); only a send from another funded testnet account refills it.`,
       );
     }
     const startPositions = (await venue.positions(trader.account)).value;

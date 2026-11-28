@@ -1,21 +1,23 @@
-import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+// volt-room: /uc/safe/api-keys
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyRecord } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field, Tag } from '@intafaced/ui/lit';
+import { SettingsTemplate, Sheet as KitSheet } from '@intafaced/ui/lit/templates';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
+import { Failure, Loading } from './kit-parts';
 import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
 import { OrgKeys } from './OrgKeys';
+import { ApiVersionPanel } from './ApiVersionPanel';
 import { RevokeAllKeys } from './ApiKeysRevokeAll';
-import './security.css';
-import './api-keys.css';
 
 /** What to do with a key, said once on the list and once on the create form. */
 export function KeySafety() {
   const { t } = copy.useCopy();
   return (
-    <section data-testid="security__card" className="api-keys__safety security__card" aria-labelledby="api-keys-safety">
+    <section data-testid="security__card" aria-labelledby="api-keys-safety">
       <h2 id="api-keys-safety">{t('safetyTitle')}</h2>
       <ul>
         <li>{t('safetyOnePurpose')}</li>
@@ -25,6 +27,16 @@ export function KeySafety() {
         <li>{t('safetyAgents')}</li>
         <li>{t('safetyWithdraw')}</li>
       </ul>
+      <p>
+        <a className="lt-link lt-link-alone" href="/developers/permissions">
+          {t('permissionsTableLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+        </a>
+      </p>
+      <p>
+        <a className="lt-link lt-link-alone" href="/developers/idempotency">
+          {t('idempotencyGuideLink')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+        </a>
+      </p>
     </section>
   );
 }
@@ -33,9 +45,9 @@ export function KeySafety() {
 function ConnectedApps() {
   const { t } = copy.useCopy();
   return (
-    <section data-testid="security__card" className="api-keys__apps security__card" aria-labelledby="api-keys-apps">
+    <section data-testid="security__card" aria-labelledby="api-keys-apps">
       <h2 id="api-keys-apps">{t('appsTitle')}</h2>
-      <p className="muted">{t('appsEmpty')}</p>
+      <p className="lt-hint">{t('appsEmpty')}</p>
     </section>
   );
 }
@@ -55,7 +67,7 @@ export function revokedByKey(key: ApiKeyRecord): ApiKeysPlainKey {
 export function RevokedReason({ apiKey }: { apiKey: ApiKeyRecord }) {
   const { t } = copy.useCopy();
   return (
-    <span className="api-keys__reason">
+    <span>
       {t(revokedByKey(apiKey))}
       {apiKey.revokeReason && (
         <>
@@ -81,9 +93,8 @@ export type Sheet = {
 export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClose: () => void; onSubmit: (reason: string) => void }) {
   const { t } = copy.useCopy();
   return (
-    <Dialog title={t('revokeTitle')} onClose={onClose}>
+    <KitSheet open title={t('revokeTitle')} onClose={onClose}>
       <form
-        className="api-keys__revoke"
         noValidate
         onSubmit={(event: FormEvent<HTMLFormElement>) => {
           event.preventDefault();
@@ -95,22 +106,18 @@ export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClos
         </p>
         <p>{t('revokeBody')}</p>
         <Field label={t('revokeReason')} hint={t('revokeReasonHint')} name="reason" autoComplete="off" />
-        {sheet.refusal && (
-          <p className="error-text" role="alert">
-            {t(sheet.refusal)}
-          </p>
-        )}
+        {sheet.refusal && <p role="alert">{t(sheet.refusal)}</p>}
         {sheet.failure && <Failure result={sheet.failure} />}
-        <div className="api-keys__actions">
-          <Button type="submit" variant="danger" disabled={sheet.busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={sheet.busy}>
             {sheet.busy ? t('revoking') : t('revokeConfirm')}
           </Button>
-          <Button variant="secondary" disabled={sheet.busy} onClick={onClose}>
+          <Button tone="secondary" disabled={sheet.busy} onClick={onClose}>
             {t('revokeKeep')}
           </Button>
         </div>
       </form>
-    </Dialog>
+    </KitSheet>
   );
 }
 
@@ -174,125 +181,138 @@ export function ApiKeys() {
     }
   }
 
-  return (
-    <div className="api-keys" lang={languageFor('title')}>
-      <header className="api-keys__head">
-        <h1>{t('title')}</h1>
-        <p className="muted">{t('intro')}</p>
-        <a className="button button--primary" href="/uc/safe/api-keys/new">
-          {t('create')}
-        </a>
-      </header>
-      <KeySafety />
-      {notice && <p role="status">{t(notice)}</p>}
-      {resource.status === 'loading' && <Loading label={t('loading')} />}
-      {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {resource.status === 'ready' && (
-        <>
-          <section data-testid="security__card" className="api-keys__cap security__card" aria-labelledby="api-keys-cap" role="status">
-            <h2 id="api-keys-cap">{t('capTitle')}</h2>
-            <p>
-              {resource.data.cap.limit === null
-                ? t('capUnset')
-                : resource.data.cap.live >= resource.data.cap.limit
-                  ? `${t('capUsed', { live: resource.data.cap.live, limit: resource.data.cap.limit })} ${t('capFull')}`
-                  : t('capUsed', { live: resource.data.cap.live, limit: resource.data.cap.limit })}
-            </p>
-          </section>
-          <RevokeAllKeys
-            liveKeys={resource.data.keys.filter((key) => stateOf(key, now) === 'stateActive').length}
-            onDone={() => {
-              setNotice(null);
-              reload();
-            }}
-          />
-          {resource.data.keys.length === 0 ? (
-            <p role="status">{t('empty')}</p>
-          ) : (
-            <div className="api-keys__table-wrap">
-              <table data-testid="api-keys__table" className="api-keys__table">
-                <thead>
-                  <tr>
-                    <th scope="col">{t('colName')}</th>
-                    <th scope="col">{t('colPrefix')}</th>
-                    <th scope="col">{t('colMode')}</th>
-                    {showAccount && <th scope="col">{t('colAccount')}</th>}
-                    <th scope="col">{t('colScopes')}</th>
-                    <th scope="col">{t('colIps')}</th>
-                    <th scope="col">{t('colCreated')}</th>
-                    <th scope="col">{t('colEnds')}</th>
-                    <th scope="col">{t('colLastUsed')}</th>
-                    <th scope="col">{t('colState')}</th>
-                    <th scope="col">{t('colActions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resource.data.keys.map((key) => {
-                    const state = stateOf(key, now);
-                    return (
-                      <tr key={key.id} data-key-id={key.id}>
-                        <th scope="row">
-                          <a className="text-link" href={`/uc/safe/api-keys/${key.id}`}>
-                            <bdi lang="und">{key.name}</bdi>
-                          </a>
-                          {key.kind === 'agent' && (
-                            <>
-                              {' '}
-                              <span data-testid="api-keys__agent" className="badge">
-                                {t('agentBadge')}
-                              </span>
-                            </>
-                          )}
-                        </th>
-                        <td>
-                          <code lang="und">{key.prefix}</code>
-                        </td>
-                        <td>{t(key.mode === 'live' ? 'modeLive' : 'modeSandbox')}</td>
-                        {showAccount && (
-                          <td data-testid="api-keys__account">
-                            {key.accountId === null ? (
-                              t('accountOwn')
-                            ) : (
-                              <>
-                                {t('subaccount')}: <bdi lang="und">{labels.get(key.accountId) ?? key.accountId}</bdi>
-                              </>
-                            )}
-                          </td>
-                        )}
-                        <td>
-                          <bdi lang="und">{key.scopes.join(', ')}</bdi>
-                        </td>
-                        <td>{key.ipAllowlist.length === 0 ? t('anyIp') : <bdi lang="und">{key.ipAllowlist.join(', ')}</bdi>}</td>
-                        <td>{at(key.createdAt)}</td>
-                        <td>{key.expiresAt === null ? t('noEnd') : at(key.expiresAt)}</td>
-                        <td>{key.lastUsedAt === null ? t('neverUsed') : at(key.lastUsedAt)}</td>
-                        <td>{state === 'stateRevoked' ? <RevokedReason apiKey={key} /> : t(state)}</td>
-                        <td className="api-keys__row-action">
-                          {!key.revoked && (
-                            <Button
-                              variant="secondary"
-                              disabled={sheet !== null}
-                              onClick={() => {
-                                setNotice(null);
-                                setSheet({ key, busy: false, refusal: null, failure: null });
-                              }}
-                            >
-                              {t('revoke')}
-                            </Button>
-                          )}
-                        </td>
+  const sections = (
+    <>
+      <div className="lt-sections">
+        <KeySafety />
+        <div className="lt-stack">
+          {notice && <p role="status">{t(notice)}</p>}
+          {resource.status === 'loading' && <Loading label={t('loading')} />}
+          {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
+          {resource.status === 'ready' && (
+            <>
+              <section data-testid="security__card" aria-labelledby="api-keys-cap" role="status">
+                <h2 id="api-keys-cap">{t('capTitle')}</h2>
+                <p>
+                  {resource.data.cap.limit === null
+                    ? t('capUnset')
+                    : resource.data.cap.live >= resource.data.cap.limit
+                      ? `${t('capUsed', { live: resource.data.cap.live, limit: resource.data.cap.limit })} ${t('capFull')}`
+                      : t('capUsed', { live: resource.data.cap.live, limit: resource.data.cap.limit })}
+                </p>
+              </section>
+              <RevokeAllKeys
+                liveKeys={resource.data.keys.filter((key) => stateOf(key, now) === 'stateActive').length}
+                onDone={() => {
+                  setNotice(null);
+                  reload();
+                }}
+              />
+              {resource.data.keys.length === 0 ? (
+                <p role="status">{t('empty')}</p>
+              ) : (
+                <div>
+                  <table data-testid="api-keys__table" className="lt-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">{t('colName')}</th>
+                        <th scope="col">{t('colPrefix')}</th>
+                        <th scope="col">{t('colMode')}</th>
+                        {showAccount && <th scope="col">{t('colAccount')}</th>}
+                        <th scope="col">{t('colScopes')}</th>
+                        <th scope="col">{t('colIps')}</th>
+                        <th scope="col">{t('colCreated')}</th>
+                        <th scope="col">{t('colEnds')}</th>
+                        <th scope="col">{t('colLastUsed')}</th>
+                        <th scope="col">{t('colState')}</th>
+                        <th scope="col">{t('colActions')}</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {resource.data.keys.map((key) => {
+                        const state = stateOf(key, now);
+                        return (
+                          <tr key={key.id} data-key-id={key.id}>
+                            <th scope="row">
+                              <a className="lt-link" href={`/uc/safe/api-keys/${key.id}`}>
+                                <bdi lang="und">{key.name}</bdi>
+                              </a>
+                              {key.kind === 'agent' && (
+                                <>
+                                  {' '}
+                                  <Tag data-testid="api-keys__agent">{t('agentBadge')}</Tag>
+                                </>
+                              )}
+                            </th>
+                            <td>
+                              <code lang="und">{key.prefix}</code>
+                            </td>
+                            <td>{t(key.mode === 'live' ? 'modeLive' : 'modeSandbox')}</td>
+                            {showAccount && (
+                              <td data-testid="api-keys__account">
+                                {key.accountId === null ? (
+                                  t('accountOwn')
+                                ) : (
+                                  <>
+                                    {t('subaccount')}: <bdi lang="und">{labels.get(key.accountId) ?? key.accountId}</bdi>
+                                  </>
+                                )}
+                              </td>
+                            )}
+                            <td>
+                              <bdi lang="und">{key.scopes.join(', ')}</bdi>
+                            </td>
+                            <td>{key.ipAllowlist.length === 0 ? t('anyIp') : <bdi lang="und">{key.ipAllowlist.join(', ')}</bdi>}</td>
+                            <td>{at(key.createdAt)}</td>
+                            <td>{key.expiresAt === null ? t('noEnd') : at(key.expiresAt)}</td>
+                            <td>{key.lastUsedAt === null ? t('neverUsed') : at(key.lastUsedAt)}</td>
+                            <td>{state === 'stateRevoked' ? <RevokedReason apiKey={key} /> : t(state)}</td>
+                            <td>
+                              {!key.revoked && (
+                                <Button
+                                  tone="secondary"
+                                  disabled={sheet !== null}
+                                  onClick={() => {
+                                    setNotice(null);
+                                    setSheet({ key, busy: false, refusal: null, failure: null });
+                                  }}
+                                >
+                                  {t('revoke')}
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
-        </>
-      )}
-      <OrgKeys at={at} />
-      <ConnectedApps />
+        </div>
+        <ApiVersionPanel />
+        <OrgKeys at={at} />
+        <ConnectedApps />
+      </div>
       {sheet && <RevokeSheet sheet={sheet} onClose={() => !sheet.busy && setSheet(null)} onSubmit={(reason) => void revoke(reason)} />}
+    </>
+  );
+
+  return (
+    <div lang={languageFor('title')}>
+      <SettingsTemplate
+        title={t('title')}
+        description={t('intro')}
+        state={{ kind: 'ready' }}
+        roomAction={
+          <a className="lt-button lt-button-primary" href="/uc/safe/api-keys/new">
+            {t('create')}
+          </a>
+        }
+        sections={sections}
+        explain={<p>{t('explain')}</p>}
+      />
     </div>
   );
 }

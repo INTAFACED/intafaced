@@ -1,28 +1,49 @@
 import 'server-only';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import {
-  campaignCalendarSchema,
+  CAMPAIGNS_OPS_CAMPAIGNS_CALENDAR,
+  CAMPAIGNS_OPS_CAMPAIGNS_EARNING_EVALUATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_VALIDATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_ISSUE,
+  CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_LIST,
+} from '@intafaced/contracts/campaigns-procedures';
+import {
   campaignDefinitionInputSchema,
-  campaignGateSchema,
   campaignSchema,
   campaignTransitionInputSchema,
   campaignUpdateInputSchema,
-  campaignVoucherSchema,
-  earningEvaluateInputSchema,
-  earningEvaluationSchema,
   ruleLibraryEntrySchema,
   ruleLibrarySaveInputSchema,
   ruleTestInputSchema,
   ruleTestResultSchema,
-  voucherIssueInputSchema,
-  voucherListInputSchema,
   type Campaign,
   type CampaignAction,
   type CampaignDefinitionInput,
+  type RuleLibrarySaveInput,
+  type RuleTestInput,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderRecordCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type Part,
+  type PartLabels,
+  explainRefusal,
+  founderRecordRead,
+} from '@/lib/desk';
 import type { CampaignDeskReply, CampaignDetailView, CampaignsDeskView } from './builder-model';
+import {
+  CAMPAIGNS_OPS_CAMPAIGNS_LIST,
+  CAMPAIGNS_OPS_CAMPAIGNS_GET,
+  CAMPAIGNS_OPS_CAMPAIGNS_CREATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_UPDATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_TRANSITION,
+  CAMPAIGNS_OPS_RULES_TEST,
+  CAMPAIGNS_OPS_RULES_LIBRARY_SAVE,
+  CAMPAIGNS_OPS_RULES_LIBRARY_LIST,
+} from '@intafaced/contracts/campaigns-ops-procedures';
 
 /**
  * The campaigns desk as the signed-in founder. svc-campaigns holds every campaign (`ops.campaigns.*`: `campaigns:ops` and
@@ -37,14 +58,12 @@ const CAMPAIGNS: PartLabels = {
 };
 
 const readList = parseWith(campaignSchema.array());
-const readCalendar = parseWith(campaignCalendarSchema);
-const readGate = parseWith(campaignGateSchema);
 const readCampaign = parseWith(campaignSchema);
 
 export async function loadCampaignsDesk(ctx: FounderCallContext): Promise<CampaignsDeskView> {
   const [list, calendar] = await Promise.all([
-    founderCall(ctx, 'campaigns', 'ops.campaigns.list', 'GET', undefined, readList),
-    founderCall(ctx, 'campaigns', 'ops.campaigns.calendar', 'GET', undefined, readCalendar),
+    founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_LIST, undefined, readList),
+    founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_CALENDAR, undefined),
   ]);
   return {
     asOf: new Date().toISOString(),
@@ -56,8 +75,8 @@ export async function loadCampaignsDesk(ctx: FounderCallContext): Promise<Campai
 /** One campaign by id (at any age), with the gate's answer for its stored revision and the platform time zone. */
 export async function loadCampaignDetail(ctx: FounderCallContext, id: string): Promise<CampaignDetailView> {
   const [got, gate, platformTimeZone] = await Promise.all([
-    founderCall(ctx, 'campaigns', 'ops.campaigns.get', 'GET', { id }, readCampaign),
-    founderCall(ctx, 'campaigns', 'ops.campaigns.validate', 'GET', { id }, readGate),
+    founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_GET, { id }, readCampaign),
+    founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_VALIDATE, { id }),
     loadPlatformTimeZone(ctx),
   ]);
   const unknown = got.kind === 'refused' && got.refusal.code === 'campaign.unknown';
@@ -72,7 +91,7 @@ export async function loadCampaignDetail(ctx: FounderCallContext, id: string): P
 
 /** A new draft has no campaign yet: only the platform time zone, so the builder can offer it. */
 export async function loadPlatformTimeZone(ctx: FounderCallContext): Promise<string | null> {
-  const calendar = await founderCall(ctx, 'campaigns', 'ops.campaigns.calendar', 'GET', undefined, readCalendar);
+  const calendar = await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_CALENDAR, undefined);
   return calendar.kind === 'ok' ? calendar.data.timeZone : null;
 }
 
@@ -127,15 +146,15 @@ type UpdateInput = { id: string; revision: number; definition: CampaignDefinitio
 type MoveInput = { id: string; action: CampaignAction; revision: number };
 
 export async function createCampaign(ctx: FounderCallContext, input: CampaignDefinitionInput) {
-  return reply(await founderCall(ctx, 'campaigns', 'ops.campaigns.create', 'POST', input, readCampaign), 'created');
+  return reply(await founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_CREATE, input, readCampaign), 'created');
 }
 
 export async function updateCampaign(ctx: FounderCallContext, input: UpdateInput) {
-  return reply(await founderCall(ctx, 'campaigns', 'ops.campaigns.update', 'POST', input, readCampaign), 'saved');
+  return reply(await founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_UPDATE, input, readCampaign), 'saved');
 }
 
 export async function moveCampaign(ctx: FounderCallContext, input: MoveInput) {
-  return reply(await founderCall(ctx, 'campaigns', 'ops.campaigns.transition', 'POST', input, readCampaign), input.action);
+  return reply(await founderRecordRead(ctx, CAMPAIGNS_OPS_CAMPAIGNS_TRANSITION, input, readCampaign), input.action);
 }
 
 // ── Rule library (CM-eligibility-rules-02, J-campaigns-16 #4) ──────────────────────────────────────────────────────
@@ -168,44 +187,42 @@ export function ruleReply<T>(result: FounderCallResult<T>): { status: number; re
   };
 }
 
-export async function testRule(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.test', 'GET', input, readRuleTest));
+export async function testRule(ctx: FounderCallContext, input: RuleTestInput) {
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_TEST, input, readRuleTest));
 }
 
-export async function saveRule(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.save', 'POST', input, readRuleEntry));
+export async function saveRule(ctx: FounderCallContext, input: RuleLibrarySaveInput) {
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_LIBRARY_SAVE, input, readRuleEntry));
 }
 
 export async function listRules(ctx: FounderCallContext) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.list', 'GET', undefined, readRuleList));
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_LIBRARY_LIST, undefined, readRuleList));
 }
 
 // ── Vouchers (CM-vouchers-coupons-01, CM-campaign-types-01 T-3; J-campaigns-16 #9) ────────────────────────────────
 
-const readVoucher = parseWith(campaignVoucherSchema);
-const readVoucherList = parseWith(campaignVoucherSchema.array());
+export const checkVoucherList = check(CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_LIST.input, 'Which campaign?');
+export const checkVoucherIssue = check(
+  CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_ISSUE.input,
+  'A voucher code is 4 to 32 letters, digits or hyphens.',
+);
 
-export const checkVoucherList = check(voucherListInputSchema, 'Which campaign?');
-export const checkVoucherIssue = check(voucherIssueInputSchema, 'A voucher code is 4 to 32 letters, digits or hyphens.');
-
-export async function listVouchers(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.vouchers.list', 'GET', input, readVoucherList));
+export async function listVouchers(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_LIST>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_LIST, input));
 }
 
-export async function issueVoucher(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.vouchers.issue', 'POST', input, readVoucher));
+export async function issueVoucher(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_ISSUE>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_ISSUE, input));
 }
 
 // ── Earning rules evaluated on a TEST event (CM-rewards-hub-05, J-campaigns-15 #5) ─────────────────────────────────
 
-const readEvaluation = parseWith(earningEvaluationSchema);
-
 export const checkEarningEvaluate = check(
-  earningEvaluateInputSchema,
+  CAMPAIGNS_OPS_CAMPAIGNS_EARNING_EVALUATE.input,
   "Which campaign, which trigger, and the TEST event's amounts as decimal numbers?",
 );
 
 /** Each earning rule's answer to one TEST event; svc-campaigns writes nothing for it. */
-export async function evaluateEarning(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.earning.evaluate', 'GET', input, readEvaluation));
+export async function evaluateEarning(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_EARNING_EVALUATE>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_EARNING_EVALUATE, input));
 }

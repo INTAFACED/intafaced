@@ -1,30 +1,58 @@
-import * as workflow from '@intafaced/contracts';
+import type { OutreachPublicErrorCode } from '@intafaced/contracts';
+import { crmDocumentProviderReadInputSchema, crmDocumentProviderReadResultSchema } from '@intafaced/contracts/crm-workflows';
+import { outreachAddInterestsInputSchema } from '@intafaced/contracts/outreach-interests';
+import { outreachPublicSettingsSetInputSchema, outreachPublicSettingsSchema } from '@intafaced/contracts/outreach-public';
 import { papermarkFreeAdapter } from './document-provider.js';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import type { Context } from '@intafaced/contracts';
 import {
-  router,
-  publicProcedure,
-  scopedProcedure,
   outreachCaptureInputSchema,
   outreachCaptureReceiptSchema,
   outreachContinuationInputSchema,
   outreachDraftSchema,
   outreachQuestionnaireInputSchema,
-  crmListInputSchema,
-  crmOpportunitySchema,
-  crmOpportunityPageSchema,
-  crmAssignmentInputSchema,
-  crmStageChangeInputSchema,
-  crmNextActionInputSchema,
-  crmNoteInputSchema,
-  crmActivitySchema,
-  type Context,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/outreach-crm';
+import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
+import { OPS_OUTREACH_PUBLIC_SETTINGS } from '@intafaced/contracts/ops-public-procedures';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import type { OutreachCrm } from './crm.js';
 import { OutreachError } from './config.js';
 import type { FounderAuthority } from './authority.js';
 import { PublicSettingsStaleError, publicChangesOf, type PublicSettingsBook } from './public-settings.js';
+import {
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+  OPS_OUTREACH_LIST_CAMPAIGNS,
+  OPS_OUTREACH_LIST_SOURCE_MAPPINGS,
+  OPS_OUTREACH_LIST_TASKS,
+  OPS_OUTREACH_LIST_MESSAGES,
+  OPS_OUTREACH_DOCUMENT_PROVIDER_STATUS,
+  OPS_OUTREACH_UPSERT_CAMPAIGN,
+  OPS_OUTREACH_UPSERT_SOURCE_MAPPING,
+  OPS_OUTREACH_CREATE_TASK,
+  OPS_OUTREACH_TRANSITION_TASK,
+  OPS_OUTREACH_RECORD_INTERACTION,
+  OPS_OUTREACH_QUEUE_MESSAGE,
+  OPS_OUTREACH_ASSIGN,
+  OPS_OUTREACH_UPDATE_NEXT_ACTION,
+  OPS_OUTREACH_ADD_NOTE,
+  OPS_OUTREACH_PRIVACY_RETENTION_REVIEW_STATUS,
+  OPS_OUTREACH_PRIVACY_PREVIEW,
+  OPS_OUTREACH_PRIVACY_STATUS,
+  OPS_OUTREACH_PRIVACY_RETENTION_REVIEW,
+  OPS_OUTREACH_PRIVACY_BEGIN,
+  OPS_OUTREACH_PRIVACY_ADVANCE,
+  OPS_OUTREACH_CHANGE_STAGE,
+  OPS_OUTREACH_GET_OPPORTUNITY,
+  OPS_OUTREACH_GET_CONTACT_PROVENANCE,
+  OPS_OUTREACH_LIST_OPPORTUNITIES,
+  OPS_OUTREACH_METRICS,
+  OPS_OUTREACH_LIST_DUPLICATES,
+  OPS_OUTREACH_MERGE_CONTACTS,
+  OPS_OUTREACH_EXPORT_SUBMISSIONS,
+} from '@intafaced/contracts/ops-outreach-procedures';
 
 function abuseKey(ctx: Context): string {
   const key = (ctx as Context & { outreachAbuseKey?: string }).outreachAbuseKey;
@@ -54,6 +82,13 @@ function settingsBook(book: PublicSettingsBook | undefined): PublicSettingsBook 
   return book;
 }
 
+/**
+ * The public read's one named refusal, as `settingsBook` and `mapped` already shape it: PRECONDITION_FAILED with the code
+ * as its message. Passed on unchanged; any other error leaves as it did.
+ */
+const storageRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.message === 'ops.crm.storage_unconfigured' ? { code: err.message, error: err } : undefined;
+
 export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthority, publicSettings?: PublicSettingsBook) {
   const staffRead = scopedProcedure('ops:read').use(async ({ ctx, next }) =>
     mapped(async () => {
@@ -68,33 +103,97 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
     }),
   );
   return router({
-    privacyPreview: staffRead
-      .input(workflow.crmErasurePreviewInputSchema)
-      .output(workflow.crmErasurePreviewSchema)
-      .query(({ input, ctx }) => mapped(() => crm.privacy.preview(input, ctx.principal!.userId))),
-    privacyBegin: staffWrite
-      .input(workflow.crmErasureBeginInputSchema)
-      .output(workflow.crmErasureStatusSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.privacy.begin(input, ctx.principal!.userId))),
-    privacyAdvance: staffWrite
-      .input(workflow.crmErasureAdvanceInputSchema)
-      .output(workflow.crmErasureStatusSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.privacy.advance(input, ctx.principal!.userId))),
-    privacyStatus: staffRead
-      .input(workflow.crmErasureStatusInputSchema)
-      .output(workflow.crmErasureStatusSchema)
-      .query(({ input, ctx }) => mapped(() => crm.privacy.status(input, ctx.principal!.userId))),
-    privacyRetentionStatus: staffRead
-      .output(workflow.crmRetentionStatusSchema)
-      .query(({ ctx }) => mapped(() => crm.privacy.retentionStatus(ctx.principal!.userId))),
-    privacyRetentionReviewStatus: staffRead
-      .input(workflow.crmRetentionReviewStatusInputSchema)
-      .output(workflow.crmRetentionReviewSchema.nullable())
-      .query(({ input, ctx }) => mapped(() => crm.privacy.retentionReviewStatus(input, ctx.principal!.userId))),
-    privacyRetentionReview: staffWrite
-      .input(workflow.crmRetentionReviewInputSchema)
-      .output(workflow.crmRetentionReviewSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.privacy.retentionReview(input, ctx.principal!.userId))),
+    privacyPreview: mountRecord(
+      OPS_OUTREACH_PRIVACY_PREVIEW,
+      ({ input, ctx }) => mapped(() => crm.privacy.preview(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    privacyBegin: mountRecord(
+      OPS_OUTREACH_PRIVACY_BEGIN,
+      ({ input, ctx }) => mapped(() => crm.privacy.begin(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    privacyAdvance: mountRecord(
+      OPS_OUTREACH_PRIVACY_ADVANCE,
+      ({ input, ctx }) => mapped(() => crm.privacy.advance(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    privacyStatus: mountRecord(
+      OPS_OUTREACH_PRIVACY_STATUS,
+      ({ input, ctx }) => mapped(() => crm.privacy.status(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    privacyRetentionStatus: mountRecord(
+      OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+      ({ ctx }) => mapped(() => crm.privacy.retentionStatus(ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    privacyRetentionReviewStatus: mountRecord(
+      OPS_OUTREACH_PRIVACY_RETENTION_REVIEW_STATUS,
+      ({ input, ctx }) => mapped(() => crm.privacy.retentionReviewStatus(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    privacyRetentionReview: mountRecord(
+      OPS_OUTREACH_PRIVACY_RETENTION_REVIEW,
+      ({ input, ctx }) => mapped(() => crm.privacy.retentionReview(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
     capture: publicProcedure
       .input(outreachCaptureInputSchema)
       .output(outreachCaptureReceiptSchema)
@@ -108,126 +207,274 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .output(outreachDraftSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.answer(input, abuseKey(ctx)))),
     addInterests: publicProcedure
-      .input(workflow.outreachAddInterestsInputSchema)
+      .input(outreachAddInterestsInputSchema)
       .output(outreachDraftSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.addInterests(input, abuseKey(ctx)))),
-    listOpportunities: staffRead
-      .input(crmListInputSchema)
-      .output(crmOpportunityPageSchema)
-      .query(({ input }) => mapped(() => crm.listOpportunities(input))),
-    getOpportunity: staffRead
-      .input(z.object({ opportunityId: z.string().guid() }).strict())
-      .query(({ input }) => mapped(() => crm.getOpportunity(input))),
-    assign: staffWrite
-      .input(crmAssignmentInputSchema)
-      .output(crmOpportunitySchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.assign(input, ctx.principal!.userId))),
-    changeStage: staffWrite
-      .input(crmStageChangeInputSchema)
-      .output(crmOpportunitySchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.changeStage(input, ctx.principal!.userId))),
-    updateNextAction: staffWrite
-      .input(crmNextActionInputSchema)
-      .output(crmOpportunitySchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.updateNextAction(input, ctx.principal!.userId))),
-    addNote: staffWrite
-      .input(crmNoteInputSchema)
-      .output(crmActivitySchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.addNote(input, ctx.principal!.userId))),
-    owners: staffRead
-      .output(
-        z
-          .object({
-            ownerUserIds: z.array(z.string().guid()).length(2),
-            initialOwnerUserId: z.string().guid(),
-            owners: z.tuple([
-              z.object({ userId: z.string().guid(), displayName: z.literal('Nitro') }).strict(),
-              z.object({ userId: z.string().guid(), displayName: z.literal('Phantom') }).strict(),
-            ]),
-          })
-          .strict(),
-      )
-      .query(() => mapped(async () => crm.owners())),
-    listCampaigns: staffRead
-      .input(workflow.crmCampaignListInputSchema)
-      .output(workflow.crmCampaignPageSchema)
-      .query(({ input, ctx }) => mapped(() => crm.listCampaigns(input))),
-    upsertCampaign: staffWrite
-      .input(workflow.crmCampaignWriteInputSchema)
-      .output(workflow.crmCampaignSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.upsertCampaign(input, ctx.principal!.userId))),
-    listSourceMappings: staffRead
-      .input(workflow.crmSourceMappingListInputSchema)
-      .output(workflow.crmSourceMappingPageSchema)
-      .query(({ input, ctx }) => mapped(() => crm.listSourceMappings(input))),
-    upsertSourceMapping: staffWrite
-      .input(workflow.crmSourceMappingWriteInputSchema)
-      .output(workflow.crmSourceMappingSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.upsertSourceMapping(input, ctx.principal!.userId))),
-    metrics: staffRead
-      .input(workflow.crmMetricsInputSchema)
-      .output(workflow.crmMetricsSchema)
-      .query(({ input, ctx }) => mapped(() => crm.metrics(input))),
-    listDuplicates: staffRead
-      .input(workflow.crmDuplicateListInputSchema)
-      .output(workflow.crmDuplicatePageSchema)
-      .query(({ input, ctx }) => mapped(() => crm.listDuplicates(input))),
-    mergeContacts: staffWrite
-      .input(workflow.crmMergeInputSchema)
-      .output(workflow.crmMergeReceiptSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.mergeContacts(input, ctx.principal!.userId))),
-    getContactProvenance: staffRead
-      .input(workflow.crmContactProvenanceInputSchema)
-      .output(workflow.crmContactProvenanceSchema.nullable())
-      .query(({ input, ctx }) => mapped(() => crm.getContactProvenance(input))),
-    exportSubmissions: staffRead
-      .input(workflow.crmExportInputSchema)
-      .output(workflow.crmExportPageSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.exportSubmissions(input, ctx.principal!.userId))),
-    listTasks: staffRead
-      .input(workflow.crmTaskListInputSchema)
-      .output(workflow.crmTaskPageSchema)
-      .query(({ input, ctx }) => mapped(() => crm.listTasks(input))),
-    createTask: staffWrite
-      .input(workflow.crmTaskCreateInputSchema)
-      .output(workflow.crmTaskMutationReceiptSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.createTask(input, ctx.principal!.userId))),
-    transitionTask: staffWrite
-      .input(workflow.crmTaskTransitionInputSchema)
-      .output(workflow.crmTaskMutationReceiptSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.transitionTask(input, ctx.principal!.userId))),
-    recordInteraction: staffWrite
-      .input(workflow.crmInteractionInputSchema)
-      .output(workflow.crmInteractionReceiptSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.recordInteraction(input, ctx.principal!.userId))),
-    queueMessage: staffWrite
-      .input(workflow.crmQueueMessageInputSchema)
-      .output(workflow.crmQueueMessageReceiptSchema)
-      .mutation(({ input, ctx }) => mapped(() => crm.queueMessage(input, ctx.principal!.userId))),
-    listMessages: staffRead
-      .input(workflow.crmMessageListInputSchema)
-      .output(workflow.crmMessagePageSchema)
-      .query(({ input }) => mapped(() => crm.listMessages(input))),
-    listWorkflowAudit: staffRead
-      .input(workflow.crmWorkflowAuditListInputSchema)
-      .output(workflow.crmWorkflowAuditPageSchema)
-      .query(({ input, ctx }) => mapped(() => crm.listWorkflowAudit(input))),
-    documentProviderStatus: staffRead.output(workflow.crmDocumentProviderStatusSchema).query(() => papermarkFreeAdapter.status()),
+    listOpportunities: mountRecord(OPS_OUTREACH_LIST_OPPORTUNITIES, ({ input }) => mapped(() => crm.listOpportunities(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    getOpportunity: mountRecord(OPS_OUTREACH_GET_OPPORTUNITY, ({ input }) => mapped(() => crm.getOpportunity(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    assign: mountRecord(OPS_OUTREACH_ASSIGN, ({ input, ctx }) => mapped(() => crm.assign(input, ctx.principal!.userId)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    changeStage: mountRecord(OPS_OUTREACH_CHANGE_STAGE, ({ input, ctx }) => mapped(() => crm.changeStage(input, ctx.principal!.userId)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    updateNextAction: mountRecord(
+      OPS_OUTREACH_UPDATE_NEXT_ACTION,
+      ({ input, ctx }) => mapped(() => crm.updateNextAction(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    addNote: mountRecord(OPS_OUTREACH_ADD_NOTE, ({ input, ctx }) => mapped(() => crm.addNote(input, ctx.principal!.userId)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    owners: mountRecord(OPS_OUTREACH_OWNERS, () => mapped(async () => crm.owners()), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    listCampaigns: mountRecord(OPS_OUTREACH_LIST_CAMPAIGNS, ({ input, ctx }) => mapped(() => crm.listCampaigns(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    upsertCampaign: mountRecord(
+      OPS_OUTREACH_UPSERT_CAMPAIGN,
+      ({ input, ctx }) => mapped(() => crm.upsertCampaign(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    listSourceMappings: mountRecord(OPS_OUTREACH_LIST_SOURCE_MAPPINGS, ({ input, ctx }) => mapped(() => crm.listSourceMappings(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    upsertSourceMapping: mountRecord(
+      OPS_OUTREACH_UPSERT_SOURCE_MAPPING,
+      ({ input, ctx }) => mapped(() => crm.upsertSourceMapping(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    metrics: mountRecord(OPS_OUTREACH_METRICS, ({ input, ctx }) => mapped(() => crm.metrics(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    listDuplicates: mountRecord(OPS_OUTREACH_LIST_DUPLICATES, ({ input, ctx }) => mapped(() => crm.listDuplicates(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    mergeContacts: mountRecord(
+      OPS_OUTREACH_MERGE_CONTACTS,
+      ({ input, ctx }) => mapped(() => crm.mergeContacts(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    getContactProvenance: mountRecord(
+      OPS_OUTREACH_GET_CONTACT_PROVENANCE,
+      ({ input, ctx }) => mapped(() => crm.getContactProvenance(input)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    exportSubmissions: mountRecord(
+      OPS_OUTREACH_EXPORT_SUBMISSIONS,
+      ({ input, ctx }) => mapped(() => crm.exportSubmissions(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    listTasks: mountRecord(OPS_OUTREACH_LIST_TASKS, ({ input, ctx }) => mapped(() => crm.listTasks(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    createTask: mountRecord(OPS_OUTREACH_CREATE_TASK, ({ input, ctx }) => mapped(() => crm.createTask(input, ctx.principal!.userId)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    transitionTask: mountRecord(
+      OPS_OUTREACH_TRANSITION_TASK,
+      ({ input, ctx }) => mapped(() => crm.transitionTask(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    recordInteraction: mountRecord(
+      OPS_OUTREACH_RECORD_INTERACTION,
+      ({ input, ctx }) => mapped(() => crm.recordInteraction(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    queueMessage: mountRecord(
+      OPS_OUTREACH_QUEUE_MESSAGE,
+      ({ input, ctx }) => mapped(() => crm.queueMessage(input, ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
+    listMessages: mountRecord(OPS_OUTREACH_LIST_MESSAGES, ({ input }) => mapped(() => crm.listMessages(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    listWorkflowAudit: mountRecord(OPS_OUTREACH_LIST_WORKFLOW_AUDIT, ({ input, ctx }) => mapped(() => crm.listWorkflowAudit(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    documentProviderStatus: mountRecord(OPS_OUTREACH_DOCUMENT_PROVIDER_STATUS, () => papermarkFreeAdapter.status(), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
     documentViews: staffRead
-      .input(workflow.crmDocumentProviderReadInputSchema)
-      .output(workflow.crmDocumentProviderReadResultSchema)
+      .input(crmDocumentProviderReadInputSchema)
+      .output(crmDocumentProviderReadResultSchema)
       .query(({ input }) => papermarkFreeAdapter.readViews(input)),
     engagement: staffRead
       .output(z.object({ status: z.literal('disabled'), reason: z.literal('api_access_unavailable') }))
       .query(() => ({ status: 'disabled' as const, reason: 'api_access_unavailable' as const })),
     // SP-pages-02: the public partner page reads where the invitation site is served and the programme terms. A blank
     // value is null, never an error; a founder sets them with a reason, from the revision they read.
-    publicSettings: publicProcedure
-      .output(workflow.outreachPublicSettingsSchema)
-      .query(() => mapped(() => settingsBook(publicSettings).get())),
+    publicSettings: mountRecord(OPS_OUTREACH_PUBLIC_SETTINGS, () => mapped(() => settingsBook(publicSettings).get()), storageRefusal),
     setPublicSettings: staffWrite
-      .input(workflow.outreachPublicSettingsSetInputSchema)
-      .output(workflow.outreachPublicSettingsSchema)
+      .input(outreachPublicSettingsSetInputSchema)
+      .output(outreachPublicSettingsSchema)
       .mutation(async ({ input, ctx }) => {
         try {
           return await mapped(() =>
@@ -243,7 +490,7 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
           if (err instanceof PublicSettingsStaleError) {
             throw new TRPCError({
               code: 'CONFLICT',
-              message: 'ops.public_settings_revision_stale' satisfies workflow.OutreachPublicErrorCode,
+              message: 'ops.public_settings_revision_stale' satisfies OutreachPublicErrorCode,
               cause: err,
             });
           }

@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { accents, roleNames, roleVar, templateSlots, templates, typeRoles } from './contracts.js';
+import { roleNames, roleVar, templateSlots, templates, typeRoles } from './contracts.js';
 import { formattedLitCss } from './format.js';
 import { looks } from '../theme/tokens.js';
-import { accentSets, accentTextLight, flat, flatTypeMap, lit, litLight } from './tokens.js';
+import { flat, flatTypeMap, lit, litLight, pro } from './tokens.js';
+import { contrastRatio, deltaE2000, hue, toHex } from './colour.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const require = createRequire(import.meta.url);
@@ -86,7 +87,17 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
   });
 
   it('colour roles hold one value type in every skin (image roles are named in contracts)', () => {
-    const imageRoles = new Set(['field', 'sheen', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
+    const imageRoles = new Set([
+      'field',
+      'sheen',
+      'glass-bg',
+      'primary-bg',
+      'secondary-bg',
+      'key-bg',
+      'key-lit-bg',
+      'object-bg',
+      'object-spark-bg',
+    ]);
     const isImage = (x: string) => /gradient\(/.test(x);
     for (const r of roleNames) {
       if (imageRoles.has(r)) continue;
@@ -101,10 +112,26 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
     }
   });
 
-  it('light and accent sets only re-value known roles', () => {
+  it('the light set only re-values known roles', () => {
     const known = new Set<string>(roleNames);
     for (const k of Object.keys(litLight)) expect(known.has(k), k).toBe(true);
-    for (const a of accents) for (const k of Object.keys(accentSets[a])) expect(known.has(k), `${a}.${k}`).toBe(true);
+  });
+
+  it('draws Volt on the root with no switch: no direction or accent selector is left in lit.css', () => {
+    expect(css).not.toMatch(/data-direction|data-accent/);
+    expect(css.toLowerCase()).toContain(`--lit-accent: ${lit.accent.toLowerCase()};`);
+    // Volt's lime is the main action's (primary-bg) and the older rooms' primary fill; the accent family is bone.
+    expect(lit['primary-bg']).toBe('#E0F83A');
+    expect(lit['accent-fill']).toBe('#E0F83A');
+    expect(lit.accent).toBe('#F3F2EC');
+  });
+
+  it("today's medium and large radii are box radii, never the control's pill (a tall box drawn with a pill clips into an ellipse)", () => {
+    for (const name of ['--if-r-md', '--if-r-lg']) {
+      const role = css.match(new RegExp(`${name}: var\\(--lit-([a-z-]+)\\);`))?.[1];
+      expect(role, name).toBeDefined();
+      expect(parseFloat(String(lit[role as keyof typeof lit])), `${name} → --lit-${role}`).toBeLessThan(40);
+    }
   });
 });
 
@@ -115,6 +142,7 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     'text-1',
     'text-2',
     'text-3',
+    'text-disabled',
     'accent-text',
     'up-text',
     'down-text',
@@ -136,13 +164,6 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     for (const s of lightSurfaces) expect(contrast(L[t], L[s]), `${t} on ${s}`).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(accents)('accent text of %s meets 4.5:1 in both schemes', (a) => {
-    const dark = { ...lit, ...accentSets[a] }['accent-text'];
-    for (const s of darkSurfaces) expect(contrast(dark, lit[s]), `${a} dark on ${s}`).toBeGreaterThanOrEqual(4.5);
-    const L = { ...lit, ...litLight };
-    for (const s of lightSurfaces) expect(contrast(accentTextLight[a], L[s]), `${a} light on ${s}`).toBeGreaterThanOrEqual(4.5);
-  });
-
   it('the risk band text is high contrast and its border is visible (COBS 4.12A: prominent, never faded)', () => {
     expect(contrast(lit['legal-fg'], lit['legal-bg'])).toBeGreaterThanOrEqual(7);
     expect(contrast(lit['legal-border'], lit['legal-bg'])).toBeGreaterThanOrEqual(3);
@@ -151,8 +172,8 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     expect(contrast(L['legal-border'], L['legal-bg'])).toBeGreaterThanOrEqual(3);
   });
 
-  it.each(accents)('text on a %s lit fill meets 4.5:1', (a) => {
-    const m = { ...lit, ...accentSets[a] };
+  it('text on the lit fill meets 4.5:1', () => {
+    const m = lit;
     expect(contrast(m['on-accent'], m['accent-fill'])).toBeGreaterThanOrEqual(4.5);
     expect(contrast(m['on-accent'], m['accent-fill-2'])).toBeGreaterThanOrEqual(4.5);
   });
@@ -171,9 +192,8 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
       lit['accent-text'],
       lit['accent-fill'],
       lit['accent-fill-2'],
-      ...Object.values(accentTextLight),
+      litLight['accent-text'] ?? lit['accent-text'],
     ]);
-    for (const a of accents) for (const x of Object.values(accentSets[a])) brand.add(x);
     for (const m of [lit, { ...lit, ...litLight }]) {
       for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg', 'refusal-border'] as const) {
         expect(m[r], r).not.toContain('accent');
@@ -188,6 +208,75 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
       expect(contrast(m.focus, m['solid-bg'])).toBeGreaterThanOrEqual(3);
       expect(contrast(m.focus, m.page)).toBeGreaterThanOrEqual(3);
     }
+  });
+});
+
+describe('Volt: the chartreuse spark (intafaced issue 9302)', () => {
+  const dark = lit;
+  const light = { ...lit, ...litLight };
+  const stops = (gradient: string) => [...gradient.matchAll(/#[0-9A-F]{6}/gi)].map((m) => m[0]);
+
+  it('the colour measures agree with known values', () => {
+    expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 5);
+    expect(contrastRatio('rgb(10, 10, 9)', '#0A0A09')).toBeCloseTo(1, 5);
+    expect(toHex('rgba(255, 255, 255, 0.5)', '#000000')).toBe('#808080');
+    expect(toHex('rgb(255 255 255 / 50%)')).toBe('#808080');
+    expect(toHex('rgb(224, 248, 58)')).toBe('#E0F83A');
+    expect(deltaE2000('#E0F83A', '#E0F83A')).toBe(0);
+    expect(deltaE2000('#FAF33E', '#FFC452')).toBeCloseTo(17.5, 1);
+  });
+
+  it('is chartreuse, not lemon: its hue sits on the green side of yellow, as in the references', () => {
+    expect(hue(dark['primary-bg'])).toBeGreaterThanOrEqual(64);
+    expect(hue(dark['primary-bg'])).toBeLessThanOrEqual(80);
+    expect(hue('#FAF33E')).toBeLessThan(64);
+  });
+
+  it('keeps lime on the one main action: in dark, a link, a current step, a checked box and a chart line are bone', () => {
+    for (const role of ['accent', 'accent-text', 'accent-pair'] as const) expect(dark[role], role).toBe(dark['text-1']);
+    expect(dark['primary-bg']).toBe('#E0F83A');
+  });
+
+  it('reads as another colour than the warning and the gain, in both schemes (CIEDE2000 at least 20)', () => {
+    for (const m of [dark, light]) {
+      expect(deltaE2000(m.accent, m['warn-text']), 'warning').toBeGreaterThanOrEqual(20);
+      expect(deltaE2000(m['accent-text'], m['warn-text']), 'warning as text').toBeGreaterThanOrEqual(20);
+      expect(deltaE2000(m.accent, m.up), 'gain').toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it('passes AA as text on the page and every solid surface, dark and light', () => {
+    for (const m of [dark, light])
+      for (const s of ['page', 'solid-bg', 'solid-bg-raised', 'solid-bg-sunken'] as const)
+        expect(contrastRatio(m['accent-text'], m[s]), s).toBeGreaterThanOrEqual(4.5);
+    expect(dark['accent-text']).toBe(dark.accent);
+  });
+
+  it('carries its text as a fill at every stop of its gradients, and on the light primary', () => {
+    for (const m of [dark, light]) {
+      for (const stop of [m['accent-fill'], m['accent-fill-2'], ...stops(m['object-spark-bg'])])
+        expect(contrastRatio(m['on-accent'], stop), stop).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const stop of stops(dark['primary-bg'])) expect(contrastRatio(dark['primary-fg'], stop), stop).toBeGreaterThanOrEqual(4.5);
+    for (const stop of stops(light['primary-bg'])) expect(contrastRatio(light['primary-fg'], stop), stop).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('a warning or a refusal stays readable on its badge (its own colour at 15%, as Badge draws it) over every light surface', () => {
+    const tint = (fg: string, bg: string) =>
+      '#' +
+      [1, 3, 5]
+        .map((i) => Math.round(parseInt(fg.slice(i, i + 2), 16) * 0.15 + parseInt(bg.slice(i, i + 2), 16) * 0.85))
+        .map((c) => c.toString(16).padStart(2, '0'))
+        .join('');
+    for (const t of ['warn-text', 'error-text'] as const)
+      for (const s of ['page', 'solid-bg', 'solid-bg-raised', 'solid-bg-sunken'] as const)
+        expect(contrastRatio(light[t], tint(light[t], light[s])), `${t} on its tint over ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('as a ring it stands 3:1 off the page in both schemes; the focus ring itself stays white or ink, never the spark', () => {
+    expect(contrastRatio(dark.accent, dark.page)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(light['accent-text'], light.page)).toBeGreaterThanOrEqual(3);
+    for (const m of [dark, light]) expect([m.accent, m['accent-text'], m['accent-fill']]).not.toContain(m.focus);
   });
 });
 
@@ -214,15 +303,121 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
     expect([...fonts.matchAll(/@import '([^']+)'/g)].map((m) => m[1])).toEqual([
       '@fontsource-variable/geist/index.css',
       '@fontsource-variable/geist-mono/index.css',
+      '@fontsource-variable/manrope/index.css',
+      '@fontsource-variable/inter/index.css',
     ]);
   });
   it('the font roles lead with the families those packages declare', () => {
-    expect(lit['font-ui'].startsWith("'Geist Variable'")).toBe(true);
-    expect(lit['font-figure'].startsWith("'Geist Variable'")).toBe(true);
+    expect(lit['font-ui'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(lit['font-figure'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(readFileSync(require.resolve('@fontsource-variable/manrope/index.css'), 'utf8')).toContain("font-family: 'Manrope Variable'");
     expect(lit['font-mono'].startsWith("'Geist Mono Variable'")).toBe(true);
     for (const pkg of ['geist', 'geist-mono']) {
       const css = readFileSync(require.resolve(`@fontsource-variable/${pkg}/index.css`), 'utf8');
       expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");
     }
+  });
+  it('every Volt family draws arrows, shapes and check marks from its own symbol faces, not a system fallback', () => {
+    const faces = [...fonts.matchAll(/@font-face\s*{([^}]*)}/g)].map((m) => m[1] ?? '');
+    for (const family of ['Manrope Variable', 'Inter Variable', 'Geist Variable', 'Geist Mono Variable']) {
+      const own = faces.filter((f) => f.includes(`font-family: '${family}'`));
+      const ranges = own.map((f) => /unicode-range:\s*([^;]+);/.exec(f)?.[1] ?? '').join(',');
+      // → ↗ ← ↔ ↙ ↘ ↕ ↻ ▲ ▼ ▾ ▸ ○ ● ✓ ✕: every symbol the Customer app types today.
+      for (const ch of '→↗←↔↙↘↕↻▲▼▾▸○●✓✕') {
+        const cp = ch.codePointAt(0)!;
+        const covered = ranges.split(',').some((r) => {
+          const [a = '', b = a] = r.trim().replace(/^U\+/, '').split('-');
+          return cp >= parseInt(a, 16) && cp <= parseInt(b, 16);
+        });
+        expect(covered, `${family} draws ${ch}`).toBe(true);
+      }
+      for (const f of own) {
+        const file = /url\(\.\/(fonts\/[^)]+)\)/.exec(f)?.[1];
+        expect(file && statSync(join(here, file)).size).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe('one part per role', () => {
+  /**
+   * Names main's kit exports that are defined in two files under src/lit: Segmented and RefusalBox twice on main, and
+   * Select (a combobox beside main's native one) and Checkbox beside main's. Folding a name main exports changes every
+   * layer that imports it, so these are the kit owner's to fold. The list only shrinks: a folded name fails the second
+   * test until it comes off.
+   */
+  const mainOwned = ['Checkbox', 'RefusalBox', 'Segmented', 'Select'];
+
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) return name === '__gallery__' ? [] : files(path);
+      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
+    });
+  const definedTwice = () => {
+    const where = new Map<string, string[]>();
+    for (const file of files(here)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/^export (?:function|const|class) ([A-Z][A-Za-z0-9]*)\b/gm)) {
+        const name = m[1]!;
+        where.set(name, [...(where.get(name) ?? []), file.slice(here.length)]);
+      }
+    }
+    return [...where].filter(([, at]) => at.length > 1);
+  };
+
+  it('no other part is defined twice in the kit: each exported name lives in one file under src/lit', () => {
+    expect(definedTwice().filter(([name]) => !mainOwned.includes(name))).toEqual([]);
+  });
+
+  it("every name on the kit owner's list is still defined twice (a folded name comes off the list)", () => {
+    expect(mainOwned.filter((name) => !definedTwice().some(([n]) => n === name))).toEqual([]);
+  });
+});
+
+describe('the kit draws the arrows its faces lack', () => {
+  // Manrope and Geist carry no ▲ ▼ → ← ↗ (look gate run 45061471946: ▲ in WenQuanYi Zen Hei); fonts.css now gives each
+  // family symbol faces for typed text, and the kit's own parts still draw theirs: lt-arrow-up, lt-arrow-down,
+  // lt-arrow-go, lt-arrow-back, lt-arrow-out.
+  it('no kit component types one outside a comment', () => {
+    const typed = walk(here)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .flatMap((f) =>
+        readFileSync(f, 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ''))
+          .split('\n')
+          .map((line, i) => ({ at: `${f.slice(here.length)}:${i + 1}`, code: line.replace(/\/\/.*$/, '') }))
+          .filter(({ code }) => /[▲▼→←↗]/.test(code))
+          .map(({ at }) => at),
+      );
+    expect(typed).toEqual([]);
+  });
+});
+
+describe("Volt's material is the owner's pick (1A, 2B, 3A)", () => {
+  it('sets type and figures in Manrope, cents dimmed on the line, a black page, a flat lime primary and unpainted panels', () => {
+    expect(lit['font-figure'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(lit['cents-size']).toBe('0.6em');
+    expect(lit['cents-shift']).toBe('0');
+    expect(lit['cents-tone']).toBe('var(--lit-text-3)');
+    expect(lit.page).toBe('#000000');
+    expect(lit['primary-bg']).toBe('#E0F83A');
+    expect(lit['solid-bg']).toBe('#000000');
+    // An unpainted panel keeps one even hairline, as the picked samples draw it, so a panel still has an edge on black.
+    expect(lit['solid-rim']).toBe(lit['solid-rim-dim']);
+    expect(lit['solid-rim']).not.toMatch(/,\s*0\)$/);
+  });
+  it("draws every big figure at the figure weight (the owner's pick: Manrope 300), never a fixed bold", () => {
+    const css = readFileSync(join(here, 'components/components.css'), 'utf8');
+    for (const sel of ['.lt-mover-price', '.lt-featured-price', ".lit-stack__card[data-card='front'] [data-part='figure']"]) {
+      const rule = css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+      expect(rule, sel).toContain('font-weight: var(--lit-type-figure-weight);');
+    }
+  });
+  it('draws flat tiles in Pro and on a board that asks for them', () => {
+    const css = readFileSync(join(here, 'lit.css'), 'utf8');
+    expect(css).toMatch(/\[data-panels='tiles'\] \{\n {2}--lit-solid-bg: #0d0e0e;/i);
+    expect(pro['solid-bg']).toBe('#0D0E0E');
+    expect(pro['radius-panel']).toBe('6px');
+    expect(pro['solid-rim']).toMatch(/,\s*0\)$/);
   });
 });

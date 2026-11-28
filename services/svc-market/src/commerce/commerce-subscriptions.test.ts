@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Sql } from 'postgres';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
   MemoryLedger,
@@ -61,7 +61,7 @@ function isExcludedAccessMax(text: string): boolean {
 /** Forward postgres.js, and hold the connection across a pause after the excluded max read. */
 function pauseAfterExcludedAccessMax(inner: Sql, afterRead: () => Promise<void>): Sql {
   const wrap = (source: Sql): Sql => {
-    const proxy = new Proxy(source as unknown as object, {
+    const proxy = new Proxy(source as object, {
       apply(target, _thisArg, argList: unknown[]) {
         const strings = argList[0] as TemplateStringsArray | undefined;
         const text = strings && Array.isArray(strings) ? strings.join('') : '';
@@ -127,7 +127,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')

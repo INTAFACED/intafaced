@@ -15,7 +15,7 @@ const listing = (lifecycle: DeskListing['lifecycle'], over: Partial<DeskListing>
     sessionOpen: true,
     lifecycle,
     ...over,
-  }) as unknown as DeskListing;
+  }) as DeskListing;
 const modeOf = (lifecycle: DeskListing['lifecycle'], over?: Partial<DeskListing>) => tradingMode(toDeskMarket(listing(lifecycle, over)));
 
 describe('trading mode', () => {

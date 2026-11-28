@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * svc-identity trading checks (J-cex-spot-01 #3; OWNER 258 (4): "trading-only users get country and sanctions checks.
- * The full ID vendor comes with the bank."). The person gives their legal name and confirms the country they live in;
+ * svc-identity trading checks (J-cex-spot-01 #3): a trading-only person gets country and sanctions checks;
+ * the full ID vendor comes with the bank. The person gives their legal name and confirms the country they live in;
  * the service screens the name, the date of birth given at sign-up and the country against the owner's sanctions list
  * (NO DEFAULT: unset refuses `kyc.screening_list_unset` and clears nothing). No ID document, selfie or ID vendor.
  *

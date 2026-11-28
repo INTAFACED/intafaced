@@ -59,14 +59,15 @@ export function listBridgeRoutes(load: () => unknown = () => JSON.parse(readFile
 }
 
 /**
- * The labelled TEST table for the local and test stacks only (OWNER 18, 44): one route between two local TEST chains, its
- * provider marked TEST. It is never the owner's table and is read only when `PROTOCOL_BRIDGE_ROUTES=TEST` on a stack whose
+ * The labelled TEST table for the local and test stacks only (OWNER 18, 44): one route between the stack's two local TEST
+ * chains (tooling/scripts/local-test-chain.mjs: the app's chain id 84532 and the second, 31337), carrying the TEST bridge
+ * token (TestBridgeToken), its provider marked TEST. It is never the owner's table and is read only when `PROTOCOL_BRIDGE_ROUTES=TEST` on a stack whose
  * raw APP_ENV is exactly `dev` or `test`.
  */
 export const TEST_BRIDGE_ROUTES: readonly BridgeRoute[] = Object.freeze([
   {
-    from: { chainId: 31337, name: 'TEST local chain', kind: 'local' },
-    to: { chainId: 31338, name: 'TEST local chain B', kind: 'local' },
+    from: { chainId: 84532, name: 'TEST chain', kind: 'local' },
+    to: { chainId: 31337, name: 'TEST chain B', kind: 'local' },
     token: 'TUSDC',
     provider: 'TEST provider',
   },

@@ -10,7 +10,7 @@ export function SettlementTab({ policy }: { policy: Loadable<OptionsPolicy> }) {
   if (policy.status === 'refused') return <RefusedRegion code={policy.code} />;
   const p = policy.status === 'ready' ? policy.data : null;
   return (
-    <div className="flex flex-col gap-4">
+    <div className="lt-stack">
       <div className="flex items-center justify-between gap-3">
         <h3 className="m-0 text-md font-medium text-fg">{t('Settlement and exercise')}</h3>
         <Freshness asOf={asOfOf(policy)} />
@@ -25,8 +25,8 @@ export function SettlementTab({ policy }: { policy: Loadable<OptionsPolicy> }) {
           { label: t('Exercise and expiry runs'), value: null, hint: t('Jobs hint') },
         ]}
       />
-      <p className="m-0 text-sm text-fg-2">{t('Expiry price rule')}</p>
-      <p className="m-0 text-sm text-fg-2">{t('Result names')}</p>
+      <p className="lt-hint">{t('Expiry price rule')}</p>
+      <p className="lt-hint">{t('Result names')}</p>
       <EmptyState variant="unavailable" size="inline" title={t('Exercise history not published')} reason={t('Exercise history blocker')} />
     </div>
   );

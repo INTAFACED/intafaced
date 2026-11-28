@@ -1,4 +1,6 @@
-import { ASSET_PRECISION_UNSET, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { ASSET_PRECISION_UNSET } from '@intafaced/contracts/asset-registry';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import {
   createHttpLedgerClient,
   createLedgerTransport,

@@ -5,7 +5,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { BlockerWords, QuoteView, RequestRows } from './CashOut';
-import { bankReads, type CashOutQuote, type CashOutRequest } from './contracts';
+import { type CashOutQuote, type CashOutRequest } from './contracts';
+import { BANK_CASH_OUT_QUOTE, BANK_CASH_OUT_REQUESTS } from '@intafaced/contracts/bank-cash-out-procedures';
 
 /** BK-ord-01 screen half (J-bank-03 #1-#3): the cash-out quote with what stands in the way, and the kept requests. */
 
@@ -73,25 +74,30 @@ describe('cash out to a linked bank account', () => {
     expect(html).toContain(
       'This account is unverified. Only a banking partner can verify it, and rail.bank is switched off in this build.',
     );
-    expect(html).toContain('Reference: bank.linked_account_unverified');
+    // A Bank refusal no step names ends in plain words: its code is kept on data-code, not printed.
+    expect(html).toContain('data-code="bank.linked_account_unverified"');
+    expect(html).not.toContain('Reference: bank.');
     expect(html).not.toContain('WEST');
   });
 
-  it('names each reason in the customer’s words, and an unknown one plainly with its code', () => {
+  it('names each reason in the customer’s words, and an unknown one plainly, its code kept off the page', () => {
     const words = (code: string, end: string | null = null) =>
       renderToStaticMarkup(<BlockerWords code={code} rail="rail.bank" coolingOffEndsAt={end} />);
     expect(words('bank.offramp_cooling_unset')).toContain('no cooling-off period');
     expect(words('bank.offramp_cooling_active', '2026-10-24T03:00:00.000Z')).toMatch(/from .+, when its cooling-off ends/);
     expect(words('bank.fiat_ramp_socket')).toContain('No banking partner pays out to bank accounts: rail.bank is switched off');
     expect(words('bank.something_new')).toContain(
-      'This cash-out cannot go ahead. <small class="muted">Reference: bank.something_new</small>',
+      'This cash-out cannot go ahead. <small class="lt-muted" data-code="bank.something_new"></small>',
     );
+    // A rail notice keeps its code in the page.
+    expect(words('rail.bank')).toContain('Reference: rail.bank');
   });
 
   it('lists each kept request as not sent, with its amount, rail and reason', () => {
     const html = renderToStaticMarkup(<RequestRows rows={[request()]} />);
     expect(html).toContain('Not sent');
-    expect(html).toContain('rail.bank · Reference: bank.linked_account_unverified');
+    expect(html).toContain('rail.bank');
+    expect(html).not.toContain('Reference: bank.linked_account_unverified');
     expect(renderToStaticMarkup(<RequestRows rows={[]} />)).toContain('You have not asked to cash out.');
   });
 
@@ -248,11 +254,16 @@ describe('cash out to a linked bank account', () => {
   });
 
   it('parses the bank’s answers, and refuses a fee that is not a decimal string', () => {
-    expect(bankReads['cashOut.quote'].parse(quote())).toMatchObject({ fee: null, receiveAmount: null });
-    expect(bankReads['cashOut.quote'].safeParse({ ...quote(), fee: 1.5 }).success).toBe(false);
-    expect(bankReads['cashOut.requests'].safeParse([{ ...request(), status: 'held' }]).success).toBe(false);
-    // An older answer without the payout fields still reads, with them blank.
+    expect(BANK_CASH_OUT_QUOTE.output.parse(quote())).toMatchObject({ fee: null, receiveAmount: null });
+    expect(BANK_CASH_OUT_QUOTE.output.safeParse({ ...quote(), fee: 1.5 }).success).toBe(false);
+    expect(BANK_CASH_OUT_REQUESTS.output.safeParse([{ ...request(), status: 'held' }]).success).toBe(false);
+    // The requests list is read by its record, which is the bank's own strict answer: it always carries the payout
+    // fields (null when there is none), so an answer without them is refused, never read as blank.
     const { fee: _fee, payoutRef: _ref, ...older } = request();
-    expect(bankReads['cashOut.requests'].parse([older])[0]).toMatchObject({ fee: null, payoutRef: null });
+    expect(BANK_CASH_OUT_REQUESTS.output.safeParse([older]).success).toBe(false);
+    expect(BANK_CASH_OUT_REQUESTS.output.parse([{ ...request(), fee: null, payoutRef: null }])[0]).toMatchObject({
+      fee: null,
+      payoutRef: null,
+    });
   });
 });

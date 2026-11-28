@@ -31,7 +31,7 @@ import { DEFAULT_FUTURES_MARK_POLICY, acceptableForEntry } from './futures/mark-
 import { markSourceFromBook } from './futures/mark-source.js';
 
 /**
- * Mount boundary for private CCXT REST (docs/decisions/mount-boundary.md).
+ * Mount boundary for private CCXT REST.
  *
  * Principal arrives the way index.ts builds it — through createEdgeContext
  * over real headers — not as a Context literal. Unsigned self-asserted
@@ -880,7 +880,7 @@ describe('private REST — mount boundary + order write path', () => {
     expect(body.results.map((r) => r.order?.clientOrderId)).toEqual(['batch-a', 'batch-b']);
     expect(body.results[0]!.order?.amount).toBe('1.5');
     expect(seen.map((input) => input.clientOrderId)).toEqual(['batch-a', 'batch-b']);
-    expect(typeof (seen[0] as unknown as { qty: unknown }).qty).toBe('bigint');
+    expect(typeof (seen[0] as { qty: unknown }).qty).toBe('bigint');
     await app.close();
   });
 
@@ -2236,7 +2236,22 @@ describe('private REST — mount boundary + order write path', () => {
       ],
       tiers: ['regular'],
       feeToken: null,
+      ownBook: true,
     });
+    await app.close();
+  });
+
+  it('GET /fees/published: with our own book off, the schedule says so: every order pays the venue', async () => {
+    const app = await build(
+      deps({
+        ownBookEnabled: false,
+        markets: async () => [fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 })],
+        feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' })),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ version: 'desk', ownBook: false });
     await app.close();
   });
 
@@ -2363,6 +2378,7 @@ describe('private REST — mount boundary + order write path', () => {
       ],
       tiers: ['regular'],
       feeToken: null,
+      ownBook: true,
     });
     await app.close();
   });
@@ -3059,7 +3075,7 @@ describe('private REST — mount boundary + order write path', () => {
       const app = await build(
         deps({
           openPosition: async (_p, input) => {
-            seen.push(input as unknown as Record<string, unknown>);
+            seen.push(input as Record<string, unknown>);
             return { id: 'pos-1', symbol: input.symbol } as never;
           },
         }),

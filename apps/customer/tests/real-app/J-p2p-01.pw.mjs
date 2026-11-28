@@ -1,7 +1,7 @@
-// World: freeze, gates
+// World: restart, freeze, gates
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, restartService, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import {
@@ -170,9 +170,10 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   await expect(eligibility(page)).toContainText('You meet every requirement to take an ad.');
 });
 
-test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts by price, pages without a repeat, and never lists a floating ad it cannot price', async ({
+test('J-p2p-01 #2 the ad board shows each ad’s price, limits, method and maker, searches by coin, fiat, method and amount, sorts and pages every row once, and a floating ad with no reference says it needs a market feed', async ({
   page,
 }) => {
+  test.setTimeout(240_000);
   const state = journey();
   const s = p2p(await api(state.seller));
   // Two more TEST ads from the same seller, dearer and cheaper with a higher minimum.
@@ -192,12 +193,6 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
   const ad = (key, extra) => s.mutate('offers.create', adInput(key, extra));
   const dear = (await ad('dear', { price: '0.95' })).id;
   const cheap = (await ad('cheap', { price: '0.90', minAmount: '30' })).id;
-  // A floating ad posts only while a EUR / USDT reference prices it (P-ads-merchant-03). This stack publishes none, so it
-  // is refused with that reason and never reaches the board as an ad nobody can price; where a feed answers, it is closed
-  // again so the board below holds the same three ads either way.
-  const floating = await s.raw.mutate('offers.create', adInput('float', { priceType: 'float', price: '1.01' }));
-  if (floating.status === 200) await s.mutate('offers.close', { offerId: floating.body.result.data.id });
-  else expect(refusalCode(floating)).toBe('p2p.reference_price_unavailable');
   const first = state.offerId;
 
   const buyer = p2p(await api(state.buyer));
@@ -222,10 +217,24 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
   const order = () => rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-offer-id')));
   await expect(rows).toHaveCount(3);
   expect(await order()).toEqual([cheap, first, dear]);
-  // Each row: price, limits, method and maker.
-  const firstRow = page.locator(`li[data-offer-id="${first}"]`);
-  await expect(firstRow).toContainText('0.92');
-  await expect(firstRow).toContainText(METHOD);
+  // Each row: its price, its limits, its method and its maker, exactly as the service lists the ad.
+  const { handle } = await buyer.query('reputation.get', { userId: maker });
+  expect(handle, 'the seller has no public handle for the board to name').toBeTruthy();
+  const exact = (row, where) => row.getByTestId(where).locator('[data-exact-amount]');
+  const shown = async (row, where, n = 0) => toUnits(await exact(row, where).nth(n).getAttribute('data-exact-amount'));
+  for (const [id, price, min] of [
+    [cheap, '0.90', '30'],
+    [first, AD.price, AD.min],
+    [dear, '0.95', '10'],
+  ]) {
+    const row = page.locator(`li[data-offer-id="${id}"]`);
+    await expect(exact(row, 'p2p-offer-limits')).not.toHaveCount(0);
+    expect(await shown(row, 'p2p-offer-price')).toBe(toUnits(price));
+    expect(await shown(row, 'p2p-offer-limits', 0)).toBe(toUnits(min));
+    expect(await shown(row, 'p2p-offer-limits', 1)).toBe(toUnits(AD.max));
+    await expect(row.getByTestId('p2p-offer-methods')).toHaveText(METHOD);
+    await expect(row.getByTestId('p2p-offer-trader')).toHaveText(`@${handle}`);
+  }
   await expect(page.getByText('That is every open offer for these filters.')).toBeVisible();
 
   // Coin, fiat, method and a 20 EUR amount, dearest first: the cheap ad (30 USDT minimum) drops out.
@@ -242,6 +251,37 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
   await expect(rows).toHaveCount(2);
   expect(await order()).toEqual([dear, first]);
   await expect(page.getByText('Floating-price ads are left out of an amount search')).toBeVisible();
+
+  // A floating ad posts only while a reference prices its pair (P-ads-merchant-03), and this stack, like production,
+  // publishes none. With the stack's labelled TEST reference switched on, the seller lists one; then the reference stops.
+  await restartService('p2p', { LOCAL_STACK_P2P_REFERENCE_FEED: 'on' });
+  let floating;
+  try {
+    floating = (await s.mutate('offers.create', adInput('float-listed', { priceType: 'float', price: '1.01' }))).id;
+    const priced = (await buyer.query('offers.page', { makerId: maker, limit: 10 })).offers.find((o) => o.id === floating);
+    expect(toUnits(priced?.referencePrice ?? '0')).toBe(toUnits('0.92'));
+  } finally {
+    await restartService('p2p', { LOCAL_STACK_P2P_REFERENCE_FEED: null });
+  }
+  try {
+    // With no reference, the ad stays listed, last, and the service says it has no reference price.
+    expect(await walk('price_asc')).toEqual([cheap, first, dear, floating]);
+    const listed = (await buyer.query('offers.page', { makerId: maker, limit: 10 })).offers.find((o) => o.id === floating);
+    expect(listed).toMatchObject({ priceType: 'float', referencePrice: null });
+    expect(toUnits(listed.price)).toBe(toUnits('1.01'));
+    // The board says it needs a market feed, on that ad's row only.
+    await page.goto(`/p2p?makerId=${maker}`);
+    await expect(rows).toHaveCount(4);
+    expect(await order()).toEqual([cheap, first, dear, floating]);
+    const feedless = page.locator(`li[data-offer-id="${floating}"]`);
+    await expect(feedless.getByTestId('p2p-offer-needs-feed')).toHaveText(
+      'Needs a market feed: no EUR / USDT reference price is published, so this ad cannot be priced or taken.',
+    );
+    await expect(page.getByTestId('p2p-offer-needs-feed')).toHaveCount(1);
+  } finally {
+    if (floating) await s.mutate('offers.close', { offerId: floating });
+  }
+  expect(await walk('price_asc')).toEqual([cheap, first, dear]);
 });
 
 test('J-p2p-01 #3 an ad shows the seller’s record and terms, and its requirements are met with no risk notice to accept', async ({
@@ -337,7 +377,8 @@ test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quo
   const quote = take.getByTestId('take-quote');
   await expect(quote).toContainText('20 EUR');
   await expect(quote).toContainText('0.92 EUR / USDT');
-  const feeRow = (where) => where.locator('dl.pay-details > div').filter({ has: page.locator('dt', { hasText: /^Service fee$/ }) });
+  const feeRow = (where) =>
+    where.locator('dl[data-testid="pay-details"] > div').filter({ has: page.locator('dt', { hasText: /^Service fee$/ }) });
   await expect(feeRow(quote).locator('dd')).toHaveText(`${held.fee} USDT (${percent}%)`);
   await take.getByTestId('take-review').click();
   const dialog = page.getByTestId('take-review-dialog');
@@ -589,14 +630,44 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await browserHoldsPasskey(page, state.passkey);
   await signIn(page, state.buyer);
 
-  // A take with no confirmation is refused by name, and nothing is reserved or locked.
   const b = p2p(await api(state.buyer));
-  const s = p2p(await api(state.seller));
-  const before = (await b.query('offers.get', { offerId: state.offerId })).remainingAmount;
-  const refused = await b.bare.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
+  const sellerSession = await api(state.seller);
+  const s = p2p(sellerSession);
+  const maker = await sellerId(b, state.offerId);
+  const TEN = toUnits('10');
+  // What the ad has left to sell, and the buyer's orders on it, as svc-p2p has them.
+  const remaining = async () => toUnits((await b.query('offers.get', { offerId: state.offerId })).remainingAmount);
+  const ordersOnAd = async () =>
+    (await b.query('trades.page', { limit: 50 })).trades.filter((trade) => trade.offerId === state.offerId).map((trade) => trade.id);
+  // The seller's TEST USDT as the ledger has it: free to use, and held in their escrow pots (every order together).
+  const sellerUsdt = async () => {
+    const { free, used } = (await sellerSession.balances()).USDT;
+    return { free: toUnits(free), held: toUnits(used) };
+  };
+  // One lock for an order: svc-ledger's own escrow pot for it took the 10 USDT in with a single posting and has paid
+  // nothing out, and the order itself reports that amount held.
+  const lockedOnce = async (id) => {
+    const pot = await ledgerTradeEscrow(maker, 'USDT', id);
+    expect(pot, `svc-ledger books an escrow pot for order ${id}`).not.toBeNull();
+    expect(pot.postings).toBe('1');
+    expect(toUnits(pot.debits)).toBe(TEN);
+    expect(toUnits(pot.credits)).toBe(0n);
+    expect(toUnits(pot.balance)).toBe(TEN);
+    expect(await b.query('trades.get', { tradeId: id })).toMatchObject({ status: 'escrowed', amount: '10', escrowHeld: '10' });
+  };
+  const before = await remaining();
+  const funds = await sellerUsdt();
+  expect(await ordersOnAd()).toEqual([]);
+
+  // A take with no confirmation is refused by name: nothing is reserved, no order is made, and the ledger locks nothing.
+  const unconfirmed = randomUUID();
+  const refused = await b.bare.mutate('trades.take', { offerId: state.offerId, tradeId: unconfirmed, amount: '10', method: METHOD });
   expect(refused.status).toBe(403);
   expect(refusalCode(refused)).toBe('auth.step_up_required');
-  expect((await b.query('offers.get', { offerId: state.offerId })).remainingAmount).toBe(before);
+  expect(await remaining()).toBe(before);
+  expect(await ordersOnAd()).toEqual([]);
+  expect(await ledgerTradeEscrow(maker, 'USDT', unconfirmed)).toBeNull();
+  expect(await sellerUsdt()).toEqual(funds);
 
   // Review, then confirm with the passkey: the order is placed and opens.
   const review = async (open = () => page.goto(`/p2p?offerId=${state.offerId}`)) => {
@@ -613,10 +684,9 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await dialog.getByRole('button', { name: 'Use a passkey' }).click();
   await expect(page).toHaveURL(/\/uc\/order\?tradeId=/);
   const tradeId = new URL(page.url()).searchParams.get('tradeId');
-  const ordersOnAd = async () =>
-    (await b.query('trades.page', { limit: 50 })).trades.filter((trade) => trade.offerId === state.offerId).map((trade) => trade.id);
+  // Created once: one order on the ad, 10 USDT of the ad reserved, and one lock of 10 USDT out of the seller's free coins.
   expect(await ordersOnAd()).toEqual([tradeId]);
-  expect(Number(before) - Number((await b.query('offers.get', { offerId: state.offerId })).remainingAmount)).toBe(10);
+  expect(before - (await remaining())).toBe(TEN);
   expect(await b.query('trades.get', { tradeId })).toMatchObject({
     status: 'escrowed',
     amount: '10',
@@ -624,6 +694,8 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
     fiatAmount: '9.2',
     method: METHOD,
   });
+  await lockedOnce(tradeId);
+  expect(await sellerUsdt()).toEqual({ free: funds.free - TEN, held: funds.held + TEN });
 
   // Back to the ad in the app: the confirmation covers the next orders here for up to ten minutes, and says so; a
   // double press places one order.
@@ -635,8 +707,18 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await expect(page).toHaveURL(/\/uc\/order\?tradeId=/);
   const second = new URL(page.url()).searchParams.get('tradeId');
   expect(second).not.toBe(tradeId);
+  // One trade: the double press added exactly one order to the buyer's orders on the ad, and reserved 10 USDT more.
   expect((await ordersOnAd()).sort()).toEqual([tradeId, second].sort());
-  expect(Number(before) - Number((await b.query('offers.get', { offerId: state.offerId })).remainingAmount)).toBe(20);
+  expect(before - (await remaining())).toBe(2n * TEN);
+  // One lock: that order's pot holds 10 USDT from a single posting, the first order's pot is as it was, and the seller's
+  // escrow, every order together, rose by exactly that one 10 USDT, taken once from their free coins.
+  await lockedOnce(second);
+  await lockedOnce(tradeId);
+  expect(await sellerUsdt()).toEqual({ free: funds.free - 2n * TEN, held: funds.held + 2n * TEN });
+  // The order the double press opened shows the 10 USDT in escrow.
+  const placed = page.getByRole('main').getByTestId('p2p-order-quantities');
+  await expect(placed).toContainText('Asset in escrow');
+  await expect(placed.locator('[data-exact-amount]').first()).toHaveAttribute('data-exact-amount', '10');
   await page.goto(`/uc/order?tradeId=${tradeId}`);
 
   // The seller edits the ad: the order keeps the price, amount and method it was placed under.
@@ -653,6 +735,11 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await expect(order).toContainText('0.92');
   await expect(order).toContainText('9.2 EUR');
   await expect(order).not.toContainText('0.95');
+  // The amount, the payment and the method it was placed with.
+  const quantities = order.getByTestId('p2p-order-quantities');
+  await expect(quantities.locator('[data-exact-amount]').nth(0)).toHaveAttribute('data-exact-amount', '10');
+  await expect(quantities.locator('[data-exact-amount]').nth(1)).toHaveAttribute('data-exact-amount', '9.2');
+  await expect(quantities).toContainText(METHOD);
   // The ad's terms as they were when the order was placed, not the edit.
   await order.getByText('Order details').click();
   await expect(order.getByTestId('order-terms')).toHaveText('TEST terms: pay from an account in your own name; no third-party payments.');

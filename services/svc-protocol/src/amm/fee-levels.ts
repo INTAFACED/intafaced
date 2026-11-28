@@ -1,4 +1,5 @@
-import { FEE_MARKET_UNREAD, SWAP_FEE_CAP_UNSET, type ProtocolSwapFeeLevel, type ProtocolSwapFees } from '@intafaced/contracts';
+import type { ProtocolSwapFeeLevel, ProtocolSwapFees } from '@intafaced/contracts';
+import { FEE_MARKET_UNREAD, SWAP_FEE_CAP_UNSET } from '@intafaced/contracts/protocol-swap';
 import type { GasPriceQuote } from '../chain/gas-price.js';
 import { MAX_UINT256 } from './build.js';
 
@@ -54,7 +55,7 @@ function level(baseFee: bigint, priority: bigint, cap: bigint): ProtocolSwapFeeL
 }
 
 /** The three levels from one gas read and the owner's cap. Refuses when the node gave no base fee or no priority history. */
-export function feeLevels(quote: GasPriceQuote, capWei: bigint): ProtocolSwapFees {
+export function feeLevels(quote: GasPriceQuote, capWei: bigint, sponsored = false): ProtocolSwapFees {
   if (quote.baseFeePerGasWei === null || quote.priorityFeeWei === null)
     throw new SwapFeeError(
       FEE_MARKET_UNREAD,
@@ -74,7 +75,6 @@ export function feeLevels(quote: GasPriceQuote, capWei: bigint): ProtocolSwapFee
       normal: level(base, BigInt(average), capWei),
       fast: level(base, BigInt(high), capWei),
     },
-    // No paymaster is wired in this service (RC-dex-protocol-02), so the person's wallet pays the fee.
-    sponsored: false,
+    sponsored,
   };
 }

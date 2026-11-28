@@ -1,6 +1,16 @@
 import { add, div, formatAmount, mul, parseAmount, sub } from '@intafaced/ledger-client/money';
-import { QUANT_SANDBOX_ESCAPE, QUANT_SANDBOX_SYNTAX, QUANT_SANDBOX_TIMEOUT, QUANT_SANDBOX_UNWIRED, QuantError } from '../errors.js';
+import {
+  QUANT_SANDBOX_ESCAPE,
+  QUANT_SANDBOX_LIMIT_UNSET,
+  QUANT_SANDBOX_MEMORY,
+  QUANT_SANDBOX_OUTPUT,
+  QUANT_SANDBOX_SYNTAX,
+  QUANT_SANDBOX_TIMEOUT,
+  QUANT_SANDBOX_UNWIRED,
+  QuantError,
+} from '../errors.js';
 import type { OrderAck, OrderEvent, PaperBook, PaperFill, ReverseLeg } from './book.js';
+import type { RunLimits } from './limits.js';
 import { assertPublishedSandboxMaxOps, assertPublishedSandboxMaxSource } from './max.js';
 
 /**
@@ -17,6 +27,8 @@ export type Language = 'javascript' | 'typescript' | 'python';
 export interface IsolateLimits {
   readonly maxOps: number | undefined;
   readonly maxSource: number | undefined;
+  /** The plan's run limits (wall-clock, memory, output). Absent refuses `quant.sandbox_limit_unset` before anything runs. */
+  readonly run?: RunLimits | undefined;
 }
 
 export interface IsolateResult {
@@ -199,6 +211,8 @@ function isTruthy(v: Val): boolean {
 export function runIsolate(language: Language, source: string, book: PaperBook, limits: IsolateLimits, wired: boolean): IsolateResult {
   const maxSource = assertPublishedSandboxMaxSource(limits.maxSource);
   const maxOps = assertPublishedSandboxMaxOps(limits.maxOps);
+  const run = limits.run;
+  if (!run) throw new QuantError(QUANT_SANDBOX_LIMIT_UNSET, 'the sandbox limits of the plan are not set, so no run starts');
   assertIsolateWired(wired);
   if (source.length > maxSource) {
     throw new QuantError(QUANT_SANDBOX_SYNTAX, `source longer than ${maxSource} characters`);
@@ -227,9 +241,42 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   let live = true;
   let exited = false;
   const shouldEvaluate = (): boolean => live && !exited;
+  // The run limits are enforced here, by the interpreter, never by the strategy: the clock and the counters are host
+  // values the strategy cannot reach.
+  const started = performance.now();
   const bump = () => {
     ops += 1;
     if (ops > maxOps) throw new QuantError(QUANT_SANDBOX_TIMEOUT, `exceeded ${maxOps} operations`);
+    if (performance.now() - started > run.wallClockMs) {
+      throw new QuantError(QUANT_SANDBOX_TIMEOUT, `wall_clock_ms: exceeded ${run.wallClockMs} ms of wall-clock time`);
+    }
+  };
+  // Memory: the bytes of text the run's values hold, two per character, checked before a longer text is made.
+  const memoryRefusal = (bytes: number) =>
+    new QuantError(QUANT_SANDBOX_MEMORY, `memory_bytes: ${bytes} bytes would pass the limit of ${run.memoryBytes} bytes`);
+  const sizeOf = (v: Val): number => {
+    if (typeof v === 'string') return v.length * 2;
+    if (Array.isArray(v) || isRec(v)) return JSON.stringify(plain(v)).length * 2;
+    return 0;
+  };
+  const setVar = (name: string, value: Val) => {
+    let held = sizeOf(value);
+    for (const [other, v] of env) if (other !== name) held += sizeOf(v);
+    if (held > run.memoryBytes) throw memoryRefusal(held);
+    env.set(name, value);
+  };
+  // Output: the bytes of log the run writes, UTF-8. The log stops at the limit and the run ends.
+  let written = 0;
+  const emit = (line: string) => {
+    const bytes = Buffer.byteLength(line, 'utf8') + 1;
+    if (written + bytes > run.outputBytes) {
+      throw new QuantError(
+        QUANT_SANDBOX_OUTPUT,
+        `output_bytes: the log reached the limit of ${run.outputBytes} bytes after ${logs.length} lines`,
+      );
+    }
+    written += bytes;
+    logs.push(line);
   };
 
   const callHost = (host: Host, method: string, args: Val[]): Val => {
@@ -294,7 +341,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     }
     if (host.$host === 'console') {
       if (method === 'log') {
-        logs.push(args.map(stringify).join(' '));
+        emit(args.map(stringify).join(' '));
         return null;
       }
       throw new QuantError(QUANT_SANDBOX_ESCAPE, `unknown console method ${method}`);
@@ -304,7 +351,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
 
   const printFn = (args: Val[]): Val => {
     if (!live || exited) return null;
-    logs.push(args.map(stringify).join(' '));
+    emit(args.map(stringify).join(' '));
     return null;
   };
 
@@ -448,7 +495,11 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
 
   const binAdd = (op: string, a: Val, b: Val): Val => {
     if (!shouldEvaluate()) return '0';
-    if (typeof a === 'string' && typeof b === 'string' && !(isAmountString(a) && isAmountString(b))) return a + b;
+    if (typeof a === 'string' && typeof b === 'string' && !(isAmountString(a) && isAmountString(b))) {
+      const bytes = (a.length + b.length) * 2;
+      if (bytes > run.memoryBytes) throw memoryRefusal(bytes);
+      return a + b;
+    }
     if (!isAmountString(a) || !isAmountString(b)) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'arithmetic needs decimal strings');
     if (op === '+') return formatAmount(add(parseAmount(a), parseAmount(b)));
     return formatAmount(sub(parseAmount(a), parseAmount(b)));
@@ -542,7 +593,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       }
       eatOp('=');
       const val = parseExpr();
-      env.set(name.v, val);
+      setVar(name.v, val);
       tryOp(';');
       return;
     }
@@ -557,7 +608,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       p++;
       eatOp('=');
       const val = parseExpr();
-      env.set(t.v, val);
+      setVar(t.v, val);
       tryOp(';');
       return;
     }

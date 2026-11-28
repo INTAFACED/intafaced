@@ -2,10 +2,10 @@ import { useId, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
-import { Field } from './ui-kit';
-import { useSession } from '../session/session';
-import { PayAmount } from './components';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Dialog } from '@intafaced/ui/lit/templates';
+import { useSession } from '../session';
+import { PayAmount } from './volt/parts';
 import { DateTime } from './portal/ui/DateTime';
 import type { BusinessPayApi } from './pay-api';
 import type { RefundLookup, RefundReceipt, RefundSnapshot } from './merchant-refund-api';
@@ -13,7 +13,6 @@ import { HISTORY_WINDOW, refundCopy, refundFailureKey } from './merchant-refund-
 import * as s from './schemas';
 import { moneyReason } from './portal/access/money-step';
 import { payStepUp } from './portal/access/step-up-store';
-import './merchant-refund.css';
 
 type Context = {
   pay: BusinessPayApi;
@@ -350,9 +349,9 @@ export function MerchantRefund({
   }
   // The technical references sit behind a disclosure: support asks for them, a merchant seldom does.
   const references = (reference: string | null) => (
-    <details className="merchant-refund-details">
+    <details className="lt-disclosure">
       <summary>{t('details')}</summary>
-      <dl>
+      <dl className="lt-kv">
         <div>
           <dt>
             <Copy k="payment" />
@@ -376,8 +375,8 @@ export function MerchantRefund({
   });
   if (!live() || pay.access('pay:read')) return null;
   return (
-    <section className="merchant-refund" aria-labelledby={titleId} ref={form} lang={requestedLocale}>
-      <header>
+    <section className="lt-stack" aria-labelledby={titleId} ref={form} lang={requestedLocale}>
+      <header className="lt-stack-tight">
         <h3 id={titleId}>
           {receipt
             ? t(receipt.kind === 'refunded' ? 'recorded' : 'reversed')
@@ -386,7 +385,7 @@ export function MerchantRefund({
               : t('title')}
         </h3>
         {(receipt || recovery) && (
-          <p className="muted">
+          <p className="lt-muted">
             {receipt
               ? t(receipt.kind === 'refunded' ? 'recordedBody' : 'reversedBody')
               : t(snapshot.status === 'unreadable' ? 'unreadableBody' : 'unknownBody')}
@@ -395,8 +394,8 @@ export function MerchantRefund({
       </header>
       {(receipt || recovery) && references(receipt?.refundId ?? snapshot.reference)}
       {receipt && (
-        <div className="merchant-refund-proof" role="status">
-          <p className="muted">
+        <div className="lt-callout lt-callout-good lt-stack-tight" role="status">
+          <p className="lt-muted">
             <Copy k="matched" />
           </p>
           <strong>{t(receipt.kind === 'refunded' ? 'recorded' : 'reversed')}</strong>
@@ -405,19 +404,19 @@ export function MerchantRefund({
       )}
       {receipt && cleanupPending && (
         <>
-          <div className="merchant-refund-note">
+          <div className="lt-held lt-stack-tight">
             <h4>
               <Copy k="cleanup" />
             </h4>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="cleanupBody" />
             </p>
           </div>
-          <div className="merchant-refund-actions">
-            <Button onClick={() => void cleanup(receipt)} disabled={shown?.busy}>
+          <div className="lt-actions">
+            <Button tone="primary" onClick={() => void cleanup(receipt)} disabled={shown?.busy}>
               <Copy k="cleanupAction" />
             </Button>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="cleanupOnly" />
             </p>
           </div>
@@ -426,16 +425,16 @@ export function MerchantRefund({
       {receipt && !cleanupPending && (
         <>
           {receipt.kind === 'reversed' && (
-            <div className="merchant-refund-note">
+            <div className="lt-held lt-stack-tight">
               <h4>
                 <Copy k="spent" />
               </h4>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="spentBody" />
               </p>
             </div>
           )}
-          <Button onClick={() => newReview(receipt)} disabled={shown?.busy}>
+          <Button tone="primary" onClick={() => newReview(receipt)} disabled={shown?.busy}>
             <Copy k="newReview" />
           </Button>
         </>
@@ -443,13 +442,13 @@ export function MerchantRefund({
       {!receipt && recovery && (
         <>
           {snapshot.status === 'unreadable' ? (
-            <div className="merchant-refund-note">
+            <div className="lt-held lt-stack-tight">
               <h4>
                 <Copy k="noSend" />
               </h4>
-              <p className="muted">{snapshot.problem === 'conflict' ? t('conflict') : t('retryBody')}</p>
+              <p className="lt-muted">{snapshot.problem === 'conflict' ? t('conflict') : t('retryBody')}</p>
               {snapshot.references.map((ref) => (
-                <p lang="zxx" key={ref} style={{ overflowWrap: 'anywhere' }}>
+                <p lang="zxx" key={ref} className="lt-wrap">
                   {ref}
                 </p>
               ))}
@@ -459,11 +458,11 @@ export function MerchantRefund({
               <Copy k="legacy" />
             </p>
           ) : shown?.count !== null && shown?.count !== undefined ? (
-            <div className="merchant-refund-note">
+            <div className="lt-held lt-stack-tight">
               <h4>
                 <Copy k="noMatch" />
               </h4>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k={shown.count >= HISTORY_WINDOW ? 'historyWindow' : 'historyAll'} params={{ count: shown.count }} />
               </p>
               <p>
@@ -476,10 +475,14 @@ export function MerchantRefund({
               <Copy k="busy" />
             </p>
           )}
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="paused" />
           </p>
-          <Button disabled={shown?.busy} onClick={() => (snapshot.status === 'unreadable' ? void loadPayment() : void check())}>
+          <Button
+            tone="primary"
+            disabled={shown?.busy}
+            onClick={() => (snapshot.status === 'unreadable' ? void loadPayment() : void check())}
+          >
             {t(snapshot.status === 'unreadable' ? 'retry' : 'check')}
           </Button>
         </>
@@ -507,11 +510,12 @@ export function MerchantRefund({
                 }}
               />
               {pay.access('pay:refund') && (
-                <p role="note" className="muted">
+                <p role="note" className="lt-muted">
                   {moneyReason('refund', pay.authority?.scopes)}
                 </p>
               )}
               <Button
+                tone="primary"
                 onClick={() => void prepare()}
                 disabled={!shown.draft?.amount || shown.busy || Boolean(pay.access('pay:refund')) || Boolean(snapshot.problem)}
               >
@@ -524,12 +528,12 @@ export function MerchantRefund({
             </p>
           )
         ) : (
-          <Button variant="secondary" onClick={() => void loadPayment()}>
+          <Button tone="secondary" onClick={() => void loadPayment()}>
             <Copy k="readRetry" />
           </Button>
         ))}
       {failure && (
-        <p role="alert" lang={requestedLocale}>
+        <p role="alert" className="lt-error" lang={requestedLocale}>
           {t(failureKey)}
         </p>
       )}
@@ -538,33 +542,33 @@ export function MerchantRefund({
           <Copy k="checking" />
         </p>
       )}
-      <Button variant="secondary" onClick={back}>
+      <Button tone="secondary" onClick={back}>
         <Copy k="back" />
       </Button>
       {currentReview && (
         <Dialog closeLabel={t('back')} title={t('review')} onClose={() => dismiss(currentReview, false)}>
-          <div className="merchant-refund merchant-refund-review">
-            <p className="muted">
+          <div className="lt-stack">
+            <p className="lt-muted">
               <Copy k="reviewBody" />
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="reviewAmount" />
             </p>
             <PayAmount value={currentReview.input.amount} unit={currentReview.assetId} label={t('reviewAmount')} />
             {references(currentReview.input.refundId)}
-            <div className="merchant-refund-note">
+            <div className="lt-held lt-stack-tight">
               <h4>
                 <Copy k="continuity" />
               </h4>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="continuityBody" />
               </p>
             </div>
-            <div className="merchant-refund-actions">
-              <Button onClick={() => void confirm(currentReview)} disabled={shown?.busy}>
+            <div className="lt-actions">
+              <Button tone="primary" onClick={() => void confirm(currentReview)} disabled={shown?.busy}>
                 <Copy k="confirm" />
               </Button>
-              <Button variant="secondary" onClick={() => dismiss(currentReview, true)}>
+              <Button tone="secondary" onClick={() => dismiss(currentReview, true)}>
                 <Copy k="edit" />
               </Button>
             </div>

@@ -7,6 +7,8 @@ import {
   type QuotaLimitRow,
   type QuotaRepository,
   type QuotaResource,
+  type SandboxLimit,
+  type SandboxLimitRow,
   type TierRow,
 } from './quota.js';
 
@@ -19,6 +21,8 @@ export function createMemoryQuota(options: {
   now?: () => Date;
   /** What an account holds; tests that read usage pass it. Omitted, every count reads zero. */
   counts?: (accountId: string) => Promise<AccountCounts>;
+  /** Sandbox limits already set on the default profile; tests whose runs must start pass them. */
+  sandbox?: Partial<Record<SandboxLimit, bigint>>;
 }): {
   repository: QuotaRepository;
   gate: QuotaGate;
@@ -27,6 +31,19 @@ export function createMemoryQuota(options: {
   const limits = new Map<string, Map<QuotaResource, QuotaLimitRow>>();
   const assignments = new Map<string, string>();
   const tiers = new Map<string, TierRow & { published: boolean }>();
+  const sandbox = new Map<string, Map<SandboxLimit, SandboxLimitRow>>();
+  if (options.sandbox && options.defaultProfile) {
+    const at = now().toISOString();
+    sandbox.set(
+      options.defaultProfile,
+      new Map(
+        Object.entries(options.sandbox).map(([limit, value]) => [
+          limit as SandboxLimit,
+          { limit: limit as SandboxLimit, value, setAt: at },
+        ]),
+      ),
+    );
+  }
   const writes = new Map<string, { action: string; request: string; response: unknown }>();
 
   function applied(accountId: string): AppliedProfile | null {
@@ -54,6 +71,21 @@ export function createMemoryQuota(options: {
     },
     async limits(profile) {
       return [...(limits.get(profile)?.values() ?? [])];
+    },
+    async sandboxLimits(profile) {
+      return [...(sandbox.get(profile)?.values() ?? [])];
+    },
+    async setSandboxLimit(input) {
+      const request = JSON.stringify([input.profile, input.limit, input.value?.toString() ?? null]);
+      const prior = replay<Awaited<ReturnType<QuotaRepository['setSandboxLimit']>>>(input.idempotencyKey, 'sandbox', request);
+      if (prior) return prior;
+      const setAt = now().toISOString();
+      const rows = sandbox.get(input.profile) ?? new Map<SandboxLimit, SandboxLimitRow>();
+      rows.set(input.limit, { limit: input.limit, value: input.value, setAt });
+      sandbox.set(input.profile, rows);
+      const response = { profile: input.profile, limit: input.limit, value: input.value, setAt };
+      writes.set(input.idempotencyKey, { action: 'sandbox', request, response });
+      return response;
     },
     async set(input) {
       const request = JSON.stringify([input.profile, input.resource, input.limit?.toString() ?? null]);

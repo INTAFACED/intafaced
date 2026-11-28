@@ -1,0 +1,201 @@
+# The tester profile's own wiring (HM-desks-03, J-home-ia-11 #1), layered over docker-compose.yml and
+# docker-compose.apps.yml only by a tester's compose up:
+#
+#   node tooling/scripts/local-test-compose-env.mjs --out "$LOCAL_STACK_STATE/tester.env.local"
+#   docker compose --env-file .env.example --env-file "$LOCAL_STACK_STATE/tester.env.local" \
+#     -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.tester.yml --profile tester up seed
+#
+# LOCAL TEST only. A deployment never names this file, so nothing here reaches staging or production. Every value comes
+# from compose-env (LOCAL_STACK_STATE, the state folder the tester profile shares with the host, the host user that
+# owns it, and the stack id it wrote into the folder's compose marker), never a default: a missing one refuses by name.
+services:
+  # svc-identity reads the rest of what its `pnpm local:stack` service runs with (its email-confirm limits, for one)
+  # from an env file compose-env writes into the state folder (tester-identity.env, mode 600): LOCAL TEST settings no
+  # compose block lists. Compose's own `environment` wins over it.
+  # Postgres starts with this stack's id as a server setting: the ownership proof the LOCAL TEST tools check against the
+  # compose marker (local-test-state.mjs assertComposeOwnership). The other flags are docker-compose.yml's, repeated
+  # because an overlay replaces the whole command.
+  postgres:
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - default_transaction_isolation=read committed
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - intafaced.tester_stack_id=${LOCAL_TESTER_STACK_ID:?run local-test-compose-env.mjs}
+
+  # The seed shares the host's network and reaches each service the LOCAL TEST tools call on its own loopback port, as
+  # the compose marker lists them; never on another address.
+  # The edge keeps its kill-switch state in the state folder, where compose-env records "nothing is killed" once, as
+  # `pnpm local:stack` does: on a new volume it would halt every module until an operator wrote that. A file the edge or
+  # an operator changed later is never overwritten. It runs as the folder's owner, so it can write its own switch.
+  svc-edge:
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+    environment:
+      IDENTITY_OWNERSHIP_SECRET: ${IDENTITY_EDGE_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
+      EDGE_KILL_STATE_PATH: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/edge-kill-state.json
+    volumes:
+      - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+
+  svc-ledger:
+    ports: ['127.0.0.1:4001:4001']
+  svc-trade:
+    ports: ['127.0.0.1:4004:4004']
+    environment:
+      IDENTITY_ADMISSION_SECRET: ${IDENTITY_TRADE_ADMISSION_SECRET:?run local-test-compose-env.mjs}
+  svc-pay:
+    environment:
+      IDENTITY_ADMISSION_SECRET: ${IDENTITY_PAY_ADMISSION_SECRET:?run local-test-compose-env.mjs}
+  svc-ws:
+    environment:
+      IDENTITY_OWNERSHIP_SECRET: ${IDENTITY_WS_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
+  svc-matching:
+    ports: ['127.0.0.1:4005:4005']
+  # Publishing a notice spends a four-eyes approval held by identity, as on `pnpm local:stack`; without identity's address
+  # and the internal secret every publish refuses notify.notice_publish_approval_unavailable (Home's TEST notice).
+  svc-notify:
+    environment:
+      IDENTITY_URL: http://svc-identity:4002
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?run local-test-compose-env.mjs}
+
+  # Identity mails each sign-in code and confirm link to the LOCAL TEST outbox in the state folder (the transport
+  # compose-env copies from the stack, `local-outbox`), where the founder seed reads the confirm links, as
+  # `pnpm local:stack` does. It runs as the folder's owner, so it can write there.
+  # It starts under local-tester-identity.mjs, which gives it the founder pair's invites and, once both founders are
+  # enrolled, their user ids from the vault in the state folder, and starts it again when those change (the restart
+  # `pnpm local:stack` makes, planFounderIdentityRestart).
+  svc-identity:
+    env_file:
+      # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
+      - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-identity.env'
+        required: false
+    command:
+      ['node', 'tooling/scripts/local-tester-identity.mjs', 'services/svc-identity/dist/index.js']
+    ports: ['127.0.0.1:4002:4002']
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+    environment:
+      LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+      # The keys identity answers each caller's authority and admission questions with, one per caller, as
+      # docker-compose.outreach.yml and `pnpm local:stack` pass them; compose-env fills them from this stack's secrets.
+      # Without the edge's, the edge cannot confirm a session is live, so every signed-in call is refused.
+      IDENTITY_EDGE_AUTHORITY_SECRET: ${IDENTITY_EDGE_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
+      IDENTITY_WS_AUTHORITY_SECRET: ${IDENTITY_WS_AUTHORITY_SECRET:?run local-test-compose-env.mjs}
+      IDENTITY_PAY_ADMISSION_SECRET: ${IDENTITY_PAY_ADMISSION_SECRET:?run local-test-compose-env.mjs}
+      IDENTITY_TRADE_ADMISSION_SECRET: ${IDENTITY_TRADE_ADMISSION_SECRET:?run local-test-compose-env.mjs}
+      IDENTITY_LOCAL_MAIL_OUTBOX: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/email-outbox.log
+    volumes:
+      - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+
+  # The seed writes the founder vault and the TEST wallet into the state folder, so it runs as the folder's owner too.
+  # Its image adds svc-bank's binary to the app image (tooling/infra/tester-seed.Dockerfile), for the content seed's
+  # `svc-bank test-seed`.
+  seed:
+    image: intafaced/tester-seed:dev
+    build:
+      context: .
+      dockerfile: tooling/infra/tester-seed.Dockerfile
+      target: seed
+      additional_contexts:
+        app: service:svc-identity
+        bank: service:svc-bank
+        foundry: docker-image://ghcr.io/foundry-rs/foundry:v1.5.1
+    # The content seed opens svc-bank's TEST products and posts through the ledger; Home's seed funds founder a's TEST
+    # wallet on the TEST chain, pays into the TEST venue and files the inbox row and notice through svc-notify. All are
+    # up first. LOCAL_STACK_SLOT puts the TEST adapters on slot 3's loopback ports (local-test-facts.mjs slotPorts), clear
+    # of a `pnpm local:stack` in slot 0 on the same machine.
+    depends_on:
+      svc-bank:
+        condition: service_healthy
+      svc-ledger:
+        condition: service_healthy
+      svc-notify:
+        condition: service_healthy
+      test-chain:
+        condition: service_healthy
+      test-venue:
+        condition: service_healthy
+    environment:
+      LOCAL_STACK_SLOT: '3'
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+
+  # svc-bank runs its TEST partner (the partner Home's TEST balance and founder b's TEST payment go through) with the
+  # rest of its `pnpm local:stack` settings, from compose-env's tester-bank.env. Like the seed, it runs with NODE_ENV
+  # development, as `pnpm local:stack` runs it: the TEST partner and the TEST age door refuse to start under production.
+  # Its TEST pay-in partner (payin-sim) sends a browser to bank's own page and back to the customer app, both on loopback,
+  # as on `pnpm local:stack`: here bank on its published 4009 and the customer app on compose's 8090. The env file drops
+  # the stack's own addresses (hostOnly), so these are set here.
+  svc-bank:
+    ports: ['127.0.0.1:4009:4009']
+    environment:
+      NODE_ENV: development
+      BANK_PAYIN_SIM_PAGE_URL: http://127.0.0.1:4009
+      BANK_PAYIN_SIM_RETURN_URL: http://127.0.0.1:8090/bank/ramps/new
+    env_file:
+      # Optional only so compose-env can read this file before it writes the env file; the tester's up has it.
+      - path: '${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/tester-bank.env'
+        required: false
+
+  # The TEST chain (anvil, chain id 84532, behind its gate) and the TEST venue, as `pnpm local:stack` runs them
+  # (local-tester-adapters.mjs), on slot 3's loopback ports. Tester profile only; TEST tokens and funds only.
+  test-chain:
+    image: intafaced/tester-seed:dev
+    build:
+      context: .
+      dockerfile: tooling/infra/tester-seed.Dockerfile
+      target: seed
+      additional_contexts:
+        app: service:svc-identity
+        bank: service:svc-bank
+        foundry: docker-image://ghcr.io/foundry-rs/foundry:v1.5.1
+    container_name: intafaced-test-chain
+    profiles: ['tester']
+    restart: 'no'
+    network_mode: host
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+    command: ['node', 'tooling/scripts/local-tester-adapters.mjs', 'chain']
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV must be set to dev or test}
+      LOCAL_STACK_SLOT: '3'
+      LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+      LOCAL_STACK_ANVIL_BIN: /usr/local/bin/anvil
+    volumes:
+      - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+    healthcheck:
+      test: ['CMD', 'node', 'tooling/scripts/local-tester-adapters.mjs', 'chain-health']
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  test-venue:
+    image: intafaced/tester-seed:dev
+    container_name: intafaced-test-venue
+    profiles: ['tester']
+    restart: 'no'
+    network_mode: host
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+    command: ['node', 'tooling/scripts/local-tester-adapters.mjs', 'venue']
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV must be set to dev or test}
+      LOCAL_STACK_SLOT: '3'
+      LOCAL_STACK_STATE: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+    volumes:
+      - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+    depends_on:
+      test-chain:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:17560/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s

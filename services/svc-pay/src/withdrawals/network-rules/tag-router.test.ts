@@ -79,7 +79,7 @@ describe('withdrawal.create with a tag', () => {
     money.withdraw.mockRejectedValueOnce(new Error('stop here'));
     await expect(api.withdrawal.create(input)).rejects.toBeDefined();
     const [gateCall] = gate.assertDirectAllowed.mock.calls[0] as unknown as [{ destination: object }];
-    const [sent] = money.withdraw.mock.calls[0] as unknown as [{ destination: object }];
+    const [sent] = money.withdraw.mock.calls[0] as [{ destination: object }];
     expect(gateCall.destination).toEqual(input.destination);
     expect(gateCall.destination).not.toHaveProperty('tag');
     expect(sent.destination).toEqual(input.destination);
@@ -88,7 +88,7 @@ describe('withdrawal.create with a tag', () => {
 
   it('refuses a memo under any other key instead of stripping it', async () => {
     const { api, money } = caller();
-    const memo = { ...input, destination: { ...input.destination, memo: '12345' } } as unknown as typeof input;
+    const memo = { ...input, destination: { ...input.destination, memo: '12345' } } as typeof input;
     await expect(api.withdrawal.create(memo)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     expect(money.withdraw).not.toHaveBeenCalled();
   });
@@ -96,7 +96,7 @@ describe('withdrawal.create with a tag', () => {
   it('refuses a tag or memo beside the destination instead of stripping it', async () => {
     const { api, money } = caller();
     for (const key of ['tag', 'memo']) {
-      const beside = { ...input, [key]: '12345' } as unknown as typeof input;
+      const beside = { ...input, [key]: '12345' } as typeof input;
       await expect(api.withdrawal.create(beside)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     }
     expect(money.withdraw).not.toHaveBeenCalled();

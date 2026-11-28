@@ -1,0 +1,105 @@
+{
+  "scrapes": [
+    {
+      "name": "never proved",
+      "service": "svc-ledger",
+      "last": { "atMs": null, "seq": null },
+      "status": 200,
+      "contentType": "text/plain; version=0.0.4; charset=utf-8",
+      "body": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\n# HELP ledger_reconcile_last_verified_timestamp_seconds Unix time of the last reconciliation run that proved the book consistent (0 = never).\n# TYPE ledger_reconcile_last_verified_timestamp_seconds gauge\nledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} 0\n# HELP ledger_reconcile_last_verified_seq chain_tip seq the last ok reconciliation run covered (0 = never).\n# TYPE ledger_reconcile_last_verified_seq gauge\nledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 0\n"
+    },
+    {
+      "name": "proved",
+      "service": "svc-ledger",
+      "last": { "atMs": 1700000000999, "seq": "42" },
+      "status": 200,
+      "contentType": "text/plain; version=0.0.4; charset=utf-8",
+      "body": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\n# HELP ledger_reconcile_last_verified_timestamp_seconds Unix time of the last reconciliation run that proved the book consistent (0 = never).\n# TYPE ledger_reconcile_last_verified_timestamp_seconds gauge\nledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} 1700000000\n# HELP ledger_reconcile_last_verified_seq chain_tip seq the last ok reconciliation run covered (0 = never).\n# TYPE ledger_reconcile_last_verified_seq gauge\nledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 42\n"
+    },
+    {
+      "name": "proved on a whole second",
+      "service": "svc-ledger",
+      "last": { "atMs": 1700000000000, "seq": "1" },
+      "status": 200,
+      "contentType": "text/plain; version=0.0.4; charset=utf-8",
+      "body": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\n# HELP ledger_reconcile_last_verified_timestamp_seconds Unix time of the last reconciliation run that proved the book consistent (0 = never).\n# TYPE ledger_reconcile_last_verified_timestamp_seconds gauge\nledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} 1700000000\n# HELP ledger_reconcile_last_verified_seq chain_tip seq the last ok reconciliation run covered (0 = never).\n# TYPE ledger_reconcile_last_verified_seq gauge\nledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 1\n"
+    },
+    {
+      "name": "proved before the epoch",
+      "service": "svc-ledger",
+      "last": { "atMs": -1500, "seq": "123456789012345678901234567890" },
+      "status": 200,
+      "contentType": "text/plain; version=0.0.4; charset=utf-8",
+      "body": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\n# HELP ledger_reconcile_last_verified_timestamp_seconds Unix time of the last reconciliation run that proved the book consistent (0 = never).\n# TYPE ledger_reconcile_last_verified_timestamp_seconds gauge\nledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} -2\n# HELP ledger_reconcile_last_verified_seq chain_tip seq the last ok reconciliation run covered (0 = never).\n# TYPE ledger_reconcile_last_verified_seq gauge\nledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 123456789012345678901234567890\n"
+    },
+    {
+      "name": "a service name with a quote, a backslash and a line feed",
+      "service": "svc-\"led\\ger\n",
+      "last": { "atMs": 1700000000999, "seq": "7" },
+      "status": 200,
+      "contentType": "text/plain; version=0.0.4; charset=utf-8",
+      "body": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\n# HELP ledger_reconcile_last_verified_timestamp_seconds Unix time of the last reconciliation run that proved the book consistent (0 = never).\n# TYPE ledger_reconcile_last_verified_timestamp_seconds gauge\nledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} 1700000000\n# HELP ledger_reconcile_last_verified_seq chain_tip seq the last ok reconciliation run covered (0 = never).\n# TYPE ledger_reconcile_last_verified_seq gauge\nledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 7\n"
+    },
+    {
+      "name": "a gauge read that throws",
+      "service": "svc-ledger",
+      "last": "throws",
+      "status": 200,
+      "contentType": "text/plain; version=0.0.4; charset=utf-8",
+      "body": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\n"
+    },
+    {
+      "name": "no gauges",
+      "service": "svc-ledger",
+      "last": "none",
+      "status": 200,
+      "contentType": "text/plain; version=0.0.4; charset=utf-8",
+      "body": "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.\n# TYPE intafaced_http_requests_total counter\n# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.\n# TYPE intafaced_http_request_duration_seconds histogram\n"
+    }
+  ],
+  "requests": {
+    "requests": [
+      { "method": "GET", "url": "/health", "status": 200 },
+      { "method": "GET", "url": "/health?owner=alice&cursor=abc", "status": 200 },
+      { "method": "HEAD", "url": "/health", "status": 200 },
+      { "method": "GET", "url": "/boom", "status": 500 },
+      { "method": "GET", "url": "/boom", "status": 500 },
+      { "method": "POST", "url": "/trpc/post", "status": 404 },
+      { "method": "GET", "url": "/operator/freeze", "status": 404 },
+      { "method": "DELETE", "url": "/nowhere", "status": 404 },
+      { "method": "OPTIONS", "url": "/health", "status": 404 },
+      { "method": "PUT", "url": "/health/", "status": 404 },
+      { "method": "GET", "url": "/metrics", "status": 200 }
+    ],
+    "lines": [
+      "# HELP intafaced_http_requests_total Requests answered, by service, module, method, status class and auth outcome.",
+      "# TYPE intafaced_http_requests_total counter",
+      "intafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 3",
+      "intafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\"} 1",
+      "intafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\"} 2",
+      "intafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\"} 1",
+      "intafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"4xx\",outcome=\"none\"} 1",
+      "intafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"DELETE\",status=\"4xx\",outcome=\"none\"} 1",
+      "intafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"OPTIONS\",status=\"4xx\",outcome=\"none\"} 1",
+      "intafaced_http_requests_total{service=\"svc-ledger\",module=\"_local\",method=\"PUT\",status=\"4xx\",outcome=\"none\"} 1",
+      "# HELP intafaced_http_request_duration_seconds Request latency in seconds, measured where the promise to the caller was made.",
+      "# TYPE intafaced_http_request_duration_seconds histogram",
+      "intafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 3",
+      "intafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"2xx\",outcome=\"none\"} 3",
+      "intafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\",le=\"+Inf\"} 1",
+      "intafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"HEAD\",status=\"2xx\",outcome=\"none\"} 1",
+      "intafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\",le=\"+Inf\"} 2",
+      "intafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"5xx\",outcome=\"none\"} 2",
+      "intafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\",le=\"+Inf\"} 1",
+      "intafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"POST\",status=\"4xx\",outcome=\"none\"} 1",
+      "intafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"4xx\",outcome=\"none\",le=\"+Inf\"} 1",
+      "intafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"GET\",status=\"4xx\",outcome=\"none\"} 1",
+      "intafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"DELETE\",status=\"4xx\",outcome=\"none\",le=\"+Inf\"} 1",
+      "intafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"DELETE\",status=\"4xx\",outcome=\"none\"} 1",
+      "intafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"OPTIONS\",status=\"4xx\",outcome=\"none\",le=\"+Inf\"} 1",
+      "intafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"OPTIONS\",status=\"4xx\",outcome=\"none\"} 1",
+      "intafaced_http_request_duration_seconds_bucket{service=\"svc-ledger\",module=\"_local\",method=\"PUT\",status=\"4xx\",outcome=\"none\",le=\"+Inf\"} 1",
+      "intafaced_http_request_duration_seconds_count{service=\"svc-ledger\",module=\"_local\",method=\"PUT\",status=\"4xx\",outcome=\"none\"} 1"
+    ]
+  }
+}

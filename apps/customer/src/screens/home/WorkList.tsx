@@ -3,9 +3,10 @@ import { ChevronRight } from 'lucide-react';
 import { WORK_LIST_CAP_UNSET, type WorkItem, type WorkItemKind, type WorkItemSource } from '@intafaced/contracts/home-work-items';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
-import { Amount, fmtAmount, Skeleton, StateBlock, StatusTag } from './deps';
-import { IN_PANEL, STATE_IN_COLUMN } from './panel';
-import { HOME_CONFIG_UNWIRED, needsYouShown, ratioPercent, type NeedsYouShown, type WorkList as List } from './work-list';
+import { Button } from '@intafaced/ui/lit';
+import { fmtAmount } from './deps';
+import { Amount, Ghost, StateBlock, StatusTag } from './volt-parts';
+import { HOME_CONFIG_UNWIRED, needsYouShown, ratioPercent, rowsShown, type NeedsYouShown, type WorkList as List } from './work-list';
 import { useWorkList } from './work-list-data';
 import { usePreferences } from '../../shared/preferences';
 
@@ -49,13 +50,14 @@ const SEVERITY = {
  */
 export function WorkList({
   hidden,
-  className = 'home-section',
   testId,
   onShown,
+  quietTitle = false,
 }: {
   hidden: boolean;
-  className?: string;
   testId?: string;
+  /** Inside Home A's "Your next step" card, whose heading names it: the list keeps its own name for screen readers only. */
+  quietTitle?: boolean;
   onShown?: (shown: NeedsYouShown | null) => void;
 }) {
   const { t } = homeCopy.useCopy();
@@ -74,12 +76,10 @@ export function WorkList({
   }, [shownKey]);
   useEffect(() => () => report.current?.(null), []);
   return (
-    <section data-testid={testId} className={`${className} home-work`} aria-labelledby="home-work-title">
-      <div className="home-section__head">
-        <h2 className="home-h2" id="home-work-title">
-          {t('Needs you')}
-        </h2>
-      </div>
+    <section data-testid={testId} className="lt-stack" aria-labelledby="home-work-title">
+      <h2 id="home-work-title" data-sr-only={quietTitle ? '' : undefined}>
+        {t('Needs you')}
+      </h2>
       <Body list={list} hidden={hidden} retry={retry} />
     </section>
   );
@@ -89,12 +89,8 @@ function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () 
   const { t, Copy } = homeCopy.useCopy();
   if (list.state === 'loading')
     return (
-      <div className="home-work__rows" aria-hidden="true">
-        {[0, 1].map((index) => (
-          <div data-testid="home-work__row" className="home-work__row" key={index}>
-            <Skeleton width={180} height={36} className={IN_PANEL} />
-          </div>
-        ))}
+      <div data-testid="home-work__rows" aria-hidden="true">
+        <Ghost shape="rows" count={2} />
       </div>
     );
   if (list.state === 'refused') {
@@ -103,7 +99,6 @@ function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () 
     return (
       <StateBlock
         kind="refused"
-        className={STATE_IN_COLUMN}
         title={t(unset ? 'Work cap unset' : unwired ? 'Work config unwired' : 'Work config failed')}
         body={t(unset ? 'Work cap unset body' : unwired ? 'Work config unwired body' : 'Work config failed body')}
         code={list.code}
@@ -120,37 +115,37 @@ function Body({ list, hidden, retry }: { list: List; hidden: boolean; retry: () 
   return (
     <>
       {list.items.length > 0 ? (
-        <ul className="home-work__rows">
-          {list.items.map((item) => (
+        <ul data-testid="home-work__rows" className="lt-rows">
+          {rowsShown(list.items).map((item) => (
             <Row key={item.id} item={item} hidden={hidden} />
           ))}
         </ul>
       ) : (
-        <p className="home-work__none" data-complete={list.missing.length === 0}>
+        <p className="lt-hint" data-complete={list.missing.length === 0}>
           <Copy k={noneKey} />
         </p>
       )}
       {list.more > 0 ? (
-        <p className="home-work__note">
+        <p className="lt-hint">
           <Copy k="Work more" params={{ count: String(list.more) }} />
         </p>
       ) : null}
       {list.ordered ? null : list.items.length > 1 ? (
-        <p className="home-work__note">
+        <p className="lt-hint">
           <Copy k="Work order unset" />
         </p>
       ) : null}
       {unwired.length > 0 ? (
-        <p className="home-work__note" data-missing="unwired">
+        <p className="lt-hint" data-missing="unwired">
           <Copy k="Work sources unwired" params={{ sources: names(unwired) }} />
         </p>
       ) : null}
       {failed.length > 0 ? (
-        <p className="home-work__note" data-missing="failed">
+        <p className="lt-hint" data-missing="failed">
           <Copy k="Work sources failed" params={{ sources: names(failed) }} />{' '}
-          <button type="button" className="home-link" onClick={retry}>
+          <Button tone="quiet" onClick={retry}>
             <Copy k="Try again" />
-          </button>
+          </Button>
         </p>
       ) : null}
     </>
@@ -165,28 +160,35 @@ function Row({ item, hidden }: { item: WorkItem; hidden: boolean }) {
   const severity = SEVERITY[item.severity];
   return (
     <li>
-      <a data-testid="home-work__row" className="home-work__row" href={item.link} data-kind={item.kind} data-severity={item.severity}>
-        <span className="home-work__what">
-          <span className="home-work__title">
+      <a
+        data-testid="home-work__row"
+        className="lt-row-link"
+        data-span="row"
+        href={item.link}
+        data-kind={item.kind}
+        data-severity={item.severity}
+      >
+        <span className="lt-lines">
+          <span>
             <Copy k={known ?? KIND_TITLE[item.kind]} />
           </span>
-          <span className="home-work__meta">
+          <span className="lt-hint">
             {due ? <Copy k="Work due" params={{ when: due }} /> : null}
             {item.ratio ? (
-              <span className="home-work__ratio">
+              <span>
                 <Copy k="Work ratio" params={{ ratio: ratioPercent(item.ratio) }} />
               </span>
             ) : null}
             {item.amount ? <Amount value={`${fmtAmount(item.amount.value, { places: 18 })} ${item.amount.asset}`} hidden={hidden} /> : null}
             {item.reasonCode ? (
-              <span className="home-work__code" dir="ltr">
+              <span className="lt-mono" dir="ltr">
                 {item.reasonCode}
               </span>
             ) : null}
           </span>
         </span>
         <StatusTag status={severity.status} label={t(severity.label)} />
-        <ChevronRight size={20} aria-hidden="true" className="home-work__chev" />
+        <ChevronRight size={20} aria-hidden="true" />
       </a>
     </li>
   );

@@ -232,8 +232,9 @@ function row(region: string, reason: string): SanctionedRow {
 }
 
 /**
- * The owner's launch default (OWNER 258 (1)): the comprehensively sanctioned territories, residence (1.6 (b)) and
- * citizenship (1.6 (c)) alike. Unsigned. Counsel reviews at launch prep.
+ * The owner's launch default (OWNER 258 (1)): the comprehensively sanctioned territories, and the Ukrainian regions
+ * whose occupied areas are under sanctions, residence (1.6 (b)) and citizenship (1.6 (c)) alike. Unsigned. Counsel
+ * reviews at launch prep.
  */
 export const SANCTIONED_LIST_ROWS: readonly SanctionedRow[] = [
   row('CU', 'Cuba: comprehensively sanctioned (OFAC Cuba sanctions)'),
@@ -244,6 +245,8 @@ export const SANCTIONED_LIST_ROWS: readonly SanctionedRow[] = [
   row('UA-40', 'Sevastopol, Crimea region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
   row('UA-14', 'Donetsk region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
   row('UA-09', 'Luhansk region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)'),
+  row('UA-65', 'Kherson region of Ukraine: not served, as its occupied areas are under Ukraine-/Russia-related sanctions'),
+  row('UA-23', 'Zaporizhzhia region of Ukraine: not served, as its occupied areas are under Ukraine-/Russia-related sanctions'),
 ];
 
 /** Provenance of a list built from the rows. Names the config, never a value from the env. */

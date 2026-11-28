@@ -8,6 +8,10 @@ import { awayBid, chosePro, confirm, deskPath, fundedTrader, held, openOrders, r
 // USDT, holding TEST BTC and ETH bought on the desk and TEST EUR that no market prices. Amounts are checked against the
 // ledger (the customer's own balance read), values against the bank's own valuation read just before and just after the
 // page loads (the TEST market maker keeps moving prices), never against what the page itself computed.
+// On the launch model, where INTAFACED holds none of the customer's money, steps #1 #2 #3 #4 #5 #6 #7 read each place
+// that holds the money and the venue's own spot market prices, not our ledger: those steps are J-portfolio-01-venue.pw.mjs's.
+// The tests here keep the ledger branch (the custodial layer, kept and switched off) as it is, titled for the door off;
+// #8 stays a step of this file.
 const J = 'J-portfolio-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ONE = toUnits('1');
@@ -130,7 +134,7 @@ async function buyNow(page, who, symbol, amount) {
   await settled(who);
 }
 
-test(`${J} #1 opens /money: every holding with amount, price, value and share, and the total with its split and quick actions`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): opens /money: every holding with amount, price, value and share, and the total with its split and quick actions`, async ({
   page,
 }) => {
   test.setTimeout(150_000);
@@ -194,7 +198,7 @@ test(`${J} #1 opens /money: every holding with amount, price, value and share, a
     await expect(actions.locator('a').filter({ hasText: new RegExp(`^${action}$`) })).toHaveAttribute('href', /^\//);
 });
 
-test(`${J} #2 reads the valuation note: the market and price behind each coin, the refresh, dollar coins at exactly 1, EUR not counted`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): reads the valuation note: the market and price behind each coin, the refresh, dollar coins at exactly 1, EUR not counted`, async ({
   page,
 }) => {
   const who = account();
@@ -235,7 +239,7 @@ test(`${J} #2 reads the valuation note: the market and price behind each coin, t
   await expect(money(page).getByText('Excludes 1 coin (no USD price)')).toBeVisible();
 });
 
-test(`${J} #3 places a TEST limit order, then reads the breakdown: available falls, in orders rises, and the parts add to the ledger total`, async ({
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): places a TEST limit order, then reads the breakdown: available falls, in orders rises, and the parts add to the ledger total`, async ({
   page,
 }) => {
   const who = account();
@@ -306,7 +310,9 @@ async function positionsOf(who) {
   return body;
 }
 
-test(`${J} #4 reads collateral apart: a TEST futures margin sits under Locked, not under In orders`, async ({ page }) => {
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): reads collateral apart: a TEST futures margin sits under Locked, not under In orders`, async ({
+  page,
+}) => {
   test.setTimeout(150_000);
   const who = account();
   const { hold } = run.read();
@@ -367,7 +373,9 @@ test(`${J} #4 reads collateral apart: a TEST futures margin sits under Locked, n
   }
 });
 
-test(`${J} #5 cancels the order: the hold returns to available and nothing is set aside`, async ({ page }) => {
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): cancels the order: the hold returns to available and nothing is set aside`, async ({
+  page,
+}) => {
   const who = account();
   const { orderId } = run.read();
   // The step reads the Pro columns, so this browser has chosen Pro (the app opens in Simple).
@@ -396,7 +404,9 @@ test(`${J} #5 cancels the order: the hold returns to available and nothing is se
   await expect(page.getByText('Nothing of your USDT is set aside right now.')).toBeVisible();
 });
 
-test(`${J} #6 opens the entries behind the USDT balance: every ledger entry, newest first, each with its reference`, async ({ page }) => {
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): opens the entries behind the USDT balance: every ledger entry, newest first, each with its reference`, async ({
+  page,
+}) => {
   const who = account();
   await signIn(page, who);
   const now = (await (await api(who)).balances()).USDT;
@@ -440,7 +450,9 @@ async function coinRowLink(page) {
   await coinRow(page, 'USDT').getByTestId('money-num__entries').click();
 }
 
-test(`${J} #7 reads best and worst movers: the coins that moved most today, from the same valuation as the total`, async ({ page }) => {
+test(`${J}, with the user-venue door off, on our own ledger (the custodial branch): reads best and worst movers: the coins that moved most today, from the same valuation as the total`, async ({
+  page,
+}) => {
   const who = account();
   await signIn(page, who);
   const movers = (p) => p.getByRole('region', { name: 'Best and worst today' });
@@ -453,7 +465,17 @@ test(`${J} #7 reads best and worst movers: the coins that moved most today, from
       const side = async (name) =>
         await movers(p)
           .locator(`[data-side="${name}"] li`)
-          .evaluateAll((items) => items.map((li) => `${li.getAttribute('data-asset')} ${li.innerText.replace(/\s+/g, ' ').trim()}`));
+          .evaluateAll((items) =>
+            items.map((li) => {
+              // The arrow is drawn (Volt's faces have no ▲ ▼): which way each one points, and that it is drawn with a size.
+              const arrows = [...li.querySelectorAll('[data-arrow]')].map((a) =>
+                a.getBoundingClientRect().width > 0 && getComputedStyle(a).maskImage !== 'none'
+                  ? `[drawn ${a.dataset.arrow}]`
+                  : '[not drawn]',
+              );
+              return `${li.getAttribute('data-asset')} ${arrows.join(' ')} ${li.innerText.replace(/\s+/g, ' ').trim()}`;
+            }),
+          );
       const line = async (id) => ((await movers(p).getByTestId(id).count()) ? (await movers(p).getByTestId(id).innerText()).trim() : null);
       return {
         best: await side('best'),
@@ -477,8 +499,9 @@ test(`${J} #7 reads best and worst movers: the coins that moved most today, from
         else ranked.push({ asset: row.asset, change, move: ratio(change, before) });
       }
       ranked.sort((a, b) => (a.move === b.move ? 0 : a.move > b.move ? -1 : 1));
-      // The direction is said by a glyph as well as the sign: never by colour alone.
-      const text = (r) => `${r.asset} ${r.asset} ${r.move > 0n ? '▲' : '▼'} ${usdSigned(r.change)} (${pct(r.move, 2)})`;
+      // The direction is said by a drawn arrow, a word for a screen reader ("up" or "down") and the sign: never by colour alone.
+      const text = (r) =>
+        `${r.asset} ${r.move > 0n ? '[drawn up]' : '[drawn down]'} ${r.asset} ${r.move > 0n ? 'up' : 'down'} ${usdSigned(r.change)} (${pct(r.move, 2)})`;
       return {
         best: ranked
           .filter((r) => r.move > 0n)
@@ -503,6 +526,9 @@ test(`${J} #7 reads best and worst movers: the coins that moved most today, from
   await expect(movers(page)).toContainText('BTC');
   await expect(movers(page)).toContainText('ETH');
   await expect(movers(page)).toContainText('Not profit and loss.');
+  // The screen the step ends on shows the list whole, as the person reads it.
+  await movers(page).scrollIntoViewIfNeeded();
+  await expect(movers(page)).toBeInViewport({ ratio: 1 });
 });
 
 function usdSigned(units) {

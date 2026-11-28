@@ -133,13 +133,13 @@ export function tickersSource(env: DataEnv, options: IntervalOption = {}): Sourc
           const symbols = symbolsToDerive(rawMap, markets);
           const candles = symbols.map((symbol) => hourlySource(env, symbol));
           return combine([raw, ...candles] as const, (all) => {
-            const [rawSnap, ...candleSnaps] = all as unknown as [Loadable<Record<string, RawTicker>>, ...Loadable<OhlcvRow[]>[]];
+            const [rawSnap, ...candleSnaps] = all;
             if (rawSnap.status !== 'ready') return rawSnap as Loadable<never>;
             if (candleSnaps.some((s) => s.status === 'loading')) return { status: 'loading' };
             const stats = statsFrom(candleSnaps, symbols, nowOf(env));
             const rows: Record<string, TickerRow> = {};
             for (const [symbol, ticker] of Object.entries(rawSnap.data)) rows[symbol] = mergeTicker(ticker, stats.get(symbol) ?? null);
-            return { status: 'ready', data: rows, asOf: newestAsOf(all as unknown as Loadable<unknown>[]) };
+            return { status: 'ready', data: rows, asOf: newestAsOf(all) };
           });
         },
       ),
@@ -155,11 +155,11 @@ export function tickerSource(env: DataEnv, symbol: string, options: IntervalOpti
     (ticker) => {
       const candles = serverHas24h(ticker) ? [] : [hourlySource(env, symbol)];
       return combine([raw, ...candles] as const, (all) => {
-        const [rawSnap, candleSnap] = all as unknown as [Loadable<RawTicker>, Loadable<OhlcvRow[]> | undefined];
+        const [rawSnap, candleSnap] = all;
         if (rawSnap.status !== 'ready') return rawSnap as Loadable<never>;
         if (candleSnap?.status === 'loading') return { status: 'loading' };
         const stats = candleSnap?.status === 'ready' ? derive24h(candleSnap.data, nowOf(env)) : null;
-        return { status: 'ready', data: mergeTicker(rawSnap.data, stats), asOf: newestAsOf(all as unknown as Loadable<unknown>[]) };
+        return { status: 'ready', data: mergeTicker(rawSnap.data, stats), asOf: newestAsOf(all) };
       });
     },
   );
@@ -183,7 +183,7 @@ export function sparklinesSource(env: DataEnv, symbols: readonly string[]): Sour
           const needFine = needFineSparkline(rawMap, wanted, markets);
           const candles = [...need.map((symbol) => hourlySource(env, symbol)), ...needFine.map((symbol) => fineSource(env, symbol))];
           return combine([raw, ...candles] as const, (all) => {
-            const [rawSnap, ...candleSnaps] = all as unknown as [Loadable<Record<string, RawTicker>>, ...Loadable<OhlcvRow[]>[]];
+            const [rawSnap, ...candleSnaps] = all;
             if (rawSnap.status !== 'ready') return rawSnap as Loadable<never>;
             if (candleSnaps.some((s) => s.status === 'loading')) return { status: 'loading' };
             const hourlySnaps = candleSnaps.slice(0, need.length);
@@ -197,14 +197,22 @@ export function sparklinesSource(env: DataEnv, symbols: readonly string[]): Sour
                 fineSnap && fineSnap.status === 'ready'
                   ? closesOf(fineSnap.data, TIMEFRAME_MS[FINE_SPARKLINE.timeframe], FINE_SPARKLINE.limit, nowOf(env))
                   : null;
-              const points = sparklineFor(rawSnap.data[symbol], stats.get(symbol) ?? null, fine);
+              const points = sparklineFor(tickerOf(rawSnap.data, symbol), stats.get(symbol) ?? null, fine);
               if (points) out[symbol] = points;
             }
-            return { status: 'ready', data: out, asOf: newestAsOf(all as unknown as Loadable<unknown>[]) };
+            return { status: 'ready', data: out, asOf: newestAsOf(all) };
           });
         },
       ),
   );
+}
+
+/**
+ * A symbol's raw ticker. `/tickers` keys a spot pair with a slash (`BTC/USDC`) while the venue's market states key it
+ * with a dash (`BTC-USDC`), so a dash symbol with no ticker of its own reads its pair's.
+ */
+function tickerOf(raw: Readonly<Record<string, RawTicker>>, symbol: string): RawTicker | undefined {
+  return raw[symbol] ?? (symbol.includes('-') ? raw[symbol.replace('-', '/')] : undefined);
 }
 
 function needSparkline(raw: Readonly<Record<string, RawTicker>>, wanted: readonly string[], markets: readonly MarketRow[]): string[] {

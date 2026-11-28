@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { readDecimal, readInteger, readLevels, readOptionalDecimal, readSignedDecimal, VenueDecimalError } from './decimal.js';
-import { parseUnifiedSymbol, roundToLot, roundToTick, unifiedSymbol } from './market.js';
+import { parseUnifiedSymbol, roundToLot, roundToTick, unifiedSymbol, venueSymbolBody } from './market.js';
 import { isCrossed, midFromSnapshot, topOfBook } from './book.js';
 import { annualisedFundingRate } from './rates.js';
 import { assertTradeOnly, requireCredentials, type VenueCredentials } from './adapter.js';
@@ -359,5 +359,14 @@ describe('LatencyMeasurement — closed union of REST and WS handshake', () => {
     };
     expect(nameOf('rest-round-trip')).toBe('rest');
     expect(nameOf('ws-round-trip')).toBe('ws');
+  });
+});
+
+describe('venueSymbolBody', () => {
+  it("drops a HIP-3 market's lower-case DEX prefix and nothing else", () => {
+    expect(venueSymbolBody('xyz:TSLA-PERP')).toBe('TSLA-PERP');
+    expect(venueSymbolBody('BTC-PERP')).toBe('BTC-PERP');
+    expect(venueSymbolBody('XYZ:TSLA-PERP')).toBe('XYZ:TSLA-PERP');
+    expect(venueSymbolBody('a:b:C')).toBe('b:C');
   });
 });

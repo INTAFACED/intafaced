@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { compare, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
-import type { UserVenueMarket } from '@intafaced/venue-contracts';
+import { venueSymbolBody, type UserVenueMarket } from '@intafaced/venue-contracts';
 import { feeScheduleRowAt } from '../spot/fee-schedule-store.js';
 
 /**
@@ -13,6 +13,7 @@ import { feeScheduleRowAt } from '../spot/fee-schedule-store.js';
  *   "builderFees": {
  *     "<venueId>": {
  *       "defaultGroup": "all-markets",                 every market of the venue not named below
+ *       "kindGroups": { "perpetual": "perps", "spot": "spot" },  optional: every market of that kind not named by symbol
  *       "marketGroups": { "BTC-PERP": "perpetuals" },  venue symbol → group
  *       "groups": { "all-markets": "1.5", "perpetuals": "0.5" }   bps of notional, exact decimal strings
  *     }
@@ -43,8 +44,13 @@ export class BuilderFeeVersionError extends Error {
   }
 }
 
+export type BuilderFeeMarketKind = UserVenueMarket['kind'];
+const isKind = (v: string): v is BuilderFeeMarketKind => v === 'spot' || v === 'perpetual';
+
 export interface VenueBuilderFees {
   readonly defaultGroup: string;
+  /** Every market of a kind not named in `marketGroups`: a venue's perp and spot fees differ. */
+  readonly kindGroups: ReadonlyMap<BuilderFeeMarketKind, string>;
   readonly marketGroups: ReadonlyMap<string, string>;
   /** Scaled decimal bps, as `PlaceUserOrderIntent.builderFee.feeBps`. */
   readonly groups: ReadonlyMap<string, Amount>;
@@ -74,7 +80,8 @@ export function parseBuilderFees(raw: unknown): BuilderFeeBook | null {
     if (!rec(entry)) blank(`builderFees.${venueId} must be an object`);
     const e = entry as Record<string, unknown>;
     for (const key of Object.keys(e))
-      if (key !== 'defaultGroup' && key !== 'marketGroups' && key !== 'groups') blank(`builderFees.${venueId}.${key} is not a field`);
+      if (key !== 'defaultGroup' && key !== 'kindGroups' && key !== 'marketGroups' && key !== 'groups')
+        blank(`builderFees.${venueId}.${key} is not a field`);
     if (!rec(e.groups) || Object.keys(e.groups).length === 0) blank(`builderFees.${venueId}.groups must name at least one group`);
     const groups = new Map<string, Amount>();
     for (const [group, rate] of Object.entries(e.groups as Record<string, unknown>)) {
@@ -90,21 +97,39 @@ export function parseBuilderFees(raw: unknown): BuilderFeeBook | null {
     if (e.marketGroups !== undefined) {
       if (!rec(e.marketGroups)) blank(`builderFees.${venueId}.marketGroups must be an object of symbol to group`);
       for (const [symbol, group] of Object.entries(e.marketGroups as Record<string, unknown>)) {
-        if (!ID.test(symbol)) blank(`builderFees.${venueId}.marketGroups names a symbol that is not an id: ${JSON.stringify(symbol)}`);
+        if (!ID.test(venueSymbolBody(symbol)))
+          blank(`builderFees.${venueId}.marketGroups names a symbol that is not an id: ${JSON.stringify(symbol)}`);
         if (typeof group !== 'string' || !groups.has(group)) blank(`builderFees.${venueId}.marketGroups.${symbol} names no group of it`);
         marketGroups.set(symbol, group as string);
       }
     }
-    book.set(venueId, { defaultGroup: e.defaultGroup as string, marketGroups, groups });
+    const kindGroups = new Map<BuilderFeeMarketKind, string>();
+    const rawKinds = e.kindGroups;
+    if (rawKinds !== undefined) {
+      if (!rec(rawKinds)) return blank(`builderFees.${venueId}.kindGroups must be an object of market kind to group`);
+      for (const [kind, group] of Object.entries(rawKinds)) {
+        if (!isKind(kind))
+          return blank(`builderFees.${venueId}.kindGroups names a kind that is not spot or perpetual: ${JSON.stringify(kind)}`);
+        if (typeof group !== 'string' || !groups.has(group)) return blank(`builderFees.${venueId}.kindGroups.${kind} names no group of it`);
+        kindGroups.set(kind, group);
+      }
+    }
+    book.set(venueId, { defaultGroup: e.defaultGroup as string, kindGroups, marketGroups, groups });
   }
   return book;
 }
 
-/** The group and fee `book` sets for `symbol` on `venueId`; null when the book names no fees for that venue. */
-export function builderFeeOf(book: BuilderFeeBook | null, venueId: string, symbol: string): { group: string; feeBps: Amount } | null {
+/**
+ * The group and fee `book` sets for `symbol` (a market of `kind`) on `venueId`: its own group, else its kind's, else the
+ * default. Null when the book names no fees for that venue.
+ */
+export function builderFeeOf(
+  book: BuilderFeeBook | null,
+  { venueId, symbol, kind }: { readonly venueId: string; readonly symbol: string; readonly kind: BuilderFeeMarketKind },
+): { group: string; feeBps: Amount } | null {
   const venue = book?.get(venueId);
   if (!venue) return null;
-  const group = venue.marketGroups.get(symbol) ?? venue.defaultGroup;
+  const group = venue.marketGroups.get(symbol) ?? venue.kindGroups.get(kind) ?? venue.defaultGroup;
   const feeBps = venue.groups.get(group);
   // parseBuilderFees only admits groups it holds; a missing one is a stored book this code did not write.
   if (feeBps === undefined)
@@ -134,7 +159,7 @@ export function assertWithinVenueCaps(
       if (!listed.has(symbol)) throw new BuilderFeeVersionError('trade.builder_fee_market_unknown', `${venueId} lists no market ${symbol}`);
     }
     for (const market of venue.markets) {
-      const fee = builderFeeOf(book, venueId, market.symbol)!;
+      const fee = builderFeeOf(book, { venueId, symbol: market.symbol, kind: market.kind })!;
       // A venue (or an older venue server) that sends no cap at all publishes none.
       const cap = market.builderFeeCapBps ?? { known: false };
       if (!cap.known) {

@@ -1,26 +1,24 @@
+// volt-room: /pay/developer/webhooks
+// volt-room: portal:developer-webhooks
 import { useState } from 'react';
-import { Button, Checkbox } from '@intafaced/ui';
-import { Field } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { ListShell, MoreFooter, SelectField } from '../../components';
-import { EntityList } from '../../ui/EntityList';
 import { DateTime } from '../../ui/DateTime';
-import { Freshness } from '../../ui/Freshness';
-import { KpiStrip } from '../../ui/Kpi';
-import { PortalReview } from '../../ui/PortalReview';
-import { StatusChip } from '../../ui/StatusChip';
 import { useUrlParam } from '../../hooks';
 import { useServerList } from '../../ui/useServerList';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
+import { DeveloperRoom } from './DeveloperRoom';
+import { canManageWebhooks } from './model';
 import { endpointNeedsAttention, shownEndpointUrl, webhookUrlProblem } from './model';
 import { SecretReveal, type Revealed } from './SecretReveal';
 import type { Endpoint, Health } from './schemas';
+import { Button, Checkbox, Field } from '@intafaced/ui/lit';
+import { EntityList, Freshness, KpiStrip, ListShell, MoreFooter, Section, SelectField, StatusChip } from '../../volt/parts';
+import { Review } from '../../volt/Review';
 
 type HealthResource = Resource<Health>;
 
-export function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boolean }) {
+function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boolean }) {
   const { t } = c.useCopy();
   const [q, setQ] = useUrlParam('q');
   const [status, setStatus] = useUrlParam('status');
@@ -36,19 +34,19 @@ export function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boo
     health.reload();
   };
   return (
-    <div className="stack">
+    <div>
       {revealed && <SecretReveal {...revealed} onHide={() => setRevealed(null)} />}
       <HealthStrip resource={health.resource} />
-      <PaySection
+      <Section
         title={t('endpointsTitle')}
         description={t('endpointsBody')}
         action={
-          <Button variant="secondary" onClick={reloadAll}>
+          <Button tone="secondary" onClick={reloadAll}>
             {t('refresh')}
           </Button>
         }
       >
-        <div className="pp-filter-row" role="search" aria-label={t('endpointsTitle')}>
+        <div className="lt-toolbar" role="search" aria-label={t('endpointsTitle')}>
           <Field label={t('search')} value={q} onChange={(e) => setQ(e.target.value)} hint={t('endpointSearchHint')} />
           <SelectField
             label={t('colStatus')}
@@ -69,7 +67,7 @@ export function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boo
             body: q || status ? t('noEndpointsMatchBody') : t('noEndpointsBody'),
             action:
               q || status ? undefined : (
-                <a className="text-link" href="#add">
+                <a className="lt-link" href="#add">
                   {t('addEndpoint')}
                 </a>
               ),
@@ -87,38 +85,31 @@ export function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boo
                     header: t('colAddress'),
                     cell: (e) => (
                       <>
-                        <strong className="pp-wrap">{shownEndpointUrl(e.url)}</strong>
-                        {endpointNeedsAttention(e) && (
-                          <small className="pay-cell-note">{t('failingNote', { n: e.consecutiveFailures })}</small>
-                        )}
+                        <strong className="lt-mono">{shownEndpointUrl(e.url)}</strong>
+                        {endpointNeedsAttention(e) && <small className="lt-hint">{t('failingNote', { n: e.consecutiveFailures })}</small>}
                       </>
                     ),
                   },
                   {
                     header: t('colEvents'),
-                    cell: (e) => <span className="pp-wrap">{e.eventTypes ? e.eventTypes.join(', ') : t('allEventTypes')}</span>,
+                    cell: (e) => <span className="lt-mono">{e.eventTypes ? e.eventTypes.join(', ') : t('allEventTypes')}</span>,
                   },
                   { header: t('colStatus'), cell: (e) => <StatusChip entity="endpoint" value={e.status} /> },
                   {
                     header: t('colLastDelivered'),
                     cell: (e) => {
                       const at = lastDelivered(health.resource, e.id);
-                      return at ? <DateTime value={at} /> : <span className="muted">{t('noneYet')}</span>;
+                      return at ? <DateTime value={at} /> : <span className="lt-hint">{t('noneYet')}</span>;
                     },
                   },
                   { header: t('colChanged'), cell: (e) => <DateTime value={e.updatedAt} /> },
                 ]}
-                card={(e) => ({
-                  title: <span className="pp-wrap">{shownEndpointUrl(e.url)}</span>,
-                  time: endpointNeedsAttention(e) ? t('failingNote', { n: e.consecutiveFailures }) : undefined,
-                  status: <StatusChip entity="endpoint" value={e.status} />,
-                })}
               />
               {list.state.status === 'ready' && <MoreFooter state={list.state} onMore={list.loadMore} />}
             </>
           )}
         </ListShell>
-      </PaySection>
+      </Section>
       <div id="add">
         <AddEndpoint
           api={api}
@@ -143,7 +134,7 @@ export function HealthStrip({ resource }: { resource: HealthResource }) {
   if (resource.status === 'loading') return null;
   if (resource.status === 'failed')
     return (
-      <p className="muted" role="status">
+      <p className="lt-hint" role="status">
         {t('healthUnavailable')}
       </p>
     );
@@ -197,19 +188,19 @@ export function AddEndpoint({
   const problem = url.trim() ? webhookUrlProblem(url) : null;
   const cap = policy.resource.status === 'ready' ? policy.resource.data.endpointCap : undefined;
   return (
-    <PaySection title={t('addEndpoint')} description={t('addEndpointBody')}>
+    <Section title={t('addEndpoint')} description={t('addEndpointBody')}>
       {!canManage && (
-        <p className="pp-callout" role="status">
+        <p className="lt-hint" role="status">
           {t('readOnlyRole')}
         </p>
       )}
       {cap === null && (
-        <p className="pp-callout" role="status" data-testid="webhook-cap-unset">
+        <p className="lt-hint" role="status" data-testid="webhook-cap-unset">
           {t('capUnset')}
         </p>
       )}
-      {typeof cap === 'number' && <p className="muted">{t('capShown', { n: cap })}</p>}
-      <div data-testid="form-stack" className="form-stack pp-form">
+      {typeof cap === 'number' && <p className="lt-hint">{t('capShown', { n: cap })}</p>}
+      <div data-testid="form-stack">
         <Field
           label={t('urlLabel')}
           hint={t('urlHint')}
@@ -220,36 +211,36 @@ export function AddEndpoint({
           error={problem ? t(`errUrl_${problem}`) : undefined}
           onChange={(e) => setUrl(e.target.value)}
         />
-        <fieldset className="pp-fieldset" disabled={!canManage} data-testid="webhook-event-types">
+        <fieldset disabled={!canManage} data-testid="webhook-event-types">
           <legend>{t('eventTypesLabel')}</legend>
-          <p className="muted">{t('eventTypesHint')}</p>
-          {catalogue.resource.status === 'loading' && <p className="muted">{t('eventTypesLoading')}</p>}
+          <p className="lt-hint">{t('eventTypesHint')}</p>
+          {catalogue.resource.status === 'loading' && <p className="lt-hint">{t('eventTypesLoading')}</p>}
           {catalogue.resource.status === 'failed' && (
-            <p className="pp-callout" role="status">
+            <p className="lt-hint" role="status">
               {t('eventTypesUnavailable')}
             </p>
           )}
           {types.map((type) => (
-            <label key={type} className="pp-check">
-              <Checkbox
-                checked={chosen.includes(type)}
-                onCheckedChange={(on) => setUnticked(on ? unticked.filter((x) => x !== type) : [...new Set([...unticked, type])])}
-              />
-              <span>{type}</span>
-            </label>
+            <Checkbox
+              key={type}
+              checked={chosen.includes(type)}
+              onCheckedChange={(on) => setUnticked(on ? unticked.filter((x) => x !== type) : [...new Set([...unticked, type])])}
+            >
+              {type}
+            </Checkbox>
           ))}
         </fieldset>
-        <PortalReview
+        <Review
           title={t('addEndpointAction')}
           variant="primary"
           description={t('addEndpointReview')}
           disabled={!canManage || !url.trim() || Boolean(problem) || chosen.length === 0}
           disabledReason={!canManage ? t('readOnlyRole') : chosen.length === 0 ? t('eventTypesPickOne') : t('urlFixFirst')}
           review={
-            <dl className="pay-details">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('colAddress')}</dt>
-                <dd className="pp-wrap">{shownEndpointUrl(url.trim())}</dd>
+                <dd className="lt-mono">{shownEndpointUrl(url.trim())}</dd>
               </div>
               <div>
                 <dt>{t('colEvents')}</dt>
@@ -265,6 +256,16 @@ export function AddEndpoint({
           }}
         />
       </div>
-    </PaySection>
+    </Section>
+  );
+}
+
+/** `/pay/developer/webhooks` on the settings template. */
+export function WebhooksRoom() {
+  const { t } = c.useCopy();
+  return (
+    <DeveloperRoom room="developer-webhooks" explain={<p>{t('webhooksExplain')}</p>}>
+      {(api, { role }) => <Webhooks api={api} canManage={canManageWebhooks(role)} />}
+    </DeveloperRoom>
   );
 }

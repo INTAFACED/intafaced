@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { IDENTITY_KYC_LIST_DOCUMENTS } from '@intafaced/contracts/identity-kyc-procedures';
 import {
   IDENTITY_KYC_DOCUMENTS_LIST_LIMIT_UNSET,
   KYC_DOCUMENTS_LIST_LIMIT_MAX,
@@ -39,9 +40,13 @@ describe('kyc.listDocuments / listMetaForUser limit unset refuse (no invented pa
     const src = readFileSync(join(HERE, '../router.ts'), 'utf8');
     expect(src).not.toMatch(/listMetaForUser\(input\.userId\)\)/);
     expect(src).toMatch(/listMetaForUser\(input\.userId, input\.limit\)/);
-    expect(src).not.toMatch(/listDocuments:[\s\S]{0,400}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.optional\(\)/);
-    expect(src).not.toMatch(/listDocuments:[\s\S]{0,400}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.default\(/);
-    expect(src).toMatch(/listDocuments:[\s\S]{0,400}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)/);
+    expect(src).toMatch(/listDocuments: mountRecord\(\s*IDENTITY_KYC_LIST_DOCUMENTS,/);
+    expect(IDENTITY_KYC_LIST_DOCUMENTS.access).toEqual({ caller: 'scope', scope: 'admin:compliance' });
+    // The record is the input schema: the limit is required, an integer in 1..200, with no default.
+    for (const limit of [1, 200])
+      expect(IDENTITY_KYC_LIST_DOCUMENTS.input.safeParse({ userId: '11111111-1111-4111-8111-111111111111', limit }).success).toBe(true);
+    for (const limit of [undefined, null, 0, 201, 1.5])
+      expect(IDENTITY_KYC_LIST_DOCUMENTS.input.safeParse({ userId: '11111111-1111-4111-8111-111111111111', limit }).success).toBe(false);
     expect(src).not.toMatch(/\?\? 50|\?\? 100/);
   });
 

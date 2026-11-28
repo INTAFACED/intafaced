@@ -1,0 +1,75 @@
+name: Beta screening seal
+
+# Puts the TEST screening fixture and the owner's four vendor keys on the beta link's box (docs/runbooks/beta-link.md,
+# "When it is not up" and "The owner's vendor keys") without anyone seeing them: the run encrypts the repository secrets
+# INTAFACED_SANCTIONS_REGIONS and INTAFACED_SANCTIONS_LIST_SOURCE, and TURNKEY_ORGANIZATION_ID, TURNKEY_API_PUBLIC_KEY,
+# TURNKEY_API_PRIVATE_KEY and OPENSANCTIONS_API_KEY, to the box's RSA public key committed at tooling/beta/seal.pub.pem
+# (its private key never leaves the box), and uploads only the ciphertext, kept one day. It takes no input, so only a key
+# reviewed onto main can receive them. The box downloads it and decrypts it straight into
+# ~/.intafaced/beta/state/screening.local.json and vendors.local.json (mode 600). No value reaches a log, the artifact in
+# clear, or a chat. intafaced has no self-hosted runner, so nothing here can write to the box itself. (Failure it
+# prevents: the beta link read "blocked" from 21 Nov 2026 because the fixture lived only in these secrets. The owner's
+# decisions: tooling/ci/ci-review/REVIEW.md's entry of 2026-11-22 for the fixture, and project-state decision PR #4050
+# for the vendor keys, his words of 25 Nov 2026: "Yes, CI and the beta may use my Turnkey and OpenSanctions keys".)
+#
+# Ends: with one dispatch on main: one run, seconds long.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  seal:
+    name: Seal the TEST screening fixture and the vendor keys to the box's key
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5 # healthy run: seconds
+    permissions: {}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: tooling/beta/seal.pub.pem
+          sparse-checkout-cone-mode: false
+      - name: Encrypt the six secrets to the box's public key
+        env:
+          REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+          SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+          TURNKEY_ORGANIZATION_ID: ${{ secrets.TURNKEY_ORGANIZATION_ID }}
+          TURNKEY_API_PUBLIC_KEY: ${{ secrets.TURNKEY_API_PUBLIC_KEY }}
+          TURNKEY_API_PRIVATE_KEY: ${{ secrets.TURNKEY_API_PRIVATE_KEY }}
+          OPENSANCTIONS_API_KEY: ${{ secrets.OPENSANCTIONS_API_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for name in REGIONS SOURCE TURNKEY_ORGANIZATION_ID TURNKEY_API_PUBLIC_KEY TURNKEY_API_PRIVATE_KEY OPENSANCTIONS_API_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::the secret behind $name is unset"
+              exit 1
+            fi
+          done
+          mkdir -p "$RUNNER_TEMP/seal" sealed
+          pub=tooling/beta/seal.pub.pem
+          bits=$(openssl pkey -pubin -in "$pub" -text -noout | sed -n 's/.*(\([0-9]*\) bit).*/\1/p' | head -1)
+          if [ "${bits:-0}" -lt 3072 ]; then
+            echo "::error::the public key is not an RSA key of at least 3072 bits"
+            exit 1
+          fi
+          # A fresh one-time AES key, itself sealed to the box's RSA key (OAEP, SHA-256).
+          openssl rand -hex 32 > "$RUNNER_TEMP/seal/k"
+          jq -cn --arg regions "$REGIONS" --arg source "$SOURCE" '{regions: $regions, source: $source}' \
+            | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$RUNNER_TEMP/seal/k" -out sealed/fixture.enc
+          # Read from the step's environment, never a command line.
+          jq -cn 'env | {TURNKEY_ORGANIZATION_ID, TURNKEY_API_PUBLIC_KEY, TURNKEY_API_PRIVATE_KEY, OPENSANCTIONS_API_KEY}' \
+            | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$RUNNER_TEMP/seal/k" -out sealed/vendors.enc
+          openssl pkeyutl -encrypt -pubin -inkey "$pub" \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+            -in "$RUNNER_TEMP/seal/k" -out sealed/key.enc
+          rm -f "$RUNNER_TEMP/seal/k"
+          echo "sealed: $(wc -c < sealed/fixture.enc) and $(wc -c < sealed/vendors.enc) bytes of ciphertext, key for a ${bits}-bit RSA key"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: beta-screening-sealed
+          path: sealed/
+          retention-days: 1
+          if-no-files-found: error

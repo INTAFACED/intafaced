@@ -1,13 +1,16 @@
 // Customer words for every refusal the Copy and Bots rooms can meet. A screen shows these, never the service's own
 // sentence (those carry internal desk-law wording). Codes not listed here fall to the shared table in data/refusals.ts.
 // The raw code is only offered as a small "Ref" line for support.
-import type { ApiResult } from '../../../shared/api';
+import { LEAD_ORDER_REFUSALS } from '../../../features/trade/lead-mode';
+import { isVerifyFirst, type ApiResult } from '../../../shared/api';
 import { refusalCopy } from '../../../data';
 import type { RefusalCopy } from '../../../data';
 
 type Words = { title: string; body: string };
 
 const COPY: Readonly<Record<string, Words>> = {
+  // A listed lead's lead trades (J-copy-bots-otc-04 #5 to #7): the same words the order ticket shows.
+  ...LEAD_ORDER_REFUSALS,
   'trade.copy_jurisdiction_blank': {
     title: 'Copy trading isn’t open for your country',
     body: 'The list of countries where it can be offered hasn’t been approved. Nothing was followed and no money moved.',
@@ -27,6 +30,18 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_unavailable': {
     title: 'Copy trading isn’t available right now',
     body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
+  },
+  'trade.copy_venue_wallet_rejected': {
+    title: 'Your wallet did not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed.',
+  },
+  'trade.copy_venue_wallet_failed': {
+    title: 'Your wallet could not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed. Try again.',
+  },
+  'trade.copy_venue_refused': {
+    title: 'The venue refused it',
+    body: 'Your wallet signed, but the venue did not accept it, so nothing is followed. Try again.',
   },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },
@@ -211,6 +226,38 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'The price difference has no basis points',
     body: 'The leader price was zero, so the difference in basis points is not shown.',
   },
+  'trade.copy_mode_owner_decision': {
+    title: 'Multiplier sizing is not offered: the platform has not decided it.',
+    body: 'Choose smart sync or a fixed amount. Nothing was followed.',
+  },
+  'trade.copy_mode_locked': {
+    title: 'The sizing mode can’t change while the follow is active.',
+    body: 'Stop this follow and start a new one to use another mode. Nothing was changed.',
+  },
+  'trade.copy_smart_sync_unavailable': {
+    title: 'Smart sync can’t size copies of this leader',
+    body: 'The leader holds nothing in this asset right now, so there is nothing to scale by. Use a fixed amount. Nothing was followed.',
+  },
+  'trade.copy_min_not_set': {
+    title: 'Copy trading has no minimum investment set',
+    body: 'The platform hasn’t set the smallest amount a copy may use, so no copy can start. Nothing was followed.',
+  },
+  'trade.copy_below_min_investment': {
+    title: 'That is below the minimum investment',
+    body: 'Raise the most in total to at least the minimum shown. Nothing was followed.',
+  },
+  'trade.copy_day_not_set': {
+    title: 'A daily limit can’t be counted',
+    body: 'The platform hasn’t set when a copy day starts. Leave the most per day blank. Nothing was changed.',
+  },
+  'trade.copy_market_cap_reached': {
+    title: 'That copy would pass your most per contract',
+    body: 'Copies in this market stop here; copies in your other markets go on.',
+  },
+  'trade.copy_daily_cap_reached': {
+    title: 'That copy would pass your most per day',
+    body: 'Copying resumes when the next copy day starts.',
+  },
   'trade.copy_slippage_exceeded': {
     title: 'That copy is too far from the leader’s price',
     body: 'The price difference is above the slippage limit you set, so the order was not placed.',
@@ -262,6 +309,26 @@ const COPY: Readonly<Record<string, Words>> = {
   },
   'trade.copy_lead_application_decided': { title: 'That application is decided', body: 'Read it again to see the decision.' },
   'trade.copy_lead_application_not_found': { title: 'That application wasn’t found', body: 'Read the page again.' },
+  'trade.copy_lead_following': {
+    title: 'Leave your leader first',
+    body: 'You are following a leader. Leave that leader before you apply to lead. Nothing was sent.',
+  },
+  'trade.copy_lead_balance_threshold_unset': {
+    title: 'Applying to lead is closed',
+    body: 'The least venue balance to lead is not set by the platform, so no application can be measured. Nothing was sent.',
+  },
+  'trade.copy_lead_venue_account_missing': {
+    title: 'Connect your venue account first',
+    body: 'Connect the wallet whose venue account you will lead from, on the trading desk, and sign once with it. Nothing was sent.',
+  },
+  'trade.copy_lead_venue_unreadable': {
+    title: 'Your venue account could not be read',
+    body: 'The trading venue did not answer, so your balance could not be measured. Nothing was sent.',
+  },
+  'trade.copy_lead_balance_below': {
+    title: 'Your venue balance is under the threshold',
+    body: 'Your venue account holds less than leading needs, as the venue reports it. Nothing was sent.',
+  },
 };
 
 const DEVICE: Readonly<Record<string, Words>> = {
@@ -398,6 +465,38 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'The grid could not start',
     body: 'Its levels could not all be placed, so every placed order was cancelled and the reserve was released.',
   },
+  'trade.bots_grid_wallet_required': {
+    title: 'Connect your wallet',
+    body: 'The bot trades on your own venue account, so connect the wallet that holds it. Nothing was created.',
+  },
+  'trade.bots_grid_builder_fee_unapproved': {
+    title: 'Approve our builder fee first',
+    body: 'Every sell the grid places carries our builder fee, so your wallet approves it once on your venue account. Nothing was created.',
+  },
+  'trade.bots_grid_wallet_rejected': {
+    title: 'You rejected the signature',
+    body: 'Your wallet did not sign the agent permission, so the bot placed nothing. Create it again to sign.',
+  },
+  'trade.bots_grid_wallet_failed': {
+    title: 'Your wallet did not answer',
+    body: 'Nothing was signed, so the bot placed nothing. Check your wallet and try again.',
+  },
+  'trade.bots_grid_not_signing': {
+    title: 'The agent permission is no longer asked for',
+    body: 'Refresh to see the bot as it is now. Nothing more was sent.',
+  },
+  'trade.bots_grid_venue_unreadable': {
+    title: 'The venue could not be read',
+    body: 'Your balance on the venue could not be read just now, so nothing was created. Try again in a moment.',
+  },
+  'trade.bots_grid_agent_key_unset': {
+    title: 'Grids on the venue are not set up',
+    body: 'The platform has not set up the key a grid signs with, so no grid runs on the venue. Nothing was created.',
+  },
+  'trade.bots_grid_withdraw_not_permitted': {
+    title: 'A bot can’t withdraw',
+    body: 'Its agent permission can’t withdraw. You withdraw from the venue with your own wallet. Nothing was moved.',
+  },
   'trade.grid_tick_failed': {
     title: 'The grid could not check its orders',
     body: 'It tries again on its next check. Your reserve and orders stay as they are.',
@@ -493,6 +592,73 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'Trailing isn’t built',
     body: 'Your settings passed every check, but a grid can’t trail the price. It keeps its range. Nothing was changed.',
   },
+  'trade.bots_grid_rsi_source_not_set': {
+    title: 'An RSI exit can’t be saved',
+    body: 'No RSI source is connected, so the bot can’t read RSI. Nothing was saved.',
+  },
+  'trade.bots_grid_exit_price_invalid': {
+    title: 'Check the exit prices',
+    body: 'Each exit is a price above zero, and the falls-to price must be below the rises-to price. Nothing was saved.',
+  },
+  'trade.bots_grid_idle_yield_unwired': {
+    title: 'Earning on idle funds isn’t connected',
+    body: 'A grid earns on its idle funds only through the bank’s earn service, which isn’t connected here. Nothing was moved.',
+  },
+  // The recurring buy (J-copy-bots-otc-16). The editor adds which row or what total, from what the person typed.
+  'trade.recurring_weights_not_100': {
+    title: 'The weights must add up to 100%',
+    body: 'Change the weights so they total exactly 100%. Nothing was saved.',
+  },
+  'trade.recurring_price_range_inverted': {
+    title: 'Check the price range',
+    body: 'The lowest price must be below the highest price. Nothing was saved.',
+  },
+  'trade.recurring_card_funding_off': {
+    title: 'Card funding is switched off',
+    body: 'Card funding needs the card processor, which is switched off in this build. Nothing was saved.',
+  },
+  'trade.recurring_field_invalid': {
+    title: 'Check the form',
+    body: 'Each amount and weight is a number above zero. Nothing was saved.',
+  },
+  'trade.recurring_market_not_found': {
+    title: 'That coin can’t be bought here',
+    body: 'Choose a coin the venue lists as an open spot market. Nothing was saved.',
+  },
+  'trade.recurring_wallet_required': {
+    title: 'Connect your wallet',
+    body: 'A recurring buy trades on your own venue account. Nothing was saved.',
+  },
+  'trade.recurring_builder_fee_unapproved': {
+    title: 'Approve our builder fee first',
+    body: 'Ending a recurring buy sells what it bought, and every sell carries our builder fee. Nothing was saved.',
+  },
+  'trade.recurring_agent_key_unset': {
+    title: 'Recurring buys aren’t set up here',
+    body: 'The key that places a recurring buy’s orders hasn’t been set. Nothing was saved.',
+  },
+  'trade.recurring_not_signing': {
+    title: 'The permission isn’t needed now',
+    body: 'This recurring buy already has its permission, or has ended. Nothing was sent.',
+  },
+  'trade.recurring_ended': { title: 'This recurring buy has ended', body: 'Nothing was changed.' },
+  'trade.recurring_not_found': { title: 'We couldn’t find that recurring buy', body: 'Check your recurring buys and try again.' },
+  'trade.recurring_request_conflict': {
+    title: 'That request was already used',
+    body: 'Open the form again to set up a new recurring buy. Nothing was saved.',
+  },
+  'trade.recurring_unavailable': {
+    title: 'Recurring buys aren’t available right now',
+    body: 'A recurring buy trades on your own venue account, and no venue is connected here. Nothing was saved.',
+  },
+  'trade.recurring_wallet_rejected': {
+    title: 'Your wallet did not sign',
+    body: 'Nothing is bought until your wallet signs the permission. Your recurring buy is saved and waits for it.',
+  },
+  'trade.recurring_wallet_failed': {
+    title: 'Your wallet could not sign',
+    body: 'Nothing is bought until your wallet signs the permission. Try again.',
+  },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',
     body: 'The grid service isn’t switched on here. Nothing was created.',
@@ -547,6 +713,8 @@ const SIGNALS: Readonly<Record<string, Words>> = {
 };
 
 export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>): RefusalCopy & { code: string | null } {
+  // A refusal for want of verification carries no code to show: its words and link are the app's one ask to verify.
+  if (isVerifyFirst(failure)) return { ...refusalCopy('denied.kyc_required'), code: null };
   const code = failure.code ?? null;
   const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code] ?? SIGNALS[code]) : undefined;
   if (words) return { ...words, code };

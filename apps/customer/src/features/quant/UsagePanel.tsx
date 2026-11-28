@@ -1,9 +1,11 @@
-import { quantQuotaSchema } from '@intafaced/contracts/quant-algo';
-import { DataTable, Panel } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
-import { Read } from '../more/common';
-import { useApi } from '../session/session';
+import { ReadView } from '../../shared/record/record-parts';
+import { useApi } from '../session';
 import { usageCopy } from './usage-copy';
+import { limitsCopy } from './limits-copy';
+import { limitText, readTime } from './limit-words';
+import { limitWords } from './LimitsRoom';
+import { QUANT_QUOTA_GET } from '@intafaced/contracts/quant-quota-procedures';
 
 /**
  * The usage view (AL-limits-01): each resource with what the account holds, counted from the stored rows, against its
@@ -11,41 +13,62 @@ import { usageCopy } from './usage-copy';
  */
 export function UsagePanel({ revision }: { revision: number }) {
   const api = useApi();
-  const { t } = usageCopy.useCopy();
-  const usage = useResource(
-    (signal) => api.query('quant', 'quota.get', undefined, quantQuotaSchema, { signal }),
-    `quant-usage:${revision}`,
-  );
+  const { t, requestedLocale } = usageCopy.useCopy();
+  const limits = limitsCopy.useCopy();
+  const words = limitWords(limits.t);
+  // Storage is counted in bytes; every other resource is a count.
+  const amount = (resource: string, value: string) => limitText(value, resource === 'storage' ? 'bytes' : 'count', words);
+  const usage = useResource((signal) => api.call(QUANT_QUOTA_GET, undefined, { signal }), `quant-usage:${revision}`);
   return (
-    <Panel title={t('title')}>
+    <section>
+      <h2>{t('title')}</h2>
       <section data-testid="quant-usage" aria-label={t('title')}>
-        <p className="muted">{t('intro')}</p>
-        <Read resource={usage.resource} retry={usage.reload}>
+        <p className="lt-hint">{t('intro')}</p>
+        <ReadView resource={usage.resource} retry={usage.reload}>
           {(data) => (
             <>
               {data.profile ? (
                 <p data-testid="quant-usage-plan" data-profile={data.profile} data-source={data.source ?? ''}>
-                  {t('plan', { profile: data.profile })} ({data.source === 'assigned' ? t('planAssigned') : t('planDefault')})
+                  {t('plan', { profile: data.profile })}
                 </p>
               ) : (
                 <p data-testid="quant-usage-plan" data-profile="" role="status">
                   {t('planUnset')}
                 </p>
               )}
-              <DataTable label={t('title')} headers={[t('resource'), t('used'), t('limit')]}>
-                {data.resources.map((row) => (
-                  <tr key={row.resource} data-resource={row.resource} data-used={row.used} data-limit={row.limit ?? ''}>
-                    <th scope="row">{t(row.resource)}</th>
-                    <td lang="zxx">{row.used}</td>
-                    <td>{row.limit === null ? t('notSet') : <span lang="zxx">{row.limit}</span>}</td>
-                  </tr>
-                ))}
-              </DataTable>
-              <p className="muted">{t('asOf', { at: data.asOf.slice(0, 16).replace('T', ' ') })}</p>
+              <div>
+                <table className="lt-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('resource')}</th>
+                      <th scope="col" data-align="end">
+                        {t('used')}
+                      </th>
+                      <th scope="col" data-align="end">
+                        {t('limit')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.resources.map((row) => (
+                      <tr key={row.resource} data-resource={row.resource} data-used={row.used} data-limit={row.limit ?? ''}>
+                        <th scope="row">{t(row.resource)}</th>
+                        <td data-align="end">{amount(row.resource, row.used)}</td>
+                        <td data-align="end">{row.limit === null ? t('notSet') : amount(row.resource, row.limit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="lt-hint">{t('asOf', { at: readTime(data.asOf, requestedLocale) })}</p>
+              {/* The sandbox limits each run meets are on their own page (J-algo-dev-12 #4). */}
+              <a className="lt-link" href="/quant/limits" data-testid="quant-usage-limits-link">
+                {limits.t('openLimits')}
+              </a>
             </>
           )}
-        </Read>
+        </ReadView>
       </section>
-    </Panel>
+    </section>
   );
 }

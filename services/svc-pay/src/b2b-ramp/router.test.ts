@@ -292,7 +292,7 @@ describe('b2b ramp route inventory', () => {
       founderAuthority: createFounderAuthority({ ...identity, fetcher: vi.fn() }),
       env: off,
     });
-    const paths = Object.keys((ramp as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures).sort();
+    const paths = Object.keys((ramp as { _def: { procedures: Record<string, unknown> } })._def.procedures).sort();
     expect(paths).toEqual(['b2bRamp.credit', 'b2bRamp.founderStatus', 'b2bRamp.get', 'b2bRamp.status']);
   });
 

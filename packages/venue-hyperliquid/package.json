@@ -9,19 +9,27 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./wallet-reads": {
+      "types": "./dist/wallet-reads.d.ts",
+      "default": "./dist/wallet-reads.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "build": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json",
+    "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "conformance:live": "tsx scripts/live-conformance.ts",
     "testnet:setup": "tsx scripts/testnet-setup.ts",
     "live:steps": "tsx scripts/live-steps.ts",
-    "clean": "rimraf dist .turbo"
+    "clean": "rimraf dist .turbo",
+    "testnet:send": "tsx scripts/testnet-send.ts",
+    "record:order": "tsx scripts/record-order.ts",
+    "faucet:activate": "tsx scripts/faucet-activate.ts"
   },
   "dependencies": {
+    "@intafaced/contracts": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/venue-contracts": "workspace:*",
     "@nktkas/hyperliquid": "0.33.3",

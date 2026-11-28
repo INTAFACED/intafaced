@@ -1,4 +1,3 @@
-import { isRecord } from '@intafaced/contracts/guards';
 /**
  * Satisfaction ratings for the requests solved in a stated window: the strict reader for svc-support's `ratingSummary`
  * and the plain-words figures the card shows.
@@ -27,30 +26,6 @@ const DAY_MS = 86_400_000;
 
 export function ratingWindow(days: WindowDays, now: Date): { readonly from: string; readonly to: string } {
   return { from: new Date(now.getTime() - days * DAY_MS).toISOString(), to: now.toISOString() };
-}
-
-const count = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
-const instant = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
-
-export function readRatingSummary(raw: unknown): SupportRatingSummary | null {
-  if (!isRecord(raw)) return null;
-  const { from, to, solved, responses, perScore, ratedShareBasisPoints } = raw;
-  if (!instant(from) || !instant(to) || !count(solved) || !count(responses) || !isRecord(perScore)) return null;
-  const scores = {} as Record<ScoreKey, number>;
-  let total = 0;
-  for (const key of SCORES) {
-    const n = perScore[key];
-    if (!count(n)) return null;
-    scores[key] = n;
-    total += n;
-  }
-  if (total !== responses || responses > solved) return null;
-  if (ratedShareBasisPoints === null) {
-    if (solved !== 0) return null;
-  } else if (!count(ratedShareBasisPoints) || ratedShareBasisPoints > 10_000) {
-    return null;
-  }
-  return { from, to, solved, responses, perScore: scores, ratedShareBasisPoints };
 }
 
 /** "66.6%" from basis points, cut (never rounded up) to one decimal. Null shows as a dash, not 0%. */

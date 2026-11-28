@@ -10,7 +10,10 @@
  * Red when any of these holds (green otherwise):
  *   - a step failed and is not in the baseline's `steps` (a step in `notBaselined` counts as failing, as the runbook says);
  *   - a step that passed in the baseline's named run is skipped or missing now (on a targeted run, only steps whose test
- *     file the run named);
+ *     file the run named). A step this commit's docs/roadmap/journeys.json no longer lists (the head's, for a pull
+ *     request judged with its own rule) and that is missing now is retired, not red: the journey-list guard lets a step
+ *     leave the list only on an owner's `Journey-retired:` line. The verdict names it as retired. A step still on the
+ *     list stays red when missing, money or not, and a retired step that is skipped or fails now stays red;
  *   - a failing step's entry is listed twice, its `money` disagrees with the money rule at this run's commit, or its
  *     state is not one the runbook allows;
  *   - an `unbuilt` step passed in a finished run on main after the baseline's named run (it was built, so a failure now
@@ -25,6 +28,8 @@
  *     tests work not built yet and stays out until it first passes. No set-aside excuses one;
  *   - an input could not be read: this run's report, the named run's report, the pass history since it, or an issue.
  *     Every unreadable input is red (fail closed), never green.
+ * Not red on a beta pull request's run: a red step outside the beta's own journeys, money and sign-in (the beta lane,
+ * BETA_GATE and betaLane below); it is listed apart. Every other run, main's included, judges every step.
  * The workflow adds the rest: a shard with no report, and a shard job red for any reason other than its journeys failing
  * (setup, the stack, the time limit, the Content-Security-Policy check), are red too.
  *
@@ -51,7 +56,8 @@
  *     earlier list to read (none among main's last PRIOR_LOOKBACK runs), this run's list is incomplete and excuses
  *     nothing; a list starts fresh only when main never had one, so a step's cool-down is never forgotten;
  *   - its `notProven` names every set-aside step and every step with a test Playwright called flaky, so a count of proven
- *     steps leaves them out (project-state tooling/scoreboard/scoreboard.mjs reads it). In this repo no reader of
+ *     steps leaves them out; `notOnBeta` names apart each step whose test showed a screen the hosted beta hides
+ *     (tooling/ci/beta-hides.mjs), and `betaUnread` says the beta's rule couldn't be read, for the count to leave out too (project-state tooling/scoreboard/scoreboard.mjs reads it). In this repo no reader of
  *     report.json counts a pass only on the retry as a pass (post-merge-trust.mjs stepStates, roadmap.mjs
  *     passedSteps). Main trust opens one issue per set-aside naming its owner and end date
  *     (post-merge-trust.mjs).
@@ -66,13 +72,18 @@
  *   (CI) GH_TOKEN GITHUB_REPOSITORY GITHUB_RUN_ID node tooling/ci/journey-verdict.mjs --report <report.json> --fetch
  *        reads the named run's report, the pass history since it, the regression issues and the last run on main's
  *        set-aside.json with GET requests only.
- *   Either form takes --set-aside-out <file>: the set-aside list as JSON, written even when the verdict is red.
+ *   Either form takes --set-aside-out <file>: the set-aside list as JSON, written even when the verdict is red, and
+ *   --beta-rule <script>, a stand-in for tooling/ci/beta-hides.mjs (the tests').
  * Exit 0 = green, 1 = red. Writes the verdict to GITHUB_STEP_SUMMARY when it is set.
  */
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { BUDGET_TITLE, ghResetWait, waitLine } from './api-budget.mjs';
+import { countCall } from './api-count.mjs';
+import { BETA_SCREENS } from '../scripts/journey-screens.mjs';
 
 export const BASELINE_PATH = 'docs/runbooks/journey-baseline.json';
 export const JOURNEYS_FILE = 'real-app-journeys.yml';
@@ -149,6 +160,8 @@ export function readReport(report) {
   const ran = new Set();
   const partial = new Set();
   const partialFailed = new Set();
+  // Each step's customer-app screens, from its tests' `beta screens` annotations (apps/customer/tests/real-app/journey.mjs).
+  const screens = {};
   const walk = (suite, file) => {
     const here = suite.file ?? file;
     for (const spec of suite.specs ?? []) {
@@ -175,6 +188,7 @@ export function readReport(report) {
       }
       const tests = spec.tests ?? [];
       if (tests.some((t) => t.status === 'flaky')) retried.add(key);
+      for (const path of betaScreensOf(tests)) (screens[key] ??= new Set()).add(path);
       const state = specState(tests);
       const had = states[key];
       states[key] = ['failed', 'flaky', 'passed'].find((s) => had === s || state === s) ?? 'skipped';
@@ -186,8 +200,100 @@ export function readReport(report) {
   };
   for (const suite of report?.suites ?? []) walk(suite, suite.file);
   for (const f of partial) if (!partialFailed.has(f) && !ran.has(f)) ran.add(f);
-  return { states, files, ran: [...ran].sort(), retried, tests: tests_, testFiles };
+  return { states, files, ran: [...ran].sort(), retried, tests: tests_, testFiles, screens };
 }
+/** The paths a spec's tests annotated as their screens, on the test or on any of its results; a bad annotation is none. */
+export function betaScreensOf(tests) {
+  const out = new Set();
+  for (const t of tests ?? [])
+    for (const a of [...(t.annotations ?? []), ...(t.results ?? []).flatMap((r) => r.annotations ?? [])]) {
+      if (a?.type !== BETA_SCREENS) continue;
+      try {
+        for (const path of JSON.parse(a.description)) if (typeof path === 'string') out.add(path);
+      } catch {
+        /* not a list: no screens */
+      }
+    }
+  return out;
+}
+/**
+ * The steps whose test showed a screen the hosted beta hides (owner decision 24 Nov 2026: a step counts as proven only
+ * when it passes on the build the beta serves), each with those paths, by `hidden(paths)`: tooling/ci/beta-hides.mjs, the
+ * beta build's own rule. A step with no screens (no page) is none. If the rule can't be read, `unread` says why.
+ */
+export function notOnBeta(screens, hidden) {
+  const all = [...new Set(Object.values(screens ?? {}).flatMap((set) => [...set]))].sort();
+  if (!all.length) return { steps: [] };
+  let hides;
+  try {
+    const got = hidden(all);
+    if (!Array.isArray(got)) throw new Error('the rule gave no list');
+    hides = new Set(got);
+  } catch (e) {
+    return { steps: [], unread: String(e?.message ?? e).split('\n')[0] };
+  }
+  const steps = Object.entries(screens)
+    .map(([step, set]) => ({ step, paths: [...set].filter((path) => hides.has(path)).sort() }))
+    .filter((r) => r.paths.length)
+    .sort((a, b) => byStep(a.step, b.step));
+  return { steps };
+}
+export const BETA_RULE = fileURLToPath(new URL('./beta-hides.mjs', import.meta.url));
+
+/**
+ * THE BETA LANE: what a beta pull request waits on (project-state decision PR #4060, the owner's "yes", 25 Nov 2026
+ * 13:02 WITA, to "a beta screen's pull request waits only on what it can break: the tester path; the Order 1 screens the
+ * beta shows; every money step those screens reach"; widened by project-state decision PR #4061, his 13:25 and 13:30
+ * words, to "Only what protects testers blocks a beta change": "the tests for the beta's own screens; every money, wallet
+ * and sign-in test"). A beta pull request is one whose head branch starts `beta/` (BETA_BRANCH) in this repository. On
+ * its run, a red journey step holds neither this verdict nor the merge seal unless it is one of the beta's own: money by
+ * the set-aside's guard (setAsideGuard: a step it doesn't know is money, and every wallet, bank, pay and p2p step is),
+ * on the tester path (TESTER_PATH: sign-up and sign-in, the wallet, Home and the menus, the desks, the charts, the
+ * portfolio), or an Order 1 step its test didn't show on a screen the beta hides (notOnBeta). A test with no step title
+ * holds it unless its journey is outside the tester path, not Order 1, and has no step the guard calls money. Every
+ * other red is listed apart (`offBeta`), never dropped. Every other pull request, and main, is judged as before; main
+ * runs every journey after the merge, and a red there is reverted (journeys-revert.mjs). Proof is unchanged: a step on a
+ * hidden screen is never proven (notOnBeta, owner decision 24 Nov 2026). The beta rule unread, or a run with no list:
+ * nothing is set apart, and everything gates as before.
+ * Switch it back here, in one place: BETA_GATE = 'full'.
+ */
+export const BETA_GATE = 'lane';
+export const BETA_BRANCH = /^beta\//;
+/** The tester path's modules (docs/roadmap/journeys.json `module`): sign-up and sign-in, the funded wallet, Home and
+ *  the menus, the spot and futures desks, the charts and the portfolio, through to an order on the venue. */
+export const TESTER_PATH = new Set(['identity', 'wallet', 'home-ia', 'cex-spot', 'derivatives', 'charts-desk', 'portfolio']);
+/** Whether a pull request is a beta one: its head branch starts `beta/`, and (when `repo` is given) it is this repository's. */
+export const isBetaPull = ({ headRef, headRepo, repo = null }) =>
+  BETA_BRANCH.test(String(headRef ?? '')) && (repo === null || headRepo === repo);
+export const NO_LANE = { on: false, has: () => false };
+/**
+ * The beta lane's advisory reds for a beta pull request's run: { on, has(key) }, `has` true for a step or test key whose
+ * red holds nothing (BETA_GATE above). `beta` is notOnBeta()'s answer for the run (or { unread }), `guard` the
+ * set-aside's money guard, `modules` and `orders` each journey id's module and order. Nothing is advisory whenever the
+ * lane is off or the beta rule can't be read.
+ */
+export function betaLane({ beta, guard, modules, orders, mode = BETA_GATE }) {
+  if (mode !== 'lane' || !beta || beta.unread || !Array.isArray(beta.steps)) return NO_LANE;
+  const hidden = new Set(beta.steps.map((r) => r?.step));
+  const journeyOf = (k) => String(k).split('#')[0];
+  // A journey it knows, off the tester path; an unknown one is the beta's.
+  const outside = (id) => typeof modules?.[id] === 'string' && !TESTER_PATH.has(modules[id]);
+  const stepOff = (k) => {
+    const id = journeyOf(k);
+    return guard?.[k] === false && outside(id) && (orders?.[id] !== 1 || hidden.has(k));
+  };
+  const testOff = (k) => {
+    const id = journeyOf(k);
+    if (!outside(id) || orders?.[id] === 1) return false;
+    const steps = Object.keys(guard ?? {}).filter((s) => journeyOf(s) === id);
+    return steps.length > 0 && steps.every((s) => guard[s] === false);
+  };
+  return { on: true, has: (k) => (isTestKey(k) ? testOff(k) : stepOff(k)) };
+}
+/** The beta rule (`rule`, BETA_RULE unless --beta-rule names a stand-in), run as its own process: it loads the app's
+ *  TypeScript through tsx. */
+export const betaHidden = (paths, { rule = BETA_RULE, exec = execFileSync } = {}) =>
+  JSON.parse(exec(process.execPath, [rule], { input: JSON.stringify(paths), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })).hidden;
 /** One spec's state from its tests (one per project): skipped when all skipped, passed or flaky when all passed
  *  (testPassed), else failed. */
 function specState(tests) {
@@ -213,12 +319,16 @@ export const touchRoot = (t) =>
           : null;
 export const dependsOnLedgerClient = (m) =>
   ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some((k) => m?.[k] && Object.hasOwn(m[k], LEDGER_CLIENT));
-const isMoneyPackage = (m) => m?.name === LEDGER_CLIENT || dependsOnLedgerClient(m);
+// A Rust service (`crates/svc-<x>`, manifestsAt) has no package.json to depend on the ledger client through: it holds its
+// own ledger and outside clients, and each one replaced a TypeScript service that depended on it (svc-tax, svc-academy).
+// It counts as money, failing closed, so a touch of `svc-<x>` stays money when its TypeScript is deleted.
+const isMoneyPackage = (m) => m?.name === LEDGER_CLIENT || dependsOnLedgerClient(m) || m?.rustService === true;
 /** The money code AGENTS.md "How work flows" 8 names: packages/ledger-client, every package that depends on it directly,
  *  and svc-edge, svc-ops, svc-protocol and svc-fix. `manifests` is manifestsAt(root). Their folders, e.g. `services/svc-bank`. */
 export const moneyCodeDirs = (manifests) =>
   new Set([
-    ...[...manifests].filter(([, m]) => isMoneyPackage(m)).map(([dir]) => dir),
+    // Not a Rust service's crate: the reach is read from the JavaScript coverage, which never reaches Rust.
+    ...[...manifests].filter(([, m]) => isMoneyPackage(m) && !m.rustService).map(([dir]) => dir),
     'services/svc-edge',
     'services/svc-ops',
     'services/svc-protocol',
@@ -230,7 +340,8 @@ export function moneyRule({ journeys, slices, manifests }) {
   const sliceMoney = (id) =>
     (bySlice.get(id)?.touches ?? []).some((t) => {
       const root = touchRoot(t);
-      return root === null || money.has(root);
+      // `svc-<x>` is `services/svc-<x>`, or `crates/svc-<x>` once it is a Rust service.
+      return root === null || money.has(root) || (root.startsWith('services/') && money.has(root.replace(/^services\//, 'crates/')));
     });
   const steps = {};
   for (const j of journeys) for (const st of j.steps ?? []) steps[`${j.id}#${st.n}`] = (st.slices ?? []).some(sliceMoney);
@@ -356,8 +467,18 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
  * `target` is the set of journey file names a targeted run ran, or null for a full run; `setAside` is setAsideSteps();
  * `guard` is setAsideGuard() (the money rule when not given): a guarded step is never set aside.
  * `onMain` is runIsOnMain(): only there are the steps that passed only on their retry listed for Main trust's `flaky`
- * issue. Returns { failing, red, setAside, flaky } (setAside: the steps a set-aside kept out of the red, with their state
+ * issue. Returns { failing, red, setAside, flaky, moneyByHead } (setAside: the steps a set-aside kept out of the red, with their state
  * this run; flaky: on main, the steps that failed, then passed on their retry, that no set-aside tracks).
+ * `headMoney` is the money rule at a pull request's own head, which only the merge seal gives (journey-seal.mjs): a step
+ * whose baseline money flag `money` (main's rule) disagrees with is red, marked `mismatch`, unless the head's own rule
+ * agrees with the baseline; then the entry is checked under the baseline's flag and any red the step still gives counts as
+ * money (the stricter of the two), so it is never passed over as inherited. `moneyByHead` lists those steps. (Failure it
+ * prevents: #9539 made apps/admin money on main, so 8 regression steps read "the baseline says money false, the money rule
+ * at this commit says true" on every pull request's seal, #9601's fix and #9603's revert included, and none could merge.)
+ * `headBaseline`, given with `headMoney`, is the baseline the merge would hold (the head's when the pull request changes it,
+ * else main's): a step whose flag there the head's own rule disagrees with is red too, as money, so a change that makes a
+ * baselined step money without moving its entry is stopped before main's verdict is. (Failure it prevents: #9539's own
+ * verdict was red on those 8 steps, and the seal, reading main's consistent rule, passed it.)
  */
 export function judge({
   newest,
@@ -370,6 +491,9 @@ export function judge({
   target = null,
   setAside = {},
   onMain = false,
+  headMoney = null,
+  headBaseline = null,
+  offBeta = NO_LANE,
 }) {
   const inScope = (step, files) => !target || target.has(files[step]);
   const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
@@ -388,19 +512,48 @@ export function judge({
         .map(([k]) => k)
         .sort(byStep)
     : [];
+  // A step the journey list no longer holds (the head's rule when given, else this commit's: each holds every step of
+  // docs/roadmap/journeys.json) left with its test, so its absence is the retirement, not a lost pass. Only absent: a
+  // retired step whose test still runs and is skipped or fails stays red. (Failure it prevents: #10592 retired J-bank-05
+  // #4 and #5 on the owner's line, OWNER 291, and the verdict read them as "passed in run 1719, missing now", run
+  // 45304484379, so no retirement could pass.) Keyed by step, never by file: a journey file renamed or deleted while its
+  // steps are still listed stays red; a journey retired whole leaves the list with all its steps.
+  const listed = new Set(Object.keys(headMoney ?? money ?? {}));
+  const retired = [];
   for (const [step, s] of Object.entries(named.states))
-    if ((s === 'passed' || s === 'flaky') && !RAN.has(newest.states[step]) && inScope(step, named.files)) failing.add(step);
+    if ((s === 'passed' || s === 'flaky') && !RAN.has(newest.states[step]) && inScope(step, named.files)) {
+      if (newest.states[step] === undefined && !listed.has(step)) retired.push(step);
+      else failing.add(step);
+    }
+  retired.sort(byStep);
   const entries = new Map();
   const dupes = new Set();
   for (const e of baseline?.steps ?? []) entries.has(e.step) ? dupes.add(e.step) : entries.set(e.step, e);
   const notBaselined = new Set((baseline?.notBaselined ?? []).map((e) => e.step));
   const runNo = baseline?.run?.number;
   const red = [];
+  // The beta lane (betaLane): a red that is not money, of a step or test it calls advisory, is listed here instead of `red`.
+  const hiddenRed = [];
   const kept = [];
+  const moneyByHead = [];
+  const headEntries = new Map();
+  if (headMoney) for (const e of headBaseline?.steps ?? []) if (!headEntries.has(e?.step)) headEntries.set(e?.step, e);
   for (const step of [...failing].sort(byStep)) {
-    const isMoney = money[step] ?? true; // a step missing from journeys.json counts as money
+    const ruled = money[step] ?? true; // a step missing from journeys.json counts as money
     const e = entries.get(step);
-    const no = (why) => red.push({ step, why, money: isMoney });
+    // The head's own rule agrees with the baseline where this rule does not (headMoney above): the stricter flag marks
+    // the step's reds, and the entry is read under the baseline's flag, which the head holds too.
+    const byHead = Boolean(e && headMoney && e.money !== ruled && (headMoney[step] ?? true) === e.money);
+    const isMoney = byHead ? ruled || e.money : ruled;
+    const entryMoney = byHead ? e.money : ruled;
+    if (byHead) moneyByHead.push(step);
+    const he = headEntries.get(step);
+    const headRuled = headMoney?.[step] ?? true;
+    const headOff = Boolean(he && he.money !== headRuled);
+    const no = (why, mark = {}) => {
+      const r = { step, why, money: isMoney, ...mark };
+      (offBeta.has(step) && !r.money ? hiddenRed : red).push(r);
+    };
     // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
     // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
     // entry (if any) is well formed. Skipped or missing never.
@@ -409,6 +562,7 @@ export function judge({
       newest.states[step] === 'failed' &&
       PASSED_BEFORE.has(setAside[step].before) &&
       !dupes.has(step) &&
+      !headOff &&
       (!e || e.money === isMoney)
     ) {
       kept.push(step);
@@ -423,12 +577,15 @@ export function judge({
             : `passed in run ${runNo}, ${newest.states[step] ?? 'missing'} now`,
         );
     } else if (dupes.has(step)) no('listed more than once in the baseline');
-    else if (e.money !== isMoney) no(`the baseline says money ${e.money}, the money rule at this commit says ${isMoney}`);
+    else if (e.money !== entryMoney)
+      no(`the baseline says money ${e.money}, the money rule at this commit says ${ruled}`, { mismatch: true });
+    else if (headOff)
+      no(`with this pull request, the baseline says money ${he.money}, the money rule at its head says ${headRuled}`, { money: true });
     else if (e.state === 'unbuilt') {
       if (passedSince[step] !== undefined)
         no(`called unbuilt, but passed on main in run ${passedSince[step]}, after the baseline's run ${runNo}`);
     } else if (e.state === 'regression') {
-      if (isMoney) no('a money step may be in the baseline only as unbuilt');
+      if (entryMoney) no('a money step may be in the baseline only as unbuilt');
       else {
         const why = issueProblem(e.issue, issues[e.issue]);
         if (why) no(`regression: ${why}`);
@@ -448,9 +605,10 @@ export function judge({
     const when = PASSED_BEFORE.has(named?.tests?.[k]) ? runNo : passedSince[k];
     if (when === undefined) continue;
     testsFailing++;
-    red.push({ step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) });
+    const r = { step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) };
+    (offBeta.has(k) && !r.money ? hiddenRed : red).push(r);
   }
-  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps };
+  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps, moneyByHead, retired, offBeta: hiddenRed };
 }
 
 /** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a
@@ -693,9 +851,30 @@ const arg = (name) => {
   return i > 0 ? process.argv[i + 1] : undefined;
 };
 const json = (f) => JSON.parse(readFileSync(f, 'utf8'));
-/** GET only. A refusal (403, 429) is thrown, never retried: the verdict is then red. */
+/** GET only. A refusal (403, 429) is thrown, never retried: the verdict is then red. A spent hourly budget is waited
+ *  out once where the step allows it (budgetRetry), and its answer then stands. */
 const ghApi = (path) =>
-  JSON.parse(execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', path], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }));
+  budgetRetry(() => {
+    countCall();
+    return JSON.parse(
+      execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', path], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 }),
+    );
+  });
+/**
+ * `call()`, and when it throws because the hourly budget is spent and the step allows a wait (api-budget.mjs
+ * ghResetWait, API_BUDGET_WAIT_MIN): wait for the reset, then `call()` once more, whose answer or error stands.
+ */
+export function budgetRetry(call, { wait = pause, waitFor = ghResetWait, log = console.log } = {}) {
+  try {
+    return call();
+  } catch (e) {
+    const w = waitFor(`${e?.stderr ?? ''}\n${e?.message ?? ''}`);
+    if (!w) throw e;
+    log(`::notice title=${BUDGET_TITLE}::${waitLine(w.ms, w.reset)}`);
+    wait(w.ms);
+    return call();
+  }
+}
 const ghPages = (path, key) => {
   const out = [];
   for (let page = 1; page <= 20; page++) {
@@ -731,10 +910,19 @@ const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
 /** `gh run download` with up to `tries` attempts. A missing artifact or a refusal fails at once; any other failure (a
  *  dropped connection to the artifact store, a 5xx) is tried again after a pause, and the last one throws with gh's own
  *  last line in its first line. */
-export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, pauses = [5_000, 15_000] } = {}) {
+export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, pauses = [5_000, 15_000], waitFor = ghResetWait } = {}) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      // A spent hourly budget is waited out once where the step allows it (budgetRetry); then it is a refusal as before.
+      return budgetRetry(
+        () => {
+          // `gh run download --name` lists the run's artifacts, then fetches the one: two calls.
+          countCall();
+          countCall();
+          return run('gh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+        },
+        { wait, waitFor },
+      );
     } catch (e) {
       if (missingArtifact(e.stderr) || refusedDownload(e.stderr) || attempt >= tries) {
         const said = lastLine(e.stderr);
@@ -780,6 +968,12 @@ export function manifestsAt(root) {
       if (name.isDirectory() && existsSync(f)) manifests.set(`${parent}/${name.name}`, json(f));
     }
   }
+  // A Rust service: a crate named for the service it is (`crates/svc-tax`), read from its Cargo.toml (isMoneyPackage).
+  const crates = join(root, 'crates');
+  if (existsSync(crates))
+    for (const name of readdirSync(crates, { withFileTypes: true }))
+      if (name.isDirectory() && /^svc-[a-z0-9-]+$/.test(name.name) && existsSync(join(crates, name.name, 'Cargo.toml')))
+        manifests.set(`crates/${name.name}`, { name: name.name, rustService: true });
   return manifests;
 }
 
@@ -803,6 +997,8 @@ export function rootInputs(root, baselineFile) {
     // The set-aside's own money guard and each journey's owner (its module area).
     guard: setAsideGuard({ journeys, slices, money }),
     owners: Object.fromEntries(journeys.map((j) => [j.id, j.module])),
+    // Each journey's order (1, 2, 3), for the beta lane.
+    orders: Object.fromEntries(journeys.map((j) => [j.id, j.order])),
   };
 }
 
@@ -824,7 +1020,26 @@ export function fetchInputs({
   log = console.log,
   readStored = (r) => downloadReport(repo, r.id, HISTORY_FILE, true, { artifact: HISTORY_ARTIFACT }),
   compare = (head, base) => ghApi(`/repos/${repo}/compare/${head}...${base}`),
+  get = ghApi,
+  pages = ghPages,
+  memo = null,
 }) {
+  // `memo` (a Map the caller keeps for one process): each GET this reads is read once, however many runs it judges. The
+  // merge seal judges up to MAIN_LOOKBACK of main's runs and every run on the head with the same baseline, and each read
+  // main's whole run history since the named run (13 pages on 22 Nov 2026), the named run and every regression issue
+  // again: 218 calls for one seal step on #9630, the largest spender of the workflow token's hourly budget. A failed read
+  // is not kept, so it is read again and fails again, never stands as an answer.
+  const once = (key, read) => {
+    if (!memo) return read();
+    if (!memo.has(key)) memo.set(key, read());
+    return memo.get(key);
+  };
+  if (memo) {
+    const fresh = readStored;
+    readStored = (r) => once(`stored ${r.id}`, () => fresh(r));
+    const direct = compare;
+    compare = (head, base) => once(`compare ${head}...${base}`, () => direct(head, base));
+  }
   const problems = [];
   const reportOf = (id, raw) => {
     if (!reports.has(id)) reports.set(id, readReport(raw ?? downloadReport(repo, id)));
@@ -843,11 +1058,13 @@ export function fetchInputs({
     problems.push(`the baseline's named run ${baseline?.run?.number} (${baseline?.run?.id}) report couldn't be read: ${e.message}`);
   }
   try {
-    const namedRun = ghApi(`/repos/${repo}/actions/runs/${baseline.run.id}`);
-    const run = thisRun ?? ghApi(`/repos/${repo}/actions/runs/${thisRunId}`);
-    const all = ghPages(
-      `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
-      'workflow_runs',
+    const namedRun = once(`run ${baseline.run.id}`, () => get(`/repos/${repo}/actions/runs/${baseline.run.id}`));
+    const run = thisRun ?? get(`/repos/${repo}/actions/runs/${thisRunId}`);
+    const all = once(`main since ${namedRun.created_at}`, () =>
+      pages(
+        `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
+        'workflow_runs',
+      ),
     );
     shas[namedRun.run_number] = namedRun.head_sha;
     const runs = historyRuns(all, { repo, namedCreated: namedRun.created_at, thisCreated: run.created_at, thisId: run.id });
@@ -890,7 +1107,10 @@ export function fetchInputs({
   }
   for (const n of [...new Set((baseline.steps ?? []).filter((e) => e.state === 'regression').map((e) => e.issue))]) {
     try {
-      issues[n] = { issue: ghApi(`/repos/${repo}/issues/${n}`), comments: ghPages(`/repos/${repo}/issues/${n}/comments`) };
+      issues[n] = once(`issue ${n}`, () => ({
+        issue: get(`/repos/${repo}/issues/${n}`),
+        comments: pages(`/repos/${repo}/issues/${n}/comments`),
+      }));
     } catch (e) {
       issues[n] = { problem: e.message.split('\n')[0] };
     }
@@ -903,7 +1123,7 @@ function main() {
   const red = [];
   const problem = (why) => red.push({ step: '(input)', why, money: true });
   const reportFile = arg('--report');
-  const { baseline, money, guard, owners } = rootInputs(root, arg('--baseline'));
+  const { baseline, money, guard, owners, orders } = rootInputs(root, arg('--baseline'));
   const targetText = arg('--target') ?? process.env.JOURNEYS_TARGET ?? '';
   const target = targetText.trim()
     ? new Set(
@@ -1018,6 +1238,15 @@ function main() {
   const setAside = newest
     ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};
+  // The steps whose test showed a screen the hosted beta hides (notOnBeta), and, on a beta pull request's run, the reds
+  // that hold nothing (betaLane). Every other run, main's included, judges every step as before.
+  const beta = newest ? notOnBeta(newest.screens, (paths) => betaHidden(paths, { rule: arg('--beta-rule') ?? BETA_RULE })) : { steps: [] };
+  const betaPull =
+    !onMain &&
+    process.env.GITHUB_REF !== MAIN_REF &&
+    process.env.GITHUB_EVENT_NAME === 'pull_request' &&
+    isBetaPull({ headRef: process.env.GITHUB_HEAD_REF });
+  const offBeta = betaPull ? betaLane({ beta, guard, modules: owners, orders }) : NO_LANE;
   const verdict =
     newest && named
       ? judge({
@@ -1031,17 +1260,21 @@ function main() {
           target,
           setAside: excusedSetAside({ setAside, onMain, incomplete }),
           onMain,
+          offBeta,
         })
-      : { failing: 0, testsFailing: 0, red: [], setAside: [], flaky: [] };
+      : { failing: 0, testsFailing: 0, red: [], setAside: [], flaky: [], retired: [], offBeta: [] };
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)
     .sort(([a], [b]) => byStep(a, b))
     .map(([step, { before, ...a }]) => ({ step, file: newest?.files[step] ?? null, state: newest?.states[step] ?? 'missing', ...a }));
-  if (arg('--set-aside-out')) {
+  const showBeta = Boolean(arg('--set-aside-out'));
+  if (showBeta) {
     // Not proven from this run: every set-aside step, and every step with a test Playwright called flaky (a pass only on
     // its retry, or a failure whose retry was skipped), money or not.
     const flakyNow = [...(newest?.retried ?? [])];
     const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow])].sort(byStep);
+    // The steps whose test showed a screen the hosted beta hides (`beta`, above): listed apart from notProven, since a
+    // reader sends a notProven step to its flaky issue, and a step on a hidden room needs its room built in Volt, not a retry.
     // The ref it ran on: the next run takes the list only from refs/heads/main.
     const out = {
       days: SET_ASIDE_DAYS,
@@ -1050,6 +1283,10 @@ function main() {
       ...(incomplete || !newest ? { incomplete: true } : {}),
       steps: asideRows,
       notProven,
+      // The steps on a screen the hosted beta hides, each with its hidden paths (owner decision 24 Nov 2026: not proven
+      // from this run). `betaUnread`: the beta's rule couldn't be read, so no step of this run is known to be on the beta.
+      notOnBeta: beta.steps,
+      ...(beta.unread ? { betaUnread: beta.unread } : {}),
       // The steps that passed only on their retry and no set-aside tracks, each with its journey's owner, for Main
       // trust's one `flaky` issue each. Each is in notProven too.
       flaky: verdict.flaky.map((step) => ({
@@ -1085,6 +1322,12 @@ function main() {
       ? verdict.red.map((r) => `- ${r.step}${r.money ? ' (money)' : ''}: ${r.why}`)
       : ['Every failing step is on the list by its rules, so this run is green.']),
     '',
+    `### Retired: passed in run ${baseline.run?.number}, no longer on the journey list, missing now: ${verdict.retired.length}`,
+    '',
+    "A step docs/roadmap/journeys.json no longer lists left with its test; the journey-list guard lets a step leave the list only on an owner's `Journey-retired:` line. It does not turn this verdict red. A step still on the list stays red when missing.",
+    '',
+    ...(verdict.retired.length ? verdict.retired.map((step) => `- ${step}: retired, missing now`) : ['None.']),
+    '',
     `### Set aside by the machine: ${asideRows.filter((r) => r.active).length}`,
     '',
     `A step that failed, then passed on its retry, on main, is set aside for ${SET_ASIDE_DAYS} days from the first such run. It still runs and its result is below; it doesn't count as proven; its failure doesn't turn this verdict red. A money step is never set aside.`,
@@ -1096,6 +1339,28 @@ function main() {
         )
       : ['None.']),
     '',
+    `### Outside the beta's own journeys, not holding this beta pull request: ${verdict.offBeta.length}`,
+    '',
+    `The beta lane (journey-verdict.mjs BETA_GATE, ${BETA_GATE}${offBeta.on ? '' : '; off for this run: not a beta pull request, or the beta rule unread'}): on a beta pull request (a \`beta/\` branch), a red step holds it only when it is money, on the tester path, or an Order 1 step on a screen the beta shows. The rest are listed here and don't turn this verdict red. Main runs every journey after the merge, and a red there is reverted. Every other pull request, and main, is judged as before.`,
+    '',
+    ...(verdict.offBeta.length ? verdict.offBeta.map((r) => `- ${r.step}: ${r.why}`) : ['None.']),
+    '',
+    ...(showBeta
+      ? [
+          `### On a screen the hosted beta hides: ${beta.unread ? 'unknown' : beta.steps.length}`,
+          '',
+          "A step counts as proven only when it passes on the build the hosted beta serves (owner decision, 24 Nov 2026). A step whose test showed a screen the beta hides (a room not yet in Volt, or switched off) still runs, but it is not proven from this run (set-aside.json `notOnBeta`). Being on a hidden screen doesn't turn this verdict red; its failure still does, except on a beta pull request (the beta lane above).",
+          '',
+          ...(beta.unread
+            ? [
+                `The beta's rule couldn't be read (${beta.unread}), so no step of this run is known to be on the beta (set-aside.json \`betaUnread\`).`,
+              ]
+            : beta.steps.length
+              ? beta.steps.map((r) => `- ${r.step}: ${r.paths.join(', ')}`)
+              : ['None.']),
+          '',
+        ]
+      : []),
     `### Steps that passed only on their retry: ${verdict.flaky.length}`,
     '',
     'A step that fails, then passes on its retry, is a pass, money step or not: it does not turn this verdict red, it never counts as proven from this run, and on main Main trust opens one `flaky` issue for it. Failing on every try still fails, and starts its revert.',

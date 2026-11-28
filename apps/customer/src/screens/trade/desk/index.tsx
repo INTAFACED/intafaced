@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+// volt-room: /trade/spot/:pair
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import './exchange-desk.css';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useTicker as useTickerRow } from './deps';
-import './desk.css';
-import '../chart/chart.css';
+import { DeskTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { BookPanel, STALE_BOOK_MS, Tape, type BookPick } from './OrderBook';
 import { ArrangeBar, ArrangeChrome, DeskLayoutMenu, dropTarget, useDeskLayout } from './DeskLayout';
-import { gridColumns, isUntouched, type WidgetId } from './workspace';
+import { isUntouched, type WidgetId } from './workspace';
 import type { SavedDeskLayout } from './saved-layouts';
 import type { ChartInterval } from '../chart/candles';
 import { navigate } from '../../../app/location';
@@ -44,17 +45,17 @@ import { floorToLot } from './order-math';
 import type { Reference, Side } from './order-math';
 import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
 import { useVenueMode } from '../../../features/trade/use-venue-mode';
-import { VenueSpotGate } from './VenueSpotDesk';
+import { VenueSpotGate } from './VenueSpotGate';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="dk-icon-btn dk-picker" aria-label={t('Choose a market')}>
+      <PopoverTrigger className="lt-icon-button" aria-label={t('Choose a market')}>
         <ChevronDown size={16} aria-hidden="true" />
       </PopoverTrigger>
-      <PopoverContent align="start" className="dk-picker-pop">
+      <PopoverContent align="start" size="wide">
         <MarketsPanel selected={selected} compact onChoose={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
@@ -97,13 +98,20 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const desk = useDeskLayout(userId);
   const { layout, arranging } = desk;
   const custom = !isUntouched(layout) || layout.preset !== 'classic';
-  // A widget's place: its order on the grid when the layout is not today's Classic, and the drop target while arranging.
+  // A widget's drop target while arranging; its place and width on a wide screen are the template's arrangement.
   const frame = (id: WidgetId) => ({
     'data-widget': id,
-    // The place in the order is a variable the wide-screen grid reads; narrower screens keep their own stacking.
-    ...(custom ? { style: { '--dk-order': layout.order.indexOf(id) } as CSSProperties } : {}),
     ...dropTarget(desk, id),
   });
+  // The person's own arrangement when the layout is not today's Classic: the widgets left to right, each with its width.
+  const arrangement = custom
+    ? {
+        columns: layout.order.map((id) => ({
+          region: id === 'markets' ? ('pairs' as const) : id === 'trades' ? ('tape' as const) : id,
+          width: id === 'chart' ? 'minmax(0, 1fr)' : `${layout.widths[id]}rem`,
+        })),
+      }
+    : undefined;
   const widgetName = (id: WidgetId) =>
     id === 'markets' ? t('Markets') : id === 'chart' ? t('Chart') : id === 'book' ? t('Order book') : t('Market trades');
   const chrome = (id: WidgetId) => <ArrangeChrome desk={desk} id={id} name={widgetName(id)} />;
@@ -220,68 +228,103 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
 
   return (
     <div
+      className="xd"
       data-testid="if-desk"
-      className="if-desk"
       data-market={market.symbol}
       data-preset={layout.preset}
       data-arranging={arranging ? 'true' : undefined}
     >
-      <TickerStrip
-        market={market}
-        ticker={ticker}
-        favorite={isFavorite(market.symbol)}
-        onToggleFavorite={toggleFavorite}
-        zone={timeZone}
-        picker={picker}
-        status={status}
-      />
-      <EmailProofNotice />
-      {desk.recovered ? (
-        <p className="dk-layout-note" role="status">
-          {t('Desk layout recovered')}
-        </p>
-      ) : null}
-      <ArrangeBar desk={desk} />
-      <div
-        className="dk-grid"
-        data-layout={custom ? 'custom' : undefined}
-        style={custom ? ({ '--dk-columns': gridColumns(layout) } as CSSProperties) : undefined}
-      >
-        <aside data-testid="dk-left" className="dk-panel dk-left" aria-label={t('Markets')} {...frame('markets')}>
-          {chrome('markets')}
-          <div className="dk-fill">
-            <div className="dk-tab-title">
-              <span>{t('Markets')}</span>
-            </div>
-            <MarketsPanel selected={market.symbol} />
-          </div>
-        </aside>
-        <div data-testid="dk-centre" className="dk-centre" {...frame('chart')}>
-          {chrome('chart')}
-          <ChartPanel
-            market={market}
-            openOrders={openOrders}
-            fills={fills}
-            domOpen={dom.open}
-            onToggleDom={toggleDom}
-            trade={chartTrade}
-            requestedInterval={requestedInterval}
-          />
-          {dom.open ? (
-            <OrderFlow
+      <DeskTemplate
+        title={`${market.base}/${market.quote}`}
+        mode="pro"
+        state={READY}
+        arrangement={arrangement}
+        instrument={
+          <div className="lt-stack">
+            <TickerStrip
               market={market}
-              book={book}
-              openOrders={openOrders}
+              ticker={ticker}
+              favorite={isFavorite(market.symbol)}
+              onToggleFavorite={toggleFavorite}
               zone={timeZone}
-              setting={dom}
-              onSetting={setDom}
-              onPick={onLadderPick}
-              onClose={closeDom}
-              instant={instantOn}
-              oneClick={oneClick}
-              onCancelled={onPlaced}
+              picker={picker}
+              status={status}
             />
-          ) : null}
+            <EmailProofNotice />
+            {desk.recovered ? (
+              <p className="lt-note" role="status">
+                {t('Desk layout recovered')}
+              </p>
+            ) : null}
+            <ArrangeBar desk={desk} />
+          </div>
+        }
+        pairs={
+          <aside data-testid="dk-left" aria-label={t('Markets')} {...frame('markets')}>
+            {chrome('markets')}
+            <div className="lt-panel">
+              <div className="lt-panel-head">
+                <span className="lt-panel-title">{t('Markets')}</span>
+              </div>
+              <MarketsPanel selected={market.symbol} />
+            </div>
+          </aside>
+        }
+        chart={
+          <div data-testid="dk-centre" className="lt-stack" {...frame('chart')}>
+            {chrome('chart')}
+            <ChartPanel
+              market={market}
+              openOrders={openOrders}
+              fills={fills}
+              domOpen={dom.open}
+              onToggleDom={toggleDom}
+              trade={chartTrade}
+              requestedInterval={requestedInterval}
+            />
+            {dom.open ? (
+              <OrderFlow
+                market={market}
+                book={book}
+                openOrders={openOrders}
+                zone={timeZone}
+                setting={dom}
+                onSetting={setDom}
+                onPick={onLadderPick}
+                onClose={closeDom}
+                instant={instantOn}
+                oneClick={oneClick}
+                onCancelled={onPlaced}
+              />
+            ) : null}
+          </div>
+        }
+        book={
+          <BookPanel
+            market={market}
+            book={book}
+            ticker={ticker}
+            zone={timeZone}
+            onPick={setSuggestion}
+            onPickPrice={onPickPrice}
+            frame={bookFrame}
+            chrome={bookChrome}
+          />
+        }
+        tape={
+          layout.order.includes('trades') ? (
+            <section className="lt-panel" aria-labelledby="dk-trades-title" {...frame('trades')}>
+              {chrome('trades')}
+              <h2 id="dk-trades-title" className="lt-panel-title">
+                {t('Market trades')}
+              </h2>
+              <div className="lt-scroll">
+                <Tape market={market} zone={timeZone} onPickPrice={onPickPrice} active />
+              </div>
+            </section>
+          ) : undefined
+        }
+        ticket={
           <OrderPanel
             market={market}
             reference={reference}
@@ -291,66 +334,64 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
             focusSide={side}
             onPlaced={onPlaced}
           />
-        </div>
-        <BookPanel
-          market={market}
-          book={book}
-          ticker={ticker}
-          zone={timeZone}
-          onPick={setSuggestion}
-          onPickPrice={onPickPrice}
-          frame={bookFrame}
-          chrome={bookChrome}
-        />
-        {layout.order.includes('trades') ? (
-          <section className="dk-panel dk-trades" aria-labelledby="dk-trades-title" {...frame('trades')}>
-            {chrome('trades')}
-            <h2 id="dk-trades-title" className="dk-tab-title">
-              {t('Market trades')}
-            </h2>
-            <div className="dk-panel-body">
-              <Tape market={market} zone={timeZone} onPickPrice={onPickPrice} active />
-            </div>
-          </section>
-        ) : null}
-      </div>
-      <BottomTabs
-        market={market}
-        markets={markets}
-        openOrders={openOrders}
-        fills={fills}
-        balances={balances}
-        tab={tab}
-        onTab={setTab}
-        onFlatten={onFlatten}
-        lastPrice={lastPrice}
+        }
+        orders={
+          <BottomTabs
+            market={market}
+            markets={markets}
+            openOrders={openOrders}
+            fills={fills}
+            balances={balances}
+            tab={tab}
+            onTab={setTab}
+            onFlatten={onFlatten}
+            lastPrice={lastPrice}
+          />
+        }
       />
     </div>
   );
 }
 
+/** The desk with its data in: a ready room (each panel says its own loading, stale or refused state). */
+const READY: RoomState = { kind: 'ready' };
+
 function DeskSkeleton() {
+  const { t } = deskCopy.useCopy();
   return (
-    <div data-testid="if-desk" className="if-desk" role="status" aria-busy="true">
-      <div data-testid="dk-ticker" className="dk-ticker">
-        <Skeleton width={160} height={24} className="bg-field" />
-      </div>
-      <div className="dk-grid">
-        <div data-testid="dk-left" className="dk-panel dk-left">
-          <Skeleton height={500} className="bg-field" />
-        </div>
-        <div data-testid="dk-centre" className="dk-centre">
-          <div data-testid="dk-chart" className="dk-panel dk-chart">
-            <Skeleton height={440} className="bg-field" />
+    <div data-testid="if-desk" role="status" aria-busy="true">
+      <DeskTemplate
+        title={t('Spot desk')}
+        mode="pro"
+        state={{ kind: 'loading' }}
+        instrument={
+          <div data-testid="dk-ticker">
+            <Skeleton shape="figure" />
           </div>
-          <div data-testid="dk-order" className="dk-panel dk-order">
-            <Skeleton height={330} className="bg-field" />
+        }
+        pairs={
+          <div data-testid="dk-left">
+            <Skeleton shape="rows" />
           </div>
-        </div>
-        <div data-testid="dk-book" className="dk-panel dk-book">
-          <Skeleton height={500} className="bg-field" />
-        </div>
-      </div>
+        }
+        chart={
+          <div data-testid="dk-centre">
+            <div data-testid="dk-chart">
+              <Skeleton shape="chart" />
+            </div>
+          </div>
+        }
+        book={
+          <div data-testid="dk-book">
+            <Skeleton shape="rows" />
+          </div>
+        }
+        ticket={
+          <div data-testid="dk-order">
+            <Skeleton shape="form" />
+          </div>
+        }
+      />
     </div>
   );
 }
@@ -378,29 +419,54 @@ function TodayDeskScreen({ params, search }: ScreenProps) {
     new URLSearchParams(search).get('side') === 'sell' ? 'sell' : new URLSearchParams(search).get('side') === 'buy' ? 'buy' : null;
 
   if (markets.status === 'loading') return <DeskSkeleton />;
+  // A failed read keeps its retry: the room stays ready and the ticket's place says what failed, with Try again.
   if (markets.status === 'error')
     return (
-      <div data-testid="if-desk" className="if-desk if-desk--state">
-        <StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={markets.retry} retryLabel={t('Try again')} />
+      <div data-testid="if-desk">
+        <DeskTemplate
+          title={t('Spot desk')}
+          mode="pro"
+          state={READY}
+          instrument={undefined}
+          chart={undefined}
+          ticket={<StateBlock kind="error" title={t('Couldn’t load this market')} onRetry={markets.retry} retryLabel={t('Try again')} />}
+        />
       </div>
     );
   if (markets.status === 'refused') {
     const words = refusalCopy(markets.code, { pair });
     return (
-      <div data-testid="if-desk" className="if-desk if-desk--state">
-        <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />
+      <div data-testid="if-desk">
+        <DeskTemplate
+          title={t('Spot desk')}
+          mode="pro"
+          state={{
+            kind: 'refused',
+            refusal: { variant: 'refused', title: words.title, body: words.body, ...(words.action ? { action: words.action } : {}) },
+          }}
+          instrument={undefined}
+          chart={undefined}
+          ticket={undefined}
+        />
       </div>
     );
   }
   const market = markets.status === 'ready' ? findMarket(markets.data, pair) : undefined;
   if (!market || markets.status !== 'ready')
     return (
-      <div data-testid="if-desk" className="if-desk if-desk--state">
-        <StateBlock
-          kind="empty"
-          title={t('Market not found title')}
-          body={t('Market not found body')}
-          action={{ label: t('See all markets'), href: '/trade' }}
+      <div data-testid="if-desk">
+        <DeskTemplate
+          title={t('Spot desk')}
+          mode="pro"
+          state={{
+            kind: 'empty',
+            title: t('Market not found title'),
+            body: t('Market not found body'),
+            action: { label: t('See all markets'), href: '/trade' },
+          }}
+          instrument={undefined}
+          chart={undefined}
+          ticket={undefined}
         />
       </div>
     );

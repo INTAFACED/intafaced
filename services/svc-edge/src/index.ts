@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { API_VERSION_HEADER } from '@intafaced/contracts/api-versions';
 import { AuthError, type Principal } from '@intafaced/auth';
 import { assertNoLocalTestFixtures, assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
@@ -22,8 +23,8 @@ import {
   stampRateLimitRefuseHeaders,
   type RateLimitConfig,
 } from './hardening.js';
-import { KillSwitchState } from './kill-switch.js';
-import { adapterRead, FIX_STATUS_UPSTREAM_PATH, registerAdapterStatusRoute, SBE_STATUS_UPSTREAM_PATH } from './adapter-status-door.js';
+import { KillSwitchState, resolvedPathname } from './kill-switch.js';
+import { adapterRead, registerAdapterStatusRoute } from './adapter-status-door.js';
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
@@ -35,15 +36,18 @@ import { agentHeldAction, holdAgentKeyAttempt } from './agent-key-hold.js';
 import { EXPLORER_LIVE_WRITE_REFUSED, explorerLiveWrite } from './explorer-guard.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
-import { keyCallReport, presentedKeyHash, reportKeyCall } from './key-call-log.js';
+import { keyCallReport, presentedKeyHash, replyErrorCode, reportKeyCall } from './key-call-log.js';
+import { registerAccountCallLog, rememberCaller } from './account-call-log.js';
 import { normalizeIp } from './request-client-ip.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
 import { statusBadgeHeaders } from './status-badge-proxy.js';
+import { historyDownloadHeaders, isBinaryHistoryReply } from './history-download-proxy.js';
 import { idempotencyHeaders } from './idempotency-headers.js';
+import { advisoriesFor, advisoryReplyHeaders, negotiateApiVersion, versionReplyHeaders } from './api-version.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
-import { edgeS2sFromEnv, signProxyHeaders } from './s2s.js';
+import { edgeS2sFromEnv } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
 import { withEdgeSpan } from './tracing.js';
 import { userCopy } from './user-copy.js';
@@ -349,7 +353,13 @@ registerMatchingOperatorRoutes(app, {
 });
 
 // The published cost table and a key's usage for its owner (J-developer-06 #1 #3).
-registerRateLimitsDoor(app, { tokens: tokenConfig, sessionLive, buckets: keyBuckets, costs: routeCosts });
+registerRateLimitsDoor(app, {
+  tokens: tokenConfig,
+  sessionLive,
+  buckets: keyBuckets,
+  costs: routeCosts,
+  edgeLimit: rateLimit.enabled ? { max: rateLimit.max, windowMs: rateLimit.windowMs } : null,
+});
 
 // The FIX and SBE adapters' own status (J-cex-spot-20 #3), each signed with its own read key.
 registerAdapterStatusRoute(app, {
@@ -359,7 +369,6 @@ registerAdapterStatusRoute(app, {
     env.FIX_STATUS_URL,
     env.FIX_STATUS_READ_SECRET,
     {
-      path: FIX_STATUS_UPSTREAM_PATH,
       service: 'svc-fix',
       code: 'fix_status_unconfigured',
       urlKey: 'FIX_STATUS_URL',
@@ -372,7 +381,6 @@ registerAdapterStatusRoute(app, {
     env.WS_STATUS_URL,
     env.WS_STATUS_READ_SECRET,
     {
-      path: SBE_STATUS_UPSTREAM_PATH,
       service: 'svc-ws',
       code: 'ws_status_unconfigured',
       urlKey: 'WS_STATUS_URL',
@@ -404,7 +412,8 @@ await app.register(async (api) => {
   });
 
   // A key's call log (J-developer-08): every reply to an API key's call is reported to identity once its status is
-  // final. A failed report is logged; the reply goes out as it would have (`key-call-log.ts`).
+  // final, with the typed error code an error reply names. A failed report is logged; the reply goes out as it would
+  // have (`key-call-log.ts`).
   api.addHook('onSend', async (req, reply, payload) => {
     const keyHash = presentedKeyHash(req.headers.authorization);
     if (!keyHash || !env.IDENTITY_OWNERSHIP_SECRET) return payload;
@@ -418,6 +427,7 @@ await app.register(async (api) => {
         method: req.method,
         url: req.url,
         status: reply.statusCode,
+        errorCode: replyErrorCode(reply.statusCode, payload),
         clientIp: normalizeIp(req.ip),
         at: new Date(),
       }),
@@ -426,9 +436,18 @@ await app.register(async (api) => {
     return payload;
   });
 
+  // An account's call line: each reply to a signed-in person's call is logged by account id (`account-call-log.ts`).
+  registerAccountCallLog(api);
+
   api.all('/api/*', async (req, reply) => {
+    // The same resolver the onRequest guards read, so the proxy forwards exactly the path they judged. Null (a path
+    // not in normal form, or one with no single answer) was already refused there; refused here too as a belt.
+    const pathname = resolvedPathname(req.url);
+    if (pathname === null) {
+      return reply.code(400).send({ error: userCopy('edge.unresolvable_path'), code: 'edge.unresolvable_path' });
+    }
     const url = new URL(req.url, `http://${env.HTTP_HOST}`);
-    const target = resolve(url.pathname);
+    const target = resolve(pathname);
 
     if (!target) {
       // An unlisted prefix is not forwarded anywhere. An edge that proxies what
@@ -537,6 +556,7 @@ await app.register(async (api) => {
     // signing-key mismatch, and a spike in `anonymous` is a front-end that stopped
     // attaching the header. An availability panel that merges them shows neither.
     markAuthOutcome(req, exchanged.rejected ? 'refused' : exchanged.principal ? 'authenticated' : 'anonymous');
+    rememberCaller(req, exchanged.principal);
 
     // The API explorer never writes with a live key (DV-console-01): its tagged write is refused before anything else.
     if (explorerLiveWrite(req.method, req.headers, exchanged.principal)) {
@@ -618,16 +638,31 @@ await app.register(async (api) => {
       return reply.code(403).send({ error: userCopy(csrf.code), code: csrf.code });
     }
 
+    // The dated API version on /api/v1 (`api-version.ts`): an unknown value, or a key call with neither a header nor an
+    // account default, is refused here and forwarded nowhere.
+    const version = negotiateApiVersion({
+      pathname: url.pathname,
+      header: req.headers[API_VERSION_HEADER],
+      apiKey: Boolean(exchanged.principal?.kid),
+      accountDefault: exchanged.apiVersionDefault ?? null,
+    });
+    if (version.kind === 'refuse') {
+      return reply.code(version.status).send({ error: version.message, message: version.message, code: version.code });
+    }
+    // The service is told the version that applies (the account default too), so it can answer that version's behaviour.
+    if (version.kind === 'apply') exchanged.headers[API_VERSION_HEADER] = version.version;
+    for (const [name, value] of Object.entries({
+      ...versionReplyHeaders(version),
+      ...advisoryReplyHeaders(advisoriesFor({ method: req.method, pathname: url.pathname, body: rawBody })),
+    })) {
+      reply.header(name, value);
+    }
+
     const body = upstreamBody(req.method, req.body);
     const upstreamUrl = `${resolved.base}${target.path}${url.search}`;
-    // With the edge's own key, the key signature covers this exact forward; otherwise the headers are untouched.
-    const upstreamHeaders = signProxyHeaders(edgeS2s, target.upstream.module, {
-      method: req.method,
-      url: upstreamUrl,
-      // The edge's request id replaces any the caller sent, so a service log line and the reply name the same call.
-      headers: { ...prepareUpstreamRequestHeaders(url.pathname, exchanged.headers), [REQUEST_ID_HEADER]: String(req.id) },
-      body,
-    });
+    // The forward carries no service signature: only the user principal the edge signed.
+    // The edge's request id replaces any the caller sent, so a service log line and the reply name the same call.
+    const upstreamHeaders = { ...prepareUpstreamRequestHeaders(url.pathname, exchanged.headers), [REQUEST_ID_HEADER]: String(req.id) };
 
     return withEdgeSpan(
       'edge.proxy',
@@ -656,11 +691,14 @@ await app.register(async (api) => {
           return reply.code(502).send({ error: userCopy('edge.upstream_unavailable'), code: 'edge.upstream_unavailable' });
         }
 
-        const text = await response.text();
+        const binaryHistory = isBinaryHistoryReply(url.pathname, response.headers.get('content-type'));
+        // Kept as `text` for reply-envelope.test.ts's source pin (string for JSON/text, Buffer for binary history gzip).
+        const text = binaryHistory ? Buffer.from(await response.arrayBuffer()) : await response.text();
         const forwarded: Record<string, string | string[]> = {
           ...forwardUpstreamResponseHeaders(url.pathname, response.headers),
           ...hostedCheckoutHeaders(url.pathname, response.headers),
           ...statusBadgeHeaders(url.pathname, response.headers),
+          ...historyDownloadHeaders(url.pathname, response.headers),
           ...idempotencyHeaders(url.pathname, response.headers),
         };
         // Only checkout paths fetch with `redirect: 'manual'`; anywhere else a 3xx that reached here passes as before.

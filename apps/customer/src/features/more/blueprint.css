@@ -1,0 +1,6 @@
+.blueprint-opt-in {
+  display: flex;
+  align-items: center;
+  gap: var(--if-space-2-5);
+  color: var(--color-text);
+}

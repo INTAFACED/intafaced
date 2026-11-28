@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  labelVerdict,
   marketTargetId,
   poolTargetId,
   protocolOpsActionResultSchema,
   protocolOpsIdempotencyKey,
   protocolOpsHiddenOutputSchema,
   PROTOCOL_OPS_TARGET_SERVICE,
-  protocolOpsMetricsOutputSchema,
   protocolOpsMarketDelistInputSchema,
   protocolOpsMarketRestoreInputSchema,
   protocolOpsPoolHideInputSchema,
@@ -27,47 +25,6 @@ describe('target ids and idempotency keys', () => {
       `protocol.pool.hide:84532:${pool.toLowerCase()}:ap_1`,
     );
     expect(marketTargetId(' btc-usdt ')).toBe('BTC-USDT');
-  });
-});
-
-describe('metrics', () => {
-  const ok = { status: 'ok', value: 3 } as const;
-  const base = {
-    asOf: now,
-    window: { from: now, to: now },
-    quotes: ok,
-    wallets: ok,
-    refusalsByCode: { status: 'ok', value: { 'dex.quote.no_venue': 2 } },
-    indexerLagBlocks: { status: 'ok', value: null },
-    sections: [{ section: 'chain', health: 'ok', checkedAt: now }],
-  };
-  it('carries a failed source as could_not_load with the time tried, never as a zero', () => {
-    expect(protocolOpsMetricsOutputSchema.safeParse(base).success).toBe(true);
-    const failed = { ...base, quotes: { status: 'could_not_load', triedAt: now, code: 'edge.upstream_unavailable' } };
-    expect(protocolOpsMetricsOutputSchema.safeParse(failed).success).toBe(true);
-    expect(protocolOpsMetricsOutputSchema.safeParse({ ...base, quotes: { status: 'could_not_load', value: 0 } }).success).toBe(false);
-    expect(protocolOpsMetricsOutputSchema.safeParse({ ...base, quotes: { status: 'ok', value: -1 } }).success).toBe(false);
-  });
-});
-
-describe('label verdict', () => {
-  const entry = (label: string, audited = false) => ({
-    surface: 'service' as const,
-    where: `svc-protocol:${label.length}`,
-    label,
-    audited,
-  });
-  it('passes honest labels and fails a planted mainnet claim or audited true', () => {
-    expect(labelVerdict([entry('Base Sepolia test network. Not INTACHAIN.'), entry('Local test chain')])).toEqual({
-      pass: true,
-      violations: [],
-    });
-    for (const label of ['INTACHAIN mainnet', 'The mainnet of INTACHAIN', 'intachain   Mainnet']) {
-      const verdict = labelVerdict([entry(label)]);
-      expect(verdict.pass, label).toBe(false);
-      expect(verdict.violations[0]?.reason).toBe('claims_mainnet');
-    }
-    expect(labelVerdict([entry('Base Sepolia test network', true)]).violations[0]?.reason).toBe('audited_true');
   });
 });
 

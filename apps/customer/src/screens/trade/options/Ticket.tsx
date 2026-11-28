@@ -41,7 +41,17 @@ interface Review {
   preview: Preview;
 }
 
-export function Ticket({ market, policy, writer }: { market: ListedMarket | null; policy: Loadable<OptionsPolicy>; writer: RoomWriter }) {
+export function Ticket({
+  market,
+  hasContracts = true,
+  policy,
+  writer,
+}: {
+  market: ListedMarket | null;
+  hasContracts?: boolean;
+  policy: Loadable<OptionsPolicy>;
+  writer: RoomWriter;
+}) {
   const { t } = optionsCopy.useCopy();
   const now = useNow(30_000);
   const api = useDeskApi();
@@ -200,7 +210,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
           ]}
         />
       ) : (
-        <p className="m-0 text-sm text-fg-2">{t('Pick a contract')}</p>
+        <p className="lt-hint">{hasContracts ? t('Pick a contract') : t('No contracts listed')}</p>
       )}
 
       <SegmentedControl
@@ -214,7 +224,7 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
           { value: 'sell', label: t('Sell'), tone: 'down' },
         ]}
       />
-      <p className="m-0 text-xs text-fg-2">{t('Limit only')}</p>
+      <p className="lt-hint">{t('Limit only')}</p>
 
       <Field density="dense" label={t('Size in contracts')} hint={market ? t('Step {step}', { step: market.precision.amount }) : undefined}>
         <Input
@@ -251,26 +261,26 @@ export function Ticket({ market, policy, writer }: { market: ListedMarket | null
           </SelectContent>
         </Select>
       </Field>
-      <div className="flex flex-col gap-1">
+      <div className="lt-stack">
         <label className="flex items-center justify-between gap-3 text-sm text-fg">
           {t('Post only')}
           <Switch checked={postOnly} onCheckedChange={setPostOnly} disabled={tif !== 'GTC'} aria-label={t('Post only')} />
         </label>
-        <p className="m-0 text-xs text-fg-2">{tif !== 'GTC' ? t('Post only needs good till cancelled') : t('Post only hint')}</p>
+        <p className="lt-hint">{tif !== 'GTC' ? t('Post only needs good till cancelled') : t('Post only hint')}</p>
       </div>
 
       {block ? (
         <p role="status" className="m-0 text-sm text-warn">
-          {t(`Block ${block}`)}
+          {block === 'noContract' && !hasContracts ? t('No contracts listed') : t(`Block ${block}`)}
         </p>
       ) : null}
       {failure ? <Refusal words={failure} size="inline" /> : null}
 
       {review && reviewCost ? (
-        <div className="flex flex-col gap-2">
+        <div className="lt-stack">
           <h3 className="m-0 text-base font-medium text-fg">{t('Cost before you confirm')}</h3>
           <KeyValue density="dense" items={rows} />
-          <p className="m-0 text-xs text-fg-2">{paperNothingHeld ? t('Paper cost note') : t('Cost note')}</p>
+          <p className="lt-hint">{paperNothingHeld ? t('Paper cost note') : t('Cost note')}</p>
         </div>
       ) : null}
 

@@ -1,4 +1,4 @@
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { isRecord } from '@intafaced/contracts/guards';
 
 /**

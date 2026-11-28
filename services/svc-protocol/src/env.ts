@@ -47,8 +47,7 @@ const blankIsUnset = <T extends z.ZodTypeAny>(schema: T) =>
  * `EDGE_PRINCIPAL_SECRET` is here because this service self-mounts /trpc. It is
  * not a custody key and grants nothing on-chain: it only lets this service tell
  * a principal the edge vouched for from one a caller typed. Most of the surface
- * is permissionless; the registry procedures are not, and they are the reason
- * (docs/decisions/mount-boundary.md).
+ * is permissionless; the registry procedures are not, and they are the reason.
  */
 const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   z.object({
@@ -181,6 +180,12 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_SWAP_MAX_FEE_PER_GAS_WEI: z.string().default('').transform(parseFeeCapWei),
     /**
+     * Swap gas paymaster (D-swap-06): the ScopedPaymaster contract on PROTOCOL_CHAIN_ID that sponsors swap gas when
+     * deployed and holding a native float. NO DEFAULT: zero means no paymaster is configured and `amm.feeLevels` reports
+     * `sponsored: false` ("You pay the network fee").
+     */
+    PROTOCOL_SWAP_PAYMASTER_ADDRESS: evmAddressDefaultZero,
+    /**
      * Paying a swap's network fee in a token (RC-dex-protocol-02): the FeeTokenRelay contract, the relayer URL a signed
      * order is handed to (it sends it and pays the gas; this service holds no key), and the gas a relayed swap is priced
      * for and sent with. NO DEFAULTS: any one blank and `amm.feeTokens`, `amm.feeQuote` and the fee swap refuse
@@ -194,6 +199,12 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * values, read from it. NO DEFAULT: zero refuses `protocol.claim_escrow_unset` and no link can be sent.
      */
     PROTOCOL_CLAIM_ESCROW_ADDRESS: evmAddressDefaultZero,
+    /**
+     * The sovereign P2P escrow (RC-p2p-01): the SovereignEscrow contract on PROTOCOL_CHAIN_ID that holds a seller's tokens
+     * for one P2P order. NO DEFAULT: zero refuses `protocol.escrow_not_deployed` and the contract escrow is not offered.
+     * On a mainnet chain every escrow call refuses `audit.external` whatever this says.
+     */
+    PROTOCOL_P2P_ESCROW_ADDRESS: evmAddressDefaultZero,
     /**
      * The trading venue (D-bridge-chain-04): the SovereignVenue contract on PROTOCOL_CHAIN_ID that a wallet deposits its own
      * tokens into and withdraws them from. NO DEFAULT: zero refuses `protocol.venue_unset` and nothing is built.
@@ -263,7 +274,7 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
 
     /**
      * Public ERC-4337 bundler. Optional: without it the service still builds
-     * and verifies operations, and the user submits them. A missing bundler
+     * operations, and the user submits them. A missing bundler
      * degrades convenience, never access — that is what permissionless means.
      */
     PROTOCOL_BUNDLER_URL: z.string().url().optional(),
@@ -275,31 +286,6 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     INDEXER_URL: blankIsUnset(z.string().url().optional()),
     DEX_URL: blankIsUnset(z.string().url().optional()),
     PROTOCOL_PEER_TIMEOUT_MS: blankIsUnset(z.coerce.number().int().min(100).max(30_000).optional()),
-
-    /**
-     * Founding badge Drop phase I window (RC-more-catalogue-04), founder setting. Both ISO instants or the badge
-     * refuses `badge.window_unset`; no default window.
-     */
-    PROTOCOL_BADGE_WINDOW_OPENS_AT: blankIsUnset(z.string().datetime().optional()),
-    PROTOCOL_BADGE_WINDOW_CLOSES_AT: blankIsUnset(z.string().datetime().optional()),
-    /**
-     * Owner-set age (seconds) after which a founding-badge mint slot counts as stuck and an operator may clear it.
-     * No default: blank refuses the clear with `badge.stuck_age_unset`.
-     */
-    PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
-    /**
-     * svc-identity action approval (four-eyes) for the stuck-mint clear, shared-secret (dual) mode. Either blank:
-     * the clear refuses `badge.stuck_approval_unwired`. svc-protocol has no S2S key (service-keys.ts), so a
-     * keypair-only identity refuses this call: it fails closed.
-     */
-    IDENTITY_URL: blankIsUnset(z.string().url().optional()),
-    INTERNAL_SERVICE_SECRET: blankIsUnset(z.string().min(32).optional()),
-
-    /**
-     * Protocol ops desk metrics window (D-order-controls-04). An owner setting with no default: blank refuses the metrics
-     * read with `owner.decision` unless the caller names a window.
-     */
-    PROTOCOL_OPS_WINDOW_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
 
     /**
      * The sanctions representation a wallet signs once before its first signing action (D-developer-compliance-03).
@@ -337,12 +323,25 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_WALLET_SANCTIONS: blankIsUnset(z.string().max(100_000).optional()),
     /**
      * The embedded self-custody wallet's provider (J-wallet-22, src/embedded-wallet/provider.ts; OWNER 237). The owner's
-     * setting, NO DEFAULT: blank refuses `wallet.embedded_provider_unset` and no wallet is made. `privy` or `turnkey` are
-     * known but unwired in this build (`wallet.embedded_provider_unwired`). `TEST:test` is the labelled TEST provider,
-     * refused at boot outside APP_ENV dev or test; it needs the TEST provider's loopback URL below.
+     * setting, NO DEFAULT: blank refuses `wallet.embedded_provider_unset` and no wallet is made. `turnkey` is the owner's
+     * provider, reached through svc-identity at IDENTITY_URL below; `privy` is known but unwired
+     * in this build (`wallet.embedded_provider_unwired`). `TEST:test` is the labelled TEST provider, refused at boot
+     * outside APP_ENV dev or test; it needs the TEST provider's loopback URL below.
      */
     PROTOCOL_EMBEDDED_WALLET_PROVIDER: blankIsUnset(z.string().max(64).optional()),
     PROTOCOL_EMBEDDED_WALLET_TEST_URL: blankIsUnset(z.string().max(200).optional()),
+    /**
+     * svc-identity's URL, read only when the provider is `turnkey`: svc-identity holds the provider's API key and makes
+     * the wallet (`IDENTITY_EMBEDDED_WALLET_PROVISION`), so this service declares no key. Blank then refuses to boot.
+     */
+    IDENTITY_URL: blankIsUnset(z.string().url().optional()),
+    /**
+     * Who pays the network fee of a person's own deposit when their wallet holds none of the chain's gas token
+     * (J-wallet-24 #2). The owner's setting, NO DEFAULT: sponsoring gas is INTAFACED's spending, so blank is unset and
+     * no sponsored deposit is offered (`wallet.gas_sponsor_unset`). This build pays no one's gas, so any value refuses
+     * to boot (src/embedded-wallet/gas-sponsor.ts).
+     */
+    PROTOCOL_GAS_SPONSOR: blankIsUnset(z.string().max(64).optional()),
     /**
      * How many contacts one wallet's address book may hold, and how many wallet groups (D-portfolio-wallet-03). Owner
      * settings, NO DEFAULT: blank refuses `protocol.address_book_max_contacts_unset` / `protocol.wallet_groups_max_unset`.
@@ -355,6 +354,13 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * default: blank refuses `protocol.listing.challenge_ttl_unset`. `TEST:<seconds>` only on the local test stack.
      */
     PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: z.string().default(''),
+
+    /**
+     * LOCAL TEST only: `TEST:<absolute path>` of a TEST network registry `networks.list` serves instead of the owner's
+     * `deployments/networks.json` (J-dex-protocol-01 #6, #7). Blank serves the owner's file; a TEST value refuses to boot
+     * outside APP_ENV dev or test (`networksRegistryPathFromSetting`).
+     */
+    PROTOCOL_TEST_NETWORKS_REGISTRY: z.string().default(''),
 
     /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.

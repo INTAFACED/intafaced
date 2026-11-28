@@ -221,6 +221,17 @@ export const en = {
   'notify.agents.usage_alert.crossed.title': 'Agent spend passed your alert',
   'notify.agents.usage_alert.crossed.body':
     'Your agent has spent {amount} {asset} in {month}, reaching the alert you set at {alertAt} {asset}. Open the agent to see its limits.',
+  'notify.agents.alert.fired.title': 'Agent alert: {rule}',
+  'notify.agents.alert.fired.body': '{measure} was {value} from {from} to {to}, above the rule’s threshold of {threshold}.',
+  'notify.trade.risk.margin.title': 'Margin alert: {symbol}',
+  'notify.trade.risk.margin.body':
+    'The margin on your {symbol} position, with its unrealised result, fell to {margin} {asset}, at or below your level of {level} {asset}.',
+  'notify.trade.risk.margin_call.title': 'Margin call: {symbol}',
+  'notify.trade.risk.margin_call.body':
+    'Your {symbol} margin ratio reached {ratio}%, at or above your level of {level}%. Add {asked} {asset} of margin to bring it back to {level}%.',
+  'notify.trade.risk.liquidation.title': 'Liquidation alert: {symbol}',
+  'notify.trade.risk.liquidation.body':
+    'Your {symbol} margin ratio reached {ratio}%: at {level}% the venue liquidates the position. Add {asked} {asset} of margin to bring it back to {level}%.',
   'notify.agents.approval.requested.comment.title': 'Your agent wants to send a comment',
   'notify.agents.approval.requested.title': 'Your agent wants to use a tool that needs your approval',
   'notify.agents.approval.requested.body': 'It waits for your approval in the Approvals inbox. Nothing runs until you approve it.',
@@ -248,9 +259,16 @@ export const en = {
     'A copy would have gone past your per-order or total limit, so it was skipped. You can raise the limit on the follow.',
   'notify.trade.copy_skipped.body.copy_slippage_exceeded':
     'The price had moved past your slippage limit, so a copy was skipped. You can widen the limit on the follow.',
+  'notify.trade.copy_skipped.body.per_contract_cap':
+    'A copy would have gone past your most per contract, so it was skipped. Copies in your other markets go on. You can raise the limit with Edit limits on the follow.',
+  'notify.trade.copy_skipped.body.daily_cap':
+    'A copy would have gone past your most per day, so it was skipped. Copying resumes when the next day starts. You can raise the limit with Edit limits on the follow.',
   'notify.trade.copy_skipped.body.position_closed':
     'The leader closed a trade you no longer hold, so nothing was sold for you. You can see your positions on the follow.',
   'notify.trade.copy_skipped.body.refused': 'A copy of the leader’s trade could not be placed. You can see why in the follow’s skip log.',
+  'notify.trade.recurring_buy_suspended.title': 'Recurring buy paused: not enough {asset}',
+  'notify.trade.recurring_buy_suspended.body':
+    'Your recurring buy needed {amount} {asset} and your venue account had {free} {asset} free, so nothing was bought. It resumes by itself once the funds arrive.',
   'notify.trade.copy_stopped.title': 'Your follow stopped copying',
   'notify.trade.copy_stopped.body.follower': 'You stopped this follow. No new trades are copied for you. You can follow again any time.',
   'notify.trade.copy_stopped.body.follower_close_only':
@@ -396,6 +414,9 @@ export const en = {
   'agents.refused.place_idempotency_required':
     'Refused: placing an order needs a stable intent key so a repeated message cannot duplicate it.',
   'agents.refused.place_key_conflict': 'Refused: this intent key is already in use for a place on this session, so {tool} was not run.',
+  'agents.refused.analytics_from_unset': 'Refused: the dashboard range has no From day — choose one.',
+  'agents.refused.analytics_to_unset': 'Refused: the dashboard range has no To day — choose one.',
+  'agents.refused.analytics_range_invalid': 'Refused: the dashboard range is not a range of days — check From and To.',
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
   'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
   'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',

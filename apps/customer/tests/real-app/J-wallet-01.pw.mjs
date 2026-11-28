@@ -2,12 +2,12 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fund, journeyState, restartWithSetting } from './stack.mjs';
+import { api, journeyState, restartWithSetting } from './stack.mjs';
 import { TEST_MEMBERSHIP_TIERS } from '../../../../tooling/scripts/local-stack-services/identity.mjs';
 import { confirm, signIn, signUp, verify } from './desk.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
-import { setPartner } from './partner.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { fundAtPartner, holdAtPartner, setPartner } from './partner.mjs';
 import {
   continueInWallet,
   sameDecimal,
@@ -30,10 +30,15 @@ import {
 // Every figure is checked against its own source: the chain's node at the block the page names, and the venue's record.
 // The ledger is read before and after: it holds no balance for this person and posts nothing in #1 to #4.
 // #3 puts this person's bank money at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`, funded there
-// with TEST 50 USDT), buys TEST 10 USDT by card and TEST 20 USDT by a bank pull through the partner's TEST pay-in page, and reads what the partner
-// holds back of it on Withdraw, through its switches for "not reported" and for the release; then puts it back.
-// #5 reads the asset registry and holds Deposit's and Withdraw's own pickers to it. #6 reads the membership panel with the tiers blank, then with identity restarted
-// with one TEST tier (`LOCAL_STACK_IDENTITY_MEMBERSHIP=test`), then blank again.
+// with TEST 50 USDT), buys TEST 10 USDT by card and TEST 20 USDT by a bank pull through the partner's TEST pay-in page
+// on Add money (`/bank/ramps/new`), and opens the partner Withdraw view on Assets (`/money?withdraw=partner`) to read
+// what the partner holds back of it, through its switches for "not reported" and for the release; then puts it back.
+// #5 pays TEST 5 TESTRETIRED (a retired coin) in at the TEST partner bank, reads the asset registry on `/uc/assets`
+// (reached from `/money`), follows the retired asset's history to the partner's own line for it
+// (`/money/balance/TESTRETIRED?source=all`), and holds the venue desk's own Deposit and Withdraw (J-cex-spot-01 #4 and
+// #12) to it. Today's custodial Deposit and Withdraw pickers are checked in J-wallet-01-custodial.pw.mjs.
+// #6 reads the membership panel with the tiers blank, then with identity restarted with one TEST tier
+// (`LOCAL_STACK_IDENTITY_MEMBERSHIP=test`), then blank again.
 const J = 'J-wallet-01';
 const DESK = '/trade/spot/BTC-USDC';
 const SYMBOL = 'BTC-USDC';
@@ -118,33 +123,14 @@ async function signOnVenue(walletKey, intent) {
 const openOrders = async (owner) => (await venueRecord(owner, '/open-orders')).value;
 
 /**
- * Connects the TEST wallet when the page asks for it, until `connected` shows. A page opened again in the same tab may
- * restore the connection itself, and then shows no Connect button.
- */
-async function connectWhenAsked(page, connected) {
-  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect
-    .poll(
-      async () => {
-        if (await connected.isVisible().catch(() => false)) return true;
-        // A short click: the page may restore the connection and drop the button mid-click, and a click with no limit
-        // of its own would then wait out the whole poll instead of letting it look again.
-        if (await connect.isVisible().catch(() => false)) await connect.click({ timeout: 2_000 }).catch(() => undefined);
-        return false;
-      },
-      { timeout: 30_000, intervals: [500] },
-    )
-    .toBe(true);
-}
-
-/**
  * Signed in with the TEST wallet on the TEST chain in this page: the wallet is installed once per page (a second install
  * in the same page is refused), and the page's own reads go to the TEST chain's node.
  */
 async function withWallet(page) {
   const { account: who, walletKey } = state();
-  await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+  const wallet = await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
   await signIn(page, who);
+  return wallet;
 }
 
 /** Assets open with the wallet connected. `fresh` installs the wallet and signs in first; else the page already has both. */
@@ -281,10 +267,12 @@ test(`${J} #1 opens Assets: the wallet's assets read from the chain and the venu
   const wallet = page.getByTestId('source-wallet');
   await expect(wallet).toHaveAttribute('data-source', 'chain');
   await expect(wallet.locator('[data-testid="source-wallet-block"]')).toHaveAttribute('data-block', /^\d+$/, { timeout: 30_000 });
-  const block = await wallet.locator('[data-testid="source-wallet-block"]').getAttribute('data-block');
+  const [block, blockTime] = await wallet
+    .locator('[data-testid="source-wallet-block"]')
+    .evaluate((shown) => [shown.getAttribute('data-block'), shown.querySelector('time')?.getAttribute('datetime') ?? null]);
   const chain = await chainAt(owner, block);
   expect(chain.usd).toBe(100_000_000n);
-  await expect(wallet.locator('[data-testid="source-wallet-block"] time')).toHaveAttribute('datetime', chain.time);
+  expect(blockTime, `the time shown with block ${block} is that block's own time`).toBe(chain.time);
   await expect(wallet.getByTestId('source-wallet-network')).toHaveText(`Base Sepolia test network (chain ${CHAIN_ID})`);
   const totals = wallet.getByRole('region', { name: 'Totals on Base Sepolia test network' });
   await expect(totals.locator('tr[data-asset="TESTUSD"] [data-cell="amount"]')).toHaveText(shownUnits(chain.usd, 6));
@@ -439,8 +427,10 @@ test(`${J} #3 buys with a card and with a bank pull through the partner, then op
     }
     expect(report.balances).toEqual([expect.objectContaining({ assetId: 'USDT', balance: '80', heldBack: '30', withdrawable: '50' })]);
 
-    // Withdraw: each hold with its release time, and what can be withdrawn now leaves both out.
-    await page.goto('/uc/withdraw');
+    // Withdraw (from the partner account on Assets): each hold with its release time, and what can be withdrawn now leaves both out.
+    await page.goto('/money');
+    await page.getByTestId('source-partner').getByRole('button', { name: 'Withdraw', exact: true }).click();
+    await expect(page).toHaveURL(/\/money\?withdraw=partner$/);
     const panel = page.getByTestId('partner-holds');
     await expect(panel).toHaveAttribute('data-source', PARTNER_BANK);
     await expect(panel).toHaveAttribute('data-reported', 'true');
@@ -502,7 +492,7 @@ test(`${J} #3 buys with a card and with a bank pull through the partner, then op
 
     // A partner that does not report what it holds back: "not reported by the partner", never 0 and never all free.
     await setPartner(who, { purchaseHolds: 'not_reported' });
-    await page.goto('/uc/withdraw');
+    await page.goto('/money?withdraw=partner');
     await expect(panel).toHaveAttribute('data-reported', 'false');
     await expect(row.locator('[data-cell="balance"]')).toHaveText('80 USDT');
     await expect(row.locator('[data-cell="held-back"]')).toHaveText('not reported by the partner');
@@ -556,27 +546,32 @@ test(`${J} #4 looks at an asset with no published price: it reads "No price publ
 });
 
 const RETIRED = 'TESTRETIRED';
-/** The select inside the form field of `scope` whose own caption is exactly `caption` (a panel of the same title is not the field). */
-const picker = (scope, caption) =>
-  scope
-    .locator('label')
-    .filter({ has: scope.page().getByText(caption, { exact: true }) })
-    .getByRole('combobox');
 /** The places after the point a decimal string is written with, trailing zeros not counted. */
 const places = (value) => (String(value).split('.')[1] ?? '').replace(/0+$/, '').length;
-/** A decimal string as the customer app writes it: the whole part grouped by thousands, the fraction as given. */
-const grouped = (value) => {
-  const [whole, fraction] = String(value).split('.');
-  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction ? `.${fraction}` : ''}`;
-};
-
-test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw use, and a retired asset stays listed with its history`, async ({
+test(`${J} #5 opens the asset and network list: the same asset rows and precision the venue deposit and the venue withdrawal use, and a retired asset stays listed with its history`, async ({
   page,
+  stepPicture,
 }) => {
+  // The list, the retired asset's history, and the venue desk's two dialogs: more than one default step's time.
+  test.setTimeout(240_000);
   const who = account();
-  const credit = fund(who.email, RETIRED, '5', `jw01-ret-${who.email.split('@')[0].replace(/[^A-Za-z0-9-]/g, '')}`.slice(0, 64));
-  expect(credit.out).toMatch(/TEST FUNDS credited/);
+  const { owner } = state();
+  // The person's history with the retired coin: TEST 5 of it paid in at the TEST partner bank, where their bank money
+  // sits (the launch model: INTAFACED holds none of it). The partner's own line for it is what the history must show.
+  await holdAtPartner(who);
+  await fundAtPartner(who, `${J}-retired`, RETIRED, '5');
   const customer = await api(who);
+  const partnerLine = async () => {
+    const input = encodeURIComponent(JSON.stringify({ limit: 200 }));
+    const { status, body } = await customer.get(`/api/bank/trpc/activity.list?input=${input}`);
+    expect(status, `activity.list: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
+    return body.result.data.items.filter((item) => item.heldAt && item.asset === RETIRED);
+  };
+  const paidIn = await partnerLine();
+  expect(
+    paidIn.map((item) => [item.direction, sameDecimal(item.amount, '5'), item.heldAt.label]),
+    "the partner's own record holds the one TEST pay-in",
+  ).toEqual([['in', true, PARTNER_BANK]]);
   const read = async (procedure) => {
     const { status, body } = await customer.get(`/api/bank/trpc/${procedure}`);
     expect(status, `${procedure}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
@@ -617,47 +612,11 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   expect(deposits.assets.map((asset) => asset.assetId)).not.toContain(RETIRED);
   expect(row(RETIRED)).toMatchObject({ state: 'retired', allowedActions: [] });
 
-  // The page: from Deposit, every listed row with its precision and networks, the retired one marked and linked to its history.
+  // The page: from Assets, every listed row with its precision and networks, the retired one marked and linked to its history.
   await signIn(page, who);
-  await page.goto('/uc/recharge');
+  await page.goto('/money');
   await page.mouse.move(0, 600);
-  // Deposit's own pickers use those rows: its coins are the ones the list lets in (and any whose pairs are switched off,
-  // shown with their reason), and each coin's open networks are the list's networks for it.
-  const optionValues = (select, extra = '') =>
-    select.locator(`option${extra}`).evaluateAll((options) => options.map((o) => o.value).filter(Boolean));
-  // Deposit's own pickers sit in its "Asset" panel; the records' filter further down has an "Asset" field of its own.
-  const depositPanel = page.getByRole('region', { name: 'Asset', exact: true });
-  const depositAsset = picker(depositPanel, 'Asset');
-  const depositNetwork = picker(depositPanel, 'Network');
-  await expect(depositAsset).toHaveCount(1);
-  await expect(depositNetwork).toHaveCount(1);
-  const depositOffered = [...new Set([...deposits.assets, ...(deposits.halted ?? [])].map((asset) => asset.assetId))];
-  await expect.poll(() => optionValues(depositAsset).then((v) => [...v].sort())).toEqual([...depositOffered].sort());
-  for (const id of depositOffered) expect(row(id), `Deposit offers ${id}, which the list does not have`).toBeTruthy();
-  for (const asset of deposits.assets) {
-    await depositAsset.selectOption(asset.assetId);
-    const open = asset.networks.map((n) => n.id);
-    await expect.poll(() => optionValues(depositNetwork, ':not([data-halted])').then((v) => [...v].sort())).toEqual([...open].sort());
-    for (const network of asset.networks) {
-      expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
-      // The page shows that minimum exactly as the bank gives it, so Deposit shows no more places than the list's precision.
-      await depositNetwork.selectOption(network.id);
-      await expect(
-        page
-          .getByRole('term')
-          .filter({ hasText: /^Minimum deposit$/ })
-          .locator('xpath=following-sibling::dd[1]'),
-      ).toHaveText(`${grouped(network.minimumDeposit)} ${asset.assetId}`);
-      // And the page names the decimal places Deposit uses for the asset: the list's precision, exactly.
-      await expect(
-        page
-          .getByRole('term')
-          .filter({ hasText: /^Decimal places$/ })
-          .locator('xpath=following-sibling::dd[1]'),
-      ).toHaveText(String(row(asset.assetId).precision));
-    }
-  }
-  await page.getByRole('link', { name: 'Supported assets and networks' }).click();
+  await page.getByRole('link', { name: 'Supported assets and networks', exact: true }).click();
   await expect(page).toHaveURL(/\/uc\/assets$/);
   await expect(page.getByRole('heading', { name: 'Supported assets and networks', level: 1 })).toBeVisible();
   const table = page.getByTestId('supported-assets');
@@ -677,32 +636,86 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await expect(retired.locator('[data-col="state"]')).toContainText('Retired');
   await expect(retired.locator('[data-col="state"]')).toContainText('What you hold and your history with it stay.');
   await expect(retired.locator('[data-col="actions"]')).toHaveText('Nothing new');
-  await retired.getByRole('link', { name: `Your ${RETIRED} history` }).click();
-  await expect(page).toHaveURL(new RegExp(`/money/balance/${RETIRED}$`));
-  await expect(page.getByRole('region', { name: `${RETIRED} balance, entry by entry` })).toContainText(credit.tx);
+  await stepPicture();
+  // Its history, from the place that holds it (the partner), never our ledger's: the partner's one line for the coin.
+  await retired.getByRole('link', { name: `Your ${RETIRED} history`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/money/balance/${RETIRED}\\?source=all$`));
+  await expect(page.getByTestId('source-records-title')).toHaveAttribute('data-asset', RETIRED);
+  const lines = page.locator('[data-testid="money-act"]');
+  await expect(lines).toHaveCount(1, { timeout: 30_000 });
+  const line = page.locator(`[data-testid="money-act"][data-source="partner"][data-ref="${paidIn[0].txId}"]`);
+  await expect(line).toHaveCount(1);
+  await expect(line.locator('[data-direction]').first()).toHaveText(`+5 ${RETIRED}`);
+  await expect(line.getByTestId('money-act__source')).toHaveText(`Your account at ${PARTNER_BANK}`);
 
-  // Withdraw links the same list.
-  await page.goto('/uc/withdraw');
-  await page.mouse.move(0, 600);
-  await expect(page.getByRole('link', { name: 'Supported assets and networks' })).toHaveAttribute('href', '/uc/assets');
-  // Withdraw's own pickers use the same rows: for every coin the person holds, the networks it offers are exactly the
-  // list's withdrawal networks for that coin, and the retired coin they still hold is offered none.
-  // Withdraw's own pickers sit in its form, the one with the Network field.
-  const withdrawForm = page.locator('form').filter({ has: page.getByText('Network', { exact: true }) });
-  const withdrawAsset = picker(withdrawForm, 'Asset');
-  const withdrawNetwork = picker(withdrawForm, 'Network');
-  await expect(withdrawAsset).toHaveCount(1);
-  await expect(withdrawNetwork).toHaveCount(1);
-  await expect.poll(() => optionValues(withdrawAsset)).toContain(RETIRED);
-  for (const id of await optionValues(withdrawAsset)) {
-    await withdrawAsset.selectOption(id);
-    const open = (withdrawable.find((asset) => asset.assetId === id)?.networks ?? []).map((n) => n.networkId);
-    await expect
-      .poll(() => optionValues(withdrawNetwork).then((v) => [...v].sort()), `Withdraw's networks for ${id}`)
-      .toEqual([...open].sort());
+  // The venue deposit and the venue withdrawal (J-cex-spot-01 #4 and #12), on the venue desk's own account panel: each
+  // names the asset the list has, open to it, and allows exactly the list's places for it, never finer.
+  const described = await testVenue('/venue');
+  expect(described.status, JSON.stringify(described.body).slice(0, 300)).toBe(200);
+  const route = described.body.deposit;
+  expect(route, 'the TEST venue names its deposit route').toMatchObject({ asset: expect.any(String) });
+  const coin = row(route.asset);
+  expect(coin, `the venue takes deposits of ${route.asset}, which the list must have`).toMatchObject({
+    state: 'active',
+    allowedActions: expect.arrayContaining(['deposit', 'withdraw']),
+  });
+  // The token carries at least the list's places, so the list's precision is what binds the amount.
+  expect(route.tokenDecimals).toBeGreaterThanOrEqual(coin.precision);
+  const finer = `1.${'0'.repeat(coin.precision)}1`;
+  const atPrecision = coin.precision > 0 ? `1.${'0'.repeat(coin.precision - 1)}1` : '1';
+  const desk = await page.context().newPage();
+  try {
+    const wallet = await withWallet(desk);
+    await desk.goto(DESK);
+    await expect(desk.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+    await connectWhenAsked(desk, desk.getByTestId('venue-wallet-address').filter({ hasText: new RegExp(owner, 'i') }));
+    const panel = desk.getByRole('region', { name: /venue account/i });
+    const placesOf = (scope) =>
+      scope
+        .getByRole('term')
+        .filter({ hasText: /^Decimal places$/ })
+        .locator('xpath=following-sibling::dd[1]');
+    const venueBefore = await venueBalance(owner, route.asset);
+    const asked = () => wallet.requests.length + wallet.sends.length;
+    const askedBefore = asked();
+
+    // The venue deposit: the list's asset, at the list's precision; one place finer is refused before the wallet is asked.
+    await panel.getByRole('button', { name: /^Deposit/ }).click();
+    const deposit = desk.getByRole('dialog', { name: /deposit/i });
+    await expect(deposit.getByRole('textbox', { name: `Amount (${route.asset})`, exact: true })).toBeVisible();
+    await expect(placesOf(deposit)).toHaveText(String(coin.precision));
+    await expect(deposit.getByTestId('venue-listed-refusal')).toHaveCount(0);
+    await deposit.getByRole('textbox', { name: `Amount (${route.asset})`, exact: true }).fill(finer);
+    await deposit.getByRole('button', { name: 'Deposit and sign in your wallet', exact: true }).click();
+    await expect(deposit.getByRole('alert')).toHaveText(`Enter an amount of ${route.asset} with at most ${coin.precision} decimals.`);
+    expect(asked(), 'the wallet is not asked for an amount finer than the list').toBe(askedBefore);
+    await desk.keyboard.press('Escape');
+    await expect(deposit).toHaveCount(0);
+
+    // The venue withdrawal: the same row and precision; one place finer is refused before the step-up, and an amount at
+    // the list's precision goes on to it.
+    await panel.getByRole('button', { name: /^Withdraw/ }).click();
+    const withdraw = desk.getByRole('dialog', { name: /withdraw/i });
+    const amount = withdraw.getByRole('textbox', { name: `Amount (${route.asset})`, exact: true });
+    await expect(amount).toBeVisible();
+    await expect(placesOf(withdraw)).toHaveText(String(coin.precision));
+    await expect(withdraw.getByTestId('venue-listed-refusal')).toHaveCount(0);
+    await amount.fill(finer);
+    await withdraw.getByRole('button', { name: 'Withdraw and sign in your wallet', exact: true }).click();
+    await expect(withdraw.getByRole('alert')).toHaveText(`Enter an amount of ${route.asset} with at most ${coin.precision} decimals.`);
+    const stepUp = desk.getByRole('dialog', { name: 'Confirm it’s you', exact: true });
+    await expect(stepUp).toHaveCount(0);
+    await amount.fill(atPrecision);
+    await withdraw.getByRole('button', { name: 'Withdraw and sign in your wallet', exact: true }).click();
+    await expect(stepUp).toBeVisible();
+    await desk.keyboard.press('Escape');
+    expect(asked(), 'the wallet is not asked before the step-up').toBe(askedBefore);
+    // Nothing moved on the venue.
+    const venueAfter = await venueBalance(owner, route.asset);
+    expect(sameDecimal(venueAfter.free, venueBefore.free) && sameDecimal(venueAfter.locked, venueBefore.locked)).toBe(true);
+  } finally {
+    await desk.close();
   }
-  await withdrawAsset.selectOption(RETIRED);
-  await expect(withdrawNetwork).toContainText('No network is open for this asset');
 });
 
 test(`${J} #6 opens membership tier on Account: with config blank, a refused state; with config set, the tier`, async ({ page }) => {

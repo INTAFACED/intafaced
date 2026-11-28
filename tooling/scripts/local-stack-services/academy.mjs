@@ -151,6 +151,9 @@ const roleLimit = () => (process.env.LOCAL_STACK_ACADEMY_ROLE_LIMIT === 'off' ? 
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, testChain }) => ({
   name: 'academy',
+  // The Rust binary (crates/svc-academy), built by the stack (ensureRustBinaries); it applies its own migrations
+  // (`svc-academy migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-academy', PORTS.academy),
     DATABASE_URL: dbUrl('svc_academy', secrets),

@@ -13,22 +13,15 @@
  */
 import { useRef, useState } from 'react';
 import type { Order } from '../../../features/trade/trade-api';
+import type { ActionResult } from '../../../features/trade/venue/VenueKit';
 import { fitsPlaces } from '../../../features/account/trading-settings';
 import { useDataEnv } from '../../../data/hooks';
 import { useDeskApi } from './data';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  fmtAmount,
-  fmtPrice,
-} from './deps';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPrice } from '../../../data';
 import type { InstantState, InstantWrite } from './instant';
-import type { DeskMarket } from './market';
+import type { FlowMarket } from './order-flow';
 import { flowCopy } from './order-flow-copy';
 import { placesOf } from './text';
 import type { Preferences } from '../../../shared/preferences';
@@ -83,7 +76,7 @@ function InstantSwitch({ instant, zone }: { instant: InstantControl; zone: Zone 
   else status = t('Instant off');
 
   return (
-    <div className="of-instant">
+    <div className="lt-row lt-chips">
       <button
         type="button"
         role="switch"
@@ -95,43 +88,48 @@ function InstantSwitch({ instant, zone }: { instant: InstantControl; zone: Zone 
       >
         {t('Instant placement')}
       </button>
-      <span className="of-note" role="status" data-testid="of-instant-status" data-agreed-at={agreedAt ?? ''}>
+      <span className="lt-note" role="status" data-testid="of-instant-status" data-agreed-at={agreedAt ?? ''}>
         {status}
       </span>
       {note ? (
-        <span className="of-note of-note--bad" role="alert">
+        <span className="lt-note lt-note-bad" role="alert">
           {note}
         </span>
       ) : null}
-      <AlertDialog open={asking} onOpenChange={(next) => (next ? setAsking(true) : !saving && setAsking(false))}>
-        {asking ? (
-          <AlertDialogContent className="dk-review" data-testid="of-instant-summary">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Instant summary title')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Instant summary intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <ul className="of-summary">
-              <li>{t('Instant summary sends')}</li>
-              <li>{t('Instant summary market')}</li>
-              <li>{t('Instant summary one click')}</li>
-              <li>{t('Instant summary checks')}</li>
-              <li>{t('Instant summary off')}</li>
-            </ul>
-            <label className="of-check">
-              <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
-              <span>{t('Instant agree')}</span>
-            </label>
-            <AlertDialogFooter>
-              <Button variant="secondary" size={40} disabled={saving} onClick={() => setAsking(false)}>
+      {asking ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Instant summary title')}
+          description={t('Instant summary intro')}
+          testId="of-instant-summary"
+          onClose={() => {
+            if (!saving) setAsking(false);
+          }}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={saving} onClick={() => setAsking(false)}>
                 {t('Instant keep off')}
               </Button>
-              <Button variant="primary" shape="pill" size={40} loading={saving} disabled={!agreed} onClick={() => void accept()}>
+              <Button busy={saving} tone="primary" size="md" disabled={!agreed} onClick={() => void accept()}>
                 {t('Instant turn on')}
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            </>
+          }
+        >
+          <ul className="lt-stack-tight lt-tight">
+            <li>{t('Instant summary sends')}</li>
+            <li>{t('Instant summary market')}</li>
+            <li>{t('Instant summary one click')}</li>
+            <li>{t('Instant summary checks')}</li>
+            <li>{t('Instant summary off')}</li>
+          </ul>
+          <label className="lt-field">
+            <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+            <span>{t('Instant agree')}</span>
+          </label>
+        </Sheet>
+      ) : null}
     </div>
   );
 }
@@ -148,7 +146,7 @@ export function OneClickBar({
   bestBid,
   onCloseAll,
 }: {
-  market: DeskMarket;
+  market: FlowMarket;
   instant: InstantControl;
   zone: Zone;
   /** The person's quick sizes, in the base asset. */
@@ -165,11 +163,11 @@ export function OneClickBar({
   const amountPlaces = placesOf(market.lotSize);
   const canClose = market.open && free !== null && free !== '' && bestBid !== null;
   return (
-    <section className="of-oneclick" aria-label={t('One-click trading')} data-testid="of-oneclick" data-instant={instant.on ? 'on' : 'off'}>
+    <section className="lt-stack" aria-label={t('One-click trading')} data-testid="of-oneclick" data-instant={instant.on ? 'on' : 'off'}>
       <InstantSwitch instant={instant} zone={zone} />
-      <div className="of-presets" role="group" aria-label={t('Size presets')}>
+      <div className="lt-chips" role="group" aria-label={t('Size presets')}>
         {presets.length === 0 ? (
-          <span className="of-note" data-testid="of-presets-empty">
+          <span className="lt-note" data-testid="of-presets-empty">
             {t('Presets none')}
           </span>
         ) : (
@@ -188,9 +186,9 @@ export function OneClickBar({
           ))
         )}
       </div>
-      <button
-        type="button"
-        className="of-close-all"
+      <Button
+        tone="secondary"
+        size="sm"
         data-testid="of-close-all"
         data-amount={free ?? ''}
         data-price={bestBid ?? ''}
@@ -204,37 +202,54 @@ export function OneClickBar({
               price: fmtPrice(bestBid, market.tickSize),
             })
           : t('Close none', { asset: market.base })}
-      </button>
-      <p className="of-note">{instant.on ? t('One click instant hint') : t('One click review hint')}</p>
+      </Button>
+      <p className="lt-note">{instant.on ? t('One click instant hint') : t('One click review hint')}</p>
     </section>
   );
 }
 
 type CancelState = 'idle' | 'busy' | 'done' | 'uncertain' | 'refused';
+/** What one cancel request came to: done, refused, or an answer we couldn't read (never retried). */
+export type CancelOutcome = 'done' | 'uncertain' | 'refused';
+
+/** What one signed venue cancel came to, as one-click cancel reports it: a doubtful answer is never retried. */
+export function cancelOutcome(answer: ActionResult): CancelOutcome {
+  if (answer.kind === 'outcome') return answer.outcome.accepted ? 'done' : 'refused';
+  return answer.kind === 'unknown' ? 'uncertain' : 'refused';
+}
+
+/** One of my working orders on a ladder row, as the cancel review names it. */
+export interface CancelRow {
+  id: string;
+  side: 'buy' | 'sell';
+  remaining: string;
+  price: string | null;
+}
 
 /**
  * One-click cancel on a ladder row: my orders in that row's bucket. Off: a review naming each order, then one cancel per
- * order. On: the same cancels at once. A press while one is running does nothing.
+ * order. On: the same cancels at once. A press while one is running does nothing. `cancelOne` sends one cancel for one
+ * order (today's engine, or the venue's signed cancel) and is never retried here.
  */
-export function RowCancel({
+export function RowCancelView<O extends CancelRow>({
   market,
   orders,
   instant,
   onDone,
+  cancelOne,
 }: {
-  market: DeskMarket;
-  orders: readonly Order[];
+  market: FlowMarket;
+  orders: readonly O[];
   instant: boolean;
   onDone: () => void;
+  cancelOne: (order: O) => Promise<CancelOutcome>;
 }) {
   const { t } = flowCopy.useCopy();
-  const env = useDataEnv();
-  const api = useDeskApi();
   const busy = useRef(false);
   const [state, setState] = useState<CancelState>('idle');
   const [asking, setAsking] = useState(false);
   const amountPlaces = placesOf(market.lotSize);
-  const describe = (order: Order) =>
+  const describe = (order: O) =>
     t('Cancel line', {
       side: order.side === 'buy' ? t('Side buy') : t('Side sell'),
       amount: fmtAmount(order.remaining, { places: amountPlaces }),
@@ -246,12 +261,13 @@ export function RowCancel({
     if (busy.current) return;
     busy.current = true;
     setState('busy');
+    // The review closes on confirm: a venue cancel is signed in the wallet, whose own sheet must be the only one showing.
+    setAsking(false);
     let outcome: CancelState = 'done';
     for (const order of orders) {
-      env.poller.recordExternalRequest();
-      // One DELETE per order per press. Nothing retries it: on a doubtful answer the person checks Open orders.
-      const result = await api.cancel(order);
-      if (!result.ok) outcome = result.reason === 'uncertain' ? 'uncertain' : outcome === 'uncertain' ? outcome : 'refused';
+      // One cancel per order per press. Nothing retries it: on a doubtful answer the person checks Open orders.
+      const result = await cancelOne(order);
+      if (result !== 'done') outcome = result === 'uncertain' ? 'uncertain' : outcome === 'uncertain' ? outcome : 'refused';
     }
     busy.current = false;
     setState(outcome);
@@ -264,7 +280,7 @@ export function RowCancel({
     <>
       <button
         type="button"
-        className="of-row-cancel"
+        className="lt-icon-button"
         data-testid="of-row-cancel"
         data-state={state}
         disabled={state === 'busy'}
@@ -277,37 +293,62 @@ export function RowCancel({
         ×
       </button>
       {state === 'uncertain' || state === 'refused' ? (
-        <span className="of-note of-note--bad" role="alert" data-testid="of-row-cancel-note">
+        <span className="lt-note lt-note-bad" role="alert" data-testid="of-row-cancel-note">
           {state === 'uncertain' ? t('Cancel unsure') : t('Cancel not done')}
         </span>
       ) : null}
-      <AlertDialog open={asking} onOpenChange={(next) => (next ? setAsking(true) : state !== 'busy' && setAsking(false))}>
-        {asking ? (
-          <AlertDialogContent className="dk-review" data-testid="of-cancel-review">
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {t(orders.length === 1 ? 'Cancel review title one' : 'Cancel review title many', { n: orders.length })}
-              </AlertDialogTitle>
-              <AlertDialogDescription>{t('Cancel review intro')}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <ul className="of-summary">
-              {orders.map((order) => (
-                <li key={order.id} data-testid="of-cancel-line" data-order-id={order.id}>
-                  {describe(order)}
-                </li>
-              ))}
-            </ul>
-            <AlertDialogFooter>
-              <Button variant="secondary" size={40} disabled={state === 'busy'} onClick={() => setAsking(false)}>
+      {asking ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t(orders.length === 1 ? 'Cancel review title one' : 'Cancel review title many', { n: orders.length })}
+          description={t('Cancel review intro')}
+          testId="of-cancel-review"
+          onClose={() => {
+            if (state !== 'busy') setAsking(false);
+          }}
+          footer={
+            <>
+              <Button tone="secondary" size="md" disabled={state === 'busy'} onClick={() => setAsking(false)}>
                 {t('Keep orders')}
               </Button>
-              <Button variant="primary" shape="pill" size={40} loading={state === 'busy'} onClick={() => void cancel()}>
+              <Button busy={state === 'busy'} tone="primary" size="md" onClick={() => void cancel()}>
                 {t(orders.length === 1 ? 'Cancel review confirm one' : 'Cancel review confirm many', { n: orders.length })}
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            </>
+          }
+        >
+          <ul className="lt-stack-tight lt-tight">
+            {orders.map((order) => (
+              <li key={order.id} data-testid="of-cancel-line" data-order-id={order.id}>
+                {describe(order)}
+              </li>
+            ))}
+          </ul>
+        </Sheet>
+      ) : null}
     </>
   );
+}
+
+/** One-click cancel on today's desk: one DELETE per order on our engine. */
+export function RowCancel({
+  market,
+  orders,
+  instant,
+  onDone,
+}: {
+  market: FlowMarket;
+  orders: readonly Order[];
+  instant: boolean;
+  onDone: () => void;
+}) {
+  const env = useDataEnv();
+  const api = useDeskApi();
+  const cancelOne = async (order: Order): Promise<CancelOutcome> => {
+    env.poller.recordExternalRequest();
+    const result = await api.cancel(order);
+    return result.ok ? 'done' : result.reason === 'uncertain' ? 'uncertain' : 'refused';
+  };
+  return <RowCancelView market={market} orders={orders} instant={instant} onDone={onDone} cancelOne={cancelOne} />;
 }

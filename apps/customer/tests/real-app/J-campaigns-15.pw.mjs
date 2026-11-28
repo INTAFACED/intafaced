@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn } from './desk.mjs';
-import { ROOT, journeyState, signUpInBrowser } from './stack.mjs';
+import { journeyState, ROOT, signUpInBrowser, STACK_PORTS } from './stack.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-campaigns-15, in the running app (docs/roadmap/journeys.json): open the points programme. One test per step, titled
@@ -41,7 +41,7 @@ async function campaignsDb() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-campaigns', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   return postgres(`postgres://svc_campaigns:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
@@ -81,7 +81,8 @@ test(`${J} #1 opens the points area in /uc/promotion: the wallet, members and li
   const me = person(`jc15me${tag}`.slice(0, 20));
   await signUpInBrowser(page, me);
   await page.goto('/uc/promotion');
-  const account = (await page.locator('.promotions__owner [lang="zxx"]').textContent())?.trim();
+  // The page shows the account's short reference; the whole id it stands for is on the same element.
+  const account = (await page.locator('[data-testid="promotions-owner"] [data-reference]').getAttribute('data-reference'))?.trim();
   expect(account, 'the promotions page names the signed-in account').toBeTruthy();
   run.write({ me, account });
 
@@ -93,7 +94,7 @@ test(`${J} #1 opens the points area in /uc/promotion: the wallet, members and li
   await expect(area.getByTestId('points-blocker')).toHaveAttribute('data-code', 'owner.decision');
   await expect(area.getByTestId('points-question')).toContainText(QUESTION);
 
-  // The wallet: available, pending and expiring, each "Not kept", never a figure.
+  // The wallet: available, pending and expiring, each "Not started", never a figure.
   const wallet = area.getByTestId('points-wallet');
   await expect(wallet.getByRole('heading', { name: 'Your points wallet' })).toBeVisible();
   for (const [key, label] of [
@@ -103,13 +104,13 @@ test(`${J} #1 opens the points area in /uc/promotion: the wallet, members and li
   ]) {
     const line = wallet.getByTestId(`points-wallet-${key}`);
     await expect(line).toContainText(label);
-    await expect(line.locator('dd')).toHaveText('Not kept');
+    await expect(line.locator('dd')).toHaveText('Not started');
   }
 
-  // Members: the count is not kept.
+  // Members: none, since the programme hasn't started.
   const members = area.getByTestId('points-members');
   await expect(members.getByRole('heading', { name: 'Members' })).toBeVisible();
-  await expect(members.getByTestId('points-members-count')).toHaveText('Not kept');
+  await expect(members.getByTestId('points-members-count')).toHaveText('Not started');
 
   // The lifecycle: every stage, none current.
   const lifecycle = area.getByTestId('points-lifecycle');
@@ -148,8 +149,8 @@ test(`${J} #2 opens the expiry mode and pending points: the expiry modes and the
   await expect(pending.getByRole('heading', { name: 'Pending points', exact: true })).toBeVisible();
   await expect(pending.getByTestId('points-pending-empty')).toContainText('No pending points');
   await expect(pending.getByTestId('points-pending-row')).toHaveCount(0);
-  // No invented balance: the wallet's pending line stays "Not kept", and no digit shows in either part.
-  await expect(area.getByTestId('points-wallet-pending').locator('dd')).toHaveText('Not kept');
+  // No invented balance: the wallet's pending line stays "Not started", and no digit shows in either part.
+  await expect(area.getByTestId('points-wallet-pending').locator('dd')).toHaveText('Not started');
   for (const part of [expiry, pending]) expect(await part.innerText()).not.toMatch(DIGIT);
 });
 
@@ -208,14 +209,14 @@ test(`${J} #4 presses Convert and Redeem a catalogue reward: the "waiting for an
 
   // The page read the programme again after each press: still no figure anywhere.
   await expect(area).toHaveAttribute('data-state', 'ready');
-  await expect(area.getByTestId('points-wallet-available').locator('dd')).toHaveText('Not kept');
+  await expect(area.getByTestId('points-wallet-available').locator('dd')).toHaveText('Not started');
   await expect(area.getByTestId('points-pending-row')).toHaveCount(0);
   // Nothing stored: svc-campaigns holds no new row for this account in any of its tables a press could touch.
   expect(await storedFor(account)).toEqual(before);
   // And a reload shows the same: nothing the presses could have kept.
   await page.reload();
   await expect(page.getByTestId('points-programme')).toHaveAttribute('data-state', 'ready');
-  await expect(page.getByTestId('points-wallet-available').locator('dd')).toHaveText('Not kept');
+  await expect(page.getByTestId('points-wallet-available').locator('dd')).toHaveText('Not started');
 });
 
 test(`${J} #5 an operator opens the same programme in the earning-rules builder: a points effect saves, but its evaluation refuses with the owner-decision blocker for that effect only`, async ({

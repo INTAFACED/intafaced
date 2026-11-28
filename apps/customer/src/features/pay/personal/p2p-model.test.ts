@@ -52,6 +52,10 @@ const trade = (over: Partial<Trade> = {}): Trade => ({
   escrowedAt: '2026-10-17T00:01:00Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...over,
 });
 const offer = (over: Partial<Offer> = {}): Offer => ({
@@ -69,6 +73,17 @@ const offer = (over: Partial<Offer> = {}): Offer => ({
   terms: 'Pay within 15 minutes',
   status: 'active',
   createdAt: '2026-10-17T00:00:00Z',
+  totalAmount: '500',
+  filledAmount: '0',
+  tradesCompleted: 0,
+  nonInstantMethods: [],
+  acceptsNonInstant: false,
+  releaseWindowSeconds: null,
+  pauseReason: null,
+  closeReason: null,
+  visibility: 'public',
+  statusSince: '2026-10-17T00:00:00Z',
+  relistedFrom: null,
   ...over,
 });
 
@@ -128,6 +143,14 @@ describe('escrowView', () => {
     const buyer = escrowView(trade({ status: 'fiat_sent' }), BUYER);
     expect(buyer.waitingOn).toBe('counterparty');
     expect(buyer.actions).toEqual(['dispute']);
+  });
+  it('a contract order (RC-p2p-02) offers no cancel, and a dispute only once the buyer marked paid', () => {
+    const contract = { escrowKind: 'contract' as const };
+    expect(escrowView(trade({ ...contract, status: 'created', escrowedAt: null }), BUYER).actions).toEqual([]);
+    expect(escrowView(trade({ ...contract }), BUYER).actions).toEqual(['markPaid']);
+    expect(escrowView(trade({ ...contract }), SELLER).actions).toEqual([]);
+    expect(escrowView(trade({ ...contract, status: 'fiat_sent' }), SELLER).actions).toEqual(['release', 'dispute']);
+    expect(escrowView(trade({ ...contract, status: 'fiat_sent' }), BUYER).actions).toEqual(['dispute']);
   });
   it('released: everything done, nothing to do', () => {
     const view = escrowView(trade({ status: 'released', settledAt: '2026-10-17T01:00:00Z' }), BUYER);

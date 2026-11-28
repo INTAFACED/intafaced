@@ -3,11 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, restartWithSetting } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { openHow, signIn, signUp, verify } from './desk.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
-import { testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-home-ia-01 #1 #2 #3, in the running app (docs/roadmap/journeys.json): I open the app and see where I stand, on the
 // launch model (OWNER 226): INTAFACED holds none of the money. Tests titled "J-home-ia-01 #<n>" prove a whole step; #4 to
@@ -81,21 +81,6 @@ async function expectedTotal({ owner, partner = true }) {
   return { prices, venue, parts, total: cents(parts.venue + parts.partner) };
 }
 
-/** Connects the TEST wallet when the page asks for it, until `connected` shows (a page may restore the connection itself). */
-async function connectWhenAsked(page, connected) {
-  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect
-    .poll(
-      async () => {
-        if (await connected.isVisible().catch(() => false)) return true;
-        if (await connect.isVisible().catch(() => false)) await connect.click({ timeout: 2_000 }).catch(() => undefined);
-        return false;
-      },
-      { timeout: 30_000, intervals: [500] },
-    )
-    .toBe(true);
-}
-
 /** Signed in with the TEST wallet on the TEST chain in this page. */
 async function withWallet(page) {
   const { account: who, walletKey } = state();
@@ -126,6 +111,32 @@ async function openHome(page) {
   await connectWhenAsked(page, standing);
   await expect(standing.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
   return standing;
+}
+
+/**
+ * A price on the TEST venue's BTC-USDC market, so Home has one to keep showing while amounts are masked: two other TEST
+ * traders, funded on the TEST venue only, cross one small order at `price`. Neither touches this person's money.
+ */
+async function btcTradesAt(price) {
+  const tag = `${J}-print-${Date.now()}`;
+  const buyer = `${tag}-buyer`;
+  const seller = `${tag}-seller`;
+  await testDeposit(otherTraderKey(buyer).address, 'USDC', '1000', `seed:${buyer}:USDC`);
+  await testDeposit(otherTraderKey(seller).address, 'BTC', '0.01', `seed:${seller}:BTC`);
+  const order = (side, who) => ({
+    kind: 'place_order',
+    symbol: 'BTC-USDC',
+    side,
+    type: 'limit',
+    amount: '0.001',
+    price,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${who}:${side}`,
+    builderFee: null,
+  });
+  expect(await otherTraderRun(buyer, order('buy', buyer))).toMatchObject({ definite: true, accepted: true });
+  expect(await otherTraderRun(seller, order('sell', seller))).toMatchObject({ definite: true, accepted: true });
 }
 
 /** Waits until the page's total is the one worked out from the sources just before or just after it was read. */
@@ -214,7 +225,9 @@ test(`${J} #1 Home's total adds what the wallet, the venue account and the partn
   await expect(partner).toHaveAttribute('data-state', 'read');
   await expect(partner.getByTestId('standing-part-label')).toHaveText(`Your account at ${PARTNER_BANK}`);
   await expect(partner.getByTestId('standing-part-source')).toHaveText('the partner’s own figures');
-  expect(Date.parse(await partner.getByTestId('standing-part-as-of').getAttribute('datetime'))).toBeLessThanOrEqual(Date.now());
+  await expect
+    .poll(async () => Date.parse(await partner.getByTestId('standing-part-as-of').getAttribute('datetime')))
+    .toBeLessThanOrEqual(Date.now());
   await expect(partner.getByTestId('standing-part-value')).toHaveText(cents(parts.partner));
 
   // Unpriced assets are named, never counted as zero: the wallet's TEST ETH and TEST USD have no published price.
@@ -267,11 +280,15 @@ async function savedToAccount(page, act) {
 test(`${J} #2 the eye turns every amount on Home to bullets and keeps prices, and the choice is the same on another device after sign-in`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
+  // The market's last price, set on the TEST venue by two other traders before Home opens (see btcTradesAt).
+  await btcTradesAt('60000');
   await withWallet(page);
   const standing = await openHome(page);
   const amounts = page.locator('main [data-slot="hero-number"], main [data-slot="money"], main [data-slot="amount"]');
+  await openHow(page);
   await expect(standing.getByTestId('standing-part-value').first()).toBeVisible();
   await savedToAccount(page, () => page.getByRole('button', { name: 'Hide balances' }).first().click());
   try {
@@ -284,9 +301,12 @@ test(`${J} #2 the eye turns every amount on Home to bullets and keeps prices, an
     // Prices are not amounts: the price source line and Home's market prices still show, none of them masked.
     await expect(standing.getByTestId('standing-prices')).toContainText('Valued at the prices TEST price list states.');
     const markets = page.locator('section[aria-labelledby="home-markets-title"], [data-testid="hp-markets"]').first();
-    await expect(markets).toContainText(/\d/);
+    // BTC's own row shows the price the venue last traded at, unmasked; never a count in the panel's header.
+    await expect(markets.getByRole('row', { name: /BTC/ })).toContainText('60,000');
     await expect(markets.locator('[data-hidden]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
+    // The step's picture: Home with every amount masked and the prices showing, before the second device and the reset.
+    await stepPicture();
 
     // A second device: a fresh browser with nothing stored, the same person signed in with the same wallet.
     const other = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
@@ -361,4 +381,53 @@ test(`${J} #3 the total's Assets link opens Assets with the same total and the s
   await expect(partnerRow.locator('[data-cell="amount"]')).toHaveText(PARTNER_USDT);
   await expect(partnerRow.locator('[data-cell="value"]')).toHaveText('$50.00');
   await expect(page.locator('main').first()).not.toContainText(/INTAFACED balance/i);
+});
+
+// Not a step of its own: a person with no browser wallet still sees the money the partner holds for them. The
+// partner account needs no wallet to be read, so Home and Assets total it, named with its source and time; the wallet
+// and the venue account are not in it until a wallet is connected, and the line under the total says so.
+test(`with no wallet connected, Home and Assets total the partner account and say the wallet and venue account need a wallet`, async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const { account: who } = state();
+  await signIn(page, who);
+  for (const size of [
+    { name: 'laptop', width: 1440, height: 900 },
+    { name: 'phone', width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await page.goto('/');
+    await balancesShown(page);
+    const home = page.getByTestId('home-standing-before-wallet');
+    await openHow(page, home);
+    await expect(partOf(home, 'partner')).toBeVisible({ timeout: 30_000 });
+    await expect(home.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
+    // Only the partner's part, valued at svc-ops' published TEST price: TEST 50 USDT at 1 is $50.00, and so is the total.
+    await expect(home.getByTestId('standing-part')).toHaveCount(1);
+    const partner = partOf(home, 'partner');
+    await expect(partner).toHaveAttribute('data-state', 'read');
+    await expect(partner.getByTestId('standing-part-label')).toHaveText(`Your account at ${PARTNER_BANK}`);
+    await expect(partner.getByTestId('standing-part-source')).toHaveText('the partner’s own figures');
+    await expect(partner.getByTestId('standing-part-value')).toHaveText('$50.00');
+    expect(await spoken(home)).toBe('$50.00');
+    await expect(home.getByTestId('standing-test')).toHaveText('TEST');
+    await expect(page.getByTestId('home-standing-connect')).toContainText(
+      'Connect your wallet to see what your wallet and your venue account hold.',
+    );
+    await testInfo.attach(`no-wallet-home-${size.name}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+
+    await page.goto('/money');
+    const assets = page.getByTestId('assets-total-before-wallet');
+    await expect(partOf(assets, 'partner')).toBeVisible({ timeout: 30_000 });
+    await expect(assets.locator('[data-testid="standing-part"][data-state="reading"]')).toHaveCount(0, { timeout: 30_000 });
+    expect(await spoken(assets)).toBe('$50.00');
+    await expect(page.getByRole('heading', { name: `In your account at ${PARTNER_BANK}`, exact: true })).toBeVisible();
+    const partnerRow = page.getByTestId('source-partner').locator('tr[data-asset="USDT"]');
+    await expect(partnerRow.locator('[data-cell="amount"]')).toHaveText(PARTNER_USDT);
+    await expect(partnerRow.locator('[data-cell="value"]')).toHaveText('$50.00');
+    await expect(page.getByTestId('assets-connect-first')).toHaveText('Connect your wallet to see what it holds and your venue account.');
+    await expect(page.locator('main').first()).not.toContainText(/INTAFACED balance/i);
+    await testInfo.attach(`no-wallet-assets-${size.name}`, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+  }
 });

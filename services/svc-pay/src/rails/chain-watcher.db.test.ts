@@ -12,7 +12,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -40,7 +40,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -133,7 +133,7 @@ describe('PostgresChainWatcherCursorStore — crash replay does not double-credi
       secret: 'x'.repeat(32),
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
       cursorStore: store,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     }).tick();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
@@ -143,7 +143,7 @@ describe('PostgresChainWatcherCursorStore — crash replay does not double-credi
       secret: 'x'.repeat(32),
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
       cursorStore: store,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     }).tick();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(replay.marked).toContain(address.toLowerCase());
@@ -180,7 +180,7 @@ describe('PostgresChainWatcherCursorStore — crash replay does not double-credi
       cursorStore: store,
       deadLetters,
       maxDeliveryAttempts: 2,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     });
     await watcher.tick();
     expect(await deadLetters.list()).toEqual([]);

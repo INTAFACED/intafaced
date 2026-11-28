@@ -179,3 +179,14 @@ export function placements(page) {
   });
   return sent;
 }
+
+/**
+ * Opens Home's "How this is worked out", the total's own fold where its provenance lines sit (closed by default). With
+ * `within`, the fold of that total (Home can draw the partner's total before a wallet beside its own), else the first.
+ */
+export async function openHow(page, within) {
+  const scope =
+    within ?? page.locator('[data-testid="home-standing"], [data-testid="home-standing-before-wallet"], [data-testid="home-hero"]');
+  const fold = scope.locator('[data-testid="standing-worked-out"], [data-testid="home-worked-out"]').first();
+  if ((await fold.getAttribute('open')) === null) await fold.locator('summary').click();
+}

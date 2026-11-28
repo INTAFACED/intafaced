@@ -349,8 +349,7 @@ export class PostgresWatchRuleStore implements WatchRuleStore {
   }
 
   private async createOnce(rule: NewWatchRule, inputs: readonly CreatePriceAlertInput[], maxOpen: number, at: Date) {
-    return this.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    return this.sql.begin(async (tx) => {
       const alerts = await insertPriceAlerts(tx, inputs, maxOpen);
       const [row] = await tx<RuleRow[]>`
         INSERT INTO notify.watchlist_alerts (id, user_id, list_id, list_name, condition, direction, target_price, status, markets, created_at, updated_at, last_sync_at)
@@ -363,8 +362,7 @@ export class PostgresWatchRuleStore implements WatchRuleStore {
   }
 
   async addMarkets(rule: WatchRule, inputs: readonly CreatePriceAlertInput[], maxOpen: number, at: Date) {
-    return this.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    return this.sql.begin(async (tx) => {
       // The rule row first, locked: a second sweep waits here and then sees the markets this one covered.
       const [current] = await tx<RuleRow[]>`SELECT ${tx.unsafe(COLUMNS)} FROM notify.watchlist_alerts WHERE id = ${rule.id} FOR UPDATE`;
       if (!current) return null;

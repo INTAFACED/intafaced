@@ -13,6 +13,7 @@ import { MerchantOpsError } from './errors.js';
 import { money } from './money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
 import { assertPermission, type MerchantCaller } from './roles.js';
+import { EVIDENCE_KINDS } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
  * Merchant-facing disputes, over the EXISTING dispute case mechanism
@@ -31,8 +32,6 @@ import { assertPermission, type MerchantCaller } from './roles.js';
  * a named refuse). Outcome posts are the pay service's. A response deadline
  * is the rail event's due date or null. This file does not invent one.
  */
-
-export const EVIDENCE_KINDS = ['receipt', 'shipping_proof', 'customer_communication', 'terms_accepted', 'identity_check', 'other'] as const;
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 
 const notFound = () => new MerchantOpsError('pay.dispute_not_found', 'not_found');
@@ -534,3 +533,4 @@ const evidenceView = (r: EvidenceRow) => ({
 
 /** Stable digest helper for tests and callers that hash evidence client-side the same way. */
 export const sha256Hex = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex');
+export { EVIDENCE_KINDS };

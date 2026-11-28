@@ -5,13 +5,13 @@
  * A click on a ladder cell asks the desk's own ticket for a draft at that price; the ticket reviews it (OrderForm).
  */
 import { memo, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
+import type { OrderBook } from '@intafaced/exchange-contract/schemas';
 import type { Order } from '../../../features/trade/trade-api';
 import type { Preferences } from '../../../shared/preferences';
-import { fmtAmount, fmtPct, fmtPrice, refusalCopy, StateBlock, Skeleton, type Loadable } from './deps';
+import { Bone, Button, StateBlock } from '@intafaced/ui/lit';
+import { fmtAmount, fmtPct, fmtPrice, refusalCopy, type Loadable } from '../../../data';
 import { useQueuePosition, useTape } from './data';
 import { useNow } from './hooks';
-import type { DeskMarket } from './market';
 import { STALE_BOOK_MS } from './OrderBook';
 import { flowCopy } from './order-flow-copy';
 import { RowCancel } from './OneClick';
@@ -24,15 +24,17 @@ import {
   stepOf,
   tapeView,
   type DomSetting,
+  type FlowMarket,
   type LadderColumns,
   type LadderStep,
+  type TapePrint,
   type TapeUnits,
+  type WorkingOrder,
 } from './order-flow';
 import { scaled } from './order-math';
 import { placesOf } from './text';
 import { depthGeometry } from '../chart/depth-geometry';
 import { clockSeconds } from './time';
-import './order-flow.css';
 
 export interface LadderPick {
   side: 'buy' | 'sell';
@@ -40,7 +42,7 @@ export interface LadderPick {
 }
 
 interface Props {
-  market: DeskMarket;
+  market: FlowMarket;
   book: Loadable<OrderBook>;
   openOrders: Loadable<Order[]>;
   zone: Preferences['timeZone'];
@@ -56,24 +58,23 @@ interface Props {
   onCancelled?: () => void;
 }
 
-function Ladder({
+function Ladder<O extends WorkingOrder>({
   market,
   data,
   mine,
   columns,
   stepTicks,
   onPick,
-  instant,
-  onCancelled,
+  renderCancel,
 }: {
-  market: DeskMarket;
-  data: OrderBook;
-  mine: readonly Order[];
+  market: FlowMarket;
+  data: Pick<OrderBook, 'bids' | 'asks'>;
+  mine: readonly O[];
   columns: LadderColumns;
   stepTicks: LadderStep;
   onPick: (pick: LadderPick) => void;
-  instant: boolean;
-  onCancelled: () => void;
+  /** One-click cancel of my orders on one row (J-charts-desk-14 #7). */
+  renderCancel: (orders: O[]) => ReactNode;
 }) {
   const { t } = flowCopy.useCopy();
   const step = stepOf(market.tickSize, stepTicks) ?? market.tickSize;
@@ -83,13 +84,13 @@ function Ladder({
   const double = columns === 'double';
   if (ladder.rows.length === 0)
     return (
-      <p className="of-note" data-testid="of-ladder-empty">
+      <p className="lt-note" data-testid="of-ladder-empty">
         {t('Ladder empty')}
       </p>
     );
   return (
     <div
-      className="of-ladder"
+      className="lt-levels"
       role="grid"
       aria-label={t('Depth of market')}
       data-testid="of-ladder"
@@ -100,14 +101,26 @@ function Ladder({
       data-bid-total={ladder.bidTotal}
       data-ask-total={ladder.askTotal}
     >
-      <div className="of-row of-row--head" role="row" data-columns={columns}>
-        {double ? <span role="columnheader">{t('Ladder my bids')}</span> : null}
-        <span role="columnheader">{t('Ladder bid', { asset: market.base })}</span>
-        <span role="columnheader">{t('Ladder price', { asset: market.quote })}</span>
-        <span role="columnheader">{t('Ladder ask', { asset: market.base })}</span>
-        <span role="columnheader">{double ? t('Ladder my asks') : t('Ladder mine')}</span>
+      <div className="lt-row lt-row-nowrap lt-label" role="row" data-columns={columns}>
+        {double ? (
+          <span role="columnheader" className="lt-grow">
+            {t('Ladder my bids')}
+          </span>
+        ) : null}
+        <span role="columnheader" className="lt-grow">
+          {t('Ladder bid', { asset: market.base })}
+        </span>
+        <span role="columnheader" className="lt-grow">
+          {t('Ladder price', { asset: market.quote })}
+        </span>
+        <span role="columnheader" className="lt-grow">
+          {t('Ladder ask', { asset: market.base })}
+        </span>
+        <span role="columnheader" className="lt-grow">
+          {double ? t('Ladder my asks') : t('Ladder mine')}
+        </span>
       </div>
-      <div className="of-rows" role="rowgroup">
+      <div className="lt-levels" role="rowgroup">
         {ladder.rows.map((row) => {
           const highlight = row.best ? `best-${row.best}` : row.myBid || row.myAsk ? 'mine' : undefined;
           const price = fmtPrice(row.price, market.tickSize);
@@ -115,7 +128,7 @@ function Ladder({
             <div
               key={row.price}
               role="row"
-              className="of-row"
+              className={ladderRow(highlight !== undefined)}
               data-testid="of-ladder-row"
               data-columns={columns}
               data-price={row.price}
@@ -127,13 +140,14 @@ function Ladder({
               aria-label={row.best === 'bid' ? t('Ladder best bid') : row.best === 'ask' ? t('Ladder best ask') : undefined}
             >
               {double ? (
-                <span role="gridcell" className="of-mine" data-testid="of-my-bid">
+                <span role="gridcell" className="lt-grow lt-num" data-testid="of-my-bid">
                   {size(row.myBid)}
                 </span>
               ) : null}
-              <span role="gridcell" className="of-cell of-cell--bid">
+              <span role="gridcell" className="lt-grow">
                 <button
                   type="button"
+                  className="lt-level lt-up"
                   data-testid="of-bid-cell"
                   aria-label={t('Ladder sell at', { price })}
                   onClick={() => onPick({ side: 'sell', price: row.price })}
@@ -141,12 +155,13 @@ function Ladder({
                   {size(row.bid)}
                 </button>
               </span>
-              <span role="gridcell" className="of-price" data-testid="of-price">
+              <span role="gridcell" className="lt-grow lt-num" data-testid="of-price">
                 {price}
               </span>
-              <span role="gridcell" className="of-cell of-cell--ask">
+              <span role="gridcell" className="lt-grow">
                 <button
                   type="button"
+                  className="lt-level lt-down"
                   data-testid="of-ask-cell"
                   aria-label={t('Ladder buy at', { price })}
                   onClick={() => onPick({ side: 'buy', price: row.price })}
@@ -154,13 +169,11 @@ function Ladder({
                   {size(row.ask)}
                 </button>
               </span>
-              <span role="gridcell" className="of-mine" data-testid={double ? 'of-my-ask' : 'of-mine'}>
+              <span role="gridcell" className="lt-grow lt-num" data-testid={double ? 'of-my-ask' : 'of-mine'}>
                 {double
                   ? size(row.myAsk)
                   : [row.myBid && `+${size(row.myBid)}`, row.myAsk && `−${size(row.myAsk)}`].filter(Boolean).join(' ')}
-                {row.myBid || row.myAsk ? (
-                  <RowCancel market={market} orders={myOrdersAt(mine, row.price, step)} instant={instant} onDone={onCancelled} />
-                ) : null}
+                {row.myBid || row.myAsk ? renderCancel(myOrdersAt(mine, row.price, step)) : null}
               </span>
             </div>
           );
@@ -171,7 +184,7 @@ function Ladder({
 }
 
 /** One of my resting orders: its place in the native queue and, only with the owner's window set, the chance of a fill. */
-function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
+function QueueRow({ market, order }: { market: FlowMarket; order: Order }) {
   const { t } = flowCopy.useCopy();
   const read = useQueuePosition(order.id);
   const amountPlaces = placesOf(market.lotSize);
@@ -185,9 +198,9 @@ function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
   });
   if (read.status !== 'ready')
     return (
-      <li className="of-queue-row" data-testid="of-queue-row" data-order-id={order.id} data-state={read.status}>
-        <span className="of-queue-head">{head}</span>
-        <span className="of-note" role={read.status === 'loading' ? undefined : 'status'}>
+      <li className="lt-stack-tight lt-tight" data-testid="of-queue-row" data-order-id={order.id} data-state={read.status}>
+        <span className="lt-strong">{head}</span>
+        <span className="lt-note" role={read.status === 'loading' ? undefined : 'status'}>
           {read.status === 'loading'
             ? t('My queue loading')
             : read.status === 'refused' && read.code === 'trade.queue_unavailable'
@@ -203,7 +216,7 @@ function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
   const chance = view.chance.kind === 'estimate' ? view.chance : null;
   return (
     <li
-      className="of-queue-row"
+      className="lt-stack-tight lt-tight"
       data-testid="of-queue-row"
       data-state="ready"
       data-order-id={q.orderId}
@@ -217,7 +230,7 @@ function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
       data-traded={chance?.tradedThrough ?? ''}
       data-to-fill={chance?.sizeToFill ?? ''}
     >
-      <span className="of-queue-head">{head}</span>
+      <span className="lt-strong">{head}</span>
       <span data-testid="of-queue-ahead">
         {view.ahead.kind === 'first'
           ? t('My queue first')
@@ -228,7 +241,7 @@ function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
       <span data-testid="of-queue-chance">
         {chance ? t('My queue chance', { pct: fmtPct(chance.ratio, { signed: false }) }) : t('My queue chance unset')}
       </span>
-      <span className="of-note" data-testid="of-queue-basis">
+      <span className="lt-note" data-testid="of-queue-basis">
         {chance
           ? t('My queue basis', {
               traded: size(chance.tradedThrough),
@@ -244,16 +257,16 @@ function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
 }
 
 /** My resting limit orders in this market and where each stands in the queue. */
-function MyQueue({ market, mine }: { market: DeskMarket; mine: readonly Order[] }) {
+function MyQueue({ market, mine }: { market: FlowMarket; mine: readonly Order[] }) {
   const { t } = flowCopy.useCopy();
   const resting = mine.filter((order) => order.type === 'limit' && order.price !== null);
   return (
-    <section className="of-section" aria-label={t('My queue')} data-testid="of-queue">
-      <h3 className="of-title">{t('My queue')}</h3>
+    <section className="lt-stack" aria-label={t('My queue')} data-testid="of-queue">
+      <h3 className="lt-panel-title">{t('My queue')}</h3>
       {resting.length === 0 ? (
-        <p className="of-note">{t('My queue none')}</p>
+        <p className="lt-note">{t('My queue none')}</p>
       ) : (
-        <ul className="of-queue">
+        <ul className="lt-list lt-tight lt-list-rule">
           {resting.map((order) => (
             <QueueRow key={order.id} market={market} order={order} />
           ))}
@@ -268,18 +281,20 @@ function TimeAndSales({
   zone,
   setting,
   onSetting,
+  tape,
 }: {
-  market: DeskMarket;
+  market: FlowMarket;
   zone: Preferences['timeZone'];
   setting: DomSetting;
   onSetting: (next: DomSetting) => void;
+  /** The prints the tape shows: today's public trades, or the venue's own prints. */
+  tape: Loadable<readonly TapePrint[]>;
 }) {
   const { t } = flowCopy.useCopy();
-  const tape = useTape(market.symbol, true);
   const [typed, setTyped] = useState(setting.minAmount);
   const invalid = typed.trim() !== '' && (scaled(typed.trim()) === null || (scaled(typed.trim()) ?? 0n) < 0n);
   const amountPlaces = placesOf(market.lotSize);
-  const trades: readonly Trade[] = tape.status === 'ready' ? tape.data : [];
+  const trades: readonly TapePrint[] = tape.status === 'ready' ? tape.data : [];
   const view = useMemo(
     () => tapeView(trades, { minAmount: setting.minAmount, units: setting.units, accumulate: setting.accumulate }),
     [trades, setting.minAmount, setting.units, setting.accumulate],
@@ -287,24 +302,24 @@ function TimeAndSales({
   const unitAsset = setting.units === 'base' ? market.base : market.quote;
 
   let body: React.ReactNode;
-  if (tape.status === 'loading') body = <Skeleton height={160} className="bg-field" />;
+  if (tape.status === 'loading') body = <Bone size="block" />;
   else if (tape.status === 'error')
     body = <StateBlock kind="error" title={t('Couldn’t load trades')} onRetry={tape.retry} retryLabel={t('Try again')} />;
   else if (tape.status === 'refused') {
     const words = refusalCopy(tape.code);
     body = <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />;
-  } else if (view.total === 0) body = <p className="of-note">{t('Tape empty')}</p>;
+  } else if (view.total === 0) body = <p className="lt-note">{t('Tape empty')}</p>;
   else
     body = (
       <>
-        <p className="of-note" role="status" data-testid="of-tape-hidden" data-hidden={view.hidden} data-total={view.total}>
+        <p className="lt-note" role="status" data-testid="of-tape-hidden" data-hidden={view.hidden} data-total={view.total}>
           {view.hidden > 0 ? t('Tape hidden', { n: view.hidden, total: view.total }) : t('Tape none hidden', { total: view.total })}
         </p>
         {view.rows.length === 0 ? (
-          <p className="of-note">{t('Tape all hidden')}</p>
+          <p className="lt-note">{t('Tape all hidden')}</p>
         ) : (
-          <div className="of-tape" role="grid" aria-label={t('Time and sales')}>
-            <div className="of-tape-row of-row--head" role="row">
+          <div className="lt-levels lt-scroll" role="grid" aria-label={t('Time and sales')}>
+            <div className="lt-level lt-level-head" role="row">
               <span role="columnheader">{t('Tape time')}</span>
               <span role="columnheader">{t('Tape price', { asset: market.quote })}</span>
               <span role="columnheader">{t('Tape amount', { asset: unitAsset })}</span>
@@ -313,25 +328,26 @@ function TimeAndSales({
               <div
                 key={row.id}
                 role="row"
-                className="of-tape-row"
+                className="lt-level"
                 data-testid="of-tape-row"
-                data-side={row.side}
+                data-trade-id={row.id}
+                data-side={row.side ?? undefined}
                 data-price={row.price}
                 data-amount={row.amount}
                 data-value={row.value}
                 data-prints={row.prints}
-                style={{ '--of-bar': row.bar } as React.CSSProperties}
+                data-bar={row.bar}
               >
-                <span className="of-tape-bar" aria-hidden="true" />
+                <meter className="lt-depth" min={0} max={1000} value={row.bar} aria-hidden="true" />
                 <span role="gridcell">{clockSeconds(row.timestamp, zone)}</span>
-                <span role="gridcell" className="of-tape-price" data-side={row.side}>
+                <span role="gridcell" className={printTone(row.side)} data-side={row.side ?? undefined}>
                   {fmtPrice(row.price, market.tickSize)}
                 </span>
                 <span role="gridcell">
                   {setting.units === 'base'
                     ? fmtAmount(row.amount, { places: amountPlaces, fixed: true })
                     : fmtAmount(row.value, { places: placesOf(market.tickSize) })}
-                  {row.prints > 1 ? <span className="of-prints"> · {t('Tape prints', { n: row.prints })}</span> : null}
+                  {row.prints > 1 ? <span className="lt-quiet"> · {t('Tape prints', { n: row.prints })}</span> : null}
                 </span>
               </div>
             ))}
@@ -341,10 +357,10 @@ function TimeAndSales({
     );
 
   return (
-    <section className="of-section" aria-label={t('Time and sales')} data-testid="of-tape">
-      <h3 className="of-title">{t('Time and sales')}</h3>
-      <div className="of-tools">
-        <label className="of-field">
+    <section className="lt-stack" aria-label={t('Time and sales')} data-testid="of-tape">
+      <h3 className="lt-panel-title">{t('Time and sales')}</h3>
+      <div className="lt-row lt-row-baseline">
+        <label className="lt-field">
           <span>{t('Minimum amount')}</span>
           <input
             type="text"
@@ -361,14 +377,14 @@ function TimeAndSales({
             }}
           />
         </label>
-        <label className="of-field">
+        <label className="lt-field">
           <span>{t('Units')}</span>
           <select value={setting.units} onChange={(event) => onSetting({ ...setting, units: event.target.value as TapeUnits })}>
             <option value="base">{market.base}</option>
             <option value="quote">{market.quote}</option>
           </select>
         </label>
-        <label className="of-check">
+        <label className="lt-field">
           <input
             type="checkbox"
             checked={setting.accumulate}
@@ -378,7 +394,7 @@ function TimeAndSales({
         </label>
       </div>
       {invalid ? (
-        <p id="of-min-invalid" className="of-note of-note--bad">
+        <p id="of-min-invalid" className="lt-note lt-note-bad">
           {t('Minimum invalid')}
         </p>
       ) : null}
@@ -387,10 +403,16 @@ function TimeAndSales({
   );
 }
 
+/** Kit classes for a print's side: buys in the gain colour, sells in the loss colour, unknown plain. */
+const PRINT_TONE = { buy: 'lt-num lt-up', sell: 'lt-num lt-down', none: 'lt-num' } as const;
+const LADDER_ROW = { plain: 'lt-row lt-row-nowrap', marked: 'lt-row lt-row-nowrap lt-strong' } as const;
+const ladderRow = (marked: boolean) => LADDER_ROW[marked ? 'marked' : 'plain'];
+const printTone = (side: TapePrint['side']) => PRINT_TONE[side ?? 'none'];
+
 const W = 320;
 const H = 140;
 
-function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
+function DepthChart({ market, data }: { market: FlowMarket; data: OrderBook }) {
   const { t } = flowCopy.useCopy();
   const [units, setUnits] = useState<TapeUnits>('base');
   const [hover, setHover] = useState<{ x: number; price: string; amount: string } | null>(null);
@@ -417,10 +439,10 @@ function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
     units === 'base' ? fmtAmount(amount, { places: placesOf(market.lotSize) }) : fmtAmount(amount, { places: placesOf(market.tickSize) });
 
   return (
-    <section className="of-section" aria-label={t('Depth chart')} data-testid="of-depth">
-      <div className="of-title-bar">
-        <h3 className="of-title">{t('Depth chart')}</h3>
-        <label className="of-field">
+    <section className="lt-stack" aria-label={t('Depth chart')} data-testid="of-depth">
+      <div className="lt-panel-head">
+        <h3 className="lt-panel-title">{t('Depth chart')}</h3>
+        <label className="lt-field">
           <span>{t('Depth units')}</span>
           <select value={units} onChange={(event) => setUnits(event.target.value as TapeUnits)}>
             <option value="base">{market.base}</option>
@@ -429,13 +451,13 @@ function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
         </label>
       </div>
       {empty ? (
-        <p className="of-note" data-testid="of-depth-empty">
+        <p className="lt-note" data-testid="of-depth-empty">
           {t('Depth empty')}
         </p>
       ) : (
         <>
           <svg
-            className="of-depth"
+            className="lt-canvas lt-canvas-short"
             viewBox={`0 0 ${W} ${H}`}
             preserveAspectRatio="none"
             role="img"
@@ -449,12 +471,12 @@ function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
             onPointerMove={onMove}
             onPointerLeave={() => setHover(null)}
           >
-            <path className="of-depth-bid" d={geometry.bidPath} />
-            <path className="of-depth-ask" d={geometry.askPath} />
-            {hover ? <line className="of-depth-cursor" x1={hover.x} x2={hover.x} y1={0} y2={H} /> : null}
+            <path d={geometry.bidPath} fill="var(--lit-up-text)" fillOpacity="0.18" stroke="var(--lit-up-text)" />
+            <path d={geometry.askPath} fill="var(--lit-down-text)" fillOpacity="0.18" stroke="var(--lit-down-text)" />
+            {hover ? <line stroke="var(--lit-text-2)" strokeDasharray="3 3" x1={hover.x} x2={hover.x} y1={0} y2={H} /> : null}
           </svg>
           <p
-            className="of-note"
+            className="lt-note"
             role="status"
             data-testid="of-depth-readout"
             data-price={hover?.price ?? ''}
@@ -472,11 +494,36 @@ function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
 
 const noop = () => {};
 
-/** The DOM widget on the desk: the ladder, time and sales and the depth chart for the chart's market. */
-export const OrderFlow = memo(function OrderFlow({
+/** What the DOM draws, from whichever book, tape and orders it is given (today's engine, or a venue: VenueOrderFlow.tsx). */
+export interface OrderFlowViewProps<O extends WorkingOrder> {
+  market: FlowMarket;
+  /** One book snapshot: the ladder and the depth chart both draw it. */
+  book: Loadable<OrderBook>;
+  /** My working orders on this market. */
+  mine: readonly O[];
+  tape: Loadable<readonly TapePrint[]>;
+  /** My place in the queue for my resting orders. */
+  queue: ReactNode;
+  renderCancel: (orders: O[]) => ReactNode;
+  zone: Preferences['timeZone'];
+  setting: DomSetting;
+  onSetting: (next: DomSetting) => void;
+  onPick: (pick: LadderPick) => void;
+  onClose: () => void;
+  instant?: boolean;
+  oneClick?: ReactNode;
+  /** The source of the figures, named under the title (the venue's TEST mark), when not today's engine. */
+  badge?: ReactNode;
+}
+
+/** The DOM widget: the ladder, time and sales and the depth chart for the chart's market. */
+export function OrderFlowView<O extends WorkingOrder>({
   market,
   book,
-  openOrders,
+  mine,
+  tape,
+  queue,
+  renderCancel,
   zone,
   setting,
   onSetting,
@@ -484,20 +531,15 @@ export const OrderFlow = memo(function OrderFlow({
   onClose,
   instant = false,
   oneClick,
-  onCancelled,
-}: Props) {
+  badge,
+}: OrderFlowViewProps<O>) {
   const { t } = flowCopy.useCopy();
   const now = useNow(1000);
   const data = book.status === 'ready' ? book.data : null;
-  const mine = useMemo(
-    () =>
-      openOrders.status === 'ready' ? openOrders.data.filter((order) => order.symbol === market.symbol && order.status === 'open') : [],
-    [openOrders, market.symbol],
-  );
   const old = data !== null && now - data.timestamp >= STALE_BOOK_MS;
 
   let ladder: React.ReactNode;
-  if (book.status === 'loading') ladder = <Skeleton height={240} className="bg-field" />;
+  if (book.status === 'loading') ladder = <Bone size="block" />;
   else if (book.status === 'error')
     ladder = <StateBlock kind="error" title={t('Couldn’t load the order book')} onRetry={book.retry} retryLabel={t('Try again')} />;
   else if (book.status === 'refused') {
@@ -512,15 +554,14 @@ export const OrderFlow = memo(function OrderFlow({
         columns={setting.columns}
         stepTicks={setting.stepTicks}
         onPick={onPick}
-        instant={instant}
-        onCancelled={onCancelled ?? noop}
+        renderCancel={renderCancel}
       />
     );
-  else ladder = <p className="of-note">{t('Ladder empty')}</p>;
+  else ladder = <p className="lt-note">{t('Ladder empty')}</p>;
 
   return (
     <section
-      className="dk-panel of-dom"
+      className="lt-panel"
       aria-label={t('Depth of market')}
       data-testid="of-dom"
       data-symbol={market.symbol}
@@ -528,17 +569,20 @@ export const OrderFlow = memo(function OrderFlow({
       data-columns={setting.columns}
       data-step-ticks={setting.stepTicks}
     >
-      <div className="of-title-bar">
-        <h2 className="of-title">{t('DOM for', { pair: market.symbol })}</h2>
-        <div className="of-tools">
-          <label className="of-field">
+      <div className="lt-panel-head">
+        <h2 className="lt-panel-title">
+          {t('DOM for', { pair: market.symbol })}
+          {badge ? <> {badge}</> : null}
+        </h2>
+        <div className="lt-row lt-row-baseline">
+          <label className="lt-field">
             <span>{t('Columns')}</span>
             <select value={setting.columns} onChange={(event) => onSetting({ ...setting, columns: event.target.value as LadderColumns })}>
               <option value="single">{t('Columns single')}</option>
               <option value="double">{t('Columns double')}</option>
             </select>
           </label>
-          <label className="of-field">
+          <label className="lt-field">
             <span>{t('Price step')}</span>
             <select
               value={String(setting.stepTicks)}
@@ -553,31 +597,72 @@ export const OrderFlow = memo(function OrderFlow({
               ))}
             </select>
           </label>
-          <button type="button" className="of-close" onClick={onClose}>
+          <Button tone="secondary" size="sm" onClick={onClose}>
             {t('Close DOM')}
-          </button>
+          </Button>
         </div>
       </div>
       {oneClick}
-      <p className="of-note" data-testid="of-ladder-hint">
+      <p className="lt-note" data-testid="of-ladder-hint">
         {instant ? t('Ladder hint instant') : t('Ladder hint')}
       </p>
-      <p className="of-note of-legend">{t('Ladder highlights')}</p>
+      <p className="lt-note">{t('Ladder highlights')}</p>
       {old ? (
-        <p className="of-note of-note--warn" role="status">
+        <p className="lt-note lt-note-warn" role="status">
           {t('Ladder old')}
         </p>
       ) : null}
-      <div className="of-body">
-        <div className="of-col">
+      <div className="lt-cols-2">
+        <div className="lt-stack">
           {ladder}
-          <MyQueue market={market} mine={mine} />
+          {queue}
         </div>
-        <div className="of-col">
+        <div className="lt-stack">
           {data ? <DepthChart market={market} data={data} /> : null}
-          <TimeAndSales market={market} zone={zone} setting={setting} onSetting={onSetting} />
+          <TimeAndSales market={market} zone={zone} setting={setting} onSetting={onSetting} tape={tape} />
         </div>
       </div>
     </section>
+  );
+}
+
+/** The DOM on today's desk: our engine's book and tape, my orders there and their place in the native queue. */
+export const OrderFlow = memo(function OrderFlow({
+  market,
+  book,
+  openOrders,
+  zone,
+  setting,
+  onSetting,
+  onPick,
+  onClose,
+  instant = false,
+  oneClick,
+  onCancelled,
+}: Props) {
+  const tape = useTape(market.symbol, true);
+  const mine = useMemo(
+    () =>
+      openOrders.status === 'ready' ? openOrders.data.filter((order) => order.symbol === market.symbol && order.status === 'open') : [],
+    [openOrders, market.symbol],
+  );
+  const done = onCancelled ?? noop;
+  const renderCancel = (orders: Order[]) => <RowCancel market={market} orders={orders} instant={instant} onDone={done} />;
+  return (
+    <OrderFlowView
+      market={market}
+      book={book}
+      mine={mine}
+      tape={tape}
+      queue={<MyQueue market={market} mine={mine} />}
+      renderCancel={renderCancel}
+      zone={zone}
+      setting={setting}
+      onSetting={onSetting}
+      onPick={onPick}
+      onClose={onClose}
+      instant={instant}
+      oneClick={oneClick}
+    />
   );
 });

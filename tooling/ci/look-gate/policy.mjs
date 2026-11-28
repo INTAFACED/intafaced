@@ -34,13 +34,22 @@ export function roomName(route) {
 
 /**
  * Where a report row's page lives, from its target name: the kit gallery (`kit table`), the founder console
- * (`admin /x`) or a Customer room (`/status`); with its baseline folder and room, as the runner names them.
+ * (`admin /x`), a Customer room (`/status`) or a key room on the demo world with the venue on (`venue /trade`); with its
+ * baseline folder and room, as the runner names them.
  */
 export function placeOf(target) {
   if (target.startsWith('kit ')) return { surface: 'kit', baselines: 'packages/ui/look-baselines', room: `kit-${target.slice(4)}` };
   if (target.startsWith('admin /'))
     return { surface: 'admin', baselines: 'apps/admin/look-baselines', room: `admin-${roomName(target.slice(6))}` };
   if (target.startsWith('/')) return { surface: 'customer', baselines: 'apps/customer/look-baselines', room: roomName(target) };
+  // A key room on the demo world, venue on (`venue /trade`, `venue signed-out /`): the beta's own code path.
+  const venue = /^venue (signed-out )?(\/.*)$/.exec(target);
+  if (venue)
+    return {
+      surface: 'customer',
+      baselines: 'apps/customer/look-baselines',
+      room: `venue-${venue[1] ? 'signed-out-' : ''}${roomName(venue[2])}`,
+    };
   return { surface: 'other', baselines: null, room: null };
 }
 
@@ -89,6 +98,71 @@ export function verdict({ failing, changed, today, importsLit = () => false }) {
   if (blocking.length === 0) return { mode: 'report', why: 'no blocking path changed', blocking, rows };
   if (rows.length === 0) return { mode: 'report', why: 'no failing row is on a room this pull request changes', blocking, rows };
   return { mode: 'block', blocking, rows };
+}
+
+/**
+ * A pull request's look gate (look-gate.mjs --pr, #9325) checks only the rooms whose pictures it changes, at the base and
+ * at the head, and blocks on what the head adds there: a room already failing on main keeps failing in both and blocks
+ * nobody (that debt is the daily run's report). `baseline` never blocks here: the pixels moving is the change itself,
+ * which the CI review judges from the before and after pictures.
+ */
+const PR_NOT_BLOCKING = new Set(['baseline']);
+
+/**
+ * A finding's identity across the base and the head: its words with every number written `#`, so a box that moved, a
+ * ratio that shifted or a count that changed is the same finding, and a new element, text or rule is a new one.
+ */
+const findingKey = (item) => String(item).replace(/\d+(?:\.\d+)?/g, '#');
+
+/**
+ * What the head's rows (`after`) find that the base's rows (`before`) on the same page and viewport did not, kind by
+ * kind, as `{ target, viewport, kind, items }`. A row the base never drew (an error there, a page it lacks) counts all its
+ * findings as new. The "… n more" line of a capped list is not a finding.
+ */
+export function newFindings(before, after) {
+  const was = new Map(before.map((r) => [`${r.target}|${r.viewport}`, r.findings ?? {}]));
+  const out = [];
+  for (const r of after) {
+    const old = was.get(`${r.target}|${r.viewport}`) ?? {};
+    for (const [kind, items] of Object.entries(r.findings ?? {})) {
+      if (PR_NOT_BLOCKING.has(kind)) continue;
+      const seen = new Set((old[kind] ?? []).map(findingKey));
+      const fresh = items.filter((i) => !/^… # more$/.test(findingKey(i)) && !seen.has(findingKey(i)));
+      if (fresh.length) out.push({ target: r.target, viewport: r.viewport, kind, items: fresh });
+    }
+  }
+  return out;
+}
+
+/**
+ * main-bisect's proven revert of X (revert.mjs revertParent) is judged against X^ too, the state it restores: of the
+ * head's new findings (`fresh`, newFindings), those X^'s own rows (`parentRows`, the same page, viewport, kind and
+ * finding) already had are `restored` and block nobody; the rest are `kept` and are judged as on any pull request. A
+ * page X^ never drew keeps all its findings (project-state#3697: the reverts of #9717, #9828 and #9960 each blocked on
+ * findings their culprit had removed).
+ */
+export function restoredFindings(fresh, parentRows) {
+  const kept = newFindings(
+    parentRows,
+    fresh.map((f) => ({ target: f.target, viewport: f.viewport, findings: { [f.kind]: f.items } })),
+  );
+  const left = new Map(kept.map((f) => [`${f.target}|${f.viewport}|${f.kind}`, new Set(f.items)]));
+  const restored = fresh.flatMap((f) => {
+    const items = f.items.filter((i) => !left.get(`${f.target}|${f.viewport}|${f.kind}`)?.has(i));
+    return items.length ? [{ ...f, items }] : [];
+  });
+  return { kept, restored };
+}
+
+/**
+ * The pull request's verdict: it blocks when the head adds a finding on a page drawn in the new look (`litTargets`, as
+ * the daily gate's isBlockable), once BLOCKING_FROM has passed. An old-look page's new finding is reported only.
+ */
+export function prVerdict({ fresh, litTargets, today }) {
+  const blocking = fresh.filter((f) => litTargets.has(f.target));
+  if (blocking.length === 0) return { mode: 'pass', blocking };
+  if (today < BLOCKING_FROM) return { mode: 'report', why: `report-only until ${BLOCKING_FROM}`, blocking };
+  return { mode: 'block', blocking };
 }
 
 /** WCAG relative luminance of an sRGB colour given as 0-255 channels. */

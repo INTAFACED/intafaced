@@ -1,5 +1,5 @@
 import type { AcademyFeaturedSlot, AcademyTopic, AcademyTopicList } from '@intafaced/contracts/academy-courses';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * The Learn hub desk (AC-articles-01): the featured article and the topics, as staff set them. Pure, so the server

@@ -1,11 +1,6 @@
 import { getAddress, parseAbi, type Address } from 'viem';
-import {
-  ASSET_LINK_NOT_TOKEN,
-  type ProtocolAssetLinkReview,
-  type ProtocolVenueReadCall,
-  type ProtocolVenueReads,
-  type ProtocolVenueSide,
-} from '@intafaced/contracts';
+import type { ProtocolAssetLinkReview, ProtocolVenueReadCall, ProtocolVenueReads, ProtocolVenueSide } from '@intafaced/contracts';
+import { ASSET_LINK_NOT_TOKEN } from '@intafaced/contracts/protocol-venue-funds';
 import { VENUE_FUNDS_ABI, VenueFundsRefusal, requireVenue, type VenueChain, type VenueFundsDeps } from './funds.js';
 
 /**

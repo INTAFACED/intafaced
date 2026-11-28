@@ -1,0 +1,282 @@
+[
+  {
+    "agentId": "navigator",
+    "version": 1,
+    "guardrail": {
+      "agentId": "navigator",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [
+        {
+          "name": "trade.quote",
+          "module": "trade",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "trade.markets.list",
+          "module": "trade",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "identity.session.read",
+          "module": "identity",
+          "mode": "read",
+          "requiresApproval": false
+        }
+      ],
+      "limits": {
+        "maxActionsPerSession": 60,
+        "maxOutputTokensPerCall": 4096,
+        "maxSpendPerSession": "1",
+        "allowedModules": ["trade", "identity", "agents"],
+        "allowedTasks": ["navigator.plan", "navigator.tool_select"]
+      }
+    },
+    "enabled": true
+  },
+  {
+    "agentId": "support",
+    "version": 3,
+    "guardrail": {
+      "agentId": "support",
+      "version": 3,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [
+        {
+          "name": "support.ticket.read",
+          "module": "support",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "support.kb.search",
+          "module": "support",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "identity.account.read",
+          "module": "identity",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "support.ticket.comment",
+          "module": "support",
+          "mode": "write",
+          "requiresApproval": true,
+          "maxCallsPerSession": 20
+        }
+      ],
+      "limits": {
+        "maxActionsPerSession": 40,
+        "maxOutputTokensPerCall": 2048,
+        "maxSpendPerSession": "0.5",
+        "allowedModules": ["support", "identity"],
+        "allowedTasks": ["support.classify", "support.reply"]
+      }
+    },
+    "enabled": true
+  },
+  {
+    "agentId": "scanner",
+    "version": 1,
+    "guardrail": {
+      "agentId": "scanner",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [
+        {
+          "name": "trade.ticker",
+          "module": "trade",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "trade.markets.list",
+          "module": "trade",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "trade.book.top",
+          "module": "trade",
+          "mode": "read",
+          "requiresApproval": false
+        }
+      ],
+      "limits": {
+        "maxActionsPerSession": 80,
+        "maxOutputTokensPerCall": 4096,
+        "maxSpendPerSession": "1",
+        "allowedModules": ["trade", "agents"],
+        "allowedTasks": ["scanner.rank"]
+      }
+    },
+    "enabled": true
+  },
+  {
+    "agentId": "merchant",
+    "version": 1,
+    "guardrail": {
+      "agentId": "merchant",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [
+        {
+          "name": "pay.metrics.read",
+          "module": "pay",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "pay.rails.list",
+          "module": "pay",
+          "mode": "read",
+          "requiresApproval": false
+        }
+      ],
+      "limits": {
+        "maxActionsPerSession": 40,
+        "maxOutputTokensPerCall": 1024,
+        "maxSpendPerSession": "0.25",
+        "allowedModules": ["pay", "agents"],
+        "allowedTasks": ["merchant.watch"]
+      }
+    },
+    "enabled": true
+  },
+  {
+    "agentId": "copy-intel",
+    "version": 1,
+    "guardrail": {
+      "agentId": "copy-intel",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [
+        {
+          "name": "trade.copy.leaders.read",
+          "module": "trade",
+          "mode": "read",
+          "requiresApproval": false
+        },
+        {
+          "name": "trade.copy.stats.write",
+          "module": "trade",
+          "mode": "write",
+          "requiresApproval": false
+        }
+      ],
+      "limits": {
+        "maxActionsPerSession": 40,
+        "maxOutputTokensPerCall": 1024,
+        "maxSpendPerSession": "0.25",
+        "allowedModules": ["trade", "agents"],
+        "allowedTasks": ["copy_intel.stats"]
+      }
+    },
+    "enabled": true
+  },
+  {
+    "agentId": "coach",
+    "version": 1,
+    "guardrail": {
+      "agentId": "coach",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [],
+      "limits": {
+        "maxActionsPerSession": 4,
+        "maxOutputTokensPerCall": 1024,
+        "maxSpendPerSession": "0",
+        "allowedModules": [],
+        "allowedTasks": ["coach.answer"]
+      }
+    },
+    "enabled": true
+  },
+  {
+    "agentId": "launch",
+    "version": 1,
+    "guardrail": {
+      "agentId": "launch",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [],
+      "limits": {
+        "maxActionsPerSession": 1,
+        "maxOutputTokensPerCall": 1,
+        "maxSpendPerSession": "0",
+        "allowedModules": [],
+        "allowedTasks": []
+      }
+    },
+    "enabled": true
+  },
+  {
+    "agentId": "growth",
+    "version": 1,
+    "guardrail": {
+      "agentId": "growth",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [],
+      "limits": {
+        "maxActionsPerSession": 1,
+        "maxOutputTokensPerCall": 1,
+        "maxSpendPerSession": "0",
+        "allowedModules": [],
+        "allowedTasks": []
+      }
+    },
+    "enabled": true
+  },
+  {
+    "agentId": "portfolio",
+    "version": 1,
+    "guardrail": {
+      "agentId": "portfolio",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [],
+      "limits": {
+        "maxActionsPerSession": 1,
+        "maxOutputTokensPerCall": 1,
+        "maxSpendPerSession": "0",
+        "allowedModules": [],
+        "allowedTasks": []
+      }
+    },
+    "enabled": false
+  },
+  {
+    "agentId": "risk-compliance",
+    "version": 1,
+    "guardrail": {
+      "agentId": "risk-compliance",
+      "version": 1,
+      "capacityMode": "research_only",
+      "scopes": [],
+      "tools": [],
+      "limits": {
+        "maxActionsPerSession": 1,
+        "maxOutputTokensPerCall": 1,
+        "maxSpendPerSession": "0",
+        "allowedModules": [],
+        "allowedTasks": []
+      }
+    },
+    "enabled": false
+  }
+]

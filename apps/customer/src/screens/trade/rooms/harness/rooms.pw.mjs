@@ -4,10 +4,11 @@
 // (the three landing pages also at 390 wide).
 import { test, expect } from '@playwright/test';
 import { mkdirSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { installMock, EXEC_NOW, OTC_NOW, TEST_QUOTES, USER_ID } from './rooms.mock.mjs';
 
-const shots = process.env.ROOMS_SHOTS ?? '/Users/Nitro/.codex/context/work/design/trade-rooms/TROPT/harness/';
+const shots = process.env.ROOMS_SHOTS ?? join(homedir(), '.codex/context/work/design/trade-rooms/TROPT/harness/');
 mkdirSync(shots, { recursive: true });
 
 // "unavailable" counts only when it is the whole label (a bare word with no reason beside it).
@@ -80,8 +81,8 @@ test.describe('Options', () => {
     const mock = await start(page, 'options', { at: OTC_NOW });
     const table = grid(page, 'Option contracts');
     await expect(table.getByText('TEST-BTC-25DEC26-60000-C')).toBeVisible();
-    await expect(page.getByText('Live orders: blocked')).toBeVisible();
-    await expect(page.getByText('Paper orders: allowed')).toBeVisible();
+    await expect(page.getByText('Live orders unavailable')).toBeVisible();
+    await expect(page.getByText('Practice orders open')).toBeVisible();
     await expect(table.getByText('TEST-BTC-LIVE-65000-C')).toBeVisible();
     await expect(table.getByText('TEST-BTC-NOTERMS-C')).toBeVisible();
     await expect(table.getByText('Terms incomplete')).toBeVisible();
@@ -253,12 +254,12 @@ test.describe('Options', () => {
     await page.getByLabel('Years to expiry').fill('0.2');
     await page.getByRole('button', { name: 'Get Greeks' }).click();
     await expect(page.getByText('Delta 0.52', { exact: false })).toBeVisible();
-    await expect(page.getByText('Greeks: available')).toBeVisible();
+    await expect(page.getByText('Greeks available')).toBeVisible();
     await shot(page, 'options-07-strategy-greeks-ok');
     mock.state.greeks = 'refused';
     await page.getByRole('button', { name: 'Get Greeks' }).click();
     await expect(page.getByText('Delta —', { exact: false }).first()).toBeVisible();
-    await expect(page.getByText('Greeks: not linked here')).toBeVisible();
+    await expect(page.getByText('Greeks unavailable')).toBeVisible();
     await shot(page, 'options-08-strategy-greeks-refused');
     await clean(page, mock);
   });
@@ -285,7 +286,7 @@ test.describe('Options', () => {
 test.describe('Execution', () => {
   test('scheduler on: create, review, confirm, running parent; partial, halted; pause, resume, cancel', async ({ page }) => {
     const mock = await start(page, 'execution', { at: EXEC_NOW });
-    await expect(page.getByText('Scheduler running')).toBeVisible();
+    await expect(page.getByText('Scheduling active')).toBeVisible();
     await page.getByLabel('Total size (BTC)').fill('0.12');
     await expect(page.getByRole('button', { name: 'Review schedule' })).toBeEnabled();
     await shot(page, 'exec-01-algo-form', { phone: true });
@@ -293,7 +294,7 @@ test.describe('Execution', () => {
     await expect(dialog(page).getByText('Create this schedule?')).toBeVisible();
     await shot(page, 'exec-02-algo-confirm');
     await dialog(page).getByRole('button', { name: 'Create schedule' }).click();
-    await expect(page.getByText('Done. The list shows the state the service reports.')).toBeVisible();
+    await expect(page.getByText('Done. The schedule list has been updated.')).toBeVisible();
     const list = grid(page, 'Schedules');
     await expect(list.getByText('Active')).toBeVisible();
     await expect(list.getByText('4 / 12')).toBeVisible();
@@ -303,7 +304,7 @@ test.describe('Execution', () => {
 
     // The partial and the halted TEST parents are opened by id, as a person would from another device.
     for (const id of ['TEST-algo-partial', 'TEST-algo-halted']) {
-      await page.getByLabel('Open by id').fill(id);
+      await page.getByLabel('Find a schedule by reference').fill(id);
       await page.getByRole('button', { name: 'Open', exact: true }).click();
       await expect(page.getByRole('region', { name: 'Schedule detail' }).getByText(id)).toBeVisible();
     }
@@ -317,7 +318,7 @@ test.describe('Execution', () => {
     await shot(page, 'exec-05-algo-pause-confirm');
     const paused = Date.now();
     await dialog(page).getByRole('button', { name: 'Pause schedule' }).click();
-    await expect(page.getByText('Done. The list shows the state the service reports.')).toBeVisible();
+    await expect(page.getByText('Done. The schedule list has been updated.')).toBeVisible();
     // The room re-reads the parents right after a write, so the new state shows well before the 10 s poll.
     await expect(list.getByRole('button', { name: 'Resume TEST-algo-running' })).toBeVisible({ timeout: 4000 });
     console.log(`list showed the paused state ${Date.now() - paused} ms after the pause was confirmed`);
@@ -339,9 +340,9 @@ test.describe('Execution', () => {
 
   test('scheduler off: the form refuses with its reason', async ({ page }) => {
     const mock = await start(page, 'execution', { at: EXEC_NOW, schedulerOn: false });
-    await expect(page.getByText('Scheduler off: new schedules will not slice')).toBeVisible();
+    await expect(page.getByText('Scheduling paused: new schedules will not run')).toBeVisible();
     await page.getByLabel('Total size (BTC)').fill('0.12');
-    await expect(page.getByText('The slice scheduler is off.', { exact: false }).first()).toBeVisible();
+    await expect(page.getByText('Scheduled execution is paused', { exact: false }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Review schedule' })).toBeDisabled();
     await shot(page, 'exec-09-scheduler-off');
     expect(mock.called('algo.createTwap')).toHaveLength(0);
@@ -382,7 +383,7 @@ test.describe('Execution', () => {
 
   test('algo request with an unknown outcome: locked, then Check status finds nothing was created', async ({ page }) => {
     const mock = await start(page, 'execution', { at: EXEC_NOW });
-    await expect(page.getByText('Scheduler running')).toBeVisible();
+    await expect(page.getByText('Scheduling active')).toBeVisible();
     await page.getByLabel('Total size (BTC)').fill('0.12');
     const requestId = await page.getByLabel('Request id').inputValue();
     mock.state.abortOnce.set('algo.createTwap', { landed: false });

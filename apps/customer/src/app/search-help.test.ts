@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';
 import { HELP_MIN_CHARS, helpRows, searchHelp } from './search-help';
 
 const article = (id: string, extra: Record<string, unknown> = {}) => ({
@@ -11,7 +12,7 @@ const article = (id: string, extra: Record<string, unknown> = {}) => ({
 const signal = new AbortController().signal;
 const fake = (answer: unknown) => {
   const query = vi.fn(async () => answer);
-  return { query, api: { query } as never };
+  return { query, api: { call: query } as never };
 };
 const answering = (data: unknown) => fake({ ok: true as const, data });
 
@@ -54,7 +55,8 @@ describe('help results in the header search', () => {
   it('asks for exactly the limit and returns the rows', async () => {
     const { api, query } = answering([article('kb-a'), article('kb-b')]);
     const state = await searchHelp(api, '  dust ', 1, signal, false);
-    expect(query).toHaveBeenCalledWith('support', 'searchKb', { q: 'dust', limit: 1 }, expect.anything(), { signal });
+    expect(query).toHaveBeenCalledWith(SUPPORT_SEARCH_KB, { q: 'dust', limit: 1 }, { signal });
+    expect(SUPPORT_SEARCH_KB).toMatchObject({ module: 'support', path: 'searchKb' });
     expect(state).toMatchObject({ status: 'ready', rows: [{ id: 'kb-a' }] });
   });
 

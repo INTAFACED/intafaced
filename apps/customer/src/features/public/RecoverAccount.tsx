@@ -1,10 +1,12 @@
+// volt-room: /recover-account
 import { useEffect, useRef, useState } from 'react';
-import { supportRecoveryRedeemSchema } from '@intafaced/contracts/identity';
-import { useSession } from '../session/session';
+import { Button } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure } from '../../shared/ui';
+import { FailureNote } from '../../shared/failure-note';
 import { supportRecoveryCopy } from './support-recovery-copy';
-import './public-pages.css';
+import { IDENTITY_SUPPORT_RECOVERY_REDEEM } from '@intafaced/contracts/identity-support-recovery-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -34,7 +36,7 @@ export function RecoverAccount() {
     if (busy) return;
     setBusy(true);
     setRefusal(null);
-    const answer = await api.mutate('identity', 'supportRecovery.redeem', { token }, supportRecoveryRedeemSchema);
+    const answer = await api.call(IDENTITY_SUPPORT_RECOVERY_REDEEM, { token });
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setDone(true);
@@ -43,44 +45,47 @@ export function RecoverAccount() {
 
   const dead = !token || refusal?.code === 'identity.support_recovery_link_invalid';
   return (
-    <div className="pub-page">
-      <header className="pub-heading">
-        <p className="eyebrow">{t('eyebrow')}</p>
-        <h1>{done ? t('doneTitle') : dead ? t('deadTitle') : t('recoverTitle')}</h1>
-      </header>
-      {done ? (
-        <p role="status">
-          {t('doneBody')}{' '}
-          <a className="text-link" href="/login">
-            {t('signIn')}
-          </a>
-        </p>
-      ) : dead ? (
-        <div className="pub-notice" role="alert">
-          <p>{t('deadBody')}</p>
-          <a className="text-link" href="/cannot-sign-in">
-            {t('link')}
-          </a>
-        </div>
-      ) : (
-        <>
-          <p className="muted">{t('recoverIntro')}</p>
-          <Button onClick={() => void recover()} disabled={busy}>
-            {busy ? t('recovering') : t('recover')}
-          </Button>
-          {refusal?.code === 'identity.security_locked' ? (
-            <p className="pub-notice" role="alert">
-              {t('locked')} <small lang="zxx">{refusal.code}</small>
-            </p>
-          ) : refusal?.code === 'auth.codes_unwired' ? (
-            <p className="pub-notice" role="alert">
-              {t('unwired')} <small lang="zxx">{refusal.code}</small>
-            </p>
-          ) : (
-            refusal && <Failure result={refusal} />
-          )}
-        </>
-      )}
-    </div>
+    <FlowTemplate
+      title={done ? t('doneTitle') : dead ? t('deadTitle') : t('recoverTitle')}
+      description={t('eyebrow')}
+      state={{ kind: 'ready' }}
+      step={
+        done ? (
+          <p role="status">
+            {t('doneBody')}{' '}
+            <a className="lt-link" href="/login">
+              {t('signIn')}
+            </a>
+          </p>
+        ) : dead ? (
+          <div className="lt-refusal" role="alert">
+            <p className="lt-refusal-body">{t('deadBody')}</p>
+            <a className="lt-link" href="/cannot-sign-in">
+              {t('link')}
+            </a>
+          </div>
+        ) : (
+          <div className="lt-stack">
+            <p className="lt-muted">{t('recoverIntro')}</p>
+            <div className="lt-actions">
+              <Button tone="primary" onClick={() => void recover()} disabled={busy}>
+                {busy ? t('recovering') : t('recover')}
+              </Button>
+            </div>
+            {refusal?.code === 'identity.security_locked' ? (
+              <p className="lt-refusal" role="alert">
+                {t('locked')} <small lang="zxx">{refusal.code}</small>
+              </p>
+            ) : refusal?.code === 'auth.codes_unwired' ? (
+              <p className="lt-refusal" role="alert">
+                {t('unwired')} <small lang="zxx">{refusal.code}</small>
+              </p>
+            ) : (
+              refusal && <FailureNote result={refusal} />
+            )}
+          </div>
+        )
+      }
+    />
   );
 }

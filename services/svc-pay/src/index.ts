@@ -59,6 +59,7 @@ import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
 import { recordOwned, registerSupportRecordOwnershipRoute } from './support-record-ownership.js';
+import { registerSupportWithdrawalDestinationsRoute, withdrawalDestinations } from './support-withdrawal-destinations.js';
 import { CustodyDepositBook } from './custody/deposits/book.js';
 import { CustodyDepositService } from './custody/deposits/service.js';
 import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
@@ -124,6 +125,7 @@ import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-docum
 import { KybInformationRequestService } from './kyb-information-requests.js';
 import { KYB_MALWARE_SCANNER_ENV, openKybMalwareScanner } from './kyb-malware-scan.js';
 import { SCREENING_SCREENER_ENV, openScreeningScreener } from './screening/local-test-screener.js';
+import { OPENSANCTIONS_API_KEY_ENV, createPayPartyResolver } from './screening/opensanctions-screener.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -134,16 +136,14 @@ import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics
 import { readPayWatermark, registerRestoreWatermarkRoute } from './restore-watermark.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import {
-  createEdgeContext,
-  mergeRouters,
-  retainRawBody,
-  createIdentityOperationDecisionClient,
-  createBankApproverEligibilityClient,
-  createBankInternalWithdrawalClient,
-  createBankSendDestinationClient,
-  s2sFromEnv,
-} from '@intafaced/contracts';
+import { createBankApproverEligibilityClient } from '@intafaced/contracts/bank-approver-eligibility-client';
+import { createBankInternalWithdrawalClient } from '@intafaced/contracts/bank-internal-withdrawal-client';
+import { createBankSendDestinationClient } from '@intafaced/contracts/bank-send-destination-client';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { createIdentityOperationDecisionClient } from '@intafaced/contracts/operation-identity-client';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { mergeRouters } from '@intafaced/contracts/trpc';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { setIsolationDenialSink } from './isolation-log.js';
 import { onCapturedOverCap } from './control/over-cap-signal.js';
@@ -386,8 +386,14 @@ const payGuards = buildPayGuards({
   limitOverrideOf: limitOverrideSource,
   limitSource,
   custodyPolicyMode: loadCustodyPolicyMode(process.env),
-  // No screener is connected: blank refuses every custodial send. `local-test` is the test stack's stand-in (dev/test only).
-  screening: openScreeningScreener({ appEnv: process.env.APP_ENV, setting: process.env[SCREENING_SCREENER_ENV] }) ?? undefined,
+  // Blank refuses every custodial send. `opensanctions` needs its key; `local-test` is the test stack's stand-in (dev/test only).
+  screening:
+    openScreeningScreener({
+      appEnv: process.env.APP_ENV,
+      setting: process.env[SCREENING_SCREENER_ENV],
+      openSanctionsApiKey: process.env[OPENSANCTIONS_API_KEY_ENV],
+      resolveParty: createPayPartyResolver(sql),
+    }) ?? undefined,
 });
 const conversion = new ConversionService({
   sql,
@@ -1010,6 +1016,14 @@ registerSupportRecordOwnershipRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   owned: (input) => recordOwned(sql, input),
+});
+
+// Where a customer's linked withdrawals go, for svc-support under the customer's own grant (J-support-public-20 #2).
+registerSupportWithdrawalDestinationsRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  destinations: (input) => withdrawalDestinations(sql, input),
 });
 
 const custodyDeposits = new CustodyDepositService({ sql, chain, registries: createRegistryReader(sql) });

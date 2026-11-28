@@ -1,7 +1,8 @@
 import type { PricedProduct } from '@intafaced/contracts/merchant-catalog';
+import { Button } from '@intafaced/ui/lit';
 import { useResource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
-import { PortalLoading, SelectField } from '../components';
+import { Loading, SelectField } from '../volt/parts';
 import { catalogCopy as c } from './copy';
 import { priceWords } from './Prices';
 
@@ -23,23 +24,23 @@ export function LinkPricePicker({
 }) {
   const { t } = c.useCopy();
   const { resource, reload } = useResource((signal) => portal.linkPriceChoices(signal), 'portal:catalog:link-prices');
-  if (resource.status === 'loading') return <PortalLoading />;
+  if (resource.status === 'loading') return <Loading />;
   // The price is optional, so a catalogue that cannot be read (a role without products.read, say) leaves the form usable:
   // the field says why it is empty, and the amount is set by hand.
   if (resource.status === 'failed')
     return (
-      <div className="field">
+      <div className="lt-field">
         <span>{t('linkPrice')}</span>
-        <p className="muted" role="note">
+        <p className="lt-muted" role="note">
           {t('linkPriceUnreadable', { reason: resource.failure.message })}{' '}
-          <button type="button" className="text-link" onClick={reload}>
+          <Button tone="quiet" onClick={reload}>
             {t('linkPriceRetry')}
-          </button>
+          </Button>
         </p>
       </div>
     );
   const choices = resource.data.items;
-  if (choices.length === 0 && !value) return <p className="muted">{t('linkPriceNoChoices')}</p>;
+  if (choices.length === 0 && !value) return <p className="lt-muted">{t('linkPriceNoChoices')}</p>;
   // A create being recovered keeps the price it was sent with, even once that price is no longer offered.
   const kept = value && !choices.some((choice) => choice.price.id === value) ? [[value, t('linkPriceKept')] as const] : [];
   return (

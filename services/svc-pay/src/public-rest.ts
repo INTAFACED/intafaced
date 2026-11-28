@@ -3,7 +3,8 @@ import { credentialAuthority, restPaymentCreationId } from './payment-authority.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import swagger from '@fastify/swagger';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { createEdgeContext, type EdgeContextOptions, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeContextOptions, EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { allowMerchantRead } from './merchant-read-access.js';
@@ -85,7 +86,6 @@ import { assertSandboxKeyDoesNotLookLive, paymentModeFromRail, resolveMerchantRa
  *   POST   /api/pay/v1/submerchant-permissions/grant
  *   POST   /api/pay/v1/submerchant-permissions/revoke
  *   Same journal + actor-from-principal rules as tRPC `submerchantPermission.*`.
- *   Honest partial: docs/pay/PAYFAC-PERMISSIONS-PARTIAL-2026-08-12.md
  *
  * Not Class X go-live. Not a live acquirer. Outbound webhooks do not move value.
  */

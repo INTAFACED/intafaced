@@ -4,7 +4,7 @@ import { displayAmount } from '../../../shared/money';
 import type { createRoomApi, GridBot } from './api';
 import { roomCopy } from './copy';
 import type { Failure } from './guard';
-import { RefusalNote } from './parts';
+import { InfoNote, RefusalNote } from './parts';
 
 // One key per top-up intent: kept while a reply is lost, so a resend is the same top-up; renewed after any answer.
 const newRequestKey = () => `topup-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -85,7 +85,7 @@ export function GridTopUp({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="cb-form">
+          <div className="lt-stack">
             <label className="cb-selectfield">
               <span className="cb-label">{t('Asset')}</span>
               <select value={asset} onChange={(e) => setAsset(e.target.value)} disabled={busy}>
@@ -170,7 +170,7 @@ export function GridSettings({ bot, api }: { bot: GridBot; api: ReturnType<typeo
     );
   }
   return (
-    <section aria-label={t('Grid settings')} className="cb-form">
+    <section aria-label={t('Grid settings')} className="lt-stack">
       <label className="cb-selectfield">
         <span className="cb-label">{t('Trailing')}</span>
         <Switch checked={trailing} onCheckedChange={setTrailing} aria-label={t('Trailing')} disabled={busy} />
@@ -182,7 +182,7 @@ export function GridSettings({ bot, api }: { bot: GridBot; api: ReturnType<typeo
         <Input value={minCount} onValueChange={setMinCount} disabled={busy} />
       </Field>
       <p className="cb-note-body">{t('This grid has {count} grids.', { count: String(bot.gridCount) })}</p>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button disabled={busy} onClick={() => void save()}>
           {t('Save')}
         </Button>
@@ -190,6 +190,106 @@ export function GridSettings({ bot, api }: { bot: GridBot; api: ReturnType<typeo
           {t('Cancel')}
         </Button>
       </div>
+      {failure ? <RefusalNote failure={failure} /> : null}
+    </section>
+  );
+}
+
+/**
+ * A running grid's exits (CB-bots-03; J-copy-bots-otc-15 #3): a price at which it stops, on the way down or up. The bot
+ * stops once when the book reaches one, and reads "Price exit". No RSI source is connected, so the RSI exit reads
+ * Not set and can't be filled in.
+ */
+export function GridExits({ bot, api, onDone }: { bot: GridBot; api: ReturnType<typeof createRoomApi>; onDone: () => void }) {
+  const { t } = roomCopy.useCopy();
+  const [editing, setEditing] = useState(false);
+  const [below, setBelow] = useState(bot.exits?.stopBelow ?? '');
+  const [above, setAbove] = useState(bot.exits?.stopAbove ?? '');
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    setFailure(null);
+    setSaved(false);
+    const result = await api.gridSetExits({ botId: bot.botId, stopBelow: below, stopAbove: above });
+    setBusy(false);
+    if (result.ok) {
+      setSaved(true);
+      onDone();
+      return;
+    }
+    setFailure(result);
+  }
+
+  if (!editing) {
+    return (
+      <Button variant="secondary" onClick={() => setEditing(true)}>
+        {t('Exits')}
+      </Button>
+    );
+  }
+  return (
+    <section aria-label={t('Exits')} className="lt-stack">
+      <Field label={t('Stop when the price falls to')}>
+        <Input kind="decimal" value={below} onValueChange={setBelow} precision={8} trailing={bot.quoteAsset} disabled={busy} />
+      </Field>
+      <Field label={t('Stop when the price rises to')}>
+        <Input kind="decimal" value={above} onValueChange={setAbove} precision={8} trailing={bot.quoteAsset} disabled={busy} />
+      </Field>
+      <Field label={t('RSI exit')}>
+        <Input value={t('Not set')} onValueChange={() => {}} disabled />
+      </Field>
+      <InfoNote>{t('No RSI source is connected, so an RSI exit can’t be saved.')}</InfoNote>
+      <div className="lt-actions">
+        <Button disabled={busy} onClick={() => void save()}>
+          {t('Save exits')}
+        </Button>
+        <Button variant="secondary" disabled={busy} onClick={() => setEditing(false)}>
+          {t('Close')}
+        </Button>
+      </div>
+      {saved ? (
+        <p role="status" className="cb-note-body">
+          {t('Exits saved. The bot stops once the price reaches one.')}
+        </p>
+      ) : null}
+      {failure ? <RefusalNote failure={failure} /> : null}
+    </section>
+  );
+}
+
+/**
+ * Earn on a grid's idle funds (CB-bots-06; J-copy-bots-otc-15 #5). It goes only through the bank's earn service; while
+ * that isn't connected, turning it on is refused with its reason and the switch stays off. Nothing is moved.
+ */
+export function GridIdleYield({ bot, api }: { bot: GridBot; api: ReturnType<typeof createRoomApi> }) {
+  const { t } = roomCopy.useCopy();
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<Failure | null>(null);
+
+  async function turnOn() {
+    if (busy) return;
+    setBusy(true);
+    setFailure(null);
+    const result = await api.gridSetIdleYield({ botId: bot.botId, on: true });
+    setBusy(false);
+    if (!result.ok) setFailure(result);
+  }
+
+  return (
+    <section aria-label={t('Idle funds')} className="lt-stack">
+      <label className="cb-selectfield">
+        <span className="cb-label">{t('Earn on idle funds')}</span>
+        <Switch
+          checked={false}
+          onCheckedChange={(next) => (next ? void turnOn() : undefined)}
+          aria-label={t('Earn on idle funds')}
+          disabled={busy}
+        />
+      </label>
       {failure ? <RefusalNote failure={failure} /> : null}
     </section>
   );

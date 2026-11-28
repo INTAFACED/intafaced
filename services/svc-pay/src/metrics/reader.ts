@@ -1,15 +1,16 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
-import {
-  PAY_PAYMENT_STATUSES,
-  type FounderGlobalMetrics,
-  type FounderMerchantList,
-  type MerchantMetricsSeries,
-  type MerchantMetricsSnapshot,
-  type MerchantSettlementAssets,
-  type MetricsFreshness,
-  type PayAssetAmount,
-  type PayMetricWindow,
+import type {
+  FounderGlobalMetrics,
+  FounderMerchantList,
+  MerchantMetricsSeries,
+  MerchantMetricsSnapshot,
+  MerchantSettlementAssets,
+  MetricsFreshness,
+  PayAssetAmount,
+  PayMetricWindow,
 } from '@intafaced/contracts';
+import { PAY_PAYMENT_STATUSES } from '@intafaced/contracts/merchant-metrics';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { MetricsError, merchantNotFound } from './errors.js';
 import { resolveRange, resolveWindow } from './window.js';
@@ -72,11 +73,11 @@ export class MetricsReader {
     this.now = deps.now ?? (() => new Date());
   }
 
-  private async snapshot<T>(fn: (tx: Sql) => Promise<T>): Promise<T> {
-    return (await this.deps.sql.begin('isolation level repeatable read read only', (tx) => fn(tx as unknown as Sql))) as T;
+  private async snapshot<T>(fn: (tx: Queryable) => Promise<T>): Promise<T> {
+    return (await this.deps.sql.begin('isolation level repeatable read read only', (tx) => fn(tx))) as T;
   }
 
-  private async freshness(tx: Sql, merchantId?: string): Promise<MetricsFreshness> {
+  private async freshness(tx: Queryable, merchantId?: string): Promise<MetricsFreshness> {
     const only = merchantId ? tx`WHERE merchant_id = ${merchantId}` : tx``;
     const [row] = await tx<
       Array<{ oldest: Date | null; now: Date }>
@@ -86,7 +87,7 @@ export class MetricsReader {
     return { asOf: iso(asOf), lagSeconds: Math.max(0, Math.trunc((now.getTime() - asOf.getTime()) / 1000)) };
   }
 
-  private async assertMerchantExists(tx: Sql, merchantId: string): Promise<void> {
+  private async assertMerchantExists(tx: Queryable, merchantId: string): Promise<void> {
     const rows = await tx`SELECT 1 FROM pay.merchants WHERE id = ${merchantId}`;
     if (rows.length === 0) throw merchantNotFound();
   }

@@ -28,6 +28,8 @@ const delivery = {
   createdAt: '2026-10-17T02:00:00.000Z',
   updatedAt: '2026-10-17T02:00:01.000Z',
 };
+// What svc-notify sends for the venue when nothing is wired (its UNWIRED_VENUE_INCIDENT), which this desk does not show.
+const UNWIRED = { allFine: false, matching: 'unwired', code: null, incidentSilence: false, allClear: false };
 const get = () => GET(new Request('http://admin.example/api/notify-health'));
 
 beforeEach(() => gate.session.mockResolvedValue(ctx));
@@ -41,7 +43,7 @@ describe('notify health GET', () => {
     const fn = vi.fn(async (url: string, _init?: RequestInit) =>
       url.includes('operatorDeliveries')
         ? ok([delivery])
-        : ok({ ok: true, service: 'svc-notify', fanoutEnabled: false, venueIncident: {} }),
+        : ok({ ok: true, service: 'svc-notify', fanoutEnabled: false, venueIncident: UNWIRED }),
     );
     vi.stubGlobal('fetch', fn);
     const json = await (await get()).json();
@@ -60,7 +62,7 @@ describe('notify health GET', () => {
       vi.fn(async (url: string) =>
         url.includes('operatorDeliveries')
           ? Response.json({ error: { message: 'Missing scope admin:read', data: { code: 'FORBIDDEN', httpStatus: 403 } } }, { status: 403 })
-          : ok({ ok: true, service: 'svc-notify', fanoutEnabled: true }),
+          : ok({ ok: true, service: 'svc-notify', fanoutEnabled: true, venueIncident: UNWIRED }),
       ),
     );
     const json = await (await get()).json();
@@ -73,7 +75,9 @@ describe('notify health GET', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
-        url.includes('operatorDeliveries') ? ok([{ id: 'x' }]) : ok({ ok: true, service: 'svc-notify', fanoutEnabled: true }),
+        url.includes('operatorDeliveries')
+          ? ok([{ id: 'x' }])
+          : ok({ ok: true, service: 'svc-notify', fanoutEnabled: true, venueIncident: UNWIRED }),
       ),
     );
     expect((await (await get()).json()).deliveries).toMatchObject({ kind: 'failed' });

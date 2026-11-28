@@ -1,26 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Dialog, Field, Panel } from '../../../shared/ui';
+import { Button, Checkbox, Field } from '@intafaced/ui/lit';
 import { usePreferences } from '../../../shared/preferences';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
 import { useRegionBlocked } from '../region';
+import { Dialog, Panel } from '../volt/parts';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID } from './eip1193';
 import { RepresentationPanel } from './RepresentationPanel';
 import { useResource } from '../../../shared/resource';
 import {
+  exactUnits,
   isContractCode,
   lastFour,
   nativeCurrency,
   readDestination,
+  receiptFee,
   sameAddress,
   toBaseUnits,
   toHexValue,
   tokenLabel,
   transferCalldata,
 } from './transfer';
-import { useWallet } from './WalletProvider';
+import { useWallet, waitMined } from './WalletProvider';
 import { recordSent } from './sent-store';
 import { signingGate } from './signing-gate';
 
@@ -29,10 +32,15 @@ type Outcome =
   | { kind: 'idle' }
   | { kind: 'busy' }
   | { kind: 'representation'; address: string; status: RepresentationStatus }
-  | { kind: 'sent'; hash: string }
+  | { kind: 'sent'; hash: string; fee: SentFee }
   | { kind: 'refused'; message: string };
 
 const NATIVE = 'native';
+/** How long the panel waits for a sent transfer to be mined before it says its fee is not known. */
+const FEE_WAIT_MS = 120_000;
+
+/** A sent transfer's network fee: waiting for the chain, read from its receipt, or not known (never shown as 0). */
+type SentFee = { kind: 'waiting' } | { kind: 'known'; units: bigint } | { kind: 'unknown' };
 
 /**
  * Send: the network's own currency from the connected wallet to an address (D-portfolio-wallet-03, D-swap-12). The
@@ -71,6 +79,25 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   const [ticked, setTicked] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
   const asked = useRef(0);
+  /** The send whose fee is being read; another send or an edit of the form ends that read. */
+  const feeFor = useRef<string | null>(null);
+
+  /** Reads the sent transfer's receipt from the chain through the wallet, and shows the fee it paid or "not known". */
+  const readFee = async (hash: string) => {
+    const mined = await waitMined(
+      (h) => wallet.read('eth_getTransactionReceipt', [h]),
+      hash,
+      FEE_WAIT_MS,
+      () => feeFor.current !== hash,
+    );
+    if (feeFor.current !== hash) return;
+    let fee: SentFee = { kind: 'unknown' };
+    if (mined.status !== 'timeout') {
+      const units = receiptFee(await wallet.read('eth_getTransactionReceipt', [hash]).catch(() => null));
+      if (units !== null) fee = { kind: 'known', units };
+    }
+    setOutcome((now) => (now.kind === 'sent' && now.hash === hash ? { ...now, fee } : now));
+  };
 
   const destination = readDestination(to);
   const chosen =
@@ -88,6 +115,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
     set(event.target.value);
     setReviewing(false);
     setProblem(null);
+    feeFor.current = null;
     setOutcome({ kind: 'idle' });
   };
 
@@ -134,7 +162,9 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         kind: 'send',
         label: `${amount.trim()} ${chosen?.label ?? ''} → ${destination.address}`,
       });
-      setOutcome({ kind: 'sent', hash: result.hash });
+      setOutcome({ kind: 'sent', hash: result.hash, fee: { kind: 'waiting' } });
+      feeFor.current = result.hash;
+      void readFee(result.hash);
     } else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
     else if (result.status === 'failed') setOutcome({ kind: 'refused', message: result.message });
     else setOutcome({ kind: 'idle' });
@@ -143,7 +173,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   if (regionBlocked)
     return (
       <Panel title={t('sendTitle')}>
-        <p className="muted" data-permit-refused="region">
+        <p className="lt-muted" data-permit-refused="region">
           {t('permitRefused_region')}
         </p>
       </Panel>
@@ -171,16 +201,17 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         />
       )}
       <Panel title={t('sendTitle')}>
-        <p className="muted">{t('sendNote', { network })}</p>
-        {!ready && <p className="muted">{t('needsWallet')}</p>}
+        <p className="lt-muted">{t('sendNote', { network })}</p>
+        {!ready && <p className="lt-muted">{t('needsWallet')}</p>}
         <form
           aria-label={t('sendTitle')}
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             void review();
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span id="wallet-send-token-label">{t('sendToken')}</span>
             <select
               value={token}
@@ -211,39 +242,54 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
           {destination.kind === 'name' && (
             <>
               <p role="alert">{t('sendNameUnresolved')}</p>
-              <p className="muted">{t('sendNameWhy')}</p>
+              <p className="lt-muted">{t('sendNameWhy')}</p>
             </>
           )}
           {destination.kind === 'invalid' && <p role="alert">{t('sendInvalidTo')}</p>}
           {problem && <p role="alert">{problem}</p>}
-          <Button type="submit" disabled={!canReview || outcome.kind === 'busy'}>
+          <Button tone="primary" type="submit" disabled={!canReview || outcome.kind === 'busy'}>
             {t('sendReview')}
           </Button>
         </form>
-        {outcome.kind === 'sent' && <p role="status">{t('sendSent', { hash: outcome.hash })}</p>}
+        {outcome.kind === 'sent' && (
+          <>
+            <p role="status">{t('sendSent', { hash: outcome.hash })}</p>
+            <p
+              data-testid="send-network-fee"
+              data-fee={outcome.fee.kind}
+              data-fee-units={outcome.fee.kind === 'known' ? outcome.fee.units.toString() : undefined}
+            >
+              {outcome.fee.kind === 'waiting'
+                ? t('sendFeeWaiting')
+                : outcome.fee.kind === 'known' && native
+                  ? t('sendFeeKnown', { fee: exactUnits(outcome.fee.units, native.decimals), symbol: native.symbol })
+                  : t('sendFeeUnknown')}
+            </p>
+          </>
+        )}
         {outcome.kind === 'refused' && <p role="alert">{outcome.message}</p>}
       </Panel>
       {reviewing && destination.kind === 'address' && chosen && (
         <Dialog title={t('reviewTitle')} onClose={() => setReviewing(false)}>
-          <dl className="protocol-facts">
+          <dl className="lt-kv">
             <div>
               <dt>{t('reviewFrom')}</dt>
-              <dd className="numeric">{wallet.address}</dd>
+              <dd className="lt-num">{wallet.address}</dd>
             </div>
             <div>
               <dt>{t('reviewTo')}</dt>
-              <dd className="numeric">{destination.address}</dd>
+              <dd className="lt-num">{destination.address}</dd>
             </div>
             <div>
               <dt>{t('reviewAmount')}</dt>
-              <dd className="numeric">
+              <dd className="lt-num">
                 {amount.trim()} {chosen.label}
               </dd>
             </div>
             {chosen.address && (
               <div>
                 <dt>{t('reviewTokenContract')}</dt>
-                <dd className="numeric">{chosen.address}</dd>
+                <dd className="lt-num">{chosen.address}</dd>
               </div>
             )}
             <div>
@@ -255,10 +301,9 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
           {contract === 'contract' && (
             <>
               <p role="note">{t('reviewContract')}</p>
-              <label className="field field--check">
-                <input type="checkbox" checked={ticked} onChange={(event) => setTicked(event.target.checked)} />
-                <span>{t('reviewContractTick')}</span>
-              </label>
+              <Checkbox checked={ticked} onCheckedChange={setTicked}>
+                {t('reviewContractTick')}
+              </Checkbox>
             </>
           )}
           {contract === 'unknown' && <p role="note">{t('reviewContractUnknown')}</p>}
@@ -271,11 +316,11 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             spellCheck={false}
             onChange={(event) => setTyped(event.target.value)}
           />
-          <div className="protocol-actions">
-            <Button variant="secondary" onClick={() => setReviewing(false)}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => setReviewing(false)}>
               {t('reviewBack')}
             </Button>
-            <Button disabled={!confirmed || outcome.kind === 'busy'} onClick={() => void send()}>
+            <Button tone="primary" disabled={!confirmed || outcome.kind === 'busy'} onClick={() => void send()}>
               {t('reviewSend')}
             </Button>
           </div>

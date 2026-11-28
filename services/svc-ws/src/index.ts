@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { JetStreamEventBus, type Subscription } from '@intafaced/events';
 import { JAVA_ENV } from '@intafaced/sbe-codec';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { env } from './env.js';
 import { createBusLifecycle } from './bus-lifecycle.js';
 import { attachBusHalf, closeBusSession } from './bus-session-close.js';
@@ -10,6 +10,13 @@ import { NativeL3Hub } from './depth/l3-hub.js';
 import { DepthPoller } from './depth/poller.js';
 import { HttpMarketRegistry, UnionMarketRegistry } from './depth/registry.js';
 import { HttpDepthSource } from './depth/source.js';
+import {
+  VenueMarketRegistry,
+  VenueOrEngineCandleSource,
+  VenueOrEngineDepthSource,
+  VenueOrEngineMarketDirectory,
+  VenueOrEngineTickerSource,
+} from './venue-source.js';
 import { registerRoutes } from './routes.js';
 import { TradeHub } from './trade/hub.js';
 import { subscribeTradeTape } from './trade/source.js';
@@ -28,6 +35,7 @@ import { HttpPrivateBookPort } from './private/book.js';
 import { leaseRangeFromEnv } from './private/cod.js';
 import { HttpTradeCancelPort } from './private/cod-cancel.js';
 import { NewConnectionWindow } from './new-connection-window.js';
+import { PerIpGuard } from './per-ip.js';
 import { createWebSocketGateway } from './ws/gateway.js';
 import { SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
 import { customerOriginsFromEnv } from './customer-origin.js';
@@ -83,7 +91,9 @@ registerProcessHooks(
  * credential snapshots; this process posts no ledger transactions.
  */
 
-const source = new HttpDepthSource({ baseUrl: env.MATCHING_URL });
+const engineSource = new HttpDepthSource({ baseUrl: env.MATCHING_URL });
+const venueFeed = { tradeUrl: env.TRADE_URL };
+const source = new VenueOrEngineDepthSource(engineSource, venueFeed);
 
 /** Chosen by INTAFACED_SBE_JAVA alone, never the package's synchronous fallback build (sbe-runtime.ts, #7554). */
 const sbe = serviceSbeCodec(env.INTAFACED_SBE_JAVA);
@@ -129,6 +139,7 @@ if (!sbe.linked) {
  */
 const registry = new UnionMarketRegistry(
   [
+    { name: 'svc-trade-venue', registry: new VenueMarketRegistry({ ...venueFeed, log: app.log }) },
     { name: 'svc-trade', registry: new HttpMarketRegistry({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT }) },
     { name: 'svc-matching', registry: source },
   ],
@@ -208,12 +219,15 @@ const tradeHub = new TradeHub(
  * hubs above; tickers and candles have hubs of their own, fed by svc-trade's
  * public REST (`TRADE_URL`, no credential) only while somebody is subscribed.
  */
-const marketDirectory = new HttpMarketDirectory({
-  baseUrl: env.TRADE_URL,
-  marketsLimit: env.WS_MARKETS_LIST_LIMIT,
-  ttlMs: env.WS_MARKETS_REFRESH_MS,
-  log: app.log,
-});
+const marketDirectory = new VenueOrEngineMarketDirectory(
+  new HttpMarketDirectory({
+    baseUrl: env.TRADE_URL,
+    marketsLimit: env.WS_MARKETS_LIST_LIMIT,
+    ttlMs: env.WS_MARKETS_REFRESH_MS,
+    log: app.log,
+  }),
+  { ...venueFeed, log: app.log },
+);
 
 const tickerHub = new TickerHub(
   {
@@ -241,8 +255,14 @@ const muxPoller = new MuxPoller(
   {
     tickers: tickerHub,
     candles: candleHub,
-    tickerSource: new HttpTickerSource({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT, log: app.log }),
-    candleSource: new HttpCandleSource({ baseUrl: env.TRADE_URL, log: app.log }),
+    tickerSource: new VenueOrEngineTickerSource(
+      new HttpTickerSource({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT, log: app.log }),
+      { ...venueFeed, log: app.log },
+    ),
+    candleSource: new VenueOrEngineCandleSource(new HttpCandleSource({ baseUrl: env.TRADE_URL, log: app.log }), {
+      ...venueFeed,
+      log: app.log,
+    }),
     directory: marketDirectory,
   },
   { tickerPollMs: env.WS_TICKER_POLL_MS, candlePollMs: env.WS_CANDLE_POLL_MS, flushMs: 250 },
@@ -348,6 +368,7 @@ const busLifecycle = createBusLifecycle({
           await half.orders.unsubscribe().catch(() => undefined);
           await half.fills.unsubscribe().catch(() => undefined);
           await half.positions.unsubscribe().catch(() => undefined);
+          await half.balances.unsubscribe().catch(() => undefined);
         },
         announce: () => privateOrderHub.announceBus(true),
       });
@@ -423,6 +444,9 @@ const busLifecycle = createBusLifecycle({
               await privateHalf?.positions.unsubscribe();
             },
             async () => {
+              await privateHalf?.balances.unsubscribe();
+            },
+            async () => {
               await dropHalf?.fills.unsubscribe();
             },
           ],
@@ -451,7 +475,15 @@ const poller = new DepthPoller(
   app.log,
 );
 
+// The per-IP cap and storm ban on the public doors, published on GET /policy (DV-limits-03, J-developer-09 #6).
+const perIp = new PerIpGuard({
+  maxConnections: env.WS_PER_IP_MAX_CONNECTIONS,
+  stormsBeforeBan: env.WS_PER_IP_STORMS_BEFORE_BAN,
+  banSeconds: env.WS_PER_IP_BAN_SECONDS,
+});
+
 registerRoutes(app, {
+  perIpPolicy: () => perIp.view(),
   hub,
   l3Hub,
   tradeHub,
@@ -469,6 +501,7 @@ registerRoutes(app, {
   privateAuthorityConfigured: () => authority !== null,
   dropCopyBus: busLifecycle.dropCopyBus,
   pollMs: env.WS_POLL_INTERVAL_MS,
+  timing: { heartbeatMs: env.WS_HEARTBEAT_MS, muxIdleMs },
   sbe,
 });
 registerTapeLabelDoor(app);
@@ -518,6 +551,8 @@ const gateway = createWebSocketGateway({
   log: app.log,
   enabled: isEnabled,
   admitNewConnection: () => newConnections.admit(),
+  admitAddress: (address) => perIp.admit(address),
+  trustedProxies: env.WS_TRUST_PROXY,
   sbeConsumers,
   sbe,
 });
@@ -537,6 +572,7 @@ const privateGateway = createPrivateWebSocketGateway({
   tradeCancel: new HttpTradeCancelPort({ baseUrl: env.TRADE_URL }),
   authority,
   customerOrigins,
+  trustedProxies: env.WS_TRUST_PROXY,
   positions: positionsStream,
 });
 
@@ -549,6 +585,7 @@ const dropCopyGateway = createDropCopyWebSocketGateway({
   tokens: privateTokens,
   authority,
   customerOrigins,
+  trustedProxies: env.WS_TRUST_PROXY,
 });
 
 poller.start();

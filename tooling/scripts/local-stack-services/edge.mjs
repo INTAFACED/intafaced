@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { profileEnvFor } from '../owner-settings.mjs';
+import { edgeUpstreamsOff, profileOff } from '../local-stack-profile.mjs';
 
 export default ({
   c,
@@ -10,6 +11,7 @@ export default ({
   UNUSED,
   CUSTOMER_ORIGIN,
   CUSTOMER_LOCALHOST_ORIGIN,
+  PUBLIC_ORIGIN,
   INVITATION_ORIGIN,
   EDGE_UPSTREAMS,
   EDGE_ABSENT,
@@ -28,6 +30,10 @@ export default ({
       EDGE_RATE_LIMIT_MAX: '6000',
       EDGE_RATE_LIMIT_WINDOW_MS: '60000',
       EDGE_BODY_LIMIT_BYTES: '1048576',
+      // A stack opened on a public name (the hosted beta) is reached only through its own front on loopback, which writes
+      // each caller's address (tooling/beta/beta-front.mjs): trust that one hop, so each caller has their own bucket rather
+      // than every tester sharing 127.0.0.1's (#11027). Any other stack is reached directly and trusts no header.
+      ...(PUBLIC_ORIGIN ? { EDGE_TRUST_PROXY: '127.0.0.1' } : {}),
       // LOCAL TEST per-route cost of a key call (EDGE_RATE_ROUTE_COSTS, J-developer-06): the labelled TEST profile
       // (tooling/profiles/test-owner-values/edge.json), never an owner decision. Blank refuses every key call at the trade
       // and pay doors with edge.cost_unset.
@@ -51,6 +57,14 @@ export default ({
     };
     for (const [k, service] of Object.entries(EDGE_UPSTREAMS)) env[k] = urlOf(service);
     for (const k of Object.keys(EDGE_ABSENT)) env[k] = UNUSED; // nothing listens; answers 502 by design
+    // A service LOCAL_STACK_PROFILE leaves off answers as not connected here (svc-edge EDGE_UPSTREAMS_OFF), not as a
+    // network fault: the app says so plainly.
+    const off = edgeUpstreamsOff(EDGE_UPSTREAMS);
+    if (off.length) env.EDGE_UPSTREAMS_OFF = off.join(',');
+    // Edge reads svc-matching's venue halt before each new trade commitment and refuses when it can't; with matching off
+    // there is no venue of ours to halt, so it is left unset (svc-edge: unset skips). The same for svc-fix's status door.
+    if (off.includes('MATCHING_URL')) delete env.MATCHING_URL;
+    if (profileOff('fix')) delete env.FIX_STATUS_URL;
     // Screening: pass through ONLY what is already in the caller's environment.
     // Never set, default or invent a sanctions list.
     return env;

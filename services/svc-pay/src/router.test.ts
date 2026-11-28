@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { describe, expect, it, beforeEach } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
 import { INTERACTIVE_ONLY_SCOPES, SESSION_SCOPES, assertKeyScopesAllowed, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { formatAmount, InsufficientFundsError, parseAmount as amt } from '@intafaced/ledger-client';
@@ -175,15 +176,15 @@ function stubService(): Stub {
     settlementPrefs: {},
   });
 
-  const service = {
+  const service = partial<PayService>({
     createMerchant: record('createMerchant', merchant),
     getMerchant: record('getMerchant', merchant),
     getMerchantByUserId: record('getMerchantByUserId', merchant),
     submitKyb: record('submitKyb', () => ({ ...merchant(), kybStatus: 'pending' as const, kybRef: 'dossier-1' })),
-    decideKyb: record('decideKyb', ((input: { beforeWrite?: () => Promise<void> }) => {
+    decideKyb: record('decideKyb', (input: { beforeWrite?: () => Promise<void> }) => {
       const consume = input.beforeWrite?.() ?? Promise.resolve();
       return consume.then(() => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' }));
-    }) as unknown as () => ReturnType<typeof merchant>),
+    }),
     decideKybStub: record('decideKybStub', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
     listPayments: record('listPayments', () => ({
       items: [{ ...paymentView({ status: 'captured', capturedAmount: amt('100') }), pricingSnapshot: null, failure: null }],
@@ -254,7 +255,7 @@ function stubService(): Stub {
       session: checkoutSession(),
     })),
     getCheckoutSession: record('getCheckoutSession', () => checkoutSession()),
-  } as unknown as PayService;
+  });
 
   return {
     service,
@@ -327,7 +328,7 @@ function stubUserMoney(): MoneyStub {
     fee: null,
   });
 
-  const service = {
+  const service = partial<UserMoneyService>({
     credit: record('credit', deposit),
     withdraw: record('withdraw', withdrawal),
     // Every address here is outside the platform (W-withdraw-14), so `withdrawal.create` keeps the named rail. Not recorded:
@@ -348,7 +349,7 @@ function stubUserMoney(): MoneyStub {
         status: 'sent',
       };
     }),
-  } as unknown as UserMoneyService;
+  });
 
   return {
     service,
@@ -1142,7 +1143,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     await expect(owner.railHealth()).resolves.toBeInstanceOf(Array);
     // railHealth is platform-wide: an onboarding caller with no business of its own is refused it.
     const noBusiness = createPayRouter(
-      { ...stub.service, getMerchantByUserId: async () => null } as unknown as PayService,
+      partial<PayService>({ ...stub.service, getMerchantByUserId: async () => null }),
       rails,
       money.service,
       null,
@@ -1158,9 +1159,9 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const teamSql = ((_strings: TemplateStringsArray, ...values: unknown[]) => {
       asked.push(values);
       return Promise.resolve(values[0] === '33333333-3333-4333-8333-333333333333' ? [{ '?column?': 1 }] : []);
-    }) as unknown as Sql;
+    }) as Sql;
     const onTeam = createPayRouter(
-      { ...stub.service, getMerchantByUserId: async () => null } as unknown as PayService,
+      partial<PayService>({ ...stub.service, getMerchantByUserId: async () => null }),
       rails,
       money.service,
       null,
@@ -1195,17 +1196,19 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
 
   it('reports an unset merchant fee as null and keeps an explicit zero', async () => {
     const me = async (feeBps: number | undefined) => {
-      const pay = {
+      const pay = partial<PayService>({
         getMerchantByUserId: async () => ({
           id: MERCHANT,
           userId: USER,
           mode: 'gateway' as const,
+          tier: 0,
+          settlementPrefs: {},
           status: 'active' as const,
           kybStatus: 'none' as const,
           kybRef: null,
           pricing: feeBps === undefined ? {} : { feeBps },
         }),
-      } as unknown as PayService;
+      });
       return createPayRouter(pay, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM))
         .createCaller(await ctx(['pay:read']))
         .merchant.me();
@@ -1217,17 +1220,19 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
   });
 
   it('labels a local-test starter fee on merchant.me and leaves the merchant fee alone', async () => {
-    const pay = {
+    const pay = partial<PayService>({
       getMerchantByUserId: async () => ({
         id: MERCHANT,
         userId: USER,
         mode: 'gateway' as const,
+        tier: 0,
+        settlementPrefs: {},
         status: 'active' as const,
         kybStatus: 'approved' as const,
         kybRef: null,
         pricing: { feeBps: 150 },
       }),
-    } as unknown as PayService;
+    });
     const row = await createPayRouter(pay, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM), null, undefined, null, {
       bps: 250,
       source: 'local_test',
@@ -1503,7 +1508,7 @@ describe('leftover treasury mutates consume identity approval', () => {
   });
 
   it('openDispute answers a named precondition error, not a 500 and not a recorded case, when the ledger refuses the opening for funds', async () => {
-    const service = stub.service as unknown as { openChargeback: unknown };
+    const service = stub.service as { openChargeback: unknown };
     service.openChargeback = async () => {
       throw new InsufficientFundsError('acct', 'USDT', '40.5', '0');
     };

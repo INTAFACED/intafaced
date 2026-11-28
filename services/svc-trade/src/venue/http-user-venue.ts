@@ -1,44 +1,15 @@
-import type { Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   decodeVenueWire,
   encodeVenueWire,
-  type AsOf,
-  type MaybeKnown,
-  type VenueBuilderTotals,
-  type UserVenueBuilderClaim,
-  type PlaceUserOrderIntent,
+  userVenueReads,
   type PreparedVenueAction,
   type UserVenue,
-  type UserVenueAccount,
-  type UserVenueAgent,
-  type UserVenueBalance,
-  type UserVenueArrival,
-  type UserVenueDeposit,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
-  type UserVenueFill,
-  type UserVenueLeverage,
-  type UserVenueMarketMargin,
-  type UserVenueSettlement,
-  type UserVenueMarket,
-  type UserVenueOrder,
-  type UserVenuePosition,
-  type UserVenueSubAccount,
-  type UserVenueSubAccountReads,
-  type UserVenueTransfer,
-  type UserVenueWithdrawal,
-  type VenueIntent,
-  type VenueBook,
-  type VenueOrderPreview,
-  type VenueBestPrices,
-  type VenueFundingRow,
-  type VenueCandle,
-  type VenueCandleInterval,
-  type VenuePrint,
+  type UserVenueReads,
   type VenueRefusal,
   type VenueSignature,
-  type VenueSigner,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 
@@ -61,6 +32,8 @@ export interface HttpUserVenueOptions {
   /** Per call, milliseconds. */
   readonly timeoutMs: number;
   readonly fetch?: typeof fetch;
+  /** Told each read's path as it is sent, from inside the caller's call (venue-read-callers.ts names who asked). */
+  readonly onRead?: (path: string) => void;
 }
 
 /** `GET /venue`: the descriptor and the EIP-712 chain id the venue's actions name. */
@@ -69,6 +42,33 @@ export interface HttpVenueInfo {
   readonly chainId: number;
   /** Where a wallet sends a token to fund its account on this venue; `null` when the venue names none. */
   readonly depositRoute: UserVenueDepositRoute | null;
+  /** Where a person's browser makes their own-wallet reads itself; `null` when every read comes through the venue. */
+  readonly walletReads: VenueWalletReads | null;
+}
+
+/**
+ * A venue's public read endpoint, by address with no key, as `GET /venue` names it: the desk's own-wallet reads
+ * go there from the person's own browser, so they count against the person's IP and not the box's one.
+ */
+export interface VenueWalletReads {
+  /** An https origin, nothing after it. */
+  readonly baseUrl: string;
+  /** The venue's named perp DEXs, read beside its main one. */
+  readonly perpDexs: readonly string[];
+}
+
+/** The venue's wallet reads as `GET /venue` names them, or null; one that is named but malformed is not used. */
+export function readWalletReads(raw: unknown): VenueWalletReads | null {
+  if (raw === null || raw === undefined || typeof raw !== 'object' || !('baseUrl' in raw) || !('perpDexs' in raw)) return null;
+  const { baseUrl, perpDexs } = raw;
+  if (typeof baseUrl !== 'string' || !/^https:\/\/[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(baseUrl)) return null;
+  if (!Array.isArray(perpDexs)) return null;
+  const dexs: string[] = [];
+  for (const d of perpDexs) {
+    if (typeof d !== 'string' || !/^[a-z0-9]{1,15}$/.test(d)) return null;
+    dexs.push(d);
+  }
+  return { baseUrl, perpDexs: dexs };
 }
 
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
@@ -98,6 +98,7 @@ export function readDepositRoute(raw: unknown): UserVenueDepositRoute | null {
   const confirmations =
     typeof r.confirmations === 'number' && Number.isSafeInteger(r.confirmations) && r.confirmations > 0 ? r.confirmations : null;
   const network = typeof r.network === 'string' && r.network.trim() !== '' ? r.network : null;
+  const warning = typeof r.warning === 'string' && r.warning.trim() !== '' ? r.warning : null;
   return {
     chainId: r.chainId,
     token,
@@ -107,6 +108,7 @@ export function readDepositRoute(raw: unknown): UserVenueDepositRoute | null {
     minimum,
     confirmations,
     network,
+    warning,
   };
 }
 
@@ -133,18 +135,27 @@ export function classifyFetchFailure(err: unknown): Failure {
   return { kind: 'connection_lost', detail: `the connection was lost (${code ?? (err as Error)?.message ?? 'unknown'})` };
 }
 
-export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
+/** The client `connect` answers: the transport and `submit`, with every read from USER_VENUE_READS on it. */
+export type ConnectedHttpUserVenue = HttpUserVenue & UserVenueReads;
+
+export class HttpUserVenue implements Pick<UserVenue, 'venue' | 'submit'> {
   private constructor(
     readonly venue: UserVenueDescriptor,
     readonly chainId: number,
     private readonly opts: HttpUserVenueOptions,
     readonly depositRoute: UserVenueDepositRoute | null = null,
+    readonly walletReads: VenueWalletReads | null = null,
   ) {}
 
   /** Read the venue's descriptor (`GET /venue`) and build the client. Throws `VenueRefusalError('venue_down')` when unreachable. */
-  static async connect(opts: HttpUserVenueOptions): Promise<HttpUserVenue> {
+  static async connect(opts: HttpUserVenueOptions): Promise<ConnectedHttpUserVenue> {
     const info = await HttpUserVenue.info(opts);
-    return new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute);
+    const client = new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute, info.walletReads);
+    // Every read (venue-contracts user-venue-calls.ts): a new read is a line there, never a method here.
+    return Object.assign(
+      client,
+      userVenueReads((path, body) => client.read(path, body)),
+    );
   }
 
   static async info(opts: HttpUserVenueOptions): Promise<HttpVenueInfo> {
@@ -156,7 +167,7 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     } catch (err) {
       throw new VenueRefusalError({ ...unknownVenue, detail: `the venue did not answer: ${classifyFetchFailure(err).detail}` });
     }
-    let body: { venue?: UserVenueDescriptor; chainId?: unknown; deposit?: unknown };
+    let body: { venue?: UserVenueDescriptor; chainId?: unknown; deposit?: unknown; walletReads?: unknown };
     try {
       body = (await res.json()) as typeof body;
     } catch {
@@ -174,7 +185,12 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     ) {
       throw new VenueRefusalError({ ...unknownVenue, detail: `the venue's descriptor is not usable (HTTP ${res.status})` });
     }
-    return { venue: v, chainId: body.chainId, depositRoute: readDepositRoute(body.deposit) };
+    return {
+      venue: v,
+      chainId: body.chainId,
+      depositRoute: readDepositRoute(body.deposit),
+      walletReads: readWalletReads(body.walletReads),
+    };
   }
 
   private down(detail: string): VenueRefusalError {
@@ -214,48 +230,19 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     try {
       return { ok: true, value: decodeVenueWire<T>(parsed) };
     } catch (err) {
-      return { ok: false, failure: { kind: 'error_after_send', detail: `the answer did not parse: ${(err as Error).message}` } };
+      return {
+        ok: false,
+        failure: { kind: 'error_after_send', detail: `the answer did not parse: ${err instanceof Error ? err.message : String(err)}` },
+      };
     }
   }
 
   /** A call that moves nothing: any failure is the venue being down. */
   private async read<T>(path: string, body: unknown): Promise<T> {
+    this.opts.onRead?.(path);
     const answer = await this.post<T>(path, body);
     if (!answer.ok) throw this.down(`${this.venue.displayName}: ${path}: ${answer.failure.detail}`);
     return answer.value;
-  }
-
-  markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
-    return this.read('/markets', { account });
-  }
-
-  book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
-    return this.read('/book', { symbol, depth });
-  }
-
-  preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
-    return this.read('/preview', { account, intent });
-  }
-
-  bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
-    return this.read('/best-prices', { symbol });
-  }
-
-  fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
-    return this.read('/funding-history', { symbol, since });
-  }
-
-  trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
-    return this.read('/trades', { symbol, limit });
-  }
-
-  candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
-    return this.read('/candles', { symbol, interval, limit });
-  }
-
-  /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
-  prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
-    return this.read('/prepare', { account, signer, intent });
   }
 
   async submit(prepared: PreparedVenueAction, signature: VenueSignature): Promise<VenueSubmitOutcome> {
@@ -277,79 +264,5 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
       case 'error_after_send':
         return { definite: false, reason: 'venue_error_after_send' };
     }
-  }
-
-  balances(account: UserVenueAccount): Promise<AsOf<readonly UserVenueBalance[]>> {
-    return this.read('/balances', { account });
-  }
-
-  openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {
-    return this.read('/open-orders', { account });
-  }
-
-  orderByClientId(account: UserVenueAccount, venueClientOrderId: string): Promise<AsOf<UserVenueOrder | null>> {
-    return this.read('/order-by-client-id', { account, venueClientOrderId });
-  }
-
-  fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
-    return this.read('/fills', { account, since });
-  }
-
-  positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>> {
-    return this.read('/positions', { account });
-  }
-
-  withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>> {
-    return this.read('/withdrawal', { account, nonce });
-  }
-
-  deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {
-    return this.read('/deposits', { account });
-  }
-
-  arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
-    return this.read('/arrivals', { account });
-  }
-
-  builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
-    return this.read('/builder-fee-approval', { account, builder });
-  }
-
-  /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
-  builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
-    return this.read('/builder-totals', { builder });
-  }
-
-  /** The TEST venue's own record of each claim of our builder fees (J-derivatives-17). */
-  builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
-    return this.read('/builder-claims', { builder });
-  }
-
-  agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
-    return this.read('/agents', { account });
-  }
-
-  leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
-    return this.read('/leverage', { account, symbol });
-  }
-
-  /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
-  marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
-    return this.read('/market-margin', { account, symbol });
-  }
-
-  /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
-  settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
-    return this.read('/settlements', { account, since });
-  }
-
-  // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──
-
-  subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>> {
-    return this.read('/sub-accounts', { account });
-  }
-
-  transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>> {
-    return this.read('/transfer', { account, nonce });
   }
 }

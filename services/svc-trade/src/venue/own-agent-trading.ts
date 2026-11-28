@@ -32,7 +32,10 @@ import {
   type DrawRecord,
 } from './own-agent-allowance-store.js';
 import type { OwnAgentPolicy } from './own-agent-policy-client.js';
+import type { AccountFreezeRead } from '../quant/live-run/ports.js';
+import { assertNotSelfFrozen, freezePrincipal } from './self-freeze.js';
 import { AGENT_ORDER_PREFIX, UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
+import { venueBoundPrice } from './venue-price.js';
 
 /**
  * A PERSON'S OWN AGENT TRADING ONE OF THEIR VENUE SUB-ACCOUNTS, UNDER AN ALLOWANCE (J-agents-08 #3 to #7; AG-spend-03,
@@ -98,6 +101,8 @@ export interface OwnAgentTradingDeps {
   readonly store: AllowanceStore;
   readonly policy: OwnAgentPolicy | null;
   readonly values: AgentAccountValues;
+  /** The owner's own freeze, read from identity before an allowance is granted or signed, or an order sent (null refuses). */
+  readonly freeze: AccountFreezeRead | null;
   readonly now: () => Date;
 }
 
@@ -107,7 +112,6 @@ const PERIOD_MS: Record<AllowancePeriod, number> = { day: 86_400_000, week: 7 * 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 const DECIMAL_RE = /^[0-9]+(\.[0-9]+)?$/;
-const ONE = parseAmount('1');
 const TWO = parseAmount('2');
 const TEN_THOUSAND = parseAmount('10000');
 
@@ -215,14 +219,6 @@ function amountField(value: unknown, field: string, blankCode: OwnAgentTradingCo
   return v;
 }
 
-/** `x` rounded to a whole number of `step`s, down or up. */
-function toStep(x: Amount, step: Amount, way: 'down' | 'up'): Amount {
-  const r = div(x, step, 'floor');
-  const whole = r - (r % ONE);
-  const steps = way === 'up' && compare(mul(whole, step), x) < 0 ? add(whole, ONE) : whole;
-  return mul(steps, step);
-}
-
 export class OwnAgentTrading {
   /** One capped signer per agent key, so two orders under one allowance can't both fit in the same room. */
   private readonly signers = new Map<string, CappedAgentSigner>();
@@ -301,6 +297,7 @@ export class OwnAgentTrading {
       capErrorAs(error);
     }
     const seed = this.seed();
+    await assertNotSelfFrozen(this.deps.freeze, principal.userId, 'granting an agent an allowance');
     const existing = await this.deps.store.find(principal.userId, allowanceId);
     if (existing) {
       if (
@@ -452,6 +449,8 @@ export class OwnAgentTrading {
     if (!approve && a.status !== 'revoked') {
       fail('agents.allowance_action_unknown', `allowance ${a.allowanceId} is not revoked, so there is no revoke to send`, 409);
     }
+    // J-wallet-13 #2: the agent permission is not signed while the owner's own freeze is on; the venue's revoke still is.
+    if (approve) await assertNotSelfFrozen(this.deps.freeze, a.userId, "signing an agent's permission");
     await this.deps.door.submit(principal, key, signature, { agentAccount: true });
     return this.advance(principal, (await this.deps.store.find(a.userId, a.allowanceId))!);
   }
@@ -482,6 +481,34 @@ export class OwnAgentTrading {
     this.signers.delete(revoked.agentAddress);
     this.marks.delete(revoked.agentAddress);
     return this.advance(principal, revoked);
+  }
+
+  /**
+   * J-wallet-13 #1: the owner froze their own account (the `selfFreezeApplied` event). Every allowance of theirs that is
+   * active is revoked at once, as their own Revoke does (#7): admission ends under the row lock and our copy of its key is
+   * dropped. One still signing is abandoned when the wallet has not signed it, and revoked when it has (so a signature
+   * sent before the freeze never makes it live). Safe to repeat: each store move goes only from the state it expects.
+   * Nothing is restored on the lift: the person grants a new allowance. The venue's own approval is withdrawn by the
+   * wallet's signature of the revoke, prepared when the person next opens the allowance. Nothing moves.
+   */
+  async applySelfFreeze(userId: string): Promise<{ readonly allowances: number }> {
+    const live = await this.deps.store.listLive(userId);
+    const now = this.deps.now();
+    for (const a of live) {
+      let current = a;
+      if (current.status === 'signing') {
+        const signed = (await this.deps.door.stored(freezePrincipal(userId, 'none'), allowanceApproveKey(current.allowanceId)))?.signature;
+        if (!signed) {
+          await this.deps.store.abandon(current.userId, current.allowanceId);
+          continue;
+        }
+        current = await this.deps.store.activate(current.userId, current.allowanceId, now);
+      }
+      if (current.status === 'active') await this.deps.store.revoke(current.userId, current.allowanceId, now);
+      this.signers.delete(current.agentAddress);
+      this.marks.delete(current.agentAddress);
+    }
+    return { allowances: live.length };
   }
 
   // ── the agent's order (#3 #5 #6) ───────────────────────────────────────────────────────────────────────────────
@@ -552,8 +579,16 @@ export class OwnAgentTrading {
     const mid = div(add(bid, ask), TWO, 'half-up');
     const worst =
       side === 'buy'
-        ? toStep(div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'), market.tickSize, 'down')
-        : toStep(div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'), market.tickSize, 'up');
+        ? venueBoundPrice('buy', {
+            moved: div(mul(mid, add(TEN_THOUSAND, bps), 'floor'), TEN_THOUSAND, 'floor'),
+            reference: mid,
+            tick: market.tickSize,
+          })
+        : venueBoundPrice('sell', {
+            moved: div(mul(mid, sub(TEN_THOUSAND, bps), 'ceil'), TEN_THOUSAND, 'ceil'),
+            reference: mid,
+            tick: market.tickSize,
+          });
     return { market, side, type, size, price: worst };
   }
 
@@ -573,6 +608,38 @@ export class OwnAgentTrading {
       clientOrderKey: key,
       builderFee: null,
     };
+  }
+
+  /**
+   * What a rebalance of the agent's sub-account works from (J-agents-18 #1 #2; own-agent-rebalance.ts): the agent's
+   * usable allowance once svc-agents' gate allows the sub-account, the venue, and what the allowance has left. Reads only.
+   */
+  async rebalanceRoom(
+    principal: Principal,
+    agentIdRaw: string,
+  ): Promise<{ agentId: string; allowance: AllowanceRecord; venue: UserVenue; account: UserVenueAccount; left: Amount }> {
+    assertPerson(principal);
+    const agentId = uuid(agentIdRaw, 'agentId');
+    const a = await this.usable(principal.userId, agentId);
+    await this.assertPolicy(principal.userId, agentId, a.subAccount);
+    const venue = await this.venue();
+    const left = allowanceLeft(a.amount, await this.deps.store.draws(a.userId, a.allowanceId));
+    return { agentId, allowance: a, venue, account: this.sub(a), left };
+  }
+
+  /** Whether the venue this service trades on is a TEST venue. */
+  async onTestVenue(): Promise<boolean> {
+    return isTestVenue((await this.venue()).venue);
+  }
+
+  /** A market order's terms on the allowance's sub-account as `place` sets them: market, worst price and notional. Reads only. */
+  async quote(
+    venue: UserVenue,
+    a: AllowanceRecord,
+    order: { readonly side: 'buy' | 'sell'; readonly base: string; readonly size: Amount },
+  ): Promise<{ symbol: string; lotSize: Amount; price: Amount; notional: Amount }> {
+    const t = await this.terms(venue, a, { side: order.side, base: order.base, size: formatAmount(order.size), type: 'market' });
+    return { symbol: t.market.symbol, lotSize: t.market.lotSize, price: t.price, notional: mul(t.size, t.price, 'ceil') };
   }
 
   /**
@@ -662,6 +729,7 @@ export class OwnAgentTrading {
     assertPerson(principal);
     const agentId = uuid(agentIdRaw, 'agentId');
     const orderId = uuid(req.orderId, 'orderId');
+    await assertNotSelfFrozen(this.deps.freeze, principal.userId, "an agent's order");
     const key = ownAgentOrderKey(agentId, orderId);
     const venue = await this.venue();
     // A draw already admitted for this order is this order: its terms, its allowance, its key.

@@ -1,23 +1,24 @@
+// volt-room: /pay/payouts/new
+// volt-room: portal:payout-new
 import { useState } from 'react';
-import { EmptyState } from '../../ui-kit';
+import { Select } from '@intafaced/ui/lit';
 import { useResource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
-import { Facts, Gate, HaltBanner, NotConfigured, PortalFailure, PortalLoading } from '../components';
 import { useUnsavedForm } from '../useUnsavedForm';
 import type { PortalApi } from '../api';
 import { useNow, useUrlParam } from '../hooks';
 import { activeHalts } from '../model';
 import { DateTime } from '../ui/DateTime';
 import { formatMoney } from '../ui/format';
-import { MoneyText } from '../ui/MoneyText';
-import { PortalReview } from '../ui/PortalReview';
 import { uiCopy } from '../ui/copy';
-import { SelectField } from '../components';
-import { LinkButton, TestBanner, useTestMode } from './common';
+import { FlowRoom } from '../volt/FlowRoom';
+import { Empty, Facts, Failure, Gate, HaltNotice, LinkButton, Loading, MoneyText, NotConfigured, Section } from '../volt/parts';
+import { Review } from '../volt/Review';
+import { TestBanner } from './kit-parts';
+import { useTestMode } from './test-mode';
 import { mc } from './copy';
 import { useMoneyReason } from '../access/MoneyAction';
-import { describeDestination } from './destination';
+import { describeDestination, isDefaultDestination } from './destination';
 import { PAYOUT_RETRY_ENABLED } from './payout-retry';
 import {
   approvalsBySettlement,
@@ -31,7 +32,7 @@ import {
 } from './model';
 import { settlementName } from './Settlements';
 import { PartnerInstantPayoutLine } from './PartnerTerms';
-import { isDefaultDestination, type DestinationItem } from './schemas';
+import type { PayPayoutDestinationItem as DestinationItem } from '@intafaced/contracts/pay-portal-reads';
 import type { Settlement } from '../schemas';
 import type { ApiResult } from '../../../../shared/api';
 
@@ -132,21 +133,26 @@ function clearingWords<R>(t: T, result: Extract<ApiResult<R>, { ok: false }>): A
 export function NoPayable({ waitingN }: { waitingN: number }) {
   const { t } = mc.useCopy();
   return waitingN > 0 ? (
-    <EmptyState title={t('pnWaitingTitle')} action={<LinkButton href="/pay/approvals?status=pending">{t('pnWaitingAction')}</LinkButton>}>
+    <Empty title={t('pnWaitingTitle')} action={<LinkButton href="/pay/approvals?status=pending">{t('pnWaitingAction')}</LinkButton>}>
       {t(waitingN === 1 ? 'pnWaitingBodyOne' : 'pnWaitingBodyMany', { n: waitingN })}
-    </EmptyState>
+    </Empty>
   ) : (
-    <EmptyState title={t('pnNoneTitle')} action={<LinkButton href="/pay/settlements">{t('pnNoneAction')}</LinkButton>}>
+    <Empty title={t('pnNoneTitle')} action={<LinkButton href="/pay/settlements">{t('pnNoneAction')}</LinkButton>}>
       {t('pnNoneBody')}
-    </EmptyState>
+    </Empty>
   );
+}
+
+/** `/pay/payouts/new` on the flow template: requires `payout.request`. */
+export function PayoutNewRoom({ portal }: { portal: PortalApi }) {
+  return <FlowRoom need="payout.request">{({ merchantId }) => <PayoutNew portal={portal} merchantId={merchantId} />}</FlowRoom>;
 }
 
 /**
  * `/pay/payouts/new`: choose a settlement and where it goes, check the limit, review, then ask. Below your approval
  * limit the payout is sent at once; above it, a second person has to approve.
  */
-export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
@@ -197,8 +203,8 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   };
   if (done)
     return (
-      <div className="stack">
-        <p className="pp-callout" role="status">
+      <div className="lt-stack">
+        <p className="lt-callout" role="status">
           {done.route === 'approval'
             ? t('pnDoneApproval')
             : done.route === 'used'
@@ -207,8 +213,8 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                 ? t('pnDoneSent')
                 : t('pnDoneCheck')}
         </p>
-        <div className="pp-actions">
-          <LinkButton variant="primary" href={`/pay/payouts/${encodeURIComponent(picked || done.id)}`}>
+        <div className="lt-actions">
+          <LinkButton tone="primary" href={`/pay/payouts/${encodeURIComponent(picked || done.id)}`}>
             {t('pnOpenPayout')}
           </LinkButton>
           <LinkButton href="/pay/payouts">{t('pnAllPayouts')}</LinkButton>
@@ -216,12 +222,12 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
       </div>
     );
   return (
-    <div className="stack">
-      <HaltBanner resource={halts.resource} scopes={['payout']} />
+    <div className="lt-stack">
+      <HaltNotice resource={halts.resource} scopes={['payout']} />
       <TestBanner />
-      <PaySection title={t('partnerInstantTitle')} description={t('partnerInstantBody')}>
+      <Section title={t('partnerInstantTitle')} description={t('partnerInstantBody')}>
         <PartnerInstantPayoutLine terms={partner.resource} test={test} />
-      </PaySection>
+      </Section>
       <Gate resource={ready.resource} retry={reload} rows={3}>
         {(page) => {
           const waiting = requests.resource.status === 'ready' ? approvalsBySettlement(requests.resource.data) : null;
@@ -266,55 +272,49 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
               {offered.length === 0 ? (
                 <NoPayable waitingN={waitingN} />
               ) : (
-                <form data-testid="form-stack" className="form-stack pp-form" onSubmit={(e) => e.preventDefault()} noValidate>
-                  <PaySection title={t('pnStep1')} description={t('pnStep1Body')}>
-                    <SelectField
+                <form data-testid="form-stack" className="lt-stack" onSubmit={(e) => e.preventDefault()} noValidate>
+                  <Section title={t('pnStep1')} description={t('pnStep1Body')}>
+                    <Select
                       label={t('pnSettlement')}
                       value={settlement?.id ?? ''}
                       onChange={setPicked}
                       options={[
-                        ['', t('pnChoose')],
-                        ...offered.map(
-                          (s) =>
-                            [
-                              s.id,
-                              `${settlementName(t, locale, s)} · ${formatMoney(s.net, s.assetId)} ${s.assetId}${s.status === 'failed' ? ` · ${t('pnRetryTag')}` : ''}${s.status === 'pending' ? ` · ${t('payoutStillClearing')}` : ''}`,
-                            ] as const,
-                        ),
+                        { value: '', label: t('pnChoose') },
+                        ...offered.map((s) => ({
+                          value: s.id,
+                          label: `${settlementName(t, locale, s)} · ${formatMoney(s.net, s.assetId)} ${s.assetId}${s.status === 'failed' ? ` · ${t('pnRetryTag')}` : ''}${s.status === 'pending' ? ` · ${t('payoutStillClearing')}` : ''}`,
+                        })),
                       ]}
                     />
-                  </PaySection>
-                  <PaySection title={t('pnStep2')} description={t('pnStep2Body')}>
+                  </Section>
+                  <Section title={t('pnStep2')} description={t('pnStep2Body')}>
                     {destinations.resource.status === 'loading' ? (
-                      <PortalLoading rows={1} />
+                      <Loading rows={1} />
                     ) : destinations.resource.status === 'failed' ? (
-                      <PortalFailure result={destinations.resource.failure} retry={destinations.reload} />
+                      <Failure result={destinations.resource.failure} retry={destinations.reload} />
                     ) : dests && dests.length === 0 ? (
-                      <EmptyState
+                      <Empty
                         title={t('pnNoDestTitle')}
                         action={<LinkButton href="/pay/payouts/destinations">{t('pnNoDestAction')}</LinkButton>}
                       >
                         {t('pnNoDestBody')}
-                      </EmptyState>
+                      </Empty>
                     ) : (
-                      <SelectField
+                      <Select
                         label={t('pnDestination')}
                         value={dest?.id ?? ''}
                         onChange={setDest}
                         options={[
-                          ['', t('pnChoose')],
-                          ...(dests ?? []).map(
-                            (d) =>
-                              [
-                                d.id,
-                                `${describeDestination(t, d.kind, d.destinationMasked, d.railId)}${isDefaultDestination(d) ? ` · ${t('dstDefaultYes')}` : ''}${d.state === 'unverified' ? ` · ${t('pnDestUnverified')}` : d.state === 'held' ? ` · ${t('pnDestHeld')}` : ''}`,
-                              ] as const,
-                          ),
+                          { value: '', label: t('pnChoose') },
+                          ...(dests ?? []).map((d) => ({
+                            value: d.id,
+                            label: `${describeDestination(t, d.kind, d.destinationMasked, d.railId)}${isDefaultDestination(d) ? ` · ${t('dstDefaultYes')}` : ''}${d.state === 'unverified' ? ` · ${t('pnDestUnverified')}` : d.state === 'held' ? ` · ${t('pnDestHeld')}` : ''}`,
+                          })),
                         ]}
                       />
                     )}
-                  </PaySection>
-                  <PaySection title={t('pnStep3')} description={t('pnStep3Body')}>
+                  </Section>
+                  <Section title={t('pnStep3')} description={t('pnStep3Body')}>
                     {settlement ? (
                       <Facts
                         items={[
@@ -337,19 +337,19 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                         ]}
                       />
                     ) : (
-                      <p className="muted">{t('pnBlock_nothing')}</p>
+                      <p className="lt-muted">{t('pnBlock_nothing')}</p>
                     )}
                     {approved && !sending && dest && (
-                      <p className="pp-callout" role="note">
+                      <p className="lt-callout" role="note">
                         {t('pnApprovedOther')}
                       </p>
                     )}
                     {problem && (
-                      <p className="pp-callout pp-callout--warn" role="note">
+                      <p className="lt-callout lt-callout-warn" role="note">
                         {problem}
                       </p>
                     )}
-                    <PortalReview<PayoutOutcome>
+                    <Review<PayoutOutcome>
                       stepUp="payout"
                       title={sending ? t('pnSend') : t('pnSubmit')}
                       variant="primary"
@@ -358,46 +358,30 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                       disabledReason={problem ?? undefined}
                       review={
                         settlement && dest ? (
-                          <dl data-testid="pp-facts" className="pp-facts">
-                            <div>
-                              <dt>{t('colAmount')}</dt>
-                              <dd>
-                                <MoneyText value={settlement.net} asset={settlement.assetId} test={test} />
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>{t('apvTo')}</dt>
-                              <dd>{describeDestination(t, dest.kind, dest.destinationMasked, dest.railId)}</dd>
-                            </div>
-                            <div>
-                              <dt>{t('pnLimit')}</dt>
-                              <dd>
-                                {headroom?.remaining != null ? (
+                          <Facts
+                            items={[
+                              [t('colAmount'), <MoneyText value={settlement.net} asset={settlement.assetId} test={test} />],
+                              [t('apvTo'), describeDestination(t, dest.kind, dest.destinationMasked, dest.railId)],
+                              [
+                                t('pnLimit'),
+                                headroom?.remaining != null ? (
                                   <>
                                     <MoneyText value={headroom.remaining} asset={settlement.assetId} test={test} /> {t('pnLimitLeft')}
                                   </>
                                 ) : (
                                   t('pnLimitNone')
-                                )}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>{t('pnApproval')}</dt>
-                              <dd>{sending ? t('pnApprovedFor') : t('pnApprovalBody')}</dd>
-                            </div>
-                            <div>
-                              <dt>{t('pnAsOf')}</dt>
-                              <dd>
-                                <DateTime value={new Date(now).toISOString()} />
-                              </dd>
-                            </div>
-                          </dl>
+                                ),
+                              ],
+                              [t('pnApproval'), sending ? t('pnApprovedFor') : t('pnApprovalBody')],
+                              [t('pnAsOf'), <DateTime value={new Date(now).toISOString()} />],
+                            ]}
+                          />
                         ) : undefined
                       }
                       perform={() => submitPayout({ portal, merchantId, t, settlement, dest, sending, maySend, stepReason })}
                       onConfirmed={setDone}
                     />
-                  </PaySection>
+                  </Section>
                 </form>
               )}
             </>

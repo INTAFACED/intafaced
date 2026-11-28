@@ -6,7 +6,7 @@ vi.mock('../../../shared/preferences', async (original) => {
 });
 import { createApiClient } from '../../../shared/api';
 import { createPayMutationGuard, createPersonalPayApi } from '../pay-api';
-import type { ChatMessage } from '../schemas';
+import type { ChatMessage, Reputation } from '../schemas';
 import { BlockConfirmBody, ContactButtons, type ContactsView } from './ContactActions';
 import { ChatView } from './OrderChat';
 import { UnreadBadge } from './Unread';
@@ -499,6 +499,10 @@ const fullTrade = (over: Partial<Trade> = {}): Trade => ({
   escrowedAt: '2026-10-18T10:00:01Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...over,
 });
 
@@ -540,7 +544,7 @@ describe('the chat header, quick replies and warning', () => {
     expect(out).toContain('>I have paid<');
     expect(out).toContain('>Please release<');
     expect(out).not.toContain('Payment received');
-    expect(out).toMatch(/<button type="button">I have paid<\/button>/);
+    expect(out).toMatch(/<button[^>]*type="button"[^>]*>I have paid<\/button>/);
   });
 
   it('offers the seller “Payment received” only once payment is marked sent', () => {
@@ -599,7 +603,8 @@ describe('the chat header, quick replies and warning', () => {
 
   it('marks a dispute with the warning colour, not the neutral one', () => {
     expect(renderToString(<TradeStatus status="disputed" />)).toContain('data-status="pending"');
-    expect(renderToString(<TradeStatus status="escrowed" />)).toContain('data-status="working"');
+    // The kit's neutral chip is "unknown" (the old kit called it "working").
+    expect(renderToString(<TradeStatus status="escrowed" />)).toContain('data-status="unknown"');
   });
 
   it('says how many unread messages wait below while the chat is out of view', () => {
@@ -618,7 +623,7 @@ describe('the address /p2p/orders/<id>', () => {
   });
 
   it('belongs to the person-to-person feature', () => {
-    const paths = features.find((feature) => feature.id === 'p2p')!.paths;
+    const paths = features.find((feature) => feature.id === 'p2p-contract-escrow')!.paths;
     expect(paths).toContain('/p2p/orders/*');
     expect(matchPath('/p2p/orders/*', `/p2p/orders/${TRADE}`)).toBeDefined();
   });
@@ -673,6 +678,7 @@ describe('the order timeline says what is being waited for', () => {
 describe('who a counterparty is', () => {
   it('shows the handle when there is one, a dash only when identity says there is none, and “Member” when it cannot say', async () => {
     const { TraderName } = await import('./Trader');
+    // `profile` absent is a reply the record refuses; the name still reads "Member" if one ever reached it.
     const record = (handle: string | null, profile?: 'unwired' | 'absent' | 'found') => ({
       ok: true as const,
       data: {
@@ -687,8 +693,15 @@ describe('who a counterparty is', () => {
         merchant: null,
         handle,
         memberSince: null,
-        ...(profile ? { profile: { status: profile } } : {}),
-      },
+        trades30d: 0,
+        completionRate30d: null,
+        completionRateTotal: null,
+        completionDefinition: { numerator: 'completed', denominator: 'escrowed', window30d: '30 days', noHistory: 'none yet' },
+        avgPaySecs: null,
+        rating: null,
+        verification: null,
+        ...(profile ? { profile: { status: profile, code: `p2p.public_profile_${profile}` as const } } : {}),
+      } as Reputation,
     });
     expect(renderToString(<TraderName record={record('test_friend', 'found')} />)).toContain('@test_friend');
     const absent = renderToString(<TraderName record={record(null, 'absent')} />);
@@ -702,8 +715,8 @@ describe('who a counterparty is', () => {
   });
 
   it('reads the profile status the service sends alongside a missing handle', async () => {
-    const { reputationSchema } = await import('../schemas');
-    const parsed = reputationSchema.safeParse({
+    const { P2P_REPUTATION_GET } = await import('@intafaced/contracts/p2p-procedures');
+    const parsed = P2P_REPUTATION_GET.output.safeParse({
       tradesTotal: 0,
       completed: 0,
       cancelled: 0,
@@ -717,8 +730,15 @@ describe('who a counterparty is', () => {
       memberSince: null,
       profile: { status: 'unwired', code: 'p2p.public_profile_unwired' },
       trades30d: 0,
+      completionRate30d: null,
+      completionRateTotal: null,
+      completionDefinition: { numerator: 'completed', denominator: 'escrowed', window30d: '30 days', noHistory: 'none yet' },
+      avgPaySecs: null,
+      rating: null,
+      verification: null,
     });
     expect(parsed.success).toBe(true);
+    expect(parsed.data?.profile.status).toBe('unwired');
   });
 });
 

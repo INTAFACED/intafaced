@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { LimitFigures } from './change-policy.js';
@@ -41,7 +42,7 @@ export async function listLimits(sql: Sql): Promise<StoredLimit[]> {
   return (await sql<LimitRow[]>`SELECT * FROM pay.withdrawal_limits ORDER BY tier, asset_id`).map(stored);
 }
 
-export async function getLimit(sql: Sql, tier: string, assetId: string, forUpdate = false): Promise<StoredLimit | null> {
+export async function getLimit(sql: Queryable, tier: string, assetId: string, forUpdate = false): Promise<StoredLimit | null> {
   const rows = forUpdate
     ? await sql<LimitRow[]>`SELECT * FROM pay.withdrawal_limits WHERE tier = ${tier} AND asset_id = ${assetId} FOR UPDATE`
     : await sql<LimitRow[]>`SELECT * FROM pay.withdrawal_limits WHERE tier = ${tier} AND asset_id = ${assetId}`;
@@ -49,7 +50,7 @@ export async function getLimit(sql: Sql, tier: string, assetId: string, forUpdat
 }
 
 export async function insertLimit(
-  sql: Sql,
+  sql: Queryable,
   tier: string,
   assetId: string,
   figures: LimitFigures | null,
@@ -63,7 +64,7 @@ export async function insertLimit(
 }
 
 export async function updateLimit(
-  sql: Sql,
+  sql: Queryable,
   tier: string,
   assetId: string,
   figures: LimitFigures | null,
@@ -81,7 +82,7 @@ export async function updateLimit(
 const json = (f: LimitFigures | null) => (f === null ? null : { perTx: formatAmount(f.perTx), rolling24h: formatAmount(f.rolling24h) });
 
 export async function appendEvent(
-  sql: Sql,
+  sql: Queryable,
   e: {
     tier: string;
     assetId: string;

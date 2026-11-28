@@ -1,6 +1,6 @@
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { handleStep } from '@/lib/desk/step-route';
 import { decodeRunExecute } from '@/lib/ledger/reconciliation-run';
 import { sendTreasuryControl, treasuryParked } from '@/lib/ledger/reconciliation-server';
@@ -34,7 +34,8 @@ export async function POST(request: Request) {
         return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
       const answer = await sendTreasuryControl('run', {
         controlId: req.controlId,
-        ...(req.asOf === 'now' ? {} : { asOf: req.asOf, margin: req.margin }),
+        // A blank margin is sent blank, so svc-ledger answers for it (the control's own margin, or ops.control_margin_unset).
+        ...(req.asOf === 'now' ? {} : { asOf: req.asOf, ...(req.margin === 'unset' ? {} : { margin: req.margin }) }),
         reason: req.reason,
         approvalId: ids.approvalId,
         operationId: ids.operationId,
