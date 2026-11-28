@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
 import { Button } from '@intafaced/ui/lit';
 import { TextField } from '@intafaced/ui/lit/templates';
 import { refusalCopy, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
 import { NOTE_MAX, noteProblem, type NoteProblem } from './note-model';
 import { useSession } from '../../features/session/session';
-
-const savedShape = z.object({
-  activityId: z.string(),
-  text: z.string().nullable(),
-  reportDescription: z.string().nullable().optional(),
-  updatedAt: z.string(),
-});
+import { BANK_ACTIVITY_NOTE_SET } from '@intafaced/contracts/bank-activity-procedures';
 
 /** The two lines of words a customer can keep on an activity line: a private note, and a description for their reports. */
 const FIELDS = {
@@ -75,12 +68,7 @@ function WordsField({ item, field, initial }: { item: ActivityItem; field: keyof
     if (attempt.current?.text !== next) attempt.current = { text: next, commandId: `note-${crypto.randomUUID()}` };
     setBusy(true);
     setMessage(null);
-    const result = await api.mutate(
-      'bank',
-      'activity.note.set',
-      { id: item.id, [names.wire]: next, commandId: attempt.current.commandId },
-      savedShape,
-    );
+    const result = await api.call(BANK_ACTIVITY_NOTE_SET, { id: item.id, [names.wire]: next, commandId: attempt.current.commandId });
     if (!mounted.current) return;
     setBusy(false);
     if (result.ok) {

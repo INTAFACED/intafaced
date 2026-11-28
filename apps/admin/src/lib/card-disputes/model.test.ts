@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { refusalCode, lossWords, parseCase, parseQueue, parseQueuePage, procedureFor, readDisputeAction, readStateFilter } from './model';
+import { refusalCode, lossWords, parseCase, parseQueue, parseQueuePage, readDisputeAction, readStateFilter } from './model';
 
 const ID = '5a3b9c10-1111-4222-8333-444455556666';
 const base = {
@@ -54,10 +54,6 @@ describe('card disputes model (J-bank-27)', () => {
     expect(readDisputeAction({ action: 'evidence', disputeId: ID, stepKey: 'short', description: 'x' })).toBeNull();
     const ev = readDisputeAction({ action: 'evidence', disputeId: ID, stepKey: 'console-dispute-1234', description: ' receipt ' });
     expect(ev).toEqual({ action: 'evidence', disputeId: ID, stepKey: 'console-dispute-1234', description: 'receipt' });
-    expect(procedureFor(ev!)).toEqual({
-      procedure: 'ops.cardDisputeEvidence',
-      body: { disputeId: ID, stepKey: 'console-dispute-1234', description: 'receipt' },
-    });
     expect(readStateFilter('arbitration')).toBe('arbitration');
     expect(readStateFilter('nope')).toBeNull();
     expect(readStateFilter(['opened'])).toBeNull();

@@ -16,8 +16,18 @@ import { keyOf, literal, load, walk } from './ast.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 
-/** A function's source without its spacing: tsc, tsx and prettier each space one differently. */
-export const squash = (s) => s.replace(/\s+/g, '');
+/**
+ * A function's source in one printing, the one way every step compares refines (door-check.mjs, portable.mjs): tsc,
+ * tsx, esbuild and prettier each print one differently, so it drops the spacing, a lone parameter's parentheses
+ * (`(value) => …` as written, `value=>…` as tsx prints it), the semicolon a block body's last statement ends with (tsc
+ * `=== day;\n}`, esbuild `===day}`), and reads esbuild's `void 0` as the `undefined` it was written as.
+ */
+export const squash = (s) =>
+  s
+    .replace(/\s+/g, '')
+    .replace(/^(async)?\(([A-Za-z_$][\w$]*)\)=>/, '$1$2=>')
+    .replace(/;}/g, '}')
+    .replace(/\bvoid0\b/g, 'undefined');
 
 /**
  * The door's names for its refines, by each function's squashed source: the `REFINES` table of the crate's recorder.
@@ -43,20 +53,24 @@ export function doorRefines(crateDir, root = REPO) {
 /** The door's name for a refine, as the rule in words: `at_most_eight_keys` says "at most eight keys". */
 export const wordsOf = (name) => name.replace(/_/g, ' ');
 
-/** A zod part and each part it wraps (optional, nullable, default, readonly, lazy): one place in the input, to a check. */
-function wrapped(s) {
+/**
+ * A zod part and each part it wraps (optional, nullable, default, readonly, lazy), and each option of a union it is: one
+ * place in the input, to a check.
+ */
+function wrapped(s, depth = 0) {
   const out = [];
   for (let i = 0; s && i < 20; i++) {
     out.push(s);
     const d = s._zod.def;
+    if (d.type === 'union' && depth < 5) for (const o of d.options) out.push(...wrapped(o, depth + 1));
     s = ['optional', 'nullable', 'default', 'readonly'].includes(d.type) ? d.innerType : d.type === 'lazy' ? d.getter() : undefined;
   }
   return out;
 }
 
 /**
- * True when a `.refine` written with no message sits at `steps` (`['items', '[]', 'reason']`) under `schema`. A path
- * the walk can't follow (a union's option) reads false: the check is then found by its own words only, as before.
+ * True when a `.refine` written with no message sits at `steps` (`['items', '[]', 'reason']`) under `schema`, in any
+ * option of a union on the way. A path the walk can't follow reads false: the check is then found by its own words only.
  */
 export function quietRefineAt(schema, steps) {
   let here = wrapped(schema);

@@ -484,7 +484,7 @@ import { BANK_ACCOUNT_DETAILS_LIST } from './bank-account-details-procedures.js'
 
 import { BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE } from './bank-accounts-procedures.js';
 
-import { BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS } from './bank-activity-procedures.js';
+import { BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS, BANK_ACTIVITY_NOTE_SET } from './bank-activity-procedures.js';
 
 import { BANK_ADD_MONEY_START } from './bank-add-money-2-procedures.js';
 
@@ -516,12 +516,18 @@ import {
   BANK_AUTO_INVEST_POLICY,
 } from './bank-auto-invest-procedures.js';
 
+import { BANK_BANK_ACCOUNT_CLOSURE } from './bank-bank-account-2-procedures.js';
+
 import {
   BANK_BANK_ACCOUNT_ANSWER_REQUEST,
   BANK_BANK_ACCOUNT_ANSWER_REVIEW,
   BANK_BANK_ACCOUNT_REQUEST_CLOSURE,
   BANK_BANK_ACCOUNT_REOPEN,
   BANK_BANK_ACCOUNT_REQUEST_DATA,
+  BANK_BANK_ACCOUNT_ONBOARDING,
+  BANK_BANK_ACCOUNT_REQUESTS,
+  BANK_BANK_ACCOUNT_REVIEWS,
+  BANK_BANK_ACCOUNT_DATA_REQUESTS,
 } from './bank-bank-account-procedures.js';
 
 import {
@@ -608,6 +614,7 @@ import {
   BANK_BUSINESS_APPROVE,
   BANK_BUSINESS_REJECT,
   BANK_BUSINESS_CANCEL,
+  BANK_BUSINESS_POLICY,
 } from './bank-business-procedures.js';
 
 import {
@@ -762,6 +769,10 @@ import {
   BANK_GLOBAL_OPS_SUMMARY,
   BANK_GLOBAL_OPS_FAILED,
   BANK_GLOBAL_OPS_RECALLS,
+  BANK_GLOBAL_OPS_HOLD,
+  BANK_GLOBAL_OPS_REQUEST_INFO,
+  BANK_GLOBAL_OPS_RELEASE,
+  BANK_GLOBAL_OPS_LINK_REFERENCE,
 } from './bank-global-records.js';
 
 import { BANK_HEALTH } from './bank-health-procedures.js';
@@ -804,6 +815,12 @@ import {
   BANK_OPS_BUSINESS_APPROVALS,
   BANK_OPS_FAILED_TRANSFERS,
   BANK_OPS_TRANSFER_DETAIL,
+  BANK_OPS_CARD_DISPUTE_EVIDENCE,
+  BANK_OPS_CARD_DISPUTE_REPRESENTMENT,
+  BANK_OPS_CARD_DISPUTE_ARBITRATION,
+  BANK_OPS_CARD_DISPUTE_CREDIT,
+  BANK_OPS_CARD_DISPUTE_DECIDE,
+  BANK_OPS_CARD_PROGRAMME_DESK,
 } from './bank-ops-2-procedures.js';
 
 import {
@@ -835,6 +852,17 @@ import {
   BANK_OPS_RUN_DUE_TRANSFERS,
   BANK_OPS_RESUME_PENDING_LOANS,
   BANK_OPS_LOAN_BOOK,
+  BANK_OPS_CARD_PROGRAMME_CLEAR_THREE_DS,
+  BANK_OPS_CARD_PROGRAMME_RULE_CREATE,
+  BANK_OPS_CARD_PROGRAMME_RULE_PROMOTE,
+  BANK_OPS_CARD_PROGRAMME_RULE_ROLLBACK,
+  BANK_OPS_CARD_PROGRAMME_STAFF_ASSIGN,
+  BANK_OPS_CARD_PROGRAMME_BULK_VALIDATE,
+  BANK_OPS_CARD_PROGRAMME_REASSIGN,
+  BANK_OPS_CARD_PROGRAMME_SIMULATE,
+  BANK_OPS_CARD_PROGRAMME_EXPORT,
+  BANK_OPS_CARD_PROGRAMME_CARDHOLDER_CREATE,
+  BANK_OPS_CARD_PROGRAMME_BULK_ISSUE,
 } from './bank-ops-procedures.js';
 
 import { BANK_OWN_MOVES_TO_WALLET } from './bank-own-moves-2-procedures.js';
@@ -868,6 +896,8 @@ import {
   BANK_PORTFOLIO_BALANCE_BREAKDOWN,
 } from './bank-portfolio-procedures.js';
 
+import { BANK_RAIL_SENDS_SEND } from './bank-rail-sends-2-procedures.js';
+
 import {
   BANK_RAIL_SENDS_READ_PAYEE_WARNING,
   BANK_RAIL_SENDS_REQUIREMENTS,
@@ -875,6 +905,9 @@ import {
   BANK_RAIL_SENDS_PAYEES,
   BANK_RAIL_SENDS_INVITE_PAYEE,
   BANK_RAIL_SENDS_REMOVE_PAYEE,
+  BANK_RAIL_SENDS_CHECK,
+  BANK_RAIL_SENDS_CHECK_PAYEE,
+  BANK_RAIL_SENDS_ADD_PAYEE,
 } from './bank-rail-sends-procedures.js';
 
 import { BANK_RAMPS_DESTINATIONS_RENAME } from './bank-ramps-destinations-procedures.js';
@@ -898,7 +931,7 @@ import {
   BANK_RAMPS_OFFRAMPS,
 } from './bank-ramps-procedures.js';
 
-import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES } from './bank-recovery-procedures.js';
+import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES, BANK_RECOVERY_CLAIMS_EXECUTE } from './bank-recovery-procedures.js';
 
 import { BANK_RULES_SET_REMINDER, BANK_RULES_CREATE_MONEY_RULE, BANK_RULES_GET } from './bank-rules-procedures.js';
 
@@ -3114,7 +3147,7 @@ const part_bank_account_details_procedures: readonly ProcedureRecord[] = [BANK_A
 
 const part_bank_accounts_procedures: readonly ProcedureRecord[] = [BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE];
 
-const part_bank_activity_procedures: readonly ProcedureRecord[] = [BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS];
+const part_bank_activity_procedures: readonly ProcedureRecord[] = [BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS, BANK_ACTIVITY_NOTE_SET];
 
 const part_bank_add_money_2_procedures: readonly ProcedureRecord[] = [BANK_ADD_MONEY_START];
 
@@ -3150,12 +3183,18 @@ const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [
   BANK_AUTO_INVEST_POLICY,
 ];
 
+const part_bank_bank_account_2_procedures: readonly ProcedureRecord[] = [BANK_BANK_ACCOUNT_CLOSURE];
+
 const part_bank_bank_account_procedures: readonly ProcedureRecord[] = [
   BANK_BANK_ACCOUNT_ANSWER_REQUEST,
   BANK_BANK_ACCOUNT_ANSWER_REVIEW,
   BANK_BANK_ACCOUNT_REQUEST_CLOSURE,
   BANK_BANK_ACCOUNT_REOPEN,
   BANK_BANK_ACCOUNT_REQUEST_DATA,
+  BANK_BANK_ACCOUNT_ONBOARDING,
+  BANK_BANK_ACCOUNT_REQUESTS,
+  BANK_BANK_ACCOUNT_REVIEWS,
+  BANK_BANK_ACCOUNT_DATA_REQUESTS,
 ];
 
 const part_bank_bills_procedures: readonly ProcedureRecord[] = [
@@ -3246,6 +3285,7 @@ const part_bank_business_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_APPROVE,
   BANK_BUSINESS_REJECT,
   BANK_BUSINESS_CANCEL,
+  BANK_BUSINESS_POLICY,
 ];
 
 const part_bank_business_team_procedures: readonly ProcedureRecord[] = [
@@ -3405,6 +3445,10 @@ const part_bank_global_records: readonly ProcedureRecord[] = [
   BANK_GLOBAL_OPS_SUMMARY,
   BANK_GLOBAL_OPS_FAILED,
   BANK_GLOBAL_OPS_RECALLS,
+  BANK_GLOBAL_OPS_HOLD,
+  BANK_GLOBAL_OPS_REQUEST_INFO,
+  BANK_GLOBAL_OPS_RELEASE,
+  BANK_GLOBAL_OPS_LINK_REFERENCE,
 ];
 
 const part_bank_health_procedures: readonly ProcedureRecord[] = [BANK_HEALTH];
@@ -3457,6 +3501,12 @@ const part_bank_ops_2_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_BUSINESS_APPROVALS,
   BANK_OPS_FAILED_TRANSFERS,
   BANK_OPS_TRANSFER_DETAIL,
+  BANK_OPS_CARD_DISPUTE_EVIDENCE,
+  BANK_OPS_CARD_DISPUTE_REPRESENTMENT,
+  BANK_OPS_CARD_DISPUTE_ARBITRATION,
+  BANK_OPS_CARD_DISPUTE_CREDIT,
+  BANK_OPS_CARD_DISPUTE_DECIDE,
+  BANK_OPS_CARD_PROGRAMME_DESK,
 ];
 
 const part_bank_ops_3_procedures: readonly ProcedureRecord[] = [
@@ -3488,6 +3538,17 @@ const part_bank_ops_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_RUN_DUE_TRANSFERS,
   BANK_OPS_RESUME_PENDING_LOANS,
   BANK_OPS_LOAN_BOOK,
+  BANK_OPS_CARD_PROGRAMME_CLEAR_THREE_DS,
+  BANK_OPS_CARD_PROGRAMME_RULE_CREATE,
+  BANK_OPS_CARD_PROGRAMME_RULE_PROMOTE,
+  BANK_OPS_CARD_PROGRAMME_RULE_ROLLBACK,
+  BANK_OPS_CARD_PROGRAMME_STAFF_ASSIGN,
+  BANK_OPS_CARD_PROGRAMME_BULK_VALIDATE,
+  BANK_OPS_CARD_PROGRAMME_REASSIGN,
+  BANK_OPS_CARD_PROGRAMME_SIMULATE,
+  BANK_OPS_CARD_PROGRAMME_EXPORT,
+  BANK_OPS_CARD_PROGRAMME_CARDHOLDER_CREATE,
+  BANK_OPS_CARD_PROGRAMME_BULK_ISSUE,
 ];
 
 const part_bank_own_moves_2_procedures: readonly ProcedureRecord[] = [BANK_OWN_MOVES_TO_WALLET];
@@ -3529,6 +3590,8 @@ const part_bank_portfolio_procedures: readonly ProcedureRecord[] = [
   BANK_PORTFOLIO_BALANCE_BREAKDOWN,
 ];
 
+const part_bank_rail_sends_2_procedures: readonly ProcedureRecord[] = [BANK_RAIL_SENDS_SEND];
+
 const part_bank_rail_sends_procedures: readonly ProcedureRecord[] = [
   BANK_RAIL_SENDS_READ_PAYEE_WARNING,
   BANK_RAIL_SENDS_REQUIREMENTS,
@@ -3536,6 +3599,9 @@ const part_bank_rail_sends_procedures: readonly ProcedureRecord[] = [
   BANK_RAIL_SENDS_PAYEES,
   BANK_RAIL_SENDS_INVITE_PAYEE,
   BANK_RAIL_SENDS_REMOVE_PAYEE,
+  BANK_RAIL_SENDS_CHECK,
+  BANK_RAIL_SENDS_CHECK_PAYEE,
+  BANK_RAIL_SENDS_ADD_PAYEE,
 ];
 
 const part_bank_ramps_destinations_procedures: readonly ProcedureRecord[] = [BANK_RAMPS_DESTINATIONS_RENAME];
@@ -3559,7 +3625,11 @@ const part_bank_ramps_procedures: readonly ProcedureRecord[] = [
   BANK_RAMPS_OFFRAMPS,
 ];
 
-const part_bank_recovery_procedures: readonly ProcedureRecord[] = [BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES];
+const part_bank_recovery_procedures: readonly ProcedureRecord[] = [
+  BANK_RECOVERY_CLAIMS_OPEN,
+  BANK_RECOVERY_ESTATES,
+  BANK_RECOVERY_CLAIMS_EXECUTE,
+];
 
 const part_bank_rules_procedures: readonly ProcedureRecord[] = [BANK_RULES_SET_REMINDER, BANK_RULES_CREATE_MONEY_RULE, BANK_RULES_GET];
 
@@ -5473,6 +5543,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_assets_procedures,
   ...part_bank_auto_invest_2_procedures,
   ...part_bank_auto_invest_procedures,
+  ...part_bank_bank_account_2_procedures,
   ...part_bank_bank_account_procedures,
   ...part_bank_bills_procedures,
   ...part_bank_business_2_procedures,
@@ -5516,6 +5587,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_personal_request_procedures,
   ...part_bank_plans_procedures,
   ...part_bank_portfolio_procedures,
+  ...part_bank_rail_sends_2_procedures,
   ...part_bank_rail_sends_procedures,
   ...part_bank_ramps_destinations_procedures,
   ...part_bank_ramps_procedures,

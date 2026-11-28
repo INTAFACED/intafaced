@@ -6,6 +6,19 @@
 
 export const NOT_KNOWN = 'not known';
 
+import {
+  BANK_OPS_CARD_PROGRAMME_BULK_ISSUE,
+  BANK_OPS_CARD_PROGRAMME_BULK_VALIDATE,
+  BANK_OPS_CARD_PROGRAMME_CARDHOLDER_CREATE,
+  BANK_OPS_CARD_PROGRAMME_CLEAR_THREE_DS,
+  BANK_OPS_CARD_PROGRAMME_EXPORT,
+  BANK_OPS_CARD_PROGRAMME_REASSIGN,
+  BANK_OPS_CARD_PROGRAMME_RULE_CREATE,
+  BANK_OPS_CARD_PROGRAMME_RULE_PROMOTE,
+  BANK_OPS_CARD_PROGRAMME_RULE_ROLLBACK,
+  BANK_OPS_CARD_PROGRAMME_SIMULATE,
+  BANK_OPS_CARD_PROGRAMME_STAFF_ASSIGN,
+} from '@intafaced/contracts/bank-ops-procedures';
 import type {
   BankCardAuthorizationDetail,
   BankCardholder,
@@ -67,31 +80,34 @@ export function refusalCode(code: string | null, message: string): string | null
   return /\((bank\.[a-z0-9_]+)\)\s*$/.exec(message)?.[1] ?? code;
 }
 
-/** Every step the desk may post, and the svc-bank procedure each one calls. */
+/**
+ * Every step the desk may post, and the svc-bank record each one calls. `configure` alone is sent by its name: svc-bank's
+ * door takes its `value` as any value at all, which no record can name (`CONFIGURE`).
+ */
 export const ACTIONS = {
-  configure: 'ops.cardProgrammeConfigure',
-  clearThreeDs: 'ops.cardProgrammeClearThreeDs',
-  ruleCreate: 'ops.cardProgrammeRuleCreate',
-  rulePromote: 'ops.cardProgrammeRulePromote',
-  ruleRollback: 'ops.cardProgrammeRuleRollback',
-  staffAssign: 'ops.cardProgrammeStaffAssign',
-  cardholderCreate: 'ops.cardProgrammeCardholderCreate',
-  bulkValidate: 'ops.cardProgrammeBulkValidate',
-  bulkIssue: 'ops.cardProgrammeBulkIssue',
-  reassign: 'ops.cardProgrammeReassign',
-  simulate: 'ops.cardProgrammeSimulate',
-  export: 'ops.cardProgrammeExport',
+  clearThreeDs: BANK_OPS_CARD_PROGRAMME_CLEAR_THREE_DS,
+  ruleCreate: BANK_OPS_CARD_PROGRAMME_RULE_CREATE,
+  rulePromote: BANK_OPS_CARD_PROGRAMME_RULE_PROMOTE,
+  ruleRollback: BANK_OPS_CARD_PROGRAMME_RULE_ROLLBACK,
+  staffAssign: BANK_OPS_CARD_PROGRAMME_STAFF_ASSIGN,
+  cardholderCreate: BANK_OPS_CARD_PROGRAMME_CARDHOLDER_CREATE,
+  bulkValidate: BANK_OPS_CARD_PROGRAMME_BULK_VALIDATE,
+  bulkIssue: BANK_OPS_CARD_PROGRAMME_BULK_ISSUE,
+  reassign: BANK_OPS_CARD_PROGRAMME_REASSIGN,
+  simulate: BANK_OPS_CARD_PROGRAMME_SIMULATE,
+  export: BANK_OPS_CARD_PROGRAMME_EXPORT,
 } as const;
-export type ActionName = keyof typeof ACTIONS;
+export const CONFIGURE = 'configure';
+export type ActionName = keyof typeof ACTIONS | typeof CONFIGURE;
 
 /** The posted step and its body for svc-bank, or null for anything not on the list. svc-bank checks every field. */
-export function readAction(raw: unknown): { procedure: string; body: Record<string, unknown> | undefined } | null {
-  if (!obj(raw) || !str(raw.action) || !Object.hasOwn(ACTIONS, raw.action)) return null;
+export function readAction(raw: unknown): { action: ActionName; body: Record<string, unknown> | undefined } | null {
+  if (!obj(raw) || !str(raw.action) || (raw.action !== CONFIGURE && !Object.hasOwn(ACTIONS, raw.action))) return null;
   const action = raw.action as ActionName;
   const body = obj(raw.body) ? raw.body : undefined;
   const takesNoBody = action === 'clearThreeDs' || action === 'export';
   if (takesNoBody !== (body === undefined)) return null;
-  return { procedure: ACTIONS[action], body };
+  return { action, body };
 }
 
 export const RESULT_WORDS: Readonly<Record<TraceStep['result'], string>> = { pass: 'passed', decline: 'declined', skip: 'skipped' };

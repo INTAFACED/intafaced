@@ -449,63 +449,63 @@ describe('a read whose call has a record takes its module and path from the reco
 });
 
 // A read of a call with a record names it (`readOf`): only then does the server parse the answer by the record and its checks.
-describe('a read of a call that has a record names it', () => {
-  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
-    const record = CONTRACT_PROCEDURES.find((r) => r.transport === 'trpc' && r.module === read.module && r.path === read.procedure);
-    expect(record?.name, `${read.module}.${read.procedure} has a record: write \`...readOf(<its record>)\` in catalog.ts`).toBeUndefined();
-  });
+// The reads named by their call alone, not by a record: none today. Each check below is one test per such read, outside a
+// `describe`, which vitest refuses when it holds no test.
+const byName = all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const);
+
+it.each(byName)('a read of a call that has a record names it: %s', (_id, read) => {
+  const record = CONTRACT_PROCEDURES.find((r) => r.transport === 'trpc' && r.module === read.module && r.path === read.procedure);
+  expect(record?.name, `${read.module}.${read.procedure} has a record: write \`...readOf(<its record>)\` in catalog.ts`).toBeUndefined();
 });
 
 // A read with a record is mounted from that record (`mountRecords`), so its query is checked there, not in router text.
-describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
-  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
-    const service = ROUTER[read.module];
-    expect(service, `${read.module} has a router mapping`).not.toBeNull();
-    // A Rust service (svc-academy, svc-bank) lists every call its door serves, with its kind, in one table
-    // (`src/door/calls.rs`).
-    const calls = rustCalls(service!);
-    if (calls) {
-      expect(calls.get(read.procedure), `${service} has ${read.procedure}`).toBeDefined();
-      expect(calls.get(read.procedure), `${read.procedure} is a query`).toBe('Query');
-      return;
-    }
-    const text = source(service!);
-    const parts = read.procedure.split('.');
-    let from = 0;
-    if (parts.length === 2) {
-      const group = new RegExp(
-        `(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\(|export function create${parts[0]![0]!.toUpperCase()}${parts[0]!.slice(1)}Router\\(|export function ${parts[0]}Routes\\()`,
-      ).exec(text);
-      expect(group, `${service} has a ${parts[0]} group`).not.toBeNull();
-      from = group!.index;
-    }
-    const name = parts[parts.length - 1]!;
-    // A top-level procedure built by its area's factory (svc-quant `health: healthRoutes(core)`) is read from that factory.
-    const area = parts.length === 1 ? new RegExp(`\\b${name}: (\\w+Routes)\\(`).exec(text)?.[1] : undefined;
-    if (area) from = text.indexOf(`export function ${area}(`);
-    const proc = area
-      ? new RegExp(`export function ${area}\\(`).exec(text.slice(from))
-      : new RegExp(`\\b${name}: (\\w*Procedure)\\b`).exec(text.slice(from));
-    expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
-    // From the procedure up to the next procedure definition, the call kind must be a query.
-    const rest = text.slice(from + proc!.index + 1);
-    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure)\b/);
-    let body = next === -1 ? rest : rest.slice(0, next);
-    if (area) body = rest.slice(0, rest.search(/\nexport function /) >>> 0);
-    // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.
-    if (!body.includes('.query(') && !body.includes('.mutation(')) {
-      const factory = new RegExp(`\\b${name}: (\\w+Procedure)\\(`).exec(text.slice(from))?.[1];
-      expect(factory, `${read.procedure} is defined inline or by a factory`).toBeTruthy();
-      const file = serviceSources(service!).find((src) => src.includes(`export function ${factory}(`));
-      expect(file, `${factory} is defined in ${service}`).toBeTruthy();
-      const start = file!.indexOf(`export function ${factory}(`);
-      const after = file!.slice(start + 1);
-      const end = after.search(/\nexport function /);
-      body = end === -1 ? after : after.slice(0, end);
-    }
-    expect(body.includes('.query('), `${read.procedure} is a query`).toBe(true);
-    expect(body.includes('.mutation('), `${read.procedure} is not a mutation`).toBe(false);
-  });
+it.each(byName)('every read names a QUERY that exists in the owning router (drift guard): %s', (_id, read) => {
+  const service = ROUTER[read.module];
+  expect(service, `${read.module} has a router mapping`).not.toBeNull();
+  // A Rust service (svc-academy, svc-bank) lists every call its door serves, with its kind, in one table
+  // (`src/door/calls.rs`).
+  const calls = rustCalls(service!);
+  if (calls) {
+    expect(calls.get(read.procedure), `${service} has ${read.procedure}`).toBeDefined();
+    expect(calls.get(read.procedure), `${read.procedure} is a query`).toBe('Query');
+    return;
+  }
+  const text = source(service!);
+  const parts = read.procedure.split('.');
+  let from = 0;
+  if (parts.length === 2) {
+    const group = new RegExp(
+      `(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\(|export function create${parts[0]![0]!.toUpperCase()}${parts[0]!.slice(1)}Router\\(|export function ${parts[0]}Routes\\()`,
+    ).exec(text);
+    expect(group, `${service} has a ${parts[0]} group`).not.toBeNull();
+    from = group!.index;
+  }
+  const name = parts[parts.length - 1]!;
+  // A top-level procedure built by its area's factory (svc-quant `health: healthRoutes(core)`) is read from that factory.
+  const area = parts.length === 1 ? new RegExp(`\\b${name}: (\\w+Routes)\\(`).exec(text)?.[1] : undefined;
+  if (area) from = text.indexOf(`export function ${area}(`);
+  const proc = area
+    ? new RegExp(`export function ${area}\\(`).exec(text.slice(from))
+    : new RegExp(`\\b${name}: (\\w*Procedure)\\b`).exec(text.slice(from));
+  expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
+  // From the procedure up to the next procedure definition, the call kind must be a query.
+  const rest = text.slice(from + proc!.index + 1);
+  const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure)\b/);
+  let body = next === -1 ? rest : rest.slice(0, next);
+  if (area) body = rest.slice(0, rest.search(/\nexport function /) >>> 0);
+  // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.
+  if (!body.includes('.query(') && !body.includes('.mutation(')) {
+    const factory = new RegExp(`\\b${name}: (\\w+Procedure)\\(`).exec(text.slice(from))?.[1];
+    expect(factory, `${read.procedure} is defined inline or by a factory`).toBeTruthy();
+    const file = serviceSources(service!).find((src) => src.includes(`export function ${factory}(`));
+    expect(file, `${factory} is defined in ${service}`).toBeTruthy();
+    const start = file!.indexOf(`export function ${factory}(`);
+    const after = file!.slice(start + 1);
+    const end = after.search(/\nexport function /);
+    body = end === -1 ? after : after.slice(0, end);
+  }
+  expect(body.includes('.query('), `${read.procedure} is a query`).toBe(true);
+  expect(body.includes('.mutation('), `${read.procedure} is not a mutation`).toBe(false);
 });
 
 describe('mining pool terms', () => {

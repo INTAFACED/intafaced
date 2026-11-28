@@ -147,3 +147,127 @@ export const BANK_RAIL_SENDS_REMOVE_PAYEE = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+export const from = {
+  fromSpaceId: z.string().guid(),
+  amount: z
+    .string()
+    .trim()
+    .regex(/^\d+(\.\d{1,18})?$/),
+};
+
+export const recipient = z.record(z.string().max(64), z.string().max(254)).refine((value) => Object.keys(value).length <= 8);
+
+/** Details typed for this send, or a saved recipient. */
+export const typed = { ...from, rail, recipient };
+
+export const saved = { ...from, payeeId: z.string().guid() };
+
+export const ask = z.union([z.object(typed).strict(), z.object(saved).strict()]);
+
+export const payeeAsk = z.object({ nickname: z.string().max(120), country: z.string().max(8), rail, recipient }).strict();
+
+/** Every check a send makes, keeping nothing: asked before the person spends a code on the confirmation. */
+export const BANK_RAIL_SENDS_CHECK = defineProcedure({
+  ...base,
+  name: 'bank.railSends.check',
+  kind: 'query',
+  path: 'railSends.check',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: ask,
+  checks: { at_most_eight_keys: { at: 'input|0.recipient', says: 'at most eight keys' } },
+  output: z.object({ assetId: assetIdSchema, amount: z.string(), available: z.string() }).strict(),
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        fromSpaceId: '22222222-2222-4222-8222-222222222222',
+        amount: '1.50',
+        rail: 'ach',
+        recipient: { holderName: 'Ada TEST', routingNumber: '021000021', accountNumber: '000123456789', accountType: 'checking' },
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'at_most_eight_keys',
+      input: {
+        fromSpaceId: '22222222-2222-4222-8222-222222222222',
+        amount: '1.50',
+        rail: 'ach',
+        recipient: { k1: 'x', k2: 'x', k3: 'x', k4: 'x', k5: 'x', k6: 'x', k7: 'x', k8: 'x', k9: 'x' },
+      },
+    },
+  ],
+});
+
+/** Every check saving makes, keeping nothing: asked before the person spends a code on the confirmation. */
+export const BANK_RAIL_SENDS_CHECK_PAYEE = defineProcedure({
+  ...base,
+  name: 'bank.railSends.checkPayee',
+  kind: 'query',
+  path: 'railSends.checkPayee',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: payeeAsk,
+  checks: { at_most_eight_keys: { at: 'input.recipient', says: 'at most eight keys' } },
+  output: z.object({ nickname: z.string(), country: z.string(), rail, recipient: z.string() }).strict(),
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        nickname: 'Ada TEST',
+        country: 'US',
+        rail: 'ach',
+        recipient: { holderName: 'Ada TEST', routingNumber: '021000021', accountNumber: '000123456789', accountType: 'checking' },
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'at_most_eight_keys',
+      input: {
+        nickname: 'Ada TEST',
+        country: 'US',
+        rail: 'ach',
+        recipient: { k1: 'x', k2: 'x', k3: 'x', k4: 'x', k5: 'x', k6: 'x', k7: 'x', k8: 'x', k9: 'x' },
+      },
+    },
+  ],
+});
+
+/** Save a recipient, behind the step-up scope: the same destination again is the same recipient. */
+export const BANK_RAIL_SENDS_ADD_PAYEE = defineProcedure({
+  ...base,
+  name: 'bank.railSends.addPayee',
+  kind: 'mutation',
+  path: 'railSends.addPayee',
+  access: { caller: 'scope', scope: 'trade:withdraw', module: 'bank' },
+  refusals: {},
+  input: payeeAsk,
+  checks: { at_most_eight_keys: { at: 'input.recipient', says: 'at most eight keys' } },
+  output: payee,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        nickname: 'Ada TEST',
+        country: 'US',
+        rail: 'ach',
+        recipient: { holderName: 'Ada TEST', routingNumber: '021000021', accountNumber: '000123456789', accountType: 'checking' },
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'at_most_eight_keys',
+      input: {
+        nickname: 'Ada TEST',
+        country: 'US',
+        rail: 'ach',
+        recipient: { k1: 'x', k2: 'x', k3: 'x', k4: 'x', k5: 'x', k6: 'x', k7: 'x', k8: 'x', k9: 'x' },
+      },
+    },
+  ],
+});

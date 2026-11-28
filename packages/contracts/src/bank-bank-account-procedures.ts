@@ -197,3 +197,109 @@ export const BANK_BANK_ACCOUNT_REQUEST_DATA = defineProcedure({
     { verdict: 'refuse', by: 'profile_field_holds', input: { requestId: 'placeholder', kind: 'access', profile: 'Expected' } },
   ],
 });
+
+/** An owner value as the app reads it: published, or blank with the code that refuses where it is needed. */
+export const unset = (code: string) => z.object({ state: z.literal('unset'), code: z.literal(code) }).strict();
+
+/** The partner's steps and requirements, with the owner's, and our identity case where the partner accepts it (#1). */
+export const BANK_BANK_ACCOUNT_ONBOARDING = defineProcedure({
+  ...base,
+  name: 'bank.bankAccount.onboarding',
+  kind: 'query',
+  path: 'bankAccount.onboarding',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: forProfile,
+  checks: { profile_field_holds: { at: 'input.profile', says: 'Expected "personal" or "business:<account id>"' } },
+  output: z
+    .object({
+      label: z.string(),
+      steps: z.array(
+        z
+          .object({
+            id: z.enum(['identity', 'information']),
+            title: z.string(),
+            status: z.enum(['done', 'open']),
+            doneWith: z.literal('identity_case').nullable(),
+          })
+          .strict(),
+      ),
+      requirements: z.array(z.string()),
+      ownerRequirements: z.union([
+        z.object({ state: z.literal('published'), requirements: z.array(z.string()) }).strict(),
+        unset('bank.onboarding_requirements_unset'),
+      ]),
+      identityCase: z.object({ tier: z.enum(['none', 'basic', 'full', 'institutional']), accepted: z.boolean() }).strict(),
+      complete: z.boolean(),
+      openRequests: z.number().int(),
+      openReviews: z.number().int(),
+    })
+    .strict(),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'profile_field_holds', input: { profile: 'Expected' } },
+  ],
+});
+
+/** The partner's information requests, newest first, with the owner's size cap and types for an answer (#2). */
+export const BANK_BANK_ACCOUNT_REQUESTS = defineProcedure({
+  ...base,
+  name: 'bank.bankAccount.requests',
+  kind: 'query',
+  path: 'bankAccount.requests',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: forProfile,
+  checks: { profile_field_holds: { at: 'input.profile', says: 'Expected "personal" or "business:<account id>"' } },
+  output: z
+    .object({
+      requests: z.array(infoRequestOut),
+      upload: z.union([
+        z.object({ state: z.literal('published'), allowedTypes: z.array(z.string()), maxBytes: z.number().int() }).strict(),
+        unset('bank.info_request_upload_unset'),
+      ]),
+    })
+    .strict(),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'profile_field_holds', input: { profile: 'Expected' } },
+  ],
+});
+
+/** The partner's periodic reviews: each open one with its due date and what missing it does (#4). */
+export const BANK_BANK_ACCOUNT_REVIEWS = defineProcedure({
+  ...base,
+  name: 'bank.bankAccount.reviews',
+  kind: 'query',
+  path: 'bankAccount.reviews',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: forProfile,
+  checks: { profile_field_holds: { at: 'input.profile', says: 'Expected "personal" or "business:<account id>"' } },
+  output: z.object({ reviews: z.array(reviewOut) }).strict(),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'profile_field_holds', input: { profile: 'Expected' } },
+  ],
+});
+
+/** The person's data-rights requests about the account, each with the partner's record of it (#6). */
+export const BANK_BANK_ACCOUNT_DATA_REQUESTS = defineProcedure({
+  ...base,
+  name: 'bank.bankAccount.dataRequests',
+  kind: 'query',
+  path: 'bankAccount.dataRequests',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: forProfile,
+  checks: { profile_field_holds: { at: 'input.profile', says: 'Expected "personal" or "business:<account id>"' } },
+  output: z.object({ requests: z.array(dataRequestOut) }).strict(),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'profile_field_holds', input: { profile: 'Expected' } },
+  ],
+});

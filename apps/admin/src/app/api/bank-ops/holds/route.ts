@@ -1,10 +1,16 @@
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { founderCall, founderRecordRead } from '@/lib/desk/founder-call';
+import { founderRecordRead, type FounderCallContext } from '@/lib/desk/founder-call';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { isSendId, readHoldAction, refusalWords } from '@/lib/bank-holds/model';
+import { isSendId, readHoldAction, refusalWords, type HoldAction } from '@/lib/bank-holds/model';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { BANK_GLOBAL_OPS_PROOF } from '@intafaced/contracts/bank-global-records';
+import {
+  BANK_GLOBAL_OPS_PROOF,
+  BANK_GLOBAL_OPS_HOLD,
+  BANK_GLOBAL_OPS_REQUEST_INFO,
+  BANK_GLOBAL_OPS_RELEASE,
+  BANK_GLOBAL_OPS_LINK_REFERENCE,
+} from '@intafaced/contracts/bank-global-records';
 
 /**
  * Global-send holds as the signed-in founder (svc-bank `global.ops.*`). POST places a hold, asks the customer for information,
@@ -18,6 +24,30 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'cache-control': 'no-store' } as const;
 const answer = (payload: Record<string, unknown>, status: number): Response => Response.json(payload, { status, headers: NO_STORE });
 const accepted = (raw: unknown): { ok: true } | null => (raw && typeof raw === 'object' ? { ok: true } : null);
+
+/** One hold action, each to its own svc-bank call with only the fields that action takes. */
+function sendAction(session: FounderCallContext, input: HoldAction) {
+  switch (input.action) {
+    case 'hold':
+      return founderRecordRead(
+        session,
+        BANK_GLOBAL_OPS_HOLD,
+        {
+          sendId: input.sendId,
+          holdKey: input.holdKey,
+          reason: input.reason,
+          ...(input.infoRequest !== undefined ? { infoRequest: input.infoRequest } : {}),
+        },
+        accepted,
+      );
+    case 'requestInfo':
+      return founderRecordRead(session, BANK_GLOBAL_OPS_REQUEST_INFO, { sendId: input.sendId, infoRequest: input.infoRequest }, accepted);
+    case 'release':
+      return founderRecordRead(session, BANK_GLOBAL_OPS_RELEASE, { sendId: input.sendId }, accepted);
+    case 'linkReference':
+      return founderRecordRead(session, BANK_GLOBAL_OPS_LINK_REFERENCE, { sendId: input.sendId, reference: input.reference }, accepted);
+  }
+}
 
 const parseProof = (raw: unknown): { name: string; contentBase64: string } | null => {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
@@ -42,14 +72,7 @@ export async function POST(request: Request) {
       400,
     );
 
-  const { action, ...body } = input;
-  const procedure = {
-    hold: 'global.ops.hold',
-    requestInfo: 'global.ops.requestInfo',
-    release: 'global.ops.release',
-    linkReference: 'global.ops.linkReference',
-  }[action];
-  const result = await founderCall(session, 'bank', procedure, 'POST', body, accepted);
+  const result = await sendAction(session, input);
   switch (result.kind) {
     case 'ok':
       return answer({ ok: true }, 200);

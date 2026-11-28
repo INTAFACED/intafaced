@@ -4,11 +4,15 @@ import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { readRecoveryKey, signWithRecoveryKey } from '../account';
 import { date, funds, useBankRecord } from './components';
-import { recoveryWrites, type RecoveryAccount, type RecoveryEstate, type RecoverySweep } from './contracts';
+import { type RecoveryAccount, type RecoveryEstate, type RecoverySweep } from './contracts';
 import { DepthPanel, DisabledActions, Fact } from './DepthParts';
 import { recoveryClaimCopy, type recoveryClaimMessages } from './recovery-claim-copy';
 import './bank-depth.css';
-import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES } from '@intafaced/contracts/bank-recovery-procedures';
+import {
+  BANK_RECOVERY_CLAIMS_OPEN,
+  BANK_RECOVERY_ESTATES,
+  BANK_RECOVERY_CLAIMS_EXECUTE,
+} from '@intafaced/contracts/bank-recovery-procedures';
 import { withCode } from '../../shared/reference';
 
 /**
@@ -178,12 +182,7 @@ function ClaimForm({ estate, onDone }: { estate: RecoveryEstate; onDone: (done: 
       } catch {
         return setError(t('noCrypto'));
       }
-      const done = await api.mutate(
-        'bank',
-        'recovery.claims.execute',
-        { claimId: opened.data.claimId, signatures },
-        recoveryWrites.execute,
-      );
+      const done = await api.call(BANK_RECOVERY_CLAIMS_EXECUTE, { claimId: opened.data.claimId, signatures });
       if (!done.ok) return setError(refusal(t, done));
       setKeys(Array.from({ length: estate.threshold }, () => ''));
       onDone({ round: done.data.round, sweeps: done.data.sweeps, spaceNames });

@@ -1,8 +1,8 @@
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { founderCall } from '@/lib/desk/founder-call';
+import { founderAskedCall, founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { readAction, refusalCode, refusalWords } from '@/lib/card-programme/model';
+import { ACTIONS, CONFIGURE, readAction, refusalCode, refusalWords } from '@/lib/card-programme/model';
 import { moduleDisabledResponse } from '@/lib/modules';
 
 /**
@@ -17,6 +17,21 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'cache-control': 'no-store' } as const;
 const answer = (payload: Record<string, unknown>, status: number): Response => Response.json(payload, { status, headers: NO_STORE });
 
+/**
+ * One step: through its record, which checks the body the console sent before it leaves; `configure` by its name, as its
+ * record can't name the any-value `value` svc-bank's door takes.
+ */
+async function send(
+  session: FounderCallContext,
+  action: keyof typeof ACTIONS | typeof CONFIGURE,
+  body: Record<string, unknown> | undefined,
+) {
+  if (action === CONFIGURE)
+    return founderCall(session, 'bank', 'ops.cardProgrammeConfigure', 'POST', body, (d) => (d === undefined ? null : { data: d }));
+  const result = await founderAskedCall(session, ACTIONS[action], body);
+  return result.kind === 'ok' ? { ...result, data: { data: result.data as unknown } } : result;
+}
+
 export async function POST(request: Request) {
   const disabled = moduleDisabledResponse('bank-ops');
   if (disabled) return disabled;
@@ -30,7 +45,7 @@ export async function POST(request: Request) {
   }
   const step = readAction(raw);
   if (!step) return answer({ ok: false, code: 'bank.card_programme_invalid', message: refusalWords('bank.card_programme_invalid') }, 400);
-  const result = await founderCall(session, 'bank', step.procedure, 'POST', step.body, (d) => (d === undefined ? null : { data: d }));
+  const result = await send(session, step.action, step.body);
   switch (result.kind) {
     case 'ok':
       return answer({ ok: true, data: result.data.data }, 200);

@@ -20,7 +20,13 @@ import {
   BANK_BANK_ACCOUNT_REQUEST_CLOSURE,
   BANK_BANK_ACCOUNT_REOPEN,
   BANK_BANK_ACCOUNT_REQUEST_DATA,
+  BANK_BANK_ACCOUNT_ONBOARDING,
+  BANK_BANK_ACCOUNT_REQUESTS,
+  BANK_BANK_ACCOUNT_REVIEWS,
+  BANK_BANK_ACCOUNT_DATA_REQUESTS,
 } from '@intafaced/contracts/bank-bank-account-procedures';
+import { callAs } from '../../../shared/api';
+import { BANK_BANK_ACCOUNT_CLOSURE } from '@intafaced/contracts/bank-bank-account-2-procedures';
 
 /**
  * Words for the bank account room (BK-acct-05, BK-acct-06; J-bank-17): onboarding, the partner's information requests
@@ -101,13 +107,25 @@ type Failure = { code: string; message: string };
 type Read<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'failed'; failure: Failure };
 
 /** One bank read, re-read whenever `version` changes. */
-export function useAccountRead<T>(procedure: string, schema: z.ZodType<T>, version: number): Read<T> {
+export function useAccountRead<T>(
+  procedure: 'onboarding' | 'requests' | 'reviews' | 'closure' | 'dataRequests',
+  schema: z.ZodType<T>,
+  version: number,
+): Read<T> {
   const { api, userId, profiles } = useSession();
   // Every bank call carries the profile in view (J-bank-01 #7); a business profile is refused, as it has no bank account here.
   const profile = profiles.active;
   const { resource } = useResource<T>(async (signal) => {
     if (!userId) return { ok: false, reason: 'unauthorized', message: bankAccountCopy.t('signIn') };
-    return api.query('bank', `bankAccount.${procedure}`, { profile }, schema, { signal });
+    return procedure === 'onboarding'
+      ? callAs(api, BANK_BANK_ACCOUNT_ONBOARDING, { profile }, schema, { signal })
+      : procedure === 'requests'
+        ? callAs(api, BANK_BANK_ACCOUNT_REQUESTS, { profile }, schema, { signal })
+        : procedure === 'reviews'
+          ? callAs(api, BANK_BANK_ACCOUNT_REVIEWS, { profile }, schema, { signal })
+          : procedure === 'closure'
+            ? callAs(api, BANK_BANK_ACCOUNT_CLOSURE, { profile }, schema, { signal })
+            : callAs(api, BANK_BANK_ACCOUNT_DATA_REQUESTS, { profile }, schema, { signal });
   }, `${userId}:${profile}:bankAccount.${procedure}:${version}`);
   if (resource.status === 'loading') return { state: 'loading' };
   if (resource.status === 'ready') return { state: 'ready', data: resource.data };

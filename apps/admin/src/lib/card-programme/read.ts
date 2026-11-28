@@ -1,13 +1,13 @@
 import 'server-only';
 import { bankCardProgrammeDeskSchema, type BankCardProgrammeFigures } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
+import { parseWith, type FounderCallContext, partFrom, type Part, founderRecordCall, founderRecordRead } from '@/lib/desk';
 import { refusalWords, type Authorization, type Cardholder, type CardholderDetail, type Desk } from './model';
 import {
   BANK_OPS_CARD_PROGRAMME_CARDHOLDERS,
   BANK_OPS_CARD_PROGRAMME_AUTHORIZATION,
   BANK_OPS_CARD_PROGRAMME_CARDHOLDER,
 } from '@intafaced/contracts/bank-ops-procedures';
-import { BANK_OPS_CARD_PROGRAMME_FUNDING } from '@intafaced/contracts/bank-ops-2-procedures';
+import { BANK_OPS_CARD_PROGRAMME_FUNDING, BANK_OPS_CARD_PROGRAMME_DESK } from '@intafaced/contracts/bank-ops-2-procedures';
 
 const labels = {
   service: 'svc-bank',
@@ -16,7 +16,7 @@ const labels = {
 } as const;
 
 export async function readDesk(ctx: FounderCallContext): Promise<{ asOf: string; desk: Part<Desk> }> {
-  const result = await founderCall(ctx, 'bank', 'ops.cardProgrammeDesk', 'GET', undefined, parseWith(bankCardProgrammeDeskSchema));
+  const result = await founderRecordRead(ctx, BANK_OPS_CARD_PROGRAMME_DESK, undefined, parseWith(bankCardProgrammeDeskSchema));
   return { asOf: new Date().toISOString(), desk: partFrom(result, (d) => d, labels) };
 }
 

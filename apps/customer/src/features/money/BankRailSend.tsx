@@ -3,7 +3,7 @@ import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import { date, funds, useSpaces, useBankRecord } from './components';
-import { railSendCheckSchema, railSendSchema, type RailPayee, type RailSend, type RegionNotice } from './contracts';
+import { type RailPayee, type RailSend, type RegionNotice } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { railSendCopy } from './rail-send-copy';
 import { currentSpace } from './space-context';
@@ -16,10 +16,12 @@ import {
   BANK_RAIL_SENDS_REQUIREMENTS,
   BANK_RAIL_SENDS_LIST,
   BANK_RAIL_SENDS_PAYEES,
+  BANK_RAIL_SENDS_CHECK,
 } from '@intafaced/contracts/bank-rail-sends-procedures';
 import { BANK_SAFETY_REGION_NOTICE } from '@intafaced/contracts/bank-safety-procedures';
 import { RefusalCode } from '../../shared/RefusalCode';
 import { withCode } from '../../shared/reference';
+import { BANK_RAIL_SENDS_SEND } from '@intafaced/contracts/bank-rail-sends-2-procedures';
 
 const amountOk = (value: string) => decimalSchema.safeParse(value.trim()).success && parseAmount(value.trim()) > 0n;
 
@@ -179,12 +181,7 @@ export function BankRailSend() {
     if (!target || !from || missing || !amountOk(amount) || checking) return;
     setOutcome(null);
     setChecking(true);
-    const checked = await api.query(
-      'bank',
-      'railSends.check',
-      { fromSpaceId: from.id, amount: amount.trim(), ...target },
-      railSendCheckSchema,
-    );
+    const checked = await api.call(BANK_RAIL_SENDS_CHECK, { fromSpaceId: from.id, amount: amount.trim(), ...target });
     setChecking(false);
     if (!checked.ok) {
       if (checked.code === 'bank.payee_cooling_active' && payee?.cooling.endsAt) {
@@ -332,11 +329,9 @@ export function BankRailSend() {
         <WithdrawStepUp
           why={t('confirmWhy')}
           run={async (token) => {
-            const answer = await api.mutate(
-              'bank',
-              'railSends.send',
+            const answer = await api.call(
+              BANK_RAIL_SENDS_SEND,
               { requestId, fromSpaceId: from.id, amount: amount.trim(), ...target },
-              railSendSchema,
               { bearer: token },
             );
             if (answer.ok) setOutcome(answer.data);

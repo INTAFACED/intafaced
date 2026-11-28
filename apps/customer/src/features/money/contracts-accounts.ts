@@ -197,17 +197,6 @@ const recoverySweepSchema = z.object({
   refusalCode: z.string().nullable(),
 });
 export type RecoverySweep = z.infer<typeof recoverySweepSchema>;
-export const recoveryWrites = {
-  open: recoveryClaimSchema.extend({
-    ownerUserId: z.string(),
-    handle: z.string(),
-    threshold: z.number().int(),
-    liveKeys: z.number().int(),
-    message: z.string(),
-  }),
-  execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
-};
-
 /** `bank.salary.*` (J-bank-30): the details salary is paid to, the employer form, and the salary credits. */
 const salaryCreditSchema = z.object({
   networkId: z.string(),

@@ -205,9 +205,32 @@ function down(q, n, step) {
   return undefined;
 }
 
+/**
+ * A shape built from a closed list of keys, each to one schema: `Object.fromEntries(KEYS.map((k) => [k, setting]))`, with
+ * KEYS an array of strings (`as const` or not). The schema of `name`, when it is one of KEYS.
+ */
+function fromEntriesValue(q, n, name) {
+  n = unwrap(n);
+  if (n?.type !== 'CallExpression' || text(q, n.callee) !== 'Object.fromEntries' || n.arguments.length !== 1) return undefined;
+  const map = unwrap(n.arguments[0]);
+  if (map?.type !== 'CallExpression' || map.callee.type !== 'MemberExpression' || map.callee.property?.name !== 'map') return undefined;
+  const fn = unwrap(map.arguments[0]);
+  const pair = fn?.type === 'ArrowFunctionExpression' && fn.params.length === 1 ? returnedExpr(fn) : undefined;
+  const param = fn?.params[0]?.type === 'Identifier' ? fn.params[0].name : undefined;
+  if (pair?.type !== 'ArrayExpression' || pair.elements.length !== 2 || unwrap(pair.elements[0])?.type !== 'Identifier') return undefined;
+  if (unwrap(pair.elements[0]).name !== param) return undefined;
+  const keys = follow(q, map.callee.object);
+  if (keys?.n?.type !== 'ArrayExpression') return undefined;
+  const names = keys.n.elements.map((e) => literal(e));
+  if (names.some((k) => typeof k !== 'string') || !names.includes(name)) return undefined;
+  return { q, n: pair.elements[1] };
+}
+
 /** A key of an object shape (spreads of another shape followed), with the file it is in. */
 function propIn(q, shapeNode, name) {
   const f = follow(q, shapeNode);
+  const built = f && fromEntriesValue(f.q, f.n, name);
+  if (built) return built;
   if (!f || f.n?.type !== 'ObjectExpression') return undefined;
   for (const pr of [...f.n.properties].reverse()) {
     if (pr.type === 'Property' && keyOf(pr) === name) return { q: f.q, n: pr.value, prop: pr };
@@ -316,6 +339,13 @@ function refinementOf(target, doorNames) {
   const transparent = (name) => WRAPPERS.includes(name) || name === 'default' || name === 'readonly';
   for (let i = 0; found && i < 10; i++) {
     const { base, factory, methods } = chainOf(found.n);
+    // `plainWords.pipe(z.string().max(500))`: the refine is the piped-from schema's, when what it pipes into has none.
+    const pipe = !factory && methods.find((m) => m.name === 'pipe');
+    if (pipe && methods.every((m) => m === pipe || transparent(m.name)) && !refinedChain(found.q, pipe.call.arguments[0])) {
+      if (unwrap(pipe.receiver)?.type === 'Identifier') named = unwrap(pipe.receiver).name;
+      found = follow(found.q, pipe.receiver);
+      continue;
+    }
     if (factory === 'lazy' && methods.every((m) => transparent(m.name))) {
       const inner = returnedExpr(base.arguments[0]);
       if (!inner) break;
@@ -371,6 +401,12 @@ function refinementOf(target, doorNames) {
   // One refine, named by the door: the record's check takes the door's name, so both sides call the rule the same.
   const name = byDoor.length === 1 && says.length === 1 ? byDoor[0] : `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
   return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
+}
+
+/** True when a schema expression (followed through its names) carries a `.refine` or `.superRefine` in its own chain. */
+function refinedChain(q, n) {
+  const f = follow(q, n);
+  return !f || chainOf(f.n).methods.some((m) => m.name === 'refine' || m.name === 'superRefine');
 }
 
 /**

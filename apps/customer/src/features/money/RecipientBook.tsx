@@ -4,11 +4,16 @@ import { Button, Failure, Field } from '../../shared/ui';
 import { useSession } from '../session';
 import { RailForm, filled, type Key } from './rail-form';
 import { date } from './components';
-import { railPayeeCheckSchema, railPayeeSchema, type RailPayee, type RailRequirements } from './contracts';
+import { type RailPayee, type RailRequirements } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { railSendCopy } from './rail-send-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
-import { BANK_RAIL_SENDS_INVITE_PAYEE, BANK_RAIL_SENDS_REMOVE_PAYEE } from '@intafaced/contracts/bank-rail-sends-procedures';
+import {
+  BANK_RAIL_SENDS_INVITE_PAYEE,
+  BANK_RAIL_SENDS_REMOVE_PAYEE,
+  BANK_RAIL_SENDS_CHECK_PAYEE,
+  BANK_RAIL_SENDS_ADD_PAYEE,
+} from '@intafaced/contracts/bank-rail-sends-procedures';
 import { RefusalCode } from '../../shared/RefusalCode';
 
 /**
@@ -131,7 +136,7 @@ export function RecipientBook({
   async function save() {
     if (!ask || checking) return;
     setChecking(true);
-    const checked = await api.query('bank', 'railSends.checkPayee', ask, railPayeeCheckSchema);
+    const checked = await api.call(BANK_RAIL_SENDS_CHECK_PAYEE, ask);
     setChecking(false);
     if (!checked.ok) {
       setProblem(checked.message || t('missing'));
@@ -264,7 +269,7 @@ export function RecipientBook({
         {confirming && ask && (
           <WithdrawStepUp
             why={t('saveWhy')}
-            run={(token) => api.mutate('bank', 'railSends.addPayee', ask, railPayeeSchema, { bearer: token })}
+            run={(token) => api.call(BANK_RAIL_SENDS_ADD_PAYEE, ask, { bearer: token })}
             onDone={() => {
               setConfirming(false);
               setCountry('');
