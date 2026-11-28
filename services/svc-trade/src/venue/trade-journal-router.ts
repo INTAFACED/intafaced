@@ -28,13 +28,13 @@ export function tradeJournalRouter(deps: TradeJournalDeps | null | undefined) {
   return router({
     closedTrades: mountRecord(
       TRADE_JOURNAL_CLOSED_TRADES,
-      ({ input }) => {
+      ({ ctx, input }) => {
         if (!deps)
           throw new TradeJournalError(
             'The trade journal reads your own venue account, and no venue is connected',
             'trade.journal_unavailable',
           );
-        return readTradeJournal(deps, input);
+        return readTradeJournal(deps, input, ctx.principal.userId);
       },
       refusalOf,
     ),

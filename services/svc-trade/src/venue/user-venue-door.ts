@@ -71,6 +71,7 @@ import {
 import type { FeeSaverSource } from './fee-saver-client.js';
 import type { VenueWalletReads } from './http-user-venue.js';
 import type { DailyLossGuard, DailyLossWarning } from './daily-loss-limit.js';
+import { TradingRestrictionUnavailable, addsExposure, type TradingRestrictionRead } from './trading-restriction.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -338,7 +339,10 @@ export type UserVenueDoorCode =
   | 'trade.analytics_window_invalid'
   // The person's own daily loss limit (daily-loss-limit.ts): reached with blocking on, or unreadable while blocking.
   | 'trade.daily_loss_limit_reached'
-  | 'trade.daily_loss_unreadable';
+  | 'trade.daily_loss_unreadable'
+  // Identity's trading restriction (trading-restriction.ts, J-support-public-20 #7): held, or unreadable.
+  | 'trade.account_restricted'
+  | 'trade.account_restriction_unavailable';
 
 /**
  * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
@@ -371,11 +375,15 @@ export class UserVenueDoorError extends Error {
   }
 }
 
-/** A sent approval the venue definitely refused: nothing was approved, and its key only ever replays that refusal. */
+/** A sent action the venue definitely refused: it did nothing, and its key only ever replays that refusal. */
 function refusedApproval(row: StoredVenueAction): boolean {
   const o = row.lastOutcome;
   return row.signature !== null && o?.definite === true && !o.accepted;
 }
+/** The same test for a sent order: the venue placed nothing under its client order id. */
+const refusedOrder = refusedApproval;
+/** A retried order's later tries are stored under `<its key>:retry:<n>` (`retryOrderKey`). */
+const ORDER_RETRY_INFIX = ':retry:';
 
 /** The key a fixed agent's approval was first prepared under: a retry's `:<n>` taken off (`fixedAgentApprovalKey`). */
 const approvalBase = (key: string) => key.replace(/:\d+$/, '');
@@ -592,6 +600,11 @@ export interface UserVenueDoorDeps {
    * warns (advisory) or is refused (blocking); a reduce-only order is never held. Absent: no limit is checked.
    */
   readonly dailyLoss?: DailyLossGuard;
+  /**
+   * Identity's trading restriction (J-support-public-20 #7), read per new order that adds exposure, before the venue is
+   * asked to prepare it and again before an order never sent is sent. wire.ts always passes it.
+   */
+  readonly tradingRestriction?: TradingRestrictionRead;
 }
 
 /**
@@ -682,6 +695,13 @@ export interface PrepareRequest {
    * replay of an already-stored action.
    */
   readonly requestDeadline?: string | null;
+  /**
+   * An order whose signed send the venue definitely refused is prepared afresh, under a try key of its own
+   * (`<key>:retry:<n>`) and the same client order key, so the same client order id goes to the venue once more under a
+   * new nonce (J-derivatives-33 #5: a failed close retried alone). An order the venue took, or one whose answer is not
+   * known, answers its stored action, as without it: it is never sent again by this.
+   */
+  readonly retryRefused?: boolean;
 }
 
 export interface PreparedAnswer {
@@ -1965,6 +1985,34 @@ export class UserVenueDoor {
     return k;
   }
 
+  /**
+   * A new order that adds exposure is refused while identity holds a trading restriction on the person (a support
+   * agent's account freeze, J-support-public-20 #7), and while the restriction can't be read. Nothing is prepared, stored
+   * or sent; the person's own funds on the venue are untouched.
+   */
+  private async assertNotRestricted(userId: string, intent: VenueIntent): Promise<void> {
+    const read = this.deps.tradingRestriction;
+    if (!read || !addsExposure(intent)) return;
+    let restricted: boolean;
+    try {
+      restricted = await read.restricted(userId);
+    } catch (err) {
+      if (!(err instanceof TradingRestrictionUnavailable)) throw err;
+      throw new UserVenueDoorError(
+        'your account restriction could not be read just now, so no new order is placed; nothing was signed or sent',
+        'trade.account_restriction_unavailable',
+        503,
+      );
+    }
+    if (restricted) {
+      throw new UserVenueDoorError(
+        'your account is restricted from trading, so no new order is placed; your funds stay in your own wallet and venue account',
+        'trade.account_restricted',
+        403,
+      );
+    }
+  }
+
   async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
     let intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
@@ -1992,7 +2040,10 @@ export class UserVenueDoor {
     if (intent.kind === 'place_orders') assertTogetherIntent(intent, req.signer);
     if (intent.kind === 'amend_order' || intent.kind === 'replace_order') assertChangeIntent(intent);
     if (intent.kind === 'cancel_orders') assertCancelsIntent(intent);
-    const key = this.businessKey(intent, req.actionKey);
+    const key =
+      req.retryRefused === true && intent.kind === 'place_order'
+        ? await this.retryOrderKey(principal, this.businessKey(intent, req.actionKey))
+        : this.businessKey(intent, req.actionKey);
     const deadlineAt = parseRequestDeadline(req.requestDeadline);
     // J-cex-spot-04 #7: a fresh action whose request deadline has passed is refused before any step-up, venue call or
     // hold. A replay of an already-stored key is waived so retries still see their stored action.
@@ -2135,6 +2186,7 @@ export class UserVenueDoor {
     if (finalIntent.kind === 'move_position') await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     if (finalIntent.kind === 'amend_order' || finalIntent.kind === 'replace_order') await this.assertNoRaise(venue, account, finalIntent);
     await this.assertOneWholeClose(venue, account, finalIntent);
+    await this.assertNotRestricted(principal.userId, finalIntent);
     finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));
     // The person's own daily loss limit, on a fresh opening order of theirs. An agent account's orders keep its own
     // daily-loss cap on its own sub-account (agent-orders.ts #18). Refused here, before the venue prepares anything.
@@ -2270,6 +2322,25 @@ export class UserVenueDoor {
     return refusedApproval(latest) ? `${base}:${n(latest.businessKey) + 1}` : latest.businessKey;
   }
 
+  /**
+   * The key an order asked to be retried (`retryRefused`) is stored under now, as `fixedAgentApprovalKey` does for an
+   * approval: its own key the first time; the latest try's key while that try is unsent, unanswered or taken, so an order
+   * the venue took or may have taken is never sent again; and `<key>:retry:<n>` once the venue definitely refused the
+   * latest try, which placed nothing. Every try keeps the order's client order key, so the venue sees the same client
+   * order id each time (J-derivatives-33 #5), and each try's own row answers its own stored outcome.
+   */
+  private async retryOrderKey(principal: Principal, base: string): Promise<string> {
+    const prefix = `${base}${ORDER_RETRY_INFIX}`;
+    const first = await this.deps.store.find(principal.userId, base);
+    if (first === null) return base;
+    const n = (key: string) => (key === base ? 1 : Number(key.slice(prefix.length)));
+    const tries = [first, ...(await this.deps.store.listByPrefix(principal.userId, prefix))].filter((r) =>
+      Number.isInteger(n(r.businessKey)),
+    );
+    const latest = tries.reduce((a, r) => (n(r.businessKey) > n(a.businessKey) ? r : a));
+    return refusedOrder(latest) ? `${prefix}${n(latest.businessKey) + 1}` : latest.businessKey;
+  }
+
   /** Every stored action of this person under keys starting `prefix`: what a revoke reads the assistant's orders by (#12). */
   async storedByPrefix(principal: Principal, prefix: string): Promise<readonly StoredVenueAction[]> {
     return this.deps.store.listByPrefix(principal.userId, prefix);
@@ -2389,7 +2460,9 @@ export class UserVenueDoor {
     signature: VenueSignature,
   ): Promise<Omit<SubmitAnswer, 'replayed'>> {
     let signed = row;
-    // An order never sent yet is checked again: a stop or limit approved since it was prepared applies to it.
+    // An order never sent yet is checked again: a restriction identity set since it was prepared refuses it, and a stop
+    // or limit approved since then applies to it.
+    if (!row.signature) await this.assertNotRestricted(principal.userId, row.prepared.intent);
     if (!row.signature) await eachOrder(row.prepared.intent, (order) => this.admitPlace(row.prepared.venueId, order));
     if (!row.signature) {
       assertSignatureMatches(row.prepared, signature);

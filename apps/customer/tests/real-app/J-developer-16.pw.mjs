@@ -26,6 +26,8 @@ const COMPONENTS = [
 /** The labelled TEST owner values this journey runs with. Production has none until the owner sets them. */
 const TEST_VALUES = { componentCap: 5, stalenessSeconds: 600, uptimeDays: 7 };
 let emptyBoard = false;
+/** When #1's TEST reading was observed: #2 finds it on that day's uptime, which is yesterday on a run just after midnight UTC. */
+let readingAt = null;
 
 async function useEmptyBoard(on) {
   await restartService('notify', { LOCAL_STACK_NOTIFY_NOTICES: on ? 'off' : null });
@@ -48,6 +50,7 @@ test(`${J} #1 /status shows each component's state with an as-of time and an emp
   await useEmptyBoard(true);
   await configureStatusPage({ components: COMPONENTS, ...TEST_VALUES }, `TEST journey ${J} #1`);
   const observedAt = new Date(Date.now() - 30_000).toISOString();
+  readingAt = observedAt;
   await recordReading({ componentId: 'rest-api', state: 'operational', observedAt, source: 'TEST probe' });
 
   const page = await signedOutVisitor(browser);
@@ -100,11 +103,6 @@ test(`${J} #2 the machine feed lists components, incidents with impact and updat
       `${J}-update-${RUN}`,
     );
 
-    // A reading of this step's own, so the uptime day it lands on is known whatever the clock reads (past midnight UTC,
-    // #1's reading lands on the day before).
-    const observed = new Date(Date.now() - 1_000);
-    await recordReading({ componentId: 'rest-api', state: 'operational', observedAt: observed.toISOString(), source: 'TEST probe' });
-
     // As a developer's program reads it: signed out, plain JSON. The feed may answer a read a few seconds old.
     const read = async () => {
       const res = await fetch(`${EDGE}/api/notify/v1/status`);
@@ -121,10 +119,12 @@ test(`${J} #2 the machine feed lists components, incidents with impact and updat
     expect(api.basis).toBe('incident');
     expect(api.incidentId).toBe(root.id);
     expect(feed.components.find((c) => c.id === 'webhooks').state).toBe('no_data');
-    // Uptime history: one day per day of the window, oldest first; today's reading counts on today.
+    // Uptime history: one day per day of the window, oldest first, ending on the feed's own day; #1's reading counts on
+    // the day it was observed, which is yesterday on a run just after midnight UTC.
     for (const c of feed.components) expect(c.uptime).toHaveLength(TEST_VALUES.uptimeDays);
     expect(api.uptime.at(-1).date).toBe(utcDay(new Date(feed.asOf)));
-    expect(api.uptime.find((day) => day.date === utcDay(observed))).toMatchObject({ state: 'operational' });
+    if (!readingAt) throw new Error('#1 recorded no reading of this journey to find');
+    expect(api.uptime.find((day) => day.date === utcDay(new Date(readingAt)))).toMatchObject({ state: 'operational' });
     expect(feed.components.find((c) => c.id === 'webhooks').uptime.every((day) => day.state === null)).toBe(true);
     // The incident with its impact and both updates.
     expect(feed.incidents).toHaveLength(1);
@@ -159,6 +159,7 @@ const undated = { title: `TEST ${RUN}: order replies change shape`, body: `TEST 
 
 test(`${J} #3 the developer changelog shows dated entries by area with a breaking flag; an entry with no date reads "date not set" and is not upcoming`, async ({
   browser,
+  stepPicture,
 }) => {
   for (const [key, text, changelog] of [
     [
@@ -191,6 +192,8 @@ test(`${J} #3 the developer changelog shows dated entries by area with a breakin
   await expect(undatedEntry).toHaveAttribute('data-breaking', 'true');
   await expect(undatedEntry).toContainText('WebSocket · Breaking');
   await expect(undatedEntry).toContainText('In effect date not set');
+  // The changelog with both entries, before the area filter and the upcoming page.
+  await stepPicture(page);
 
   // By area: only the trading entry under Trading.
   await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption('trading');
@@ -204,7 +207,10 @@ test(`${J} #3 the developer changelog shows dated entries by area with a breakin
   await page.context().close();
 });
 
-test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dates and the retired list`, async ({ browser }) => {
+test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dates and the retired list`, async ({
+  browser,
+  stepPicture,
+}) => {
   const page = await signedOutVisitor(browser);
   await page.goto('/notice');
   const main = page.locator('main');
@@ -222,6 +228,7 @@ test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dat
   const row = notice.locator('tr').filter({ has: page.getByRole('rowheader', { name: retiredEndpoint }) });
   await expect(row).toContainText(`Retired by ${dated.title}`);
   await expect(row).toContainText(releaseOn);
+  await stepPicture(page);
   await page.context().close();
 });
 

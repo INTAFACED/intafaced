@@ -37,10 +37,10 @@ import {
 import { signWithSessionKey } from '../../../features/protocol';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueProtectCopy } from './venue-protect-copy';
-import { PROTECTION_FIELDS, canonical, closingSide, coverage, protectionClientId, whereItRests } from './venue-protect-logic';
+import { PROTECTION_FIELDS, canonical, closingSide, coverage, protectionClientId, sizeToClose, whereItRests } from './venue-protect-logic';
 
 type PT = ReturnType<typeof venueProtectCopy.useCopy>['t'];
-type Field = 'quantity' | 'triggerPrice' | 'limitPrice' | 'trailingDistance';
+type Field = 'triggerPrice' | 'limitPrice' | 'trailingDistance';
 
 /**
  * Who signs a position's exit order that rests on the venue (a trigger order is an order): the desk's live trading
@@ -163,7 +163,10 @@ export function ProtectDialog({
   const exitSigner = useExitSigner(owner);
   const [kind, setKind] = useState<ProtectionKind>('take_profit');
   const [source, setSource] = useState<ProtectionSource>('mark');
-  const [fields, setFields] = useState<Record<Field, string>>({ quantity: '', triggerPrice: '', limitPrice: '', trailingDistance: '' });
+  const [fields, setFields] = useState<Record<Field, string>>({ triggerPrice: '', limitPrice: '', trailingDistance: '' });
+  // The size to close starts as the whole position (J-derivatives-03 #1: an exit order "for the whole position"), and
+  // follows the venue's position until the person types their own.
+  const [typedQuantity, setTypedQuantity] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const busy = useRef(false);
@@ -172,14 +175,15 @@ export function ProtectDialog({
   const where = whereItRests(kind, source, market.triggerSources);
   const takes = PROTECTION_FIELDS[kind];
   const size = position?.size ?? null;
-  const covers = size && fields.quantity.trim() ? coverage(fields.quantity, size) : null;
+  const quantityValue = sizeToClose(typedQuantity, size);
+  const covers = size && quantityValue.trim() ? coverage(quantityValue, size) : null;
   const mine = (list.data?.protections ?? []).filter((p) => p.symbol === market.symbol);
 
   async function arm() {
     if (busy.current) return;
     setOutcome(null);
     setRefusal(null);
-    const quantity = fields.quantity.trim();
+    const quantity = quantityValue.trim();
     if (!positive(quantity)) return setRefusal({ message: t('Size invalid'), code: null });
     for (const f of takes)
       if (!positive(fields[f])) return setRefusal({ message: t('Field invalid', { field: t(fieldLabel(f)) }), code: null });
@@ -211,6 +215,44 @@ export function ProtectDialog({
       const refused = refusalOf(answer, (r) => outcomeText(v, r));
       if (refused) return setRefusal(refused);
       setOutcome(t('Armed on venue'));
+    } finally {
+      busy.current = false;
+      list.reload();
+    }
+  }
+
+  /**
+   * Move a stop that rests on the venue to a new trigger (J-derivatives-35 #4): the venue holds a trigger order, so its old
+   * one is cancelled, then the new one placed on the same size, side and source, each signed once. Between the two the
+   * position has no stop, as with the breakeven stop (svc-trade protections.ts `breakeven`); a failed second step says so.
+   * Both are reduce-only, so a daily loss limit never holds them.
+   */
+  async function move(p: ProtectionView, trigger: string): Promise<{ moved: true } | { refusal: Refusal }> {
+    if (busy.current) return { refusal: { message: t('Move busy'), code: null } };
+    if (!positive(trigger)) return { refusal: { message: t('Field invalid', { field: t('Trigger price') }), code: null } };
+    if (!p.actionKey) return { refusal: { message: t('Move engine'), code: null } };
+    const chosen = exitSigner();
+    if ('refusal' in chosen) return { refusal: chosen.refusal };
+    busy.current = true;
+    try {
+      const cancelled = await run({ kind: 'cancel_order', symbol: p.symbol, clientOrderKey: p.actionKey });
+      const notCancelled = refusalOf(cancelled, (r) => outcomeText(v, r));
+      if (notCancelled) return { refusal: notCancelled };
+      const created = await venue.createProtection({
+        owner,
+        symbol: p.symbol,
+        kind: p.kind,
+        side: p.side,
+        quantity: canonical(p.quantity),
+        triggerSource: p.triggerSource,
+        triggerPrice: canonical(trigger),
+        clientOrderId: protectionClientId(Date.now(), counter.current++),
+        signer: chosen.signer,
+      });
+      if (!created.ok) return { refusal: { message: t('Move unprotected', { detail: created.message }), code: created.code ?? null } };
+      if (created.data.restsOn !== 'venue') return { moved: true };
+      const placed = refusalOf(await sign(created.data), (r) => outcomeText(v, r));
+      return placed ? { refusal: { message: t('Move unprotected', { detail: placed.message }), code: placed.code } } : { moved: true };
     } finally {
       busy.current = false;
       list.reload();
@@ -249,7 +291,7 @@ export function ProtectDialog({
               : t('where_none', { venue: venueName, kind: kindWords(t, kind).toLowerCase(), source: sourceWords(t, source) })}
         </p>
         {where === 'engine' ? <AgentPermission owner={owner} /> : null}
-        <NumberField label={t('Size to close')} value={fields.quantity} onChange={(x) => setFields({ ...fields, quantity: x })} />
+        <NumberField label={t('Size to close')} value={quantityValue} onChange={setTypedQuantity} />
         {takes.map((f) => (
           <NumberField key={f} label={t(fieldLabel(f))} value={fields[f]} onChange={(x) => setFields({ ...fields, [f]: x })} />
         ))}
@@ -278,7 +320,15 @@ export function ProtectDialog({
           ) : (
             <ul className="lt-stack">
               {mine.map((p) => (
-                <ProtectionItem key={p.id} protection={p} position={position} base={market.baseAsset} run={run} onDone={list.reload} />
+                <ProtectionItem
+                  key={p.id}
+                  protection={p}
+                  position={position}
+                  base={market.baseAsset}
+                  run={run}
+                  move={move}
+                  onDone={list.reload}
+                />
               ))}
             </ul>
           )}
@@ -314,19 +364,24 @@ function ProtectionItem({
   position,
   base,
   run,
+  move,
   onDone,
 }: {
   protection: ProtectionView;
   position: VenuePosition | null;
   base: string;
   run: RunAction;
+  move: (p: ProtectionView, trigger: string) => Promise<{ moved: true } | { refusal: Refusal }>;
   onDone: () => void;
 }) {
   const { t } = venueProtectCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
   const [cancelled, setCancelled] = useState<string | null>(null);
+  const [moveTo, setMoveTo] = useState('');
+  const [moved, setMoved] = useState<{ moved: true } | { refusal: Refusal } | null>(null);
   const live = p.status === 'armed' || p.status === 'triggered';
+  const movable = p.status === 'armed' && p.restsOn === 'venue' && Boolean(p.actionKey) && p.kind !== 'trailing_stop';
   // A change of what became of it (armed, then failed or filled) is news: brought into view in the dialog's scroll box.
   const reveal = useReveal<HTMLLIElement>(p.status);
   const covers = live && position ? coverage(p.quantity, position.size) : null;
@@ -388,6 +443,15 @@ function ProtectionItem({
         </Button>
       ) : null}
       {cancelled ? <p role="status">{t('Cancel outcome', { outcome: cancelled })}</p> : null}
+      {movable ? (
+        <div className="lt-row" data-testid="protection-move">
+          <NumberField label={t('Move to')} value={moveTo} onChange={setMoveTo} />
+          <Button tone="secondary" onClick={() => void move(p, moveTo).then(setMoved)}>
+            {t('Move')}
+          </Button>
+        </div>
+      ) : null}
+      {moved && 'refusal' in moved ? <RefusalAlert refusal={moved.refusal} /> : null}
     </li>
   );
 }

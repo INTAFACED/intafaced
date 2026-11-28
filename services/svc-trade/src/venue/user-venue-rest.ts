@@ -40,7 +40,7 @@
  *   POST /api/v1/venue/convert/limit  { owner, from, to, amount, price, limitKey }   a resting venue order (#8)
  *   POST /api/v1/venue/convert/submit { actionKey, signature }   sent, never on a price past its window (#4)
  *   GET  /api/v1/venue/convert/history?owner=          accepted conversions as the venue records them (#10)
- *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
+ *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId?, retryRefused? }
  *   POST /api/v1/venue/submit    { actionKey, signature }    sent on the venue the action was prepared for
  *   GET  /api/v1/venue/markets/:symbol/venues?owner=&side=   every configured venue for the market (J-derivatives-28 #1)
  *   POST /api/v1/venue/route-preview { owner, intent }       the venue chosen for the order, and why (#2, #4)
@@ -1274,12 +1274,14 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       stepUpApprovalId?: string | null;
       venueId?: string | null;
       requestDeadline?: string | null;
+      retryRefused?: boolean;
     }>(req, reply);
     if (!b) return;
     return answer(
       reply,
       async (d) =>
         d.prepare(principal, {
+          retryRefused: b.retryRefused === true,
           owner: b.owner ?? '',
           subAccount: b.subAccount ?? null,
           signer: b.signer as VenueSigner,

@@ -29,3 +29,8 @@ export function dailyLossOf(
 export function startOfUtcDay(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
+
+/** 00:00 UTC of the day after `startOfDay`: when today's loss starts again from zero. */
+export function nextUtcDay(startOfDay: Date): Date {
+  return new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+}
