@@ -16142,6 +16142,673 @@
         }
       ]
     },
+    "trade.journal.replay": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "journal.replay",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.journal_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.journal_request_invalid": "BAD_REQUEST",
+        "trade.journal_trade_unknown": "NOT_FOUND",
+        "trade.venue_sub_account_not_own": "FORBIDDEN",
+        "trade.journal_wallet_not_own": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "subAccount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "tradeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["owner", "since", "tradeId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "trade": {
+            "type": "object",
+            "properties": {
+              "tradeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "symbol": {
+                "type": "string",
+                "minLength": 1
+              },
+              "side": {
+                "type": "string",
+                "enum": ["long", "short"]
+              },
+              "openedAt": {
+                "type": "string"
+              },
+              "closedAt": {
+                "type": "string"
+              },
+              "entryPrice": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "exitPrice": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "size": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "fills": {
+                "minItems": 2,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "fillId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "filledAt": {
+                      "type": "string"
+                    },
+                    "side": {
+                      "type": "string",
+                      "enum": ["buy", "sell"]
+                    },
+                    "price": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "venueFee": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "builderFee": {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "feeAsset": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "opening": {
+                      "type": "boolean"
+                    },
+                    "split": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["fillId", "filledAt", "side", "price", "amount", "venueFee", "builderFee", "feeAsset", "opening", "split"],
+                  "additionalProperties": false
+                }
+              },
+              "feeAsset": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realisedPnl": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "venueFees": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "builderFees": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "funding": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "fundingPayments": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "netPnl": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "plannedStop": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "plannedTarget": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "risk": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rMultiple": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rMissing": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["no_stop_when_opened", "stop_at_entry", "no_result"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "excursion": {
+                "type": "object",
+                "properties": {
+                  "interval": {
+                    "type": "string",
+                    "const": "1m"
+                  },
+                  "complete": {
+                    "type": "boolean"
+                  },
+                  "mae": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "price": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          "perUnit": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          "usd": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          "pct": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["price", "perUnit", "usd", "pct"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "mfe": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "price": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          "perUnit": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          "usd": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          "pct": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          }
+                        },
+                        "required": ["price", "perUnit", "usd", "pct"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["interval", "complete", "mae", "mfe"],
+                "additionalProperties": false
+              },
+              "disciplined": {
+                "type": "object",
+                "properties": {
+                  "exit": {
+                    "type": "string",
+                    "enum": ["stop", "target", "unresolved", "no_plan"]
+                  },
+                  "exitPrice": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "netPnl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["exit", "exitPrice", "netPnl"],
+                "additionalProperties": false
+              },
+              "rules": {
+                "type": "object",
+                "properties": {
+                  "verdict": {
+                    "type": "string",
+                    "enum": ["kept", "no_stop", "widened_unreached", "capped", "stopped", "left_out", "incomplete"]
+                  },
+                  "netPnl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "oneR": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "widenedStop": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dailyLoss": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "limit": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          "loss": {
+                            "type": "string",
+                            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                          },
+                          "asset": {
+                            "type": "string"
+                          },
+                          "warnedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["limit", "loss", "asset", "warnedAt"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["verdict", "netPnl", "oneR", "widenedStop", "dailyLoss"],
+                "additionalProperties": false
+              },
+              "fillIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "storedAt": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": ["venue", "record"]
+              }
+            },
+            "required": [
+              "tradeId",
+              "symbol",
+              "side",
+              "openedAt",
+              "closedAt",
+              "entryPrice",
+              "exitPrice",
+              "size",
+              "fills",
+              "feeAsset",
+              "realisedPnl",
+              "venueFees",
+              "builderFees",
+              "funding",
+              "fundingPayments",
+              "netPnl",
+              "plannedStop",
+              "plannedTarget",
+              "risk",
+              "rMultiple",
+              "rMissing",
+              "excursion",
+              "disciplined",
+              "rules",
+              "fillIds",
+              "storedAt",
+              "source"
+            ],
+            "additionalProperties": false
+          },
+          "tickSize": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "placedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["price", "placedAt"],
+              "additionalProperties": false
+            }
+          },
+          "interval": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bars": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "venue"
+                  },
+                  "asOf": {
+                    "type": "string"
+                  },
+                  "candles": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "openAt": {
+                          "type": "string"
+                        },
+                        "openPrice": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        "highPrice": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        "lowPrice": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        "closePrice": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        "baseVolume": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        }
+                      },
+                      "required": ["openAt", "openPrice", "highPrice", "lowPrice", "closePrice", "baseVolume"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "entryIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "startIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["source", "asOf", "candles", "entryIndex", "startIndex"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "record"
+                  },
+                  "storedAt": {
+                    "type": "string"
+                  },
+                  "candles": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "openAt": {
+                          "type": "string"
+                        },
+                        "openPrice": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        "highPrice": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        "lowPrice": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        "closePrice": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        "baseVolume": {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        }
+                      },
+                      "required": ["openAt", "openPrice", "highPrice", "lowPrice", "closePrice", "baseVolume"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "entryIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "startIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["source", "storedAt", "candles", "entryIndex", "startIndex"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "const": "none"
+                  }
+                },
+                "required": ["source"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["venue", "trade", "tickSize", "stops", "interval", "bars"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "since": "2026-11-01T00:00:00.000Z",
+            "tradeId": "fill-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "since": "2026-11-01T00:00:00.000Z",
+            "tradeId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "since": "yesterday",
+            "tradeId": "fill-1"
+          }
+        }
+      ]
+    },
     "trade.otc.accept": {
       "service": "svc-trade",
       "module": "trade",

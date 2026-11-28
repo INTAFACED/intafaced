@@ -20,6 +20,7 @@ import { useAsOfText, useOwner } from '../venue/VenueKit';
 import { journalCopy } from './journal-copy';
 import { equityOf, equityPlaces, feesOf, minusOneRLessFees, type EquityPoint } from './journal-model';
 import { JournalTrades, tradeFromPath } from './JournalTrades';
+import { TradeReplay } from './TradeReplay';
 
 type View = 'trades' | 'equity';
 const DAY_MS = 86_400_000;
@@ -28,7 +29,8 @@ const DAY_MS = 86_400_000;
  * The trade journal (`/trade/journal`; `?view=equity` opens Equity): the person's closed perpetual trades on their own
  * venue account, read from the venue by svc-trade (record `@intafaced/contracts/trade-journal-procedures`), and on
  * Equity two lines over the same trades, what they made and what they would have made keeping their own stops and
- * daily loss limit, with the gap at the end; any point opens how it was worked out (J-portfolio-19). Read only: nothing is
+ * daily loss limit, with the gap at the end; any point opens how it was worked out (J-portfolio-19). `?replay=<trade>`
+ * replays one closed trade in bar replay (J-charts-desk-20, TradeReplay.tsx). Read only: nothing is
  * sent to the venue and the ledger posts nothing.
  */
 export function JournalRoom({ path }: { path: string }) {
@@ -61,7 +63,9 @@ export function JournalRoom({ path }: { path: string }) {
   if (mode.mode === 'off' || !mode.status.available)
     return off({ kind: 'refused', refusal: { variant: 'parked', title: t('title'), body: t('venueOff') } }, true);
   const status = mode.status;
-  const first: View = new URL(path, location.origin).searchParams.get('view') === 'equity' ? 'equity' : 'trades';
+  const params = new URL(path, location.origin).searchParams;
+  const first: View = params.get('view') === 'equity' ? 'equity' : 'trades';
+  const replay = params.get('replay');
   return (
     <VenueFrame mode={mode}>
       <MonitorTemplate
@@ -79,7 +83,15 @@ export function JournalRoom({ path }: { path: string }) {
         }
         panels={
           <div className="lt-stack">
-            <Owned>{(owner) => <Journal owner={owner} first={first} picked={tradeFromPath(path)} />}</Owned>
+            <Owned>
+              {(owner) =>
+                replay ? (
+                  <TradeReplay owner={owner} tradeId={replay} />
+                ) : (
+                  <Journal owner={owner} first={first} picked={tradeFromPath(path)} />
+                )
+              }
+            </Owned>
           </div>
         }
         explain={<p className="lt-hint">{t('explain')}</p>}

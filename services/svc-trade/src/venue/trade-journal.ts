@@ -24,9 +24,9 @@ import {
   ZERO,
   type Amount,
 } from '@intafaced/ledger-client/money';
-import type { JournalTradeFigures, TradeJournal } from '@intafaced/contracts/trade-journal-procedures';
-import type { TradeJournalStore } from './trade-journal-store.js';
-import { TRADE_JOURNAL_MAX_DAYS, TRADE_JOURNAL_MAX_TRADES } from '@intafaced/contracts/trade-journal-procedures';
+import type { JournalTradeFigures, ReplayBar, TradeJournal } from '@intafaced/contracts/trade-journal-procedures';
+import type { JournalBook, KeptReplay, TradeJournalStore } from './trade-journal-store.js';
+import { REPLAY_BARS_BEFORE_ENTRY, TRADE_JOURNAL_MAX_DAYS, TRADE_JOURNAL_MAX_TRADES } from '@intafaced/contracts/trade-journal-procedures';
 import {
   isTestVenue,
   VENUE_CANDLE_INTERVALS,
@@ -189,31 +189,49 @@ export function plannedLevels(
   trip: RoundTrip,
   orders: readonly UserVenueOrderRecord[],
 ): { stop: Amount | null; target: Amount | null; laterStops: readonly Amount[] } {
+  const timeline = stopTimeline(trip, orders);
+  return {
+    stop: timeline[0]?.price ?? null,
+    target: firstLevel(trip, orders, 'take_profit')?.order.trigger?.price ?? null,
+    laterStops: timeline.slice(1).map((s) => s.price),
+  };
+}
+
+/**
+ * Where the trade's stop stood: the stop it opened with (`plannedLevels`), then each stop-loss trigger placed after it
+ * and before the close, with the time each was placed (J-charts-desk-20, the trade's replay).
+ */
+function stopTimeline(trip: RoundTrip, orders: readonly UserVenueOrderRecord[]): { price: Amount; placedAt: Date }[] {
+  const first = firstLevel(trip, orders, 'stop_loss');
+  if (!first) return [];
+  const closedAt = trip.closedAt.getTime();
+  return levelOrders(trip, orders, 'stop_loss')
+    .filter((r) => r === first || (r.placedAt.getTime() > first.placedAt.getTime() && r.placedAt.getTime() < closedAt))
+    .flatMap((r) => (r.order.trigger ? [{ price: r.order.trigger.price, placedAt: r.placedAt }] : []));
+}
+
+/** The trade's trigger orders of one role on its market that close it, oldest placed first. */
+function levelOrders(trip: RoundTrip, orders: readonly UserVenueOrderRecord[], role: 'stop_loss' | 'take_profit') {
   const closeSide = trip.side === 'long' ? 'sell' : 'buy';
+  return orders
+    .filter((r) => r.order.symbol === trip.symbol && r.order.side === closeSide && r.order.trigger?.role === role)
+    .sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime());
+}
+
+/** The one the trade opened with: attached to the order of its first fill, else placed before its second fill. */
+function firstLevel(
+  trip: RoundTrip,
+  orders: readonly UserVenueOrderRecord[],
+  role: 'stop_loss' | 'take_profit',
+): UserVenueOrderRecord | null {
   const [firstPart, secondPart] = trip.parts;
   const entryOrder = firstPart?.venueClientOrderId ?? null;
   const openedAt = trip.openedAt.getTime();
-  const closedAt = trip.closedAt.getTime();
-  const before = secondPart ? secondPart.filledAt.getTime() : closedAt;
-  const mine = (role: 'stop_loss' | 'take_profit') =>
-    orders
-      .filter((r) => r.order.symbol === trip.symbol && r.order.side === closeSide && r.order.trigger?.role === role)
-      .sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime());
-  const pick = (list: readonly UserVenueOrderRecord[]): UserVenueOrderRecord | null => {
-    const attached = entryOrder ? list.find((r) => r.order.parentClientOrderId === entryOrder) : undefined;
-    const atOpen = list.find((r) => r.placedAt.getTime() >= openedAt && r.placedAt.getTime() < before);
-    return attached ?? atOpen ?? null;
-  };
-  const stops = mine('stop_loss');
-  const first = pick(stops);
-  const laterStops = first
-    ? stops.flatMap((r) =>
-        r !== first && r.placedAt.getTime() > first.placedAt.getTime() && r.placedAt.getTime() < closedAt && r.order.trigger
-          ? [r.order.trigger.price]
-          : [],
-      )
-    : [];
-  return { stop: first?.order.trigger?.price ?? null, target: pick(mine('take_profit'))?.order.trigger?.price ?? null, laterStops };
+  const before = secondPart ? secondPart.filledAt.getTime() : trip.closedAt.getTime();
+  const list = levelOrders(trip, orders, role);
+  const attached = entryOrder ? list.find((r) => r.order.parentClientOrderId === entryOrder) : undefined;
+  const atOpen = list.find((r) => r.placedAt.getTime() >= openedAt && r.placedAt.getTime() < before);
+  return attached ?? atOpen ?? null;
 }
 
 /** What the "keeping my rules" line knows of a trade beyond its own figures, read with its candles: the warning on its opening order. */
@@ -275,7 +293,7 @@ function keepingRules(args: {
 /** The candle interval MAE, MFE and the disciplined exit are read at (J-portfolio-18 #3: the venue's 1-minute candles). */
 const JOURNAL_CANDLE_INTERVAL = '1m' satisfies VenueCandleInterval;
 /** The most candles one read asks for (the wire's and the venues' own cap): twelve hours of 1-minute candles. */
-const JOURNAL_CANDLES_PER_READ = 720;
+export const JOURNAL_CANDLES_PER_READ = 720;
 const MINUTE_MS = VENUE_CANDLE_INTERVALS[JOURNAL_CANDLE_INTERVAL] * 1000;
 const bucketOf = (t: Date) => Math.floor(t.getTime() / MINUTE_MS) * MINUTE_MS;
 
@@ -462,6 +480,35 @@ const DAY_MS = 86_400_000;
  * by its venue, account and first fill, so a second read never stores it twice.
  */
 export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput, userId: string): Promise<TradeJournal> {
+  return (await workTradeJournal(deps, input, userId)).journal;
+}
+
+/** The bars a trade's replay keeps: its market's 1-minute candles from 10 bars before its entry bar to its close. */
+function replayBarsOf(trip: Pick<RoundTrip, 'openedAt' | 'closedAt'>, candles: readonly VenueCandle[]): ReplayBar[] {
+  const from = bucketOf(trip.openedAt) - REPLAY_BARS_BEFORE_ENTRY * MINUTE_MS;
+  return candles
+    .filter((c) => c.openAt.getTime() >= from && c.openAt.getTime() <= trip.closedAt.getTime())
+    .sort((a, b) => a.openAt.getTime() - b.openAt.getTime())
+    .map((c) => ({
+      openAt: c.openAt.toISOString(),
+      openPrice: formatAmount(c.openPrice),
+      highPrice: formatAmount(c.highPrice),
+      lowPrice: formatAmount(c.lowPrice),
+      closePrice: formatAmount(c.closePrice),
+      baseVolume: formatAmount(c.baseVolume),
+    }));
+}
+
+/**
+ * `readTradeJournal`, and the account's book in the journal's record, for the trade replay (trade-replay.ts). Beside each
+ * trade it keeps that trade's replay (`replayBarsOf` and its stop timeline), so a trade the venue no longer returns
+ * still replays. Crash points: as `readTradeJournal`'s; a trade kept without its replay gets it on the next read.
+ */
+export async function workTradeJournal(
+  deps: TradeJournalDeps,
+  input: TradeJournalInput,
+  userId: string,
+): Promise<{ journal: TradeJournal; book: JournalBook }> {
   const now = deps.now();
   const since = new Date(input.since);
   if (Number.isNaN(since.getTime()) || since.getTime() > now.getTime() || now.getTime() - since.getTime() > TRADE_JOURNAL_MAX_DAYS * DAY_MS)
@@ -505,9 +552,12 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
     .slice(0, input.limit);
 
   const candleReads = new Map<string, Promise<readonly VenueCandle[]>>();
+  const replays: KeptReplay[] = [];
   const worked = await Promise.all(
     trips.map(async (trip) => {
-      const from = new Date(bucketOf(trip.openedAt));
+      // From 10 bars before the entry bar, so the trade's replay keeps the bars it starts on; the figures read from the
+      // entry bar on.
+      const from = new Date(bucketOf(trip.openedAt) - REPLAY_BARS_BEFORE_ENTRY * MINUTE_MS);
       const key = `${trip.symbol}|${from.getTime()}`;
       let read = candleReads.get(key);
       if (!read) {
@@ -519,11 +569,21 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
           const w = p.opening && p.venueClientOrderId ? warnedBy.get(p.venueClientOrderId.toLowerCase()) : undefined;
           return w ? [w] : [];
         })[0] ?? null;
-      return journalTrade(trip, plannedLevels(trip, orders.value), { candles: await read, funding: funding.value, warned });
+      const candles = await read;
+      const trade = journalTrade(trip, plannedLevels(trip, orders.value), { candles, funding: funding.value, warned });
+      replays.push({
+        tradeId: trade.tradeId,
+        complete: trade.excursion.complete,
+        interval: JOURNAL_CANDLE_INTERVAL,
+        bars: replayBarsOf(trip, candles),
+        stops: stopTimeline(trip, orders.value).map((x) => ({ price: formatAmount(x.price), placedAt: x.placedAt.toISOString() })),
+      });
+      return trade;
     }),
   );
   const book = { venueId: account.venueId, owner: account.owner, subAccount: account.subAccount };
   await deps.store.keep(book, worked, now);
+  await deps.store.keepReplays(book, replays, now);
   const onVenue = new Set(worked.map((t) => t.tradeId));
   const trades = (await deps.store.list(book, since, input.limit)).map(({ trade, storedAt }) => ({
     ...trade,
@@ -536,7 +596,7 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
     t.disciplined.netPnl === null || t.netPnl === null ? [] : [{ actual: t.netPnl, disciplined: t.disciplined.netPnl }],
   );
   const total = (xs: readonly string[]) => formatAmount(sum(xs.map((x) => parseAmount(x))));
-  return {
+  const journal: TradeJournal = {
     venue: { id: venue.venue.id, name: venue.venue.displayName, test: isTestVenue(venue.venue) },
     owner: account.owner,
     subAccount: account.subAccount,
@@ -553,6 +613,7 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
       rulesNetPnl: total(trades.flatMap((t) => (t.rules.netPnl === null ? [] : [t.rules.netPnl]))),
     },
   };
+  return { journal, book };
 }
 
 /** A venue refusal (down, unknown account) answers as the journal being unavailable, in the venue's words. */

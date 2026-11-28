@@ -1,6 +1,8 @@
 import type { JournalTrade, TradeJournal } from '@intafaced/contracts/trade-journal-procedures';
+import { ButtonLink } from '@intafaced/ui/lit';
 import { Table, type Column } from '@intafaced/ui/lit/templates';
 import { TestMark } from '../venue/volt/VoltVenue';
+import { journalCopy } from './journal-copy';
 import { journalTradesCopy } from './journal-trades-copy';
 
 type T = ReturnType<typeof journalTradesCopy.useCopy>['t'];
@@ -131,6 +133,7 @@ function ExcursionLine({ part, label, value, t }: { part: string; label: string;
 
 function TradeDetail({ trade, journal, t }: { trade: JournalTrade; journal: TradeJournal; t: T }) {
   const a = trade.feeAsset;
+  const replay = journalCopy.useCopy().t;
   return (
     <section
       data-testid="journal-trade"
@@ -146,6 +149,12 @@ function TradeDetail({ trade, journal, t }: { trade: JournalTrade; journal: Trad
         })}{' '}
         <TestMark test={journal.venue.test} />
       </h3>
+      {/* J-charts-desk-20: the trade replayed in bar replay, its entry, stop and exit appearing as the bars reach them. */}
+      <div className="lt-row">
+        <ButtonLink size="sm" href={`/trade/journal?replay=${encodeURIComponent(trade.tradeId)}`} data-testid="journal-replay">
+          {replay('replayThis')}
+        </ButtonLink>
+      </div>
       <p data-testid="journal-source" data-stored-at={trade.storedAt} className="lt-muted">
         {trade.source === 'record'
           ? t('Journal from record', { time: when(trade.storedAt) })

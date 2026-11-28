@@ -169,7 +169,7 @@ export const tradeJournalSchema = z.object({
 });
 export type TradeJournal = z.infer<typeof tradeJournalSchema>;
 
-const refuse = (map: Record<string, 'BAD_REQUEST' | 'FORBIDDEN' | 'SERVICE_UNAVAILABLE'>): Refusals => Object.freeze(map);
+const refuse = (map: Record<string, 'BAD_REQUEST' | 'FORBIDDEN' | 'NOT_FOUND' | 'SERVICE_UNAVAILABLE'>): Refusals => Object.freeze(map);
 
 const OWNER = '0x1111111111111111111111111111111111111111';
 
@@ -199,5 +199,88 @@ export const TRADE_JOURNAL_CLOSED_TRADES = defineProcedure({
     { verdict: 'refuse', input: { owner: OWNER, since: 'yesterday', limit: 50 } },
     { verdict: 'refuse', input: { owner: OWNER, since: '2026-11-01T00:00:00.000Z', limit: 0 } },
     { verdict: 'refuse', input: {} },
+  ],
+});
+
+/**
+ * THE REPLAY OF ONE JOURNAL TRADE (J-charts-desk-20): the closed trade as the journal reads it, the stop it opened with
+ * and each later one with the time it was placed, and its market's bars. While the venue still returns the bar the entry
+ * falls in, the bars are the venue's (`venue`), at the finest interval whose bars from 10 bars before the entry bar up to
+ * now fit in one read. Once it no longer does, they are the 1-minute bars the journal kept with the trade (`record`,
+ * named with the time they were stored), and when none were kept, `bars` says so (`none`): a chart is never made up.
+ * `startIndex` is where the replay starts (10 bars before `entryIndex`, the bar the entry falls in, or the first bar when
+ * fewer were kept). Read only, as the journal is.
+ */
+export const REPLAY_BARS_BEFORE_ENTRY = 10;
+
+export const replayBarSchema = z.object({
+  openAt: z.string(),
+  openPrice: decimal,
+  highPrice: decimal,
+  lowPrice: decimal,
+  closePrice: decimal,
+  baseVolume: decimal,
+});
+export type ReplayBar = z.infer<typeof replayBarSchema>;
+
+export const replayStopSchema = z.object({ price: decimal, placedAt: z.string() });
+export type ReplayStop = z.infer<typeof replayStopSchema>;
+
+export const tradeReplaySchema = z.object({
+  venue: z.object({ id: z.string(), name: z.string(), test: z.boolean() }),
+  trade: journalTradeSchema,
+  /** The market's price step as the venue lists it; `null` when the market is no longer listed. */
+  tickSize: decimal.nullable(),
+  /** Where the trade's stop stood: the stop it opened with, then each later one, from the time it was placed. */
+  stops: z.array(replayStopSchema),
+  interval: z.string().min(1),
+  bars: z.discriminatedUnion('source', [
+    z.object({
+      source: z.literal('venue'),
+      /** The venue's own time for its candles read. */
+      asOf: z.string(),
+      candles: z.array(replayBarSchema).min(1),
+      entryIndex: z.number().int().min(0),
+      startIndex: z.number().int().min(0),
+    }),
+    z.object({
+      source: z.literal('record'),
+      /** When the journal stored these bars. */
+      storedAt: z.string(),
+      candles: z.array(replayBarSchema).min(1),
+      entryIndex: z.number().int().min(0),
+      startIndex: z.number().int().min(0),
+    }),
+    z.object({ source: z.literal('none') }),
+  ]),
+});
+export type TradeReplay = z.infer<typeof tradeReplaySchema>;
+
+/** `journal.replay`: one closed trade of the person's journal, with its stops over time and its market's bars. */
+export const TRADE_JOURNAL_REPLAY = defineProcedure({
+  ...base,
+  name: 'trade.journal.replay',
+  kind: 'query',
+  path: 'journal.replay',
+  access: READ,
+  refusals: refuse({
+    'trade.journal_unavailable': 'SERVICE_UNAVAILABLE',
+    'trade.journal_request_invalid': 'BAD_REQUEST',
+    'trade.journal_trade_unknown': 'NOT_FOUND',
+    'trade.venue_sub_account_not_own': 'FORBIDDEN',
+    // A wallet the caller's own signature never proved theirs: nothing is read or kept, as for the journal.
+    'trade.journal_wallet_not_own': 'FORBIDDEN',
+  }),
+  input: z.object({
+    owner: z.string().max(64),
+    subAccount: z.string().max(128).nullable().optional(),
+    since: z.string().datetime(),
+    tradeId: z.string().min(1).max(128),
+  }),
+  output: tradeReplaySchema,
+  samples: [
+    { verdict: 'accept', input: { owner: OWNER, since: '2026-11-01T00:00:00.000Z', tradeId: 'fill-1' } },
+    { verdict: 'refuse', input: { owner: OWNER, since: '2026-11-01T00:00:00.000Z', tradeId: '' } },
+    { verdict: 'refuse', input: { owner: OWNER, since: 'yesterday', tradeId: 'fill-1' } },
   ],
 });

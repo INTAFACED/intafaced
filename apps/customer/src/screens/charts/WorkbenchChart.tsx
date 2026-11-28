@@ -18,6 +18,8 @@ import type { ChartApi, ChartHost, ChartLib, ChartSeries } from './chart-host';
 import { viewKeys } from './chart-keys';
 import { DEFAULT_CHART_SETTINGS, type ChartSettings } from './chart-settings';
 import type { PriceLine } from './price-lines';
+// The chart's own frame (wc-root, wc-stage's floor height): loaded wherever the chart is drawn, not only on /charts.
+import './charts.css';
 import {
   PERCENT_PRICE_FORMAT,
   SCHEME_TOKENS,

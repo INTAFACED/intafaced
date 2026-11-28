@@ -119,4 +119,38 @@ describe('SqlTradeJournalStore on Postgres (trade.user_venue_journal_trades)', (
     expect((await store.list(BOOK, new Date('2026-11-28T00:00:00Z'), 1)).map((r) => r.trade.tradeId)).toEqual(['fill-b']);
     expect((await store.list(OTHER, new Date('2026-11-28T00:00:00Z'), 10)).map((r) => r.trade.tradeId)).toEqual(['fill-c']);
   });
+
+  // trade.user_venue_journal_replays (J-charts-desk-20 #3): a kept replay round-trips exactly, once per account and
+  // trade, and one kept with its candles missing is replaced once by a complete one.
+  it("keeps each trade's replay once, completes one kept incomplete, and reads it for its own account only", async () => {
+    const store = new SqlTradeJournalStore(db!.sql);
+    const t0 = new Date('2026-11-28T10:10:00Z');
+    const t1 = new Date('2026-11-28T10:20:00Z');
+    const bar = (hhmm: string) => ({
+      openAt: `2026-11-28T${hhmm}:00.000Z`,
+      openPrice: '100',
+      highPrice: '101',
+      lowPrice: '99.5',
+      closePrice: '100.25',
+      baseVolume: '0.5',
+    });
+    const stops = [
+      { price: '95', placedAt: '2026-11-28T10:00:20.000Z' },
+      { price: '90', placedAt: '2026-11-28T10:01:30.000Z' },
+    ];
+    const full = { tradeId: 'fill-r', complete: true, interval: '1m', bars: [bar('09:50'), bar('10:00')], stops };
+    const part = { tradeId: 'fill-s', complete: false, interval: '1m', bars: [], stops: [] };
+    await store.keepReplays(BOOK, [full, part], t0);
+    expect(await store.replayOf(BOOK, 'fill-r')).toEqual({ ...full, storedAt: t0 });
+    expect(await store.replayOf(BOOK, 'fill-s')).toEqual({ ...part, storedAt: t0 });
+    expect(await store.replayOf(OTHER, 'fill-r')).toBeNull();
+    expect(await store.replayOf(BOOK, 'fill-none')).toBeNull();
+
+    // A second read: the complete one never changes; the incomplete one is completed once, then stays.
+    const done = { ...part, complete: true, bars: [bar('10:00')] };
+    await store.keepReplays(BOOK, [{ ...full, bars: [] }, done], t1);
+    await store.keepReplays(BOOK, [{ ...done, bars: [] }], new Date('2026-11-28T10:30:00Z'));
+    expect(await store.replayOf(BOOK, 'fill-r')).toEqual({ ...full, storedAt: t0 });
+    expect(await store.replayOf(BOOK, 'fill-s')).toEqual({ ...done, storedAt: t1 });
+  });
 });
