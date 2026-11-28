@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PROTECTION_FIELDS, canonical, closingSide, coverage, protectionClientId, whereItRests } from './venue-protect-logic';
+import { PROTECTION_FIELDS, canonical, closingSide, coverage, protectionClientId, sizeToClose, whereItRests } from './venue-protect-logic';
 
 describe('whereItRests', () => {
   const both = ['mark', 'last'] as const;
@@ -60,5 +60,19 @@ describe('fields, sides and ids', () => {
     const b = protectionClientId(1_700_000_000_000, 1);
     expect(a).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('sizeToClose', () => {
+  it('starts as the whole position, so an exit order for the whole position needs no size typed', () => {
+    expect(sizeToClose(null, '0.001')).toBe('0.001');
+    expect(coverage(sizeToClose(null, '0.001'), '0.001')).toEqual({ whole: true });
+  });
+  it('keeps what the person typed, a blank included, over the position', () => {
+    expect(sizeToClose('0.0004', '0.001')).toBe('0.0004');
+    expect(sizeToClose('', '0.001')).toBe('');
+  });
+  it('is blank while no position is read', () => {
+    expect(sizeToClose(null, null)).toBe('');
   });
 });

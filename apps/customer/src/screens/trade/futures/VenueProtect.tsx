@@ -37,10 +37,10 @@ import {
 import { signWithSessionKey } from '../../../features/protocol';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueProtectCopy } from './venue-protect-copy';
-import { PROTECTION_FIELDS, canonical, closingSide, coverage, protectionClientId, whereItRests } from './venue-protect-logic';
+import { PROTECTION_FIELDS, canonical, closingSide, coverage, protectionClientId, sizeToClose, whereItRests } from './venue-protect-logic';
 
 type PT = ReturnType<typeof venueProtectCopy.useCopy>['t'];
-type Field = 'quantity' | 'triggerPrice' | 'limitPrice' | 'trailingDistance';
+type Field = 'triggerPrice' | 'limitPrice' | 'trailingDistance';
 
 /**
  * Who signs a position's exit order that rests on the venue (a trigger order is an order): the desk's live trading
@@ -163,7 +163,10 @@ export function ProtectDialog({
   const exitSigner = useExitSigner(owner);
   const [kind, setKind] = useState<ProtectionKind>('take_profit');
   const [source, setSource] = useState<ProtectionSource>('mark');
-  const [fields, setFields] = useState<Record<Field, string>>({ quantity: '', triggerPrice: '', limitPrice: '', trailingDistance: '' });
+  const [fields, setFields] = useState<Record<Field, string>>({ triggerPrice: '', limitPrice: '', trailingDistance: '' });
+  // The size to close starts as the whole position (J-derivatives-03 #1: an exit order "for the whole position"), and
+  // follows the venue's position until the person types their own.
+  const [typedQuantity, setTypedQuantity] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const busy = useRef(false);
@@ -172,14 +175,15 @@ export function ProtectDialog({
   const where = whereItRests(kind, source, market.triggerSources);
   const takes = PROTECTION_FIELDS[kind];
   const size = position?.size ?? null;
-  const covers = size && fields.quantity.trim() ? coverage(fields.quantity, size) : null;
+  const quantityValue = sizeToClose(typedQuantity, size);
+  const covers = size && quantityValue.trim() ? coverage(quantityValue, size) : null;
   const mine = (list.data?.protections ?? []).filter((p) => p.symbol === market.symbol);
 
   async function arm() {
     if (busy.current) return;
     setOutcome(null);
     setRefusal(null);
-    const quantity = fields.quantity.trim();
+    const quantity = quantityValue.trim();
     if (!positive(quantity)) return setRefusal({ message: t('Size invalid'), code: null });
     for (const f of takes)
       if (!positive(fields[f])) return setRefusal({ message: t('Field invalid', { field: t(fieldLabel(f)) }), code: null });
@@ -249,7 +253,7 @@ export function ProtectDialog({
               : t('where_none', { venue: venueName, kind: kindWords(t, kind).toLowerCase(), source: sourceWords(t, source) })}
         </p>
         {where === 'engine' ? <AgentPermission owner={owner} /> : null}
-        <NumberField label={t('Size to close')} value={fields.quantity} onChange={(x) => setFields({ ...fields, quantity: x })} />
+        <NumberField label={t('Size to close')} value={quantityValue} onChange={setTypedQuantity} />
         {takes.map((f) => (
           <NumberField key={f} label={t(fieldLabel(f))} value={fields[f]} onChange={(x) => setFields({ ...fields, [f]: x })} />
         ))}
