@@ -101,7 +101,11 @@ type Failure = { code: string; message: string };
 type Read<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'failed'; failure: Failure };
 
 /** One bank read, re-read whenever `version` changes. */
-export function useAccountRead<T>(procedure: string, schema: z.ZodType<T>, version: number): Read<T> {
+export function useAccountRead<T>(
+  procedure: 'onboarding' | 'requests' | 'reviews' | 'closure' | 'dataRequests',
+  schema: z.ZodType<T>,
+  version: number,
+): Read<T> {
   const { api, userId, profiles } = useSession();
   // Every bank call carries the profile in view (J-bank-01 #7); a business profile is refused, as it has no bank account here.
   const profile = profiles.active;
