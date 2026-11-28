@@ -1,8 +1,5 @@
 import { useRef, useState } from 'react';
-import type { z } from 'zod';
 import {
-  academyAuthoredCourseEnrolmentSchema,
-  academyCourseEnrolmentSchema,
   type AcademyAuthoredCourseEnrolment,
   type AcademyEnrolmentClosedReason,
   type AcademyEnrolmentTrack,
@@ -19,6 +16,13 @@ import { AcademyRefusal } from './academy-refusal';
 import { KitGuardedButton as GuardedButton } from './academy-guarded';
 import { ServiceOffNote as ServiceOffNotice } from './service-off-note';
 import { Waiting } from './volt-parts';
+import { ACADEMY_LEAVE_AUTHORED_COURSE } from '@intafaced/contracts/academy-leave-authored-course-procedures';
+import { ACADEMY_AUTHORED_COURSE_ENROLMENT } from '@intafaced/contracts/academy-authored-course-enrolment-procedures';
+import { ACADEMY_COURSE_ENROLMENT } from '@intafaced/contracts/academy-course-enrolment-procedures';
+import { ACADEMY_ENROL_AUTHORED_COURSE } from '@intafaced/contracts/academy-enrol-authored-course-procedures';
+import { ACADEMY_ENROL_COURSE } from '@intafaced/contracts/academy-enrol-course-procedures';
+import { callAs } from '../../shared/api';
+import { ACADEMY_LEAVE_CERT_PATH } from '@intafaced/contracts/academy-leave-cert-path-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -55,9 +59,11 @@ export function AcademyCourseEnrol({
   const api = useApi();
   const { userId } = useSession();
   const authored = source === 'authored';
-  const schema: z.ZodType<AcademyAuthoredCourseEnrolment> = authored ? academyAuthoredCourseEnrolmentSchema : academyCourseEnrolmentSchema;
   const terms = useResource(
-    (signal) => api.query('academy', authored ? 'authoredCourseEnrolment' : 'courseEnrolment', { slug }, schema, { signal }),
+    (signal) =>
+      authored
+        ? api.call(ACADEMY_AUTHORED_COURSE_ENROLMENT, { slug }, { signal })
+        : api.call(ACADEMY_COURSE_ENROLMENT, { slug }, { signal }),
     `course-enrolment:${source}:${slug}`,
   );
   const [sending, setSending] = useState(false);
@@ -83,15 +89,17 @@ export function AcademyCourseEnrol({
     }
   };
   const enrol = (track: AcademyEnrolmentTrack) =>
-    send('enrol', () => api.mutate('academy', authored ? 'enrolAuthoredCourse' : 'enrolCourse', { slug, track }, schema));
+    send('enrol', () =>
+      authored ? api.call(ACADEMY_ENROL_AUTHORED_COURSE, { slug, track }) : api.call(ACADEMY_ENROL_COURSE, { slug, track }),
+    );
   // The business key of this leave is the enrolment it ends: a resend after a lost reply is the same leave, never a second.
   const leave = (enrolledAt: string) =>
     send('leave', () =>
       authored
-        ? api.mutate('academy', 'leaveAuthoredCourse', { slug, enrolledAt }, schema)
-        : api.mutate(
-            'academy',
-            'leaveCertPath',
+        ? api.call(ACADEMY_LEAVE_AUTHORED_COURSE, { slug, enrolledAt })
+        : callAs(
+            api,
+            ACADEMY_LEAVE_CERT_PATH,
             { pathSlug: slug, clientRequestId: `leave:${slug}:${enrolledAt}` },
             leaveReceipt(userId, slug),
           ),

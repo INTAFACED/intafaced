@@ -4,7 +4,6 @@ import {
   explainRefusal,
   failureRefusal,
   founderAskedCall,
-  founderCall,
   founderRecordCall,
   type DeskRequest,
   type ExecuteFn,
@@ -17,7 +16,7 @@ import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops'
 import { MARKET_OPS_TAKEDOWN_LISTING, MARKET_VET } from '@intafaced/contracts/market-procedures';
 import { normaliseCostAmount } from '@/lib/venue-economics';
 import { isRecord } from '@intafaced/contracts/guards';
-import { ACADEMY_ADMIN_GRANT_CERT_EXCEPTION } from '@intafaced/contracts/academy-admin-records';
+import { ACADEMY_ADMIN_GRANT_CERT_EXCEPTION, ACADEMY_ADMIN_REVOKE_CERT } from '@intafaced/contracts/academy-admin-records';
 import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint-ambassador-procedures';
 import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
 import { OPS_CAPITAL_SET_THRESHOLD } from '@intafaced/contracts/ops-capital-procedures';
@@ -260,11 +259,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: `svc-academy answered and its returned application is ${a.status}.` };
     }
     if (request.kind === 'academy.cert.revoke') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'academy',
-        'admin.revokeCert',
-        'POST',
+        ACADEMY_ADMIN_REVOKE_CERT,
         { publicId: request.publicId, reason: request.reason, ...ids },
         readCertRevocationAnswer,
       );

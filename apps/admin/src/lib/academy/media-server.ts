@@ -10,7 +10,6 @@ import {
   academySetItemCaptionsResultSchema,
 } from '@intafaced/contracts/academy-courses';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -20,7 +19,12 @@ import {
   founderRecordRead,
 } from '@/lib/desk';
 import type { MediaDeskReply, MediaView } from './media-model';
-import { ACADEMY_ADMIN_ITEM_MEDIA, ACADEMY_ADMIN_CONFIRM_MEDIA } from '@intafaced/contracts/academy-admin-records';
+import {
+  ACADEMY_ADMIN_ITEM_MEDIA,
+  ACADEMY_ADMIN_CONFIRM_MEDIA,
+  ACADEMY_ADMIN_SET_ITEM_CAPTIONS,
+  ACADEMY_ADMIN_MEDIA_UPLOAD_INTENT,
+} from '@intafaced/contracts/academy-admin-records';
 
 /**
  * Course files as the signed-in founder. The browser sends a file's bytes straight to our own object store through the
@@ -88,7 +92,7 @@ export async function changeMedia(
     case 'captions': {
       const parsed = academySetItemCaptionsInputSchema.safeParse(input);
       if (!parsed.success) return { why: 'Which item, which language and label, SRT or WebVTT, and the file text?' };
-      const result = await founderCall(ctx, 'academy', 'admin.setItemCaptions', 'POST', parsed.data, readCaptions);
+      const result = await founderRecordRead(ctx, ACADEMY_ADMIN_SET_ITEM_CAPTIONS, parsed.data, readCaptions);
       return reply(result, (answer) =>
         answer.outcome === 'saved'
           ? { status: 200, reply: { ok: true, what: 'captions saved', itemMedia: answer.media } }
@@ -123,7 +127,7 @@ export async function uploadMedia(
 ): Promise<{ status: number; reply: MediaDeskReply } | { why: string }> {
   const parsed = academyMediaIntentInputSchema.safeParse(declared);
   if (!parsed.success) return { why: 'Which item, which kind of file, and its name, type, size and fingerprint?' };
-  const intent = await founderCall(ctx, 'academy', 'admin.mediaUploadIntent', 'POST', parsed.data, readIntent);
+  const intent = await founderRecordRead(ctx, ACADEMY_ADMIN_MEDIA_UPLOAD_INTENT, parsed.data, readIntent);
   // A refused declaration comes back here, before a byte of the file is read.
   if (intent.kind !== 'ok' || !intent.data)
     return reply(intent, () => ({ status: 502, reply: { ok: false, ...explainRefusal(null, 502, true) } }));

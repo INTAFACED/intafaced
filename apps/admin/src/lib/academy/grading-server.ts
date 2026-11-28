@@ -8,7 +8,6 @@ import {
   academyOpenGradingInputSchema,
 } from '@intafaced/contracts/academy-courses';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -18,7 +17,12 @@ import {
   founderRecordRead,
 } from '@/lib/desk';
 import type { AcademyBulkGradeResult, AcademyGradingQueue, GradingDeskReply, GradingView } from './grading-model';
-import { ACADEMY_ADMIN_GRADING_QUEUE } from '@intafaced/contracts/academy-admin-records';
+import {
+  ACADEMY_ADMIN_GRADING_QUEUE,
+  ACADEMY_ADMIN_GRADE_SUBMISSION,
+  ACADEMY_ADMIN_OPEN_GRADING,
+  ACADEMY_ADMIN_BULK_GRADE,
+} from '@intafaced/contracts/academy-admin-records';
 
 /**
  * One assignment's grading queue as the signed-in founder (AC-assignments-02). svc-academy shows learners under aliases,
@@ -83,19 +87,19 @@ function reply(
 const OPS = {
   open: {
     schema: academyOpenGradingInputSchema,
-    procedure: 'admin.openGrading',
+    record: ACADEMY_ADMIN_OPEN_GRADING,
     what: 'hand-in opened for grading',
     why: 'Which hand-in?',
   },
   grade: {
     schema: academyGradeSubmissionInputSchema,
-    procedure: 'admin.gradeSubmission',
+    record: ACADEMY_ADMIN_GRADE_SUBMISSION,
     what: 'grade saved',
     why: 'A score is a number from 0 with at most two decimals; a comment runs to 5,000 characters and a reason to 500.',
   },
   bulk: {
     schema: academyBulkGradeInputSchema,
-    procedure: 'admin.bulkGrade',
+    record: ACADEMY_ADMIN_BULK_GRADE,
     what: 'grade file read',
     why: `Choose a CSV grade file of up to ${ACADEMY_BULK_GRADE_FILE_MAX_CHARS} characters.`,
   },
@@ -113,6 +117,6 @@ export async function changeGrading(
   const { op: _op, ...input } = body;
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: spec.why };
-  if (op === 'bulk') return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readBulk), spec.what);
-  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readQueue), spec.what);
+  if (op === 'bulk') return reply(await founderRecordRead(ctx, spec.record, parsed.data, readBulk), spec.what);
+  return reply(await founderRecordRead(ctx, spec.record, parsed.data, readQueue), spec.what);
 }

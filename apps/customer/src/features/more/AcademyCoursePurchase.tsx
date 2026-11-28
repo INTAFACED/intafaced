@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { academyCoursePurchaseViewSchema, type AcademyCoursePurchaseView } from '@intafaced/contracts/academy-catalogue';
+import { type AcademyCoursePurchaseView } from '@intafaced/contracts/academy-catalogue';
 import { ServiceOffNotice as KitServiceOffNotice } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -11,6 +11,8 @@ import { KitGuardedButton as GuardedButton } from './academy-guarded';
 import { Section, Waiting } from './volt-parts';
 import { ACADEMY_COURSE_PURCHASE } from '@intafaced/contracts/academy-course-purchase-procedures';
 import { ACADEMY_ABANDON_COURSE_PURCHASE } from '@intafaced/contracts/academy-abandon-course-purchase-procedures';
+import { ACADEMY_BUY_COURSE } from '@intafaced/contracts/academy-buy-course-procedures';
+import { ACADEMY_SUBMIT_COURSE_PAYMENT } from '@intafaced/contracts/academy-submit-course-payment-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type View = AcademyCoursePurchaseView;
@@ -92,7 +94,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
     setRefusal(null);
     setNote(null);
     try {
-      const answer = await api.mutate('academy', 'buyCourse', { slug, wallet: wallet.address }, academyCoursePurchaseViewSchema);
+      const answer = await api.call(ACADEMY_BUY_COURSE, { slug, wallet: wallet.address });
       if (!answer.ok) {
         setRefusal(answer);
         return;
@@ -103,7 +105,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
       if (!request || !key) return;
       const signed = await wallet.sign({ kind: 'transaction', to: request.to, data: request.data, value: '0x0' });
       if (signed.status === 'sent') {
-        const stored = await api.mutate('academy', 'submitCoursePayment', { key, txHash: signed.hash }, academyCoursePurchaseViewSchema);
+        const stored = await api.call(ACADEMY_SUBMIT_COURSE_PAYMENT, { key, txHash: signed.hash });
         if (!stored.ok) setRefusal(stored);
       } else if (signed.status === 'rejected') {
         await api.call(ACADEMY_ABANDON_COURSE_PURCHASE, { key });

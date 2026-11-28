@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { academyReviewStateSchema, type AcademyReviewState, type AcademyReviewTask } from '@intafaced/contracts/academy-courses';
+import { type AcademyReviewState, type AcademyReviewTask } from '@intafaced/contracts/academy-courses';
 import { Button, Radio } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -10,6 +10,7 @@ import { byteSize } from './AcademyAssignment';
 import { Waiting } from './volt-parts';
 import { ACADEMY_PEER_REVIEW } from '@intafaced/contracts/academy-peer-review-procedures';
 import { ACADEMY_PEER_REVIEW_FILE } from '@intafaced/contracts/academy-peer-review-file-procedures';
+import { ACADEMY_SUBMIT_PEER_REVIEW } from '@intafaced/contracts/academy-submit-peer-review-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -144,7 +145,7 @@ export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handed
     setSending(true);
     setRefused(null);
     setUncertain(false);
-    const sent = await api.mutate('academy', 'submitPeerReview', { itemId, taskId: task.id, marks }, academyReviewStateSchema);
+    const sent = await api.call(ACADEMY_SUBMIT_PEER_REVIEW, { itemId, taskId: task.id, marks });
     inFlight.current = false;
     setSending(false);
     if (sent.ok) return setAnswered(sent.data);
