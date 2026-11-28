@@ -819,6 +819,7 @@ import {
   BANK_OPS_CARD_DISPUTE_ARBITRATION,
   BANK_OPS_CARD_DISPUTE_CREDIT,
   BANK_OPS_CARD_DISPUTE_DECIDE,
+  BANK_OPS_CARD_PROGRAMME_DESK,
 } from './bank-ops-2-procedures.js';
 
 import {
@@ -3490,6 +3491,7 @@ const part_bank_ops_2_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_CARD_DISPUTE_ARBITRATION,
   BANK_OPS_CARD_DISPUTE_CREDIT,
   BANK_OPS_CARD_DISPUTE_DECIDE,
+  BANK_OPS_CARD_PROGRAMME_DESK,
 ];
 
 const part_bank_ops_3_procedures: readonly ProcedureRecord[] = [

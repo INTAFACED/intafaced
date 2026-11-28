@@ -39017,6 +39017,791 @@
         }
       ]
     },
+    "bank.ops.cardProgrammeDesk": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.cardProgrammeDesk",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "test": {
+            "type": "boolean"
+          },
+          "programme": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "simulated": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "displayName", "simulated"],
+            "additionalProperties": false
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "programme": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "updatedBy": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["value", "version", "updatedBy", "updatedAt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "product": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "updatedBy": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["value", "version", "updatedBy", "updatedAt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "bin": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "updatedBy": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["value", "version", "updatedBy", "updatedAt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "fees": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "updatedBy": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["value", "version", "updatedBy", "updatedAt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "threeds": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "$ref": "#/$defs/__schema0"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "updatedBy": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["value", "version", "updatedBy", "updatedAt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["programme", "product", "bin", "fees", "threeds"],
+            "additionalProperties": false
+          },
+          "checklist": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "done": {
+                  "type": "boolean"
+                },
+                "blocker": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "label", "done", "blocker"],
+              "additionalProperties": false
+            }
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "ruleKey": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "name": {
+                  "type": "string"
+                },
+                "params": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "amount_above"
+                        },
+                        "assetId": {
+                          "type": "string",
+                          "pattern": "^[A-Z0-9]{2,16}$"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d{1,18})?$"
+                        }
+                      },
+                      "required": ["kind", "assetId", "amount"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "merchant_category"
+                        },
+                        "category": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        }
+                      },
+                      "required": ["kind", "category"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "channel"
+                        },
+                        "channel": {
+                          "type": "string",
+                          "enum": ["card-present", "online", "contactless", "atm", "foreign"]
+                        }
+                      },
+                      "required": ["kind", "channel"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "words": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["shadow", "active", "retired"]
+                },
+                "shadow": {
+                  "type": "object",
+                  "properties": {
+                    "evaluated": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "wouldDecline": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["evaluated", "wouldDecline", "at"],
+                  "additionalProperties": false
+                },
+                "createdBy": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "promotedAt": {
+                  "type": ["string", "null"]
+                },
+                "retiredAt": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "id",
+                "ruleKey",
+                "version",
+                "name",
+                "params",
+                "words",
+                "state",
+                "shadow",
+                "createdBy",
+                "createdAt",
+                "promotedAt",
+                "retiredAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "staff": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["manager", "viewer"]
+                },
+                "assignedBy": {
+                  "type": "string"
+                },
+                "assignedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["userId", "email", "role", "assignedBy", "assignedAt"],
+              "additionalProperties": false
+            }
+          },
+          "audit": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "before": {
+                  "type": ["string", "null"]
+                },
+                "after": {
+                  "type": ["string", "null"]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "actor", "action", "target", "before", "after", "at"],
+              "additionalProperties": false
+            }
+          },
+          "reviewQueue": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["individual", "business"]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": ["string", "null"]
+                },
+                "country": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": ["string", "null"]
+                },
+                "beneficialOwners": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["name", "email"],
+                    "additionalProperties": false
+                  }
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["verified", "review"]
+                },
+                "gap": {
+                  "type": ["string", "null"]
+                },
+                "gapCode": {
+                  "type": ["string", "null"]
+                },
+                "screening": {
+                  "type": "string",
+                  "enum": ["clear", "listed"]
+                },
+                "screenedAt": {
+                  "type": "string"
+                },
+                "test": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "name",
+                "email",
+                "country",
+                "userId",
+                "beneficialOwners",
+                "status",
+                "gap",
+                "gapCode",
+                "screening",
+                "screenedAt",
+                "test",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "cardholders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["individual", "business"]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": ["string", "null"]
+                },
+                "country": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": ["string", "null"]
+                },
+                "beneficialOwners": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["name", "email"],
+                    "additionalProperties": false
+                  }
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["verified", "review"]
+                },
+                "gap": {
+                  "type": ["string", "null"]
+                },
+                "gapCode": {
+                  "type": ["string", "null"]
+                },
+                "screening": {
+                  "type": "string",
+                  "enum": ["clear", "listed"]
+                },
+                "screenedAt": {
+                  "type": "string"
+                },
+                "test": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "cards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      "panTail": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "assetId": {
+                        "type": "string"
+                      },
+                      "test": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["id", "panTail", "status", "assetId", "test"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "name",
+                "email",
+                "country",
+                "userId",
+                "beneficialOwners",
+                "status",
+                "gap",
+                "gapCode",
+                "screening",
+                "screenedAt",
+                "test",
+                "createdAt",
+                "cards"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "decisionLog": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "cardId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "panTail": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "channel": {
+                  "type": "string"
+                },
+                "merchantCategory": {
+                  "type": ["string", "null"]
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": ["approved", "declined"]
+                },
+                "declineCode": {
+                  "type": ["string", "null"]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "decidedAt": {
+                  "type": "string"
+                },
+                "test": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "cardId",
+                "panTail",
+                "assetId",
+                "amount",
+                "channel",
+                "merchantCategory",
+                "decision",
+                "declineCode",
+                "status",
+                "decidedAt",
+                "test"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "report": {
+            "type": "object",
+            "properties": {
+              "day": {
+                "type": "string"
+              },
+              "asOf": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "assets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "approved": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "approvedVolume": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "declined": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["assetId", "approved", "approvedVolume", "declined"],
+                  "additionalProperties": false
+                }
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "approved": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "declined": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["approved", "declined"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["day", "asOf", "test", "assets", "totals"],
+            "additionalProperties": false
+          },
+          "exemptions": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "simulator": {
+            "type": "boolean"
+          },
+          "screeningListSet": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "test",
+          "programme",
+          "settings",
+          "checklist",
+          "rules",
+          "staff",
+          "audit",
+          "reviewQueue",
+          "cardholders",
+          "decisionLog",
+          "report",
+          "exemptions",
+          "simulator",
+          "screeningListSet"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "bank.ops.cardProgrammeFunding": {
       "service": "svc-bank",
       "module": "bank",

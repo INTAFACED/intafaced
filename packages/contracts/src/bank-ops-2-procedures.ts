@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { assetIdSchema } from './asset-id.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `ops.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -377,4 +378,148 @@ export const BANK_OPS_CARD_DISPUTE_DECIDE = defineProcedure({
     { verdict: 'accept', input: { disputeId: '22222222-2222-4222-8222-222222222222', outcome: 'cardholder' } },
     { verdict: 'refuse', input: 42 },
   ],
+});
+
+/**
+ * RUNNING THE CARD PROGRAMME (J-bank-26; BK-cops-01 to -03 and -06 to -08), for support and finance on the founder console.
+ *
+ * The programme, product, BIN, fee and 3DS settings, the authorisation rules (shadow, promote, roll back), the set-up
+ * checklist, cardholders behind a KYC and KYB gate with screening and a review queue, the real-time decision log and one
+ * authorisation's lifecycle, capture variance and trace, a signed report export, staff roles, the audit log, bulk issue,
+ * reassign and the TEST card event simulator.
+ *
+ * Nothing here holds a balance or posts to the ledger. Card money is the card partner's (OWNER 226): the simulator drives
+ * the same authorise and capture path a real issuer's message does, and a reassign moves a card, never money. Fees are
+ * recorded settings: svc-bank has no fee recipe, so none is charged. Every change writes one audit row, which the
+ * database refuses to edit. A staff member with the viewer role reads everything here and changes nothing.
+ */
+export const SETTING_KEYS = ['programme', 'product', 'bin', 'fees', 'threeds'] as const;
+
+export const setting = z
+  .object({ value: jsonValueSchema, version: z.number().int(), updatedBy: z.string(), updatedAt: z.string() })
+  .nullable();
+
+export const settings = z.object(
+  Object.fromEntries(SETTING_KEYS.map((k) => [k, setting])) as Record<(typeof SETTING_KEYS)[number], typeof setting>,
+);
+
+export const assetId = z.string().regex(/^[A-Z0-9]{2,16}$/);
+
+export const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/);
+
+export const ruleParamsSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('amount_above'), assetId, amount: decimal }).strict(),
+  z.object({ kind: z.literal('merchant_category'), category: z.string().trim().min(1).max(64) }).strict(),
+  z.object({ kind: z.literal('channel'), channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']) }).strict(),
+]);
+
+export const rule = z.object({
+  id: z.string().guid(),
+  ruleKey: z.string(),
+  version: z.number().int(),
+  name: z.string(),
+  params: ruleParamsSchema,
+  words: z.string(),
+  state: z.enum(['shadow', 'active', 'retired']),
+  shadow: z.object({ evaluated: z.number().int(), wouldDecline: z.number().int(), at: z.string() }),
+  createdBy: z.string(),
+  createdAt: z.string(),
+  promotedAt: z.string().nullable(),
+  retiredAt: z.string().nullable(),
+});
+
+export const staff = z.object({
+  userId: z.string(),
+  email: z.string(),
+  role: z.enum(['manager', 'viewer']),
+  assignedBy: z.string(),
+  assignedAt: z.string(),
+});
+
+export const cardholder = z.object({
+  id: z.string().guid(),
+  kind: z.enum(['individual', 'business']),
+  name: z.string(),
+  email: z.string().nullable(),
+  country: z.string(),
+  userId: z.string().nullable(),
+  beneficialOwners: z.array(z.object({ name: z.string(), email: z.string() })),
+  status: z.enum(['verified', 'review']),
+  gap: z.string().nullable(),
+  gapCode: z.string().nullable(),
+  screening: z.enum(['clear', 'listed']),
+  screenedAt: z.string(),
+  test: z.boolean(),
+  createdAt: z.string(),
+});
+
+export const cardRef = z.object({
+  id: z.string().guid(),
+  panTail: z.string(),
+  status: z.string(),
+  assetId: assetIdSchema,
+  test: z.boolean(),
+});
+
+export const amount = z.string().regex(/^\d+(\.\d{1,18})?$/);
+
+export const report = z.object({
+  day: z.string(),
+  asOf: z.string(),
+  test: z.boolean(),
+  assets: z.array(z.object({ assetId: assetIdSchema, approved: z.number().int(), approvedVolume: amount, declined: z.number().int() })),
+  totals: z.object({ approved: z.number().int(), declined: z.number().int() }),
+});
+
+/** The desk's first paint: settings, checklist, rules, staff, audit, cardholders and their queue, the log, the report. */
+export const BANK_OPS_CARD_PROGRAMME_DESK = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardProgrammeDesk',
+  kind: 'query',
+  path: 'ops.cardProgrammeDesk',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({
+    test: z.boolean(),
+    programme: z.object({ id: z.string(), displayName: z.string(), simulated: z.boolean() }),
+    settings,
+    checklist: z.array(z.object({ id: z.string(), label: z.string(), done: z.boolean(), blocker: z.string().nullable() })),
+    rules: z.array(rule),
+    staff: z.array(staff),
+    audit: z.array(
+      z.object({
+        id: z.string(),
+        actor: z.string(),
+        action: z.string(),
+        target: z.string(),
+        before: z.string().nullable(),
+        after: z.string().nullable(),
+        at: z.string(),
+      }),
+    ),
+    reviewQueue: z.array(cardholder),
+    cardholders: z.array(cardholder.extend({ cards: z.array(cardRef) })),
+    decisionLog: z.array(
+      z.object({
+        id: z.string().guid(),
+        cardId: z.string().guid(),
+        panTail: z.string(),
+        assetId: assetIdSchema,
+        amount,
+        channel: z.string(),
+        merchantCategory: z.string().nullable(),
+        decision: z.enum(['approved', 'declined']),
+        declineCode: z.string().nullable(),
+        status: z.string(),
+        decidedAt: z.string(),
+        test: z.boolean(),
+      }),
+    ),
+    report,
+    exemptions: z.number().int(),
+    simulator: z.boolean(),
+    screeningListSet: z.boolean(),
+  }),
+  samples: [{ verdict: 'accept' }],
 });
