@@ -26,7 +26,16 @@ vi.mock('../../session', async (original) => {
           data: {
             account: { id: ACCOUNT, name: 'TEST Payroll', assetId: 'USDT', status: 'active' },
             owner: true,
-            me: { userId: 'owner', handle: 'owner', role: 'admin' },
+            // The whole member the router declares: the room reads it through the overview's record, which checks every field.
+            me: {
+              userId: 'owner',
+              handle: 'owner',
+              role: 'admin',
+              customRole: null,
+              advisor: false,
+              departmentId: null,
+              permissions: ['view', 'export', 'propose', 'approve', 'manage_team', 'team_spend'],
+            },
             inviteMinutes: null,
             partner: { label: 'TEST partner bank', amount: '700', asOf: null },
           },
