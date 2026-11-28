@@ -281,6 +281,33 @@ const LayeredTradeService = layered(
  */
 
 /**
+ * What the replay hands the futures jobs, and what `futuresJobsHostDeps` answered: the replay must start the jobs with
+ * the live host's own answer, never a copy of its wiring.
+ */
+const FUTURES_WIRING = vi.hoisted(() => ({ hostAnswers: [] as unknown[], started: [] as unknown[] }));
+vi.mock('./futures/futures-jobs-host.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./futures/futures-jobs-host.js')>();
+  return {
+    ...real,
+    futuresJobsHostDeps: (...args: Parameters<typeof real.futuresJobsHostDeps>) => {
+      const answer = real.futuresJobsHostDeps(...args);
+      FUTURES_WIRING.hostAnswers.push(answer);
+      return answer;
+    },
+  };
+});
+vi.mock('./futures/futures-jobs.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./futures/futures-jobs.js')>();
+  return {
+    ...real,
+    startFuturesJobs: (deps: Parameters<typeof real.startFuturesJobs>[0]) => {
+      FUTURES_WIRING.started.push(deps);
+      return real.startFuturesJobs(deps);
+    },
+  };
+});
+
+/**
  * Before any import reads the process: every setting `env.ts` and its shared schemas name, and every TRADE_ variable,
  * is removed; then the fixed values below are set. `env.js` is parsed once, at import, from what is left.
  */
@@ -1815,6 +1842,18 @@ describe('the wire replay: svc-trade answers every trade call as recorded', () =
       .filter(([key, a]) => is[key]?.status !== a.status || is[key]?.body !== a.body)
       .map(([key, a]) => `${key}: ${a.status} ${a.body.slice(0, 160)} != ${is[key]?.status} ${is[key]?.body.slice(0, 160)}`);
     expect(diffs).toEqual([]);
+  }, 600_000);
+  it('starts the futures jobs with exactly what futuresJobsHostDeps answers, as index.ts does', async () => {
+    FUTURES_WIRING.hostAnswers.length = 0;
+    FUTURES_WIRING.started.length = 0;
+    const { app } = await serve([]);
+    try {
+      expect(FUTURES_WIRING.started).toHaveLength(1);
+      expect(FUTURES_WIRING.hostAnswers).toHaveLength(1);
+      expect(FUTURES_WIRING.started[0]).toBe(FUTURES_WIRING.hostAnswers[0]);
+    } finally {
+      await app.close();
+    }
   }, 600_000);
   it('names an answer schema on every call but the ones still to do, and that count only falls', async () => {
     const { app, router } = await serve([]);
