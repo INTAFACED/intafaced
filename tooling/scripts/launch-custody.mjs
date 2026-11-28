@@ -78,7 +78,6 @@ export const LAUNCH_ORDER = 1;
  * (svc-ops stopped), Assets refuses in words with its reference and values nothing.
  */
 export const NOT_YET_OFF = new Set([
-  'J-agents-01',
   'J-agents-02',
   'J-agents-08',
   'J-cex-spot-10',
