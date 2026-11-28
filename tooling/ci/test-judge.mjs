@@ -1055,11 +1055,11 @@ export function readWordsLocal(dir) {
 }
 
 /**
- * In CI: the diff and its merge base from the compare API (two calls), and the files' text from two shallow git fetches
+ * In CI: the diff and its merge base from the compare API (two calls; one when the caller gives the diff it read), and the files' text from two shallow git fetches
  * of the public repository into the default branch's checkout (no token, and no file is checked out or run), so a PR
  * that touches hundreds of files costs no API calls per file. The import graph is the default branch's checkout.
  */
-export function ciSource(repo, token, graphRoot) {
+export function ciSource(repo, token, graphRoot, known = null) {
   const git = (...a) => execFileSync('git', ['-C', graphRoot, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   return {
     diff: async (base, head) => {
@@ -1067,10 +1067,16 @@ export function ciSource(repo, token, graphRoot) {
       if (c.status !== 200) throw new Error(`could not read the comparison ${base.slice(0, 7)}...${head.slice(0, 7)}: HTTP ${c.status}`);
       const mergeBase = String(JSON.parse(c.text)?.merge_base_commit?.sha ?? '');
       if (!SHA40.test(mergeBase)) throw new Error('the comparison names no merge base');
-      const r = await getText(`/repos/${repo}/compare/${base}...${head}`, 'application/vnd.github.v3.diff', token);
-      if (r.status !== 200) throw new Error(`could not read the diff ${base.slice(0, 7)}...${head.slice(0, 7)}: HTTP ${r.status}`);
+      // `known`: the compare diff of this exact base...head the caller already read (ci-review.mjs cmdDiff), used as it
+      // is rather than read again.
+      let diff = known && known.base === base && known.head === head && typeof known.diff === 'string' ? known.diff : null;
+      if (diff === null) {
+        const r = await getText(`/repos/${repo}/compare/${base}...${head}`, 'application/vnd.github.v3.diff', token);
+        if (r.status !== 200) throw new Error(`could not read the diff ${base.slice(0, 7)}...${head.slice(0, 7)}: HTTP ${r.status}`);
+        diff = r.text;
+      }
       git('fetch', '--no-tags', '--quiet', '--depth=1', 'origin', mergeBase, head);
-      return { diff: r.text, mergeBase };
+      return { diff, mergeBase };
     },
     read: async (sha, p) => {
       try {

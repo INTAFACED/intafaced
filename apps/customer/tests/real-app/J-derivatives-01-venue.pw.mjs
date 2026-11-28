@@ -21,7 +21,7 @@ import { setVenueRouting } from './venue-routing.mjs';
 // J-derivatives-01's steps on the user's own venue account (B1, project-state #1789), in the running app against the
 // stack's TEST venue simulator (BTC-PERP, isolated margin only). One test per step, titled "J-derivatives-01 #<n>" as
 // today's files title them; a step in two files must pass in both. #1 makes the verified account and its TEST 1000 USDC
-// (the journey's start). #2 reads the gated list as svc-trade answers it; #3 (deferred to launch prep) is not here; #4 reads the strip's
+// (the journey's start). #2 reads the gated list as svc-trade answers it; #3 (deferred to launch prep) proves nothing asks for a risk agreement, a knowledge check or a notice before an open; #4 reads the strip's
 // contract size, mark and funding from the venue's own market read. #10 closes the position and reads our builder fee on
 // svc-ledger's own operator door; #11 reads what #10 closed. Every figure is TEST. The door is on for this file only.
 const J = 'J-derivatives-01';
@@ -286,6 +286,25 @@ test(`${J} #2 opens the gated list: each contract marked open or blocked for thi
   }
   // The verified person's desk again, every contract open.
   await shownAsService(restored);
+});
+
+// Step 3 was "reads and accepts the risk agreement and margin terms". Deferred until launch prep (owner decision
+// 2026-10-27): this step proves nothing asks for an agreement, a knowledge check or the auto-deleveraging notice before
+// an open on the person's own venue account, as J-derivatives-01-custodial.pw.mjs checks it on our own ledger.
+test(`${J} #3 nothing asks for a risk agreement, a knowledge check or a notice before an open`, async ({ page, stepPicture }) => {
+  const { account, owner } = await desk(page);
+  const me = await api(account);
+  const ticket = page.getByTestId('venue-ticket');
+  await expect(ticket.getByRole('button', { name: 'Review long', exact: true })).toBeVisible();
+  await expect(page.getByTestId('agreement-derivatives_risk')).toHaveCount(0);
+  await expect(page.getByTestId('agreement-margin_terms')).toHaveCount(0);
+  await expect(page.getByTestId('futures-quiz')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'I have read this', exact: true })).toHaveCount(0);
+  // The customer doors for them are gone.
+  expect((await me.get('/api/v1/account/agreements')).status).toBe(404);
+  expect((await me.get('/api/v1/account/derivatives-eligibility')).status).toBe(404);
+  await stepPicture();
+  expect((await venueRecord(owner, '/positions')).value).toEqual([]);
 });
 
 test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark price and funding, each as the venue publishes it`, async ({
