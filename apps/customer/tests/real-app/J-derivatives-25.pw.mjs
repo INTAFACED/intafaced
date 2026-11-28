@@ -38,8 +38,8 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 // #9 to #12 (a gap is named, not filled: #5 to #8, switching the account to cross, its collateral and the two positions,
 // are not built in this room yet, so they have no test here). #9's TEST setup, not a step: a TEST cross long of 2
 // XCRS-PERP (the TEST venue's cross-only perpetual) at 100, bought from a TEST other trader's ask through our door,
-// signed by the person's own key; the TEST mark then moves to 110 (`/test/set-mark`) and the other trader bids there.
-// XCRS-PERP's mark is put back to 100 after the step. The TEST venue pays a withdrawal from its TEST deposit address,
+// signed by the person's own key; the TEST mark and the TEST ladder (`/test/set-mark`, `/test/ladder-mid`) then move to 110,
+// where the close sells into the ladder's bids. Both are put back after the step. The TEST venue pays a withdrawal from its TEST deposit address,
 // so #11 funds that address with TEST USD first; the TEST partner credits the wallet's send to the person's TEST pay-in
 // address after its confirmations, which #11 mines on the TEST chain.
 const J = 'J-derivatives-25';
@@ -414,6 +414,7 @@ test(`${J} #9 closes the long at a TEST profit: the venue credits the realised p
   const venue = await venueNow();
   const tag = randomBytes(4).toString('hex');
   const spendingBefore = await partnerMain(userId);
+  let ladderMid = null;
   // TEST setup, not this step: a TEST other trader, cross on XCRS-PERP, resting an ask of 2 at 100; the person's cross
   // long of 2 at 100 through our door, our builder fee approved first, each signed by the person's own key.
   await setMark('100');
@@ -448,23 +449,28 @@ test(`${J} #9 closes the long at a TEST profit: the venue credits the realised p
     const position = (await venueRecord(owner, '/positions')).value.find((p) => p.symbol === XCRS);
     expect(position).toMatchObject({ side: 'long', marginMode: 'cross' });
     expect(sameDecimal(position.size, LONG)).toBe(true);
-    // The TEST market moves to 110, where the other trader bids.
+    // The TEST market moves to 110: its mark, and the TEST ladder's bids and asks around it.
+    const book = (await testVenue('/book', { symbol: XCRS, depth: 1 })).body.value;
+    ladderMid = fromUnits((toUnits(book.bids[0].price) + toUnits(book.asks[0].price)) / 2n);
     await setMark('110');
-    await signedOnVenue(venue, other, order('buy', '110', 'bid'));
+    expect((await testVenue('/test/ladder-mid', { symbol: XCRS, price: '110' })).status).toBe(200);
     const before = await summaryOf(owner);
     const usdcBefore = await usdcOf(owner);
     const since = new Date(Date.now() - 1_000).toISOString();
 
     // The step: the person closes the long, signed by their own key through our door.
     const closeKey = `order:${owner}:${J}:${tag}:close`;
-    await signAndSend({ ...order('sell', '110', 'close'), timeInForce: 'IOC', reduceOnly: true, clientOrderKey: closeKey }, closeKey);
+    await signAndSend({ ...order('sell', '109', 'close'), timeInForce: 'IOC', reduceOnly: true, clientOrderKey: closeKey }, closeKey);
     await expect.poll(async () => (await venueRecord(owner, '/positions')).value.find((p) => p.symbol === XCRS) ?? null).toBeNull();
-    const closing = (await venueRecord(owner, '/fills', { since })).value.filter((f) => f.symbol === XCRS);
+    // The close's own fills: the ones the venue reports a realised result on (the open's has none).
+    const closing = (await venueRecord(owner, '/fills', { since })).value.filter((f) => f.symbol === XCRS && f.realisedPnl !== null);
     expect(closing.length).toBeGreaterThan(0);
     const realised = closing.reduce((sum, f) => sum + toUnits(f.realisedPnl ?? '0'), 0n);
     const fees = closing.reduce((sum, f) => sum + toUnits(f.venueFee) + toUnits(f.builderFee ?? '0'), 0n);
-    // TEST: 2 closed 10 above the entry realise TEST 20, as the venue reports it.
-    expect(fromUnits(realised)).toBe('20');
+    // The venue's realised profit is each close fill's price above the entry of 100, times its size: a TEST profit.
+    const expected = closing.reduce((sum, f) => sum + ((toUnits(f.price) - toUnits('100')) * toUnits(f.amount)) / toUnits('1'), 0n);
+    expect(fromUnits(realised)).toBe(fromUnits(expected));
+    expect(realised > 0n).toBe(true);
     // Credited once: the trading account's USDC rose by the profit less the close's fees, as the venue reports it, and a
     // later read holds the same.
     const usdcAfter = await usdcOf(owner);
@@ -488,6 +494,7 @@ test(`${J} #9 closes the long at a TEST profit: the venue credits the realised p
     expect(await ledgerOf()).toEqual(ledger);
     run.write({ closeFills: closing.map((f) => f.fillId) });
   } finally {
+    if (ladderMid) await testVenue('/test/ladder-mid', { symbol: XCRS, price: ladderMid });
     await setMark('100');
   }
 });
@@ -609,9 +616,13 @@ test(`${J} #11 moves exactly that to spending: a signed venue withdrawal to the 
   // Through the wallet and on: it holds what it held before.
   expect(await chainBalance(summary.payIn.token, owner)).toBe(walletBefore);
   const partnerFee = (await bankGet('payYourself.summary')).partnerFee;
-  await expect(legs.locator('[data-leg="send"]')).toContainText(
-    `Your wallet sends ${Number(arrives).toFixed(2)} USDC to your account at ${PARTNER_BANK}`,
-  );
+  const sendLine = legs.locator('[data-leg="send"]');
+  await expect(sendLine).toContainText(` USDC to your account at ${PARTNER_BANK}`);
+  await expect
+    .poll(async () =>
+      sameDecimal((await sendLine.innerText()).match(/^Your wallet sends ([\d,.]+) USDC/)?.[1]?.replace(/,/g, '') ?? '', arrives),
+    )
+    .toBe(true);
   await expect(legs.locator('[data-leg="send"] [data-fee]')).toHaveText(
     partnerFee === null ? 'Fee: not known' : `Fee: ${Number(partnerFee).toFixed(2)} USDC`,
   );
