@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { ROOT, STACK_PORTS } from './stack.mjs';
+import { MINUTE, clearOfDayTurn, dayTurnWait } from './clock.mjs';
 import { openTx, reverseWithTwoFounders } from './ledger-reversal-desk.mjs';
 import {
   alertsOf,
@@ -33,6 +34,9 @@ import {
 // a run-failed event delivered twice is stored once, and svc-notify applies an alert transition received twice once.
 
 const tag = randomUUID().slice(0, 8);
+// #9 opens the fix control's alert and #10's repeat run must reopen that same alert. A daily control's alerts are one per
+// asset and UTC day, so #9 and #10 (about 6 minutes on CI) start only when the UTC day has this long left.
+const RESOLVE_WINDOW = 20 * MINUTE;
 const { founders, define, twoFounderRun, lifecycle } = createReconDesk(tag);
 const state = {
   // #9 and #10: a TEST venue report control (resolved with a real reversal, reopened, then auto-resolved when the venue
@@ -207,7 +211,8 @@ test.describe.serial('J-ops-console-07 resolve and lifecycle transitions', () =>
     browser,
     stepPicture,
   }) => {
-    test.setTimeout(900_000);
+    test.setTimeout(900_000 + dayTurnWait(Date.now(), RESOLVE_WINDOW));
+    await clearOfDayTurn((await founders(browser)).a, RESOLVE_WINDOW);
     const { a, b } = await founders(browser);
     const section = await openLedger(a);
     await requireTreasury(section);
