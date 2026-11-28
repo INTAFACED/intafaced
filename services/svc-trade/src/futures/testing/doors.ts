@@ -19,7 +19,7 @@ import type { TradeService } from '../../spot/trade-service.js';
 import { PositionService, type PositionRow, type PositionServiceDeps } from '../position-service.js';
 import { memoryMarkBook } from '../mark-source.js';
 
-export const DOOR_SECRET = 'futures-doors-test-harness-edge-secret';
+const DOOR_SECRET = 'dev-only-futures-doors-test-harness-edge-secret';
 export const DOOR_USER_ID = '11111111-1111-4111-8111-111111111111';
 
 /** Every procedure path the trade router mounts (`orders.create`, …), with no optional desk wired. */

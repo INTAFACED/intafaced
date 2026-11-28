@@ -53,11 +53,6 @@ export interface LiquidationPlan {
 
 export type LiquidationDecision = LiquidationPlan | { liquidate: false; equity: Amount; unrealizedPnl: Amount; reason: string };
 
-/** Quote notional: size * price / SCALE. */
-export function notionalAt(size: Amount, price: Amount): Amount {
-  return mul(size, price, 'floor');
-}
-
 /**
  * Unrealized PnL in quote: long (mark-entry)*size/SCALE; short (entry-mark)*size/SCALE.
  */
