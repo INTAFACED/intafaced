@@ -1,10 +1,8 @@
 /**
  * CARD R-E6 — auto delta-hedge mill (unset target/range/instrument refuse).
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { tradeEnvOf, tradeRouterPaths } from '../__tests__/entry.js';
 import { deltaHedgeOwnerEnvComposeWired } from './greeks-compose-wiring.js';
 import {
   DELTA_HEDGE_IEEE,
@@ -15,9 +13,8 @@ import {
   DELTA_HEDGE_TARGET_ENV,
   DELTA_HEDGE_TARGET_UNSET,
   checkAutoDeltaHedge,
+  runAutoDeltaHedge,
 } from './delta-hedge.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 const SOCKETS = [DELTA_HEDGE_TARGET_ENV, DELTA_HEDGE_RANGE_ENV, DELTA_HEDGE_INSTRUMENT_ENV] as const;
 
@@ -107,24 +104,47 @@ describe('R-E6 auto delta-hedge mill — unset sockets refuse by name', () => {
 });
 
 describe('R-E6 hitch — not MMP hedge, no listing, compose empty', () => {
-  it('mill does not start oms-mmp-hedge or invent MMP thresholds', () => {
-    const mill = readFileSync(join(here, 'delta-hedge.ts'), 'utf8');
-    expect(mill).not.toMatch(/from ['"][^'"]*oms-mmp/);
-    expect(mill).not.toMatch(/EXECUTION_MM_MMP_THRESHOLDS/);
-    expect(mill).not.toMatch(/hedgeRemainingAfterMmpFill/);
-    expect(mill).not.toMatch(/recipes\./);
-    expect(mill).not.toMatch(/options-listing/);
-    expect(mill).toMatch(/TRADE_DELTA_HEDGE_TARGET/);
-    expect(mill).toMatch(/decimal string/);
+  it('mill does not start oms-mmp-hedge or invent MMP thresholds', async () => {
+    // Whatever the sockets hold, the mill previews or refuses: it posts nothing, places no order, and reads no MMP law.
+    const posted: unknown[] = [];
+    const post = async (recipe: unknown) => void posted.push(recipe);
+    process.env.EXECUTION_MM_MMP_THRESHOLDS = '{"deltaLimit":"1"}';
+    try {
+      for (const sockets of [
+        {},
+        { target: '0' },
+        { target: '0', range: '0.05', instrument: 'BTC-PERP' },
+        { target: 0, range: '0.05', instrument: 'BTC-PERP' },
+      ]) {
+        const result = await runAutoDeltaHedge({ ...sockets, post });
+        expect(result.executed, JSON.stringify(sockets)).toBe(false);
+        expect(result.orders).toEqual([]);
+        expect(JSON.stringify(result)).not.toMatch(/mmp/i);
+      }
+    } finally {
+      delete process.env.EXECUTION_MM_MMP_THRESHOLDS;
+    }
+    expect(posted).toEqual([]);
+    // The owner's target is a decimal string, kept as the owner wrote it in ledger form, never a JS number.
+    expect(await runAutoDeltaHedge({ target: '0.10', range: '0.05', instrument: 'BTC-PERP', post })).toMatchObject({
+      ok: true,
+      target: '0.1',
+    });
+    expect(await runAutoDeltaHedge({ target: 0.1, range: '0.05', instrument: 'BTC-PERP', post })).toMatchObject({
+      ok: false,
+      code: DELTA_HEDGE_IEEE,
+    });
+    // Nothing the mill exports lists an option or folds the MMP hedge in.
+    const mill = await import('./delta-hedge.js');
+    expect(Object.keys(mill).filter((name) => /mmp|listing|recipe/i.test(name))).toEqual([]);
   });
 
-  it('router.ts / options-listing.ts not recut; index.ts mounts the door', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    const listingSrc = readFileSync(join(here, '..', 'spot', 'options-listing.ts'), 'utf8');
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/delta-hedge|checkAutoDeltaHedge|DELTA_HEDGE_/);
-    expect(listingSrc).not.toMatch(/delta-hedge|checkAutoDeltaHedge/);
-    expect(indexSrc).toContain('registerDeltaHedgeRest');
+  it('router.ts / options-listing.ts not recut; index.ts mounts the door', async () => {
+    // The hedge is its own REST door (index.boot.test.ts: 'mounts the greeks what-if, delta-hedge and promo doors'):
+    // no tRPC procedure and nothing the options listing exports runs it.
+    expect(tradeRouterPaths().filter((path) => /hedge/i.test(path))).toEqual([]);
+    const listing = await import('../spot/options-listing.js');
+    expect(Object.keys(listing).filter((name) => /hedge/i.test(name))).toEqual([]);
   });
 
   it('compose passes target/range/instrument with empty default', () => {
@@ -132,9 +152,9 @@ describe('R-E6 hitch — not MMP hedge, no listing, compose empty', () => {
   });
 
   it('env schema defaults the three sockets empty — never invents 0', () => {
-    const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
-    expect(envSrc).toMatch(/TRADE_DELTA_HEDGE_TARGET:\s*z\.string\(\)\.default\(''\)/);
-    expect(envSrc).toMatch(/TRADE_DELTA_HEDGE_RANGE:\s*z\.string\(\)\.default\(''\)/);
-    expect(envSrc).toMatch(/TRADE_DELTA_HEDGE_INSTRUMENT:\s*z\.string\(\)\.default\(''\)/);
+    const unset = tradeEnvOf();
+    expect(unset.TRADE_DELTA_HEDGE_TARGET).toBe('');
+    expect(unset.TRADE_DELTA_HEDGE_RANGE).toBe('');
+    expect(unset.TRADE_DELTA_HEDGE_INSTRUMENT).toBe('');
   });
 });

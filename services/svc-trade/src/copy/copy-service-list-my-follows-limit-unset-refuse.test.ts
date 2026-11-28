@@ -13,9 +13,6 @@ import { CopyService } from '../controls/test-admission.js';
  * 5. Paths: copy-service.ts CopyService.listMyFollows
  * 6. RED: omitting limit returns every follow for the caller
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import {
@@ -26,18 +23,9 @@ import {
 } from './copy-service.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const principal = { userId: '00000000-0000-4000-8000-000000000001' } as import('@intafaced/auth').Principal;
 
 describe('CopyService.listMyFollows limit unset refuse (no invented 50)', () => {
-  it('copy-service.ts does not invent 50/100 via default or clamp', () => {
-    const src = readFileSync(join(HERE, 'copy-service.ts'), 'utf8');
-    expect(src).toMatch(/async listMyFollows\(principal: Principal, limit\?: number\)/);
-    expect(src).toMatch(/publishedListMyFollowsLimit\(limit\)/);
-    expect(src).not.toMatch(/async listMyFollows[\s\S]{0,400}Math\.min\(Math\.max\(/);
-    expect(src).not.toMatch(/listMyFollows[\s\S]{0,200}\?\? 50/);
-  });
-
   it('blank / non-integer / out of 1..500 throws trade.list_my_follows_limit_unset', () => {
     for (const limit of [undefined, null, 0, -1, 501, 1.5, Number.NaN]) {
       try {

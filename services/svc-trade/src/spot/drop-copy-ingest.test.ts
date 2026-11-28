@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { verifyServiceHeaders } from '@intafaced/contracts';
 import { HOUSE_MM_API_KEY_ID } from './auth-attribution.js';
@@ -16,10 +13,9 @@ import {
   type DropCopyFillWire,
   type DropCopyIngestPort,
 } from './drop-copy-ingest.js';
-import { tradeServiceSource } from './trade-service/source.testkit.js';
+import { tradeEnvOf } from '../__tests__/entry.js';
 
 const SECRET = 'test-internal-service-secret-32ch!!';
-const here = dirname(fileURLToPath(import.meta.url));
 
 const restFill = (): DropCopyFillWire => ({
   fillId: 'fill-7',
@@ -194,21 +190,14 @@ describe('fireDropCopyFill', () => {
 
 describe('spot settle and convert hitch sources (call-site pin)', () => {
   it('fillSettled hitch uses book-order rest; convert hitch is rfq; ui/ws/fix/algo/broker never sent', () => {
-    const tradeSrc = tradeServiceSource();
-    const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
-    expect(tradeSrc).toMatch(/notifyDropCopyFill/);
-    expect(tradeSrc).toMatch(/dropCopySourceForBookOrder/);
-    expect(tradeSrc).toMatch(/DROP_COPY_SOURCE_RFQ/);
-    expect(tradeSrc).not.toMatch(/source:\s*'ui'/);
-    expect(tradeSrc).not.toMatch(/source:\s*'ws'/);
-    expect(tradeSrc).not.toMatch(/source:\s*'fix'/);
-    expect(tradeSrc).not.toMatch(/source:\s*'algo'/);
-    expect(tradeSrc).not.toMatch(/source:\s*'broker'/);
-    expect(tradeSrc).not.toMatch(/DROP_COPY_SOURCE_LIQUIDATION/);
-    expect(indexSrc).toMatch(/createDropCopyIngestClient/);
-    expect(indexSrc).toMatch(/TRADE_FIX_DROPCOPY_INGEST_URL/);
-    expect(envSrc).toMatch(/TRADE_FIX_DROPCOPY_INGEST_URL:[\s\S]*?\.default\(''\)/);
-    expect(envSrc).not.toMatch(/TRADE_FIX_DROPCOPY_INGEST_URL:[\s\S]{0,200}localhost/);
+    // What the settle paths send is proven where they run: a book fill hitches as rest and never ui
+    // (trade-service.test.ts 'API-key place fill hitches drop-copy as rest; never ui'), a convert as rfq
+    // (convert-settle.money.test.ts 'convertQuote then convertExecute binds exact in/out; one fill post; balances move'),
+    // and the entry builds the client from the URL (index.boot.test.ts 'builds the drop-copy ingest client ...').
+    // Here: the URL the entry reads has no default of its own, least of all a local one.
+    expect(tradeEnvOf({}).TRADE_FIX_DROPCOPY_INGEST_URL).toBe('');
+    expect(tradeEnvOf({ TRADE_FIX_DROPCOPY_INGEST_URL: 'http://drop-copy.test' }).TRADE_FIX_DROPCOPY_INGEST_URL).toBe(
+      'http://drop-copy.test',
+    );
   });
 });

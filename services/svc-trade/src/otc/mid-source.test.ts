@@ -1,10 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createConfigOtcMidSource, createObservedOtcMidSource, NO_OTC_MIDS, otcPairKey, parseOtcMids } from './mid-source.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('otc mid-source', () => {
   it('pair key is upper-cased BASE/QUOTE, matching trade.markets.symbol', () => {
@@ -45,11 +40,16 @@ describe('otc mid-source', () => {
     expect(parseOtcMids(`BTC/USDT:${pastSafe}`).get('BTC/USDT')).toBe(pastSafe);
   });
 
-  it('parses mids via parseAmount — never Number() on the money string', () => {
-    const src = readFileSync(join(here, 'mid-source.ts'), 'utf8');
-    expect(src).toMatch(/parseAmount/);
-    expect(src).not.toMatch(/\bNumber\s*\(/);
-    expect(src).not.toMatch(/\bparseFloat\s*\(/);
+  it('parses mids via parseAmount — never Number() on the money string', async () => {
+    // Number() and parseFloat would take each of these; the ledger's decimal parser refuses them, so no mid is published.
+    for (const loose of ['1e3', '0x10', 'Infinity', '65000abc', '1_000']) {
+      expect(parseOtcMids(`BTC/USDT:${loose}`).size, loose).toBe(0);
+    }
+    // Past float precision the mid survives digit for digit, which a Number() round trip would not.
+    const exact = '65000.123456789012345678';
+    expect(String(Number(exact))).not.toBe(exact);
+    expect(parseOtcMids(`BTC/USDT:${exact}`).get('BTC/USDT')).toBe(exact);
+    expect(await createConfigOtcMidSource(`BTC/USDT:${exact}`)('BTC/USDT')).toMatchObject({ mid: exact });
   });
 
   it('the production default sources nothing', async () => {

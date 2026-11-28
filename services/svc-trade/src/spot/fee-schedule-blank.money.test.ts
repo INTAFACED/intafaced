@@ -4,14 +4,15 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, houseFees, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 
 import type { Market } from './types.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from './testing.js';
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from './fee-schedule.js';
-import { tradeServiceArea, tradeServiceSource } from './trade-service/source.testkit.js';
+import { tradeRouterPaths } from '../__tests__/entry.js';
+import { MM_MATCHING_ACCOUNT_ID } from '../mm/seed-market.js';
 
 /**
  * H8a money proof — unpublished TRADE_FEE_SCHEDULE refuses before hold/fill.
@@ -72,35 +73,25 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
 }
 
 describe('fee-schedule blank hitch (source)', () => {
-  it('place asserts owner schedule before orderHold; settleFill ratesForFill before fill recipes', () => {
-    const src = tradeServiceSource();
-    // Placement and settleFill live in spot/trade-service/order-place.ts and fills.ts since the split by area.
-    const place = tradeServiceArea('order-place');
-    const placeHitch = place.indexOf('svc.assertOwnerFeeSchedulePublished(market, undefined, feeTier);');
-    const orderHold = place.indexOf('recipes.orderHold({');
-    expect(placeHitch).toBeGreaterThan(-1);
-    expect(orderHold).toBeGreaterThan(-1);
-    expect(placeHitch).toBeLessThan(orderHold);
-
-    const fills = tradeServiceArea('fills');
-    const settleStart = fills.indexOf('export async function settleFill(');
-    expect(settleStart).toBeGreaterThan(-1);
-    const settle = fills.slice(settleStart);
-    const rates = settle.indexOf('svc.ratesForFill(');
-    const tradeFill = settle.indexOf('recipes.tradeFill(fillInput)');
-    const mmFill = settle.indexOf('recipes.marketMakerMakerFill({');
-    expect(rates).toBeGreaterThan(-1);
-    expect(tradeFill).toBeGreaterThan(-1);
-    expect(mmFill).toBeGreaterThan(-1);
-    expect(rates).toBeLessThan(tradeFill);
-    expect(rates).toBeLessThan(mmFill);
-    expect(src).not.toMatch(/ratesForFill\(market/);
-  });
-
   it('router.ts has no TRADE_FEE_SCHEDULE / fee-schedule imports', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/TRADE_FEE_SCHEDULE/);
-    expect(routerSrc).not.toMatch(/fee-schedule/);
+    // The tRPC door decides no fee: its only fee procedures are the console's fee desk and copy's fee share, and it
+    // builds the same whatever TRADE_FEE_SCHEDULE holds (it never reads it; TradeService gets the parsed schedule).
+    vi.stubEnv('TRADE_FEE_SCHEDULE', '{ not json');
+    try {
+      expect(tradeRouterPaths().filter((path) => /fee(?!d)/i.test(path))).toEqual([
+        'admin.builderFees.accountMode',
+        'admin.builderFees.recon',
+        'admin.fees.builderCaps',
+        'admin.fees.get',
+        'admin.fees.set',
+        'admin.fees.snapshots',
+        'copy.killFeeShare',
+        'copy.myCopyFees',
+        'copy.settleFeeShare',
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
@@ -253,6 +244,34 @@ describe('svc-trade fee-schedule B1 money', () => {
 
       expect(await sql`SELECT id FROM trade.fills`).toHaveLength(0);
       expect(postsWithReason('trade.fill')).toHaveLength(0);
+      expect(postsWithReason('order.hold')).toHaveLength(holdsBefore);
+    });
+
+    it('unpublished settleFillEvent against the house market maker refuses before marketMakerMakerFill', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      const taker = await rest(ALICE, btcusdt, 'buy', '2', '100', 'alice-rest-b1-mm');
+      const holdsBefore = postsWithReason('order.hold').length;
+      const closed = new TradeService(sql, ledger, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        feeSchedule: UNPUBLISHED_FEE_SCHEDULE,
+      });
+
+      await expect(
+        closed.settleFillEvent({
+          marketId: btcusdt.id,
+          makerOrderId: '33333333-3333-4333-8333-333333333333',
+          takerOrderId: taker.id,
+          price: '100',
+          qty: '2',
+          sequence: 1,
+          makerAccountId: MM_MATCHING_ACCOUNT_ID,
+          takerAccountId: ALICE,
+        }),
+      ).rejects.toMatchObject({ code: 'trade.fee_schedule_blank' });
+
+      expect(await sql`SELECT id FROM trade.fills`).toHaveLength(0);
+      expect(postsWithReason('trade.fill.mm_maker')).toHaveLength(0);
       expect(postsWithReason('order.hold')).toHaveLength(holdsBefore);
     });
 

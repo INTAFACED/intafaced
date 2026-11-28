@@ -289,7 +289,7 @@ function presentMarketHours(schedule: TradingSchedule):
  * distinct from session-shut `trade.market_closed`. Public market data cannot
  * invent hours for a key outside `TRADING_SCHEDULES`, so sessionOpen=false.
  */
-export function sessionStateForMarket(
+function sessionStateForMarket(
   market: Pick<Market, 'schedule'>,
   atMs: number,
 ): {
@@ -645,7 +645,7 @@ export function presentOrderBook(symbol: string, depth: EngineDepth, nowMs: numb
  * closes, oldest first, silent hours repeat the previous real close, never null.
  */
 /** Best ask minus best bid, exact: never a rounded or guessed figure, and null when either side is empty. */
-export function spreadOf(bid: readonly [string, string] | null, ask: readonly [string, string] | null): string | null {
+function spreadOf(bid: readonly [string, string] | null, ask: readonly [string, string] | null): string | null {
   if (!bid || !ask) return null;
   return formatAmount(parseAmount(ask[0]) - parseAmount(bid[0]));
 }
@@ -724,7 +724,7 @@ export function presentPublicTrade(symbol: string, print: PublicTapePrint) {
  * every series by one bar, which is invisible until someone backtests against
  * it. Volume is base-asset volume, matching `Ticker.baseVolume`.
  */
-export function presentOhlcv(candle: Candle): [number, string, string, string, string, string] {
+function presentOhlcv(candle: Candle): [number, string, string, string, string, string] {
   return [
     candle.openTimeMs,
     formatAmount(candle.open),

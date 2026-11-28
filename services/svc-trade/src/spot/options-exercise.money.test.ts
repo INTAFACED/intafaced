@@ -6,11 +6,9 @@
  * No ledger-client options recipe exists (PX-S08-O02) — mill never posts.
  * Listing still refuses blank law/fixing (R-E8 SOCKET). router.ts not recut.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
+import { tradeRouterPaths } from '../__tests__/entry.js';
 import { TradeError } from './types.js';
 import { OPTIONS_FIXING_UNCONFIGURED, OPTIONS_SETTLEMENT_LAW_UNSET, resolveOptionsListing } from './options-listing.js';
 import {
@@ -22,7 +20,6 @@ import {
   runOptionsExerciseJob,
 } from './options-exercise.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const POS_LONG = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const POS_SHORT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -39,23 +36,13 @@ function shortCall() {
 
 describe('options exercise hitch (source)', () => {
   it('router.ts not recut; mill never last-trade; listing refuse kept; no invented recipe', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/runOptionsExerciseJob/);
-    expect(routerSrc).not.toMatch(/options-exercise/);
-    const mill = readFileSync(join(here, 'options-exercise.ts'), 'utf8');
-    expect(mill).toMatch(/void input\.lastTradePrice/);
-    expect(mill).toMatch(/void input\.markPrice/);
-    expect(mill).toMatch(/source: 'owner_fixing'/);
-    expect(mill).toMatch(/option-exercise:/);
-    expect(mill).toMatch(/option-assign:/);
-    expect(mill).toMatch(/option-expire:/);
-    expect(mill).not.toMatch(/settlementPrice.*=.*lastTrade/);
-    expect(mill).not.toMatch(/settlementPrice.*=.*markPrice/);
-    expect(mill).not.toMatch(/recipes\.(futures|tradeFill)/);
-    expect(mill).not.toMatch(/USDT|USDC/);
-    const listing = readFileSync(join(here, 'options-listing.ts'), 'utf8');
-    expect(listing).toMatch(/TRADE_OPTIONS_SETTLEMENT_FIXING/);
-    expect(listing).toMatch(/options_fixing_unconfigured/);
+    // No tRPC procedure runs the mill: the only exercise path there is the person's read of their own exercises.
+    expect(tradeRouterPaths().filter((path) => /exercis/i.test(path))).toEqual(['options.exercises']);
+    // Outcomes are keyed by the position, one id per kind, so a replayed scan settles each once (the mill posts
+    // nothing today: see the zero-post tests below).
+    expect(optionsExerciseIdFor(POS_LONG)).toBe(`option-exercise:${POS_LONG}`);
+    expect(optionsAssignmentIdFor(POS_LONG)).toBe(`option-assign:${POS_LONG}`);
+    expect(optionsExpiryIdFor(POS_LONG)).toBe(`option-expire:${POS_LONG}`);
     try {
       resolveOptionsListing({
         kind: 'options',

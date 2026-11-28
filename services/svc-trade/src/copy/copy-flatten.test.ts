@@ -4,9 +4,6 @@ import { CopyService } from '../controls/test-admission.js';
  *
  * One door. Pause/stop/detach never call it. Missing follow refuses.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
@@ -224,19 +221,34 @@ describe('trade.copy flatten (PTX-M26-R05)', () => {
     });
   });
 
-  it('pause/stop/detach source never calls flattenFollowerCopyPosition', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'copy-service.ts'), 'utf8');
-    const pause = src.slice(src.indexOf('async pause('), src.indexOf('async resume('));
-    const stop = src.slice(src.indexOf('async stop('), src.indexOf('async detach('));
-    const detach = src.slice(src.indexOf('async detach('), src.indexOf('async flatten('));
-    for (const body of [pause, stop, detach]) {
-      expect(body).not.toMatch(/flattenFollowerCopyPosition/);
-      expect(body).not.toMatch(/flattenCopyPosition/);
-      expect(body).not.toMatch(/this\.flatten\(/);
+  it('pause/stop/detach source never calls flattenFollowerCopyPosition', async () => {
+    const flattened: string[] = [];
+    const fresh = () =>
+      wiredCopy({
+        flatten: async (_p, input) => {
+          flattened.push(input.followId);
+          return { orderIds: ['ord-flat'] };
+        },
+      });
+    // Pause, resume, stop, stop close-only and detach each end with no close of the follower's position.
+    for (const control of [
+      async (copy: CopyService, followId: string) => {
+        await copy.pause(principal(), { followId });
+        await copy.resume(principal(), { followId });
+      },
+      (copy: CopyService, followId: string) => copy.stop(principal(), { followId }),
+      (copy: CopyService, followId: string) => copy.stop(principal(), { followId, closeOnly: true }),
+      (copy: CopyService, followId: string) => copy.detach(principal(), { followId }),
+    ]) {
+      const copy = fresh();
+      await control(copy, (await openFollow(copy)).followId);
     }
-    expect(src).toMatch(/async flatten\(/);
-    expect(src).toMatch(/flattenFollowerCopyPosition/);
+    expect(flattened).toEqual([]);
+    // Only the flatten door itself closes, once, for the follow it names.
+    const copy = fresh();
+    const chosen = await openFollow(copy);
+    await copy.flatten(principal(), { followId: chosen.followId, requestId: 'flatten-only', stepUpApprovalId: 'appr-test' });
+    expect(flattened).toEqual([chosen.followId]);
   });
 
   it('product mount: copy.flatten is the door; missing follow is NOT_FOUND', async () => {

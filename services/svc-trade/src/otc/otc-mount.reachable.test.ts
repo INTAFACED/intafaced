@@ -1,13 +1,11 @@
 import { OtcDeskService } from '../controls/test-admission.js';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { describe, expect, it } from 'vitest';
 import { TRADE_OTC_SETTLE } from '@intafaced/contracts/trade-otc-procedures';
-import type { Principal } from '@intafaced/auth';
+import { INTERACTIVE_ONLY_SCOPES, type Principal } from '@intafaced/auth';
+import { REST_ROUTES } from '@intafaced/exchange-contract';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import {
   formatAmount,
@@ -753,8 +751,6 @@ describe('a fill is idempotent per business event', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('otc.settle attribution is the existing trade:write path', () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-
   /**
    * THE NAMED LEFTOVER WAS "HMAC NOT MILLED".
    *
@@ -763,42 +759,53 @@ describe('otc.settle attribution is the existing trade:write path', () => {
    * API-key exchange both become that principal. Inventing `serviceProcedure`
    * HMAC on this user RFQ would be a second money door.
    */
-  it('source pin: otc.settle is scopedProcedure trade:write, not serviceProcedure', () => {
-    const src = readFileSync(join(here, '../router.ts'), 'utf8');
-    const start = src.indexOf('OTC RFQ desk');
-    const end = src.indexOf('Professional RFQ');
-    expect(start).toBeGreaterThan(0);
-    expect(end).toBeGreaterThan(start);
-    const otcBlock = src.slice(start, end);
+  it('source pin: otc.settle is scopedProcedure trade:write, not serviceProcedure', async () => {
     // settle is mounted from its record; the record's access is what mountRecord turns into scopedProcedure.
-    expect(otcBlock).toMatch(/settle:\s*mountRecord\(\s*TRADE_OTC_SETTLE,/);
     expect(TRADE_OTC_SETTLE.access).toEqual({ caller: 'scope', scope: 'trade:write', module: 'trade' });
-    expect(otcBlock).not.toMatch(/settle:\s*serviceProcedure/);
-    expect(otcBlock).not.toContain('serviceProcedure');
+    const desk = await buildDesk({ law: PUBLISHED });
+    // A customer's own signed principal holding trade:write, and nothing else, passes the door: a service-only door
+    // would refuse it before the desk looked the quote up.
+    const passed = await callMutation(desk, 'otc.settle', { quoteId: randomUUID() }, principal(USER, ['trade:write']));
+    expect(errorCode(passed)).not.toBe('UNAUTHORIZED');
+    expect(errorCode(passed)).not.toBe('FORBIDDEN');
+    // Without trade:write it refuses at the door, whatever else the caller holds.
+    const refused = await callMutation(desk, 'otc.settle', { quoteId: randomUUID() }, principal(USER, ['trade:read']));
+    expect(errorCode(refused)).toBe('FORBIDDEN');
+    expect(desk.ledger.posted).toHaveLength(0);
+    await desk.app.close();
   });
 
-  it('source pin: orders.create uses the same trade:write guard settle uses', () => {
-    const src = readFileSync(join(here, '../router.ts'), 'utf8');
-    expect(src).toMatch(/create:\s*scopedProcedure\('trade:write'/);
+  it('source pin: orders.create uses the same trade:write guard settle uses', async () => {
     expect(TRADE_OTC_SETTLE.access).toMatchObject({ caller: 'scope', scope: 'trade:write' });
+    const desk = await buildDesk({ law: PUBLISHED });
+    // The same principal is refused by both doors for the same reason, and admitted past both on trade:write.
+    for (const path of ['orders.create', 'otc.settle']) {
+      const readOnly = await callMutation(desk, path, { quoteId: randomUUID() }, principal(USER, ['trade:read']));
+      expect(errorCode(readOnly), path).toBe('FORBIDDEN');
+      const unsigned = await desk.app.inject({
+        method: 'POST',
+        url: `/trpc/${path}`,
+        headers: { 'content-type': 'application/json', 'x-intafaced-region': 'SG' },
+        payload: { quoteId: randomUUID() },
+      });
+      expect(errorCode(unsigned), path).toBe('UNAUTHORIZED');
+      const writer = await callMutation(desk, path, { quoteId: randomUUID() }, principal(USER, ['trade:write']));
+      expect(errorCode(writer), path).not.toBe('FORBIDDEN');
+      expect(errorCode(writer), path).not.toBe('UNAUTHORIZED');
+    }
+    expect(desk.ledger.posted).toHaveLength(0);
+    await desk.app.close();
   });
 
   it('source pin: trade:write is not INTERACTIVE_ONLY — API keys may hold it', () => {
-    const src = readFileSync(join(here, '../../../../packages/auth/src/scopes.ts'), 'utf8');
-    const match = src.match(/export const INTERACTIVE_ONLY_SCOPES[^=]*=\s*\[([^\]]+)\]/);
-    expect(match?.[1]).toBeTruthy();
-    const listed = match![1]!;
-    expect(listed).toContain("'trade:withdraw'");
-    expect(listed).not.toContain("'trade:write'");
+    expect(INTERACTIVE_ONLY_SCOPES).toContain('trade:withdraw');
+    expect(INTERACTIVE_ONLY_SCOPES).not.toContain('trade:write');
   });
 
   it('source pin: REST_ROUTES has no OTC — do not invent a CCXT HMAC settle door', () => {
-    const src = readFileSync(join(here, '../../../../packages/exchange-contract/src/api.ts'), 'utf8');
-    const start = src.indexOf('export const REST_ROUTES');
-    const end = src.indexOf('export type RestRouteName');
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    expect(src.slice(start, end).toLowerCase()).not.toContain('otc');
+    const routes = Object.entries(REST_ROUTES).map(([name, route]) => `${name} ${route.method} ${route.path}`);
+    expect(routes.length).toBeGreaterThan(0);
+    expect(routes.filter((route) => route.toLowerCase().includes('otc'))).toEqual([]);
   });
 
   /** Edge HMAC is the attribution. Self-asserted settle is anonymous. */

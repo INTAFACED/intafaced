@@ -11,11 +11,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Market } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 import { DROP_COPY_SOURCE_RFQ, type DropCopyFillWire } from '../spot/drop-copy-ingest.js';
-import { acceptConvertQuote, buildFirmConvertQuote, estimateConvert } from './quote.js';
+import { acceptConvertQuote, buildFirmConvertQuote, estimateConvert, requireConvertSpreadBps } from './quote.js';
 import { planConvertSettle } from './settle.js';
 import { convertSettleIdsFor } from './ids.js';
 import { SqlConvertQuoteStore } from './quote-store.js';
-import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
+import { tradeRouterPaths } from '../__tests__/entry.js';
 
 /**
  * CARD B7 money proof — convert settle binds quoted in/out.
@@ -68,35 +68,49 @@ const OWNER_CONVERT_SPREAD_BPS = 25;
 const SCOPES = ['trade:read', 'trade:write'] as const;
 
 describe('convert settle B7 hitch (source)', () => {
-  it('trade-service.ts contains convertExecute + planConvertSettle + postConvertSettle', () => {
-    const src = tradeServiceSource();
-    expect(src).toMatch(/async convertExecute\(/);
-    expect(src).toMatch(/planConvertSettle\(\{ bound, \.\.\.ids, now: new Date\(bound.acceptedAt\) \}\)/);
-    expect(src).toMatch(/await postConvertSettle\((?:this|svc)\.ledger, plan\)/);
-    expect(src).toMatch(/requireConvertSpreadBps\((?:this|svc)\.convertSpreadBps\)/);
-    expect(src).toMatch(/requireConvertQuoteTtlMs\((?:this|svc)\.convertQuoteTtlMs\)/);
-    expect(src).not.toMatch(/convertSpreadBps:\s*10\b/);
-    expect(src).not.toMatch(/convertSpreadBps \?\? 10/);
-    expect(src).not.toMatch(/convertQuoteTtlMs \?\? 15_000/);
-    expect(src).not.toMatch(/convertQuoteTtlMs \?\? 15000/);
-  });
-
   it('router.ts has no convert/settle recut', () => {
-    const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    expect(routerSrc).not.toMatch(/convert\/settle/);
-    expect(routerSrc).not.toMatch(/planConvertSettle/);
-    expect(routerSrc).not.toMatch(/postConvertSettle/);
+    // A convert settles only inside convert.accept / convert.execute: no procedure plans or posts a settle on its own.
+    const convert = tradeRouterPaths().filter((path) => path.startsWith('convert.'));
+    expect(convert).toEqual(expect.arrayContaining(['convert.accept', 'convert.execute', 'convert.quote']));
+    expect(tradeRouterPaths().filter((path) => /settle/i.test(path) && /convert/i.test(path))).toEqual([]);
   });
 
   it('never lists/invents 10 as convert spread in convert/', () => {
-    const quoteSrc = readFileSync(join(here, 'quote.ts'), 'utf8');
-    const settleSrc = readFileSync(join(here, 'settle.ts'), 'utf8');
-    expect(quoteSrc).toMatch(/requireConvertSpreadBps/);
-    expect(quoteSrc).toMatch(/never invent 10/);
-    expect(settleSrc).not.toMatch(/convertSpreadBps:\s*10\b/);
-    expect(settleSrc).not.toMatch(/\?\? 10/);
-    expect(settleSrc).toMatch(/makerFeeBps: 0/);
-    expect(settleSrc).toMatch(/takerFeeBps: 0/);
+    // A spread the owner did not publish refuses by name; a published one is the one used.
+    for (const unset of [undefined, null, 1.5, Number.NaN]) {
+      expect(() => requireConvertSpreadBps(unset)).toThrow(expect.objectContaining({ code: 'trade.convert_spread_unset' }));
+    }
+    expect(requireConvertSpreadBps(OWNER_CONVERT_SPREAD_BPS)).toBe(OWNER_CONVERT_SPREAD_BPS);
+    expect(requireConvertSpreadBps(0)).toBe(0);
+    // The settle's fill carries the quote's spread only: no maker or taker fee, and no leg to the house fee pots.
+    const now = new Date('2026-09-02T10:00:00.000Z');
+    const estimate = estimateConvert({
+      side: 'buy',
+      qty: amt('1'),
+      levels: [['100', '5']],
+      convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+      tickSize: amt('0.01'),
+    });
+    const quote = buildFirmConvertQuote({
+      quoteId: 'q-b7-no-fee',
+      userId: ALICE,
+      symbol: 'BTC/USDT',
+      marketId: 'm-b7',
+      side: 'buy',
+      baseAsset: 'BTC',
+      quoteAsset: 'USDT',
+      requestedQty: amt('1'),
+      estimate,
+      convertSpreadBps: OWNER_CONVERT_SPREAD_BPS,
+      source: { kind: 'book', symbol: 'BTC/USDT', asOf: now.toISOString() },
+      now,
+      quoteTtlMs: 15_000,
+    });
+    const bound = acceptConvertQuote({ quote, now: new Date(now.getTime() + 1_000) });
+    const plan = planConvertSettle({ bound, ...convertSettleIdsFor(quote.quoteId), now: new Date(now.getTime() + 2_000) });
+    expect(plan.fill.meta).toMatchObject({ makerFeeBps: 0, takerFeeBps: 0, product: 'convert' });
+    expect(plan.fill.entries.filter((entry) => entry.account.ownerId.startsWith('fees:'))).toEqual([]);
+    expect(plan.fill.entries.find((entry) => entry.account.ownerType === 'user' && entry.account.assetId === 'BTC')?.amount).toBe(amt('1'));
   });
 
   it('planConvertSettle with now past expiresAt refuses even if bound', () => {
@@ -226,6 +240,29 @@ describe('svc-trade convert-settle (H8a PG-hard)', () => {
       });
       await fundUser('USDT', '1000');
       await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: amt('10'), seedId: `cvt-btc-${Math.random()}` }));
+    });
+
+    it('a service the env gave no convert spread or quote TTL refuses the quote by name and holds nothing', async () => {
+      const before = ledger.journal().length;
+      const cases = [
+        [{ convertQuoteTtlMs: 60_000 }, 'trade.convert_spread_unset'],
+        [{ convertSpreadBps: OWNER_CONVERT_SPREAD_BPS }, 'trade.convert_quote_ttl_unset'],
+      ] as const;
+      for (const [owner, code] of cases) {
+        const unset = new TradeService(sql, ledger, matching, perks, bus, {
+          marketLifecycle: READY_MARKET_LIFECYCLE,
+          spotEnabled: true,
+          convertEnabled: true,
+          feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+          now: () => nowFn(),
+          ...owner,
+        });
+        await expect(unset.convertQuote(principal, { symbol: btcusdt.symbol, side: 'buy', qty: amt('1') }), code).rejects.toMatchObject({
+          code,
+        });
+      }
+      expect(ledger.journal()).toHaveLength(before);
+      expect(fillPosts()).toHaveLength(0);
     });
 
     it('convertQuote then convertExecute binds exact in/out; one fill post; balances move', async () => {

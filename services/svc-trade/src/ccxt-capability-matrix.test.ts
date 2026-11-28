@@ -7,9 +7,6 @@
  * Class N. Paths: svc-trade only (public/private REST).
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import type { Principal } from '@intafaced/auth';
@@ -29,15 +26,10 @@ import {
 } from './ccxt-capability-matrix.js';
 import { registerPrivateRest, type PrivateRestDeps } from './private-rest.js';
 import { fakeMarket, registerPublicRest, type PublicRestDeps } from './public-rest.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const publicRestSource = readFileSync(join(here, 'public-rest.ts'), 'utf8');
-const privateRestSource = readFileSync(join(here, 'private-rest.ts'), 'utf8');
-const spotOrderPreviewSource = readFileSync(join(here, 'spot/order-preview-rest.ts'), 'utf8');
-const statementRestSource = readFileSync(join(here, 'statements/statement-rest.ts'), 'utf8');
-const positionServiceSource = readFileSync(join(here, 'futures/position-service.ts'), 'utf8');
-const marginModeSource = readFileSync(join(here, 'futures/margin-mode.ts'), 'utf8');
-const privateMountSource = `${privateRestSource}\n${spotOrderPreviewSource}\n${statementRestSource}`;
+import { FuturesError } from './futures/position-service.js';
+import { UNPUBLISHED_FEE_SCHEDULE } from './spot/fee-schedule.js';
+import { registerSpotOrderPreviewRest, type SpotOrderPreviewRestDeps } from './spot/order-preview-rest.js';
+import { partial } from '@intafaced/service-kit/testing';
 
 const SECRET = 'a-ccxt-capability-matrix-edge-secret-long';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -141,6 +133,32 @@ function privateDeps(over: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
   };
 }
 
+/** Every private register svc-trade's entry mounts the matrix's private rows on: private REST (with its statement
+ *  routes) and the order preview door. */
+async function privateMounts() {
+  const app = Fastify();
+  registerPrivateRest(app, privateDeps());
+  registerSpotOrderPreviewRest(
+    app,
+    partial<SpotOrderPreviewRestDeps>({
+      edgeSecret: SECRET,
+      serviceName: 'svc-trade',
+      now: () => new Date(),
+      marketBySymbol: async () => null,
+      marketLifecycle: null,
+      bestAsk: async () => null,
+      bestBid: async () => null,
+      spotEnabled: true,
+      futuresEnabled: false,
+      optionsSettlementLawStamped: false,
+      slippageCapBps: null,
+      feeSchedule: UNPUBLISHED_FEE_SCHEDULE,
+    }),
+  );
+  await app.ready();
+  return app;
+}
+
 /** Strip :param segments so Fastify mount string still matches matrix path template. */
 function pathMountNeedle(path: string): string {
   // Matrix uses '/api/v1/funding-rate/:symbol' — source has same template or quoted form.
@@ -215,34 +233,95 @@ describe('ccxt capability matrix — inventory integrity', () => {
     expect(arm.ccxtCode).toBe('NotSupported');
   });
 
-  it('caller-refused price fields pin private-rest PRICE_FIELDS', () => {
-    // private-rest: const PRICE_FIELDS = ['entryPrice', 'exitPrice', 'price', 'markPrice']
-    for (const field of CALLER_REFUSED_PRICE_FIELDS) {
-      expect(privateRestSource, `private-rest missing refused field ${field}`).toContain(`'${field}'`);
-    }
-    expect(privateRestSource).toContain("error: 'trade.price_not_accepted'");
+  it('caller-refused price fields pin private-rest PRICE_FIELDS', async () => {
     const arm = refuseArmById('callerPriceOnClose')!;
     expect(arm.intafacedCode).toBe('trade.price_not_accepted');
     expect(arm.httpStatus).toBe(400);
+    // Every field the matrix names is refused on the wire, on a close and on an open, before the service runs.
+    const app = Fastify();
+    const reached: string[] = [];
+    registerPrivateRest(
+      app,
+      privateDeps({
+        closePosition: async () => {
+          reached.push('close');
+          throw new Error('should not close');
+        },
+        openPosition: async () => {
+          reached.push('open');
+          throw new Error('should not open');
+        },
+      }),
+    );
+    await app.ready();
+    for (const field of CALLER_REFUSED_PRICE_FIELDS) {
+      const close = await app.inject({ method: 'DELETE', url: `/api/v1/positions/pos-1?${field}=1`, headers: signedHeaders() });
+      expect(close.statusCode, field).toBe(arm.httpStatus);
+      expect(close.json().error, field).toBe(arm.intafacedCode);
+      const open = await app.inject({
+        method: 'POST',
+        url: '/api/v1/positions',
+        headers: signedHeaders(),
+        payload: { symbol: 'BTC/USDT-PERP', side: 'long', size: '1', leverage: '2', clientOpenId: `px-${field}`, [field]: '1' },
+      });
+      expect(open.statusCode, field).toBe(arm.httpStatus);
+      expect(open.json().error, field).toBe(arm.intafacedCode);
+    }
+    expect(reached).toEqual([]);
+    await app.close();
   });
 
-  it('openPosition refuse arms pin private-rest domain codes', () => {
-    expect(privateRestSource).toContain('checkMarginModeForFuturesOpen');
-    expect(privateRestSource).toContain('crossMarginRefusal');
-    expect(marginModeSource).toContain("'trade.cross_margin_unsupported'");
-    expect(marginModeSource).toContain("'trade.portfolio_margin_unset'");
-    expect(marginModeSource).toContain("'trade.unsupported_collateral_class'");
-    expect(privateRestSource).toContain("'trade.leverage_required'");
-    expect(privateRestSource).toContain("'/api/v1/futures/adl-disclosure'");
-    expect(privateRestSource).toContain("'/api/v1/futures/adl-disclosure/ack'");
-    expect(privateRestSource).toContain("'/api/v1/futures/adl-events'");
+  it('openPosition refuse arms pin private-rest domain codes', async () => {
+    let openError: unknown = null;
+    let closeError: unknown = null;
+    const app = Fastify();
+    registerPrivateRest(
+      app,
+      privateDeps({
+        openPosition: async () => {
+          throw openError;
+        },
+        closePositionQuantity: async () => {
+          throw closeError;
+        },
+      }),
+    );
+    await app.ready();
+    const open = (body: Record<string, unknown>) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/positions',
+        headers: signedHeaders(),
+        payload: { symbol: 'BTC/USDT-PERP', side: 'long', size: '1', leverage: '2', clientOpenId: 'arm-open', ...body },
+      });
+    // The margin-mode and collateral refusals, and a missing leverage, are named on the wire before the service runs.
+    for (const [body, code] of [
+      [{ marginMode: 'cross' }, 'trade.cross_margin_unsupported'],
+      [{ marginMode: 'portfolio' }, 'trade.portfolio_margin_unset'],
+      [{ collateralClass: 'staked' }, 'trade.unsupported_collateral_class'],
+      [{ leverage: undefined }, 'trade.leverage_required'],
+    ] as const) {
+      openError = new Error('the service must not run');
+      const res = await open(body);
+      expect(res.statusCode, code).toBe(400);
+      expect(JSON.stringify(res.json()), code).toContain(code);
+    }
+    // The ADL doors are product information on their own routes; no agreement or eligibility door gates an open.
+    for (const [method, url] of [
+      ['GET', '/api/v1/futures/adl-disclosure'],
+      ['POST', '/api/v1/futures/adl-disclosure/ack'],
+      ['GET', '/api/v1/futures/adl-events'],
+    ] as const) {
+      expect(app.hasRoute({ method, url }), url).toBe(true);
+    }
+    for (const url of ['/api/v1/account/agreements', '/api/v1/account/derivatives-eligibility']) {
+      expect(app.hasRoute({ method: 'GET', url }), url).toBe(false);
+      expect(app.hasRoute({ method: 'POST', url }), url).toBe(false);
+    }
     // No agreement, quiz or ADL acknowledgement refuses an open (owner decision 2026-10-27).
     expect(refuseArmById('adlDisclosureRequired')).toBeUndefined();
     expect(refuseArmById('agreementRequiredOnOpen')).toBeUndefined();
     expect(refuseArmById('derivativesEligibilityUnsetOnOpen')).toBeUndefined();
-    expect(privateRestSource).toContain('isDerivativesAccessError');
-    expect(privateRestSource).not.toContain("'/api/v1/account/agreements'");
-    expect(privateRestSource).not.toContain("'/api/v1/account/derivatives-eligibility'");
     for (const [id, code] of [
       ['identityLevelInsufficientOnOpen', 'trade.identity_level_insufficient'],
       ['identityLevelUnavailableOnOpen', 'trade.identity_level_unavailable'],
@@ -250,17 +329,29 @@ describe('ccxt capability matrix — inventory integrity', () => {
       expect(refuseArmById(id)!.httpStatus).toBe(403);
       expect(refuseArmById(id)!.intafacedCode).toBe(code);
     }
-    expect(privateRestSource).toContain('FuturesError');
+    // The operator-pot refusals the position service raises reach the wire as the matrix claims.
     const unconfigured = refuseArmById('futuresUnconfiguredOnOpen')!;
     expect(unconfigured.httpStatus).toBe(403);
     expect(unconfigured.intafacedCode).toBe('trade.futures_unconfigured');
     expect(unconfigured.ccxtCode).toBe('NotSupported');
-    expect(positionServiceSource).toContain("'trade.futures_unconfigured', 403");
+    openError = new FuturesError('futures are not configured', 'trade.futures_unconfigured', 403);
+    const openRes = await open({});
+    expect(openRes.statusCode).toBe(unconfigured.httpStatus);
+    expect(openRes.json()).toMatchObject({ error: unconfigured.intafacedCode, ccxtCode: unconfigured.ccxtCode });
     const closeUnconfigured = refuseArmById('profitSourceUnconfiguredOnClose')!;
     expect(closeUnconfigured.httpStatus).toBe(403);
     expect(closeUnconfigured.intafacedCode).toBe('trade.profit_source_unconfigured');
     expect(closeUnconfigured.ccxtCode).toBe('NotSupported');
-    expect(positionServiceSource).toContain("'trade.profit_source_unconfigured'");
+    closeError = new FuturesError('no profit source', 'trade.profit_source_unconfigured', 403);
+    const closeRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/positions/pos-1/close',
+      headers: signedHeaders(),
+      payload: { quantity: '1', clientCloseId: 'arm-close' },
+    });
+    expect(closeRes.statusCode).toBe(closeUnconfigured.httpStatus);
+    expect(closeRes.json()).toMatchObject({ error: closeUnconfigured.intafacedCode, ccxtCode: closeUnconfigured.ccxtCode });
+    await app.close();
   });
 
   it('extension inventory includes capabilities + ADL doors (not only REST_ROUTES)', () => {
@@ -283,39 +374,88 @@ describe('ccxt capability matrix — inventory integrity', () => {
 });
 
 describe('ccxt capability matrix — claim ≡ mount source', () => {
-  it('every public matrix path is mounted in public-rest.ts', () => {
+  it('every public matrix path is mounted in public-rest.ts', async () => {
+    const app = Fastify();
+    registerPublicRest(app, publicDeps());
+    await app.ready();
     for (const row of CCXT_CAPABILITY_MATRIX.filter((r) => r.auth === 'public')) {
-      const needle = pathMountNeedle(row.path);
-      expect(publicRestSource, `public-rest missing mount ${row.method} ${needle}`).toContain(`'${needle}'`);
+      expect(
+        app.hasRoute({ method: row.method, url: pathMountNeedle(row.path) }),
+        `public-rest missing mount ${row.method} ${row.path}`,
+      ).toBe(true);
     }
+    await app.close();
   });
 
-  it('every private matrix path is mounted in private-rest.ts or a sibling private register', () => {
+  it('every private matrix path is mounted in private-rest.ts or a sibling private register', async () => {
+    const app = await privateMounts();
     for (const row of CCXT_CAPABILITY_MATRIX.filter((r) => r.auth === 'private')) {
-      const needle = pathMountNeedle(row.path);
-      expect(privateMountSource, `private mount missing ${row.method} ${needle}`).toContain(`'${needle}'`);
+      expect(app.hasRoute({ method: row.method, url: pathMountNeedle(row.path) }), `private mount missing ${row.method} ${row.path}`).toBe(
+        true,
+      );
     }
+    await app.close();
   });
 
-  it('setMarginMode stays 501; setLeverage is a live isolated path that can 200', () => {
-    expect(privateRestSource).not.toMatch(
-      /app\.post\('\/api\/v1\/positions\/leverage',\s*(?:privateWrite,\s*)?derivativesNotSupported\('setLeverage'/,
+  it('setMarginMode stays 501; setLeverage is a live isolated path that can 200', async () => {
+    // Only the private mount carries the two position doors; the public one has neither.
+    const publicApp = Fastify();
+    registerPublicRest(publicApp, publicDeps());
+    await publicApp.ready();
+    expect(publicApp.hasRoute({ method: 'POST', url: '/api/v1/positions/leverage' })).toBe(false);
+    expect(publicApp.hasRoute({ method: 'POST', url: '/api/v1/positions/margin-mode' })).toBe(false);
+    await publicApp.close();
+    // On the wire: leverage reaches the service and answers its 200, margin-mode is 501 NotSupported without running it.
+    let leverageCalls = 0;
+    const app = Fastify();
+    registerPrivateRest(
+      app,
+      privateDeps({
+        setLeverage: async () => {
+          leverageCalls += 1;
+          return { id: 'pos-1', symbol: 'BTC/USDT', leverage: '5' } as never;
+        },
+      }),
     );
-    expect(privateRestSource).toContain("app.post('/api/v1/positions/leverage'");
-    expect(privateRestSource).toMatch(
-      /app\.post\('\/api\/v1\/positions\/margin-mode',\s*privateWrite,\s*derivativesNotSupported\('setMarginMode'/,
-    );
-    expect(privateRestSource).toContain('setMarginMode must stay 501');
-    expect(privateRestSource).toContain('notSupported(');
-    expect(privateRestSource).toContain('reply.code(200).send(pos)');
-    expect(publicRestSource).not.toContain("app.post('/api/v1/positions/leverage'");
-    expect(publicRestSource).not.toContain("app.post('/api/v1/positions/margin-mode'");
+    await app.ready();
+    const lev = await app.inject({
+      method: 'POST',
+      url: '/api/v1/positions/leverage',
+      headers: signedHeaders(),
+      payload: { symbol: 'BTC/USDT-PERP', positionId: 'pos-1', leverage: '5', clientAdjustmentId: 'lev-5' },
+    });
+    expect(lev.statusCode, lev.body).toBe(200);
+    expect(leverageCalls).toBe(1);
+    const mode = await app.inject({
+      method: 'POST',
+      url: '/api/v1/positions/margin-mode',
+      headers: signedHeaders(),
+      payload: { marginMode: 'cross' },
+    });
+    expect(mode.statusCode).toBe(501);
+    expect(mode.json().code).toBe('NotSupported');
+    expect(leverageCalls).toBe(1);
+    await app.close();
   });
 
-  it('funding-rate refuse codes appear in public-rest', () => {
-    expect(publicRestSource).toContain("'trade.funding_rate_spot_market'");
-    expect(publicRestSource).toContain("'trade.funding_rate_unavailable'");
-    expect(publicRestSource).toContain("'/api/v1/funding-rate/:symbol'");
+  it('funding-rate refuse codes appear in public-rest', async () => {
+    const spot = fakeMarket({ symbol: 'BTC/USDT' });
+    const perp = fakeMarket({ id: '11111111-1111-4111-8111-111111111111', symbol: 'BTC/USDT-PERP', kind: 'futures' });
+    const app = Fastify();
+    registerPublicRest(
+      app,
+      publicDeps({
+        marketBySymbol: async (symbol) => (symbol === spot.symbol ? spot : symbol === perp.symbol ? perp : null),
+        fundingRateForMarket: async () => null,
+      }),
+    );
+    await app.ready();
+    expect(app.hasRoute({ method: 'GET', url: '/api/v1/funding-rate/:symbol' })).toBe(true);
+    const onSpot = await app.inject({ method: 'GET', url: '/api/v1/funding-rate/BTC%2FUSDT' });
+    expect(onSpot.json().intafacedCode).toBe('trade.funding_rate_spot_market');
+    const unpublished = await app.inject({ method: 'GET', url: '/api/v1/funding-rate/BTC%2FUSDT-PERP' });
+    expect(unpublished.json().intafacedCode).toBe('trade.funding_rate_unavailable');
+    await app.close();
   });
 });
 

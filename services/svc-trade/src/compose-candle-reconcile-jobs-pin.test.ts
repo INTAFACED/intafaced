@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { tradeEnvOf } from './__tests__/entry.js';
 
 /**
  * Unit card — compose stack passes candle and reconcile jobs into svc-trade
@@ -54,16 +55,18 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose passes candle and reconcile jobs into svc-trade', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-trade/src/env.ts'), 'utf8');
   const block = tradeComposeBlock();
 
   it('env.ts still declares both jobs default OFF (schema-only until compose names them)', () => {
-    expect(envTs).toMatch(/TRADE_CANDLE_JOBS_ENABLED:[\s\S]{0,200}?\.default\(\s*false\s*\)/);
-    expect(envTs).toMatch(/TRADE_RECONCILE_JOBS_ENABLED:[\s\S]{0,200}?\.default\(\s*false\s*\)/);
-    expect(envTs).toMatch(/TRADE_CANDLE_JOBS_MARKET_IDS:\s*z\.string\(\)\.default\(''\)/);
-    expect(envTs).toMatch(/TRADE_CANDLE_JOBS_TIMEFRAMES:\s*z\.string\(\)\.default\(''\)/);
-    expect(envTs).not.toMatch(/TRADE_CANDLE_JOBS_TIMEFRAMES:\s*z\.string\(\)\.default\('1m'\)/);
-    expect(envTs).toMatch(/TRADE_CANDLE_JOBS_LIMIT:\s*z\.string\(\)\.default\(''\)\.transform\(parseOwnerIntegerEnv\)/);
+    const unset = tradeEnvOf();
+    expect(unset.TRADE_CANDLE_JOBS_ENABLED).toBe(false);
+    expect(unset.TRADE_RECONCILE_JOBS_ENABLED).toBe(false);
+    expect(unset.TRADE_CANDLE_JOBS_MARKET_IDS).toBe('');
+    // No invented 1m timeframe and no invented limit: blank stays blank, and the limit reads null.
+    expect(unset.TRADE_CANDLE_JOBS_TIMEFRAMES).toBe('');
+    expect(unset.TRADE_CANDLE_JOBS_LIMIT).toBeNull();
+    expect(tradeEnvOf({ TRADE_CANDLE_JOBS_LIMIT: 'nope' }).TRADE_CANDLE_JOBS_LIMIT).toBeNull();
+    expect(tradeEnvOf({ TRADE_CANDLE_JOBS_LIMIT: '200' }).TRADE_CANDLE_JOBS_LIMIT).toBe(200);
   });
 
   it('compose svc-trade block passes unique keys once with jobs OFF and empty market ids', () => {

@@ -9,43 +9,32 @@
  * 7. Collision: none — does not invent VWAP/POV; tracker stays residual
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
+import { tradeEnvOf } from '../__tests__/entry.js';
 import { startAlgoJobs } from './algo-jobs.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const joinChains = (source: string) => source.replace(/\n\s*\./g, '.');
-const envSrc = joinChains(readFileSync(join(here, '..', 'env.ts'), 'utf8'));
-const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-const jobsSrc = readFileSync(join(here, 'algo-jobs.ts'), 'utf8');
 
 describe('TRADE_ALGO_JOBS_ENABLED cannot sneak default ON', () => {
   it('env schema defaults the jobs flag false (unset deploy places no children)', () => {
-    const decl = /TRADE_ALGO_JOBS_ENABLED:\s*(z\.[^\n]*)/.exec(envSrc);
-    expect(decl, 'TRADE_ALGO_JOBS_ENABLED is not declared in svc-trade/src/env.ts').not.toBeNull();
-    expect(decl![1]).toContain('.default(false)');
-    expect(decl![1]).not.toContain('.default(true)');
+    expect(tradeEnvOf().TRADE_ALGO_JOBS_ENABLED).toBe(false);
   });
 
   it('only denylist strings enable jobs — empty / 0 / false stay off', () => {
-    const decl = /TRADE_ALGO_JOBS_ENABLED:\s*(z\.[^\n]*)/.exec(envSrc);
-    expect(decl![1]).toMatch(
-      /\.transform\(\(v\)\s*=>\s*\(typeof v === 'boolean' \? v : \['1', 'true', 'on', 'yes'\]\.includes\(v\.toLowerCase\(\)\)\)\)/,
-    );
-  });
-
-  it('live host wires startAlgoJobs from the env flag, not a literal true', () => {
-    expect(indexSrc).toMatch(/startAlgoJobs\(\{[\s\S]*enabled:\s*env\.TRADE_ALGO_JOBS_ENABLED/);
-    expect(indexSrc).not.toMatch(/startAlgoJobs\(\{[\s\S]*enabled:\s*true/);
+    for (const raw of ['', '0', 'false', 'off', 'no', 'enabled', ' true']) {
+      expect(tradeEnvOf({ TRADE_ALGO_JOBS_ENABLED: raw }).TRADE_ALGO_JOBS_ENABLED, JSON.stringify(raw)).toBe(false);
+    }
+    for (const raw of ['1', 'true', 'on', 'yes', 'TRUE', 'Yes']) {
+      expect(tradeEnvOf({ TRADE_ALGO_JOBS_ENABLED: raw }).TRADE_ALGO_JOBS_ENABLED, raw).toBe(true);
+    }
   });
 
   it('scheduler returns before registering algo.twap when enabled is falsy', () => {
-    const enabledCheck = jobsSrc.indexOf('if (!deps.config.enabled)');
-    const register = jobsSrc.indexOf("host.every('algo.twap'");
-    expect(enabledCheck).toBeGreaterThan(-1);
-    expect(register).toBeGreaterThan(enabledCheck);
+    const trade = { tickAllAlgos: vi.fn(async () => undefined) };
+    const off = startAlgoJobs({ trade, config: { enabled: false, intervalMs: 250 } });
+    expect(off.host.list()).toEqual([]);
+    off.stop();
+    const on = startAlgoJobs({ trade, config: { enabled: true, intervalMs: 250 } });
+    expect(on.host.list()).toEqual(['algo.twap']);
+    on.stop();
   });
 
   it('default-OFF handle never calls tickAllAlgos even after the interval elapses', async () => {

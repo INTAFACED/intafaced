@@ -1,7 +1,4 @@
 import { TradeService } from '../controls/test-admission.js';
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { type PlaceOrderInput } from './trade-service.js';
@@ -26,6 +23,11 @@ import { toCcxtError } from '../ccxt-errors.js';
 import { TradeError } from './types.js';
 
 installComboPlace(TradeService);
+
+/** Install the combo wrapper on a test door: a class with only the methods the wrapper calls. */
+function installOnDoor(Door: abstract new () => object): void {
+  installComboPlace(Door as unknown as typeof TradeService);
+}
 
 const EXPIRY = '2026-12-31T00:00:00.000Z';
 
@@ -101,7 +103,7 @@ describe('combo place — one instrument hold/fill, never per-leg money', () => 
         return { id: 'take', status: 'rejected', rejectCode: 'combo_disagrees' };
       }
     }
-    installComboPlace(Door as unknown as typeof TradeService);
+    installOnDoor(Door);
     await expect(new Door().placeOrder({} as Principal, {})).rejects.toMatchObject({ code: 'trade.combo_disagrees' });
   });
 
@@ -118,7 +120,7 @@ describe('combo place — one instrument hold/fill, never per-leg money', () => 
         expect(result.rejected?.code).toBe('combo_disagrees');
       }
     }
-    installComboPlace(Door as unknown as typeof TradeService);
+    installOnDoor(Door);
     const door = new Door();
     const fill = {
       sequence: 1,
@@ -166,7 +168,7 @@ describe('combo place — one instrument hold/fill, never per-leg money', () => 
         return { orderId: 'order', accountId: 'alice', type: 'limit', side: 'buy', qty: formatAmount(input.qty), tif: 'GTC' };
       }
     }
-    installComboPlace(Door as unknown as typeof TradeService);
+    installOnDoor(Door);
     const door = new Door();
     const origPlace = Door.prototype.placeOrder;
     let placed: PlaceOrderInput | null = null;
@@ -221,11 +223,36 @@ describe('combo place — one instrument hold/fill, never per-leg money', () => 
     expect((falseBound as ComboInput).legs).toBeUndefined();
   });
 
-  it('combo-place never posts ledger money itself — one orig place/fill, no per-leg recipes', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'combo-place.ts'), 'utf8');
-    expect(src).not.toMatch(/recipes\.orderHold/);
-    expect(src).not.toMatch(/recipes\.tradeFill/);
-    expect(src).toMatch(/combo: true/);
+  it('combo-place never posts ledger money itself — one orig place/fill, no per-leg recipes', async () => {
+    const posted: unknown[] = [];
+    const placed: PlaceOrderInput[] = [];
+    class Door {
+      readonly ledger = { post: async (request: unknown) => void posted.push(request) };
+      async placeOrder(_principal: Principal, input: PlaceOrderInput) {
+        placed.push(input);
+        return { id: 'order', status: 'open' };
+      }
+    }
+    installOnDoor(Door);
+    await new Door().placeOrder(
+      {} as Principal,
+      {
+        side: 'buy',
+        type: 'limit',
+        qty: amt('2'),
+        price: amt('99'),
+        clientOrderId: 'cmb-one-place',
+        combo: true,
+        legs: namedLegs(),
+      } as ComboInput,
+    );
+    // One place of the whole combo, marked as one: the legs ride along, each without a hold or amount of its own.
+    expect(placed).toHaveLength(1);
+    expect((placed[0] as ComboInput).combo).toBe(true);
+    expect((placed[0] as ComboInput).legs).toHaveLength(2);
+    for (const leg of (placed[0] as ComboInput).legs ?? []) {
+      expect(Object.keys(leg).filter((key) => /qty|amount|hold/i.test(key))).toEqual([]);
+    }
+    expect(posted).toEqual([]);
   });
 });

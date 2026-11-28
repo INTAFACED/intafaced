@@ -3,13 +3,11 @@
  * follower limit 100.5 against leader price 100 is 50 bps
  * (0.5 / 100 × 10000). Peak 100 minus current 60 is 40.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MemoryLedger, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { CopyService } from '../controls/test-admission.js';
 import type { LookupLeaderFillPort } from './copy-service.js';
+import type { PlaceFollowerOrderInput } from './auto-mirror-place.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 import { followResultFigure, type FollowResult } from './follow-result.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
@@ -29,8 +27,6 @@ const publishedFee: CopyFeeShareLaw = {
 };
 
 const publishedJur: CopyJurisdictionLaw = { published: true, allowedRegions: ['SG'] };
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 function baseFollow(leaderId = LEADER) {
   return {
@@ -65,6 +61,7 @@ function service(options: {
   place?: (orderId: string) => { orderId: string };
   figure?: () => { figure: Amount | null; missing: string | null };
   places?: { n: number };
+  placed?: PlaceFollowerOrderInput[];
 }) {
   const places = options.places ?? { n: 0 };
   return new CopyService(new MemoryLedger(), {
@@ -74,7 +71,8 @@ function service(options: {
     placeMirrorEnabled: true,
     inspectMarket: async () => ({ paper: false }),
     lookupLeaderFill: lookup(options.rows ?? []),
-    placeFollowerOrder: async () => {
+    placeFollowerOrder: async (_principal, input) => {
+      options.placed?.push(input);
       places.n += 1;
       return options.place ? options.place(`ord-${places.n}`) : { orderId: `ord-${places.n}` };
     },
@@ -426,9 +424,23 @@ describe('leverage is a typed door only', () => {
       code: 'trade.copy_leverage_unsupported',
     });
     expect(await copy.listMyFollows(principal, 10)).toEqual([]);
-    const src = readFileSync(join(here, 'auto-mirror-place.ts'), 'utf8');
-    expect(src).not.toMatch(/leverage/);
-    expect(src).toMatch(/limit/);
+    // A follow without it mirrors as a plain limit order: a price from the plan, and no leverage or margin to carry.
+    const placed: PlaceFollowerOrderInput[] = [];
+    const plain = service({ rows: [fill('lev-0', { qty: '1', notional: '100', price: '100' })], placed });
+    const followed = await plain.follow(principal, baseFollow());
+    await plain.planMirrorForFollow(principal, {
+      followId: followed.followId,
+      fillId: 'lev-0',
+      marketId: 'BTC-USDT',
+      side: 'buy',
+      qty: '1',
+      notional: '100',
+    });
+    await plain.grantSessionKey(principal, { followId: followed.followId });
+    await plain.placeMirrorForFollow(principal, { followId: followed.followId, fillId: 'lev-0', leaderPaper: false });
+    expect(placed).toHaveLength(1);
+    expect(formatAmount(placed[0]!.price)).toBe('100');
+    expect(Object.keys(placed[0]!).filter((key) => /leverage|margin/i.test(key))).toEqual([]);
   });
 });
 
