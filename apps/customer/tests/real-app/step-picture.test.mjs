@@ -162,6 +162,29 @@ describe('step picture from the top', { timeout: BROWSER_TEST_TIMEOUT }, () => {
     await close();
   });
 
+  it('a dropdown still fading in is drawn whole, not see-through with the page showing through its rows', async (t) => {
+    if (!browser) return t.skip(`no Chromium to drive: ${why}`);
+    // The top bar's dropdown fades in from opacity 0 (shell.css .tb-popover, tb-pop); J-home-ia-02 #1's picture caught it
+    // part-way, its rows over the page's text (issue 11232, run 46084497896).
+    const { page, close } = await pageOf(
+      '<style>@keyframes pop{from{opacity:0}}</style><div role="group" aria-label="Trade" style="position:absolute;top:100px;left:0;width:200px;height:100px;background:rgb(0,0,0);animation:pop 1500ms linear"></div>',
+    );
+    expect(await fromTop(page)).toBe('at top');
+    expect(await pixel(page, 100, 150)).toEqual([0, 0, 0]);
+    await close();
+  });
+
+  it('a page that animates for ever (a loading shimmer) is still pictured, within the bound', async (t) => {
+    if (!browser) return t.skip(`no Chromium to drive: ${why}`);
+    const { page, close } = await pageOf(
+      '<style>@keyframes shine{to{opacity:.2}}</style><div style="position:absolute;top:100px;width:50px;height:10px;background:#888;animation:shine 400ms infinite alternate"></div>',
+    );
+    const started = Date.now();
+    expect(await fromTop(page)).toBe('at top');
+    expect(Date.now() - started).toBeLessThan(1500);
+    await close();
+  });
+
   it('a page held by a browser dialog is left as it stands after the bound, and readying never throws', async (t) => {
     if (!browser) return t.skip(`no Chromium to drive: ${why}`);
     const { page, close } = await pageOf();
