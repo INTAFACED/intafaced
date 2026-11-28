@@ -842,4 +842,4 @@ export const receiptFields = {
 
 export const signature = z.string().regex(/^0x[0-9a-fA-F]{130}$/);
 
-export const plainWords = z.string().refine((value) => !/[\u0000-\u001F]/.test(value), 'text has a control character');
+export const plainWords = z.string().refine((value) => ![...value].some((c) => c < ' '), 'text has a control character');

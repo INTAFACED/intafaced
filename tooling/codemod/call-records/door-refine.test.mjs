@@ -178,7 +178,7 @@ test('portable: a refine on the schema a .pipe starts from is named, and a shape
     record,
     [
       "import { z } from 'zod';",
-      "const plainWords = z.string().refine((value) => !/[\\u0000-\\u001F]/.test(value), 'text has a control character');",
+      "const plainWords = z.string().refine((value) => ![...value].some((c) => c < ' '), 'text has a control character');",
       "const KEYS = ['programme', 'fees'] as const;",
       'const setting = z.object({ value: z.unknown(), version: z.number() }).nullable();',
       'const settings = z.object(Object.fromEntries(KEYS.map((k) => [k, setting])) as Record<(typeof KEYS)[number], typeof setting>);',
@@ -215,7 +215,7 @@ test("samples: a check is found in a union's option, a rule across keys by takin
   const sent = Function(`return ${samplesFor({ name: 'bank.send', path: 'p', input: send, checks }, new Map([['p', typed]]))}`)();
   assert.equal(Object.keys(sent.find((s) => s.by === 'at_most_eight_keys').input.recipient).length, 9);
 
-  const plainWords = z.string().refine((value) => !/[\u0000-\u001F]/.test(value), 'text has a control character');
+  const plainWords = z.string().refine((value) => ![...value].some((c) => c < ' '), 'text has a control character');
   const note = z
     .object({
       id: z.string(),

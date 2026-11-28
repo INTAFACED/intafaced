@@ -192,7 +192,7 @@ const railRequirementsSchema = z.object({
   countries: z.array(z.object({ country: z.string(), rails: z.array(z.enum(BANK_RAILS)) })),
 });
 export type RailRequirements = z.infer<typeof railRequirementsSchema>;
-export const railSendSchema = z.object({
+const railSendSchema = z.object({
   requestId: z.string(),
   fromSpaceId: z.string(),
   assetId: z.string(),
@@ -204,9 +204,8 @@ export const railSendSchema = z.object({
   createdAt: z.string(),
 });
 export type RailSend = z.infer<typeof railSendSchema>;
-export const railSendCheckSchema = z.object({ assetId: z.string(), amount: money, available: money });
 /** svc-bank `bank.railSends.payees` (J-bank-04 #2): the recipient book, each with its name check and cooling-off. */
-export const railPayeeSchema = z.object({
+const railPayeeSchema = z.object({
   payeeId: z.string(),
   nickname: z.string(),
   country: z.string(),
@@ -220,9 +219,3 @@ export const railPayeeSchema = z.object({
   scamWarning: z.object({ state: z.enum(['unread', 'read']), readAt: z.string().nullable() }),
 });
 export type RailPayee = z.infer<typeof railPayeeSchema>;
-export const railPayeeCheckSchema = z.object({
-  nickname: z.string(),
-  country: z.string(),
-  rail: z.enum(BANK_RAILS),
-  recipient: z.string(),
-});
