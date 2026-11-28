@@ -100,6 +100,11 @@ test(`${J} #2 the machine feed lists components, incidents with impact and updat
       `${J}-update-${RUN}`,
     );
 
+    // A reading of this step's own, so the uptime day it lands on is known whatever the clock reads (past midnight UTC,
+    // #1's reading lands on the day before).
+    const observed = new Date(Date.now() - 1_000);
+    await recordReading({ componentId: 'rest-api', state: 'operational', observedAt: observed.toISOString(), source: 'TEST probe' });
+
     // As a developer's program reads it: signed out, plain JSON. The feed may answer a read a few seconds old.
     const read = async () => {
       const res = await fetch(`${EDGE}/api/notify/v1/status`);
@@ -118,7 +123,8 @@ test(`${J} #2 the machine feed lists components, incidents with impact and updat
     expect(feed.components.find((c) => c.id === 'webhooks').state).toBe('no_data');
     // Uptime history: one day per day of the window, oldest first; today's reading counts on today.
     for (const c of feed.components) expect(c.uptime).toHaveLength(TEST_VALUES.uptimeDays);
-    expect(api.uptime.at(-1)).toMatchObject({ date: utcDay(new Date()), state: 'operational' });
+    expect(api.uptime.at(-1).date).toBe(utcDay(new Date(feed.asOf)));
+    expect(api.uptime.find((day) => day.date === utcDay(observed))).toMatchObject({ state: 'operational' });
     expect(feed.components.find((c) => c.id === 'webhooks').uptime.every((day) => day.state === null)).toBe(true);
     // The incident with its impact and both updates.
     expect(feed.incidents).toHaveLength(1);
