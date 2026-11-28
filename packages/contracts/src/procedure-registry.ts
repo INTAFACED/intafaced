@@ -516,12 +516,18 @@ import {
   BANK_AUTO_INVEST_POLICY,
 } from './bank-auto-invest-procedures.js';
 
+import { BANK_BANK_ACCOUNT_CLOSURE } from './bank-bank-account-2-procedures.js';
+
 import {
   BANK_BANK_ACCOUNT_ANSWER_REQUEST,
   BANK_BANK_ACCOUNT_ANSWER_REVIEW,
   BANK_BANK_ACCOUNT_REQUEST_CLOSURE,
   BANK_BANK_ACCOUNT_REOPEN,
   BANK_BANK_ACCOUNT_REQUEST_DATA,
+  BANK_BANK_ACCOUNT_ONBOARDING,
+  BANK_BANK_ACCOUNT_REQUESTS,
+  BANK_BANK_ACCOUNT_REVIEWS,
+  BANK_BANK_ACCOUNT_DATA_REQUESTS,
 } from './bank-bank-account-procedures.js';
 
 import {
@@ -3153,12 +3159,18 @@ const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [
   BANK_AUTO_INVEST_POLICY,
 ];
 
+const part_bank_bank_account_2_procedures: readonly ProcedureRecord[] = [BANK_BANK_ACCOUNT_CLOSURE];
+
 const part_bank_bank_account_procedures: readonly ProcedureRecord[] = [
   BANK_BANK_ACCOUNT_ANSWER_REQUEST,
   BANK_BANK_ACCOUNT_ANSWER_REVIEW,
   BANK_BANK_ACCOUNT_REQUEST_CLOSURE,
   BANK_BANK_ACCOUNT_REOPEN,
   BANK_BANK_ACCOUNT_REQUEST_DATA,
+  BANK_BANK_ACCOUNT_ONBOARDING,
+  BANK_BANK_ACCOUNT_REQUESTS,
+  BANK_BANK_ACCOUNT_REVIEWS,
+  BANK_BANK_ACCOUNT_DATA_REQUESTS,
 ];
 
 const part_bank_bills_procedures: readonly ProcedureRecord[] = [
@@ -5483,6 +5495,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_assets_procedures,
   ...part_bank_auto_invest_2_procedures,
   ...part_bank_auto_invest_procedures,
+  ...part_bank_bank_account_2_procedures,
   ...part_bank_bank_account_procedures,
   ...part_bank_bills_procedures,
   ...part_bank_business_2_procedures,
