@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
@@ -66,6 +66,12 @@ function closeServer(server: http.Server) {
     server.closeAllConnections();
     server.close(() => resolve());
   });
+}
+
+/** Today's count on a view that read the venue (every read here but the desk's `terms` read of a limit never set). */
+function todayOf(view: { today: { loss: string | null; since: string; asOf: string | null; resetsAt: string; reached: boolean } | null }) {
+  if (!view.today) throw new Error('the view counted no loss: only a terms read of a limit never set has none');
+  return view.today;
 }
 
 describe('the daily loss limit rules', () => {
@@ -192,6 +198,29 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
     expect(view.active).toBeNull();
     // TEST: the venue's realised -1 on the half closed, plus its fees and our builder fee on both fills.
     expect(view.today).toMatchObject({ loss: '3.475275', reached: false });
+    // The venue's as-of time for the fills it was counted from, and the next 00:00 UTC, when the count starts again.
+    expect(todayOf(view).asOf).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(todayOf(view).resetsAt).toBe(new Date(Date.parse(todayOf(view).since) + 86_400_000).toISOString());
+  });
+
+  it("the desk's terms read of an account that never set a limit asks the venue nothing", async () => {
+    const venueNow = await d.venue();
+    const markets = vi.spyOn(venueNow, 'markets');
+    const fills = vi.spyOn(venueNow, 'fills');
+    try {
+      expect(await limits.get(principal, owner, { terms: true })).toMatchObject({
+        owner,
+        asset: null,
+        active: null,
+        pending: null,
+        today: null,
+      });
+      expect(markets).not.toHaveBeenCalled();
+      expect(fills).not.toHaveBeenCalled();
+    } finally {
+      markets.mockRestore();
+      fills.mockRestore();
+    }
   });
 
   it('off (the default), an opening order is prepared with no warning', async () => {
@@ -214,6 +243,7 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
     expect(refused).toMatchObject({ code: 'trade.daily_loss_limit_reached', status: 422 });
     expect(refused!.message).toContain('reaching your daily loss limit of 3 USDC');
     expect(refused!.message).toContain('reduce-only orders that close a position still go through');
+    expect(refused!.message).toContain(`until the day resets at ${todayOf(view).resetsAt} (00:00 UTC); nothing was sent`);
     expect(await actions.find(USER, opening.clientOrderKey)).toBeNull();
     // The other side of an open position is refused too unless it is reduce-only.
     expect(await refusalOf(prepare(order({ side: 'sell', price: a('3500') })))).toMatchObject({ code: 'trade.daily_loss_limit_reached' });
@@ -228,28 +258,44 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
   it('blocking to advisory waits 24 hours: still refused a second before, warned (not refused) once the 24 hours are up', async () => {
     const asked = now().getTime();
     const view = await limits.set(principal, { owner, limit: '3', mode: 'advisory' });
-    expect(view).toMatchObject({
-      active: { mode: 'blocking', limit: '3' },
-      pending: { terms: { mode: 'advisory', limit: '3' }, effectiveAt: new Date(asked + LOOSENING_WAIT_MS).toISOString() },
-    });
+    const answered = now().getTime();
+    expect(view).toMatchObject({ active: { mode: 'blocking', limit: '3' }, pending: { terms: { mode: 'advisory', limit: '3' } } });
+    // 24 hours from when the service took the ask: the real clock runs while it answers, so the time is read from it.
+    const due = Date.parse(view.pending!.effectiveAt);
+    expect(due).toBeGreaterThanOrEqual(asked + LOOSENING_WAIT_MS);
+    expect(due).toBeLessThanOrEqual(answered + LOOSENING_WAIT_MS);
     // The next UTC day, a minute before the 24 hours are up: today's loss starts at zero, so an opening order passes.
     // TEST: 1 ETH-PERP bought at 3001 and all 1.3 held sold reduce-only at 2999, a loss past the limit of 3 again.
-    at(asked + LOOSENING_WAIT_MS - 60_000);
+    at(due - 60_000);
     expect((await limits.get(principal, owner)).today).toMatchObject({ loss: '0', reached: false });
     const buy = order({ type: 'market', timeInForce: 'IOC', amount: a('1'), price: a('3100') });
     expect((await run(buy)).outcome).toMatchObject({ accepted: true, order: { status: 'filled' } });
     const sell = order({ side: 'sell', type: 'market', timeInForce: 'IOC', amount: a('1.3'), price: a('2700'), reduceOnly: true });
     expect((await run(sell)).outcome).toMatchObject({ accepted: true, order: { status: 'filled' } });
-    expect((await limits.get(principal, owner)).today.reached).toBe(true);
+    expect(todayOf(await limits.get(principal, owner)).reached).toBe(true);
     // A second before the 24 hours are up, blocking still holds.
-    at(asked + LOOSENING_WAIT_MS - 1000);
+    at(due - 1000);
     expect(await refusalOf(prepare(order()))).toMatchObject({ code: 'trade.daily_loss_limit_reached' });
-    at(asked + LOOSENING_WAIT_MS);
+    at(due);
     const later = await limits.get(principal, owner);
     expect(later).toMatchObject({ active: { mode: 'advisory', limit: '3' }, pending: null, today: { reached: true } });
+    const key = { userId: USER, venueId: venue.sim.venue.id, owner };
+    // Nothing was noted while blocking refused, or below the limit.
+    expect(await store.warned(key)).toEqual([]);
     const answer = await prepare(order());
     expect(answer.warnings).toEqual([
-      expect.objectContaining({ code: 'trade.daily_loss_limit_reached', asset: 'USDC', limit: '3', loss: later.today.loss }),
+      expect.objectContaining({ code: 'trade.daily_loss_limit_reached', asset: 'USDC', limit: '3', loss: todayOf(later).loss }),
+    ]);
+    // The warned opening order is kept by its venue client order id, with the warning's figures (J-portfolio-19 #4).
+    expect(answer.prepared.venueClientOrderId).toMatch(/^0x[0-9a-f]{32}$/);
+    expect(await store.warned(key)).toEqual([
+      {
+        venueClientOrderId: answer.prepared.venueClientOrderId,
+        asset: 'USDC',
+        limit: a('3'),
+        loss: a(todayOf(later).loss!),
+        warnedAt: expect.any(Date),
+      },
     ]);
     expect(answer.warnings![0]!.message).toContain('reaching your daily loss limit of 3 USDC');
     // Advisory never stops the order: it is prepared, and the venue takes it.

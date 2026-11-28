@@ -13,6 +13,7 @@ import {
   TOKEN_RE,
   grantRef,
   invitedOwner,
+  markChanged,
   planPartner,
   planPass,
   readInvited,
@@ -168,4 +169,17 @@ test('the invited pass runs only on an up stack someone invited has opened, one 
   assert.equal(invitedPassDue({ state: 'up', invited: 0, running: false }), false);
   assert.equal(invitedPassDue({ state: 'up', invited: 1, running: true }), false);
   for (const state of ['down', 'blocked', 'refused', undefined]) assert.equal(invitedPassDue({ state, invited: 1, running: false }), false);
+});
+
+// #11217: the pass notes each viewer whose account it approved or funded, for the front to reload their open app.
+test('markChanged records when a viewer’s account changed; a malformed token is never kept', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'beta-changed-')), 'changed.json');
+  const token = viewerToken('alice@gmail.com');
+  markChanged(file, token, new Date('2026-11-28T01:00:00.000Z'));
+  markChanged(file, 'not a token', new Date('2026-11-28T01:00:00.000Z'));
+  markChanged(file, null);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).tokens, { [token]: '2026-11-28T01:00:00.000Z' });
+  markChanged(file, token, new Date('2026-11-28T01:05:00.000Z'));
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).tokens[token], '2026-11-28T01:05:00.000Z');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });

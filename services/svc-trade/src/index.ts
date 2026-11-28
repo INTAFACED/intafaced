@@ -139,6 +139,7 @@ import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
 import { busRiskAlertNotices, VenueRiskAlerts } from './venue/risk-alerts.js';
 import { SqlRiskAlertStore } from './venue/risk-alerts-store.js';
 import { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
+import { ageDailyLossLimit } from './venue/daily-loss-limit-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -1031,6 +1032,8 @@ export const appRouter = createTradeRouter(
         account: (owner: string, subAccount: string | null) => userVenue.readableAccount(owner, subAccount),
         store: new SqlTradeJournalStore(sql),
         now: () => new Date(),
+        // The warnings the daily loss limit gave, for the "keeping my rules" line (J-portfolio-19 #4).
+        warned: (key) => dailyLossStore.warned(key),
       }
     : null,
   venueDailyLoss,
@@ -1851,7 +1854,7 @@ registerTestAgeDoor(app, {
   open: testAgeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
-  subjects: { 'otc-quote': ageOtcQuote(sql), 'recurring-buy': ageRecurringBuy(sql) },
+  subjects: { 'otc-quote': ageOtcQuote(sql), 'recurring-buy': ageRecurringBuy(sql), 'daily-loss-limit': ageDailyLossLimit(sql) },
   installRawBody: false,
 });
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);

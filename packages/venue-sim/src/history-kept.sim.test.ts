@@ -14,12 +14,12 @@ import { answerTestVenue, seedTestVenue, TEST_VENUE_MARKETS } from './http-serve
 import type { TestVenueTypedData } from './signing.js';
 
 /**
- * J-portfolio-18 at the venue: the TEST perpetual XJRN-PERP whose trades fill a journal, and `/test/history-kept`, the
+ * J-portfolio-18 at the venue: the TEST perpetual XJRL-PERP whose trades fill a journal, and `/test/history-kept`, the
  * TEST venue keeping a market's fills and candles only from a time on, as a venue keeps a bounded history. Every figure
  * is TEST.
  */
 const a = parseAmount;
-const XJRN = 'XJRN-PERP';
+const XJRL = 'XJRL-PERP';
 
 describe('the TEST venue keeps a bounded history (J-portfolio-18 #3 #7)', () => {
   it('drops one market’s fills and candles before a time, for every account; other markets and null keep all', async () => {
@@ -48,34 +48,34 @@ describe('the TEST venue keeps a bounded history (J-portfolio-18 #3 #7)', () => 
       clientOrderKey: `order:history:${symbol}:${n}`,
       builderFee: null,
     });
-    for (const symbol of [XJRN, 'BTC-PERP'])
+    for (const symbol of [XJRL, 'BTC-PERP'])
       expect(await run({ kind: 'update_leverage', symbol, leverageBps: 100_000, marginMode: 'isolated' })).toMatchObject({
         accepted: true,
       });
-    expect(await run(buy(XJRN, '101', 1))).toMatchObject({ accepted: true, order: { status: 'filled' } });
+    expect(await run(buy(XJRL, '101', 1))).toMatchObject({ accepted: true, order: { status: 'filled' } });
     expect(await run(buy('BTC-PERP', '60100', 1))).toMatchObject({ accepted: true, order: { status: 'filled' } });
     now += 120_000;
     const cut = new Date(now);
-    expect(await run(buy(XJRN, '101', 2))).toMatchObject({ accepted: true, order: { status: 'filled' } });
+    expect(await run(buy(XJRL, '101', 2))).toMatchObject({ accepted: true, order: { status: 'filled' } });
 
     const fillsOf = async () => (await sim.fills(account, new Date(0))).value.map((f) => f.symbol);
     const candlesOf = async (symbol: string) => (await sim.candles(symbol, '1m', 720)).value.map((c) => c.openAt.getTime());
-    expect(await fillsOf()).toEqual([XJRN, 'BTC-PERP', XJRN]);
-    expect((await candlesOf(XJRN)).length).toBe(2);
+    expect(await fillsOf()).toEqual([XJRL, 'BTC-PERP', XJRL]);
+    expect((await candlesOf(XJRL)).length).toBe(2);
 
     const call = async (body: unknown) => {
       const [status, out] = await answerTestVenue(sim, 'POST', '/test/history-kept', JSON.stringify(encodeVenueWire(body)));
       return { status, out: decodeVenueWire<Record<string, unknown>>(out) };
     };
-    expect(await call({ symbol: XJRN, candlesFrom: cut.toISOString() })).toMatchObject({ status: 200, out: { label: 'TEST' } });
-    expect(await fillsOf()).toEqual([XJRN, 'BTC-PERP', XJRN]);
-    expect(await candlesOf(XJRN)).toEqual([cut.getTime()]);
-    await call({ symbol: XJRN, fillsFrom: cut.toISOString() });
-    expect(await fillsOf()).toEqual(['BTC-PERP', XJRN]);
+    expect(await call({ symbol: XJRL, candlesFrom: cut.toISOString() })).toMatchObject({ status: 200, out: { label: 'TEST' } });
+    expect(await fillsOf()).toEqual([XJRL, 'BTC-PERP', XJRL]);
+    expect(await candlesOf(XJRL)).toEqual([cut.getTime()]);
+    await call({ symbol: XJRL, fillsFrom: cut.toISOString() });
+    expect(await fillsOf()).toEqual(['BTC-PERP', XJRL]);
     expect((await candlesOf('BTC-PERP')).length).toBe(1);
-    await call({ symbol: XJRN, fillsFrom: null, candlesFrom: null });
-    expect(await fillsOf()).toEqual([XJRN, 'BTC-PERP', XJRN]);
-    expect((await candlesOf(XJRN)).length).toBe(2);
+    await call({ symbol: XJRL, fillsFrom: null, candlesFrom: null });
+    expect(await fillsOf()).toEqual([XJRL, 'BTC-PERP', XJRL]);
+    expect((await candlesOf(XJRL)).length).toBe(2);
     expect((await call({ symbol: 'NOPE-PERP', fillsFrom: null })).status).not.toBe(200);
   });
 });

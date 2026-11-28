@@ -18,14 +18,14 @@
 <a data-testid="tb-tab" class="tb-tab" href="/home">Home</a>
 </li>
 <li data-testid="tb-item" class="tb-item ">
-<a data-testid="tb-tab" class="tb-tab" href="/money" aria-current="page" aria-expanded="false">Money<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down tb-chev" aria-hidden="true">
+<a data-testid="tb-tab" class="tb-tab" href="/money" aria-expanded="false">Money<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down tb-chev" aria-hidden="true">
 <path d="m6 9 6 6 6-6">
 </path>
 </svg>
 </a>
 </li>
 <li data-testid="tb-item" class="tb-item ">
-<a data-testid="tb-tab" class="tb-tab" href="/trade" aria-expanded="false">Trade<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down tb-chev" aria-hidden="true">
+<a data-testid="tb-tab" class="tb-tab" href="/trade" aria-current="page" aria-expanded="false">Trade<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down tb-chev" aria-hidden="true">
 <path d="m6 9 6 6 6-6">
 </path>
 </svg>
@@ -49,7 +49,7 @@
 </nav>
 <div data-testid="tb-right" class="tb-right">
 <nav class="web3-switch max-[1280px]:hidden" aria-label="Switch between the Exchange and Web3">
-<a href="/money/journal" aria-current="page">Exchange</a>
+<a href="/trade/risk/rules" aria-current="page">Exchange</a>
 <a href="/dex">Web3</a>
 </nav>
 <div class="tb-search ">
@@ -91,40 +91,29 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-testid="money-journal">
-<div class="lt-room" data-template="record-list" data-state="ready" data-mode="simple">
+<div class="legacy-room">
+<div class="lt-room" data-template="monitor" data-state="empty" data-mode="pro">
 <header class="lt-title-row">
 <div>
-<h1 class="lt-title">Journal</h1>
-<p class="lt-description">Every closed perpetual trade on your venue account, recorded by itself: one row from open to flat, with its fills, its net result as the venue reported it, how far the price went against and for you, and the R you planned and got.</p>
-</div>
-<div class="lt-room-action">
-<a class="lt-button lt-button-secondary" href="/money">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-left" aria-hidden="true">
-<path d="m12 19-7-7 7-7">
-</path>
-<path d="M19 12H5">
-</path>
-</svg>Money</a>
+<h1 class="lt-title">Risk rules</h1>
+<p class="lt-description">Rules you set for your own venue account. Each one is off until you turn it on.</p>
 </div>
 </header>
 <div class="lt-body">
-<div class="lt-toolbar">
-<section class="lt-region" data-region="filters">
-<section class="lt-stack" aria-label="Your wallet" data-testid="venue-wallet">
-<h2>Your wallet</h2>
-<p class="lt-hint">No wallet found in this browser. Open a wallet that supports browser connections, then reload.</p>
-<a class="lt-link" href="/wallet/embedded" data-testid="venue-wallet-make">Make your INTAFACED wallet: a passkey on this device, no seed phrase.</a>
-</section>
-</section>
-</div>
-<div class="lt-grid">
-<section class="lt-region" data-region="list" aria-label="Records">
-<div data-testid="money-state" data-kind="empty" class="lt-empty">
-<h3 class="lt-empty-title">No venue account is connected</h3>
-<p class="lt-empty-body">The journal reads the closed trades of your own venue account, and no venue is connected here.</p>
+<section class="lt-region" data-region="figures" aria-label="Key figures" data-holds-state="">
+<div class="lt-empty" data-first="">
+<p class="lt-empty-title">Risk rules count your own venue account</p>
+<p class="lt-empty-body">No venue is connected for your account, so there is no account to count a daily loss on.</p>
 </div>
 </section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p class="lt-hint">A rule that makes trading stricter applies at once. One that loosens it (a higher limit, warning instead of stopping, turning it off) waits 24 hours, so a bad day cannot talk you out of it. Closing a position, moving a stop or target and cancelling an order are never held.</p>
+</section>
+</div>
 </div>
 </div>
 </div>
@@ -138,14 +127,14 @@
 <path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z">
 </path>
 </svg>Home</a>
-<a href="/money" aria-current="page">
+<a href="/money">
 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-wallet" aria-hidden="true" focusable="false">
 <path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1">
 </path>
 <path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4">
 </path>
 </svg>Money</a>
-<a href="/trade">
+<a href="/trade" aria-current="page">
 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chart-no-axes-column lucide-bar-chart-2" aria-hidden="true" focusable="false">
 <path d="M5 21v-6">
 </path>

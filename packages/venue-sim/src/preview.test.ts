@@ -206,7 +206,7 @@ describe('HTTP answers', () => {
       const [status, out] = await answerTestVenue(sim, 'POST', path, JSON.stringify(encodeVenueWire(body)));
       return { status, out: decodeVenueWire<any>(JSON.parse(JSON.stringify(out))), raw: out as any };
     };
-    // Five levels a side on each of the eleven laddered TEST markets (BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP, XSTK-PERP, XSTD-PERP, XLIQ-PERP, XFND-PERP, XBIL-PERP, XCRS-PERP, XJRN-PERP).
+    // Five levels a side on each of the eleven laddered TEST markets (BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP, XSTK-PERP, XSTD-PERP, XLIQ-PERP, XFND-PERP, XBIL-PERP, XCRS-PERP, XJRL-PERP).
     expect((await call('/test/seed', {})).out.orders).toBe(110);
     expect((await call('/test/seed', {})).out.orders).toBe(0);
     expect((await call('/test/deposit', { account, asset: 'USDC', amount: a('70000'), depositRef: 'dep:http' })).out.credited).toBe(true);
@@ -280,6 +280,7 @@ describe('HTTP answers', () => {
       'XCRS-PERP',
       'XDEV-PERP',
       'XJRN-PERP',
+      'XJRL-PERP',
     ]);
 
     // A resting order placed while trading stays as it is through every state change.

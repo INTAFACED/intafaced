@@ -1,5 +1,5 @@
 -- trade.user_venue_journal_trades · the journal's own record of the person's closed perp trades on their own venue
--- account (src/venue/trade-journal.ts, J-portfolio-18). Reversal: 20261128100000_user_venue_journal_trades.down.sql
+-- account (src/venue/trade-journal.ts, J-portfolio-18). Reversal: 20261128110000_user_venue_journal_trades.down.sql
 --
 -- A copy of what the venue reported (its fills, funding, order history and 1-minute candles), worked into one row per
 -- trade from flat to flat, so a trade stays whole after the venue stops returning its history. Never a balance: nothing

@@ -1,102 +1,41 @@
-import { ArrowLeft } from 'lucide-react';
 import type { JournalTrade, TradeJournal } from '@intafaced/contracts/trade-journal-procedures';
-import { RecordListTemplate, Skeleton, Table, type Column, type RoomState } from '@intafaced/ui/lit/templates';
-import { TestMark, useOwner, useVenueMode, VenueFrame, WalletBar, type VenueMode } from '../../../features/trade';
-import { usePreferences } from '../../../shared/preferences';
-import { moneyCopy } from '../copy';
-import { navigate } from '../deps';
-import { stamp } from '../time';
-import { EmptyNote, ErrorNote } from '../pnl/parts';
-import { useTradeJournal } from './journal-source';
+import { Table, type Column } from '@intafaced/ui/lit/templates';
+import { TestMark } from '../venue/volt/VoltVenue';
+import { journalTradesCopy } from './journal-trades-copy';
 
-type T = ReturnType<typeof moneyCopy.useCopy>['t'];
+type T = ReturnType<typeof journalTradesCopy.useCopy>['t'];
 type Excursion = NonNullable<JournalTrade['excursion']['mae']>;
 
-const READY: RoomState = { kind: 'ready' };
-
-/** `?trade=` on /money/journal: the trade opened beside the list. */
-function tradeFromSearch(search: string): string | null {
-  return new URLSearchParams(search).get('trade');
+/** `?trade=` on /trade/journal: the trade opened beside the list. */
+export function tradeFromPath(path: string): string | null {
+  return new URL(path, 'http://journal.invalid').searchParams.get('trade');
 }
 
-const href = (tradeId: string | null) => (tradeId ? `/money/journal?trade=${encodeURIComponent(tradeId)}` : '/money/journal');
+const href = (tradeId: string) => `/trade/journal?trade=${encodeURIComponent(tradeId)}`;
 
 /** An amount in its asset, exactly as the venue reported it. */
 const inAsset = (value: string, asset: string) => `${value} ${asset}`;
 
+/** A time as the journal names it: UTC, to the second. */
+const when = (iso: string) => new Date(iso).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+
 /**
- * `/money/journal` (J-portfolio-18): every closed perp trade on the person's own venue account, recorded with no entry by
- * them. One row per trade from open to flat; opening one shows its fills, the parts of its net result, how far the price
- * went against and for it, and its planned and actual R. Read from the journal's own record, which keeps a trade whole
- * after the venue stops returning its fills and candles.
+ * The Trades tab (J-portfolio-18): every closed perp trade, one row from open to flat with each part of its net result as
+ * the venue reports it; the one picked (`?trade=`) opens beside the list with its fills, how far the price went against
+ * and for it, and its planned and actual R. Read from the journal's own record, which keeps a trade whole after the venue
+ * stops returning its fills and candles.
  */
-export default function Journal({ search }: { search: string }) {
-  const venue = useVenueMode();
-  // The person's own wallet, on the venue's network, names the venue account the journal reads.
-  return venue.mode === 'on' ? (
-    <VenueFrame mode={venue}>
-      <JournalRoom search={search} venue={venue} />
-    </VenueFrame>
-  ) : (
-    <JournalRoom search={search} venue={venue} />
-  );
-}
-
-function JournalRoom({ search, venue }: { search: string; venue: VenueMode }) {
-  const { t } = moneyCopy.useCopy();
-  const owner = useOwner();
-  const journal = useTradeJournal(venue.mode === 'on' && venue.status.available ? owner : null);
-  const picked = tradeFromSearch(search);
-
-  const back = (
-    <a
-      className="lt-button lt-button-secondary"
-      href="/money"
-      onClick={(event) => {
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-        event.preventDefault();
-        navigate('/money');
-      }}
-    >
-      <ArrowLeft size={16} aria-hidden="true" />
-      {t('Journal back')}
-    </a>
-  );
-
-  let list: React.ReactNode;
-  let detail: React.ReactNode = null;
-  let summary: React.ReactNode = null;
-  if (venue.mode !== 'on' || !venue.status.available) {
-    list = <EmptyNote title={t('Journal no venue')} body={t('Journal no venue body')} />;
-  } else if (!owner) {
-    list = <EmptyNote title={t('Journal connect')} body={t('Journal connect body')} />;
-  } else if (journal.status === 'loading') {
-    list = <Skeleton shape="rows" count={3} />;
-  } else if (journal.status === 'error') {
-    list = <ErrorNote title={t('Journal unread')} onRetry={journal.retry} retryLabel={t('Try again')} />;
-  } else if (journal.status !== 'ready') {
-    list = <EmptyNote title={t('Journal unread')} />;
-  } else {
-    const data = journal.data;
-    const trade = picked ? (data.trades.find((x) => x.tradeId === picked) ?? null) : null;
-    list = <Trades journal={data} picked={trade?.tradeId ?? null} t={t} />;
-    summary = <Summary journal={data} t={t} />;
-    detail = trade ? <TradeDetail trade={trade} journal={data} t={t} /> : null;
-  }
-
+export function JournalTrades({ journal, picked }: { journal: TradeJournal; picked: string | null }) {
+  const { t } = journalTradesCopy.useCopy();
+  const trade = picked ? (journal.trades.find((x) => x.tradeId === picked) ?? null) : null;
   return (
-    <div data-testid="money-journal">
-      <RecordListTemplate
-        title={t('Journal')}
-        description={t('Journal intro')}
-        state={READY}
-        roomAction={back}
-        filters={<WalletBar />}
-        summary={summary}
-        list={list}
-        detail={detail}
-      />
-    </div>
+    <section className="lt-stack" aria-label={t('Journal caption')} data-testid="journal-trades">
+      <Summary journal={journal} t={t} />
+      <div className={trade ? 'lt-grid lt-grid-list-detail' : 'lt-grid'}>
+        <Trades journal={journal} picked={trade?.tradeId ?? null} t={t} />
+        {trade ? <TradeDetail trade={trade} journal={journal} t={t} /> : null}
+      </div>
+    </section>
   );
 }
 
@@ -112,11 +51,10 @@ function Summary({ journal, t }: { journal: TradeJournal; t: T }) {
 }
 
 function Trades({ journal, picked, t }: { journal: TradeJournal; picked: string | null; t: T }) {
-  const { timeZone } = usePreferences();
   const columns: Column<JournalTrade>[] = [
     { key: 'market', label: t('Journal market'), cell: (r) => r.symbol },
     { key: 'side', label: t('Journal side'), cell: (r) => (r.side === 'long' ? t('Journal long') : t('Journal short')) },
-    { key: 'closed', label: t('Journal closed'), cell: (r) => stamp(r.closedAt, timeZone, Date.now(), true) },
+    { key: 'closed', label: t('Journal closed'), cell: (r) => when(r.closedAt) },
     { key: 'entry', label: t('Journal entry'), align: 'end', cell: (r) => r.entryPrice, cellMarks: () => ({ 'data-cell': 'entry' }) },
     { key: 'exit', label: t('Journal exit'), align: 'end', cell: (r) => r.exitPrice, cellMarks: () => ({ 'data-cell': 'exit' }) },
     { key: 'size', label: t('Journal size'), align: 'end', cell: (r) => r.size, cellMarks: () => ({ 'data-cell': 'size' }) },
@@ -173,7 +111,6 @@ function Trades({ journal, picked, t }: { journal: TradeJournal; picked: string 
         'data-source': r.source,
         'data-stored-at': r.storedAt,
       })}
-      empty={<EmptyNote title={t('Journal empty')} body={t('Journal empty body')} />}
     />
   );
 }
@@ -208,9 +145,7 @@ function ExcursionLine({ part, label, value, t }: { part: string; label: string;
 }
 
 function TradeDetail({ trade, journal, t }: { trade: JournalTrade; journal: TradeJournal; t: T }) {
-  const { timeZone } = usePreferences();
   const a = trade.feeAsset;
-  const when = (iso: string) => stamp(iso, timeZone, Date.now(), true);
   return (
     <section
       data-testid="journal-trade"

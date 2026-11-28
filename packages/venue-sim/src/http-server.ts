@@ -622,12 +622,41 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     },
   },
   {
-    // J-portfolio-18: a TEST perpetual of its own whose trades fill the person's journal, so moving its ladder, closing
-    // its funding period and taking its history away (/test/history-kept) reach no other journey. Only J-portfolio-18
-    // trades it. Priced by its TEST oracle, so a fill never moves its mark.
+    // J-portfolio-19: a TEST perpetual of its own for the trade journal's "keeping my rules" line. Only J-portfolio-19
+    // trades it, and it has no TEST makers' ladder, so every fill and every print on it (its candles) is one that journey
+    // made at a price it chose. Priced by its TEST oracle, so a fill never moves its mark and a stop resting on the mark
+    // never fires by itself.
     symbol: 'XJRN-PERP',
     kind: 'perpetual',
     baseAsset: 'XJRN',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    // A stop on the mark rests here (the journey's own stops), and never fires: the mark stays at its TEST oracle's 100.
+    triggerSources: ['mark'],
+    oracle: {},
+  },
+  {
+    // J-portfolio-18: a TEST perpetual of its own whose trades fill the person's journal, so moving its ladder, closing
+    // its funding period and taking its history away (/test/history-kept) reach no other journey. Only J-portfolio-18
+    // trades it. Priced by its TEST oracle, so a fill never moves its mark.
+    symbol: 'XJRL-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XJRL',
     quoteAsset: 'USDC',
     orderTypes: ['limit', 'market'],
     // TEST: stop orders judged on the mark, so the journal's trades open with a stop (J-portfolio-18 #4).
@@ -675,7 +704,7 @@ const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
   'XFND-PERP',
   'XBIL-PERP',
   'XCRS-PERP',
-  'XJRN-PERP',
+  'XJRL-PERP',
 ]);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'limit_only', 'halted', 'cancel_only', 'delisted']);
 
@@ -698,7 +727,7 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'XFND-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XBIL-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XCRS-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
-  'XJRN-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XJRL-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */

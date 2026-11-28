@@ -39,6 +39,7 @@ import {
   type VenueCandle,
   type VenueCandleInterval,
 } from '@intafaced/venue-contracts';
+import type { DailyLossWarnedOrder } from './daily-loss-limit-store.js';
 
 export type TradeJournalCode = 'trade.journal_unavailable' | 'trade.journal_request_invalid';
 
@@ -181,23 +182,94 @@ export function roundTo(a: Amount, places: number): Amount {
 
 /**
  * The stop and target the trade opened with: the first stop-loss and take-profit trigger orders on its market that close
- * it, attached to the order of its first fill, else placed before its second fill.
+ * it, attached to the order of its first fill, else placed before its second fill. `laterStops` are the stop-loss
+ * trigger prices placed after that stop and before the close: where the person moved it (J-portfolio-19).
  */
-export function plannedLevels(trip: RoundTrip, orders: readonly UserVenueOrderRecord[]): { stop: Amount | null; target: Amount | null } {
+export function plannedLevels(
+  trip: RoundTrip,
+  orders: readonly UserVenueOrderRecord[],
+): { stop: Amount | null; target: Amount | null; laterStops: readonly Amount[] } {
   const closeSide = trip.side === 'long' ? 'sell' : 'buy';
-  const [first, second] = trip.parts;
-  const entryOrder = first?.venueClientOrderId ?? null;
+  const [firstPart, secondPart] = trip.parts;
+  const entryOrder = firstPart?.venueClientOrderId ?? null;
   const openedAt = trip.openedAt.getTime();
-  const before = second ? second.filledAt.getTime() : trip.closedAt.getTime();
-  const pick = (role: 'stop_loss' | 'take_profit'): Amount | null => {
-    const mine = orders
+  const closedAt = trip.closedAt.getTime();
+  const before = secondPart ? secondPart.filledAt.getTime() : closedAt;
+  const mine = (role: 'stop_loss' | 'take_profit') =>
+    orders
       .filter((r) => r.order.symbol === trip.symbol && r.order.side === closeSide && r.order.trigger?.role === role)
       .sort((a, b) => a.placedAt.getTime() - b.placedAt.getTime());
-    const attached = entryOrder ? mine.find((r) => r.order.parentClientOrderId === entryOrder) : undefined;
-    const atOpen = mine.find((r) => r.placedAt.getTime() >= openedAt && r.placedAt.getTime() < before);
-    return (attached ?? atOpen)?.order.trigger?.price ?? null;
+  const pick = (list: readonly UserVenueOrderRecord[]): UserVenueOrderRecord | null => {
+    const attached = entryOrder ? list.find((r) => r.order.parentClientOrderId === entryOrder) : undefined;
+    const atOpen = list.find((r) => r.placedAt.getTime() >= openedAt && r.placedAt.getTime() < before);
+    return attached ?? atOpen ?? null;
   };
-  return { stop: pick('stop_loss'), target: pick('take_profit') };
+  const stops = mine('stop_loss');
+  const first = pick(stops);
+  const laterStops = first
+    ? stops.flatMap((r) =>
+        r !== first && r.placedAt.getTime() > first.placedAt.getTime() && r.placedAt.getTime() < closedAt && r.order.trigger
+          ? [r.order.trigger.price]
+          : [],
+      )
+    : [];
+  return { stop: first?.order.trigger?.price ?? null, target: pick(mine('take_profit'))?.order.trigger?.price ?? null, laterStops };
+}
+
+/** What the "keeping my rules" line knows of a trade beyond its own figures, read with its candles: the warning on its opening order. */
+export interface RulesContext {
+  /** The warning given on one of its opening orders while the daily loss limit stood reached; null when none. */
+  readonly warned: DailyLossWarnedOrder | null;
+}
+
+/**
+ * The trade on the "keeping my rules" line (record `@intafaced/contracts/trade-journal-procedures` defines each verdict):
+ * only a broken rule changes it. Opened past the daily loss limit: 0. Its stop widened past the first and the price
+ * reaching that first stop: minus 1R less its fees. Anything else: what it made.
+ */
+function keepingRules(args: {
+  readonly long: boolean;
+  readonly entry: Amount;
+  readonly size: Amount;
+  readonly fees: Amount;
+  /** Null when the venue reported no realised result on a closing fill. */
+  readonly net: Amount | null;
+  /** The worst price reached while open (MAE's price); null when the candles are incomplete. */
+  readonly worst: Amount | null;
+  readonly stop: Amount | null;
+  readonly laterStops: readonly Amount[];
+  readonly warned: DailyLossWarnedOrder | null;
+}): JournalTradeFigures['rules'] {
+  const { long, entry, size, fees, net, worst, stop, laterStops, warned } = args;
+  const oneR = stop === null ? null : mul(abs(sub(entry, stop)), size);
+  // Further from the entry than the first stop: lower on a long, higher on a short.
+  const wider = stop === null ? [] : laterStops.filter((p) => (long ? compare(p, stop) < 0 : compare(p, stop) > 0));
+  const widenedStop = wider.length === 0 ? null : wider.reduce(long ? min : max);
+  const out = (verdict: JournalTradeFigures['rules']['verdict'], value: Amount | null): JournalTradeFigures['rules'] => ({
+    verdict,
+    netPnl: value === null ? null : formatAmount(value),
+    oneR: oneR === null ? null : formatAmount(oneR),
+    widenedStop: widenedStop === null ? null : formatAmount(widenedStop),
+    dailyLoss: warned
+      ? {
+          limit: formatAmount(warned.limit),
+          loss: formatAmount(warned.loss),
+          asset: warned.asset,
+          warnedAt: warned.warnedAt.toISOString(),
+        }
+      : null,
+  });
+  if (warned) return out('left_out', ZERO);
+  // Without the venue's realised result, or with a widened stop and the candles that would show whether its first stop
+  // was reached missing, what the trade counts cannot be worked out: named, never guessed.
+  if (net === null) return out('incomplete', null);
+  if (stop === null || oneR === null) return out('no_stop', net);
+  if (widenedStop === null) return out('kept', net);
+  if (worst === null) return out('incomplete', null);
+  const reached = long ? compare(worst, stop) <= 0 : compare(worst, stop) >= 0;
+  if (!reached) return out('widened_unreached', net);
+  const atFirstStop = sub(neg(oneR), fees);
+  return out(compare(atFirstStop, net) >= 0 ? 'capped' : 'stopped', atFirstStop);
 }
 
 /** The candle interval MAE, MFE and the disciplined exit are read at (J-portfolio-18 #3: the venue's 1-minute candles). */
@@ -222,8 +294,8 @@ export function candlesCover(trip: RoundTrip, candles: readonly VenueCandle[]): 
 /** One closed trade's figures, worked from its parts, the funding booked on it, its planned levels and its candles. */
 export function journalTrade(
   trip: RoundTrip,
-  levels: { stop: Amount | null; target: Amount | null },
-  read: { readonly candles: readonly VenueCandle[]; readonly funding: readonly UserVenueFundingPayment[] },
+  levels: { stop: Amount | null; target: Amount | null; laterStops?: readonly Amount[] },
+  read: { readonly candles: readonly VenueCandle[]; readonly funding: readonly UserVenueFundingPayment[] } & Partial<RulesContext>,
 ): JournalTradeFigures {
   const { candles, funding } = read;
   const opens = trip.parts.filter((p) => p.opening);
@@ -335,6 +407,18 @@ export function journalTrade(
     rMissing,
     excursion: { interval: JOURNAL_CANDLE_INTERVAL, complete, mae, mfe },
     disciplined,
+    rules: keepingRules({
+      long,
+      entry,
+      size,
+      fees,
+      net,
+      worst: mae === null ? null : parseAmount(mae.price),
+      stop: levels.stop,
+      laterStops: levels.laterStops ?? [],
+      warned: read.warned ?? null,
+    }),
+    fillIds: [...new Set(trip.parts.map((p) => p.fillId))],
   };
 }
 
@@ -348,6 +432,11 @@ export interface TradeJournalDeps {
   /** The journal's own record of the closed trades (trade-journal-store.ts). */
   readonly store: TradeJournalStore;
   readonly now: () => Date;
+  /**
+   * The opening orders the person was warned on while their daily loss limit stood reached (daily-loss-limit-store.ts),
+   * for the "keeping my rules" line. Absent: no warning is known, and none is guessed.
+   */
+  readonly warned?: (key: { userId: string; venueId: string; owner: string }) => Promise<readonly DailyLossWarnedOrder[]>;
 }
 
 export interface TradeJournalInput {
@@ -367,7 +456,7 @@ const DAY_MS = 86_400_000;
  * Crash points: between the venue read and the store, nothing is kept and the next read works it again; a trade is keyed
  * by its venue, account and first fill, so a second read never stores it twice.
  */
-export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput): Promise<TradeJournal> {
+export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJournalInput, userId?: string): Promise<TradeJournal> {
   const now = deps.now();
   const since = new Date(input.since);
   if (Number.isNaN(since.getTime()) || since.getTime() > now.getTime() || now.getTime() - since.getTime() > TRADE_JOURNAL_MAX_DAYS * DAY_MS)
@@ -382,13 +471,15 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
     throw new TradeJournalError('this venue publishes no order history, funding or candles to journal from', 'trade.journal_unavailable');
   const account = await deps.account(input.owner, input.subAccount ?? null);
 
-  const [markets, fills, positions, orders, funding] = await Promise.all([
+  const [markets, fills, positions, orders, funding, warnings] = await Promise.all([
     venue.markets(null),
     venue.fills(account, since),
     venue.positions(account),
     historyOf(account),
     fundingOf(account, since),
+    deps.warned && userId ? deps.warned({ userId, venueId: venue.venue.id, owner: account.owner }) : Promise.resolve([]),
   ]);
+  const warnedBy = new Map(warnings.map((w) => [w.venueClientOrderId.toLowerCase(), w]));
   const perps = new Set(markets.value.filter((m) => m.kind === 'perpetual').map((m) => m.symbol));
   const perpFills = fills.value.filter((f) => perps.has(f.symbol));
   // Each market's position before the first fill: today's, less what the fills since moved.
@@ -410,7 +501,12 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
         read = candlesOf(trip.symbol, JOURNAL_CANDLE_INTERVAL, { limit: JOURNAL_CANDLES_PER_READ, since: from }).then((r) => r.value);
         candleReads.set(key, read);
       }
-      return journalTrade(trip, plannedLevels(trip, orders.value), { candles: await read, funding: funding.value });
+      const warned =
+        trip.parts.flatMap((p) => {
+          const w = p.opening && p.venueClientOrderId ? warnedBy.get(p.venueClientOrderId.toLowerCase()) : undefined;
+          return w ? [w] : [];
+        })[0] ?? null;
+      return journalTrade(trip, plannedLevels(trip, orders.value), { candles: await read, funding: funding.value, warned });
     }),
   );
   const book = { venueId: account.venueId, owner: account.owner, subAccount: account.subAccount };
@@ -441,6 +537,7 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
       disciplinedCount: resolved.length,
       actualNetPnlOfDisciplined: total(resolved.map((t) => t.actual)),
       disciplinedNetPnl: total(resolved.map((t) => t.disciplined)),
+      rulesNetPnl: total(trades.flatMap((t) => (t.rules.netPnl === null ? [] : [t.rules.netPnl]))),
     },
   };
 }

@@ -1,7 +1,7 @@
 // World: stack, restart
 import { expect, test } from './journey.mjs';
 import { randomUUID } from 'node:crypto';
-import { closedMinute, MINUTE, utcMinuteOf } from './clock.mjs';
+import { clearOfDayTurn, closedMinute, dayTurnWait, MINUTE, utcMinuteOf } from './clock.mjs';
 import {
   alertsOf,
   awaitAlerts,
@@ -890,7 +890,11 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     browser,
     stepPicture,
   }) => {
-    test.setTimeout(600_000);
+    // #7's repeat run and #8 (about 2 minutes on CI) count on #7's alerts, which are one per asset and UTC day: start
+    // only when the UTC day has this long left, or a run after midnight opens a second alert for the new day.
+    const sameDay = 15 * MINUTE;
+    test.setTimeout(600_000 + dayTurnWait(Date.now(), sameDay));
+    await clearOfDayTurn((await founders(browser)).a, sameDay);
     const { a } = await founders(browser);
     const section = await openLedger(a);
     await requireTreasury(section);
@@ -919,10 +923,6 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     try {
       await expect(row(section, state.pairId).getByTestId('rc-state')).toHaveText('Active');
 
-      // Alerts count per UTC day, so a repeat after midnight rightly opens the new day's alerts. Both runs take about a
-      // minute and a half; with under five minutes left in the day, wait until the new day has begun.
-      const leftToday = 86_400_000 - (Date.now() % 86_400_000);
-      if (leftToday < 300_000) await a.waitForTimeout(leftToday + 5_000);
       const first = await twoFounderRun(state.pairId);
       expect(first).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
       expect(evidence(first, 'USDT')).toEqual({ observed: '-7', expected: expectedUsdt, difference: '-2', tolerance: '0' });

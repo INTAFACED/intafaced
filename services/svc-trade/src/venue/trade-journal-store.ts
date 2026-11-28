@@ -4,7 +4,7 @@ import { journalTradeFiguresSchema, type JournalTradeFigures } from '@intafaced/
 
 /**
  * The journal's own record of the person's closed perp trades (trade-journal.ts, J-portfolio-18 #7), held in
- * `trade.user_venue_journal_trades` (drizzle/20261128100000_user_venue_journal_trades.sql). A copy of what the venue
+ * `trade.user_venue_journal_trades` (drizzle/20261128110000_user_venue_journal_trades.sql). A copy of what the venue
  * reported, so a trade stays whole after the venue stops returning its fills and candles: no balance, no post, nothing
  * sent to the venue.
  */

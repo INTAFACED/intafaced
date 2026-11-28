@@ -49,6 +49,13 @@ export const LAUNCH_ORDER = 1;
  * through our ledger, became J-derivatives-04-custodial.pw.mjs; all seven steps are proven in J-derivatives-04-venue.pw.mjs.
  * J-derivatives-01 left it the same way: J-derivatives-01.pw.mjs, every test on our own futures book with a trader funded
  * through our ledger, became J-derivatives-01-custodial.pw.mjs; every live step is proven in J-derivatives-01-venue.pw.mjs.
+ * J-charts-desk-01 left it the same way: J-charts-desk-01.pw.mjs, every test on our own engine's chart, which has no TEST
+ * trades custody off, became J-charts-desk-01-custodial.pw.mjs; all eight steps are proven in J-charts-desk-01-venue.pw.mjs.
+ * J-support-public-20-venue left it once #7 stopped funding the customer through our ledger and trading on our own book:
+ * their resting order and the refused new one are venue orders through our door, which now refuses a new order while
+ * identity holds the account's trading restriction (svc-trade venue/trading-restriction.ts).
+ * J-home-ia-11 left it once the stack's status table named the TEST market maker off by design on a custody-off stack
+ * (local-test-market.mjs MARKET_OFF_CUSTODY_OFF) and #1 read that row exactly, where it read "not started" as a fault.
  */
 export const NOT_YET_OFF = new Set([
   'J-agents-01',
@@ -58,19 +65,16 @@ export const NOT_YET_OFF = new Set([
   'J-cex-spot-15-algo',
   'J-cex-spot-15-api',
   'J-cex-spot-18',
-  'J-charts-desk-01',
   'J-charts-desk-14',
   'J-derivatives-02',
   'J-derivatives-06',
   'J-home-ia-01',
-  'J-home-ia-11',
   'J-identity-01',
   'J-ops-console-02-customer-record',
   'J-p2p-21',
   'J-portfolio-01',
   'J-portfolio-03',
   'J-support-public-20',
-  'J-support-public-20-venue',
 ]);
 
 /** A launch-desk part file of custodial checks (custody on by design): `<journey>-custodial.pw.mjs` keeps today's switch. */

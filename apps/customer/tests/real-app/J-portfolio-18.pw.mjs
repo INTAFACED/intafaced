@@ -21,14 +21,14 @@ import {
 } from './venue.mjs';
 
 // J-portfolio-18, "My closed futures trades fill my journal by themselves, with how far each went against and for me and
-// the R I planned and got", in the running app against the stack's TEST venue simulator, on its TEST perpetual XJRN-PERP
+// the R I planned and got", in the running app against the stack's TEST venue simulator, on its TEST perpetual XJRL-PERP
 // (only this file trades it, moves its ladder or takes its history away: packages/venue-sim/src/http-server.ts). One
 // test per step, titled "J-portfolio-18 #<n>", run in order on one TEST account. Every figure the Journal shows is
 // worked here from the TEST venue's own record (its fills and 1-minute candles, read straight from the venue, never
 // through our door), never typed. Every figure is TEST.
 //
 // The Starts line, made before #1 through our door and signed with the person's own key (our builder fee attached):
-//   B, a short opened with no stop and bought back; then the venue keeps XJRN-PERP's candles only from after B
+//   B, a short opened with no stop and bought back; then the venue keeps XJRL-PERP's candles only from after B
 //       (/test/history-kept), as a venue past the history it keeps, so B's MAE and MFE are "incomplete";
 //   A, a long opened with a stop (a stop-loss trigger placed before its next fill), added to after the price fell, and
 //       closed in two parts as it rose;
@@ -37,8 +37,8 @@ import {
 // Each trade starts in a minute of its own, so a 1-minute candle holds one trade's prints only. The person writes
 // nothing in the journal. #7 takes the venue's fills and candles of the market away and puts them back after the file.
 const J = 'J-portfolio-18';
-const SYMBOL = 'XJRN-PERP';
-const JOURNAL = '/money/journal';
+const SYMBOL = 'XJRL-PERP';
+const JOURNAL = '/trade/journal';
 const DESK = `/trade/futures?symbol=${SYMBOL}`;
 const STOP = '95';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -115,7 +115,7 @@ const order = (tag, n, side, amount, price, over = {}) => ({
   builderFee: null,
   ...over,
 });
-/** The TEST makers rest XJRN-PERP's ladder around `mid` (0.1 apart, 1 XJRN a level). */
+/** The TEST makers rest XJRL-PERP's ladder around `mid` (0.1 apart, 1 XJRN a level). */
 const ladder = async (mid) => expect((await testVenue('/test/ladder-mid', { symbol: SYMBOL, price: mid })).status).toBe(200);
 
 /**
@@ -210,7 +210,7 @@ function rOf(trade, stop) {
   return { risk: fromUnits(risk), r: fromUnits(roundTo(div(toUnits(trade.net), risk), 4)) };
 }
 
-/** XJRN-PERP's fills of the person's account, and its 1-minute candles, as the venue returns them now. */
+/** XJRL-PERP's fills of the person's account, and its 1-minute candles, as the venue returns them now. */
 async function venueNow(owner, since) {
   const fills = (await venueRecord(owner, '/fills', { since })).value.filter((f) => f.symbol === SYMBOL);
   const candles = (await testVenue('/candles', { symbol: SYMBOL, interval: '1m', limit: 720, since })).body.value;
@@ -347,7 +347,7 @@ async function openJournal(page, s, { fresh = true } = {}) {
     await page.goto(JOURNAL);
     await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
   }
-  await expect(page.getByTestId('money-journal')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('tab', { name: 'Trades', exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId('venue-wallet-address')).toHaveText(s.owner);
   await expect(page.getByTestId('journal-summary')).toBeVisible({ timeout: 30_000 });
 }
@@ -432,7 +432,7 @@ test(`${J} #1 opens Journal: every closed perp trade, one row per round trip fro
   await startsLine(browser);
   const s = state();
   await openJournal(page, s);
-  const room = page.getByTestId('money-journal');
+  const room = page.getByTestId('journal-trades');
   const { B, A, CL, CS } = s.trades;
   // Newest closed first: the flip's short, then its long and A, then B; D is still open and has no row.
   const rows = room.getByTestId('journal-row');
@@ -578,7 +578,7 @@ test(`${J} #6 closes another TEST position on the desk, then opens Journal: one 
   await expect(rows).toHaveCount(5, { timeout: 30_000 });
   await expect(rows.first()).toHaveAttribute('data-trade', D.id);
   await checkRow(page, D);
-  await expect(page.getByTestId('money-journal').getByRole('textbox')).toHaveCount(0);
+  await expect(page.getByTestId('journal-trades').getByRole('textbox')).toHaveCount(0);
   run.write({ trades: { ...s.trades, D } });
   await stepPicture();
 });

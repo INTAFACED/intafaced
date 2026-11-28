@@ -15051,6 +15051,9 @@
           "owner": {
             "type": "string",
             "maxLength": 64
+          },
+          "terms": {
+            "type": "boolean"
           }
         },
         "required": ["owner"]
@@ -15079,7 +15082,7 @@
             "type": "string"
           },
           "asset": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "active": {
             "anyOf": [
@@ -15143,28 +15146,41 @@
             ]
           },
           "today": {
-            "type": "object",
-            "properties": {
-              "loss": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "loss": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  {
-                    "type": "null"
+                  "since": {
+                    "type": "string"
+                  },
+                  "asOf": {
+                    "type": ["string", "null"]
+                  },
+                  "resetsAt": {
+                    "type": "string"
+                  },
+                  "reached": {
+                    "type": "boolean"
                   }
-                ]
+                },
+                "required": ["loss", "since", "asOf", "resetsAt", "reached"],
+                "additionalProperties": false
               },
-              "since": {
-                "type": "string"
-              },
-              "reached": {
-                "type": "boolean"
+              {
+                "type": "null"
               }
-            },
-            "required": ["loss", "since", "reached"],
-            "additionalProperties": false
+            ]
           }
         },
         "required": ["venue", "owner", "asset", "active", "pending", "today"],
@@ -15175,6 +15191,13 @@
           "verdict": "accept",
           "input": {
             "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "terms": true
           }
         },
         {
@@ -15239,7 +15262,7 @@
             "type": "string"
           },
           "asset": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "active": {
             "anyOf": [
@@ -15303,28 +15326,41 @@
             ]
           },
           "today": {
-            "type": "object",
-            "properties": {
-              "loss": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "loss": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  {
-                    "type": "null"
+                  "since": {
+                    "type": "string"
+                  },
+                  "asOf": {
+                    "type": ["string", "null"]
+                  },
+                  "resetsAt": {
+                    "type": "string"
+                  },
+                  "reached": {
+                    "type": "boolean"
                   }
-                ]
+                },
+                "required": ["loss", "since", "asOf", "resetsAt", "reached"],
+                "additionalProperties": false
               },
-              "since": {
-                "type": "string"
-              },
-              "reached": {
-                "type": "boolean"
+              {
+                "type": "null"
               }
-            },
-            "required": ["loss", "since", "reached"],
-            "additionalProperties": false
+            ]
           }
         },
         "required": ["venue", "owner", "asset", "active", "pending", "today"],
@@ -15402,7 +15438,7 @@
             "type": "string"
           },
           "asset": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "active": {
             "anyOf": [
@@ -15466,28 +15502,41 @@
             ]
           },
           "today": {
-            "type": "object",
-            "properties": {
-              "loss": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+)?$"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "loss": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
-                  {
-                    "type": "null"
+                  "since": {
+                    "type": "string"
+                  },
+                  "asOf": {
+                    "type": ["string", "null"]
+                  },
+                  "resetsAt": {
+                    "type": "string"
+                  },
+                  "reached": {
+                    "type": "boolean"
                   }
-                ]
+                },
+                "required": ["loss", "since", "asOf", "resetsAt", "reached"],
+                "additionalProperties": false
               },
-              "since": {
-                "type": "string"
-              },
-              "reached": {
-                "type": "boolean"
+              {
+                "type": "null"
               }
-            },
-            "required": ["loss", "since", "reached"],
-            "additionalProperties": false
+            ]
           }
         },
         "required": ["venue", "owner", "asset", "active", "pending", "today"],
@@ -15893,6 +15942,84 @@
                   "required": ["exit", "exitPrice", "netPnl"],
                   "additionalProperties": false
                 },
+                "rules": {
+                  "type": "object",
+                  "properties": {
+                    "verdict": {
+                      "type": "string",
+                      "enum": ["kept", "no_stop", "widened_unreached", "capped", "stopped", "left_out", "incomplete"]
+                    },
+                    "netPnl": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "oneR": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "widenedStop": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dailyLoss": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "limit": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "loss": {
+                              "type": "string",
+                              "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "asset": {
+                              "type": "string"
+                            },
+                            "warnedAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["limit", "loss", "asset", "warnedAt"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["verdict", "netPnl", "oneR", "widenedStop", "dailyLoss"],
+                  "additionalProperties": false
+                },
+                "fillIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "storedAt": {
                   "type": "string"
                 },
@@ -15925,6 +16052,8 @@
                 "rMissing",
                 "excursion",
                 "disciplined",
+                "rules",
+                "fillIds",
                 "storedAt",
                 "source"
               ],
@@ -15960,9 +16089,21 @@
               "disciplinedNetPnl": {
                 "type": "string",
                 "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              "rulesNetPnl": {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
               }
             },
-            "required": ["count", "netPnl", "netUnknown", "disciplinedCount", "actualNetPnlOfDisciplined", "disciplinedNetPnl"],
+            "required": [
+              "count",
+              "netPnl",
+              "netUnknown",
+              "disciplinedCount",
+              "actualNetPnlOfDisciplined",
+              "disciplinedNetPnl",
+              "rulesNetPnl"
+            ],
             "additionalProperties": false
           }
         },

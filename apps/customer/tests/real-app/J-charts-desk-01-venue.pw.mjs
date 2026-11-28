@@ -24,8 +24,8 @@ import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFil
 // interval and chart style, scrolls back through venue candle history, jumps to a date, changes colours and price
 // source, reads the venue's plotted numbers and tick-size axis formatting, and sees an unoffered interval refused.
 // Every candle and market rule is compared straight against the TEST venue's own record (venueRecord), never from our
-// own engine's book or `/ohlcv`. J-charts-desk-01.pw.mjs keeps the engine-path checks on `/charts/BTC-USDT` as
-// "part of #<n>" beside this file (judged on main by tooling/ci/journey-verdict.mjs).
+// own engine's book or `/ohlcv`. J-charts-desk-01-custodial.pw.mjs keeps the engine-path checks on `/charts/BTC-USDT` as
+// "part of #<n>", run custody on, beside this file (judged on main by tooling/ci/journey-verdict.mjs).
 const J = 'J-charts-desk-01';
 const SYMBOL = 'BTC-USDT';
 const CHART = `/charts/${SYMBOL}`;

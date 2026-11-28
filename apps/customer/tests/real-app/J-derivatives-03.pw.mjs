@@ -191,14 +191,13 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   await dialog.getByRole('button', { name: 'Take profit', exact: true }).click();
   await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
   await expect(dialog.getByTestId('protection-where')).toHaveText(VENUE_LABEL);
-  const tp = await armOnVenue(page, dialog, 'Take profit', 'Mark', [
-    ['Size to close', '1'],
-    ['Trigger price', '3100'],
-  ]);
-  const sl = await armOnVenue(page, dialog, 'Stop loss', 'Mark', [
-    ['Size to close', '1'],
-    ['Trigger price', '2900'],
-  ]);
+  // For the whole position with no size typed: the size to close starts as the position's own size.
+  const sizeBox = dialog.getByRole('textbox', { name: 'Size to close', exact: true });
+  await expect.poll(async () => sameDecimal(await sizeBox.inputValue(), '1')).toBe(true);
+  await expect(dialog.getByTestId('protection-covers')).toHaveText('Closes the whole position');
+  const tp = await armOnVenue(page, dialog, 'Take profit', 'Mark', [['Trigger price', '3100']]);
+  await expect.poll(async () => sameDecimal(await sizeBox.inputValue(), '1')).toBe(true);
+  const sl = await armOnVenue(page, dialog, 'Stop loss', 'Mark', [['Trigger price', '2900']]);
   expect(tp).toMatchObject({ kind: 'take_profit', side: 'sell', quantity: '1', triggerPrice: '3100', triggerSource: 'mark' });
   expect(sl).toMatchObject({ kind: 'stop_loss', side: 'sell', quantity: '1', triggerPrice: '2900', triggerSource: 'mark' });
 
