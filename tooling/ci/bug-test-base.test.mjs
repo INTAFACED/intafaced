@@ -8,7 +8,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { bugCandidates, importProblems, isTestPath, judgeNode, judgeVitest, kindOf, verdict, vitestConfigs } from './bug-test-base.mjs';
+import {
+  bugCandidates,
+  bugOf,
+  importProblems,
+  isTestPath,
+  judgeNode,
+  judgeVitest,
+  kindOf,
+  verdict,
+  vitestConfigs,
+} from './bug-test-base.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./bug-test-base.mjs', import.meta.url));
 
@@ -17,6 +27,40 @@ test('the bug a pull request fixes: its closing words, then its claim branch, on
   assert.deepEqual(bugCandidates({ body: 'Fixed INTAFACED/intafaced#7', headRef: 't3/x' }), [7]);
   assert.deepEqual(bugCandidates({ body: 'see #5, part of #6', headRef: 'fix/ps-4100' }), []);
   assert.deepEqual(bugCandidates({ body: null, headRef: 'fix/11267' }), [11267]);
+});
+
+test('which candidate is a bug; one that cannot be read, refused or unreachable, is checked as a bug', async () => {
+  const answer = (body, ok = true, status = 200) => ({ ok, status, json: async () => body });
+  const issues = {
+    1: answer({ labels: [{ name: 'hunt' }] }),
+    2: answer({ labels: [{ name: 'bug' }], pull_request: {} }),
+    3: answer({ labels: ['bug'] }),
+  };
+  assert.equal(await bugOf([1, 2, 3], async (n) => issues[n]), '3');
+  assert.equal(await bugOf([1, 2], async (n) => issues[n]), '');
+  const warned = [];
+  assert.equal(
+    await bugOf(
+      [1, 4],
+      async (n) => (n === 4 ? answer({}, false, 502) : issues[n]),
+      (l) => warned.push(l),
+    ),
+    '4',
+  );
+  assert.equal(
+    await bugOf(
+      [5],
+      async () => {
+        throw new Error('fetch failed');
+      },
+      (l) => warned.push(l),
+    ),
+    '5',
+  );
+  assert.deepEqual(warned, [
+    'could not read #4 (GitHub answered 502); the bug test runs for it',
+    'could not read #5 (fetch failed); the bug test runs for it',
+  ]);
 });
 
 test('test paths stay at the head; everything else goes back to the base', () => {

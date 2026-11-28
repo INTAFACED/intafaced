@@ -319,27 +319,35 @@ function runNode(file, out) {
   return { file, ...judgeNode(join(ROOT, file), lines) };
 }
 
+/**
+ * The first candidate that is a `bug` issue, or ''. `read(n)` answers fetch's Response. An issue that can't be read (a
+ * refusal or a network error) is checked as a bug: the bug test runs, rather than every job after `changes` stopping.
+ */
+export async function bugOf(candidates, read, warn = (line) => console.log(`::warning::${line}`)) {
+  for (const n of candidates) {
+    let issue;
+    try {
+      const res = await read(n);
+      if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+      issue = await res.json();
+    } catch (e) {
+      warn(`could not read #${n} (${e.message}); the bug test runs for it`);
+      return String(n);
+    }
+    if (!issue.pull_request && (issue.labels ?? []).some((l) => (l.name ?? l) === 'bug')) return String(n);
+  }
+  return '';
+}
+
 async function which() {
   const event = readJson(process.env.GITHUB_EVENT_PATH ?? '') ?? {};
   const pr = event.pull_request ?? {};
   const repo = process.env.GITHUB_REPOSITORY ?? 'INTAFACED/intafaced';
-  let bug = '';
-  for (const n of bugCandidates({ body: pr.body, headRef: pr.head?.ref })) {
-    const res = await githubFetch(`https://api.github.com/repos/${repo}/issues/${n}`, {
+  const bug = await bugOf(bugCandidates({ body: pr.body, headRef: pr.head?.ref }), (n) =>
+    githubFetch(`https://api.github.com/repos/${repo}/issues/${n}`, {
       headers: { authorization: `Bearer ${githubToken()}`, accept: 'application/vnd.github+json' },
-    });
-    // An issue that can't be read is checked as a bug: the bug test runs, rather than every job after this one stopping.
-    if (!res.ok) {
-      console.log(`::warning::could not read #${n} (GitHub answered ${res.status}); the bug test runs for it`);
-      bug = String(n);
-      break;
-    }
-    const issue = await res.json();
-    if (!issue.pull_request && (issue.labels ?? []).some((l) => (l.name ?? l) === 'bug')) {
-      bug = String(n);
-      break;
-    }
-  }
+    }),
+  );
   console.log(bug ? `this pull request fixes bug #${bug}` : 'this pull request closes no `bug` issue: nothing to check');
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `issue=${bug}\n`);
 }
