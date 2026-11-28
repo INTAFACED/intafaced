@@ -9,7 +9,8 @@ import { defineProcedure, type Refusals } from './procedure.js';
  *
  * - A trade runs from flat to flat on one market: entry is the size-weighted average price of the fills that opened or
  *   added, exit of those that reduced or closed; `size` is the largest size held. A fill that flips the position closes
- *   one trade and opens the next, its amount, fees and the venue's realised result split between them by size.
+ *   one trade and opens the next, its amount and fees split between them by size; the venue's realised result on it
+ *   belongs to the part that closed.
  * - Net result: the venue's realised result, less the venue's fee and our builder fee, plus or minus the funding the
  *   venue booked on the position while it was open, each part as the venue reports it. A closing fill the venue reports
  *   no realised result for leaves `realisedPnl` and `netPnl` null, never 0.
