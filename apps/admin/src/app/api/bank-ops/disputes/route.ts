@@ -1,8 +1,8 @@
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { founderCall } from '@/lib/desk/founder-call';
+import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { procedureFor, readDisputeAction, refusalCode, refusalWords } from '@/lib/card-disputes/model';
+import { readDisputeAction, refusalCode, refusalWords, type DisputeAction } from '@/lib/card-disputes/model';
 import { moduleDisabledResponse } from '@/lib/modules';
 
 /**
@@ -18,6 +18,50 @@ const NO_STORE = { 'cache-control': 'no-store' } as const;
 const answer = (payload: Record<string, unknown>, status: number): Response => Response.json(payload, { status, headers: NO_STORE });
 const accepted = (raw: unknown): { ok: true } | null => (raw && typeof raw === 'object' ? { ok: true } : null);
 
+/** One dispute step, each to its own svc-bank call with only the fields that step takes. */
+function sendStep(session: FounderCallContext, input: DisputeAction) {
+  switch (input.action) {
+    case 'evidence':
+      return founderCall(
+        session,
+        'bank',
+        'ops.cardDisputeEvidence',
+        'POST',
+        { disputeId: input.disputeId, stepKey: input.stepKey, description: input.description },
+        accepted,
+      );
+    case 'representment':
+      return founderCall(
+        session,
+        'bank',
+        'ops.cardDisputeRepresentment',
+        'POST',
+        { disputeId: input.disputeId, stepKey: input.stepKey, description: input.description },
+        accepted,
+      );
+    case 'arbitration':
+      return founderCall(
+        session,
+        'bank',
+        'ops.cardDisputeArbitration',
+        'POST',
+        { disputeId: input.disputeId, stepKey: input.stepKey },
+        accepted,
+      );
+    case 'credit':
+      return founderCall(session, 'bank', 'ops.cardDisputeCredit', 'POST', { disputeId: input.disputeId }, accepted);
+    case 'decide':
+      return founderCall(
+        session,
+        'bank',
+        'ops.cardDisputeDecide',
+        'POST',
+        { disputeId: input.disputeId, outcome: input.outcome },
+        accepted,
+      );
+  }
+}
+
 export async function POST(request: Request) {
   const disabled = moduleDisabledResponse('bank-ops');
   if (disabled) return disabled;
@@ -31,8 +75,7 @@ export async function POST(request: Request) {
   }
   const input = readDisputeAction(raw);
   if (!input) return answer({ ok: false, code: 'bank.card_dispute_invalid', message: refusalWords('bank.card_dispute_invalid') }, 400);
-  const { procedure, body } = procedureFor(input);
-  const result = await founderCall(session, 'bank', procedure, 'POST', body, accepted);
+  const result = await sendStep(session, input);
   switch (result.kind) {
     case 'ok':
       return answer({ ok: true }, 200);

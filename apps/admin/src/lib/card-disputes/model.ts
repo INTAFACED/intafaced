@@ -265,18 +265,5 @@ export function readDisputeAction(raw: unknown): DisputeAction | null {
   }
 }
 
-/** The svc-bank procedure and body for one action. */
-export function procedureFor(a: DisputeAction): { procedure: string; body: Record<string, unknown> } {
-  const { action, ...body } = a;
-  const procedure = {
-    evidence: 'ops.cardDisputeEvidence',
-    representment: 'ops.cardDisputeRepresentment',
-    arbitration: 'ops.cardDisputeArbitration',
-    credit: 'ops.cardDisputeCredit',
-    decide: 'ops.cardDisputeDecide',
-  }[action];
-  return { procedure, body };
-}
-
 /** A fresh key for one step form; kept until the step is stored, so a lost reply is safe to send again. */
 export const newStepKey = (random: () => string = () => crypto.randomUUID()): string => `console-dispute-${random()}`;
