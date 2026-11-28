@@ -59,39 +59,26 @@ function Trades({ journal, picked, t }: { journal: TradeJournal; picked: string 
     { key: 'exit', label: t('Journal exit'), align: 'end', cell: (r) => r.exitPrice, cellMarks: () => ({ 'data-cell': 'exit' }) },
     { key: 'size', label: t('Journal size'), align: 'end', cell: (r) => r.size, cellMarks: () => ({ 'data-cell': 'size' }) },
     {
-      key: 'realised',
-      label: t('Journal realised column'),
-      align: 'end',
-      cell: (r) => (r.realisedPnl === null ? t('Journal not reported') : inAsset(r.realisedPnl, r.feeAsset)),
-      cellMarks: () => ({ 'data-cell': 'realised' }),
-    },
-    {
-      key: 'venue-fee',
-      label: t('Journal venue fee'),
-      align: 'end',
-      cell: (r) => inAsset(r.venueFees, r.feeAsset),
-      cellMarks: () => ({ 'data-cell': 'venue-fee' }),
-    },
-    {
-      key: 'builder-fee',
-      label: t('Journal builder fee'),
-      align: 'end',
-      cell: (r) => inAsset(r.builderFees, r.feeAsset),
-      cellMarks: () => ({ 'data-cell': 'builder-fee' }),
-    },
-    {
-      key: 'funding',
-      label: t('Journal funding column'),
-      align: 'end',
-      cell: (r) => inAsset(r.funding, r.feeAsset),
-      cellMarks: () => ({ 'data-cell': 'funding' }),
-    },
-    {
+      // The net result, and beneath it each part as the venue reports it: realised, the venue's fee, our builder fee,
+      // funding. One column, so every part fits beside the others in the room's width.
       key: 'net',
       label: t('Journal net'),
       align: 'end',
-      cell: (r) => (r.netPnl === null ? t('Journal not reported') : inAsset(r.netPnl, r.feeAsset)),
-      cellMarks: () => ({ 'data-cell': 'net' }),
+      cell: (r) => (
+        <span className="lt-stack-tight">
+          <strong data-cell="net">{r.netPnl === null ? t('Journal not reported') : inAsset(r.netPnl, r.feeAsset)}</strong>
+          <span className="lt-hint">
+            {t('Journal realised column')}{' '}
+            <span data-cell="realised">{r.realisedPnl === null ? t('Journal not reported') : inAsset(r.realisedPnl, r.feeAsset)}</span>
+            {' · '}
+            {t('Journal venue fee')} <span data-cell="venue-fee">{inAsset(r.venueFees, r.feeAsset)}</span>
+            {' · '}
+            {t('Journal builder fee')} <span data-cell="builder-fee">{inAsset(r.builderFees, r.feeAsset)}</span>
+            {' · '}
+            {t('Journal funding column')} <span data-cell="funding">{inAsset(r.funding, r.feeAsset)}</span>
+          </span>
+        </span>
+      ),
     },
   ];
   return (
@@ -102,7 +89,6 @@ function Trades({ journal, picked, t }: { journal: TradeJournal; picked: string 
       rowKey={(r) => r.tradeId}
       rowHref={(r) => href(r.tradeId)}
       selected={picked ?? undefined}
-      scroll
       rowMarks={(r) => ({
         'data-testid': 'journal-row',
         'data-trade': r.tradeId,
