@@ -7,7 +7,8 @@ import { test, expect } from './journey.mjs';
 import { founderTotp, makeContext, stackFounderScopes } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';
 import { FOUNDER_VAULT_NAME, foundersEnrolled } from '../../../../tooling/scripts/local-test-founders.mjs';
-import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { localStackState, stackCustodyLayer } from '../../../../tooling/scripts/local-test-state.mjs';
+import { MARKET_OFF_CUSTODY_OFF } from '../../../../tooling/scripts/local-test-market.mjs';
 import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
 import {
   HOME_NOTICE_TITLE,
@@ -17,7 +18,7 @@ import {
   HOME_VENUE_AMOUNT,
   HOME_VENUE_ASSET,
 } from '../../../../tooling/scripts/local-test-home.mjs';
-import { readHomeWallet } from '../../../../tooling/scripts/local-test-seed.mjs';
+import { CUSTODY_OFF_SEED, readHomeWallet } from '../../../../tooling/scripts/local-test-seed.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
 import { COMPOSE, composeSteps, run, seedService } from './tester-compose.mjs';
 import { NOTICE_DRAIN_MINUTES } from './notices.mjs';
@@ -59,9 +60,13 @@ function entry(cmd, label) {
 /** How many device codes identity has mailed to `email` in the stack's LOCAL-TEST outbox. */
 const deviceMails = (email) => deviceCodesMailedTo(existsSync(OUTBOX) ? readFileSync(OUTBOX, 'utf8') : '', email).length;
 
+/** A pattern for exactly `text`, a whole line with `flags` 'm'. */
+const exactly = (text, flags = '') => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, flags);
 /** What the test-content seed says it has made on this stack. */
-// The sections `status` prints, one per room the seed fills, in its order.
+// The sections `status` prints, one per room the seed fills, in its order. Custody off (the launch build's switch) the
+// seed loads no Earn pools or Loans products, which hold a person's money in our ledger (local-test-seed.mjs applyAll).
 const SEEDED_ROOMS = ['pools', 'products', 'house', 'method', 'home'];
+const SEEDED_ROOMS_CUSTODY_OFF = ['house', 'method', 'home'];
 const sections = (out) => [...out.matchAll(/^([a-z]+):$/gm)].map((m) => m[1]);
 const withoutClock = (out) => out.replace(/^as of .*$/m, '');
 /** What the seed made, read back by `status` (which must exit 0 with its header), without its clock line. */
@@ -152,8 +157,16 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // is still checked below.
   const NOT_PORTS = ['chain', 'market-maker'];
   expect(names.filter((name) => !NOT_PORTS.includes(name)).sort()).toEqual([...started].sort());
-  for (const [name, health] of rows)
-    expect(health, `${name} health`).toMatch(ADAPTERS.includes(name) && name !== 'test-wallet-provider' ? /^(ok|off)\b/ : /^ok\b/);
+  // The TEST market maker quotes on our own order book, which is off with custody off (the launch build's switch), so a
+  // custody-off stack never starts it and its row says exactly that; custody on it runs and answers ok.
+  const custodyOff = stackCustodyLayer(STATE) === 'off';
+  const healthy = (name) =>
+    name === 'market-maker' && custodyOff
+      ? exactly(MARKET_OFF_CUSTODY_OFF)
+      : ADAPTERS.includes(name) && name !== 'test-wallet-provider'
+        ? /^(ok|off)\b/
+        : /^ok\b/;
+  for (const [name, health] of rows) expect(health, `${name} health`).toMatch(healthy(name));
 
   // The tester profile's seed service: off unless asked, it runs the founder step (enrol the local test pair, pin it
   // in identity, confirm their emails), the founders' TEST verification, the TEST transfer limits and the test-content seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
@@ -204,7 +217,7 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
 
   // What it made, read back from each source by the closing `status` step and again here: the wallet, the venue's own
   // figure, the partner's own figure (what it paid in and founder b's payment), the published TEST notice and exactly one
-  // transfer-received inbox row, beside the Earn, Loans, Convert and P2P content.
+  // transfer-received inbox row, beside the Earn and Loans content (custody on only), Convert and P2P content.
   const report = seedStatus();
   expect(report.status).toBe(0);
   const partnerHeld = fromUnits(toUnits(HOME_PARTNER_AMOUNT) + toUnits(HOME_TRANSFER_AMOUNT));
@@ -217,7 +230,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
     expect(out).toContain(`  inbox  1 transfer-received row  ${founder}`);
   }
   // The rooms the seed fills, each once: Earn's pools, Loans' products, the house inventory, the P2P method and Home.
-  expect(sections(report.out)).toEqual(SEEDED_ROOMS);
+  const rooms = custodyOff ? SEEDED_ROOMS_CUSTODY_OFF : SEEDED_ROOMS;
+  expect(sections(report.out)).toEqual(rooms);
   const before = withoutClock(report.out);
 
   // A second run of the same entrypoint makes nothing new in any seeded room: apply creates no pool or product, the house
@@ -231,14 +245,17 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
     { timeout: 7 * 60_000 },
   );
   expect(again.status, again.out).toBe(0);
-  expect(again.out).toMatch(/^earn pools: created 0, skipped \d+$/m);
-  expect(again.out).toMatch(/^loan products: created 0, skipped \d+$/m);
+  // Custody off, apply says it loads neither, by the seed's own words.
+  const createdNone = (room) =>
+    custodyOff ? exactly(`${room}: ${CUSTODY_OFF_SEED}`, 'm') : new RegExp(`^${room}: created 0, skipped \\d+$`, 'm');
+  expect(again.out).toMatch(createdNone('earn pools'));
+  expect(again.out).toMatch(createdNone('loan products'));
   expect(again.out).toContain(`home notice: ${HOME_NOTICE_TITLE} skipped`);
   expect(again.out).toContain(`home wallet: ${wallet.address} on the TEST chain, already funded`);
   expect(again.out).toContain(`home inbox: 1 transfer-received row for ${founder}`);
   const after = seedStatus();
   expect(after.status, after.out).toBe(0);
-  expect(sections(after.out)).toEqual(SEEDED_ROOMS);
+  expect(sections(after.out)).toEqual(rooms);
   expect(withoutClock(after.out)).toBe(before);
 });
 

@@ -17,6 +17,7 @@ import {
   bandEdgeQuote,
   crossingQuote,
   marketStatus,
+  MARKET_OFF_CUSTODY_OFF,
   staleAfterMs,
   startArgs,
   buildLadder,
@@ -1094,6 +1095,10 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
     );
     assert.equal(existsSync(join(offState, 'market-accounts.json')), false, 'no maker account was made or funded');
     assert.equal(existsSync(join(offState, 'logs', 'market.log')), false, 'nothing ran to log');
+    // The stack's status table says why it is off, not "not started", which reads as a fault to start.
+    assert.deepEqual(marketStatus({ home: offHome }), { state: 'off', pid: null, ageMs: null, text: MARKET_OFF_CUSTODY_OFF });
+    writeFileSync(join(offState, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1, custodyLayer: 'on' } }));
+    assert.equal(marketStatus({ home: offHome }).text, 'not started (pnpm local:market)');
   } finally {
     rmSync(offHome, { recursive: true, force: true });
   }
