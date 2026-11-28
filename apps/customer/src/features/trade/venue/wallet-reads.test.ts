@@ -212,7 +212,15 @@ describe("the desk's own-wallet reads", () => {
       vi.fn(async () => new Response('busy', { status: 429 })),
     );
     const { api } = door({ ...STATUS, walletReads: NAMED });
-    const read = await venueApi(api).positions(OWNER);
-    expect(read).toMatchObject({ ok: false, reason: 'unreachable', code: 'trade.venue.venue_down', status: 503 });
+    // The refused read is tried once more when the venue's rate-limit hold ends (at most a minute).
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const reading = venueApi(api).positions(OWNER);
+      await vi.advanceTimersByTimeAsync(60_000);
+      const read = await reading;
+      expect(read).toMatchObject({ ok: false, reason: 'unreachable', code: 'trade.venue.venue_down', status: 503 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
