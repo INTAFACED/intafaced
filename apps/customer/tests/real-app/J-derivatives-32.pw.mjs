@@ -293,10 +293,18 @@ test(`${J} #1 opens the futures desk: the chart first with the long's entry, sto
   await expect(line('target')).toHaveAttribute('data-held', target.trigger.price);
   expect(sameDecimal(stop.trigger.price, STOP) && sameDecimal(target.trigger.price, TARGET)).toBe(true);
   await expect(line('entry')).toHaveAttribute('data-price', long.entryPrice);
-  // Stop below the entry, target above it, on the chart's own scale.
+  // Stop below the entry, target above it, on the chart's own scale, once the scale has taken them in (the overlay
+  // draws again as the price scale settles).
   const yOf = async (kind) => (await line(kind).boundingBox()).y;
-  expect(await yOf('stop')).toBeGreaterThan(await yOf('entry'));
-  expect(await yOf('target')).toBeLessThan(await yOf('entry'));
+  await expect
+    .poll(
+      async () => {
+        const [stopY, entryY, targetY] = [await yOf('stop'), await yOf('entry'), await yOf('target')];
+        return stopY > entryY && targetY < entryY;
+      },
+      { message: 'the stop line below the entry line and the target line above it', timeout: 10_000 },
+    )
+    .toBe(true);
   const basis = await basisOf(s, LONG);
   const atStop = netAt(basis, STOP);
   await expect(line('target')).toHaveAttribute('data-net', fromUnits(netAt(basis, TARGET)));
