@@ -1,16 +1,14 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { formatAmount, parseAmount, MoneyError } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, MemoryLedger, MoneyError } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
+import { recordingSql } from '../sql-recorder.testkit.js';
+import type { VendorService } from '../vendor-service.js';
 import { decimalPriceFromDriver, purchasePriceTermsMatch } from './commerce-price.js';
+import { CommerceService } from './commerce-service.js';
 
 /**
  * Driver numeric must be a decimal string. String(0.1) is IEEE-rounded and
  * must not be parseAmount'd. claimPurchase must not terms-match on that float.
  */
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('listing/purchase price is a decimal string', () => {
   it('proves the IEEE door: String(0.1) then parseAmount would coerce', () => {
@@ -35,11 +33,29 @@ describe('listing/purchase price is a decimal string', () => {
     expect(purchasePriceTermsMatch('0.2', '0.1')).toBe(false);
   });
 
-  it('mappers and claimPurchase use the helper — never String(row.price)', () => {
-    const src = readFileSync(join(here, 'commerce-service.ts'), 'utf8');
-    expect(src).not.toContain('parseAmount(String(row.price))');
-    expect(src).not.toContain('String(row.price)');
-    expect(src).toContain('purchasePriceTermsMatch(row.price, input.price)');
-    expect(src).toContain('decimalPriceFromDriver(row.price)');
+  it('mappers and claimPurchase use the helper — never String(row.price)', async () => {
+    const listingRow = (price: unknown) => ({
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      vendor_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      title: 'TEST',
+      description: 'TEST',
+      offer_type: 'one_time',
+      asset_id: 'USDT',
+      price,
+      period_seconds: null,
+      status: 'active',
+      category: null,
+      created_at: new Date('2026-10-23T00:00:00.000Z'),
+      updated_at: new Date('2026-10-23T00:00:00.000Z'),
+    });
+    const service = (price: unknown) =>
+      new CommerceService(recordingSql(() => [listingRow(price)]).sql, {} as VendorService, new MemoryLedger(), { commissionBps: 500 });
+    // A driver number is refused, not rounded through String(); a decimal string is canonicalised.
+    await expect(service(0.1).getListing('cccccccc-cccc-4ccc-8ccc-cccccccccccc')).rejects.toThrow(MoneyError);
+    await expect(service(0.1).getListing('cccccccc-cccc-4ccc-8ccc-cccccccccccc')).rejects.toThrow(/decimal string, got number/);
+    expect((await service('25.50').getListing('cccccccc-cccc-4ccc-8ccc-cccccccccccc'))?.price).toBe('25.5');
+    expect((await service('9007199254740993.000000000000000001').getListing('cccccccc-cccc-4ccc-8ccc-cccccccccccc'))?.price).toBe(
+      '9007199254740993.000000000000000001',
+    );
   });
 });

@@ -2,9 +2,6 @@
  * Job tRPC twins require HMAC as svc-token.
  * Session-only admin:treasury is 401. Wrong HMAC caller (svc-trade) is 403.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -14,6 +11,7 @@ import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedur
 import { JOB_FORBIDDEN } from './job-hmac.js';
 import { createEdgeContext, encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
+import { stubApprovalConsumer } from './action-approval-consume.js';
 import { createTokenRouter, type TokenRouter } from './router.js';
 import type { TokenService } from './token-service.js';
 
@@ -22,7 +20,6 @@ const SERVICE_SECRET = 'a'.repeat(32);
 const USER = '11111111-1111-4111-8111-111111111111';
 const RUN = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const WINDOW = { from: '2026-07-01T00:00:00.000Z', to: '2026-07-08T00:00:00.000Z' };
-const DIR = dirname(fileURLToPath(import.meta.url));
 
 const JOBS = [
   { name: 'mintEpoch', path: 'mintEpoch', payload: {} },
@@ -142,23 +139,47 @@ async function post(
 }
 
 describe('token job tRPC HMAC as svc-token (HTTP)', () => {
-  it('job doors are HMAC as svc-token, not admin:treasury; index verifies service headers', () => {
-    const src = readFileSync(join(DIR, 'router.ts'), 'utf8');
-    expect(src).toMatch(/jobProcedure/);
-    expect(src).toMatch(/const jobProcedure = serviceProcedureFor\(\[JOB_CALLER\], \{ forbidden: JOB_FORBIDDEN \}\);/);
-    // mintEpoch mounts its record, whose access the mount turns into the same service guard.
-    expect(src).toMatch(/mintEpoch: mountRecord\(\s*TOKEN_MINT_EPOCH,/);
+  it('job doors are HMAC as svc-token, not admin:treasury; the treasury doors stay session admin:treasury with a second person', async () => {
+    // mintEpoch and distributeRevenue mount their records, whose access the mount turns into these guards.
     expect(TOKEN_MINT_EPOCH.access).toEqual({ caller: 'service', callers: ['svc-token'], forbidden: JOB_FORBIDDEN });
-    expect(src).toMatch(/runWindow: jobProcedure/);
-    // distributeRevenue mounts its record, whose access the mount turns into scopedProcedure('admin:treasury').
-    expect(src).toMatch(/distributeRevenue: mountRecord\(\s*TOKEN_DISTRIBUTE_REVENUE,/);
     expect(TOKEN_DISTRIBUTE_REVENUE.access).toEqual({ caller: 'scope', scope: 'admin:treasury' });
-    expect(src).toMatch(/recordBuyback: scopedProcedure\('admin:treasury'/);
-    expect(src).toMatch(/requireDualControl/);
-    const index = readFileSync(join(DIR, 'index.ts'), 'utf8');
-    expect(index).toMatch(/internalSecret/);
-    expect(index).toMatch(/retainRawBody\(app\)/);
-    expect(index).toMatch(/INTERNAL_SERVICE_BODY_BIND/);
+
+    // A job door answers a session holding admin:treasury as unauthenticated: no session is a job caller.
+    for (const { path, payload } of JOBS) {
+      const { statusCode } = await post(path, payload, signedHeaders(['admin:treasury']));
+      expect(statusCode, path).toBe(401);
+    }
+
+    // recordBuyback is a session door: an HMAC job caller is not a principal, and a session needs admin:treasury.
+    const buyback = {
+      runId: RUN,
+      revenueWindow: WINDOW,
+      revenueTotal: { IFC: '1000' },
+      tokensBought: '100',
+      approvalId: 'appr-1',
+      operationId: 'op-1',
+    };
+    expect((await post('recordBuyback', buyback, hmacHeaders('svc-token', buyback))).statusCode).toBe(401);
+    const noScope = await post('recordBuyback', buyback, signedHeaders(['token:read']));
+    expect(noScope.statusCode).toBe(403);
+    expect(noScope.body.error?.data?.code).toBe('FORBIDDEN');
+
+    // With admin:treasury it still needs a second person: the same operator approving refuses, another passes.
+    const asCaller = (approverId: string) =>
+      createTokenRouter(token, { approvals: stubApprovalConsumer(approverId) }).createCaller(
+        edgeContext({ headers: signedHeaders(['admin:treasury']), id: 'req-dual' } as never),
+      );
+    vi.mocked(token.recordBuyback).mockClear();
+    await expect(asCaller(USER).recordBuyback(buyback)).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'confirming operator must be a distinct identity; the token service does not invent a second caller',
+    });
+    expect(token.recordBuyback).not.toHaveBeenCalled();
+    await expect(asCaller('dddddddd-dddd-4ddd-8ddd-dddddddddddd').recordBuyback(buyback)).resolves.toMatchObject({
+      runId: RUN,
+      confirmOperatorId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    });
+    expect(token.recordBuyback).toHaveBeenCalledTimes(1);
   });
 
   it.each(JOBS)('$name unsigned → 401', async ({ path, payload }) => {

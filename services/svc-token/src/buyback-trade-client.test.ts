@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { createTradeIocMarketBuy } from './buyback-trade-client.js';
@@ -59,13 +57,5 @@ describe('createTradeIocMarketBuy', () => {
       code: 'token.buyback_job_unset',
     });
     expect(fetchMock).toHaveBeenCalledOnce();
-  });
-
-  it('source never fetches the user REST order door', () => {
-    const src = readFileSync(fileURLToPath(new URL('./buyback-trade-client.ts', import.meta.url)), 'utf8');
-    expect(src).not.toMatch(/placeUrl/);
-    expect(src).not.toMatch(/fetch\(placeUrl/);
-    expect(src).not.toMatch(/\$\{url\}\/api\/v1\/orders/);
-    expect(src).not.toMatch(/method:\s*'POST'/);
   });
 });

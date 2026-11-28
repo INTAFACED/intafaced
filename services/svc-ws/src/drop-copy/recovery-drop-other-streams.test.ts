@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { hashRecoveryCode, recoveryCodeDropsOtherDropCopyStreams } from './recovery-drop-other-streams.js';
+import { createHash } from 'node:crypto';
+import { RecoveryCodeStreamError } from '../private/recovery-drop-other-streams.js';
+import { recoveredMintKeyRevokeDropsDropCopyStream } from './recovery-mint-key-revoke-stream.js';
+import { RecoveryCodeDropCopyStreamError, hashRecoveryCode, recoveryCodeDropsOtherDropCopyStreams } from './recovery-drop-other-streams.js';
 
 const CODE = 'A1B2C-D3E4F';
 const OTHER_CODE = 'FFFFF-00000';
@@ -89,18 +89,32 @@ describe('recoveryCodeDropsOtherDropCopyStreams', () => {
     expect(dropped).toEqual([]);
   });
 
-  it('source keeps the recovered drop-copy door; not a private-stream or key-revoke redo', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'recovery-drop-other-streams.ts'), 'utf8');
-    expect(src).toMatch(/recoveryCodeDropsOtherDropCopyStreams/);
-    expect(src).toMatch(/auth.recovery_missing/);
-    expect(src).toMatch(/auth.recovery_spent/);
-    expect(src).toMatch(/auth.recovery_invalid/);
-    expect(src).toMatch(/hashRecoveryCode/);
-    expect(src).not.toMatch(/PRIVATE_STREAM_PATH/);
-    expect(src).not.toMatch(/recoveredMintKeyRevokeDropsDropCopyStream/);
-    expect(src).not.toMatch(/revokeAllApiKeys/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+sessions/i);
+  it('keeps the recovered drop-copy door: sha-256 hashes, typed refusals, drops only the seats it is handed; not a private-stream or key-revoke redo', () => {
+    expect(hashRecoveryCode(CODE)).toBe(createHash('sha256').update(CODE).digest('hex'));
+    const refusal = (input: Parameters<typeof recoveryCodeDropsOtherDropCopyStreams>[0]) => {
+      try {
+        return { result: recoveryCodeDropsOtherDropCopyStreams(input) };
+      } catch (err) {
+        expect(err).toBeInstanceOf(RecoveryCodeDropCopyStreamError);
+        return { error: (err as RecoveryCodeDropCopyStreamError).code };
+      }
+    };
+    expect(refusal({ code: '  ', recoveryCodeHashes: HASHES })).toEqual({ error: 'auth.recovery_missing' });
+    expect(refusal({ code: CODE, recoveryCodeHashes: 'x' })).toEqual({ error: 'auth.recovery_spent' });
+    expect(refusal({ code: OTHER_CODE, recoveryCodeHashes: HASHES })).toEqual({ error: 'auth.recovery_invalid' });
+    // Its only effect is calling drop on the seats it was handed; it takes no port to revoke keys or write sessions.
+    expect(recoveryCodeDropsOtherDropCopyStreams.length).toBe(1);
+    const dropped: string[] = [];
+    expect(
+      refusal({
+        code: ` ${CODE} `,
+        recoveryCodeHashes: HASHES,
+        recoveredSessionId: ` ${KEEP} `,
+        subscriptions: [{ sessionId: OTHER, drop: () => dropped.push(OTHER) }, { sessionId: KEEP, drop: () => dropped.push(KEEP) }, 'junk'],
+      }),
+    ).toEqual({ result: { keptSessionId: KEEP, droppedSessionIds: [OTHER] } });
+    expect(dropped).toEqual([OTHER]);
+    expect(recoveryCodeDropsOtherDropCopyStreams as unknown).not.toBe(recoveredMintKeyRevokeDropsDropCopyStream);
+    expect(RecoveryCodeDropCopyStreamError).not.toBe(RecoveryCodeStreamError);
   });
 });

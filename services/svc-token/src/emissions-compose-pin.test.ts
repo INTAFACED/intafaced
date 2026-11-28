@@ -18,11 +18,31 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ENV_TS = resolve(import.meta.dirname, './env.ts');
+
+const REQUIRED: Record<string, string> = {
+  NODE_ENV: 'test',
+  DATABASE_URL: 'postgres://pin:pin@127.0.0.1:9/pin',
+  DATABASE_POOL_MAX: '1',
+  EDGE_PRINCIPAL_SECRET: 'svc-token-env-pin-edge-secret-00000000001',
+  INTERNAL_SERVICE_SECRET: 'svc-token-env-pin-internal-secret-000001',
+};
+
+/** svc-token's own env loader, run fresh with exactly these variables over the required ones. */
+async function loadTokenEnv(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  for (const [key, value] of Object.entries({ ...REQUIRED, ...overrides })) vi.stubEnv(key, value);
+  const module = await import('./env.js');
+  return module.env;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function tokenServiceBlock(source: string): string {
   return composeServiceBlock(source, 'svc-token');
@@ -35,30 +55,47 @@ const TICK_MS = /EMISSIONS_TICK_MS:\s*\$\{EMISSIONS_TICK_MS:-\}/;
 
 describe('compose emissions kill and auto-tick for svc-token', () => {
   const block = tokenServiceBlock(readFileSync(COMPOSE, 'utf8'));
-  const envTs = readFileSync(ENV_TS, 'utf8');
 
-  it('env.ts still declares the flags this pin tracks', () => {
-    expect(envTs).toMatch(/EMISSIONS_ENABLED:\s*z/);
-    expect(envTs).toMatch(/EMISSIONS_AUTO_TICK:\s*z/);
-    expect(envTs).toMatch(/EMISSIONS_TICK_MS:\s*z/);
-    expect(envTs).toMatch(/EMISSIONS_EPOCH_MS:/);
+  it('the env loader defaults the flags this pin tracks: kill on, auto-tick, yield and buyback off, one-day epoch, no tick or cron', async () => {
+    const unset = await loadTokenEnv({
+      EMISSIONS_ENABLED: undefined,
+      EMISSIONS_AUTO_TICK: undefined,
+      EMISSIONS_EPOCH_MS: undefined,
+      EMISSIONS_TICK_MS: undefined,
+      YIELD_JOB_ENABLED: undefined,
+      YIELD_DISTRIBUTION_CRON_HOURS: undefined,
+      BUYBACK_JOB_ENABLED: undefined,
+    });
+    expect(unset.EMISSIONS_ENABLED).toBe(true);
+    expect(unset.EMISSIONS_AUTO_TICK).toBe(false);
     // Owner-present 1 day (Nitro, 2026-10-14) is the ONLY emission magnitude defaulted here.
-    const epochFrom = envTs.indexOf('EMISSIONS_EPOCH_MS:');
-    expect(envTs.slice(epochFrom, envTs.indexOf('EMISSIONS_TICK_MS:', epochFrom))).toMatch(/\.default\(\s*86_400_000\s*\)/);
-    expect(envTs).toMatch(/YIELD_JOB_ENABLED:\s*z/);
-    expect(envTs).toMatch(/BUYBACK_JOB_ENABLED:\s*z/);
-    const autoSlice = envTs.slice(envTs.indexOf('EMISSIONS_AUTO_TICK:'));
-    expect(autoSlice.slice(0, 400)).toMatch(/\.default\(\s*false\s*\)/);
-    const yieldSlice = envTs.slice(envTs.indexOf('YIELD_JOB_ENABLED:'));
-    expect(yieldSlice.slice(0, 400)).toMatch(/\.default\(\s*false\s*\)/);
-    const buybackSlice = envTs.slice(envTs.indexOf('BUYBACK_JOB_ENABLED:'));
-    expect(buybackSlice.slice(0, 400)).toMatch(/\.default\(\s*false\s*\)/);
-    const tickFrom = envTs.indexOf('EMISSIONS_TICK_MS:');
-    const tickSlice = envTs.slice(tickFrom, envTs.indexOf('YIELD_JOB_ENABLED:', tickFrom));
-    expect(tickSlice).not.toMatch(/\.default\(/);
-    const hoursFrom = envTs.indexOf('YIELD_DISTRIBUTION_CRON_HOURS:');
-    const hoursSlice = envTs.slice(hoursFrom, envTs.indexOf('BUYBACK_JOB_ENABLED:', hoursFrom));
-    expect(hoursSlice).not.toMatch(/\.default\(/);
+    expect(unset.EMISSIONS_EPOCH_MS).toBe(86_400_000);
+    expect(unset.EMISSIONS_TICK_MS).toBeUndefined();
+    expect(unset.YIELD_JOB_ENABLED).toBe(false);
+    expect(unset.YIELD_DISTRIBUTION_CRON_HOURS).toBeUndefined();
+    expect(unset.BUYBACK_JOB_ENABLED).toBe(false);
+
+    // A blank compose pass-through is "not set", not 0; a host value is used as given.
+    expect((await loadTokenEnv({ EMISSIONS_EPOCH_MS: '' })).EMISSIONS_EPOCH_MS).toBe(86_400_000);
+    await expect(loadTokenEnv({ EMISSIONS_EPOCH_MS: '0' })).rejects.toThrow(/EMISSIONS_EPOCH_MS/);
+    const set = await loadTokenEnv({
+      EMISSIONS_ENABLED: 'false',
+      EMISSIONS_AUTO_TICK: 'true',
+      EMISSIONS_EPOCH_MS: '3600000',
+      EMISSIONS_TICK_MS: '60000',
+      YIELD_JOB_ENABLED: 'on',
+      YIELD_DISTRIBUTION_CRON_HOURS: '168',
+      BUYBACK_JOB_ENABLED: 'yes',
+    });
+    expect(set).toMatchObject({
+      EMISSIONS_ENABLED: false,
+      EMISSIONS_AUTO_TICK: true,
+      EMISSIONS_EPOCH_MS: 3_600_000,
+      EMISSIONS_TICK_MS: '60000',
+      YIELD_JOB_ENABLED: true,
+      YIELD_DISTRIBUTION_CRON_HOURS: '168',
+      BUYBACK_JOB_ENABLED: true,
+    });
   });
 
   it('wires unique host pass-through keys (auto-tick default false)', () => {

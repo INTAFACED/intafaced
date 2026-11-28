@@ -1,8 +1,14 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { TokenError, assertStakesListLimit } from './token-service.js';
+import { describe, expect, it, vi } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
+import type { Principal } from '@intafaced/auth';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { MemoryEventBus } from '@intafaced/events';
+import { MemoryLedger, type AccountRef, type Balance, type LedgerClient } from '@intafaced/ledger-client';
+import { DEFAULT_BUYBACK_PARAMS } from './economics/buyback.js';
+import { DEFAULT_EMISSION_PARAMS } from './economics/emission.js';
+import { createTokenRouter } from './router.js';
+import { recordingSql } from './sql-recorder.testkit.js';
+import { TokenError, TokenService, assertStakesListLimit } from './token-service.js';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -12,7 +18,38 @@ import { userCopy } from './user-copy.js';
  * Blank must refuse. Owner/client may pass 50 explicitly.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
+const EDGE_SECRET = 'a-token-list-limit-test-edge-secret-long-enough';
+const USER = '11111111-1111-4111-8111-111111111111';
+const edgeContext = createEdgeContext({ secret: EDGE_SECRET, serviceName: 'svc-token' });
+
+function reader() {
+  const raw = encodePrincipal({
+    sub: USER,
+    userId: USER,
+    sid: '33333333-3333-4333-8333-333333333333',
+    scopes: ['token:read'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 60_000),
+  } as Principal);
+  return edgeContext({
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, EDGE_SECRET, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
+    id: 'req-list-limit',
+  });
+}
+
+function service(sql: ReturnType<typeof recordingSql>['sql'], ledger: LedgerClient = new MemoryLedger()) {
+  return new TokenService(sql, ledger, new MemoryEventBus('svc-token'), {
+    assetId: 'IFC',
+    emission: DEFAULT_EMISSION_PARAMS,
+    buyback: DEFAULT_BUYBACK_PARAMS,
+    loadParamsFromDb: false,
+  });
+}
 
 describe('listStakes limit unset refuse', () => {
   it('assertStakesListLimit refuses blank / NaN / 0 — never invents 50', () => {
@@ -39,29 +76,56 @@ describe('listStakes limit unset refuse', () => {
     expect(assertStakesListLimit(201)).toBe(200);
   });
 
-  it('listStakes SELECT carries LIMIT and does not default to 50', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-token/src/token-service.ts'), 'utf8');
-    const start = src.indexOf('async listStakes(');
-    const end = src.indexOf('async feeDiscountSchedule(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertStakesListLimit');
-    expect(fn).toMatch(/LIMIT \$\{page\}/);
-    expect(fn).not.toMatch(/input\.limit \?\? 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
+  it('listStakes refuses an unset limit before reading, and sends the published page as LIMIT', async () => {
+    const { sql, queries } = recordingSql();
+    const token = service(sql);
+    for (const status of ['active', 'all'] as const) {
+      await expect(token.listStakes(USER, status, undefined)).rejects.toMatchObject({ code: 'token.stakes_list_limit_unset' });
+    }
+    expect(queries).toEqual([]);
+
+    for (const status of ['active', 'all'] as const) {
+      queries.length = 0;
+      await expect(token.listStakes(USER, status, 50)).resolves.toEqual([]);
+      expect(queries).toHaveLength(1);
+      expect(queries[0]!.text).toMatch(/FROM token\.stakes/);
+      expect(queries[0]!.text).toMatch(/LIMIT \$\d+$/);
+      expect(queries[0]!.values.at(-1)).toBe(50);
+    }
+    queries.length = 0;
+    await token.listStakes(USER, 'active', 500);
+    expect(queries[0]!.values.at(-1)).toBe(200);
   });
 
-  it('router does not invent 50 when listStakes omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-token/src/router.ts'), 'utf8');
-    const start = src.indexOf('listStakes:');
-    const end = src.indexOf('mintEpoch:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('token.listStakes(userId, input.status, input.limit)');
-    expect(fn).not.toMatch(/input\.limit \?\? 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
+  it('router does not invent 50 when listStakes omits limit', async () => {
+    const listStakes = vi.fn(async (_userId: string, _status?: string, limit?: number) => {
+      assertStakesListLimit(limit);
+      return [];
+    });
+    const caller = createTokenRouter(partial<TokenService>({ listStakes })).createCaller(reader());
+    await expect(caller.listStakes({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'token.stakes_list_limit_unset' },
+    });
+    expect(listStakes).toHaveBeenLastCalledWith(USER, 'active', undefined);
+    await expect(caller.listStakes({ status: 'all', limit: 50 })).resolves.toEqual([]);
+    expect(listStakes).toHaveBeenLastCalledWith(USER, 'all', 50);
   });
 
-  it('yield job active-stake work set stays unbounded (not this mill)', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-token/src/token-service.ts'), 'utf8');
-    expect(src).toMatch(/SELECT id, user_id, amount, tier, multiplier_bps FROM token\.stakes WHERE status = 'active' ORDER BY id ASC/);
+  it('yield job active-stake work set stays unbounded (not this mill)', async () => {
+    const { sql, queries } = recordingSql();
+    const ledger = new (class extends MemoryLedger {
+      override async balance(ref: AccountRef): Promise<Balance> {
+        return { ...(await super.balance(ref)), amount: 10n ** 30n };
+      }
+    })();
+    const token = service(sql, ledger);
+    await token
+      .distributeRevenue({ windowId: 'w-unbounded', sources: [{ module: 'trade', amount: 100n }] } as never)
+      .catch(() => undefined);
+    const work = queries.find((q) => /FROM token\.stakes WHERE status = 'active'/.test(q.text));
+    expect(work, 'the yield plan reads the active stakes').toBeDefined();
+    expect(work!.text).toBe("SELECT id, user_id, amount, tier, multiplier_bps FROM token.stakes WHERE status = 'active' ORDER BY id ASC");
+    expect(work!.values).toEqual([]);
   });
 });

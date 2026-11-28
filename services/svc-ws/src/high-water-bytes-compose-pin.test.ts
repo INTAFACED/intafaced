@@ -25,10 +25,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isPublishedHighWaterBytes } from './high-water-bytes.js';
+import { isPublishedHighWaterBytes, WS_HIGH_WATER_BYTES_UNSET } from './high-water-bytes.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 function wsComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
@@ -64,17 +63,19 @@ afterEach(() => {
 
 describe('compose WS_HIGH_WATER_BYTES for svc-ws', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-ws/src/env.ts'), 'utf8');
-  const helperTs = readFileSync(join(HERE, 'high-water-bytes.ts'), 'utf8');
   const block = wsComposeBlock();
 
-  it('env.ts refuses blank high-water — no 1048576 default; poll stays 250', () => {
-    expect(envTs).not.toMatch(/WS_HIGH_WATER_BYTES:[\s\S]{0,400}\.default\(1_048_576\)/);
-    expect(envTs).not.toMatch(/WS_HIGH_WATER_BYTES:[\s\S]{0,400}\.default\(1048576\)/);
-    expect(envTs).toMatch(
-      /WS_HIGH_WATER_BYTES:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.union\(\[z\.undefined\(\), z\.coerce\.number\(\)\.int\(\)\.min\(4_096\)\]\),\s*\)/,
-    );
-    expect(envTs).toMatch(/WS_POLL_INTERVAL_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(50\)\.max\(60_000\)\.default\(250\)/);
+  it('the env loader refuses blank high-water — no 1048576 default; poll stays 250', async () => {
+    const unset = await loadWith({ WS_HIGH_WATER_BYTES: undefined, WS_POLL_INTERVAL_MS: undefined });
+    expect(unset.WS_HIGH_WATER_BYTES).toBeUndefined();
+    expect(unset.WS_POLL_INTERVAL_MS).toBe(250);
+    expect((await loadWith({ WS_HIGH_WATER_BYTES: '4096' })).WS_HIGH_WATER_BYTES).toBe(4096);
+    await expect(loadWith({ WS_HIGH_WATER_BYTES: '4095' })).rejects.toThrow(/WS_HIGH_WATER_BYTES/);
+    await expect(loadWith({ WS_HIGH_WATER_BYTES: '4096.5' })).rejects.toThrow(/WS_HIGH_WATER_BYTES/);
+    expect((await loadWith({ WS_POLL_INTERVAL_MS: '50' })).WS_POLL_INTERVAL_MS).toBe(50);
+    expect((await loadWith({ WS_POLL_INTERVAL_MS: '60000' })).WS_POLL_INTERVAL_MS).toBe(60_000);
+    await expect(loadWith({ WS_POLL_INTERVAL_MS: '49' })).rejects.toThrow(/WS_POLL_INTERVAL_MS/);
+    await expect(loadWith({ WS_POLL_INTERVAL_MS: '60001' })).rejects.toThrow(/WS_POLL_INTERVAL_MS/);
   });
 
   it('compose svc-ws block is the unique home; high-water is empty pass-through', () => {
@@ -97,7 +98,7 @@ describe('compose WS_HIGH_WATER_BYTES for svc-ws', () => {
     expect(block).toMatch(/WS_MARKETS_REFRESH_MS:\s*\$\{WS_MARKETS_REFRESH_MS:-30000\}/);
     expect(block).toMatch(/WS_TRADES_DURABLE:\s*\$\{WS_TRADES_DURABLE:-ws-trade-tape\}/);
     expect(block).toMatch(/WS_PRIVATE_ORDERS_DURABLE:\s*\$\{WS_PRIVATE_ORDERS_DURABLE:-ws-private-orders\}/);
-    expect(helperTs).toMatch(/ws\.high_water_bytes_unset/);
+    expect(WS_HIGH_WATER_BYTES_UNSET).toBe('ws.high_water_bytes_unset');
   });
 });
 

@@ -2,11 +2,9 @@
  * GET /ready must not sell a constructed pg/ledger/token/identity client as live.
  * Env URL is configured / unprobed. This process does not ping any of them.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createStakeSource } from './stake-source.js';
 import {
   MARKET_COMMISSION_NOT_CONFIGURED,
   MARKET_IDENTITY_UNPROBED,
@@ -19,8 +17,6 @@ import {
   MARKET_TOKEN_UNPROBED,
   marketReadyHonesty,
 } from './ready-honesty.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 describe('svc-market ready honesty — constructed is not live', () => {
   const apps: FastifyInstance[] = [];
@@ -97,18 +93,28 @@ describe('svc-market ready honesty — constructed is not live', () => {
     expect(JSON.stringify(body)).not.toMatch(/ledger\.test|token\.test|identity\.test/);
   });
 
-  it('index.ts serves marketReadyHonesty, not a bare ready:true stamp', () => {
-    const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(indexSrc).toContain('marketReadyHonesty');
-    expect(indexSrc).toContain("app.get('/ready', async () =>");
-    expect(indexSrc).toContain('marketReadyHonesty({');
-    expect(indexSrc).not.toMatch(/app\.get\('\/ready',\s*async\s*\(\)\s*=>\s*\(\{\s*ready:\s*true/);
-    expect(indexSrc).not.toMatch(/fetch\(/);
-  });
-
-  it('token absent reuses market.stake_unavailable (stake-source), not a second code', () => {
-    const stakeSrc = readFileSync(join(here, 'stake-source.ts'), 'utf8');
-    expect(stakeSrc).toContain("'market.stake_unavailable'");
+  it('token absent reuses market.stake_unavailable (stake-source), not a second code', async () => {
     expect(MARKET_STAKE_UNAVAILABLE).toBe('market.stake_unavailable');
+    expect(
+      marketReadyHonesty({
+        databaseUrl: 'postgres://x',
+        ledgerUrl: 'http://l',
+        tokenUrl: '',
+        identityUrl: undefined,
+        commissionConfigured: true,
+      }).token,
+    ).toEqual({
+      status: 'absent',
+      code: MARKET_STAKE_UNAVAILABLE,
+    });
+    // The stake gate's own refusal, when svc-token cannot be read, is the same code.
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('ECONNREFUSED');
+    });
+    const source = createStakeSource('http://token.test', 'test-internal-service-secret-32ch!!');
+    await expect(source.entitlementOf('11111111-1111-4111-8111-111111111111')).rejects.toMatchObject({ code: MARKET_STAKE_UNAVAILABLE });
+    vi.stubGlobal('fetch', async () => new Response('nope', { status: 503 }));
+    await expect(source.entitlementOf('11111111-1111-4111-8111-111111111111')).rejects.toMatchObject({ code: MARKET_STAKE_UNAVAILABLE });
+    vi.unstubAllGlobals();
   });
 });
