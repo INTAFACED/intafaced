@@ -702,6 +702,7 @@ const messages = {
   'Journal no stop': 'None',
   'Journal one r': '1R (entry to stop × largest size)',
   'Journal r': 'Actual R (net result ÷ 1R)',
+  'Journal r stop at entry': 'No R: the stop was at the entry, so 1R is 0',
   'Journal no r': 'no R: no stop when opened',
   'Journal r rule': '1R is the gap from the entry to the stop the trade opened with, times its largest size.',
   'Journal link': 'Journal',

@@ -15,7 +15,8 @@ import { defineProcedure, type Refusals } from './procedure.js';
  *   no realised result for leaves `realisedPnl` and `netPnl` null, never 0.
  * - The planned stop and target are the stop-loss and take-profit trigger orders the trade opened with: attached to the
  *   order of its first fill, else placed before its second fill. None: `null`, never guessed.
- * - 1R = |entry − stop| × the largest size; R = net result ÷ 1R, to four places. No stop: `rMissing: 'no_stop_when_opened'`.
+ * - 1R = |entry − stop| × the largest size; R = net result ÷ 1R, to four places. No stop: `rMissing: 'no_stop_when_opened'`;
+ *   a stop at the entry (1R = 0): `'stop_at_entry'`.
  * - MAE and MFE: the worst and best price the venue's 1-minute candles reached over the trade's time, in price, dollars
  *   (per unit × the largest size) and percent of the entry. Candles missing (a fill's minute has no candle, or one that
  *   does not hold the fill's price): `excursion.complete` false and both null.
@@ -35,7 +36,7 @@ export const TRADE_JOURNAL_MAX_TRADES = 100;
 export const TRADE_JOURNAL_MAX_DAYS = 90;
 
 export const DISCIPLINED_EXITS = ['stop', 'target', 'unresolved', 'no_plan'] as const;
-export const R_MISSING = ['no_stop_when_opened', 'no_result'] as const;
+export const R_MISSING = ['no_stop_when_opened', 'stop_at_entry', 'no_result'] as const;
 
 /** One fill, or the part of a flipping fill, inside one trade, as the venue reports it. */
 export const journalFillSchema = z.object({

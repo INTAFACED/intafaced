@@ -15779,7 +15779,7 @@
                   "anyOf": [
                     {
                       "type": "string",
-                      "enum": ["no_stop_when_opened", "no_result"]
+                      "enum": ["no_stop_when_opened", "stop_at_entry", "no_result"]
                     },
                     {
                       "type": "null"

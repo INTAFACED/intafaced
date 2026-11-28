@@ -382,6 +382,14 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
     expect([t.realisedPnl, t.netPnl, t.risk, t.rMultiple, t.rMissing]).toEqual([null, null, '10', null, 'no_result']);
   });
 
+  it('a stop at the entry makes 1R zero: no R, named as such, never a division by zero', () => {
+    const trip = roundTrips(btcFills, new Map())[0]!;
+    const read = { candles: btcCandles, funding: [] };
+    const { entryPrice } = journalTrade(trip, { stop: null, target: null }, read);
+    const t = journalTrade(trip, { stop: a(entryPrice), target: null }, read);
+    expect([t.risk, t.rMultiple, t.rMissing]).toEqual(['0', null, 'stop_at_entry']);
+  });
+
   it('a short whose stop and target are both reached in one candle leaves at the stop; R is negative on a loss', () => {
     // Short 1 @ 50 at 10:00:10, stop 52, target 45; bought back @ 51 at 10:01:30 (no fees, realised −1).
     // net −1, 1R 2 → R −0.5. The 10:02 candle (44 to 53) reaches both: the stop, (50 − 52) × 1 = −2.

@@ -334,7 +334,11 @@ function TradeDetail({ trade, journal, t }: { trade: JournalTrade; journal: Trad
               {trade.risk === null ? t('Journal not reported') : inAsset(trade.risk, a)}
             </Line>
             <Line part="r" label={t('Journal r')}>
-              {trade.rMultiple === null ? t('Journal not reported') : `${trade.rMultiple}R`}
+              {trade.rMissing === 'stop_at_entry'
+                ? t('Journal r stop at entry')
+                : trade.rMultiple === null
+                  ? t('Journal not reported')
+                  : `${trade.rMultiple}R`}
             </Line>
           </>
         )}

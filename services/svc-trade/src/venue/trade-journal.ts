@@ -276,7 +276,14 @@ export function journalTrade(
 
   const risk = levels.stop === null ? null : mul(abs(sub(entry, levels.stop)), size);
   const rMultiple = risk === null || isZero(risk) || net === null ? null : roundTo(div(net, risk), 4);
-  const rMissing = levels.stop === null ? 'no_stop_when_opened' : rMultiple === null ? 'no_result' : null;
+  const rMissing =
+    levels.stop === null
+      ? 'no_stop_when_opened'
+      : risk !== null && isZero(risk)
+        ? 'stop_at_entry'
+        : rMultiple === null
+          ? 'no_result'
+          : null;
 
   let disciplined: JournalTradeFigures['disciplined'] = { exit: 'no_plan', exitPrice: null, netPnl: null };
   if (levels.stop !== null || levels.target !== null) {
