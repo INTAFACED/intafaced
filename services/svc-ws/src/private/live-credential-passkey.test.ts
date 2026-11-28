@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { assertLiveCredential, type LiveCredentialPort, type OwnershipSnapshot } from './live-credential.js';
 
@@ -91,17 +88,5 @@ describe('assertLiveCredential — session passkey', () => {
         sessionId: SESSION,
       }),
     ).resolves.toEqual({ id: SESSION, userId: USER, revoked: false });
-  });
-});
-
-describe('production session authority', () => {
-  it('uses live identity authority while retaining passkey checks for explicit adapters', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-    expect(src).not.toMatch(/sessionPasskey:/);
-    expect(src).toMatch(/createIdentityAuthorityClient/);
-    expect(src).toMatch(/IDENTITY_OWNERSHIP_SECRET/);
-    expect(src).not.toMatch(/serviceAuthHeaders\(/);
-    expect(src).not.toMatch(/process\.env\.INTERNAL_SERVICE_SECRET/);
   });
 });

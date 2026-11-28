@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { MarketError } from './vendor-service.js';
+import { createEdgeContext } from '@intafaced/contracts';
+import { createMarketRouter } from './router.js';
+import { MarketError, type VendorService } from './vendor-service.js';
 import {
   MARKET_DATA_CEILING,
   MARKET_L3_UNAVAILABLE,
@@ -12,11 +11,10 @@ import {
   presentQuote,
   quotePriceSchema,
   requestBook,
+  requirePositiveQuotePrice,
   type BookProduct,
   type QuoteKind,
 } from './market-data-honesty.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 const MARKET = 'BTC-USDT';
 
@@ -175,14 +173,26 @@ describe('svc-market market-data honesty (PTX-M06-R06/R09)', () => {
     expect(quotePriceSchema.parse('1.25')).toBe('1.25');
   });
 
-  it('quote price uses the decimal-string parser, not a JavaScript number', () => {
-    const src = readFileSync(join(here, 'market-data-honesty.ts'), 'utf8');
-    expect(src).toContain('parseAmount(');
-    expect(src).not.toMatch(/Number\(|parseFloat\(|parseInt\(/);
-    const router = readFileSync(join(here, 'router.ts'), 'utf8');
-    const quoteAt = router.indexOf('quote: publicProcedure');
-    const quoteSrc = router.slice(quoteAt, router.indexOf('liveMarkets:', quoteAt));
-    expect(quoteSrc).toContain('price: quotePriceSchema');
-    expect(quoteSrc).not.toContain('z.string().min(1).max(64)');
+  it('quote price uses the decimal-string parser, not a JavaScript number', async () => {
+    // A JavaScript number would round these digits; the decimal parser keeps the caller's spelling.
+    const exact = '9007199254740993.000000000000000001';
+    expect(presentQuote({ kind: 'mark', price: exact }).price).toBe(exact);
+    expect(requirePositiveQuotePrice('0.000000000000000001')).toBe('0.000000000000000001');
+    for (const bad of ['1e3', '0x10', 'Infinity', 'NaN', '1,5']) {
+      expect(() => requirePositiveQuotePrice(bad), bad).toThrow(MarketError);
+    }
+
+    // The public door takes the same schema: a bad string refuses before presentQuote, a good one comes back as sent.
+    const ctx = createEdgeContext({ secret: 'a-market-quote-test-edge-secret-long', serviceName: 'svc-market' })({
+      headers: { 'x-intafaced-region': 'DE' },
+      id: 'req-quote',
+    });
+    const caller = createMarketRouter({} as VendorService).createCaller(ctx);
+    expect((await caller.marketData.quote({ kind: 'mark', price: exact })).price).toBe(exact);
+    for (const bad of ['', ' 1.25', 'abc', '0', '-1', '1e3']) {
+      await expect(caller.marketData.quote({ kind: 'mark', price: bad }), JSON.stringify(bad)).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+    }
   });
 });

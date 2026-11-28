@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
+import { loadP2pEnv } from './testing/env-load-fixture.js';
 import {
   AFFILIATE_PRODUCER_PAYOUT_PATH,
   createAffiliatePayoutClient,
@@ -71,23 +72,8 @@ describe('createAffiliatePayoutClient', () => {
   });
 });
 
-/** Pin: release posts first, accrue second, payout third. */
-describe('settleOnce wires payout after accrue after ledger post', () => {
-  it('fires payout after accrue, after escrowRelease', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'p2p-service.ts'), 'utf8');
-    expect(src).toMatch(/notifyP2pAffiliatePayout/);
-    expect(src).toMatch(/notifyP2pAffiliateAccrue/);
-    expect(src).toMatch(/recipes\.escrowRelease/);
-    expect(src.indexOf('recipes.escrowRelease')).toBeLessThan(src.indexOf('notifyP2pAffiliateAccrue'));
-    expect(src.indexOf('notifyP2pAffiliateAccrue')).toBeLessThan(src.indexOf('notifyP2pAffiliatePayout'));
-    const idx = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(idx).toMatch(/createAffiliatePayoutClient/);
-  });
-});
-
 describe('compose fleet IDENTITY_URL for svc-p2p', () => {
-  it('names fleet identity, does not bake P2P_FEE_BPS, does not restamp JWT', () => {
+  it('names fleet identity, does not bake P2P_FEE_BPS, does not restamp JWT', async () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const compose = readFileSync(join(here, '../../../docker-compose.apps.yml'), 'utf8');
     const start = compose.indexOf('\n  svc-p2p:');
@@ -98,8 +84,9 @@ describe('compose fleet IDENTITY_URL for svc-p2p', () => {
     expect(block).not.toMatch(/IDENTITY_URL:\s*http:\/\/localhost/);
     expect(block).toMatch(/P2P_FEE_BPS:\s*\$\{P2P_FEE_BPS:-\}/);
     expect(block).not.toMatch(/P2P_FEE_BPS:\s*\$\{P2P_FEE_BPS:-30\}/);
-    const envTs = readFileSync(join(here, 'env.ts'), 'utf8');
-    expect(envTs).toMatch(/IDENTITY_URL:\s*z\.string\(\)\.url\(\)\.optional\(\)/);
-    expect(envTs).not.toMatch(/IDENTITY_URL:[\s\S]{0,80}\.default\(/);
+    // env.ts: unset IDENTITY_URL stays unset (the no-op payout port), never a localhost default; a set one must be a URL.
+    expect((await loadP2pEnv()).IDENTITY_URL).toBeUndefined();
+    expect((await loadP2pEnv({ IDENTITY_URL: 'http://svc-identity:4002' })).IDENTITY_URL).toBe('http://svc-identity:4002');
+    await expect(loadP2pEnv({ IDENTITY_URL: 'svc-identity' })).rejects.toThrow(/IDENTITY_URL/);
   });
 });

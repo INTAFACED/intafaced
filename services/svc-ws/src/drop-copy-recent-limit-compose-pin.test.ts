@@ -26,10 +26,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isPublishedDropCopyRecentLimit } from './drop-copy-recent-limit.js';
+import { isPublishedDropCopyRecentLimit, WS_DROP_COPY_RECENT_LIMIT_UNSET } from './drop-copy-recent-limit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 function wsComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
@@ -65,16 +64,21 @@ afterEach(() => {
 
 describe('compose WS_DROP_COPY_RECENT_LIMIT for svc-ws', () => {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const envTs = readFileSync(join(ROOT, 'services/svc-ws/src/env.ts'), 'utf8');
-  const helperTs = readFileSync(join(HERE, 'drop-copy-recent-limit.ts'), 'utf8');
   const block = wsComposeBlock();
 
-  it('env.ts refuses blank window — no 50 default; poll stays 250', () => {
-    expect(envTs).not.toMatch(/WS_DROP_COPY_RECENT_LIMIT:[\s\S]{0,400}\.default\(50\)/);
-    expect(envTs).toMatch(
-      /WS_DROP_COPY_RECENT_LIMIT:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.union\(\[z\.undefined\(\), z\.coerce\.number\(\)\.int\(\)\.min\(0\)\.max\(1_000\)\]\),\s*\)/,
-    );
-    expect(envTs).toMatch(/WS_POLL_INTERVAL_MS:\s*z\.coerce\.number\(\)\.int\(\)\.min\(50\)\.max\(60_000\)\.default\(250\)/);
+  it('the env loader refuses blank window — no 50 default; poll stays 250', async () => {
+    const unset = await loadWith({ WS_DROP_COPY_RECENT_LIMIT: undefined, WS_POLL_INTERVAL_MS: undefined });
+    expect(unset.WS_DROP_COPY_RECENT_LIMIT).toBeUndefined();
+    expect(unset.WS_POLL_INTERVAL_MS).toBe(250);
+    expect((await loadWith({ WS_DROP_COPY_RECENT_LIMIT: '0' })).WS_DROP_COPY_RECENT_LIMIT).toBe(0);
+    await expect(loadWith({ WS_DROP_COPY_RECENT_LIMIT: '-1' })).rejects.toThrow(/WS_DROP_COPY_RECENT_LIMIT/);
+    expect((await loadWith({ WS_DROP_COPY_RECENT_LIMIT: '1000' })).WS_DROP_COPY_RECENT_LIMIT).toBe(1000);
+    await expect(loadWith({ WS_DROP_COPY_RECENT_LIMIT: '1001' })).rejects.toThrow(/WS_DROP_COPY_RECENT_LIMIT/);
+    await expect(loadWith({ WS_DROP_COPY_RECENT_LIMIT: '0.5' })).rejects.toThrow(/WS_DROP_COPY_RECENT_LIMIT/);
+    expect((await loadWith({ WS_POLL_INTERVAL_MS: '50' })).WS_POLL_INTERVAL_MS).toBe(50);
+    expect((await loadWith({ WS_POLL_INTERVAL_MS: '60000' })).WS_POLL_INTERVAL_MS).toBe(60_000);
+    await expect(loadWith({ WS_POLL_INTERVAL_MS: '49' })).rejects.toThrow(/WS_POLL_INTERVAL_MS/);
+    await expect(loadWith({ WS_POLL_INTERVAL_MS: '60001' })).rejects.toThrow(/WS_POLL_INTERVAL_MS/);
   });
 
   it('compose svc-ws block is the unique home; window is empty pass-through', () => {
@@ -97,7 +101,7 @@ describe('compose WS_DROP_COPY_RECENT_LIMIT for svc-ws', () => {
     expect(block).toMatch(/WS_MARKETS_REFRESH_MS:\s*\$\{WS_MARKETS_REFRESH_MS:-30000\}/);
     expect(block).toMatch(/WS_TRADES_DURABLE:\s*\$\{WS_TRADES_DURABLE:-ws-trade-tape\}/);
     expect(block).toMatch(/WS_PRIVATE_ORDERS_DURABLE:\s*\$\{WS_PRIVATE_ORDERS_DURABLE:-ws-private-orders\}/);
-    expect(helperTs).toMatch(/ws\.drop_copy_recent_limit_unset/);
+    expect(WS_DROP_COPY_RECENT_LIMIT_UNSET).toBe('ws.drop_copy_recent_limit_unset');
   });
 });
 

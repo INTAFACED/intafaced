@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   GOVERNANCE_EXECUTE_UNWIRED,
   GOVERNANCE_QUORUM_BPS_ENV,
@@ -11,6 +11,27 @@ import {
   readGovernanceBps,
   readGovernanceParams,
 } from './governance-close.js';
+
+const REQUIRED: Record<string, string> = {
+  NODE_ENV: 'test',
+  DATABASE_URL: 'postgres://pin:pin@127.0.0.1:9/pin',
+  DATABASE_POOL_MAX: '1',
+  EDGE_PRINCIPAL_SECRET: 'svc-token-env-pin-edge-secret-00000000001',
+  INTERNAL_SERVICE_SECRET: 'svc-token-env-pin-internal-secret-000001',
+};
+
+/** svc-token's own env loader, run fresh with exactly these variables over the required ones. */
+async function loadTokenEnv(overrides: Record<string, string | undefined> = {}) {
+  vi.resetModules();
+  vi.unstubAllEnvs();
+  for (const [key, value] of Object.entries({ ...REQUIRED, ...overrides })) vi.stubEnv(key, value);
+  const module = await import('./env.js');
+  return module.env;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('readGovernanceBps — blank is unset, never 0-as-free', () => {
   it('missing / blank / whitespace → unset', () => {
@@ -142,18 +163,28 @@ describe('executeUnwiredFor — grant/listing do not move value', () => {
   });
 });
 
+/** The two keys index.ts reads from the loaded env and hands readGovernanceParams. */
+function governanceEnv(env: Awaited<ReturnType<typeof loadTokenEnv>>) {
+  return {
+    [GOVERNANCE_QUORUM_BPS_ENV]: env.TOKEN_GOVERNANCE_QUORUM_BPS,
+    [GOVERNANCE_THRESHOLD_BPS_ENV]: env.TOKEN_GOVERNANCE_THRESHOLD_BPS,
+  };
+}
+
 describe('env.ts / compose — no invented quorum numbers', () => {
-  const envTs = readFileSync(resolve(import.meta.dirname, './env.ts'), 'utf8');
   const compose = readFileSync(resolve(import.meta.dirname, '../../../docker-compose.apps.yml'), 'utf8');
 
-  it('env.ts declares both BPS keys with no numeric default', () => {
-    expect(envTs).toContain(GOVERNANCE_QUORUM_BPS_ENV);
-    expect(envTs).toContain(GOVERNANCE_THRESHOLD_BPS_ENV);
-    expect(envTs).toContain(GOVERNANCE_QUORUM_UNSET);
-    const quorumSlice = envTs.slice(envTs.indexOf(GOVERNANCE_QUORUM_BPS_ENV), envTs.indexOf(GOVERNANCE_QUORUM_BPS_ENV) + 280);
-    const thresholdSlice = envTs.slice(envTs.indexOf(GOVERNANCE_THRESHOLD_BPS_ENV), envTs.indexOf(GOVERNANCE_THRESHOLD_BPS_ENV) + 280);
-    expect(quorumSlice).not.toMatch(/\.default\(\s*\d+/);
-    expect(thresholdSlice).not.toMatch(/\.default\(\s*\d+/);
+  it('the env loader takes both BPS keys with no numeric default; unset stays unset to the close', async () => {
+    const unset = await loadTokenEnv({ [GOVERNANCE_QUORUM_BPS_ENV]: undefined, [GOVERNANCE_THRESHOLD_BPS_ENV]: undefined });
+    expect(unset[GOVERNANCE_QUORUM_BPS_ENV]).toBeUndefined();
+    expect(unset[GOVERNANCE_THRESHOLD_BPS_ENV]).toBeUndefined();
+    // What index.ts hands the service: undefined, which the close refuses as GOVERNANCE_QUORUM_UNSET
+    // (token-service.test.ts, the close with no quorum set).
+    expect(readGovernanceParams(governanceEnv(unset))).toEqual({ quorumBps: undefined, thresholdBps: undefined });
+    expect(GOVERNANCE_QUORUM_UNSET).toBe('token.governance_quorum_unset');
+
+    const set = await loadTokenEnv({ [GOVERNANCE_QUORUM_BPS_ENV]: '0', [GOVERNANCE_THRESHOLD_BPS_ENV]: '5000' });
+    expect(readGovernanceParams(governanceEnv(set))).toEqual({ quorumBps: 0, thresholdBps: 5000 });
   });
 
   it('compose passes host values through with a blank default, never a number', () => {

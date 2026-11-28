@@ -3,8 +3,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseAmount } from '@intafaced/ledger-client';
+import { MemoryEventBus } from '@intafaced/events';
+import { MemoryLedger, parseAmount, type AccountRef, type Balance } from '@intafaced/ledger-client';
+import { DEFAULT_BUYBACK_PARAMS } from './economics/buyback.js';
+import { DEFAULT_EMISSION_PARAMS } from './economics/emission.js';
 import { STAKE_TIERS } from './economics/staking.js';
+import { recordingSql } from './sql-recorder.testkit.js';
+import { TokenService } from './token-service.js';
 
 /**
  * L1249. `yield_payouts.user_id` must be text, the same type as `stakes.user_id`.
@@ -85,15 +90,6 @@ describe('L1249 payout user id', () => {
     }
   }, 30_000);
 
-  it('does not cast the payout user id before insert', () => {
-    const src = readFileSync(join(here, 'token-service.ts'), 'utf8');
-    const insert = src.slice(src.indexOf('INSERT INTO token.yield_payouts'));
-    expect(insert.startsWith('INSERT INTO token.yield_payouts')).toBe(true);
-    expect(insert).toMatch(/VALUES \(\$\{windowId\}, \$\{row\.userId\}, \$\{formatAmount\(row\.amount\)\}::numeric\)/);
-    expect(insert).not.toMatch(/row\.userId\}::uuid/);
-    expect(src).not.toMatch(/yield_payouts[\s\S]{0,240}::uuid/);
-  });
-
   it('stores yield_payouts.user_id as text and leaves the other user ids text', async () => {
     const cols = await sql<Array<{ table_name: string; data_type: string }>>`
       SELECT table_name, data_type
@@ -145,5 +141,55 @@ describe('L1249 payout user id', () => {
     for (const row of rows) {
       expect(parseAmount(row.amount) > 0n).toBe(true);
     }
+  });
+});
+
+describe('L1249 payout user id (the service)', () => {
+  it('does not cast the payout user id before insert', async () => {
+    // Drive a yield window through the service and read the payout rows it writes.
+    const { sql: recorder, queries } = recordingSql((q) => {
+      if (q.text.includes('FROM token.stakes')) {
+        return [
+          {
+            id: UUID_STAKE_ID,
+            user_id: UUID_STAKER,
+            amount: STAKE_AMOUNT,
+            tier: 'flex',
+            multiplier_bps: String(STAKE_TIERS.flex.multiplierBps),
+          },
+          {
+            id: TEXT_STAKE_ID,
+            user_id: TEXT_STAKER,
+            amount: STAKE_AMOUNT,
+            tier: 'flex',
+            multiplier_bps: String(STAKE_TIERS.flex.multiplierBps),
+          },
+        ];
+      }
+      return [];
+    });
+    // Every pot holds the staked figure, so each claim agrees with its pot and the fee pot covers the window.
+    const ledger = new (class extends MemoryLedger {
+      override async balance(ref: AccountRef): Promise<Balance> {
+        return { ...(await super.balance(ref)), amount: parseAmount(STAKE_AMOUNT) };
+      }
+    })();
+    const token = new TokenService(recorder, ledger, new MemoryEventBus('svc-token'), {
+      assetId: 'IFC',
+      emission: DEFAULT_EMISSION_PARAMS,
+      buyback: DEFAULT_BUYBACK_PARAMS,
+      loadParamsFromDb: false,
+    });
+    await token
+      .distributeRevenue({ windowId: WINDOW_ID, sources: [{ module: 'trade', amount: parseAmount(YIELD_AMOUNT) }] })
+      .catch(() => undefined);
+
+    const inserts = queries.filter((q) => q.text.startsWith('INSERT INTO token.yield_payouts'));
+    expect(inserts.map((q) => q.values[1])).toEqual([UUID_STAKER, TEXT_STAKER].sort());
+    for (const insert of inserts) {
+      expect(insert.text).toBe('INSERT INTO token.yield_payouts (window_id, user_id, amount) VALUES ($1, $2, $3::numeric)');
+      expect(insert.values[0]).toBe(WINDOW_ID);
+    }
+    expect(queries.filter((q) => q.text.includes('yield_payouts')).every((q) => !q.text.includes('::uuid'))).toBe(true);
   });
 });

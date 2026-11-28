@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { sandboxHostsValid } from './gateway-plane.js';
 import { composeServiceBlock } from '@intafaced/config/compose';
+import { loadEdgeEnv } from './testing/env-load-fixture.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -28,10 +29,14 @@ describe('EDGE_SANDBOX_HOSTS reaches svc-edge as the owner set it', () => {
     expect(readFileSync(join(ROOT, '.env.example'), 'utf8')).toMatch(/^EDGE_SANDBOX_HOSTS=$/m);
   });
 
-  it('env.ts refines the value with sandboxHostsValid and gives it no default', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-edge/src/env.ts'), 'utf8');
-    expect(envTs).toMatch(/EDGE_SANDBOX_HOSTS: z\s*\.string\(\)\s*\.optional\(\)\s*\.refine\(sandboxHostsValid,/);
-    expect(envTs).not.toMatch(/EDGE_SANDBOX_HOSTS:[\s\S]{0,200}\.default\(/);
+  it('env.ts refines the value with sandboxHostsValid and gives it no default', async () => {
+    expect((await loadEdgeEnv()).EDGE_SANDBOX_HOSTS).toBeUndefined();
+    const hosts = 'sandbox.example:443,localhost:14500';
+    expect((await loadEdgeEnv({ EDGE_SANDBOX_HOSTS: hosts })).EDGE_SANDBOX_HOSTS).toBe(hosts);
+    for (const bad of ['https://sandbox.example', '*.sandbox.example']) {
+      expect(sandboxHostsValid(bad)).toBe(false);
+      await expect(loadEdgeEnv({ EDGE_SANDBOX_HOSTS: bad }), bad).rejects.toThrow(/EDGE_SANDBOX_HOSTS/);
+    }
   });
 
   it('blank and host[:port] lists are valid; a scheme, path, space or wildcard is not', () => {

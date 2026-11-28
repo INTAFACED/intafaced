@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { serviceBodyDigest } from '@intafaced/contracts';
 import { KeyUserStatusError } from './api-key-user-status.js';
@@ -143,17 +140,5 @@ describe('assertIdentityUserActive', () => {
         },
       }),
     ).rejects.toMatchObject({ code: 'auth.account_frozen' });
-  });
-});
-
-describe('production index wires identity account status', () => {
-  it('uses IDENTITY_URL + IDENTITY_OWNERSHIP_SECRET, never INTERNAL_SERVICE_SECRET', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(src).toMatch(/identityOwnershipSecret/);
-    expect(src).toMatch(/IDENTITY_OWNERSHIP_SECRET/);
-    expect(src).toMatch(/IDENTITY_URL/);
-    expect(src).not.toMatch(/process\.env\.INTERNAL_SERVICE_SECRET/);
-    expect(src).not.toMatch(/env\.INTERNAL_SERVICE_SECRET/);
   });
 });

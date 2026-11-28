@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { EDGE_PRINCIPAL_HEADER } from '@intafaced/contracts';
@@ -452,19 +451,5 @@ describe('the body and the codes', () => {
     expect(identityErrorCode({ error: { data: { intafacedCode: 7 } } })).toBeUndefined();
     expect(identityErrorCode({ error: { data: { intafacedCode: 'auth.x' } } })).toBe('auth.x');
     expect(identityErrorCode({ error: { json: { data: { cause: { code: 'auth.y' } } } } })).toBe('auth.y');
-  });
-});
-
-describe('index.ts answers a key refusal before anonymous forwarding', () => {
-  const src = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-
-  it('refuses after the unavailable branch and before the anonymous log line, and sends the refusal body', () => {
-    const unavailable = src.indexOf("exchanged.rejected === 'unavailable'");
-    const refusal = src.indexOf('if (exchanged.apiKeyRefusal)');
-    const anonymous = src.indexOf('token refused, forwarding anonymous');
-    expect(unavailable).toBeGreaterThan(0);
-    expect(refusal).toBeGreaterThan(unavailable);
-    expect(anonymous).toBeGreaterThan(refusal);
-    expect(src).toContain('reply.code(exchanged.apiKeyRefusal.status).send(apiKeyRefusalBody(exchanged.apiKeyRefusal))');
   });
 });

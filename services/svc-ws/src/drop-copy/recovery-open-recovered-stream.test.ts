@@ -1,9 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { verifyAccessToken, type TokenConfig } from '@intafaced/auth';
-import { hashRecoveryCode, recoveryCodeOpensRecoveredDropCopyStream } from './recovery-open-recovered-stream.js';
+import { createHash } from 'node:crypto';
+import { RecoveryCodeOpenStreamError, recoveryCodeOpensRecoveredStream } from '../private/recovery-open-recovered-stream.js';
+import {
+  RecoveryCodeOpenDropCopyError,
+  hashRecoveryCode,
+  recoveryCodeOpensRecoveredDropCopyStream,
+} from './recovery-open-recovered-stream.js';
 
 const CODE = 'A1B2C-D3E4F';
 const OTHER_CODE = 'FFFFF-00000';
@@ -111,19 +114,40 @@ describe('recoveryCodeOpensRecoveredDropCopyStream', () => {
     }
   });
 
-  it('source keeps the recovered-session drop-copy door; not a private-stream redo', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'recovery-open-recovered-stream.ts'), 'utf8');
-    expect(src).toMatch(/recoveryCodeOpensRecoveredDropCopyStream/);
-    expect(src).toMatch(/auth.recovery_missing/);
-    expect(src).toMatch(/auth.recovery_spent/);
-    expect(src).toMatch(/auth.recovery_invalid/);
-    expect(src).toMatch(/hashRecoveryCode/);
-    expect(src).toMatch(/issueAccessToken/);
-    expect(src).not.toMatch(/PRIVATE_STREAM_PATH/);
-    expect(src).not.toMatch(/from '\.\.\/private\//);
-    expect(src).not.toMatch(/revokeAllApiKeys/);
-    expect(src).not.toMatch(/generateAuthenticationOptions/);
-    expect(src).not.toMatch(/INSERT\s+sessions/i);
+  it('keeps the recovered-session drop-copy door: sha-256 hashes, its own typed refusals, a trade:read token for that session only; not a private-stream redo', async () => {
+    expect(hashRecoveryCode(CODE)).toBe(createHash('sha256').update(CODE).digest('hex'));
+    const refusal = (input: Parameters<typeof recoveryCodeOpensRecoveredDropCopyStream>[0]) => {
+      try {
+        recoveryCodeOpensRecoveredDropCopyStream(input);
+        return 'opened';
+      } catch (err) {
+        expect(err).toBeInstanceOf(RecoveryCodeOpenDropCopyError);
+        expect(err).not.toBeInstanceOf(RecoveryCodeOpenStreamError);
+        return (err as RecoveryCodeOpenDropCopyError).code;
+      }
+    };
+    expect(refusal({ code: '  ', recoveryCodeHashes: HASHES })).toBe('auth.recovery_missing');
+    expect(refusal({ code: CODE, recoveryCodeHashes: 'x' })).toBe('auth.recovery_spent');
+    expect(refusal({ code: OTHER_CODE, recoveryCodeHashes: HASHES, recoveredSessionId: KEEP, userId: USER, tokens })).toBe(
+      'auth.recovery_invalid',
+    );
+    expect(
+      refusal({ code: CODE, recoveryCodeHashes: HASHES, recoveredSessionId: KEEP, userId: USER, tokens: { ...tokens, secret: 'short' } }),
+    ).toBe('auth.recovery_invalid');
+    // Its one effect is a read-only token for the recovered session it was given: no new session, no key revoke.
+    expect(recoveryCodeOpensRecoveredDropCopyStream.length).toBe(1);
+    const opened = await recoveryCodeOpensRecoveredDropCopyStream({
+      code: ` ${CODE} `,
+      recoveryCodeHashes: HASHES,
+      recoveredSessionId: ` ${KEEP} `,
+      userId: ` ${USER} `,
+      tokens,
+    });
+    expect(opened.sessionId).toBe(KEEP);
+    const principal = await verifyAccessToken(opened.accessToken, tokens);
+    expect(principal.sid).toBe(KEEP);
+    expect(principal.userId).toBe(USER);
+    expect(principal.scopes).toEqual(['trade:read']);
+    expect(recoveryCodeOpensRecoveredDropCopyStream as unknown).not.toBe(recoveryCodeOpensRecoveredStream);
   });
 });

@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { InstrumentError } from './instruments.js';
 import { InstrumentService, assertInstrumentListLimit } from './instrument-service.js';
+import { limitsOf, recordingSql } from './testing/sql-recorder-fixture.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 
 /**
@@ -13,8 +11,6 @@ import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
  * every instrument up to 200. Blank must refuse. Owner/client may pass 50
  * explicitly. Never invent 50.
  */
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('instruments.list limit unset refuse', () => {
   it('assertInstrumentListLimit refuses blank / NaN / 0 — never invents 50', () => {
@@ -50,15 +46,14 @@ describe('instruments.list limit unset refuse', () => {
     expect(assertInstrumentListLimit(201)).toBe(200);
   });
 
-  it('listInstruments no longer hardcodes LIMIT 200', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/instrument-service.ts'), 'utf8');
-    const start = src.indexOf('async listInstruments(');
-    const end = src.indexOf('async enabledMethodKeys(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertInstrumentListLimit');
-    expect(fn).toContain('LIMIT ${lim}');
-    expect(fn).not.toMatch(/LIMIT 200/);
-    expect(fn).not.toMatch(/limit = 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
+  it('listInstruments reads by the limit it was given, capped at 200, and asks nothing without one', async () => {
+    const { sql, calls } = recordingSql();
+    const instruments = new InstrumentService(sql);
+    await expect(instruments.listInstruments('owner', true)).rejects.toMatchObject({ code: 'p2p.instrument_list_limit_unset' });
+    expect(calls).toHaveLength(0);
+    await expect(instruments.listInstruments('owner', false, 50)).resolves.toEqual([]);
+    await instruments.listInstruments('owner', false, 7);
+    await instruments.listInstruments('owner', false, 201);
+    expect(limitsOf(calls)).toEqual([50, 7, 200]);
   });
 });

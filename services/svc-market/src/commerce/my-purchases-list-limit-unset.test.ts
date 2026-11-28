@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { MarketError } from '../vendor-service.js';
+import { partial } from '@intafaced/service-kit/testing';
+import { MemoryLedger } from '@intafaced/ledger-client';
+import { recordingSql } from '../sql-recorder.testkit.js';
+import { MarketError, type VendorRecord, type VendorService } from '../vendor-service.js';
 import { userCopy } from '../user-copy.js';
-import { assertMyPurchasesListLimit } from './commerce-service.js';
+import { CommerceService, assertMyPurchasesListLimit } from './commerce-service.js';
 
 /**
  * myPurchases / purchasesOf page size is refuse-closed when unset.
@@ -13,7 +13,26 @@ import { assertMyPurchasesListLimit } from './commerce-service.js';
  * Blank must refuse. Owner/client may pass 50 explicitly.
  */
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
+const USER = '11111111-1111-4111-8111-111111111111';
+const VENDOR = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const APPROVED_VENDOR: VendorRecord = {
+  id: VENDOR,
+  userId: '22222222-2222-4222-8222-222222222222',
+  displayName: 'TEST vendor',
+  description: 'TEST',
+  status: 'approved',
+  createdAt: '2026-10-23T00:00:00.000Z',
+  updatedAt: '2026-10-23T00:00:00.000Z',
+};
+
+/** A vendor read that answers one approved vendor; only the listing reads below reach the database. */
+function vendorsWith(vendor: VendorRecord | null) {
+  return partial<VendorService>({
+    myVendor: async () => vendor,
+    listingEligibility: async () => ({ vendorId: vendor?.id ?? '', listed: true }),
+    entitledListingRefs: async () => new Set<string>(),
+  });
+}
 
 describe('myPurchases limit unset refuse', () => {
   it('assertMyPurchasesListLimit refuses blank / NaN / 0 — never invents 50', () => {
@@ -38,23 +57,18 @@ describe('myPurchases limit unset refuse', () => {
     expect(assertMyPurchasesListLimit(51)).toBe(50);
   });
 
-  it('purchasesOf no longer dumps without LIMIT', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-market/src/commerce/commerce-service.ts'), 'utf8');
-    const start = src.indexOf('async purchasesOf(');
-    const end = src.indexOf('async cancelSubscription(', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('assertMyPurchasesListLimit');
-    expect(fn).toContain('LIMIT ${limit}');
-    expect(fn).not.toMatch(/\?\? 50/);
-  });
+  it('purchasesOf refuses an unset limit and never reads without LIMIT', async () => {
+    const { sql, queries } = recordingSql();
+    const commerce = new CommerceService(sql, vendorsWith(APPROVED_VENDOR), new MemoryLedger(), { commissionBps: 500 });
+    await expect(commerce.purchasesOf(USER)).rejects.toMatchObject({ code: 'market.my_purchases_list_limit_unset' });
+    expect(queries).toEqual([]);
 
-  it('router does not invent 50 when myPurchases omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-market/src/router.ts'), 'utf8');
-    const start = src.indexOf('myPurchases: mountRecord(');
-    const end = src.indexOf('cancelSubscription:', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('purchasesOf(ctx.principal.userId, { limit: input?.limit })');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
+    await expect(commerce.purchasesOf(USER, { limit: 50 })).resolves.toEqual([]);
+    const read = queries.find((q) => q.text.includes('FROM market.purchases'));
+    expect(read?.text).toMatch(/LIMIT \$\d+$/);
+    expect(read?.values.at(-1)).toBe(50);
+    queries.length = 0;
+    await commerce.purchasesOf(USER, { limit: 500 });
+    expect(queries.find((q) => q.text.includes('FROM market.purchases'))?.values.at(-1)).toBe(50);
   });
 });

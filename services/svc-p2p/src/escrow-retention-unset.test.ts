@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { loadP2pEnv } from './testing/env-load-fixture.js';
 import { parseOwnerIntegerEnv } from './fee-bps-env.js';
 import { InstrumentError, InstrumentService } from './instrument-service.js';
 import { P2pError, publishedEscrowDeadlineSeconds, publishedInstrumentRetentionDays } from './p2p-service.js';
@@ -32,17 +33,15 @@ describe('P2P escrow / retention unset refuse', () => {
     expect(parseOwnerIntegerEnv('90')).toBe(90);
   });
 
-  it('env.ts does not git-default 120s or 90d', () => {
-    const envTs = readFileSync(join(ROOT, 'services/svc-p2p/src/env.ts'), 'utf8');
-    expect(envTs).not.toMatch(/P2P_ESCROW_DEADLINE_SECONDS:[\s\S]{0,200}\.default\(\s*120\s*\)/);
-    expect(envTs).not.toMatch(/P2P_INSTRUMENT_RETENTION_DAYS:[\s\S]{0,200}\.default\(\s*90\s*\)/);
-    expect(envTs).not.toMatch(/DEFAULT_INSTRUMENT_RETENTION_DAYS/);
-  });
-
-  it('instrument-service.ts does not invent 90d', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/instrument-service.ts'), 'utf8');
-    expect(src).not.toMatch(/DEFAULT_INSTRUMENT_RETENTION_DAYS/);
-    expect(src).toMatch(/p2p\.instrument_retention_unset/);
+  it('env.ts leaves the escrow clock and the retention unset when the host gives none', async () => {
+    for (const host of [{}, { P2P_ESCROW_DEADLINE_SECONDS: '', P2P_INSTRUMENT_RETENTION_DAYS: '' }]) {
+      const env = await loadP2pEnv(host);
+      expect(env.P2P_ESCROW_DEADLINE_SECONDS).toBeNull();
+      expect(env.P2P_INSTRUMENT_RETENTION_DAYS).toBeNull();
+    }
+    const published = await loadP2pEnv({ P2P_ESCROW_DEADLINE_SECONDS: '120', P2P_INSTRUMENT_RETENTION_DAYS: '90' });
+    expect(published.P2P_ESCROW_DEADLINE_SECONDS).toBe(120);
+    expect(published.P2P_INSTRUMENT_RETENTION_DAYS).toBe(90);
   });
 
   it('compose passes empty — never a baked 120 or 90', () => {
