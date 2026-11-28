@@ -1,12 +1,23 @@
 // World: restart
 import { test, expect } from './journey.mjs';
-import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
+import { UNBUILT, agentCard, agentSection, launchAgentsRun, openAgents, openNavigatorSession, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
+import { randomBytes } from 'node:crypto';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { api, fromUnits, restartService, stackFile, toUnits } from './stack.mjs';
 import { ADMIN } from './admin.mjs';
 import { setPartner } from './partner.mjs';
-import { venueBalance, venueRecord } from './venue.mjs';
+import {
+  otherTraderKey,
+  otherTraderRun,
+  sameDecimal,
+  testDeposit,
+  venueBalance,
+  venueForThisFile,
+  venueInfo,
+  venueRecord,
+} from './venue.mjs';
+import { ownSpotMarket } from './own-market.mjs';
 import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
@@ -27,15 +38,47 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 // account is eligible for every customer agent). #1's disabled agent is the Portfolio planner, which no customer can run
 // yet; J-agents-14 #7 checks a quarantined agent's card.
 const J = 'J-agents-01';
-const agents = agentsRun(J);
+const agents = launchAgentsRun(J);
 /** The TEST partner bank's name for itself (svc-bank `partner/test-partner.ts` TEST_PARTNER_LABEL). */
 const PARTNER_BANK = 'TEST partner bank';
+/** The price #5's market last traded at on the TEST venue, in TEST USDC. */
+const PRINT = '42';
 /** #5's question: it names a market, so the platform reads that market before the engine runs (J-agents-10 #4). */
-const QUESTION = 'TEST: what moved BTC/USDT today?';
+const questionAbout = (named) => `TEST: what moved ${named} today?`;
+
+/**
+ * #5's market: a fresh TEST spot market on the TEST venue, the launch desk, where two outside TEST traders trade 1 at
+ * PRINT once, so its last traded price is known. Named as the person writes a market (`BASE/USDC`).
+ */
+async function printedMarket() {
+  const { symbol, base } = await ownSpotMarket(J, 'AG', 'A');
+  const { chainId } = await venueInfo();
+  const ref = () => `${chainId}:0x${randomBytes(32).toString('hex')}:0`;
+  const [seller, buyer] = ['seller', 'buyer'].map((role) => `j-agents-01-5-${role}-${base}`);
+  await testDeposit(otherTraderKey(seller).address, base, '1', ref());
+  await testDeposit(otherTraderKey(buyer).address, 'USDC', '100', ref());
+  const order = (name, side) =>
+    otherTraderRun(name, {
+      kind: 'place_order',
+      symbol,
+      side,
+      type: 'limit',
+      amount: '1',
+      price: PRINT,
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: `order:${otherTraderKey(name).address.toLowerCase()}:${name}`,
+    });
+  await order(seller, 'sell');
+  await order(buyer, 'buy');
+  return `${base}/USDC`;
+}
 /** What the person holds at the TEST partner at the start, in TEST USDT. */
 const AT_PARTNER = '10';
 
 test.describe.configure({ mode: 'default' });
+// The launch desk's venue door, for #5's market: the TEST venue, on for this file and off after it.
+venueForThisFile(test);
 
 const main = (page) => page.getByRole('main');
 const workspace = (page) => main(page).getByRole('region', { name: 'Session workspace' });
@@ -513,14 +556,16 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   page,
   stepPicture,
 }) => {
+  const named = await printedMarket();
+  const question = questionAbout(named);
   const sessionId = await openNavigatorSession(page, agents);
-  agents.run.write({ sessionId });
+  agents.run.write({ sessionId, question });
   const before = await ledgerBalances();
   const partnerBefore = await partnerUsdt();
   const movesBefore = await partnerMoves();
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
   // A question about a market, so the reply comes with findings: the market the platform read itself before the engine ran.
-  await ask.fill(QUESTION);
+  await ask.fill(question);
 
   // The stack's stand-in engine is held at its door (its hold file), so the run is read from the service itself while
   // the engine has not answered: the service's run row exists before the engine answers.
@@ -563,15 +608,16 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
     .map((t) => t.trim())
     .filter(Boolean);
   await expect(reply.locator('span[lang="und"]')).toHaveText(sentences);
-  // With its findings: the one market the question names, read by the platform itself, with the figure and the time it
-  // was observed, shown with the reply and stored with the run.
+  // With its findings: the one market the question names, read by the platform itself from the venue it trades on, with
+  // the price it last traded at there and the time it was observed, shown with the reply and stored with the run.
   expect(run.provenance?.sources, 'the reply carries its findings').toEqual([
-    { id: 'S1', market: 'BTC/USDT', measure: 'last_price', value: expect.stringMatching(/^\d+(\.\d+)?$/), observedAt: expect.any(String) },
+    { id: 'S1', market: named, measure: 'last_price', value: expect.stringMatching(/^\d+(\.\d+)?$/), observedAt: expect.any(String) },
   ]);
   const [finding] = run.provenance.sources;
+  expect(sameDecimal(finding.value, PRINT), `${named} last traded at ${PRINT} on the TEST venue, read ${finding.value}`).toBe(true);
   const findings = workspace(page).getByRole('region', { name: 'Where this came from' });
   await expect(findings.getByTestId('research-source')).toHaveCount(1);
-  await expect(findings.getByTestId('research-source')).toContainText(`[S1] BTC/USDT last traded price: ${finding.value}`);
+  await expect(findings.getByTestId('research-source')).toContainText(`[S1] ${named} last traded price: ${finding.value}`);
   await expect(findings.getByTestId('research-observed-at')).toHaveAttribute('datetime', finding.observedAt);
   const stored = await agentsCall('run.get', { runId: run.runId }, 'GET');
   expect(stored.status).toBe(200);
@@ -764,7 +810,7 @@ test(`${J} #7 opens session history: the run with exact usage, refusal codes as 
   // The refusal #6 caused, in words and with its code.
   const refusal = history.getByRole('listitem').filter({ hasText: 'Refused' });
   await expect(refusal).toContainText('This agent may not run that task agents.task_not_allowed');
-  await expect(selected).not.toContainText(QUESTION);
+  await expect(selected).not.toContainText(agents.run.read().question);
 
   await page.reload();
   await agentSection(page, 'Sessions');

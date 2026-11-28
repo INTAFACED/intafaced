@@ -206,7 +206,53 @@ impl TradeData for TradeHttp {
             .collect())
     }
 
+    /// Our own book's last trade first; a market our own book has no last trade for (with the custody layer off, as
+    /// launch runs it, our own book is off and has none) is read from the launch desk's venue, through svc-trade's
+    /// public venue tickers (J-agents-01 #5, #11102). A miss on both is our own book's miss.
     fn quote(&self, market_id: &str) -> Result<Option<Quote>, PortError> {
+        match self.own_quote(market_id) {
+            Ok(Some(q)) => Ok(Some(q)),
+            own => match self.venue_quote(market_id) {
+                Ok(Some(q)) => Ok(Some(q)),
+                _ => own,
+            },
+        }
+    }
+}
+
+/// svc-trade's public venue tickers: every listed market of the launch desk's venue, by its venue symbol.
+pub const TRADE_VENUE_TICKERS_PATH: &str = "/api/v1/venue/tickers";
+
+impl TradeHttp {
+    /// `GET /api/v1/venue/tickers`: the venue market `BASE-QUOTE` for the navigator's `base-quote`, with its last
+    /// traded price as the venue printed it and the read's time. None when the venue lists no such market or it has
+    /// no trade yet.
+    fn venue_quote(&self, market_id: &str) -> Result<Option<Quote>, PortError> {
+        let symbol = market_id_to_symbol(market_id)
+            .ok_or_else(|| PortError::Failed("invalid navigator marketId".to_owned()))?
+            .replacen('/', "-", 1);
+        let body = self.get(format!("{}{TRADE_VENUE_TICKERS_PATH}", self.trade_url))?;
+        let Some(Json::String(as_of)) = body.get("asOf") else {
+            return Err(PortError::Failed("venue tickers parse failed".to_owned()));
+        };
+        let last = match body
+            .get("value")
+            .and_then(|rows| rows.get(&symbol))
+            .and_then(|row| row.get("last"))
+        {
+            Some(Json::String(l)) if !l.trim().is_empty() => l.clone(),
+            _ => return Ok(None),
+        };
+        Ok(Some(Quote {
+            market_id: market_id.to_owned(),
+            last: Some(last),
+            as_of: as_of.clone(),
+            max_age_ms: self.max_age_ms,
+        }))
+    }
+
+    /// `GET /api/v1/ticker/:symbol`: our own book's last trade.
+    fn own_quote(&self, market_id: &str) -> Result<Option<Quote>, PortError> {
         let symbol = market_id_to_symbol(market_id)
             .ok_or_else(|| PortError::Failed("invalid navigator marketId".to_owned()))?;
         let body = self.get(format!(
@@ -322,6 +368,82 @@ impl IdentitySession for IdentitySessionHttp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use service_kit::http::{FetchError, HttpResponse};
+    use std::sync::Mutex;
+
+    /// svc-trade as a fake: an answer per path, every other path 404; each URL asked is kept.
+    struct Trade {
+        answers: Vec<(&'static str, u16, &'static str)>,
+        seen: Mutex<Vec<String>>,
+    }
+
+    impl Fetch for Trade {
+        fn fetch(&self, req: &HttpRequest) -> Result<HttpResponse, FetchError> {
+            self.seen.lock().unwrap().push(req.url.clone());
+            let path = req.url.strip_prefix("http://trade").unwrap_or(&req.url);
+            let (status, body) = self
+                .answers
+                .iter()
+                .find(|(p, _, _)| *p == path)
+                .map_or((404, "{}"), |(_, s, b)| (*s, *b));
+            Ok(HttpResponse {
+                status,
+                body: body.to_owned(),
+            })
+        }
+    }
+
+    fn trade(answers: Vec<(&'static str, u16, &'static str)>) -> (TradeHttp, Arc<Trade>) {
+        let fake = Arc::new(Trade {
+            answers,
+            seen: Mutex::new(Vec::new()),
+        });
+        (TradeHttp::new("http://trade/", fake.clone()), fake)
+    }
+
+    const OWN_BTC: &str = r#"{"symbol":"BTC/USDT","timestamp":1,"datetime":"2026-11-28T10:00:00.000Z","last":"60000"}"#;
+    const VENUE: &str = r#"{"venueId":"test","asOf":"2026-11-28T11:00:00.000Z","test":true,"value":{"BTC-USDC":{"symbol":"BTC-USDC","last":"61000.5"},"ETH-USDC":{"symbol":"ETH-USDC","last":null}}}"#;
+
+    #[test]
+    fn a_market_our_own_book_prices_is_read_there_and_the_venue_is_never_asked() {
+        let (port, fake) = trade(vec![
+            ("/api/v1/ticker/BTC%2FUSDT", 200, OWN_BTC),
+            (TRADE_VENUE_TICKERS_PATH, 200, VENUE),
+        ]);
+        let q = port.quote("btc-usdt").unwrap().unwrap();
+        assert_eq!(q.last.as_deref(), Some("60000"));
+        assert_eq!(q.as_of, "2026-11-28T10:00:00.000Z");
+        assert_eq!(
+            *fake.seen.lock().unwrap(),
+            vec!["http://trade/api/v1/ticker/BTC%2FUSDT".to_owned()]
+        );
+    }
+
+    #[test]
+    fn with_our_own_book_off_a_market_is_read_from_the_venue_and_a_venue_miss_stays_a_miss() {
+        // Custody off: our own book lists nothing (404) or has no last trade.
+        let no_last = r#"{"symbol":"BTC/USDC","timestamp":1,"datetime":"2026-11-28T10:00:00.000Z","last":null}"#;
+        for own in [(404, "{}"), (200, no_last)] {
+            let (port, _) = trade(vec![
+                ("/api/v1/ticker/BTC%2FUSDC", own.0, own.1),
+                (TRADE_VENUE_TICKERS_PATH, 200, VENUE),
+            ]);
+            let q = port.quote("btc-usdc").unwrap().unwrap();
+            assert_eq!(q.market_id, "btc-usdc");
+            assert_eq!(q.last.as_deref(), Some("61000.5"));
+            assert_eq!(q.as_of, "2026-11-28T11:00:00.000Z");
+        }
+        // A venue market with no trade yet, one the venue does not list, or a venue read that fails: our own miss.
+        for (market, venue) in [
+            ("eth-usdc", (200, VENUE)),
+            ("sol-usdc", (200, VENUE)),
+            ("btc-usdc", (503, "{}")),
+        ] {
+            let (port, _) = trade(vec![(TRADE_VENUE_TICKERS_PATH, venue.0, venue.1)]);
+            assert!(port.quote(market).is_err(), "{market}");
+            assert_eq!(read_live_quote(Some(&port), market), None, "{market}");
+        }
+    }
 
     #[test]
     fn market_ids_and_symbols_map_both_ways_and_a_page_limit_is_never_invented() {
