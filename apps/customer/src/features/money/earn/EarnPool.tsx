@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { ReadLoading } from '../../../shared/read-state';
-import { bps, date, funds, useBankRead, useBankRecord, type ActionSpec } from '../components';
+import { bps, date, funds, useBankRecord, type ActionSpec } from '../components';
 import type { earnPoolPageSchema, positionSchema, rateHistorySchema } from '../contracts';
 import { earnPoolCopy } from '../earn-pool-copy';
 import { stepChart, utcDay as day } from '../earn-rate-history';
@@ -18,7 +18,13 @@ import {
   PoolEarned,
   PoolWithdraw,
 } from './EarnPoolActions';
-import { BANK_EARN_POSITIONS, BANK_EARN_RISK_DISCLOSURE } from '@intafaced/contracts/bank-earn-procedures';
+import {
+  BANK_EARN_POOL,
+  BANK_EARN_RATE_HISTORY,
+  BANK_EARN_POSITIONS,
+  BANK_EARN_RISK_DISCLOSURE,
+} from '@intafaced/contracts/bank-earn-procedures';
+import { shownCode } from '../../../shared/reference';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type History = z.infer<typeof rateHistorySchema>;
@@ -37,7 +43,7 @@ function Refused({ failure, retry }: { failure: Failed; retry: () => void }) {
     <div role="alert" className="lt-refusal" data-refusal="refused" data-code={failure.code ?? ''}>
       <p className="lt-refusal-body">
         {words}
-        {failure.code ? ` ${t('reference', { code: failure.code })}` : ''}
+        {shownCode(failure.code) ? ` ${t('reference', { code: failure.code! })}` : ''}
       </p>
       <Button tone="quiet" onClick={retry}>
         {t('retry')}
@@ -68,8 +74,8 @@ export function EarnPool({ poolId, open }: { poolId: string | null; open: Open }
 
 function PoolBody({ poolId, open }: { poolId: string; open: Open }) {
   const { t } = earnPoolCopy.useCopy();
-  const pool = useBankRead('earn.pool', { poolId });
-  const history = useBankRead('earn.rateHistory', { poolId, limit: HISTORY_ROWS });
+  const pool = useBankRecord(BANK_EARN_POOL, { poolId });
+  const history = useBankRecord(BANK_EARN_RATE_HISTORY, { poolId, limit: HISTORY_ROWS });
   const positions = useBankRecord(BANK_EARN_POSITIONS, { limit: POSITIONS, poolId });
   if (pool.resource.status === 'loading') return <ReadLoading />;
   if (pool.resource.status === 'failed') return <Refused failure={pool.resource.failure} retry={pool.reload} />;

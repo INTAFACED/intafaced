@@ -134,31 +134,4 @@ const loanLedgerCheckSchema = z.object({
 });
 export type LoanLedgerCheck = z.infer<typeof loanLedgerCheckSchema>;
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const loansReads = {
-  'loans.projection': loanProjectionSchema,
-  'loans.payoffQuote': payoffQuoteSchema,
-  'loans.interestRows': loanInterestRowsSchema,
-  'loans.ledgerCheck': loanLedgerCheckSchema,
-  'loans.quote': loanQuoteSchema,
-  'loans.eligibility': loanEligibilitySchema,
-  'loans.fees': loanFeesSchema,
-  'loans.terms': loanTermsSchema,
-  /** `bank.loans.releasable` (BK-loan-05): the most collateral `releaseExcess` would release now, under the product's max LTV. */
-} as const;
-
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const loansWrites = {
-  'loans.open': z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }),
-  'loans.addCollateral': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
-  'loans.releaseExcess': z.object({ ledgerTxId: z.string(), sequence: z.number().int() }),
-  'loans.repay': z.object({
-    ledgerTxId: z.string(),
-    interestPaid: money,
-    principalPaid: money,
-    remainingPrincipal: money,
-    remainingInterest: money,
-    closed: z.boolean(),
-  }),
-  'loans.close': z.object({ released: money, ledgerTxId: z.string().nullable() }),
-} as const;

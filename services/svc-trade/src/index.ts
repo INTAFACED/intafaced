@@ -35,13 +35,14 @@ import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { VenueStatements } from './venue/venue-statements.js';
+import { VenueMarginSamples } from './venue/venue-margin-samples.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { registerTrackRecord } from './signals/track-record.js';
 import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
-import { subscribeSelfFreeze } from './self-freeze-events.js';
+import { subscribeSelfFreeze, subscribeSupportAccountFreeze } from './self-freeze-events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
@@ -78,7 +79,8 @@ import { createReverseService } from './futures/reverse.js';
 import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { listFuturesExecutions } from './futures/futures-executions.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
-import { presentAccountFees, registerPrivateRest } from './private-rest.js';
+import { presentAccountFees, presentCcxtBalances, registerPrivateRest } from './private-rest.js';
+import { registerSupportBalanceRead } from './support/balance-read.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
 import { bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
 import { attachBoundClosePosition } from './spot/close-position.js';
@@ -119,6 +121,7 @@ import { endExpiredPasses } from './spot/tier-passes.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
+import { SqlTradeJournalStore } from './venue/trade-journal-store.js';
 import { UserVenueDoorError, parseBuilderFee } from './venue/user-venue-door.js';
 import { wireUserVenue } from './venue/wire.js';
 import { wireVenueAgents } from './venue/agents-wire.js';
@@ -128,6 +131,17 @@ import { createIdentityFreezeRead, createQuantStrategySource } from './quant/liv
 import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { VenueProtections } from './venue/protections.js';
 import { SqlEngineProtectionStore } from './venue/protection-store.js';
+import { VenueAutoTopUp } from './venue/auto-top-up.js';
+import { SqlAutoTopUpStore } from './venue/auto-top-up-store.js';
+import { AccountPace, accountPaceSetting } from './venue/account-pace.js';
+import { VenueBalanceWatch } from './venue/balance-watch.js';
+import { SqlBalanceWatchStore } from './venue/balance-watch-store.js';
+import { busRiskAlertNotices, VenueRiskAlerts } from './venue/risk-alerts.js';
+import { SqlRiskAlertStore } from './venue/risk-alerts-store.js';
+import { busProfitLockNotices, VenueProfitLocks } from './venue/profit-lock.js';
+import { ageProfitLock, SqlProfitLockStore } from './venue/profit-lock-store.js';
+import { VenueDailyLossLimits } from './venue/daily-loss-limit.js';
+import { ageDailyLossLimit } from './venue/daily-loss-limit-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -191,6 +205,8 @@ import { HOUSE_MM_API_KEY_ID } from './spot/auth-attribution.js';
 import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
+import { SqlHistoryDatasets } from './spot/history-datasets.js';
+import { startHistoryJobs } from './spot/history-jobs.js';
 import { FEED_WATCH_INTERVAL_MS, runFeedWatchTick } from './admin/feed-health.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { startFeeTierJobs } from './spot/fee-tier-jobs.js';
@@ -332,6 +348,13 @@ registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS
 // A signal provider's own fills, for svc-market's provider criteria (CB-bots-api-signal-05).
 registerTrackRecord(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerSupportOrderRead(app, { read: (orderId) => readSupportOrder(sql, orderId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+// A customer's balance for svc-support, under the customer's own grant (J-support-public-20 #2): the same projection of
+// the ledger their own balance read gives.
+registerSupportBalanceRead(app, {
+  balances: async (userId) => presentCcxtBalances(await ledger.balances('user', userId)).balances,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+});
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
 // live engine at this moment. A stale, one-sided or thin book still gives no mark.
 const trailingMarkSource = markSourceFromDepth(async (marketId) => ({
@@ -495,8 +518,17 @@ const stepUp = createStepUpCheck({
 });
 // The user-venue door, its router, our listings of its markets and the deposits read (src/venue/wire.ts).
 const userVenueWiring = wireUserVenue({ app, sql, bus, stepUp, perks, outS2s, doorS2s });
-const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes, venueConverts } =
-  userVenueWiring;
+const {
+  userVenueDoors,
+  userVenue,
+  userVenueRouter,
+  userVenueStore,
+  venueListings,
+  venueDelistingNotices,
+  venueSellQuotes,
+  venueConverts,
+  dailyLossStore,
+} = userVenueWiring;
 // The agents beside the door, each off with it (src/venue/agents-wire.ts).
 const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading, ownAgentRebalance } =
   wireVenueAgents({
@@ -513,6 +545,8 @@ const venueProtections = userVenue
       door: userVenue,
       store: new SqlEngineProtectionStore(sql),
       keySeed: env.TRADE_AGENT_KEY_SEED,
+      // The owner's close tolerance a stop's market exit crosses by (blank: every such stop refuses).
+      closeSlippageBps: env.TRADE_CLOSE_SLIPPAGE_BPS,
       // The person's level from identity before each order the engine sends (fails closed: nothing is sent).
       liveTier: (userId) => protectionTier.tierOf(userId),
       // The person's own freeze from identity before each order the engine sends (fails closed: nothing is sent).
@@ -532,6 +566,61 @@ const venueSpotConditionals = userVenue
       now: () => new Date(),
     })
   : null;
+// Auto top-up of an isolated position's margin on the person's own venue account (J-derivatives-06 #4): one agent-signed
+// margin change per crossing of the person's level, within the position's cap and the permission's own cap, ticked with
+// the protections. Off with the door.
+const venueAutoTopUp = userVenue
+  ? new VenueAutoTopUp({
+      door: userVenue,
+      store: new SqlAutoTopUpStore(sql),
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      now: () => new Date(),
+    })
+  : null;
+// The private balances stream's source (J-cex-spot-15 #9): one event per change in the balance of each venue account a
+// person's own wallet signed for, with its source and the venue's new total, on the protections' interval, apart from them
+// so a slow venue read never holds a protection back. Reads only; the ledger posts nothing. Off with the door.
+const venueBalanceWatch = userVenue
+  ? new VenueBalanceWatch({
+      venue: () => userVenue.venue(),
+      accounts: (venueId) => userVenueStore.ownerSignedAccountsAll(venueId),
+      store: new SqlBalanceWatchStore(sql),
+      ...(() => {
+        const perMinute = accountPaceSetting(
+          env.TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE,
+          'TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE',
+        );
+        return perMinute === null ? {} : { pace: new AccountPace(perMinute, () => new Date()) };
+      })(),
+      publish: async (userId, change) => {
+        await bus.publish('venueBalanceChanged', { ...change, userId }, { idempotencyKey: `${change.changeId}:${userId}` });
+      },
+      now: () => new Date(),
+    })
+  : null;
+// Margin and liquidation-risk alerts on a position on the person's own venue account (J-derivatives-06 #6 #7): one alert
+// per crossing of a level, published to svc-notify after its row is written, ticked with the protections. Off with the door.
+// The person's own daily loss limit: its settings (trade.dailyLoss.*); every door checks it (venue/wire.ts).
+const venueDailyLoss = userVenue ? new VenueDailyLossLimits({ door: userVenue, store: dailyLossStore, now: () => new Date() }) : null;
+const venueRiskAlerts = userVenue
+  ? new VenueRiskAlerts({ door: userVenue, store: new SqlRiskAlertStore(sql), notices: busRiskAlertNotices(bus), now: () => new Date() })
+  : null;
+// The weekly Profit lock on the person's own venue account (J-wallet-26): one offer and one message per week, published to
+// svc-notify after its row is written, ticked with the protections. INTAFACED's own addresses (the venue builder address)
+// are refused as a cold wallet. Off with the door.
+const venueProfitLocks = userVenue
+  ? new VenueProfitLocks({
+      door: userVenue,
+      store: new SqlProfitLockStore(sql),
+      actions: new SqlPreparedActionStore(sql),
+      notices: busProfitLockNotices(bus),
+      ourAddresses: [parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS)?.address ?? '']
+        .map((a) => a.trim().toLowerCase())
+        .filter((a) => a !== ''),
+      now: () => new Date(),
+    })
+  : null;
 const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   : 0;
@@ -540,7 +629,13 @@ if (venueProtections && protectionEngineMs > 0) {
   setInterval(() => {
     if (busy) return;
     busy = true;
-    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick()])
+    Promise.all([
+      venueProtections.tick(),
+      venueSpotConditionals?.tick(),
+      venueAutoTopUp?.tick(),
+      venueRiskAlerts?.tick(),
+      venueProfitLocks?.tick(),
+    ])
       .catch((err: unknown) =>
         process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
       )
@@ -548,6 +643,24 @@ if (venueProtections && protectionEngineMs > 0) {
         busy = false;
       });
   }, protectionEngineMs).unref();
+}
+const balanceWatchMs = /^\d+$/.test(env.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS.trim())
+  ? Number(env.TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS.trim())
+  : protectionEngineMs;
+if (venueBalanceWatch && protectionEngineMs > 0 && balanceWatchMs > 0) {
+  let busy = false;
+  setInterval(() => {
+    if (busy) return;
+    busy = true;
+    venueBalanceWatch
+      .tick()
+      .catch((err: unknown) =>
+        process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.venue_balance_watch.tick_failed', message: String(err) })}\n`),
+      )
+      .finally(() => {
+        busy = false;
+      });
+  }, balanceWatchMs).unref();
 }
 // Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
 // from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
@@ -865,6 +978,8 @@ const leadDesk = new LeadDesk({
   },
   ownerDay: copyOwnerDay,
 });
+/** The venue's margin readings our door keeps, for a founder's ratio history (J-derivatives-26 #8). */
+const venueMarginSamples = new VenueMarginSamples(sql, (err) => app.log.warn({ err }, 'venue margin sample not kept'));
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -923,6 +1038,32 @@ export const appRouter = createTradeRouter(
   quantHalts,
   venueGrid,
   recurringBuys,
+  venueAutoTopUp,
+  // A founder's read of one person's venue accounts and ratio history (J-derivatives-26 #8); off: the door is off.
+  {
+    audit: (row, at) => writeOperatorAudit(sql, row, at),
+    venue: userVenue ? () => userVenue.venue() : null,
+    store: new SqlPreparedActionStore(sql),
+    samples: venueMarginSamples,
+    now: () => new Date(),
+  },
+  venueRiskAlerts,
+  // The perps trade journal: the venue's closed trades, kept in its own record; off with the door.
+  userVenue
+    ? {
+        venue: () => userVenue.venue(),
+        account: (owner: string, subAccount: string | null) => userVenue.readableAccount(owner, subAccount),
+        // Only a wallet whose owner signature this person gave through the door.
+        ownWallets: (userId: string, venueId: string) => userVenueStore.ownerSignedAccounts(userId, venueId),
+        store: new SqlTradeJournalStore(sql),
+        now: () => new Date(),
+        // The warnings the daily loss limit gave, for the "keeping my rules" line (J-portfolio-19 #4).
+        warned: (key) => dailyLossStore.warned(key),
+      }
+    : null,
+  venueDailyLoss,
+  userVenue,
+  venueProfitLocks,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1076,6 +1217,8 @@ const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, match
 // The owner's own freeze (J-wallet-13 #1): every agent permission kept here for them is revoked at once, and their live
 // runs stop, on identity's event (src/self-freeze-events.ts). Each door still reads the freeze itself before it acts.
 subscriptions.push(await subscribeSelfFreeze(bus, { liveRuns, agentOrders, ownAgentTrading }));
+// A support agent's account freeze from a request (J-support-public-20 #7): the same revokes, on identity's event.
+subscriptions.push(await subscribeSupportAccountFreeze(bus, { liveRuns, agentOrders, ownAgentTrading }));
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 builderFeeWiring.scheduleJobs(futuresJobs.host);
@@ -1235,6 +1378,17 @@ const candleJobs = startCandleJobs({
       );
     }
   },
+});
+const historyDatasets = new SqlHistoryDatasets(sql, {
+  bookIntervalMs: env.TRADE_HISTORY_BOOK_INTERVAL_MS,
+});
+const historyJobs = startHistoryJobs({
+  history: historyDatasets,
+  markets: () => trade.markets(MARKETS_LIMIT_MAX),
+  depth: (marketId, limit) => matching.depth(marketId, limit),
+  bookIntervalMs: env.TRADE_HISTORY_BOOK_INTERVAL_MS,
+  buildIntervalMs: env.TRADE_HISTORY_JOBS_INTERVAL_MS,
+  onError: (name, err) => app.log.error({ err, job: name }, 'history job tick failed'),
 });
 const trailingMarkJobs = startTrailingMarkJobs({
   config: {
@@ -1467,6 +1621,7 @@ registerPublicRest(app, {
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
+  history: historyDatasets,
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   maintenanceBoard: createMarketMaintenanceReader({ notifyUrl: env.NOTIFY_URL }),
@@ -1497,6 +1652,7 @@ registerPublicRest(app, {
   },
   futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   futuresMatchingEnabled: env.TRADE_FUTURES_MATCHING_ENABLED,
+  ...(userVenue ? { venueSpotMarkets: async () => (await userVenue.markets()).value } : {}),
   algo: { createEnabled: env.TRADE_ALGO_ENABLED, jobsEnabled: env.TRADE_ALGO_JOBS_ENABLED },
   futures: {
     jobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
@@ -1724,7 +1880,12 @@ registerTestAgeDoor(app, {
   open: testAgeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
-  subjects: { 'otc-quote': ageOtcQuote(sql), 'recurring-buy': ageRecurringBuy(sql) },
+  subjects: {
+    'otc-quote': ageOtcQuote(sql),
+    'recurring-buy': ageRecurringBuy(sql),
+    'daily-loss-limit': ageDailyLossLimit(sql),
+    'profit-lock': ageProfitLock(sql),
+  },
   installRawBody: false,
 });
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);
@@ -1769,6 +1930,7 @@ installMarketDelistedPlace(TradeService);
 installCollarPlace(TradeService);
 installComboPlace(TradeService);
 registerPrivateRest(app, {
+  ownBookEnabled: env.TRADE_SPOT_ENABLED,
   userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   userVenueSpreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
   apiKeyRotation: createApiKeyRotationClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
@@ -1965,6 +2127,7 @@ registerPrivateRest(app, {
   venueConverts,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueMarginSamples: userVenueRouter ? venueMarginSamples : null,
   venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   venueBuilderFees: userVenueRouter ? builderFees.ofUser : null,
   algo: trade,
@@ -2027,6 +2190,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       futuresJobs.stop();
       conditionalJobs.stop();
       candleJobs.stop();
+      historyJobs.stop();
       trailingMarkJobs.stop();
       feeTierJobs.stop();
       mmSeedJobs.stop();

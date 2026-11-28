@@ -17,6 +17,17 @@ vi.mock('../ui/PortalReview', async () => {
     ),
   };
 });
+// The same for a page on its Volt template, whose review opens in the kit's sheet.
+vi.mock('../volt/Review', async () => {
+  const { ExactMoneyScope } = await import('../ui/ExactMoneyScope');
+  return {
+    Review: ({ review, title }: { review?: ReactNode; title: string }) => (
+      <div data-review={title}>
+        <ExactMoneyScope>{review}</ExactMoneyScope>
+      </div>
+    ),
+  };
+});
 
 import type { Resource } from '../../../../shared/resource';
 import type { PortalApi } from '../api';
@@ -228,8 +239,9 @@ describe('approval review', () => {
     );
   it('warns before approving more than is left of today’s payout limit, with the exact amount left', () => {
     const out = decide('200').replace(/<!-- -->/g, '');
-    expect(out).toContain('more than you have left of today’s payout limit (<span class="numeric pp-money pp-nowrap">200.00 ');
-    expect(out).toContain('pp-callout--warn');
+    expect(out).toContain('more than you have left of today’s payout limit (<span>200.00 ');
+    // Drawn as the kit's warning line, not a plain note.
+    expect(out).toContain('class="lt-stale"');
   });
   it('shows every digit of the amount left inside the review, where the callout rounds it', () => {
     const out = decide('200.123456').replace(/<!-- -->/g, '');

@@ -1,5 +1,6 @@
 import { LEDGER_HISTORY_PAGE } from '../history-page-record.js';
 import { LEDGER_POST_RECIPE } from '../post-recipe-client.js';
+import { LEDGER_OPERATOR_REVERSE } from '../operator-reverse-record.js';
 import type { ServiceName } from '@intafaced/contracts';
 import { LEDGER_CALLER_SERVICES } from './caller-allowlist.js';
 
@@ -31,7 +32,7 @@ export const LEDGER_DOOR_CALLERS = {
   post: POSTERS,
   /**
    * Post a recipe by name and inputs (`@intafaced/ledger-client/post-recipe`): from its record, which names the services
-   * granted a recipe on that door; `post-recipe-door.test.ts` holds the two equal.
+   * granted a recipe on that door; `post-recipe-client.test.ts` holds each to a grant.
    */
   postRecipe: LEDGER_POST_RECIPE.access.callers,
   balance: READERS,
@@ -56,6 +57,8 @@ export const LEDGER_DOOR_CALLERS = {
   reconciliationEvaluations: ['svc-ops'],
   /** svc-ops checks that the corrective transactions an operator names exist, ids only (OPS-reconciliation-04). */
   transactionsExist: ['svc-ops'],
+  /** svc-ops books an operator's corrective reversal once two founders approved it; the ledger builds it from the stored original (OPS-ledger-desk-02). From its record. */
+  operatorReverse: LEDGER_OPERATOR_REVERSE.access.callers,
   portfolio: [],
   statementPnl: [],
   reportExport: [],

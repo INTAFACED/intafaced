@@ -60,6 +60,7 @@ export const ruleLibraryEntrySchema = z.object({
 export type RuleLibraryEntry = z.infer<typeof ruleLibraryEntrySchema>;
 
 export const ruleLibrarySaveInputSchema = z.object({ name: z.string().trim().min(1).max(120), tree: ruleGroupSchema }).strict();
+export type RuleLibrarySaveInput = z.infer<typeof ruleLibrarySaveInputSchema>;
 
 /**
  * The fixture accounts a rule is tried on (ENGINE EL-4 `test`). Labelled TEST: illustrative accounts, never a customer.
@@ -92,6 +93,7 @@ export type RuleFixtureId = (typeof RULE_FIXTURES)[number]['id'];
 export const ruleTestInputSchema = z
   .object({ tree: ruleGroupSchema, fixture: z.enum(RULE_FIXTURES.map((f) => f.id) as [RuleFixtureId, ...RuleFixtureId[]]) })
   .strict();
+export type RuleTestInput = z.infer<typeof ruleTestInputSchema>;
 
 /** A try of a rule on a fixture: whether it passes, and every condition that fails, by its place in the tree. */
 export const ruleTestResultSchema = z.object({

@@ -8,8 +8,10 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  anvilArgs,
   anvilBin,
   CHAIN_PORTS,
+  installTestBridge,
   GATE_URL,
   RELAY_URL,
   SECOND_CHAIN_ID,
@@ -88,6 +90,7 @@ test('svc-protocol reads the TEST chain through its gate, with the seeded factor
   const env = protocol(ctx(() => ({ rpcUrl: GATE_URL, factory, router: '0x1' }))).env();
   assert.equal(env.PROTOCOL_RPC_URL, GATE_URL);
   assert.equal(env.PROTOCOL_AMM_FACTORY_ADDRESS, factory);
+  assert.equal('PROTOCOL_SWAP_PAYMASTER_ADDRESS' in env, false, 'swap paymaster stays blank by default');
 });
 
 test('anvilBin: the named binary only if it exists, else anvil on PATH, else none', () => {
@@ -120,4 +123,49 @@ test('with no TEST chain: status says absent, gate is a no-op, fund refuses by n
   assert.equal(run('fund', '0x52908400098527886E0F7030069857D2E4169EE7', 'everything').status, 1, 'only `stable` names another funding');
   assert.equal(run('gate', 'ajar').status, 1);
   assert.equal(run('gate', 'closed', 'third').status, 1, 'only the second network has a gate of its own');
+});
+
+// #9549: the stack installs the TEST bridge on both anvils, but waits only for the first one (through its gate). A
+// second anvil still binding its port then failed the whole start with "fetch failed". Here the "anvil" starts
+// listening only after the install began; the install must wait for it, and still fail by name when none ever answers.
+test('installTestBridge waits for an anvil that starts listening late, and names one that never does', async () => {
+  const { createServer } = await import('node:http');
+  const free = () =>
+    new Promise((resolve) => {
+      const probe = createServer().listen(0, '127.0.0.1', () => {
+        const { port } = probe.address();
+        probe.close(() => resolve(port));
+      });
+    });
+  const port = await free();
+  const calls = [];
+  const anvil = createServer(async (req, res) => {
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    const { method } = JSON.parse(raw);
+    calls.push(method);
+    res.setHeader('content-type', 'application/json');
+    res.end(
+      JSON.stringify({ jsonrpc: '2.0', id: 1, result: method === 'eth_getCode' ? '0x' : method === 'eth_chainId' ? '0x7a69' : null }),
+    );
+  });
+  const late = setTimeout(() => anvil.listen(port, '127.0.0.1'), 1500);
+  try {
+    await installTestBridge({ ports: [port], waitMs: 20_000 });
+    assert.ok(calls.includes('anvil_setCode'), `the bridge code was installed once the anvil answered: ${calls.join(', ')}`);
+  } finally {
+    clearTimeout(late);
+    await new Promise((resolve) => anvil.close(resolve));
+  }
+  const silent = await free();
+  await assert.rejects(installTestBridge({ ports: [silent], waitMs: 1000 }), new RegExp(`anvil on port ${silent} never answered`));
+});
+
+test('anvilArgs keeps every block unless LOCAL_STACK_CHAIN_HISTORY names how many past states to keep', () => {
+  const base = ['--host', '127.0.0.1', '--port', '1', '--chain-id', '84532', '--accounts', '1', '--silent'];
+  assert.deepEqual(anvilArgs(1, 84532, undefined), base);
+  assert.deepEqual(anvilArgs(1, 84532, ''), base);
+  assert.deepEqual(anvilArgs(1, 84532, '3600'), [...base, '--prune-history', '3600']);
+  for (const bad of ['0', '-1', '1.5', 'all'])
+    assert.throws(() => anvilArgs(1, 84532, bad), /LOCAL_STACK_CHAIN_HISTORY/, `refused: ${bad}`);
 });

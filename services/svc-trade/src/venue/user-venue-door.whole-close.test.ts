@@ -77,21 +77,23 @@ function closeServer(server: http.Server) {
 describe('UserVenueDoor: one whole take profit and one whole stop loss (J-derivatives-04 #6)', { timeout: 60_000 }, () => {
   let venue: { server: http.Server; sim: TestVenueSimulator; url: string };
   let d: UserVenueDoor;
+  const store = new InMemoryPreparedActionStore();
   const account = () => ({ venueId: venue.sim.venue.id, owner, subAccount: null });
 
   beforeAll(async () => {
-    venue = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532 });
+    venue = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532, ordersPerAction: 10 });
     await seedTestVenue(venue.sim);
     venue.sim.deposit(account(), 'USDC', a('100000'), 'deposit:test:jd4-whole-close');
     d = new UserVenueDoor({
       connect: () => HttpUserVenue.connect({ baseUrl: venue.url, timeoutMs: 5000 }),
       appEnv: 'test',
-      store: new InMemoryPreparedActionStore(),
+      store,
       stepUp: noStepUp,
       builder: BUILDER,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['ETH-PERP'])),
-      slippageCapBps: null,
+      slippageCapBps: 50,
+      closeSlippageBps: 1000,
     });
     await run({ kind: 'approve_builder_fee', builder: BUILDER.address, maxFeeBps: a('1') }, `builder:${owner}:jd4`);
     await run({ kind: 'update_leverage', symbol: 'ETH-PERP', leverageBps: 50_000, marginMode: 'isolated' }, `leverage:${owner}:jd4`);
@@ -120,6 +122,54 @@ describe('UserVenueDoor: one whole take profit and one whole stop loss (J-deriva
     return null;
   }
   const resting = async () => (await venue.sim.openOrders(account())).value.filter((o) => o.symbol === 'ETH-PERP');
+
+  it('in one place_orders batch, each order is judged with its earlier siblings as resting; nothing is stored when refused', async () => {
+    const batch = (name: string, orders: (k: string) => PlaceUserOrderIntent[]) => {
+      const actionKey = `batch:${owner}:${name}`;
+      return d.prepare(principal, { owner, signer, intent: { kind: 'place_orders', actionKey, orders: orders(actionKey) } });
+    };
+    const keyed = (k: string, intent: PlaceUserOrderIntent): PlaceUserOrderIntent => ({ ...intent, clientOrderKey: k });
+    const taken = { code: 'trade.venue_whole_close_taken', status: 409 };
+    // Two whole take profits, or two whole stop losses, or a whole limit after both: refused, the sibling named.
+    await expect(
+      batch('two-tps', (k) => [keyed(`${k}:1`, trigger('x', 'take_profit')), keyed(`${k}:2`, trigger('x', 'take_profit'))]),
+    ).rejects.toMatchObject({ ...taken, message: expect.stringContaining(`batch:${owner}:two-tps:1, earlier in this batch`) });
+    await expect(
+      batch('two-sls', (k) => [keyed(`${k}:1`, trigger('x', 'stop_loss')), keyed(`${k}:2`, trigger('x', 'stop_loss'))]),
+    ).rejects.toMatchObject(taken);
+    await expect(
+      batch('tp-sl-limit', (k) => [
+        keyed(`${k}:tp`, trigger('x', 'take_profit')),
+        keyed(`${k}:sl`, trigger('x', 'stop_loss')),
+        keyed(`${k}:limit`, sell('x')),
+      ]),
+    ).rejects.toMatchObject(taken);
+    for (const name of ['two-tps', 'two-sls', 'tp-sl-limit']) expect(await store.find(USER, `batch:${owner}:${name}`), name).toBeNull();
+    // One whole take profit and one whole stop loss together, and part ones beside them, pass the door (this TEST venue
+    // then signs trigger orders only one by one: its own refusal, not ours).
+    const passes = (p: Promise<unknown>) =>
+      p.then(
+        () => true,
+        (e: unknown) => e instanceof VenueRefusalError || (e instanceof UserVenueDoorError ? e.code : e),
+      );
+    expect(
+      await passes(batch('tp-sl', (k) => [keyed(`${k}:tp`, trigger('x', 'take_profit')), keyed(`${k}:sl`, trigger('x', 'stop_loss'))])),
+    ).toBe(true);
+    expect(
+      await passes(
+        batch('parts', (k) => [
+          keyed(`${k}:p1`, trigger('x', 'take_profit', '0.4')),
+          keyed(`${k}:tp`, trigger('x', 'take_profit')),
+          keyed(`${k}:p2`, trigger('x', 'take_profit', '0.5')),
+        ]),
+      ),
+    ).toBe(true);
+    // A whole limit close and a part one, with no whole take profit or stop loss beside them, pass the door.
+    expect(
+      await passes(batch('limits', (k) => [keyed(`${k}:limit`, sell('x')), keyed(`${k}:part`, sell('x', { amount: a('0.2') }))])),
+    ).toBe(true);
+    expect(await resting()).toEqual([]);
+  });
 
   it('a part take profit rests beside a whole one, and neither part counts toward the one of each', async () => {
     expect((await run(trigger('tp-part', 'take_profit', '0.4'))).outcome).toMatchObject({ accepted: true });

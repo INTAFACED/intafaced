@@ -61,6 +61,7 @@ import { readQueuePosition } from './spot/queue-position.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { orderableForListedMarket, registerPublicRest } from './public-rest.js';
+import { SqlHistoryDatasets } from './spot/history-datasets.js';
 import { readGatedList } from './futures/gated-list.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
@@ -302,6 +303,11 @@ const SAVED_ENV = vi.hoisted(() => {
 /** svc-trade calls with no `.output()`: the call-records codemod can't make their record. Lower it as each gains one; never raise it. */
 const ANSWERLESS_AT_MOST = 135;
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
 /** One review part holds 400 KB and a new file is one hunk, so each recorded file stays under this. */
@@ -529,6 +535,7 @@ async function serve(routes: Array<{ method: string; url: string; body: unknown 
         door: userVenue,
         store: new SqlEngineProtectionStore(sql),
         keySeed: env.TRADE_AGENT_KEY_SEED,
+        closeSlippageBps: env.TRADE_CLOSE_SLIPPAGE_BPS,
         liveTier: (userId) => protectionTier.tierOf(userId),
         freeze: stub('identityFreeze'),
         now: () => new Date(),
@@ -963,9 +970,11 @@ async function serve(routes: Array<{ method: string; url: string; body: unknown 
     return { ready: true, engineSequences: { checked: sequences.checked, unjudged: sequences.unjudged } };
   });
   const listMarkets = () => matching.listMarkets();
+  const historyDatasets = new SqlHistoryDatasets(sql, { bookIntervalMs: env.TRADE_HISTORY_BOOK_INTERVAL_MS });
   registerPublicRest(app, {
     markets: (limit) => trade.markets(limit),
     marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+    history: historyDatasets,
     publishedFeeRates: async (markets) => {
       const schedule = await feeScheduleAt(sql, feeSchedule, new Date());
       if (schedule.published !== true) return null;
@@ -1506,6 +1515,7 @@ const PATTERN_TRIES = [
 
 /** A plain sample of what an input's own JSON schema asks for. Not always accepted (custom checks are not in the schema): that answer is recorded too. */
 function sample(schema: unknown, depth = 0): unknown {
+  if (acceptsAnyJson(schema)) return null;
   if (typeof schema !== 'object' || schema === null || depth > 8) return null;
   const s = schema as Json;
   if ('const' in s) return s.const;
@@ -1670,12 +1680,12 @@ async function writeGolden(g: Golden) {
 
 function readGolden(): Golden {
   const g: Golden = {
-    callers: JSON.parse(readFileSync(new URL('./wire-replay.golden/callers.json', import.meta.url), 'utf8')),
+    callers: JSON.parse(readFileSync(new URL('./wire-replay.golden/callers.json', import.meta.url), 'utf8').replaceAll(RECORDED_STACK, '')),
     inputs: {},
     answers: {},
   };
   for (const file of readdirSync(GOLDEN).filter((f) => f !== 'callers.json')) {
-    const shard = JSON.parse(readFileSync(goldenJson(file.replace(/\.json$/, '')), 'utf8')) as {
+    const shard = JSON.parse(readFileSync(goldenJson(file.replace(/\.json$/, '')), 'utf8').replaceAll(RECORDED_STACK, '')) as {
       inputs: Record<string, Samples>;
       bodies: string[];
       answers: Record<string, Record<string, [number, number]>>;
@@ -1812,3 +1822,15 @@ describe('the wire replay: svc-trade answers every trade call as recorded', () =
     }
   }, 600_000);
 });
+
+/**
+ * `jsonValueSchema` (z.json()) as JSON Schema: a choice of every JSON kind. Main had `z.unknown()` there (`{}`), which
+ * the sampler read as null; this reads the same, so the replay sends main's request (tooling/codemod/call-records/portable.mjs).
+ */
+function acceptsAnyJson(schema: unknown): boolean {
+  if (typeof schema !== 'object' || schema === null) return false;
+  const options = (schema as { anyOf?: unknown }).anyOf;
+  if (!Array.isArray(options)) return false;
+  const kinds = new Set(options.map((o: unknown) => (typeof o === 'object' && o !== null ? (o as { type?: unknown }).type : undefined)));
+  return ['string', 'number', 'boolean', 'null', 'array', 'object'].every((k) => kinds.has(k));
+}

@@ -2,9 +2,8 @@
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 import { linkedAccountSchema } from './contracts-accounts';
-
-/** The partner bank's move of money it holds for the person (OWNER 226): its id, and the partner's name for itself. */
-const partnerMoveSchema = z.object({ id: z.string().min(1), label: z.string().min(1) }).passthrough();
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import type { BANK_CALENDAR_WINDOW } from '@intafaced/contracts/bank-calendar-procedures';
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -89,35 +88,10 @@ const directDebitsViewSchema = z.object({
 });
 export type DirectDebitsView = z.infer<typeof directDebitsViewSchema>;
 /** svc-bank `bank.calendar.window` (J-bank-06 #5, BK-acct-10): what is dated in a window, and how each source answered. */
-export const calendarSources = ['standing_orders', 'bills', 'direct_debits', 'loans', 'earn'] as const;
-export type CalendarSource = (typeof calendarSources)[number];
-const calendarItemSchema = z.object({
-  source: z.enum(calendarSources),
-  refId: z.string(),
-  key: z.string(),
-  date: z.string(),
-  label: z.string().nullable(),
-  assetId: z.string(),
-  amount: money.nullable(),
-  status: z.enum(['upcoming', 'paused', 'done', 'failed', 'skipped', 'refused']),
-  reasonCode: z.string().nullable(),
-});
-export type CalendarItem = z.infer<typeof calendarItemSchema>;
-const calendarViewSchema = z.object({
-  from: z.string(),
-  to: z.string(),
-  items: z.array(calendarItemSchema),
-  sources: z.array(
-    z.object({
-      source: z.enum(calendarSources),
-      state: z.enum(['ok', 'not_set', 'refused', 'unavailable']),
-      count: z.number().int(),
-      code: z.string().nullable(),
-      complete: z.boolean(),
-    }),
-  ),
-});
-export type CalendarView = z.infer<typeof calendarViewSchema>;
+export { CALENDAR_SOURCES as calendarSources } from '@intafaced/contracts/bank-calendar-procedures';
+export type CalendarView = ProcedureOutput<typeof BANK_CALENDAR_WINDOW>;
+export type CalendarItem = CalendarView['items'][number];
+export type CalendarSource = CalendarItem['source'];
 /** svc-bank `bank.rules.*` (J-bank-06 #6, BK-acct-10): the payment reminder rule, and money rules waiting on the owner. */
 export const reminderLeadChoices = [24, 48, 72, 168] as const;
 const reminderRuleSchema = z.object({
@@ -252,53 +226,3 @@ export const railPayeeCheckSchema = z.object({
   rail: z.enum(BANK_RAILS),
   recipient: z.string(),
 });
-
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const paymentsReads = {
-  'directDebits.list': directDebitsViewSchema,
-  'calendar.window': calendarViewSchema,
-  'rules.get': rulesViewSchema,
-  'cashOut.quote': cashOutQuoteSchema,
-  // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
-  'transfers.quote': transferQuoteSchema,
-  'cashOut.requests': z.array(cashOutRequestSchema),
-  'railSends.requirements': railRequirementsSchema,
-  'safety.regionNotice': regionNoticeSchema,
-  'transfers.listSchedules': z.array(scheduleSchema),
-} as const;
-
-/** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const paymentsWrites = {
-  // A move into a space: the ledger's transaction, or, where the partner bank holds both sides (OWNER 226), the partner's
-  // one move and no ledger transaction. Exactly one book made it; a reply naming neither, or both, is never a confirmation.
-  'transfers.create': z
-    .object({
-      ledgerTxId: z.string().min(1).nullable(),
-      amount: money,
-      partnerMove: z
-        .object({ id: z.string().min(1), label: z.string().min(1), movedAt: z.string() })
-        .nullable()
-        .optional(),
-    })
-    .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null)),
-  // A personal send echoes the note and reference it stored, so the review can be checked against them.
-  'transfers.toUser': z.object({
-    ledgerTxId: z.string().nullable(),
-    partnerMove: partnerMoveSchema.nullable().optional(),
-    amount: money,
-    note: z.string().nullable(),
-    reference: z.string().nullable(),
-  }),
-  'transfers.schedule': z.object({ id: z.string(), nextRunAt: z.string() }),
-  'transfers.scheduleToUser': z.object({ id: z.string(), nextRunAt: z.string() }),
-  'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),
-  'transfers.resume': z.object({ status: z.string(), nextRunAt: z.string(), skipped: z.array(z.number().int()) }),
-  'transfers.cancel': z.object({ cancelled: z.literal(true) }),
-  'transfers.updateSchedule': z.object({
-    id: z.string(),
-    revision: z.number().int(),
-    amount: money,
-    endsAt: z.string().nullable(),
-    nextRunAt: z.string(),
-  }),
-} as const;

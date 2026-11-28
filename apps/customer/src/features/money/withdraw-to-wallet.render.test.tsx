@@ -102,16 +102,12 @@ const SAVED: Destination = {
 let book: Destination[] = [];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
-  const useBankRead = (procedure: string, _input?: unknown, _enabled?: boolean) =>
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
+  const useBankRead = (procedure: string) =>
     procedure === 'ramps.destinations.networks'
       ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
       : { resource: { status: 'ready', data: book }, reload: () => undefined };
-  return {
-    ...real,
-    useBankRead,
-    // A room that reads by record reaches the same double, by the record's path.
-    useBankRecord: (record: { path: string }, input?: unknown, enabled?: boolean) => useBankRead(record.path, input, enabled),
-  };
+  return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 import { WithdrawForm } from './WithdrawForm';
 
@@ -158,7 +154,7 @@ async function render(toWallet = true) {
   await act(async () => mounted.render(<WithdrawForm toWallet={toWallet} />));
 }
 function field(label: string): HTMLInputElement | HTMLSelectElement {
-  const found = [...document.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label);
+  const found = [...document.querySelectorAll('label.lt-field')].find((l) => l.querySelector('span')?.textContent === label);
   if (!found) throw new Error(`no field labelled ${label}`);
   return found.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
 }

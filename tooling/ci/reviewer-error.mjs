@@ -120,7 +120,9 @@ export function resetOf(result, now = new Date()) {
   if (month < 0) return said;
   const day = t[2] ? Number(t[2]) : now.getUTCDate();
   let at = Date.UTC(now.getUTCFullYear(), month, day, hour, Number(t[4] ?? 0));
-  if (at < now.getTime() - 2 * 86_400_000) at = Date.UTC(now.getUTCFullYear() + 1, month, day, hour, Number(t[4] ?? 0));
+  // A time with no date is the next one: 'resets 3pm' said at 15:28 UTC is tomorrow's 3pm (Nov 25: project-state#4075 said today's).
+  if (!t[2] && at <= now.getTime()) at += 86_400_000;
+  else if (at < now.getTime() - 2 * 86_400_000) at = Date.UTC(now.getUTCFullYear() + 1, month, day, hour, Number(t[4] ?? 0));
   const bali = new Date(at + 8 * 3_600_000);
   const hm = `${String(bali.getUTCHours()).padStart(2, '0')}:${String(bali.getUTCMinutes()).padStart(2, '0')}`;
   const mon = MONTHS[bali.getUTCMonth()];

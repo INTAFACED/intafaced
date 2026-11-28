@@ -29,6 +29,20 @@ import { STACK_PORTS } from './local-test-facts.mjs';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** The built simulator. The stack builds it with svc-trade (a dev dependency there); a bare run says how to build it. */
 export const VENUE_SIM_DIST = path.join(REPO, 'packages', 'venue-sim', 'dist', 'index.js');
+/**
+ * The TEST venue's perpetuals, in its own listing order: one file per instrument in packages/venue-sim/src/instruments/,
+ * named `<order>-<symbol>.ts`. svc-trade's LOCAL TEST listing seed reads this, so adding an instrument adds only its file.
+ */
+export function testVenuePerpetuals() {
+  return fs
+    .readdirSync(path.join(REPO, 'packages', 'venue-sim', 'src', 'instruments'))
+    .filter((name) => /^\d{4}-[A-Z0-9-]+-PERP\.ts$/.test(name))
+    .sort()
+    .map((name) => name.slice(5, -'.ts'.length));
+}
+
+/** The built Hyperliquid test network adapter, built with svc-trade too (a dev dependency there). */
+const VENUE_HL_DIST = path.join(REPO, 'packages', 'venue-hyperliquid', 'dist', 'index.js');
 
 /** The stack's TEST app chain (local-test-chain.mjs; the same id as eip1193.ts APP_CHAIN_ID). */
 export const TEST_APP_CHAIN_ID = TEST_CHAIN_ID;
@@ -70,9 +84,20 @@ export function userVenueSwitchOn(raw) {
 export function userVenueCount(raw) {
   const text = (raw ?? '').trim();
   if (text === '' || text === 'off') return 0;
-  if (text === 'on') return 1;
+  if (text === 'on' || text === 'hl-recorded' || text === 'hl-testnet') return 1;
   if (text === 'two') return 2;
-  throw new Error(`LOCAL_STACK_USER_VENUE must be unset, off, on or two (got ${JSON.stringify(raw)})`);
+  throw new Error(`LOCAL_STACK_USER_VENUE must be unset, off, on, two, hl-recorded or hl-testnet (got ${JSON.stringify(raw)})`);
+}
+
+/**
+ * Which venue the first TEST venue is (#10203): `sim`, the TEST venue simulator (`on`, `two`); `hl-recorded`, the
+ * Hyperliquid test network adapter answering from its recording (packages/venue-hyperliquid recordings/, no network);
+ * `hl-testnet`, the same adapter on the live Hyperliquid test network. Null when the switch is off. Anything else throws.
+ */
+export function userVenueKind(raw) {
+  if (userVenueCount(raw) === 0) return null;
+  const text = (raw ?? '').trim();
+  return text === 'hl-recorded' || text === 'hl-testnet' ? text : 'sim';
 }
 
 /**
@@ -136,23 +161,47 @@ export function testVenueDepositRoute({ rpcUrl, token }) {
  * Start the TEST venue and seed it, and, with a TEST chain, its deposit watcher. Resolves with the server and its URL.
  * `id` (testVenueId) names the venue; the second venue is then `<id>-b`. Null keeps the simulator's defaults.
  */
-export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '', depositToken = '', second = false, id = null }) {
+export async function serveTestVenue({
+  host,
+  port,
+  appEnv,
+  betaPosture,
+  chainId,
+  rpcUrl = '',
+  depositToken = '',
+  second = false,
+  id = null,
+  kind = 'sim',
+  hl = { recording: null, trader: null },
+  env = process.env,
+}) {
+  const refused = liveTestNetworkRefusal(kind, env);
+  if (refused) throw new Error(refused);
+  if (!second && (kind === 'hl-recorded' || kind === 'hl-testnet'))
+    return serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind, ...hl });
   if (!fs.existsSync(VENUE_SIM_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
   const sim = await import(pathToFileURL(VENUE_SIM_DIST).href);
   const deposit = second ? null : testVenueDepositRoute({ rpcUrl, token: depositToken });
   // The first TEST venue takes several orders in one signed action, as the venue it stands for does (J-derivatives-03 #9);
-  // the second takes one order per signature, so the app's other branch runs against a venue too.
+  // the second takes one order per signature, so the app's other branch runs against a venue too. The second also offers
+  // hedge mode and moves an open position between accounts, which the first, as the venue it stands for, does not
+  // (J-derivatives-05 #3 #7).
   const which = second
-    ? { id: id ? `${id}-b` : SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName }
+    ? {
+        id: id ? `${id}-b` : SECOND_TEST_VENUE.id,
+        displayName: SECOND_TEST_VENUE.displayName,
+        positionModes: ['one_way', 'hedge'],
+        positionMoves: true,
+      }
     : {
         ...(id ? { id } : {}),
         ordersPerAction: FIRST_TEST_VENUE_ORDERS_PER_ACTION,
         // The first TEST venue has a scheduled cancel, as the venue it stands for does (J-cex-spot-07): at least 5 s ahead.
         scheduledCancelMinLeadMs: FIRST_TEST_VENUE_SCHEDULED_CANCEL_MIN_LEAD_MS,
       };
-  const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
+  const started = await sim.startTestVenueServer({ host, port, appEnv, betaPosture, chainId, deposit, ...which });
   const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
   if (deposit) started.sim.switches.depositExplorerTxUrl = TEST_VENUE_DEPOSIT_EXPLORER;
@@ -161,16 +210,134 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
   return started;
 }
 
+/**
+ * The switch beside `LOCAL_STACK_USER_VENUE=hl-testnet` that lets a stack reach the live Hyperliquid test network
+ * (#11061). Builders' and CI's stacks share the hosted beta's box and IP, whose read budget the live network meters
+ * (one live desk spent about 880 of its 1,200 weight a minute, #11045), so only the beta host (tooling/beta/beta-host.mjs)
+ * and the daily live run (.github/workflows/hl-venue-daily.yml) set it. A stack without it replays a recording instead.
+ */
+export const LIVE_TEST_NETWORK_SWITCH = 'LOCAL_STACK_LIVE_TEST_NETWORK';
+
+/** Why this venue kind may not start with this environment, or null: `hl-testnet` needs the switch exactly `on`. */
+export function liveTestNetworkRefusal(kind, env) {
+  if (kind !== 'hl-testnet' || (env[LIVE_TEST_NETWORK_SWITCH] ?? '').trim() === 'on') return null;
+  return (
+    `LOCAL_STACK_USER_VENUE=hl-testnet reaches the live Hyperliquid test network, which only the hosted beta and the ` +
+    `daily live run read from this box: set ${LIVE_TEST_NETWORK_SWITCH}=on beside it only there; elsewhere use hl-recorded (#11061)`
+  );
+}
+
+/**
+ * `TEST_VENUE_KIND`, as the stack hands it to the venue process (`userVenueKind` of the switch): blank or `sim` is the
+ * simulator, `hl-recorded` and `hl-testnet` the Hyperliquid test network adapter. Anything else throws.
+ */
+export function testVenueKind(raw) {
+  const text = (raw ?? '').trim();
+  if (text === '' || text === 'sim') return 'sim';
+  if (text === 'hl-recorded' || text === 'hl-testnet') return text;
+  throw new Error(`TEST_VENUE_KIND must be sim, hl-recorded or hl-testnet (got ${JSON.stringify(raw)})`);
+}
+
+/**
+ * The Hyperliquid test network as the stack's venue (#10203), behind the same HTTP venue protocol svc-trade reaches every
+ * venue over. `hl-recorded` answers from the adapter's recording with no network: an order the recording does not hold
+ * gets the recorded answer of its kind, and a read it has no kind for is the venue down. `hl-testnet` reaches the live
+ * test network (api.hyperliquid-testnet.xyz); the customer's own wallet signs, so the venue holds no key.
+ */
+async function serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind, recording = null, trader = null }) {
+  if (!fs.existsSync(VENUE_HL_DIST)) {
+    throw new Error(`${path.relative(REPO, VENUE_HL_DIST)} is not built: pnpm --filter @intafaced/venue-hyperliquid... build`);
+  }
+  const hl = await import(pathToFileURL(VENUE_HL_DIST).href);
+  const file = recording ? hlRecordingPath(recording) : null;
+  let fetch;
+  let misses = () => [];
+  if (kind === 'hl-recorded') {
+    // A journey's own recording, replayed for the run's TEST wallet; without one, the package's recorded TEST order.
+    const replay = file
+      ? hl.replayRecording(hl.parseRecording(JSON.parse(fs.readFileSync(file, 'utf8'))), { trader })
+      : hl.replayRecording(hl.loadOrderRecording());
+    fetch = replay;
+    misses = () => replay.misses;
+  } else if (file) {
+    // hl-testnet with a recording named: every call the live test network answers is kept, the file rewritten after
+    // each, so a run cut short still leaves what it saw. The trader is the run's address, never its key.
+    const calls = [];
+    const live = hl.recordingFetch((url, init) => globalThis.fetch(url, init), calls);
+    fetch = async (url, init) => {
+      const res = await live(url, init);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const note = `TEST answers of the Hyperliquid test network, recorded live by LOCAL_STACK_USER_VENUE=hl-testnet for ${recording}.`;
+      fs.writeFileSync(`${file}.tmp`, `${JSON.stringify(hl.traderRecording(calls, trader, note), null, 2)}\n`);
+      fs.renameSync(`${file}.tmp`, file);
+      return res;
+    };
+  }
+  const source = { kind, recording, trader, misses: () => misses() };
+  // On the live test network the venue also lists the HIP-3 DEX that carries its stock, index and gold
+  // perpetuals (`xyz`, the one such DEX the test network trades). A recording holds no answer for its reads, so a
+  // replay lists the main DEX only.
+  const perpDexs = kind === 'hl-testnet' ? HL_TESTNET_PERP_DEXS : [];
+  // Live, also while recording, reads are shared: the venue limits this one address by weight a minute.
+  const live = kind === 'hl-testnet';
+  const started = await hl.startHyperliquidVenueServer({
+    host,
+    port,
+    appEnv,
+    betaPosture,
+    source,
+    perpDexs,
+    live,
+    ...(fetch ? { fetch } : {}),
+  });
+  process.stdout.write(
+    `${JSON.stringify({ msg: 'test-venue.listening', label: 'TEST', url: started.url, venue: started.venue.venue.id, kind, recording, trader })}\n`,
+  );
+  return started;
+}
+
+/** The HIP-3 perp DEXs the live test network venue lists beside the main one. */
+const HL_TESTNET_PERP_DEXS = Object.freeze(['xyz']);
+
+/** Where the Hyperliquid recordings live: one per journey file, `<name>.json`. */
+const HL_RECORDINGS_DIR = path.join(REPO, 'packages', 'venue-hyperliquid', 'recordings');
+
+/** A recording's file from its name (letters, digits, `.`, `_`, `-`); anything else throws. */
+export function hlRecordingPath(name) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(name) || name.includes('..'))
+    throw new Error(`a Hyperliquid recording's name is letters, digits, . _ and -, got ${JSON.stringify(name)}`);
+  return path.join(HL_RECORDINGS_DIR, `${name}.json`);
+}
+
+/**
+ * The Hyperliquid source a stack start asks for, from LOCAL_STACK_HL_RECORDING (a recording's name) and
+ * LOCAL_STACK_HL_TRADER (the run's wallet address): null names none. A recording named needs the trader; a replayed one
+ * must exist. Throws, naming the setting, when either is wrong.
+ */
+export function hlSource(env) {
+  const recording = (env.LOCAL_STACK_HL_RECORDING ?? '').trim() || null;
+  const trader = (env.LOCAL_STACK_HL_TRADER ?? '').trim().toLowerCase() || null;
+  if (!recording) return { recording: null, trader: null };
+  hlRecordingPath(recording);
+  if (!trader || !/^0x[0-9a-f]{40}$/.test(trader))
+    throw new Error('LOCAL_STACK_HL_RECORDING needs LOCAL_STACK_HL_TRADER, the address the run signs as (never a key)');
+  return { recording, trader };
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   serveTestVenue({
     host: process.env.TEST_VENUE_HOST ?? '127.0.0.1',
     port: Number(process.env.TEST_VENUE_PORT ?? STACK_PORTS['test-venue']),
     // The RAW value: unset, blank and anything but dev or test refuse.
     appEnv: process.env.APP_ENV,
+    // The beta posture (APP_ENV staging, INTAFACED_BETA_POSTURE=test-networks) also lets the TEST venue run.
+    betaPosture: process.env.INTAFACED_BETA_POSTURE,
     chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
     rpcUrl: process.env.TEST_VENUE_RPC_URL,
     depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
     id: testVenueId(process.env.TEST_VENUE_ID),
+    kind: testVenueKind(process.env.TEST_VENUE_KIND),
+    hl: hlSource(process.env),
   }).catch((err) => {
     process.stderr.write(`test-venue: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

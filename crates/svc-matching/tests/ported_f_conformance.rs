@@ -83,13 +83,15 @@ fn read(path: &str) -> String {
 
 const ADR: &str = "docs/adr/2026-09-18-matching-shared-conformance.md";
 const CONTRACT_SCHEMAS: &str = "packages/exchange-contract/src/schemas.ts";
+/// An order's side and time in force: contracts declares them, exchange-contract re-exports them.
+const ORDER_ENUMS: &str = "packages/contracts/src/order-enums.ts";
 
 /// `enumValues`: the quoted values of `export const <name> = z.enum([...])`.
 fn enum_values(source: &str, name: &str) -> Vec<String> {
     let head = format!("export const {name} = z.enum([");
     let start = source
         .find(&head)
-        .unwrap_or_else(|| panic!("{name} in exchange-contract"))
+        .unwrap_or_else(|| panic!("{name} declared as a z.enum"))
         + head.len();
     let inner = &source[start..start + source[start..].find(']').unwrap()];
     inner
@@ -188,7 +190,7 @@ fn adr_exists_and_names_the_shared_rows_a_chain_engineer_would_open() {
 /// with no `tif` rather than defaulting it.
 #[test]
 fn tif_enum_is_one_list_exchange_contract_equals_the_engine_tif() {
-    let contract = enum_values(&read(CONTRACT_SCHEMAS), "timeInForceSchema");
+    let contract = enum_values(&read(ORDER_ENUMS), "timeInForceSchema");
     let engine: Vec<String> = all_tif()
         .into_iter()
         .map(|t| t.as_str().to_owned())
@@ -214,7 +216,7 @@ fn tif_enum_is_one_list_exchange_contract_equals_the_engine_tif() {
 
 #[test]
 fn sides_are_buy_sell_only() {
-    let contract = enum_values(&read(CONTRACT_SCHEMAS), "orderSideSchema");
+    let contract = enum_values(&read(ORDER_ENUMS), "orderSideSchema");
     assert_eq!(contract, ["buy", "sell"]);
     let engine: Vec<&str> = all_sides().into_iter().map(Side::as_str).collect();
     assert_eq!(engine, ["buy", "sell"]);

@@ -20,6 +20,9 @@ import {
   passesSince,
   priorSetAside,
   readReport,
+  notOnBeta,
+  betaScreensOf,
+  betaHidden,
   regressionState,
   manifestsAt,
   missingArtifact,
@@ -40,6 +43,10 @@ import {
   HISTORY_FILE,
   HISTORY_ARTIFACT,
   JOURNEYS_ARTIFACT,
+  betaLane,
+  isBetaPull,
+  TESTER_PATH,
+  BETA_GATE,
 } from './journey-verdict.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -477,9 +484,163 @@ test('a targeted run judges only the files it ran', () => {
   const named2 = readReport(report(ok('J-a-01 #1'), ok('J-b-01 #1', 'J-b-01.pw.mjs')));
   const newest = readReport(report(ok('J-a-01 #1')));
   assert.deepEqual(judge({ newest, named: named2, baseline, money, target: new Set(['J-a-01.pw.mjs']) }).red, []);
-  assert.match(judge({ newest, named: named2, baseline, money, target: null }).red[0].why, /missing now/);
+  // J-b-01 #1 is a step on the journey list (money has every listed step), so missing from a full run it is red.
+  assert.match(judge({ newest, named: named2, baseline, money: { ...money, 'J-b-01#1': false }, target: null }).red[0].why, /missing now/);
   const broken = readReport(report(bad('J-a-01 #1')));
   assert.equal(judge({ newest: broken, named: named2, baseline, money, target: new Set(['J-a-01.pw.mjs']) }).red.length, 1);
+});
+
+// ---- A retired step (#10592: the owner retired J-bank-05 #4 and #5, OWNER 291; its verdict, run 45304484379, read them as
+// "passed in run 1719, missing now"). The journey list at the judged commit decides: a step it no longer lists may be
+// missing, named as retired; a step it still lists stays red when missing, money or not. ----
+const bankSteps = (...ns) => [{ id: 'J-bank-05', module: 'bank', steps: ns.map((n) => ({ n, slices: ['BK-xfer-03'] })) }];
+const bankSlices = [{ id: 'BK-xfer-03', touches: ['svc-bank'] }];
+const bankManifests = new Map([
+  ['services/svc-bank', { name: '@intafaced/svc-bank', dependencies: { '@intafaced/ledger-client': 'workspace:*' } }],
+]);
+const bankMoney = (...ns) => moneyRule({ journeys: bankSteps(...ns), slices: bankSlices, manifests: bankManifests });
+const bankFile = 'J-bank-05.pw.mjs';
+const bankReport = (...ns) => ({ suites: [{ file: bankFile, specs: ns.map((n) => ok(`J-bank-05 #${n}`, bankFile)) }] });
+const named1719 = readReport(bankReport(1, 2, 3, 4, 5));
+const head10592 = readReport(bankReport(1, 2, 3));
+const baseline1719 = { run: { number: 1719, id: 42357098806 }, steps: [], notBaselined: [] };
+
+test('replay #10592: J-bank-05 #4 and #5, retired from the journey list with their tests, are named as retired, not red', () => {
+  const money3 = bankMoney(1, 2, 3);
+  assert.deepEqual(Object.keys(money3), ['J-bank-05#1', 'J-bank-05#2', 'J-bank-05#3']);
+  const v = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: money3 });
+  assert.deepEqual(v.red, [], 'not red: the steps left the list');
+  assert.deepEqual(v.retired, ['J-bank-05#4', 'J-bank-05#5'], 'named as retired, not dropped');
+  assert.equal(v.failing, 0);
+});
+
+test('a step still on the journey list stays red when missing: a money step, and a non-money one', () => {
+  const money5 = bankMoney(1, 2, 3, 4, 5);
+  assert.equal(money5['J-bank-05#4'], true, 'J-bank-05 is money by the rule (svc-bank depends on the ledger client)');
+  const v = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: money5 });
+  assert.deepEqual(
+    v.red.map((r) => [r.step, r.money, r.why]),
+    [
+      ['J-bank-05#4', true, 'passed in run 1719, missing now'],
+      ['J-bank-05#5', true, 'passed in run 1719, missing now'],
+    ],
+  );
+  assert.deepEqual(v.retired, []);
+  const plain = Object.fromEntries(Object.keys(money5).map((k) => [k, false]));
+  const w = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: plain });
+  assert.deepEqual(
+    w.red.map((r) => [r.step, r.money]),
+    [
+      ['J-bank-05#4', false],
+      ['J-bank-05#5', false],
+    ],
+  );
+  assert.deepEqual(w.retired, []);
+  // One retired, one still listed: only the listed one is red.
+  const x = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: bankMoney(1, 2, 3, 4) });
+  assert.deepEqual(
+    x.red.map((r) => r.step),
+    ['J-bank-05#4'],
+  );
+  assert.deepEqual(x.retired, ['J-bank-05#5']);
+});
+
+test('a retired step whose test still runs and is skipped or fails stays red: only absence is the retirement', () => {
+  const money3 = bankMoney(1, 2, 3);
+  const skipped = readReport({
+    suites: [{ file: bankFile, specs: [...bankReport(1, 2, 3).suites[0].specs, skip('J-bank-05 #4', bankFile)] }],
+  });
+  const v = judge({ newest: skipped, named: named1719, baseline: baseline1719, money: money3 });
+  assert.deepEqual(
+    v.red.map((r) => [r.step, r.money, r.why]),
+    [['J-bank-05#4', true, 'passed in run 1719, skipped now']],
+  );
+  assert.deepEqual(v.retired, ['J-bank-05#5']);
+  const failed = readReport({
+    suites: [{ file: bankFile, specs: [...bankReport(1, 2, 3).suites[0].specs, bad('J-bank-05 #5', bankFile)] }],
+  });
+  const w = judge({ newest: failed, named: named1719, baseline: baseline1719, money: money3 });
+  assert.deepEqual(
+    w.red.map((r) => [r.step, r.money, r.why]),
+    [['J-bank-05#5', true, 'failing, not in the baseline']],
+  );
+});
+
+test('a renamed or deleted journey file: judged by step, so a step still listed is red; a journey retired whole leaves with every step', () => {
+  // The file deleted while J-bank-05 is still on the list: every step it held is missing and red.
+  const gone = readReport(report(ok('J-a-01 #1')));
+  const named2 = readReport({ suites: [{ file: bankFile, specs: bankReport(1, 2).suites[0].specs }, ...report(ok('J-a-01 #1')).suites] });
+  const listed = { ...money, ...bankMoney(1, 2) };
+  assert.deepEqual(
+    judge({ newest: gone, named: named2, baseline: baseline1719, money: listed }).red.map((r) => r.step),
+    ['J-bank-05#1', 'J-bank-05#2'],
+  );
+  // Renamed: the steps run from the new file, so nothing is missing.
+  const renamed = readReport({
+    suites: [
+      { file: 'J-bank-05-abroad.pw.mjs', specs: bankReport(1, 2).suites[0].specs.map((s) => ({ ...s, file: 'J-bank-05-abroad.pw.mjs' })) },
+      ...report(ok('J-a-01 #1')).suites,
+    ],
+  });
+  assert.deepEqual(judge({ newest: renamed, named: named2, baseline: baseline1719, money: listed }).red, []);
+  // The journey retired whole: off the list with its file, so its steps are retired.
+  const v = judge({ newest: gone, named: named2, baseline: baseline1719, money });
+  assert.deepEqual(v.red, []);
+  assert.deepEqual(v.retired, ['J-bank-05#1', 'J-bank-05#2']);
+});
+
+test("the head's own list decides when the head's rule is given (the merge seal on the retiring pull request); main's alone otherwise", () => {
+  // The seal judges with main's rule and, for a pull request that changes journeys.json, the head's (journey-seal.mjs).
+  const onMain = bankMoney(1, 2, 3, 4, 5);
+  const v = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: onMain, headMoney: bankMoney(1, 2, 3) });
+  assert.deepEqual(v.red, []);
+  assert.deepEqual(v.retired, ['J-bank-05#4', 'J-bank-05#5']);
+  // A head that still lists them: red, whatever main's list says.
+  const w = judge({ newest: head10592, named: named1719, baseline: baseline1719, money: bankMoney(1, 2, 3), headMoney: onMain });
+  assert.deepEqual(
+    w.red.map((r) => r.step),
+    ['J-bank-05#4', 'J-bank-05#5'],
+  );
+});
+
+test("replay #10592 through the verdict's own run: green and naming the retired steps; red with them still on the list", () => {
+  const verdict = fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url));
+  const at = (ns) => {
+    const dir = mkdtempSync(join(tmpdir(), 'verdict-retired-'));
+    try {
+      mkdirSync(join(dir, 'docs/roadmap'), { recursive: true });
+      mkdirSync(join(dir, 'services/svc-bank'), { recursive: true });
+      mkdirSync(join(dir, 'history'));
+      writeFileSync(join(dir, 'docs/roadmap/journeys.json'), JSON.stringify(bankSteps(...ns)));
+      writeFileSync(join(dir, 'docs/roadmap/slices.json'), JSON.stringify(bankSlices));
+      writeFileSync(join(dir, 'services/svc-bank/package.json'), JSON.stringify(bankManifests.get('services/svc-bank')));
+      const f = (name, body) => (writeFileSync(join(dir, name), JSON.stringify(body)), join(dir, name));
+      const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
+      delete env.JOURNEYS_TARGET;
+      const args = [
+        verdict,
+        '--report',
+        f('report.json', bankReport(1, 2, 3)),
+        '--named-report',
+        f('named.json', bankReport(1, 2, 3, 4, 5)),
+      ];
+      args.push('--history-dir', join(dir, 'history'), '--baseline', f('baseline.json', baseline1719));
+      return spawnSync(process.execPath, args, { cwd: dir, env, encoding: 'utf8' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const retired = at([1, 2, 3]);
+  assert.equal(retired.status, 0, retired.stdout + retired.stderr);
+  assert.match(retired.stdout, /outside the list or against its rules: \*\*0\*\*/);
+  assert.match(retired.stdout, /### Retired: passed in run 1719, no longer on the journey list, missing now: 2/);
+  assert.match(retired.stdout, /^- J-bank-05#4: retired, missing now$/m);
+  assert.match(retired.stdout, /^- J-bank-05#5: retired, missing now$/m);
+  const listed = at([1, 2, 3, 4, 5]);
+  assert.equal(listed.status, 1, listed.stdout + listed.stderr);
+  assert.match(listed.stdout, /^- J-bank-05#4 \(money\): passed in run 1719, missing now$/m);
+  assert.match(listed.stdout, /^- J-bank-05#5 \(money\): passed in run 1719, missing now$/m);
+  assert.match(listed.stdout, /missing now: 0/);
 });
 
 test('a file whose tests each prove part of a step is listed as ran only when every one of them passed', () => {
@@ -1289,6 +1450,10 @@ function cli({ ref, target, priorIncomplete = false, state = 'unexpected' }) {
   const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
   delete env.GITHUB_REF;
   delete env.JOURNEYS_TARGET;
+  // Run on a beta/ pull request, CI's own GITHUB_EVENT_NAME and GITHUB_HEAD_REF would put this CLI in the beta lane, and
+  // the red it must show would be excused (#10875's Doctrine gates, 25 Nov): the test sets the run it means.
+  delete env.GITHUB_EVENT_NAME;
+  delete env.GITHUB_HEAD_REF;
   if (ref) env.GITHUB_REF = ref;
   return spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8' }).status;
 }
@@ -1647,4 +1812,271 @@ test('fetchInputs with a memo reads main history, the named run and each issue o
   assert.match(read({ ...opts, get: flaky, memo: m2, thisRun: judged(905, '2026-11-22T03:00:00Z') }).problems.join(), /HTTP 502/);
   down = false;
   assert.deepEqual(read({ ...opts, get: flaky, memo: m2, thisRun: judged(906, '2026-11-22T03:00:00Z') }).problems, []);
+});
+
+// #10704: a step whose test showed a screen the hosted beta hides is not proven from the run.
+const shown = (title, paths, f = bankFile, where = 'test') => {
+  const a = paths ? [{ type: 'beta screens', description: JSON.stringify(paths) }] : [];
+  return {
+    title,
+    file: f,
+    tests: [where === 'test' ? { status: 'expected', annotations: a } : { status: 'expected', results: [{ annotations: a }] }],
+  };
+};
+
+test("#10704: each step reads its screens from its tests' annotations, on the test or on a result; none without", () => {
+  const r = readReport({
+    suites: [
+      {
+        file: bankFile,
+        specs: [
+          shown('J-bank-05 #1', ['/money', '/trade/spot/BTC-USDT']),
+          shown('J-bank-05 #2', ['/pay'], bankFile, 'result'),
+          shown('J-bank-05 #3', null),
+        ],
+      },
+    ],
+  });
+  assert.deepEqual([...r.screens['J-bank-05#1']], ['/money', '/trade/spot/BTC-USDT']);
+  assert.deepEqual([...r.screens['J-bank-05#2']], ['/pay']);
+  assert.equal(r.screens['J-bank-05#3'], undefined);
+  assert.deepEqual([...betaScreensOf([{ annotations: [{ type: 'beta screens', description: 'not json' }] }])], []);
+});
+
+test('#10704: a step that visited a hidden path is not on the beta; one on shown rooms only, or with no page, is', () => {
+  const screens = { 'J-a-01#2': new Set(['/home', '/dex/pools']), 'J-a-01#1': new Set(['/home']), 'J-a-01#10': new Set(['/dex/pools']) };
+  const asked = [];
+  const got = notOnBeta(screens, (paths) => (asked.push(paths), paths.filter((p) => p === '/dex/pools')));
+  assert.deepEqual(asked, [['/dex/pools', '/home']], 'one call with every path');
+  assert.deepEqual(got, {
+    steps: [
+      { step: 'J-a-01#2', paths: ['/dex/pools'] },
+      { step: 'J-a-01#10', paths: ['/dex/pools'] },
+    ],
+  });
+  assert.deepEqual(
+    notOnBeta({}, () => assert.fail('no paths, no call')),
+    { steps: [] },
+  );
+});
+
+test('#10704: a beta rule that throws or gives no list is unread', () => {
+  const screens = { 'J-a-01#1': new Set(['/home']) };
+  assert.deepEqual(
+    notOnBeta(screens, () => {
+      throw new Error('Cannot find module dist/t.js\nstack');
+    }),
+    { steps: [], unread: 'Cannot find module dist/t.js' },
+  );
+  assert.equal(notOnBeta(screens, () => undefined).unread, 'the rule gave no list');
+  assert.match(
+    (() => {
+      try {
+        betaHidden(['/home'], { rule: '/nonexistent/beta-rule.mjs' });
+      } catch (e) {
+        return e.message;
+      }
+    })(),
+    /Cannot find module/,
+  );
+});
+
+test("#10704: the verdict's own run lists hidden-screen steps in notOnBeta, apart from notProven; an unread rule says so", () => {
+  const verdict = fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url));
+  const run = (rule) => {
+    const dir = mkdtempSync(join(tmpdir(), 'verdict-beta-'));
+    try {
+      mkdirSync(join(dir, 'docs/roadmap'), { recursive: true });
+      mkdirSync(join(dir, 'services/svc-bank'), { recursive: true });
+      mkdirSync(join(dir, 'history'));
+      writeFileSync(join(dir, 'docs/roadmap/journeys.json'), JSON.stringify(bankSteps(1, 2, 3)));
+      writeFileSync(join(dir, 'docs/roadmap/slices.json'), JSON.stringify(bankSlices));
+      writeFileSync(join(dir, 'services/svc-bank/package.json'), JSON.stringify(bankManifests.get('services/svc-bank')));
+      writeFileSync(join(dir, 'rule.mjs'), rule);
+      const f = (name, body) => (writeFileSync(join(dir, name), JSON.stringify(body)), join(dir, name));
+      const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
+      delete env.JOURNEYS_TARGET;
+      const report = {
+        suites: [
+          {
+            file: bankFile,
+            specs: [shown('J-bank-05 #1', ['/home']), shown('J-bank-05 #2', ['/home', '/hidden/room']), shown('J-bank-05 #3', null)],
+          },
+        ],
+      };
+      const args = [verdict, '--report', f('report.json', report), '--named-report', f('named.json', bankReport(1, 2, 3))];
+      args.push('--history-dir', join(dir, 'history'), '--baseline', f('baseline.json', baseline1719));
+      args.push('--set-aside-out', join(dir, 'set-aside.json'), '--beta-rule', join(dir, 'rule.mjs'));
+      const r = spawnSync(process.execPath, args, { cwd: dir, env, encoding: 'utf8' });
+      return { ...r, out: JSON.parse(readFileSync(join(dir, 'set-aside.json'), 'utf8')) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const hides = run(
+    "import { readFileSync } from 'node:fs'; const p = JSON.parse(readFileSync(0, 'utf8')); process.stdout.write(JSON.stringify({ hidden: p.filter((x) => x.startsWith('/hidden')) }));",
+  );
+  assert.equal(hides.status, 0, hides.stdout + hides.stderr);
+  assert.deepEqual(hides.out.notOnBeta, [{ step: 'J-bank-05#2', paths: ['/hidden/room'] }]);
+  assert.deepEqual(hides.out.notProven, [], 'apart from notProven, which a reader sends to the flaky issue');
+  assert.equal(hides.out.betaUnread, undefined);
+  assert.equal(hides.out.incomplete, undefined, 'the set-aside list itself stays complete');
+  assert.match(hides.stdout, /### On a screen the hosted beta hides: 1\n\n[^\n]*\n\n- J-bank-05#2: \/hidden\/room$/m);
+  const broken = run("throw new Error('no dist');");
+  assert.equal(broken.status, 0, 'an unread rule never turns the verdict red');
+  assert.deepEqual(broken.out.notProven, []);
+  assert.deepEqual(broken.out.notOnBeta, []);
+  assert.match(broken.out.betaUnread, /no dist|Command failed/);
+  assert.match(broken.stdout, /On a screen the hosted beta hides: unknown/);
+  assert.match(broken.stdout, /no step of this run is known to be on the beta/);
+});
+
+// The beta lane (project-state decision PRs #4060 and #4061): on a beta pull request's run, a red holds it only when it
+// is money, on the tester path, or an Order 1 step on a screen the beta shows; every other pull request, main's runs and
+// an unread beta rule judge every step as before.
+test('the beta lane: which pull requests are beta ones', () => {
+  assert.equal(BETA_GATE, 'lane');
+  assert.deepEqual([...TESTER_PATH].sort(), ['cex-spot', 'charts-desk', 'derivatives', 'home-ia', 'identity', 'portfolio', 'wallet']);
+  assert.equal(isBetaPull({ headRef: 'beta/home' }), true);
+  assert.equal(isBetaPull({ headRef: 'beta/home', headRepo: 'INTAFACED/intafaced', repo: 'INTAFACED/intafaced' }), true);
+  assert.equal(isBetaPull({ headRef: 'beta/home', headRepo: 'someone/fork', repo: 'INTAFACED/intafaced' }), false, 'a fork never');
+  for (const headRef of ['fix/beta/home', 'j/J-home-ia-01', 'main', '', undefined])
+    assert.equal(isBetaPull({ headRef }), false, String(headRef));
+});
+
+test('the beta lane: only a known non-money step off the tester path, and outside Order 1 or on a hidden screen', () => {
+  const beta = { steps: [{ step: 'J-o1-01#2', paths: ['/h'] }] };
+  const guard = {
+    'J-o2-01#1': false,
+    'J-o1-01#1': false,
+    'J-o1-01#2': false,
+    'J-identity-01#1': false,
+    'J-bank-05#1': true,
+    'J-x-01#1': false,
+  };
+  const modules = { 'J-o2-01': 'agents', 'J-o1-01': 'agents', 'J-identity-01': 'identity', 'J-bank-05': 'bank' };
+  const orders = { 'J-o2-01': 2, 'J-o1-01': 1, 'J-identity-01': 1, 'J-bank-05': 2 };
+  const lane = (over = {}) => betaLane({ beta, guard, modules, orders, ...over });
+  const off = (over) => Object.keys(guard).filter((k) => lane(over).has(k));
+  // J-o1-01#1: Order 1 on a screen the beta shows; J-identity-01: tester path; J-bank-05: money; J-x-01: unknown journey.
+  assert.deepEqual(off(), ['J-o2-01#1', 'J-o1-01#2']);
+  assert.equal(lane().has('J-o2-01#7'), false, 'a step the guard does not know is money');
+  assert.equal(
+    lane().has(testKey('J-o2-01.pw.mjs', 'starts: x')),
+    true,
+    'a test with no step title of an all-non-money journey off the path',
+  );
+  assert.equal(lane().has(testKey('J-o1-01.pw.mjs', 'starts: x')), false, 'one of an Order 1 journey gates');
+  assert.equal(lane().has(testKey('J-bank-05.pw.mjs', 'starts: x')), false, 'one of a money journey gates');
+  assert.deepEqual(off({ beta: { steps: [], unread: 'no dist' } }), [], 'an unread rule: everything gates');
+  assert.deepEqual(off({ beta: undefined }), []);
+  assert.deepEqual(off({ mode: 'full' }), [], "BETA_GATE 'full' switches it back");
+});
+
+test('the beta lane in judge: a non-money red it names is listed apart; a money red never is', () => {
+  const named = readReport(report(ok('J-a-01 #1'), ok('J-a-01 #2')));
+  const newest = readReport(report(bad('J-a-01 #1'), bad('J-a-01 #2')));
+  const money = { 'J-a-01#1': false, 'J-a-01#2': true };
+  const v = judge({ newest, named, baseline: { run: { number: 1 }, steps: [] }, money, offBeta: new Set(['J-a-01#1', 'J-a-01#2']) });
+  assert.deepEqual(
+    v.red.map((r) => r.step),
+    ['J-a-01#2'],
+    'the money step still gates, even if named',
+  );
+  assert.deepEqual(v.offBeta, [{ step: 'J-a-01#1', why: 'failing, not in the baseline', money: false }]);
+  const none = judge({ newest, named, baseline: { run: { number: 1 }, steps: [] }, money });
+  assert.deepEqual(
+    none.red.map((r) => r.step),
+    ['J-a-01#1', 'J-a-01#2'],
+    'without the lane both are red',
+  );
+});
+
+test('the beta lane, planted faults through the verdict itself: outside the beta holds nothing; money, tester path, Order 1 shown, other branches, main and an unread rule hold', () => {
+  const verdict = fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url));
+  const journeys = [
+    { id: 'J-algo-dev-01', module: 'algo-dev', order: 2, steps: [{ n: 1, slices: ['AD-01'] }] },
+    { id: 'J-agents-01', module: 'agents', order: 1, steps: [{ n: 1, slices: ['AG-01'] }] },
+    { id: 'J-identity-01', module: 'identity', order: 1, steps: [{ n: 1, slices: ['ID-01'] }] },
+    ...bankSteps(1).map((j) => ({ ...j, order: 1 })),
+  ];
+  const slices = [
+    { id: 'AD-01', touches: ['customer: algo'] },
+    { id: 'AG-01', touches: ['customer: agents'] },
+    { id: 'ID-01', touches: ['customer: identity'] },
+    ...bankSlices,
+  ];
+  const hides =
+    "import { readFileSync } from 'node:fs'; const p = JSON.parse(readFileSync(0, 'utf8')); process.stdout.write(JSON.stringify({ hidden: p.filter((x) => x.startsWith('/hidden')) }));";
+  const step = (title, file, status, paths) => ({
+    title,
+    file,
+    tests: [{ status, annotations: [{ type: 'beta screens', description: JSON.stringify(paths) }] }],
+  });
+  const run = ({ fail, paths = ['/home'], rule = hides, branch = 'beta/home', event = 'pull_request', ref }) => {
+    const dir = mkdtempSync(join(tmpdir(), 'verdict-lane-'));
+    try {
+      mkdirSync(join(dir, 'docs/roadmap'), { recursive: true });
+      mkdirSync(join(dir, 'services/svc-bank'), { recursive: true });
+      mkdirSync(join(dir, 'history'));
+      writeFileSync(join(dir, 'docs/roadmap/journeys.json'), JSON.stringify(journeys));
+      writeFileSync(join(dir, 'docs/roadmap/slices.json'), JSON.stringify(slices));
+      writeFileSync(join(dir, 'services/svc-bank/package.json'), JSON.stringify(bankManifests.get('services/svc-bank')));
+      writeFileSync(join(dir, 'rule.mjs'), rule);
+      const f = (name, body) => (writeFileSync(join(dir, name), JSON.stringify(body)), join(dir, name));
+      const all = [
+        ['J-algo-dev-01 #1', 'J-algo-dev-01.pw.mjs'],
+        ['J-agents-01 #1', 'J-agents-01.pw.mjs'],
+        ['J-identity-01 #1', 'J-identity-01.pw.mjs'],
+        ['J-bank-05 #1', bankFile],
+      ];
+      const rep = (failing) => ({
+        suites: all.map(([title, file]) => ({
+          file,
+          specs: [step(title, file, title === failing ? 'unexpected' : 'expected', title === failing ? paths : ['/home'])],
+        })),
+      });
+      const env = { ...process.env, GITHUB_STEP_SUMMARY: '', GITHUB_EVENT_NAME: event, GITHUB_HEAD_REF: branch };
+      delete env.JOURNEYS_TARGET;
+      delete env.GITHUB_REF;
+      if (ref) env.GITHUB_REF = ref;
+      const args = [verdict, '--report', f('report.json', rep(fail)), '--named-report', f('named.json', rep(null))];
+      args.push('--history-dir', join(dir, 'history'), '--baseline', f('baseline.json', baseline1719));
+      args.push('--set-aside-out', join(dir, 'set-aside.json'), '--beta-rule', join(dir, 'rule.mjs'));
+      const r = spawnSync(process.execPath, args, { cwd: dir, env, encoding: 'utf8' });
+      return { ...r, out: JSON.parse(readFileSync(join(dir, 'set-aside.json'), 'utf8')) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const outside = run({ fail: 'J-algo-dev-01 #1' });
+  assert.equal(outside.status, 0, `an Order 2 non-money step's red holds no beta pull request: ${outside.stdout}${outside.stderr}`);
+  assert.match(
+    outside.stdout,
+    /### Outside the beta's own journeys, not holding this beta pull request: 1\n\n[^\n]*\n\n- J-algo-dev-01#1: failing, not in the baseline$/m,
+    'still listed',
+  );
+  const hiddenO1 = run({ fail: 'J-agents-01 #1', paths: ['/hidden/room'] });
+  assert.equal(hiddenO1.status, 0, 'an Order 1 non-money step on a hidden screen holds nothing');
+  assert.deepEqual(hiddenO1.out.notOnBeta, [{ step: 'J-agents-01#1', paths: ['/hidden/room'] }], 'and is still not proven');
+  assert.equal(run({ fail: 'J-agents-01 #1' }).status, 1, 'an Order 1 step on a screen the beta shows blocks');
+  const tester = run({ fail: 'J-identity-01 #1', paths: ['/hidden/room'] });
+  assert.equal(tester.status, 1, 'a failing tester-path (sign-in) step blocks, even on a hidden screen');
+  assert.match(tester.stdout, /^- J-identity-01#1: failing, not in the baseline$/m);
+  const moneyShown = run({ fail: 'J-bank-05 #1' });
+  assert.equal(moneyShown.status, 1, 'a failing money step on a beta screen blocks');
+  assert.match(moneyShown.stdout, /^- J-bank-05#1 \(money\): failing, not in the baseline$/m);
+  assert.equal(run({ fail: 'J-bank-05 #1', paths: ['/hidden/room'] }).status, 1, 'a failing money step on a hidden screen blocks too');
+  const unread = run({ fail: 'J-algo-dev-01 #1', rule: "throw new Error('no dist');" });
+  assert.equal(unread.status, 1, 'an unread beta rule: everything gates as before');
+  assert.match(unread.out.betaUnread, /no dist|Command failed/);
+  assert.equal(run({ fail: 'J-algo-dev-01 #1', branch: 'fix/10883' }).status, 1, 'a pull request off a beta branch is judged as before');
+  assert.equal(run({ fail: 'J-algo-dev-01 #1', event: 'workflow_dispatch' }).status, 1, 'a run by hand is judged as before');
+  const main = run({ fail: 'J-algo-dev-01 #1', ref: 'refs/heads/main', event: 'push', branch: '' });
+  assert.equal(main.status, 1, "main's own run judges every step as before");
+  assert.deepEqual(
+    [main.out.notOnBeta, main.out.notProven],
+    [outside.out.notOnBeta, outside.out.notProven],
+    'what the proof count reads is the same with the lane and without it',
+  );
 });

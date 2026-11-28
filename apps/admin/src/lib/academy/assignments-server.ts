@@ -6,7 +6,6 @@ import {
   academyWithdrawAssignmentInputSchema,
 } from '@intafaced/contracts/academy-courses';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -16,7 +15,12 @@ import {
   founderRecordRead,
 } from '@/lib/desk';
 import type { AcademyAdminAssignment, AssignmentDeskReply, AssignmentView } from './assignments-model';
-import { ACADEMY_ADMIN_ASSIGNMENT } from '@intafaced/contracts/academy-admin-records';
+import {
+  ACADEMY_ADMIN_ASSIGNMENT,
+  ACADEMY_ADMIN_SAVE_ASSIGNMENT,
+  ACADEMY_ADMIN_SAVE_REVIEW_STEPS,
+  ACADEMY_ADMIN_WITHDRAW_ASSIGNMENT,
+} from '@intafaced/contracts/academy-admin-records';
 
 /**
  * An assignment's brief as the signed-in founder (AC-assignments-01). svc-academy keeps the revision and records the
@@ -62,19 +66,19 @@ function reply(result: FounderCallResult<AcademyAdminAssignment | null>, what: s
 const OPS = {
   save: {
     schema: academySaveAssignmentInputSchema,
-    procedure: 'admin.saveAssignment',
+    record: ACADEMY_ADMIN_SAVE_ASSIGNMENT,
     what: 'assignment saved',
     why: 'An assignment needs instructions, points above zero with at most two decimals, and a text answer, a file or both.',
   },
   saveReview: {
     schema: academySaveReviewStepsInputSchema,
-    procedure: 'admin.saveReviewSteps',
+    record: ACADEMY_ADMIN_SAVE_REVIEW_STEPS,
     what: 'review steps saved',
     why: 'Review steps need a count from 1 to 20 (or blank), and each criterion a name and 2 to 10 rising levels such as 0, 1, 2.',
   },
   withdraw: {
     schema: academyWithdrawAssignmentInputSchema,
-    procedure: 'admin.withdrawAssignment',
+    record: ACADEMY_ADMIN_WITHDRAW_ASSIGNMENT,
     what: 'assignment withdrawn',
     why: 'Which assignment, and why withdraw it? Say why in up to 500 characters.',
   },
@@ -92,5 +96,5 @@ export async function changeAssignment(
   const { op: _op, ...input } = body;
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: spec.why };
-  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readAssignment), spec.what);
+  return reply(await founderRecordRead(ctx, spec.record, parsed.data, readAssignment), spec.what);
 }

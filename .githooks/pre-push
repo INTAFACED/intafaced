@@ -1,17 +1,23 @@
 #!/bin/sh
 #
 # Refuse a direct push to main, and run before a push only the cheap checks whose failure would cost a CI round trip:
-# the lint ratchet on the pushed files, and, when the push changes a journey file, the tooling tests that read every
-# journey file and the merge seal's title rule; and the CI review's size count. Each takes seconds. Formatting is
-# checked by .githooks/pre-commit on every commit and by CI's Format job.
+# the lint ratchet on the pushed files; CI's checks on the changed files (tooling/scripts/pre-push-changed.mjs: format,
+# dead code, and each generated or recorded file whose inputs the push changed, re-checked: the procedure registries, the
+# Volt count, the recorded calls, the ui tokens, the ops-desk catalog and the render record of the parts the change most
+# likely redraws); the wire replay of each changed service; when the push changes a journey file, the tooling tests that
+# read every journey file and the merge seal's title rule; a journey branch's re-push after a red run of its own journey
+# files, which needs a local PASS of them (pre-push-journey-red.mjs); and the CI review's size count. Formatting is also checked by
+# .githooks/pre-commit on every commit (CI has none since project-state#3912).
 #
-# Everything heavier runs on GitHub only, as in pingdotgg/t3code (one pre-commit hook, no pre-push hook, CI the rest):
-# the Doctrine gates (CI's Fast gates job names a red one about two minutes after the push; the Doctrine gates job runs
-# them all again and blocks the merge), the cross-package read scan (both gate jobs), the typecheck (Typecheck & build),
-# the unit tests (Tests) and rust:check (Rust, which runs format, clippy and the unit tests first). Until 22 Nov the hook
-# ran those here too: on the Mac CI once took 13 to 91 minutes, and the hook spared a round trip. On GitHub a job now
-# waits about a second for a runner, while the box ran a typical push's checks in 7 min 15 s at load 111, most of its
-# CPU spent repeating CI (project-state #3676).
+# The changed-file checks are t3code's `check:changed` ("Before you push, run `vp run check:changed`. It runs CI's fast
+# checks for changed files", pingdotgg/t3code@e414cfd AGENTS.md:103), on Nino's word of 23 Nov 2026 (project-state#3859):
+# after #9599 took the pre-push checks out, non-Volt first pushes passing CI fell from 81% to 59%, most of the fall stale
+# generated files and dead code (weed project-state#3754).
+#
+# Everything heavier runs on GitHub only: the Doctrine gates (CI's Doctrine gates job, which blocks the merge), the
+# cross-package read scan (the same job), the typecheck (Typecheck & build), the unit tests (Tests) and rust:check (Rust, which runs format, clippy and the
+# unit tests first). Until 22 Nov the hook ran those here too: the box ran a typical push's checks in 7 min 15 s at load
+# 111, most of its CPU spent repeating CI (project-state #3676).
 #
 # Every refusal is named in one run: a check that fails is recorded, the rest still run, and the push is refused at the
 # end with the whole list (project-state#3035: a second push spent on a refusal the first run never reached).
@@ -65,6 +71,20 @@ MESSAGE
   fi
 done < "$PUSHED"
 
+# A notice, never a refusal: CI still running on the head this push replaces (tooling/scripts/pre-push-ci-running.mjs,
+# project-state#3754). It runs beside the checks and prints at the end; offline or without gh it prints nothing.
+CI_NOTE=$(mktemp)
+if [ -f "$TOP/tooling/scripts/pre-push-ci-running.mjs" ]; then
+  # shellcheck disable=SC2046 # one sha per word
+  (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-ci-running.mjs $(awk '{print $4}' "$PUSHED")) </dev/null > "$CI_NOTE" 2>/dev/null &
+  NOTE_PID=$!
+fi
+ci_note() {
+  [ -n "${NOTE_PID:-}" ] && wait "$NOTE_PID"
+  cat "$CI_NOTE"
+  rm -f "$CI_NOTE"
+}
+
 # A push that brings nothing of its own skips every check below: main's commits were judged by main's CI, and a clean
 # merge adds only them. On 22 Nov moving seven volt/* layer branches to main took over 30 minutes, every push a full run
 # of the checks (3 min 16 s for one fast-forward). Judged from git alone, commit by commit down from the pushed tip:
@@ -103,6 +123,7 @@ done < "$PUSHED"
 if [ "$NOTHING_NEW" = yes ]; then
   echo "pre-push: this push adds nothing beyond origin/main and what the remote already holds; the checks are skipped."
   rm -f "$PUSHED"
+  ci_note
   exit 0
 fi
 
@@ -120,6 +141,42 @@ if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
   done < "$PUSHED" > "$SIZE_OUT" 2>&1 &
   SIZE_PID=$!
 fi
+
+# CI's checks on the changed files (tooling/scripts/pre-push-changed.mjs): format, dead code, and each generated or
+# recorded file whose inputs changed, each refusal with the command that fixes it, under a time limit that prints TIMEOUT
+# and lets the push go. It runs beside the checks below, its output held and printed after them; its turbo build waits
+# for the wire replay's to finish (--build-after), so two builds never write the same packages at once.
+CHANGED_OUT=$(mktemp)
+CHANGED_REFUSED=$(mktemp)
+BUILD_GATE="$CHANGED_OUT.wire-replay-done"
+if [ -f "$TOP/tooling/scripts/pre-push-changed.mjs" ]; then
+  ( (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-changed.mjs --refusals "$CHANGED_REFUSED" --build-after "$BUILD_GATE") </dev/null > "$CHANGED_OUT" 2>&1 ||
+    { [ -s "$CHANGED_REFUSED" ] || echo "changed-file checks" > "$CHANGED_REFUSED"; } ) &
+  CHANGED_PID=$!
+fi
+
+# A journey branch (j/...) pushed again after its previous head's journeys run failed one of its own journey files goes
+# only with a local PASS of those files on the tree pushed (tooling/scripts/pre-push-journey-red.mjs, project-state#4140:
+# 21 of 61 journey pushes on 28 Nov were fixes a 2–8 minute local run would have caught, each a 18–35 minute CI round).
+# It passes through, with one line, on what it can't judge (the Mac, GitHub unreadable, no free local slot). Only a
+# re-push of a j/ branch starts it; it runs beside the checks below, its output held and printed after them.
+JRED_OUT=$(mktemp)
+JRED_REFUSED=$(mktemp)
+if [ -f "$TOP/tooling/scripts/pre-push-journey-red.mjs" ] &&
+  awk '$3 ~ /^refs\/heads\/j\// && $4 !~ /^0+$/ { found = 1 } END { exit !found }' "$PUSHED"; then
+  ( (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-journey-red.mjs) < "$PUSHED" > "$JRED_OUT" 2>&1 ||
+    echo "journey re-push without a local PASS" > "$JRED_REFUSED" ) &
+  JRED_PID=$!
+fi
+
+# The wire replay of each service this push changes that keeps one (tooling/scripts/pre-push-wire-replay.mjs, under a time
+# limit that prints TIMEOUT and lets the push go; skipped when the push changes a shared package, so the packages it reads
+# come from turbo's cache and nothing builds here). A new route its recording lacked was otherwise first seen as a red
+# Tests job minutes after the push, then a second push with the recording rewritten (#9297 and #9519, project-state#3682).
+if [ -f "$TOP/tooling/scripts/pre-push-wire-replay.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-wire-replay.mjs) </dev/null; then
+  refuse 'wire replay'
+fi
+: > "$BUILD_GATE"
 
 # The tooling tests that read every journey file, when this push changes one. They take under a second together, and a
 # journey file that breaks one is otherwise first seen as a red Doctrine gates job minutes after the push (J-merchant-01
@@ -169,20 +226,23 @@ MSG
   fi
 fi
 
-# The wire replay of each service this push changes that keeps one (tooling/scripts/pre-push-wire-replay.mjs, under a time
-# limit that prints TIMEOUT and lets the push go; skipped when the push changes a shared package, so the packages it reads
-# come from turbo's cache and nothing builds here). A new route its recording lacked was otherwise first seen as a red
-# Tests job minutes after the push, then a second push with the recording rewritten (#9297 and #9519, project-state#3682).
-if [ -f "$TOP/tooling/scripts/pre-push-wire-replay.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-wire-replay.mjs) </dev/null; then
-  refuse 'wire replay'
+if [ -n "${CHANGED_PID:-}" ]; then
+  wait "$CHANGED_PID"
+  cat "$CHANGED_OUT"
+  while read -r line; do refuse "$line"; done < "$CHANGED_REFUSED"
 fi
-
 if [ -n "${SIZE_PID:-}" ]; then
   wait "$SIZE_PID"
   cat "$SIZE_OUT"
   while read -r line; do refuse "$line"; done < "$SIZE_REFUSED"
 fi
-rm -f "$PUSHED" "$SIZE_OUT" "$SIZE_REFUSED"
+if [ -n "${JRED_PID:-}" ]; then
+  wait "$JRED_PID"
+  cat "$JRED_OUT"
+  while read -r line; do refuse "$line"; done < "$JRED_REFUSED"
+fi
+rm -f "$PUSHED" "$SIZE_OUT" "$SIZE_REFUSED" "$CHANGED_OUT" "$CHANGED_REFUSED" "$BUILD_GATE" "$JRED_OUT" "$JRED_REFUSED"
+ci_note
 
 if [ -n "$REFUSED" ]; then
   echo >&2

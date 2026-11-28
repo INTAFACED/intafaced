@@ -2,10 +2,20 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, journeyState, toUnits } from './stack.mjs';
+import { api, fromUnits as fromScaled, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { testWalletKey, installTestWallet } from './test-wallet.mjs';
-import { continueInWallet, otherTraderKey, otherTraderRun, testDeposit, venueBalance, venueForThisFile, venueInfo } from './venue.mjs';
+import {
+  continueInWallet,
+  otherTraderKey,
+  otherTraderRun,
+  sameDecimal,
+  testDeposit,
+  venueBalance,
+  venueForThisFile,
+  venueInfo,
+  venueRecord,
+} from './venue.mjs';
 import { ownSpotMarket } from './own-market.mjs';
 import { signedOnVenue, venueNow } from './venue-door.mjs';
 import { venueStatus } from './venue-reads.mjs';
@@ -105,6 +115,22 @@ async function openManage(page, { newest = false } = {}) {
   return box;
 }
 
+const SCALE = toUnits('1');
+const EPOCH = new Date(0).toISOString();
+
+/** The person's own venue account as the TEST venue itself records it: balances, resting orders and every fill. */
+async function onVenue(owner) {
+  const [balances, open, fills] = await Promise.all([
+    venueRecord(owner, '/balances'),
+    venueRecord(owner, '/open-orders'),
+    venueRecord(owner, '/fills', { since: EPOCH }),
+  ]);
+  return { balances: balances.value, open: open.value, fills: fills.value };
+}
+
+/** The TEST venue's own best bid and ask on `symbol`, read straight from it. */
+const bestOnVenue = async (owner, symbol) => (await venueRecord(owner, '/best-prices', { symbol })).value;
+
 /** A day goes by for the rule: its next slot is due, and the tick runs it. Waits until the rule has `slots` slots. */
 async function nextSlot(ruleId, slots) {
   await ageRecord('trade', 'recurring-buy', ruleId, DAY);
@@ -145,6 +171,11 @@ test(`${J} starts: signed in, verified, a TEST wallet with TEST USDC in its own 
 });
 
 test(`${J} #1 opens the recurring buy form from a coin page: a basket editor with weights, frequency and price range`, async ({ page }) => {
+  const owner = state('owner');
+  const before = await onVenue(owner);
+  // The account the form will trade on is the person's own: the TEST venue records their 100 USDC, nothing resting.
+  expect(toUnits(before.balances.find((b) => b.asset === 'USDC')?.free ?? '0')).toBe(toUnits('100'));
+  expect(before.open).toEqual([]);
   const box = await openCoin(page);
   // The page's coin is the basket's first row.
   await expect(box.getByLabel('Coin 1', { exact: true })).toHaveValue('BTC-USDC');
@@ -154,6 +185,8 @@ test(`${J} #1 opens the recurring buy form from a coin page: a basket editor wit
   await expect(box.getByLabel('Highest price 1', { exact: true })).toBeVisible();
   await expect(box.getByRole('button', { name: 'Add a coin', exact: true })).toBeVisible();
   await expect(box.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  // Opening the form sends nothing to the venue: its record of the account is as it was.
+  expect(await onVenue(owner)).toEqual(before);
 });
 
 test(`${J} #2 enters weights that total 90 and a price range with min above max: each refused naming the problem; a 50, 30, 20 basket saves`, async ({
@@ -219,6 +252,7 @@ test(`${J} #4 chooses card funding: the notice that card funding needs the card 
   page,
 }) => {
   const before = (await rules(state('who'))).map((r) => r.ruleId);
+  const venueBefore = await onVenue(state('owner'));
   const box = await openCoin(page);
   await box.getByRole('radio', { name: 'Card', exact: true }).check();
   await expect(
@@ -240,6 +274,8 @@ test(`${J} #4 chooses card funding: the notice that card funding needs the card 
   });
   expect(sent.body?.error?.data?.cause?.code).toBe('trade.recurring_card_funding_off');
   expect((await rules(state('who'))).map((r) => r.ruleId)).toEqual(before);
+  // Nothing reached the venue on that path: no order, no fill, the same free USDC, as the TEST venue records it.
+  expect(await onVenue(state('owner'))).toEqual(venueBefore);
 });
 
 test(`${J} #5 changes the amount from 10 to 20: the next slot buys 20 and earlier slots are unchanged`, async ({ page }) => {
@@ -338,10 +374,13 @@ test(`${J} #7 leaves max investment blank and later terminates: no auto-close an
 
 test(`${J} #8 opens the share page: cost always shown; value reads "Not set" without a mark feed; the profit percentage appears with a feed; the share sheet makes no server write`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const who = state('who');
   const markets = state('markets');
+  const owner = state('owner');
+  const seen = new Set((await onVenue(owner)).fills.map((f) => f.fillId));
   // A running rule to share: one buy of 10 across the basket, made through the service (the form is #2's).
   const made = await (
     await api(who)
@@ -357,6 +396,15 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
   const ruleId = made.body.result.data.ruleId;
   run.write({ shareRuleId: ruleId });
   await expect.poll(async () => (await rule(who, ruleId)).slots.filter((s) => s.outcome === 'bought').length).toBe(1);
+  // The rule's cost and holdings come from the venue's own fills of its first buy: one per coin, new since this step began.
+  const fills = (await onVenue(owner)).fills.filter((f) => !seen.has(f.fillId));
+  expect(fills.map((f) => [f.symbol, f.side]).sort()).toEqual(markets.map((m) => [m.symbol, 'buy']).sort());
+  const base = new Map(markets.map((m) => [m.symbol, m.base]));
+  const feeOf = (f) => toUnits(f.venueFee) + toUnits(f.builderFee);
+  const venueCost = fromScaled(
+    fills.reduce((sum, f) => sum + (toUnits(f.price) * toUnits(f.amount)) / SCALE + (f.feeAsset === 'USDC' ? feeOf(f) : 0n), 0n),
+  );
+  const held = new Map(fills.map((f) => [f.symbol, toUnits(f.amount) - (f.feeAsset === base.get(f.symbol) ? feeOf(f) : 0n)]));
 
   // No mark on one coin: the maker's bid on it is pulled, so the venue has no mid to price it by.
   await otherTraderRun(MAKER, {
@@ -369,8 +417,11 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
   await signIn(page, who);
   writes.length = 0;
   await page.goto(`/trade/bots/dca?share=${encodeURIComponent(ruleId)}`);
-  const card = page.getByRole('region', { name: 'Recurring buy result' });
+  const card = page.getByRole('region', { name: 'Recurring buy result', exact: true });
   await expect(card).toContainText(/Cost\s*10 USDC/);
+  expect(sameDecimal(venueCost, '10'), `the venue's fills cost ${venueCost}`).toBe(true);
+  // The venue itself has no bid on that coin, so no mid: the value is not guessed.
+  expect((await bestOnVenue(owner, markets[1].symbol)).bid).toBeNull();
   await expect(card).toContainText(/Value\s*Not set/);
   await expect(card).not.toContainText('Profit');
 
@@ -379,19 +430,42 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
   const priced = await rule(who, ruleId);
   expect(priced.result.cost).toBe('10');
   expect(priced.result.value).not.toBeNull();
+  // The value is what the fills put on the account, each coin at the venue's own mid of its best bid and ask.
+  let venueValue = 0n;
+  for (const m of markets) {
+    const { bid, ask } = await bestOnVenue(owner, m.symbol);
+    expect(
+      [bid, ask].every((p) => p !== null),
+      `the venue prices ${m.symbol} again`,
+    ).toBe(true);
+    venueValue += (held.get(m.symbol) * ((toUnits(bid) + toUnits(ask)) / 2n)) / SCALE;
+  }
+  expect(
+    sameDecimal(priced.result.value, fromScaled(venueValue)),
+    `value ${priced.result.value}, the venue's ${fromScaled(venueValue)}`,
+  ).toBe(true);
+  // The profit percentage is the value's gain on the cost, to the cent of a percent: (value - 10) / 10 * 100.
+  expect(priced.result.profitPct).not.toBeNull();
+  const gain = (venueValue - toUnits('10')) * 10n;
+  const off = toUnits(priced.result.profitPct) - gain;
+  expect(off < toUnits('0.01') && off > -toUnits('0.01'), `profit ${priced.result.profitPct}%, the venue's ${fromScaled(gain)}%`).toBe(
+    true,
+  );
+  const exact = (v) => v.replace(/[.-]/g, '\\$&');
   await page.reload();
   await expect(card).toContainText(/Cost\s*10 USDC/);
-  await expect(card).toContainText(new RegExp(`Value\\s*${priced.result.value.replace('.', '\\.')}`));
-  await expect(card).toContainText(/Profit\s*-?[0-9.]+%/);
+  await expect(card).toContainText(new RegExp(`Value\\s*${exact(priced.result.value)} USDC`));
+  await expect(card).toContainText(new RegExp(`Profit\\s*${exact(priced.result.profitPct)}%`));
 
   // The share sheet only offers the words to copy: no write leaves the page from opening it on (the reload above may
   // refresh the session, which is the sign-in's own write, not the sheet's).
   writes.length = 0;
   await page.getByRole('button', { name: 'Share', exact: true }).click();
-  const sheet = page.getByRole('dialog', { name: 'Share your result' });
+  const sheet = page.getByRole('dialog', { name: 'Share your result', exact: true });
   await expect(sheet.getByTestId('recurring-share-text')).toContainText('Cost 10 USDC');
-  await expect(sheet.getByTestId('recurring-share-text')).toContainText('Profit');
+  await expect(sheet.getByTestId('recurring-share-text')).toContainText(`Profit ${priced.result.profitPct}%`);
   expect(writes).toEqual([]);
+  await stepPicture();
 });
 
 // Last on purpose: #3 is not built and fails at its first missing part, and a failed test starts a new worker for what
@@ -402,6 +476,11 @@ test(`${J} #3 sets a target savings pool: each run routes the bought asset to fl
   const box = await openManage(page, { newest: true });
   await box.getByLabel('Send what I buy to', { exact: true }).selectOption('Flexible savings', UNBUILT);
   await box.getByRole('button', { name: 'Save', exact: true }).click();
+  const coins = state('markets').map((m) => m.base);
+  const held = async () => Promise.all(coins.map(async (c) => (await venueBalance(state('owner'), c)).total));
+  const before = await held();
   const routed = await nextSlot(ruleId, 2);
   expect(routed.slots.at(-1).savingsKey).toMatch(new RegExp(`^recurring:${ruleId}:`));
+  // Routed to savings, what the run bought leaves the venue account: the TEST venue holds no more of each coin than before.
+  expect(await held()).toEqual(before);
 });

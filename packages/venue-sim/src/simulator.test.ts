@@ -662,9 +662,27 @@ describe('TEST venue simulator: review regressions', () => {
     w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:r9b');
     const sell = await w.run(w.wallet, w.trader, order('BTC-USDC', 'sell', '60000', '0.01', 'order:t:r9s'));
     await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60100', '0.01', 'order:t:r9b'));
-    expect((await w.sim.orderByClientId(w.trader, sell.prepared.venueClientOrderId!)).value?.status).toBe('canceled');
+    const cancelled = (await w.sim.orderByClientId(w.trader, sell.prepared.venueClientOrderId!)).value;
+    expect(cancelled?.status).toBe('canceled');
+    // The venue says why: its self-trade rule, so the orders room can name it (J-derivatives-04 #7).
+    expect(cancelled?.cancelReason).toBe('self_trade');
     expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
     expect(balanceOf((await w.sim.balances(w.trader)).value, 'BTC')).toMatchObject({ free: a('1'), locked: ZERO });
+  });
+
+  it('on a perpetual, an opening order that crosses only its own resting opening order cancels it (self-trade) and rests; one that does not cross it is still refused', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:stp');
+    await w.run(w.wallet, w.trader, tenX);
+    const short = await w.run(w.wallet, w.trader, perp('sell', '70000', '0.01', 'order:t:stp-s'));
+    const apart = await w.run(w.wallet, w.trader, perp('buy', '69000', '0.01', 'order:t:stp-apart'));
+    expect(apart.outcome).toMatchObject({ accepted: false });
+    const long = await w.run(w.wallet, w.trader, perp('buy', '70000', '0.01', 'order:t:stp-l'));
+    expect(long.outcome).toMatchObject({ accepted: true });
+    const cancelled = (await w.sim.orderByClientId(w.trader, short.prepared.venueClientOrderId!)).value;
+    expect(cancelled).toMatchObject({ status: 'canceled', cancelReason: 'self_trade' });
+    expect((await w.sim.orderByClientId(w.trader, long.prepared.venueClientOrderId!)).value?.status).toBe('open');
+    expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
   });
 
   it('an isolated loss stops at the margin released', async () => {
@@ -722,9 +740,34 @@ describe('TEST venue simulator: review regressions', () => {
     expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, perp('sell', '61000', '0.1', 'order:t:r5r', { reduceOnly: true })))).toBe(
       'not_offered',
     );
-    const flip = await w.run(w.wallet, w.trader, perp('sell', '60000', '0.2', 'order:t:r5f'));
-    expect(flip.outcome.definite && !flip.outcome.accepted && flip.outcome.refusal.code).toBe('not_offered');
     expect((await w.sim.positions(w.trader)).value.map((p) => [p.side, p.size])).toEqual([['long', a('0.1')]]);
+  });
+
+  it('an opening order against a position nets through zero: one fill closes it and opens the other side, the fee split by amount', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r8');
+    w.sim.deposit(w.other, 'USDC', a('100000'), 'chain:o:r8');
+    await w.run(w.wallet, w.trader, tenX);
+    await w.run(w.otherWallet, w.other, tenX);
+    await w.run(w.otherWallet, w.other, perp('sell', '60000', '0.1', 'order:o:r8'));
+    await w.run(w.wallet, w.trader, perp('buy', '60000', '0.1', 'order:t:r8'));
+    // Both flip on one fill: the other's resting buy of 0.3 turns its short long, the trader's sell of 0.3 its long short.
+    const makerFlip = await w.run(w.otherWallet, w.other, perp('buy', '61000', '0.3', 'order:o:r8f'));
+    const before = balanceOf((await w.sim.balances(w.trader)).value, 'USDC').total;
+    const takerFlip = await w.run(w.wallet, w.trader, perp('sell', '61000', '0.3', 'order:t:r8f', { timeInForce: 'IOC' }));
+    expect((await w.sim.positions(w.trader)).value.map((p) => [p.side, p.size, p.entryPrice])).toEqual([['short', a('0.2'), a('61000')]]);
+    expect((await w.sim.positions(w.other)).value.map((p) => [p.side, p.size, p.entryPrice])).toEqual([['long', a('0.2'), a('61000')]]);
+    const [fill] = (await w.sim.fills(w.trader, new Date(0))).value.filter(
+      (f) => f.venueClientOrderId === takerFlip.prepared.venueClientOrderId,
+    );
+    expect(fill).toMatchObject({ side: 'sell', amount: a('0.3'), price: a('61000'), realisedPnl: a('100') });
+    const [makerFill] = (await w.sim.fills(w.other, new Date(0))).value.filter(
+      (f) => f.venueClientOrderId === makerFlip.prepared.venueClientOrderId,
+    );
+    expect(makerFill?.realisedPnl).toBe(a('-100'));
+    // The account's total moves by the closed part's result less the whole fill's fee; the new short's margin stays in it.
+    const after = balanceOf((await w.sim.balances(w.trader)).value, 'USDC').total;
+    expect(after).toBe(sub(add(before, a('100')), add(fill!.venueFee, fill!.builderFee)));
   });
 
   it('nonces keep rising when the clock stands still', async () => {
@@ -1063,5 +1106,149 @@ describe('TEST venue simulator: council round 3 follow-ups', () => {
     await expect(w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') })).rejects.toThrow(
       /TEST simulator invariant/,
     );
+  });
+});
+
+describe('TEST venue simulator: candles depth, since filter and seeded history', () => {
+  it('filters candles by since and returns up to 720 bars from seeded prints', async () => {
+    const w = world();
+    // Clock starts at 2026-11-08T12:00:00Z; seed 300 one-minute prints ending 1 minute ago.
+    const baseMs = Date.UTC(2026, 10, 8, 7, 0, 0);
+    const entries = Array.from({ length: 300 }, (_, i) => ({
+      price: a(String(50000 + i)),
+      amount: a('0.01'),
+      takerSide: 'buy' as const,
+      tradedAt: new Date(baseMs + i * 60_000),
+    }));
+    const added = w.sim.testSeedPrints('BTC-USDC', entries);
+    expect(added).toBe(300);
+
+    const all = (await w.sim.candles('BTC-USDC', '1m', 720)).value;
+    expect(all.length).toBe(300);
+    expect(all[0]!.openPrice).toBe(a('50000'));
+    expect(all[all.length - 1]!.closePrice).toBe(a('50299'));
+
+    const since = new Date(baseMs + 250 * 60_000);
+    const tail = (await w.sim.candles('BTC-USDC', '1m', { limit: 720, since })).value;
+    expect(tail.length).toBe(50);
+    expect(tail[0]!.openAt.getTime()).toBe(since.getTime());
+    expect(tail[0]!.openPrice).toBe(a('50250'));
+  });
+
+  it('refuses future timestamps and non-positive values in testSeedPrints', () => {
+    const w = world();
+    const future = new Date(Date.UTC(2026, 10, 8, 12, 5, 0));
+    expect(() => w.sim.testSeedPrints('BTC-USDC', [{ price: a('60000'), amount: a('0.01'), takerSide: 'buy', tradedAt: future }])).toThrow(
+      /future/,
+    );
+    expect(() =>
+      w.sim.testSeedPrints('BTC-USDC', [
+        { price: a('0'), amount: a('0.01'), takerSide: 'buy', tradedAt: new Date(Date.UTC(2026, 10, 8, 11, 0, 0)) },
+      ]),
+    ).toThrow(/above zero/);
+    expect(() =>
+      w.sim.testSeedPrints('BTC-USDC', [
+        { price: a('60000'), amount: a('-1'), takerSide: 'sell', tradedAt: new Date(Date.UTC(2026, 10, 8, 11, 0, 0)) },
+      ]),
+    ).toThrow(/above zero/);
+  });
+});
+
+describe('TEST venue simulator: market state guards & book sequence (J-cex-spot-14 #3-#8)', () => {
+  it('enforces limit_only, closed spot session, opening window, higher-risk zone + cap, and monotonic book sequence', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:j14');
+    w.sim.deposit(w.other, 'BTC', a('2'), 'chain:o:j14');
+
+    // Sequence starts at >= 0 and bumps monotonically on resting place, cancel, and fill.
+    const seq0 = (await w.sim.book('BTC-USDC', 5)).value.sequence ?? -1;
+    expect(seq0).toBeGreaterThanOrEqual(0);
+    await w.run(w.trader ? w.wallet : w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:seq1'));
+    const seq1 = (await w.sim.book('BTC-USDC', 5)).value.sequence ?? -1;
+    expect(seq1).toBeGreaterThan(seq0);
+    await w.run(w.wallet, w.trader, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:t:seq1' });
+    const seq2 = (await w.sim.book('BTC-USDC', 5)).value.sequence ?? -1;
+    expect(seq2).toBeGreaterThan(seq1);
+
+    // limit_only: market order refused market_limit_only, limit accepted.
+    w.sim.setMarketStatus('BTC-USDC', 'limit_only');
+    expect(
+      await refusal(
+        w.sim.prepare(
+          w.trader,
+          w.wallet.signer,
+          order('BTC-USDC', 'buy', '60000', '0.01', 'order:t:lo-m', { type: 'market', timeInForce: 'IOC' }),
+        ),
+      ),
+    ).toBe('market_limit_only');
+    const lim = await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:lo-l'));
+    expect(lim.outcome).toMatchObject({ definite: true, accepted: true });
+    w.sim.setMarketStatus('BTC-USDC', 'trading');
+    await w.run(w.wallet, w.trader, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:t:lo-l' });
+
+    // Closed spot session: refuses market_closed.
+    w.sim.addMarket({
+      ...SPOT,
+      symbol: 'SES-USDC',
+      baseAsset: 'SES',
+      session: {
+        homeMarket: 'TEST Hours',
+        offHoursMode: 'closed',
+        offHoursBand: '5%',
+        reopensAfterMs: 3_600_000,
+        closedRule: 'Orders are not queued while closed',
+      },
+    });
+    w.sim.setSession('SES-USDC', 'closed');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, order('SES-USDC', 'buy', '10', '1', 'order:t:closed')))).toBe(
+      'market_closed',
+    );
+    w.sim.setSession('SES-USDC', 'open');
+
+    // Opening window: refuses market order with opening_window, accepts limit.
+    w.sim.addMarket({
+      ...SPOT,
+      symbol: 'WIN-USDC',
+      baseAsset: 'WIN',
+      openingWindowEndsAt: new Date(Date.UTC(2026, 10, 9, 12, 0, 0)),
+    });
+    expect(
+      await refusal(
+        w.sim.prepare(
+          w.trader,
+          w.wallet.signer,
+          order('WIN-USDC', 'buy', '10', '1', 'order:t:win-m', { type: 'market', timeInForce: 'IOC' }),
+        ),
+      ),
+    ).toBe('opening_window');
+    expect((await w.run(w.wallet, w.trader, order('WIN-USDC', 'buy', '10', '1', 'order:t:win-l'))).outcome).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
+
+    // Higher-risk zone with order cap: refuses market (higher_risk_zone), refuses over-cap limit (zone_cap_exceeded), accepts under-cap limit.
+    w.sim.addMarket({
+      ...SPOT,
+      symbol: 'RSK-USDC',
+      baseAsset: 'RSK',
+      zone: 'higher_risk',
+      zoneOrderCap: a('100'),
+    });
+    expect(
+      await refusal(
+        w.sim.prepare(
+          w.trader,
+          w.wallet.signer,
+          order('RSK-USDC', 'buy', '10', '1', 'order:t:rsk-m', { type: 'market', timeInForce: 'IOC' }),
+        ),
+      ),
+    ).toBe('higher_risk_zone');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, order('RSK-USDC', 'buy', '10', '11', 'order:t:rsk-over')))).toBe(
+      'zone_cap_exceeded',
+    );
+    expect((await w.run(w.wallet, w.trader, order('RSK-USDC', 'buy', '10', '5', 'order:t:rsk-ok'))).outcome).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
   });
 });

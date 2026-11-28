@@ -588,6 +588,8 @@ export type TradeErrorCode =
   | 'trade.slippage_cap_unset'
   /** Venue spot market order refused: TRADE_MARKET_SPREAD_LIMIT_BPS blank / non-integer / out of 1–5000. */
   | 'trade.spread_limit_unset'
+  /** A stop's or a reduce-only close's worst price refused: TRADE_CLOSE_SLIPPAGE_BPS blank / non-integer / out of 1–5000. */
+  | 'trade.close_slippage_unset'
   | 'trade.slippage_tolerance_invalid'
   /**
    * Market sell or flatten with no owner protection floor. Preview and place
@@ -598,6 +600,8 @@ export type TradeErrorCode =
   | 'trade.price_band_unset'
   /** No operator open-order cap is published for the pair: an order that can rest is refused, never capped by a default. */
   | 'trade.open_orders_cap_unset'
+  /** No operator minimum order value is published for the pair: orders are refused, never floored by a default. */
+  | 'trade.min_notional_unset'
   /**
    * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
    * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.
@@ -668,6 +672,10 @@ export type TradeErrorCode =
   | 'trade.algo_kind_not_built'
   /** CB-execution-08: a schedule's parameters are fixed at create, as in the web; amend is refused. */
   | 'trade.algo_params_immutable'
+  /** An algo amend asked for more quantity: it only goes down (SP-conditional-algo-04). */
+  | 'trade.amend_qty_up'
+  /** An algo amend asked for no more than is already scheduled: cancel stops the order. */
+  | 'trade.algo_amend_below_placed'
   /**
    * Resume would stretch the schedule past 2× the order's own durationMs
    * (ADR 2026-08-08). Trader may cancel-and-recreate; parent stays paused.
@@ -803,7 +811,11 @@ export type TradeErrorCode =
    * Pre-market conversion (or params read) refused: the owner has not set the flat funding rate
    * and the mark clamp band for this market. Blank stays blank; the market row is left as it was.
    */
-  | 'trade.premarket_params_unset';
+  | 'trade.premarket_params_unset'
+  /** Historical book snapshot interval (`TRADE_HISTORY_BOOK_INTERVAL_MS`) is blank; no book dataset is built. */
+  | 'trade.history_book_interval_unset'
+  /** Requested historical dataset id does not exist. */
+  | 'trade.history_dataset_not_found';
 
 export class TradeError extends Error {
   /** Exact decimal strings and asset codes. Absent when the refusal has no amounts. */

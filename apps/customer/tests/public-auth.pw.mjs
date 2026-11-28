@@ -171,7 +171,7 @@ for (const identifier of ['', '   ']) {
     await expect(email).toHaveAttribute('aria-invalid', 'true');
     await expect(email).toHaveAccessibleDescription('Enter your email or handle before using a passkey.');
     await expect(email).toBeFocused();
-    await expect(page.locator('.failure')).toHaveCount(0);
+    await expect(page.locator(':is(.failure, .lt-refusal)')).toHaveCount(0);
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
     expect(state.writes).toEqual([]);
     expect(await journal(page)).toBeNull();
@@ -349,7 +349,7 @@ test('unknown registration survives Help/remount; fresh sign-in never certifies 
   await expect(page.locator('input[autocomplete="new-password"]')).toHaveValue('');
   await helpBack(page);
   await expect(registerUnknown(page)).toBeVisible();
-  await page.locator('.auth-form').getByRole('link', { name: 'Sign in', exact: true }).click();
+  await page.locator('[data-testid="auth-form"]').getByRole('link', { name: 'Sign in', exact: true }).click();
   await fields(page, false, { identifier: 'fresh-auth@example.invalid' });
   await submit(page).click();
   await expect(page).toHaveURL(new URL('/money', test.info().project.use.baseURL).href);

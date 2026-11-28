@@ -30,6 +30,11 @@ import { createBlueprintRouter } from './router.js';
  */
 
 const GOLDEN = new URL('./wire-replay.golden.json', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 const SECRET = 'a-blueprint-wire-replay-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
 const ID = '22222222-2222-4222-8222-222222222222';
@@ -243,9 +248,9 @@ describe('the wire replay: svc-blueprint answers every call as recorded', () => 
 
   it('every request in the matrix gets the recorded status and body, byte for byte', async () => {
     const write = process.env.WIRE_REPLAY_WRITE === '1';
-    const now = await replay(write ? null : (JSON.parse(readFileSync(GOLDEN, 'utf8')) as Golden).inputs);
+    const now = await replay(write ? null : (JSON.parse(readFileSync(GOLDEN, 'utf8').replaceAll(RECORDED_STACK, '')) as Golden).inputs);
     if (write) writeFileSync(GOLDEN, `${JSON.stringify(now, null, 2)}\n`);
-    const golden = JSON.parse(readFileSync(GOLDEN, 'utf8')) as Golden;
+    const golden = JSON.parse(readFileSync(GOLDEN, 'utf8').replaceAll(RECORDED_STACK, '')) as Golden;
     expect(Object.keys(golden.answers)).toHaveLength(624);
     expect(now.callers).toEqual(golden.callers);
     expect(now.inputs).toEqual(golden.inputs);

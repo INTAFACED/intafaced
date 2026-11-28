@@ -282,7 +282,10 @@ describe('bank desk: the BANKOPS reads', () => {
     );
     const json = await (await bank.GET(get('/api/bank-ops'))).json();
     expect(json.reads['bank.loan-book'].part).toMatchObject({ kind: 'failed', message: expect.stringContaining('shape') });
-    expect(json.reads['bank.loans-unpriced'].part).toMatchObject({ kind: 'ok' });
+    // Both loan sections read the one `ops.loanBook` call, held whole to its record, so the drift fails them both; a read of
+    // another call stays up.
+    expect(json.reads['bank.loans-unpriced'].part).toMatchObject({ kind: 'failed', message: expect.stringContaining('shape') });
+    expect(json.reads['bank.pool-totals'].part).toMatchObject({ kind: 'ok' });
   });
 });
 

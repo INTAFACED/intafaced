@@ -381,12 +381,15 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   /** Owner market-buy cap unpublished — refuse-closed, not invent 200. */
   'trade.slippage_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.spread_limit_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Owner close tolerance unpublished — a stop or a reduce-only close refuses, never an invented 5%. */
+  'trade.close_slippage_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.slippage_tolerance_invalid': { ccxt: 'InvalidOrder', status: 400 },
   /** Owner market-sell / flatten floor unpublished — same cap, not an unbounded sell. */
   'trade.protection_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
-  /** Operator price band or open-order cap unpublished for the pair — refuse-closed, never a default. */
+  /** Operator price band, open-order cap or minimum order value unpublished for the pair — refuse-closed, never a default. */
   'trade.price_band_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.open_orders_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.min_notional_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Owner pre-trade limits (#4725). The order is well-formed but breaches a
    * published risk limit: InvalidOrder, 422, not retryable unchanged. Shrink
@@ -538,6 +541,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_child_refused': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_kind_not_built': { ccxt: 'NotSupported', status: 400 },
   'trade.algo_params_immutable': { ccxt: 'InvalidOrder', status: 400 },
+  /** An algo amend only lowers the quantity. Not retryable unchanged. */
+  'trade.amend_qty_up': { ccxt: 'InvalidOrder', status: 400 },
+  /** An algo amend to no more than is already scheduled. Cancel instead. */
+  'trade.algo_amend_below_placed': { ccxt: 'InvalidOrder', status: 400 },
   /**
    * Child cancel failed and the parent was left non-cancelled. Caller must
    * retry cancel — not treat the algo as dead (a cancel that does not cancel
@@ -564,6 +571,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * 400 so a bot does not retry a missing price.
    */
   'trade.circuit_breaker_reference_unset': { ccxt: 'ExchangeError', status: 400 },
+  /** Historical book snapshot interval is blank (RC-cex-spot-05); no book dataset is built until set. */
+  'trade.history_book_interval_unset': { ccxt: 'NotSupported', status: 400 },
+  /** Requested historical dataset id does not exist (RC-cex-spot-05). */
+  'trade.history_dataset_not_found': { ccxt: 'OrderNotFound', status: 404 },
 };
 
 /**

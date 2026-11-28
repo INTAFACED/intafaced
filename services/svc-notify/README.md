@@ -99,6 +99,28 @@ That also makes changing provider an env change rather than a release.
 What the owner has to obtain, in plain language:
 [`docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md`](../../docs/OWNER-ACTIONS-NOTIFY-GATEWAYS.md).
 
+### Telegram desk alerts (read-only)
+
+`src/telegram/`: the launch desk's alerts on Telegram, apart from the four channels above. A person links one chat with
+a one-time code from `telegram.linkCode` (Notifications, Preferences; only its SHA-256 digest is stored, it lasts five
+minutes, a newer code replaces it) by sending `/start <code>` to the bot; the chat's handle is kept to show which chat is
+linked. A sweep every 15 seconds
+reads svc-trade's `venue.deskSnapshot` for each linked person and raises each alert once under its business key: every
+fill (`fill:<fillId>`), margin use at 80% and 90% once per crossing (`margin:<account>:<level>:<crossing>`), and the
+profit lock once a week when the week's realised profit reaches the target set with `telegram.setProfitTarget`
+(`profit-lock:<weekStart>`). The outbox sends until the bot API takes each one. Each margin warning names the position nearest
+liquidation and the venue's as-of time. The bot answers `/positions` and `/pnl` (today's and the week's realised result,
+fees and the open result; a venue that can't be read is named), answers every trading command "Trading is off in chat.
+Open INTAFACED to trade.", and anything else with what it does: the desk holds no way to trade, cancel or move money.
+
+`NOTIFY_TELEGRAM_BOT_TOKEN` (a secret) turns it on; blank, `telegram.status` says `off` with
+`notify.telegram_token_unset`, and with `NOTIFY_OUT_OF_APP_ENABLED=false` it says `notify.out_of_app_off`. The webhook,
+`POST /telegram/webhook`, refuses any update without the `NOTIFY_TELEGRAM_WEBHOOK_SECRET` header (32+ characters).
+`NOTIFY_TELEGRAM_BOT_NAME` is the bot's `@handle` the page tells people to send their code to. On a test stack only
+(`APP_ENV` dev or test), with no token, `NOTIFY_TELEGRAM_TEST_OUTBOX` turns on the TEST bot, which writes every message,
+labelled TEST, to that file instead of Telegram; with `TEST_AGE_DOOR=on` the TEST age door ages a link code
+(`telegram-link-code`, by user id).
+
 ### The gateway contract
 
 Every channel sends the same request shape and differs only in the body:
@@ -503,6 +525,8 @@ _None._
 | `intafaced.agents.action.completed`                | `notify-agent-action-completed`          | Inbox row on completion / session_close only                                                                                                                                                                                 |
 | `intafaced.ledger.freeze.updated`                  | `notify-ledger-freeze-updated`           | One audience-all inbox notice when the posting freeze is set or cleared                                                                                                                                                      |
 | `intafaced.trade.venue_delisting.created`          | `notify-venue-delisting`                 | One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key                                                                                                                          |
+| `intafaced.trade.venue_risk_alert.crossed`         | `notify-venue-risk-alert`                | One inbox row for the person per margin alert, margin call or liquidation alert on a venue position, once per alert key, sent out of app                                                                                     |
+| `intafaced.trade.venue_profit_lock.crossed`        | `notify-venue-profit-lock`               | One inbox row for the person when their weekly Profit lock reaches its target, once per offer key (one per week)                                                                                                             |
 | `intafaced.core-ops.reconciliation_alert.opened`   | `notify-recon-alert-opened`              | One reconciliation alert feed row when an alert is opened, once per business key; no inbox row                                                                                                                               |
 | `intafaced.core-ops.reconciliation_alert.updated`  | `notify-recon-alert-updated`             | One reconciliation alert feed row when an alert is acknowledged, snoozed, unsnoozed or reopened, once per business key; no inbox row                                                                                         |
 | `intafaced.core-ops.reconciliation_alert.resolved` | `notify-recon-alert-resolved`            | One reconciliation alert feed row when an alert is resolved, once per business key; no inbox row                                                                                                                             |

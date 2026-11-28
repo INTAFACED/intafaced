@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `cashOut.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -73,6 +73,22 @@ export const account = z
   })
   .strict();
 
+/** The customer's own cash-out requests, newest first. */
+export const BANK_CASH_OUT_REQUESTS = defineProcedure({
+  ...base,
+  name: 'bank.cashOut.requests',
+  kind: 'query',
+  path: 'cashOut.requests',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(50) }).strict(),
+  output: z.array(request),
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 /** The signed receipt of a cash-out that was paid out: its text, SHA-256, signature, and the ledger
  * transaction or (partner-held) the partner's move that paid it. */
 export const BANK_CASH_OUT_RECEIPT = defineProcedure({
@@ -95,6 +111,36 @@ export const BANK_CASH_OUT_RECEIPT = defineProcedure({
     .strict(),
   samples: [
     { verdict: 'accept', input: { requestId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The entry checks, the account and what stands in the way, or the partner's fee and what arrives. None is invented. */
+export const BANK_CASH_OUT_QUOTE = defineProcedure({
+  ...base,
+  name: 'bank.cashOut.quote',
+  kind: 'query',
+  path: 'cashOut.quote',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z.object(ask).strict(),
+  output: z
+    .object({
+      assetId: assetIdSchema,
+      amount: z.string(),
+      available: z.string(),
+      heldAt: z.string().nullable(),
+      account,
+      rail: z.literal('rail.bank'),
+      fee: z.string().nullable(),
+      receiveAmount: z.string().nullable(),
+      receiveCurrency: z.string().nullable(),
+      blocker: z.string().nullable(),
+      standIn: z.string().nullable(),
+    })
+    .strict(),
+  samples: [
+    { verdict: 'accept', input: { assetId: 'USDC', amount: '1', linkedAccountId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

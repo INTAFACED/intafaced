@@ -120,3 +120,33 @@ describe('the trading checks on /verification', () => {
     expect(host.querySelector('form')).toBeNull();
   });
 });
+
+describe('a person who already holds a verification level', () => {
+  async function openHeld(levelHeld: boolean | null) {
+    root = createRoot(host);
+    const mounted = root;
+    await act(async () => mounted.render(<VerificationTradingChecks disabled={false} onDone={() => done++} levelHeld={levelHeld} />));
+    await tick();
+  }
+
+  it('reads "Verified for trading" and is asked for no name or country', async () => {
+    await openHeld(true);
+    const card = host.querySelector('[data-testid="verification__trading"]')!;
+    expect(card.getAttribute('data-state')).toBe('level_held');
+    expect(card.querySelector('h2')!.textContent).toBe('Verified for trading');
+    expect(card.textContent).toContain('Your verification level already covers trading, so there is nothing to give here.');
+    expect(host.querySelector('form')).toBeNull();
+    expect(host.textContent).not.toContain('give your legal name');
+  });
+
+  it('shows no form while the level is still being read', async () => {
+    await openHeld(null);
+    expect(host.querySelector('form')).toBeNull();
+    expect(host.querySelector('[data-testid="verification__trading"]')).toBeNull();
+  });
+
+  it('a person with no level still gets the form', async () => {
+    await openHeld(false);
+    expect(host.querySelector('form')).not.toBeNull();
+  });
+});

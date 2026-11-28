@@ -1,20 +1,21 @@
+// volt-room: /pay/exports
+// volt-room: /pay/reports/exports
+// volt-room: portal:report-exports
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox } from '@intafaced/ui';
-import { Field } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { ListShell, MoreFooter, SelectField } from '../../components';
-import { ToneChip, type StatusTone } from '../../ui/StatusChip';
+import { Button, Checkbox, Field } from '@intafaced/ui/lit';
+import type { StatusTone } from '../../ui/StatusChip';
 import { DateTime, useDayText } from '../../ui/DateTime';
 import { dateRange, type DatePreset } from '../../ui/FilterRow';
-import { EntityList } from '../../ui/EntityList';
-import { PortalReview } from '../../ui/PortalReview';
+import { EntityList, ListShell, MoreFooter, Section, SelectField, ToneChip } from '../../volt/parts';
+import { RecordListRoom } from '../../volt/RecordListRoom';
+import { Review as PortalReview } from '../../volt/Review';
 import { useServerList } from '../../ui/useServerList';
 import { useUrlParam } from '../../hooks';
 import { newRequestId } from '../../model';
 import { refusalText } from '../../refusal';
 import { useResource } from '../../../../../shared/resource';
 import { useSession } from '../../../../session';
-import type { SettingsBApi } from '../b-client';
+import { useSettingsBApi, type SettingsBApi } from '../b-client';
 import { reportsCopy as c } from './copy';
 import {
   canDelete,
@@ -45,8 +46,17 @@ export function JobChip({ status }: { status: ExportStatus }) {
 }
 export const kindName = (t: ReturnType<typeof c.useCopy>['t'], kind: string) => (isKnownKind(kind) ? t(`kind_${kind}`) : kind);
 
+/** `/pay/reports/exports` (and `/pay/exports`) on the record-list template, for the account the access resolved. */
+export function ExportsRoom() {
+  return <RecordListRoom>{({ role }) => ({ list: <LiveExports role={role} /> })}</RecordListRoom>;
+}
+
+function LiveExports({ role }: { role: string }) {
+  return <Exports api={useSettingsBApi()} role={role} />;
+}
+
 /** `/pay/reports/exports`: ask for a report, watch it build, download it, delete it. Only your own account's rows are in it. */
-export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; role: string | null; now?: number }) {
+function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; role: string | null; now?: number }) {
   const { t } = c.useCopy();
   const { userId } = useSession();
   const [kind, setKind] = useUrlParam('kind');
@@ -78,13 +88,13 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
   const filtered = Boolean(kind || status || date || q);
   const shown = list.state.status === 'ready' ? list.state.items.length : 0;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <div id="request">
         <RequestForm api={api} role={role} onRequested={() => reload()} />
       </div>
-      <PaySection title={t('jobsTitle')} description={t('jobsBody')}>
-        <div className="pp-filterbar" role="search" aria-label={t('jobsTitle')}>
-          <div className="pp-filter-row">
+      <Section title={t('jobsTitle')} description={t('jobsBody')}>
+        <div className="lt-stack" role="search" aria-label={t('jobsTitle')}>
+          <div className="lt-toolbar">
             <Field label={t('search')} value={q} onChange={(e) => setQ(e.target.value)} hint={t('searchHint')} />
             <SelectField
               label={t('colReport')}
@@ -112,19 +122,18 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
             />
           </div>
           {date === 'custom' && (
-            <div className="pp-filter-row">
+            <div className="lt-toolbar">
               <Field label={t('from')} type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
               <Field label={t('to')} type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
           )}
-          <p className="muted pp-count" role="status">
+          <p className="lt-muted" role="status">
             {list.state.status === 'ready' ? (list.state.hasMore ? t('newestMore', { n: shown }) : t('newestAll', { n: shown })) : ''}
             {filtered && (
               <>
                 {' '}
-                <button
-                  type="button"
-                  className="text-link"
+                <Button
+                  tone="quiet"
                   onClick={() => {
                     setKind('');
                     setStatus('');
@@ -135,7 +144,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                   }}
                 >
                   {t('clearFilters')}
-                </button>
+                </Button>
               </>
             )}
           </p>
@@ -162,7 +171,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                     cell: (j) => (
                       <>
                         <JobChip status={j.status} />
-                        {j.status === 'failed' && <small className="pay-cell-note">{t('failedHelp')}</small>}
+                        {j.status === 'failed' && <small className="lt-hint">{t('failedHelp')}</small>}
                       </>
                     ),
                   },
@@ -170,7 +179,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                     header: t('colSize'),
                     cell: (j) =>
                       j.status === 'ready' ? (
-                        <span className="numeric pp-nowrap">{`${j.rowCount ?? '—'} · ${formatBytes(j.sizeBytes)}`}</span>
+                        <span className="lt-num lt-nowrap">{`${j.rowCount ?? '—'} · ${formatBytes(j.sizeBytes)}`}</span>
                       ) : (
                         '—'
                       ),
@@ -186,7 +195,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                         <>
                           <DateTime value={j.generatedAt} />
                           {j.asOf && (
-                            <small className="pay-cell-note">
+                            <small className="lt-hint">
                               {t('asOf')} <DateTime value={j.asOf} />
                             </small>
                           )}
@@ -209,22 +218,16 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                       ),
                   },
                   {
-                    header: <span className="pp-sr">{t('colActions')}</span>,
+                    header: <span className="lt-sr">{t('colActions')}</span>,
                     cell: (j) => <JobActions api={api} job={j} onDone={() => reload()} />,
                   },
                 ]}
-                card={(j) => ({
-                  title: kindName(t, j.kind),
-                  time: j.generatedAt ? <DateTime value={j.generatedAt} /> : <DateTime value={j.createdAt} />,
-                  amount: j.status === 'ready' ? formatBytes(j.sizeBytes) : undefined,
-                  status: <JobChip status={j.status} />,
-                })}
               />
               {list.state.status === 'ready' && <MoreFooter state={list.state} onMore={list.loadMore} />}
             </>
           )}
         </ListShell>
-      </PaySection>
+      </Section>
     </div>
   );
 }
@@ -266,10 +269,10 @@ export function JobActions({
     setState('idle');
   }
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       {job.status === 'ready' && (
         <Button
-          variant="secondary"
+          tone="secondary"
           onClick={() => void download()}
           disabled={state === 'busy'}
           aria-label={t('downloadAria', { name: job.fileName ?? kindName(t, job.kind) })}
@@ -277,13 +280,13 @@ export function JobActions({
           {state === 'busy' ? t('downloading') : t('download')}
         </Button>
       )}
-      {isBuilding(job) && <small className="muted">{t('buildingNow')}</small>}
+      {isBuilding(job) && <small className="lt-muted">{t('buildingNow')}</small>}
       {canDelete(job) && (
         <PortalReview
           title={t('deleteAction')}
           description={t('deleteReview')}
           review={
-            <dl className="pay-details">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('colReport')}</dt>
                 <dd>{kindName(t, job.kind)}</dd>
@@ -300,11 +303,7 @@ export function JobActions({
           onConfirmed={onDone}
         />
       )}
-      {state !== 'idle' && state !== 'busy' && (
-        <small className="error-text" role="alert">
-          {state}
-        </small>
-      )}
+      {state !== 'idle' && state !== 'busy' && <small role="alert">{state}</small>}
     </div>
   );
 }
@@ -343,9 +342,9 @@ export function RequestForm({
   };
   const allColumns = columns.length === available.length;
   return (
-    <PaySection title={t('requestTitle')} description={t('requestBody')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
-        <div className="form-row">
+    <Section title={t('requestTitle')} description={t('requestBody')}>
+      <div data-testid="form-stack" className="lt-stack">
+        <div className="lt-field-row">
           <SelectField
             label={t('colReport')}
             value={kind}
@@ -371,7 +370,7 @@ export function RequestForm({
           )}
         </div>
         {hasDateRange(kind) ? (
-          <div className="form-row">
+          <div className="lt-field-row">
             <Field
               label={t('from')}
               type="date"
@@ -395,7 +394,7 @@ export function RequestForm({
             />
           </div>
         ) : (
-          <p className="muted">{t('noRangeForKind')}</p>
+          <p className="lt-muted">{t('noRangeForKind')}</p>
         )}
         <Field
           label={t('assetLabel')}
@@ -407,24 +406,24 @@ export function RequestForm({
             setRequestId(newRequestId());
           }}
         />
-        <fieldset className="pp-fieldset">
+        <fieldset className="lt-stack">
           <legend>{t('columnsTitle')}</legend>
-          <div className="pp-columns">
+          <div className="lt-toolbar">
             {available.map((col) => (
-              <label key={col} className="pp-check">
-                <Checkbox
-                  checked={columns.includes(col)}
-                  onCheckedChange={(on) => {
-                    const next = on ? [...columns, col] : columns.filter((x) => x !== col);
-                    setChosen(next);
-                    setRequestId(newRequestId());
-                  }}
-                />
-                <span>{columnLabel(col)}</span>
-              </label>
+              <Checkbox
+                key={col}
+                checked={columns.includes(col)}
+                onCheckedChange={(on) => {
+                  const next = on ? [...columns, col] : columns.filter((x) => x !== col);
+                  setChosen(next);
+                  setRequestId(newRequestId());
+                }}
+              >
+                {columnLabel(col)}
+              </Checkbox>
             ))}
           </div>
-          {kind === 'fees' && (role === 'viewer' || role === 'developer') && <small className="muted">{t('feeLevelHidden')}</small>}
+          {kind === 'fees' && (role === 'viewer' || role === 'developer') && <small className="lt-muted">{t('feeLevelHidden')}</small>}
         </fieldset>
         <PortalReview
           title={t('requestAction')}
@@ -433,7 +432,7 @@ export function RequestForm({
           disabled={Boolean(bad) || columns.length === 0}
           disabledReason={columns.length === 0 ? t('errNoColumns') : t('errRange')}
           review={
-            <dl className="pay-details">
+            <dl className="lt-kv">
               <div>
                 <dt>{t('colReport')}</dt>
                 <dd>{t(`kind_${kind}`)}</dd>
@@ -457,6 +456,6 @@ export function RequestForm({
           }}
         />
       </div>
-    </PaySection>
+    </Section>
   );
 }

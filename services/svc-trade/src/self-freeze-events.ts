@@ -48,3 +48,21 @@ export async function subscribeSelfFreeze(
     { durable: 'trade-self-freeze' },
   );
 }
+
+/**
+ * A support agent froze the customer's account from their request (J-support-public-20 #7, `supportAccountFrozen`,
+ * svc-identity's event). The same revokes as the owner's own freeze, idempotent by the event's business key
+ * (`identity.support_account_freeze.frozen:<freezeId>`). Fresh orders already refuse on identity's trading restriction
+ * (`trade.account_restricted`) before any of this runs. Nothing is restored when staff lift it. Moves no money.
+ */
+export async function subscribeSupportAccountFreeze(
+  bus: EventBus,
+  consumers: SelfFreezeConsumers,
+  store: SeenStore = new MemorySeenStore(),
+): Promise<Subscription> {
+  return bus.subscribe(
+    'supportAccountFrozen',
+    idempotent(async (payload) => applySelfFreeze(consumers, payload.userId), store, 'svc-trade'),
+    { durable: 'trade-support-account-freeze' },
+  );
+}

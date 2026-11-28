@@ -4,7 +4,16 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from './index.js';
 import { defineProcedure, NO_INPUT, type Access } from './procedure.js';
 import { mountRecords, type ServiceParts } from './procedure-mount.js';
-import { router, scopedProcedure, TRPCError, type GuardOptions, type ServiceCheck } from './trpc.js';
+import {
+  anyScopeProcedure,
+  personProcedure,
+  protectedProcedure,
+  router,
+  scopedProcedure,
+  TRPCError,
+  type GuardOptions,
+  type ServiceCheck,
+} from './trpc.js';
 
 /**
  * A guard a service wrote by hand, and the record the call-records codemod copies it onto, refuse exactly the same
@@ -21,6 +30,8 @@ interface Caller {
   readonly kid?: string;
   readonly sub_account?: string;
   readonly region?: string;
+  readonly mfa?: boolean;
+  readonly tier?: string;
 }
 
 async function contextOf(c: Caller) {
@@ -29,8 +40,8 @@ async function contextOf(c: Caller) {
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
     scopes: c.scopes,
-    tier: 'none',
-    mfa: false,
+    tier: c.tier ?? 'none',
+    mfa: c.mfa ?? false,
     expiresAt: new Date(Date.now() + 60_000),
     ...(c.kid === undefined ? {} : { kid: c.kid }),
     ...(c.sub_account === undefined ? {} : { sub_account: c.sub_account }),
@@ -50,7 +61,11 @@ async function contextOf(c: Caller) {
 const output = z.object({ ok: z.literal(true) });
 
 /** The record for `access`, mounted as `guarded`, and the hand guard's procedure at the same path. */
-function both(access: Access & { caller: 'scope' }, hand: ReturnType<typeof scopedProcedure>, parts: ServiceParts = () => undefined) {
+function both(
+  access: Access & { caller: 'scope' | 'person' | 'anyScope' | 'signedIn' },
+  hand: ReturnType<typeof scopedProcedure> | ReturnType<typeof personProcedure> | typeof protectedProcedure,
+  parts: ServiceParts = () => undefined,
+) {
   const RECORD = defineProcedure({
     service: 'svc-quant',
     module: 'quant',
@@ -87,6 +102,38 @@ const KEY = 'key-1';
 const SUB = '33333333-3333-4333-8333-333333333333';
 
 describe('a guard copied onto its record refuses as the hand guard did', () => {
+  it("svc-identity's personProcedure(): the person's own session passes and a key or a sub-account is refused, through the record", async () => {
+    const { fromRecord, byHand } = both({ caller: 'person' }, personProcedure());
+    const callers: Caller[] = [{ scopes: [] }, { scopes: ['admin:read'], kid: KEY }, { scopes: [], sub_account: SUB }];
+    for (const c of callers) expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
+    expect(await verdict(fromRecord, { scopes: [] })).toEqual({ ok: true });
+    expect(await verdict(fromRecord, { scopes: [], kid: KEY })).toEqual({
+      refused: 'FORBIDDEN',
+      message: 'Sign in yourself; an API key, a sub-account or a service cannot do this',
+    });
+  });
+
+  it('personProcedure(scope, guards): the scope and the jurisdiction hold through the record as by hand', async () => {
+    const { fromRecord, byHand } = both(
+      { caller: 'person', scope: 'admin:read', module: 'core-ops', plane: 'fiat' },
+      personProcedure('admin:read', { module: 'core-ops', plane: 'fiat' }),
+    );
+    const callers: Caller[] = [
+      { scopes: ['admin:read'] },
+      { scopes: [] },
+      { scopes: ['admin:read'], kid: KEY },
+      ...['US', 'KP', 'IR', 'RU'].map((region) => ({ scopes: ['admin:read'], region })),
+    ];
+    const seen: unknown[] = [];
+    for (const c of callers) {
+      const got = await verdict(fromRecord, c);
+      expect(got, JSON.stringify(c)).toEqual(await verdict(byHand, c));
+      seen.push(got);
+    }
+    expect(seen[0]).toEqual({ ok: true });
+    expect(seen[1]).toEqual({ refused: 'FORBIDDEN', message: 'Scope "admin:read" is required' });
+  });
+
   it("svc-agents' operator(scope): an API key and a sub-account are refused with the call's own code before the scope, through the record", async () => {
     // svc-agents fleet/control.ts before the record could say it; a person's session is judged as it was by hand.
     const hand = scopedProcedure('admin:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
@@ -206,9 +253,98 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
     expect(await verdict(fromRecord, { scopes: ['p2p:read'], kid: KEY })).toEqual({ ok: true });
   });
 
+  it("svc-pay's team-member write (anyScopeProcedure and a check): a session on pay:onboard alone is refused unless it is a member, through the record", async () => {
+    // The service reads membership live (an active member of a verified business that is not shut); here, `member` says.
+    let member = true;
+    const refused = { refused: 'FORBIDDEN', message: 'Scope "pay:write" is required' };
+    const teamMember: ServiceCheck = ({ principal }) => {
+      if (!principal.scopes.includes('pay:write') && !member) throw new TRPCError({ code: 'FORBIDDEN', message: refused.message });
+    };
+    // svc-pay team-member-write.ts before the record could say it: the same check in a `.use()` after the scopes.
+    const hand = anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' }).use(async ({ ctx, next }) => {
+      await teamMember(ctx);
+      return next();
+    });
+    const { fromRecord, byHand } = both(
+      { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+      hand,
+      { refusalOf: () => undefined, checks: { teamMember } },
+    );
+    const callers: Caller[] = [
+      { scopes: ['pay:write'] },
+      { scopes: ['pay:onboard'], tier: 'full' },
+      { scopes: ['pay:onboard'], mfa: true },
+      { scopes: ['pay:read'] },
+      { scopes: ['pay:onboard'], region: 'KP' },
+    ];
+    for (const m of [true, false]) {
+      member = m;
+      for (const c of callers) expect(await verdict(fromRecord, c), `${m} ${JSON.stringify(c)}`).toEqual(await verdict(byHand, c));
+    }
+    member = false;
+    expect(await verdict(fromRecord, { scopes: ['pay:onboard'], mfa: true, tier: 'full' })).toEqual(refused);
+    expect(await verdict(fromRecord, { scopes: ['pay:write'], mfa: true, tier: 'full' })).toEqual({ ok: true });
+    member = true;
+    expect(await verdict(fromRecord, { scopes: ['pay:onboard'], mfa: true, tier: 'full' })).toEqual({ ok: true });
+  });
+
+  it("svc-pay's membership exit (signedInProcedure and a check): no pay scope is refused by the service's own check, through the record", async () => {
+    const message = 'Scope "pay:write" is required';
+    const membershipExit: ServiceCheck = ({ principal }) => {
+      if (!principal.scopes.some((s) => s === 'pay:write' || s === 'pay:onboard')) throw new TRPCError({ code: 'FORBIDDEN', message });
+    };
+    const hand = protectedProcedure.use(async ({ ctx, next }) => {
+      await membershipExit(ctx);
+      return next();
+    });
+    const { fromRecord, byHand } = both({ caller: 'signedIn', check: 'membershipExit' }, hand, {
+      refusalOf: () => undefined,
+      checks: { membershipExit },
+    });
+    for (const c of [{ scopes: ['pay:onboard'] }, { scopes: ['pay:read'] }] satisfies Caller[])
+      expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
+    expect(await verdict(fromRecord, { scopes: ['pay:read'] })).toEqual({ refused: 'FORBIDDEN', message });
+    expect(await verdict(fromRecord, { scopes: ['pay:onboard'] })).toEqual({ ok: true });
+  });
+
   it('a record naming a check its service did not hand over fails at mount, not at the first call', () => {
     expect(() => both({ caller: 'scope', scope: 'p2p:read', check: 'merchantApi' }, scopedProcedure('p2p:read'))).toThrow(
       "example.guarded names the check merchantApi: mount it with the service's checks",
     );
+  });
+});
+
+describe('an any-scope refusal is typed as a single-scope one is', () => {
+  it('a caller holding none of the listed scopes is refused FORBIDDEN with the typed code scope.denied, as scopedProcedure refuses', async () => {
+    const app = router({
+      any: anyScopeProcedure(['admin:read', 'admin:treasury'])
+        .output(output)
+        .query(() => ({ ok: true as const })),
+      one: scopedProcedure('admin:treasury')
+        .output(output)
+        .query(() => ({ ok: true as const })),
+    });
+    const refusal = async (call: () => Promise<unknown>) => {
+      try {
+        await call();
+      } catch (err) {
+        if (err instanceof TRPCError)
+          return { code: err.code, message: err.message, typed: (err.cause as { code?: string } | undefined)?.code };
+        throw err;
+      }
+      return 'answered';
+    };
+    const caller = app.createCaller(await contextOf({ scopes: ['support:ops', 'market:ops'], mfa: true }));
+    expect(await refusal(() => caller.any())).toEqual({
+      code: 'FORBIDDEN',
+      message: 'One of admin:read, admin:treasury is required',
+      typed: 'scope.denied',
+    });
+    expect(await refusal(() => caller.one())).toEqual({
+      code: 'FORBIDDEN',
+      message: 'Scope "admin:treasury" is required',
+      typed: 'scope.denied',
+    });
+    expect(await app.createCaller(await contextOf({ scopes: ['admin:read'], mfa: true })).any()).toEqual({ ok: true });
   });
 });

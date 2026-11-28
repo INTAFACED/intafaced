@@ -18,7 +18,7 @@ import {
 import { isPublishedConnectionCeiling } from '../max-connections.js';
 import type { MuxGateway } from '../mux/gateway.js';
 import { PER_IP_CAP_UNSET, type PerIpAdmission } from '../per-ip.js';
-import { callerIpFromUpgrade } from '../private/caller-ip.js';
+import { publicCallerIp } from '../private/caller-ip.js';
 import { PRIVATE_STREAM_PATH } from '../private/gateway.js';
 import { encodeL2JsonFrame } from '../sbe-l2-tape.js';
 import type { SbeConsumerHandle, SbeConsumers } from '../sbe-consumers.js';
@@ -150,6 +150,8 @@ export interface WebSocketGatewayOptions {
    * refusal answers the upgrade with its typed code; an admission's seat is released when the socket closes.
    */
   readonly admitAddress?: (address: string | null) => PerIpAdmission;
+  /** The reverse proxy's exact addresses (`WS_TRUST_PROXY`): its `x-forwarded-for` names the caller. Omitted: the peer. */
+  readonly trustedProxies?: readonly string[];
   /** The SBE tape's consumers, listed by the adapter status door (J-cex-spot-20 #3). Omit = not recorded. */
   readonly sbeConsumers?: SbeConsumers;
 }
@@ -241,6 +243,7 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
     mux,
     admitNewConnection,
     admitAddress,
+    trustedProxies = [],
     sbeConsumers,
   } = options;
 
@@ -318,7 +321,7 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
 
     // The per-IP cap and the storm ban hold on every public door, multiplexed or single-market (DV-limits-03).
     if (admitAddress) {
-      const admission = admitAddress(callerIpFromUpgrade(request));
+      const admission = admitAddress(publicCallerIp(request, trustedProxies));
       if (!admission.ok) {
         return admission.code === PER_IP_CAP_UNSET
           ? refuseTyped(socket, 503, 'Service Unavailable', admission.code)

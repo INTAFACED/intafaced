@@ -42,6 +42,8 @@ import {
 const WF = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
 const REVIEW = WF.slice(WF.indexOf('\n  review:\n'), WF.indexOf('\n  # The proof read, a check'));
 const HEAD = 'a'.repeat(40);
+/** CI's finished run on the head: with none, the seal waits for it (journey-seal.mjs inputsGoing NO_RUN). */
+const CI_DONE = { id: 1, head_sha: HEAD, event: 'pull_request', status: 'completed' };
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 const stepOf = (name, text = REVIEW) => {
   const at = text.indexOf(`- name: ${name}\n`);
@@ -342,7 +344,10 @@ test('a real FAIL still blocks and a real PASS still passes', async () => {
 });
 
 test('the seal waits on a down judge, as for a review still running, only for a change that needs the review', () => {
-  const runsOf = { 'ci-review.yml': [{ id: 9, head_sha: HEAD, event: 'pull_request_target', status: 'completed', judgeDown: true }] };
+  const runsOf = {
+    'ci.yml': [CI_DONE],
+    'ci-review.yml': [{ id: 9, head_sha: HEAD, event: 'pull_request_target', status: 'completed', judgeDown: true }],
+  };
   const going = inputsGoing({ sha: HEAD, runsOf, needJourneys: false, needJudge: true });
   assert.deepEqual(going, ['the CI review run 9 (judge down: no verdict; it re-runs when the judge is back)']);
   assert.deepEqual(
@@ -367,6 +372,7 @@ test('readGoing holds a down judge only for a change it could stop: a gate file 
           { id: 9, head_sha: HEAD, event: 'pull_request_target', status: 'completed' },
         ],
       };
+    if (p.includes('/actions/workflows/ci.yml/runs')) return { workflow_runs: [CI_DONE] };
     if (p.includes('/actions/workflows/')) return { workflow_runs: [] };
     if (p.includes('/pulls/7/files')) return files.map((filename) => ({ filename, status: 'modified' }));
     if (p.endsWith('/actions/runs/9/jobs?filter=latest&per_page=30&page=1')) return { jobs: [jobAfter({ kind: 'down' })] };
@@ -438,7 +444,7 @@ test('the fix issue job holds issues: write, needs the review, and Start the sea
   assert.match(job, /\n      issues: write /);
   assert.doesNotMatch(job, /\n      (contents|actions|statuses|checks|id-token): write/);
   assert.match(job, /run: node tooling\/ci\/judge-down\.mjs merged "CI review" issue/);
-  assert.match(WF, /\n    needs: \[review, read, after-merge\]\n/);
+  assert.match(WF, /\n    needs: \[review, read, after-merge, notes\]\n/);
 });
 
 test('judgeDownNeed: a head whose CI review was down needs the judge, whatever it changes; a pass, a FAIL, a review never run do not', () => {
@@ -542,6 +548,7 @@ test('a skipped `edited` run on top of a down run: the seal still waits on the d
   const jobs = { 9: [jobAfter({ kind: 'down' })], 10: [SKIPPED] };
   const get = async (p) => {
     if (p.includes('/actions/workflows/ci-review.yml/runs')) return { workflow_runs: runs.map((r) => ({ ...r })) };
+    if (p.includes('/actions/workflows/ci.yml/runs')) return { workflow_runs: [CI_DONE] };
     if (p.includes('/actions/workflows/')) return { workflow_runs: [] };
     if (p.includes('/pulls/7/files')) return [{ filename: 'AGENTS.md', status: 'modified' }];
     const m = /\/actions\/runs\/(\d+)\/jobs\?filter=latest&per_page=30&page=1$/.exec(p);
@@ -574,6 +581,71 @@ test('catch-up: a skipped `edited` run on top of a down run re-runs the down run
   // A verdict under the skipped run is a verdict: nothing to re-run.
   jobs[9] = [reviewJob(HEAD, 'failure')];
   assert.deepEqual((await catchUpTargets({ pulls, runs, repo, skipSha: 'x', jobsOf: async (r) => jobs[r.id] })).targets, []);
+});
+
+test('catch-up: an open head whose review passed while only the proof read was down is re-run; a cleared or CI review status, or a merged head, is not (#10771)', async () => {
+  const repo = 'o/r';
+  const sha = (i) => String(i).padStart(40, '0');
+  const pull = (n, i, extra = { state: 'open' }) => ({
+    number: n,
+    base: { ref: 'main' },
+    head: { sha: sha(i), repo: { full_name: repo } },
+    ...extra,
+  });
+  const pulls = [
+    pull(1, 1), // its review passed, its proof read down: read now (#10609 on 24 Nov)
+    pull(2, 2), // its review passed, its proof read down and then back
+    pull(3, 3), // its review passed, no judge status at all
+    pull(4, 4, { state: 'closed', merged_at: '2026-11-24T10:00:00Z' }), // merged while its proof read was down: nothing waits on it
+    pull(5, 5), // its review down: read now, as before
+  ];
+  const runs = pulls.map((p, i) => ({
+    id: 10 + i,
+    path: REVIEW_WORKFLOW,
+    event: 'pull_request_target',
+    head_sha: p.head.sha,
+    status: 'completed',
+    created_at: `2026-11-24T06:0${i}:00Z`,
+  }));
+  const jobs = {
+    10: reviewJob(sha(1), 'success'),
+    11: reviewJob(sha(2), 'success'),
+    12: reviewJob(sha(3), 'success'),
+    13: reviewJob(sha(4), 'success'),
+    14: jobAfter({ kind: 'down' }),
+  };
+  const proofDown = { context: 'judge', state: 'pending', description: describe('proof read', 'wait for the reset') };
+  const statuses = {
+    [sha(1)]: [{ context: 'proof v2 read', state: 'success' }, proofDown],
+    [sha(2)]: [{ context: 'judge', state: 'success', description: 'judge back: proof read' }, proofDown],
+    [sha(3)]: [],
+    [sha(4)]: [proofDown],
+  };
+  const judgeOf = async (s) => (statuses[s] ?? []).find((x) => x.context === 'judge') ?? null;
+  const { targets } = await catchUpTargets({ pulls, runs, repo, skipSha: 'x', jobsOf: async (r) => [jobs[r.id]], judgeOf });
+  assert.deepEqual(
+    targets.map((t) => [t.pull.number, t.run.id]),
+    [
+      [1, 10],
+      [5, 14],
+    ],
+    'the proof-read-down head and the review-down head, oldest first',
+  );
+
+  // As the Start the seal step runs it: the head's statuses are read and its run re-run.
+  const r = judgeDown(JD_COMMANDS[4], JD_ENV, [
+    { path: '/pulls\\?state=open', json: [pulls[0]] },
+    { path: '/pulls\\?state=closed', json: [] },
+    { path: '/actions/workflows/ci-review.yml/runs', json: { workflow_runs: [runs[0]] } },
+    { path: '/actions/runs/10/jobs', json: { total_count: 1, jobs: [jobs[10]] } },
+    { path: `/commits/${sha(1)}/statuses`, json: statuses[sha(1)] },
+    { method: 'POST', path: '/actions/runs/10/rerun$', status: 201 },
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(
+    r.requests.some((q) => q.method === 'POST' && q.path.endsWith('/actions/runs/10/rerun')),
+    `the head left waiting on its proof read is re-run: ${r.stdout}`,
+  );
 });
 
 test('a sign-off the seal finds missing because the judge was down is titled judge down, never "Review sign-off missing"', () => {
@@ -673,7 +745,10 @@ test('11 Nov replayed: the catch-up drains every head without a verdict through 
 });
 
 test('project-state#2962: a Model check that could not check holds the seal as a down judge, for every change', () => {
-  const runsOf = { 'model-check.yml': [{ id: 7, head_sha: HEAD, event: 'pull_request', status: 'completed', judgeDown: true }] };
+  const runsOf = {
+    'ci.yml': [CI_DONE],
+    'model-check.yml': [{ id: 7, head_sha: HEAD, event: 'pull_request', status: 'completed', judgeDown: true }],
+  };
   for (const needJudge of [false, true])
     assert.deepEqual(inputsGoing({ sha: HEAD, runsOf, needJourneys: false, needJudge }), [
       'the Model check run 7 (judge down: a model could not be checked, no verdict; re-run it once the cause in its log is gone)',
@@ -701,6 +776,7 @@ test('project-state#2962: readGoing reads the newest finished Model check run on
         jobs: [{ name: 'Model check', status: 'completed', conclusion: 'success', steps: [{ name: 'Judge down', conclusion: 'success' }] }],
       };
     if (p.includes('/jobs')) return { jobs: [] };
+    if (p.includes('/workflows/ci.yml/runs?')) return { workflow_runs: [CI_DONE] };
     if (p.includes('/runs?')) return { workflow_runs: [] };
     throw new Error(`unexpected ${p}`);
   };

@@ -51,6 +51,18 @@ const schema = serviceEnvSchema
        * the venue's index), in milliseconds. Blank: the engine does not run, and such a stop stays armed, unjudged.
        */
       TRADE_PROTECTION_ENGINE_INTERVAL_MS: z.string().default(''),
+      /**
+       * How often the venue balance watch (J-cex-spot-15 #9) reads every watched account, in milliseconds. Blank or not all
+       * digits: as often as the protection engine; `0`: the watch is off. A venue that limits reads by weight a minute (Hyperliquid's test network: 1200 per IP) needs a
+       * slower watch than the TEST venue, as each reading costs it two balance reads per account.
+       */
+      TRADE_VENUE_BALANCE_WATCH_INTERVAL_MS: z.string().default(''),
+      /**
+       * How many accounts the balance watch reads a minute (src/venue/account-pace.ts). Blank: every watched
+       * account on every tick. A whole number: that many a minute in turn, so on a venue that limits the box by weight a
+       * minute the watch's spend stays the same however many accounts there are, and each account is read less often.
+       */
+      TRADE_VENUE_BALANCE_WATCH_ACCOUNTS_PER_MINUTE: z.string().default(''),
       /** NO DEFAULT drain bound: the largest notional of one agent order. Blank refuses every agent order `agents.order_bound_unset`. */
       TRADE_AGENT_MAX_ORDER_NOTIONAL: z.string().default(''),
       /** NO DEFAULT drain bound: the worst price an agent order may name, bps from the mark. Blank refuses `agents.price_bound_unset`. */
@@ -81,10 +93,21 @@ const schema = serviceEnvSchema
       TRADE_BUILDER_FEE_POSTER: z.enum(['on', 'off']).default('on'),
       TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(10_000),
       /**
+       * How many accounts' fills the builder-fee poster reads a minute, per venue (src/venue/account-pace.ts).
+       * Blank: every account each run. A whole number: that many a minute in turn; a complete run is a complete round.
+       */
+      TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE: z.string().default(''),
+      /**
        * OWNER 288 change 1e: how often the builder-fee recon runs on its own over the last day, with the door on, and logs
        * `trade.builder_fee_recon_break` when the venue's fills or its own totals and the ledger disagree.
        */
       TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
+      /**
+       * How many accounts' fills the scheduled builder-fee recon reads a minute (src/venue/account-pace.ts). Blank: every
+       * account at once. A whole number: one read every 60 s / that many, so a run over more accounts takes longer; a run
+       * still going when the next is due runs on and the next is skipped.
+       */
+      TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE: z.string().default(''),
       /**
        * J-ops-console-28: how often svc-trade reads our builder address's account mode at each venue, with the door on and
        * our builder address set; the founder console's view checks again on every read.
@@ -269,6 +292,12 @@ const schema = serviceEnvSchema
        * `trade.spread_limit_unset` ("protection not set"), on preview and on prepare. Never invented.
        */
       TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+      /**
+       * How far a stop's fired market exit and a reduce-only close on the person's own venue account may cross the
+       * market, in bps from the price it is judged on (venue/close-slippage.ts): the one home of the close tolerance.
+       * NO DEFAULT. Blank / unset / non-integer → null, and every such close refuses `trade.close_slippage_unset`.
+       */
+      TRADE_CLOSE_SLIPPAGE_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").
@@ -833,6 +862,19 @@ const schema = serviceEnvSchema
        * the fee schedule's `tierProgram`.
        */
       TRADE_FEE_TIER_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * Owner value (RC-cex-spot-05; J-cex-spot-15 #10): how often book snapshots are captured for downloadable
+       * historical datasets, in ms. NO DEFAULT: blank refuses `trade.history_book_interval_unset` and builds no book
+       * snapshot dataset.
+       */
+      TRADE_HISTORY_BOOK_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * Operational tick interval in ms for materializing downloadable historical datasets (`spot/history-jobs.ts`).
+       * Blank → the background materializer is off.
+       */
+      TRADE_HISTORY_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * The key VIP application proof files are encrypted with (spot/vip-applications.ts): 32 bytes as base64 or 64 hex

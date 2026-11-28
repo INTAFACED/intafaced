@@ -1,4 +1,4 @@
-// World: book, restart, stack
+// World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -6,7 +6,6 @@ import {
   api,
   DEVICE_KEY,
   EDGE,
-  fund,
   journeyState,
   mailedCodes,
   mailedConfirmLinks,
@@ -17,7 +16,12 @@ import {
   stackFile,
   tool,
 } from './stack.mjs';
-import { awayBid, deskPath, held, openOrders, previewed, reviewSheet, verify } from './desk.mjs';
+import { reviewSheet, verify } from './desk.mjs';
+import { ownSpotMarket } from './own-market.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
+import { connectWhenAsked } from './dex.mjs';
+import { testWalletKey } from './test-wallet.mjs';
+import { continueInWallet, openVenueDesk, testDeposit, venueBalance, venueForThisFile, venueRecord, walletDoorAct } from './venue.mjs';
 
 // J-identity-01, in the running app (docs/roadmap/journeys.json): sign up with an email, get the code, land signed in.
 // One test per step this build serves, titled "J-identity-01 #<n>". Every person here is a TEST person on the local
@@ -28,6 +32,8 @@ const J = 'J-identity-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+// #8's trade room is the launch desk, the person's own venue account: svc-trade's user-venue door is on for this file.
+venueForThisFile(test);
 
 function person() {
   const handle = `ji${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -220,6 +226,18 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
     await expect(notice(page).locator('small')).toHaveText('identity.registration_closed');
     await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
     await noAccount(who);
+
+    // The owner's invited list (REGISTRATION_EMAIL_ALLOWLIST) opens a closed sign-up to the addresses on it: an invited
+    // address goes on to the code step, and any other address still gets the same refusal.
+    const invited = person();
+    await restartService('identity', { LOCAL_STACK_IDENTITY_REGISTRATION: 'closed', LOCAL_STACK_IDENTITY_INVITED: invited.email });
+    await details(page, who);
+    await expect(notice(page)).toContainText('Sign-up is closed right now. Nothing was created.', { timeout: 15_000 });
+    await expect(notice(page).locator('small')).toHaveText('identity.registration_closed');
+    await noAccount(who);
+    await details(page, invited);
+    await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible();
+    await noAccount(invited);
   } finally {
     await registration(true);
   }
@@ -509,7 +527,7 @@ test(`${J} #6 an old link from a mail shows "link expired" and a used one "link 
     const alert = page.getByRole('alert');
     await expect(alert).toContainText('open Account and send a new one');
     await expect(alert.getByRole('link', { name: 'Go to Account', exact: true })).toHaveAttribute('href', '/uc/account');
-    await expect(page.locator('.pub-page')).not.toContainText(/auth\.|email_confirm|\b(400|404|409|410|500)\b/);
+    await expect(page.locator('[data-template="flow"]')).not.toContainText(/auth\.|email_confirm|\b(400|404|409|410|500)\b/);
     await expect(page.locator('[lang="zxx"]')).toHaveCount(0);
     expect(await page.content()).not.toContain(token);
   };
@@ -559,7 +577,7 @@ test(`${J} #6 a confirmation link with no token or a wrong one is a page with th
     const notice = page.getByRole('alert');
     await expect(notice).toContainText('Sign in, open Account and send a new one.');
     await expect(notice.getByRole('link', { name: 'Go to Account', exact: true })).toHaveAttribute('href', '/uc/account');
-    await expect(page.locator('.pub-page')).not.toContainText(/auth\.|email_confirm|\b(400|404|500)\b/);
+    await expect(page.locator('[data-template="flow"]')).not.toContainText(/auth\.|email_confirm|\b(400|404|500)\b/);
     await expect(page.locator('[lang="zxx"]')).toHaveCount(0);
   };
   await page.goto('/confirm-email');
@@ -616,43 +634,54 @@ test(`${J} #4 a new sign-up code asked for before the interval is refused by ide
   expect(mailedCodes(who.email)).toHaveLength(1);
 });
 
-test(`${J} #8 a verified, funded account with an email never proved is stopped at the trade room until it proves it`, async ({ page }) => {
-  test.setTimeout(120_000);
+test(`${J} #8 a verified account with TEST money on its own venue account and an email never proved is stopped at the trade room until it proves it`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
   const who = await unprovedAccount();
   await signIn(page, who);
-  // Identity verification and TEST funds, so the email is the only thing missing.
+  // Identity verification and TEST money on the person's own venue account (the launch desk; custody off our ledger holds
+  // none of it), so the email is the only thing missing.
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
-  await signIn(page, who);
+  const walletKey = testWalletKey();
+  const owner = privateKeyToAccount(walletKey).address.toLowerCase();
+  expect(await testDeposit(owner, 'USDC', '100', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+  // The file's own TEST market on the venue: its book is empty and only this step trades it.
+  const { symbol, base } = await ownSpotMarket(J, 'JI', 'E');
+  const desk = `/trade/spot/${symbol}`;
+  await doorKnows(who, owner, symbol);
+  const wallet = await openVenueDesk(page, who, desk, walletKey);
+  const signatures = () => wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').length;
 
   // The room says it before the person tries, and links back to step 7.
-  await page.goto(deskPath());
   const notice = page.getByRole('region', { name: 'Confirm your email to place orders', exact: true });
   await expect(notice).toBeVisible();
   await expect(notice.getByRole('link', { name: 'Confirm email', exact: true })).toHaveAttribute('href', '/uc/account');
 
-  // Trying anyway: the order is refused in plain words, nothing rests and nothing is held.
-  const price = await awayBid();
-  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(0).fill(price);
-  await previewed(page, () => page.getByRole('textbox', { name: 'Amount', exact: true }).nth(0).fill('0.01'));
-  await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
-  await expect(reviewSheet(page)).toBeVisible();
-  const placed = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
-  const answer = await placed;
-  expect(answer.status()).toBe(403);
-  expect(JSON.stringify(await answer.json())).toContain('trade.email_proof_required');
-  await expect(page.getByText('Confirm your email first', { exact: true }).first()).toBeVisible();
-  expect(await openOrders(who)).toHaveLength(0);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
+  // Trying anyway: our door refuses the order in plain words before the wallet is asked; nothing rests and nothing is held.
+  const asked = signatures();
+  const refused = await confirmVenueBuy(page, base);
+  expect(refused.status()).toBe(403);
+  expect(JSON.stringify(await refused.json())).toContain('trade.email_proof_required');
+  const outcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');
+  await expect(outcome).toHaveText(
+    'Confirm your email first: new orders wait until you confirm the email on this account. Refused before your wallet was asked; nothing was signed or sent.',
+    { timeout: 20_000 },
+  );
+  await expect(outcome).toHaveAttribute('data-code', 'trade.email_proof_required');
+  await expect(page.getByRole('dialog', { name: 'Check before you sign', exact: true })).toHaveCount(0);
+  await stepPicture();
+  expect(signatures()).toBe(asked);
+  expect((await venueRecord(owner, '/open-orders')).value).toHaveLength(0);
+  expect((await venueBalance(owner, 'USDC')).locked).toMatch(/^0(\.0+)?$/);
 
   // Security shows the same send-proof control as Account.
   await page.goto('/uc/safe');
   await expect(page.getByRole('region', { name: 'Verify your email address', exact: true })).toBeVisible();
 
   // Step 7 from the link: send, open the mailed link, confirm.
-  await page.goto(deskPath());
+  await page.goto(desk);
   await page
     .getByRole('region', { name: 'Confirm your email to place orders', exact: true })
     .getByRole('link', { name: 'Confirm email', exact: true })
@@ -664,22 +693,67 @@ test(`${J} #8 a verified, funded account with an email never proved is stopped a
   await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your email address is verified', exact: true })).toBeVisible();
 
-  // Proved: the notice is gone and the same order now rests.
-  await page.goto(deskPath());
-  await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeVisible();
+  // Proved: the notice is gone and the same order now rests on the person's own venue account.
+  await page.goto(desk);
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
+  await expect(page.getByRole('button', { name: `Buy ${base}`, exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: /Confirm your email to place orders/i })).toHaveCount(0);
-  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(0).fill(price);
-  await previewed(page, () => page.getByRole('textbox', { name: 'Amount', exact: true }).nth(0).fill('0.01'));
-  await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
-  await expect(reviewSheet(page)).toHaveCount(0);
-  await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
-  // Leave the book as it was: cancel the TEST order through the person's own API.
-  const [open] = await openOrders(who);
-  const gone = await (await api(who)).delete(`/api/v1/orders/${encodeURIComponent(open.id)}?symbol=${encodeURIComponent('BTC/USDT')}`);
-  expect(gone.status).toBeLessThan(300);
+  const placed = await confirmVenueBuy(page, base, { sign: true });
+  expect(placed.status()).toBe(200);
+  const key = placed.request().postDataJSON().intent.clientOrderKey;
+  await expect(outcome).toContainText('Open on the venue.', { timeout: 20_000 });
+  await expect.poll(async () => (await venueRecord(owner, '/open-orders')).value.length, { timeout: 20_000 }).toBe(1);
+  // Leave the venue as it was: the person's own wallet cancels the TEST order through our door.
+  await walletDoorAct(await api(who), privateKeyToAccount(walletKey), {
+    intent: { kind: 'cancel_order', symbol, clientOrderKey: key },
+  });
 });
+
+/**
+ * A TEST limit buy of 1 `base` at 10 USDC typed, reviewed and confirmed on the venue desk of the file's own market, whose
+ * empty book only this step trades, so it rests; the door's prepare answer.
+ */
+async function confirmVenueBuy(page, base, { sign = false } = {}) {
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+  await form.getByRole('textbox', { name: 'Price', exact: true }).fill('10');
+  const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+  await form.getByRole('textbox', { name: 'Amount', exact: true }).fill('1');
+  expect((await preview).status()).toBe(200);
+  await page.getByRole('button', { name: `Buy ${base}`, exact: true }).click();
+  await expect(reviewSheet(page)).toBeVisible();
+  const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
+  if (sign) await continueInWallet(page);
+  return prepared;
+}
+
+/**
+ * Waits until our door previews an order on a market listed a moment ago: it re-reads the venue's market list on a miss,
+ * at most every few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS). Asked as the person's own API, so the desk opens
+ * on a market the door already knows. A preview sends nothing and holds nothing.
+ */
+async function doorKnows(who, owner, symbol) {
+  const session = await api(who);
+  const intent = {
+    kind: 'place_order',
+    symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '1',
+    price: '10',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    builderFee: null,
+    clientOrderKey: `order:${owner}:${symbol.toLowerCase()}:${J}-listed`,
+  };
+  // The door's answer, status first, so a refusal that never clears names itself.
+  const answer = async () => {
+    const res = await session.post('/api/v1/venue/preview', { owner, intent });
+    return `${res.status} ${JSON.stringify(res.body).slice(0, 300)}`;
+  };
+  await expect.poll(answer, { timeout: 30_000, intervals: [2_000] }).toMatch(/^200 /);
+}
 
 /** Identity restarted with no blocked list at all (no list, no rows, fail-closed on), or back on the stack's own list. */
 async function screeningList(set) {

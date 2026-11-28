@@ -138,6 +138,7 @@ describe('UserVenueDoor sends a signed action once', () => {
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC'])),
       ordersPageMax: 50,
       slippageCapBps: null,
+      closeSlippageBps: 1000,
     });
     if (!plant) return d;
     const submit = d.submit.bind(d);

@@ -4,8 +4,6 @@
  * the contracts' (`@intafaced/contracts/api-rate-limits`); a reply that does not match is refused, never shown.
  */
 import {
-  limitRequestListOutputSchema,
-  limitRequestSchema,
   rateCostsOutputSchema,
   type LimitRequest,
   type LimitRequestCreateInput,
@@ -15,6 +13,10 @@ import {
 } from '@intafaced/contracts/api-rate-limits';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import { IDENTITY_API_RATE_TIERS } from '@intafaced/contracts/identity-api-rate-tiers-procedures';
+import {
+  IDENTITY_API_LIMIT_REQUESTS_LIST_MINE,
+  IDENTITY_API_LIMIT_REQUESTS_CREATE,
+} from '@intafaced/contracts/identity-api-limit-requests-procedures';
 
 export const readRateTiers = (api: ApiClient, signal: AbortSignal): Promise<ApiResult<RateTiersOutput>> =>
   api.call(IDENTITY_API_RATE_TIERS, undefined, { signal });
@@ -23,10 +25,10 @@ export const readRateCosts = (api: ApiClient, signal: AbortSignal): Promise<ApiR
   api.plain('edge', '/rate-limits/costs', rateCostsOutputSchema, { signal });
 
 export const readMyLimitRequests = (api: ApiClient, signal: AbortSignal): Promise<ApiResult<LimitRequestListOutput>> =>
-  api.query('identity', 'apiLimitRequests.listMine', undefined, limitRequestListOutputSchema, { signal });
+  api.call(IDENTITY_API_LIMIT_REQUESTS_LIST_MINE, undefined, { signal });
 
 export const sendLimitRequest = (api: ApiClient, input: LimitRequestCreateInput): Promise<ApiResult<LimitRequest>> =>
-  api.mutate('identity', 'apiLimitRequests.create', input, limitRequestSchema);
+  api.call(IDENTITY_API_LIMIT_REQUESTS_CREATE, input);
 
 /** The typed refusals the form names in its own words; anything else goes to the shared failure panel. */
 export const LIMIT_FORM_REFUSALS = [

@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `earn.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -213,6 +213,25 @@ export const BANK_EARN_INTEREST_HISTORY = defineProcedure({
   }),
   samples: [
     { verdict: 'accept', input: { poolId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * A fixed-term saving's auto-renew choice (BK-earn-03, J-bank-08 #4): on, a new term of the same length and amount
+ * starts when this one ends; off, the saving can be taken back once the term ends.
+ */
+export const BANK_EARN_SET_AUTO_RENEW = defineProcedure({
+  ...base,
+  name: 'bank.earn.setAutoRenew',
+  kind: 'mutation',
+  path: 'earn.setAutoRenew',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ positionId: z.string().guid(), on: z.boolean() }),
+  output: z.object({ positionId: z.string(), autoRenew: z.boolean(), maturesAt: z.string().nullable() }),
+  samples: [
+    { verdict: 'accept', input: { positionId: '11111111-1111-4111-8111-111111111111', on: true } },
     { verdict: 'refuse', input: 42 },
   ],
 });

@@ -54,7 +54,8 @@ describe('More room sections and records (MC-order-01)', () => {
   });
 
   it("opens each section address on its own tab, not on the room's first one (Phantom 24 Oct)", () => {
-    const selected = (html: string) => [...html.matchAll(/aria-pressed="true"[^>]*>([^<]*)</g)].map((hit) => hit[1]);
+    // A room on its Volt template names its open section as the current link of its section links; the others press a tab.
+    const selected = (html: string) => [...html.matchAll(/aria-(?:pressed="true"|current="page")[^>]*>([^<]*)</g)].map((hit) => hit[1]);
     expect(selected(page('/mining'))).toEqual(['Overview']);
     for (const [path, tab] of [
       ['/mining/workers', 'Workers'],
@@ -91,6 +92,13 @@ describe('More room sections and records (MC-order-01)', () => {
     expect(page('/agents/approvals')).not.toContain('Your agent');
     expect(page('/agents/new')).not.toContain('Your agent');
     expect(page('/agents/a/b')).toContain('This destination has no customer route');
+  });
+
+  it('links Connect your assistant (/agents/connect) directly from /agents on load (J-agents-21)', () => {
+    const html = page('/agents');
+    expect(html).toContain('data-template="catalogue"');
+    expect(html).toContain('href="/agents/connect"');
+    expect(html).toContain('Connect your assistant');
   });
 
   it('keeps the honest "no customer route" panel for a path that is not a section or record', () => {

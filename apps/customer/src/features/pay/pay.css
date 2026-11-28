@@ -227,24 +227,6 @@
     .pay-pagination p {
       font-size: var(--if-text-sm);
     }
-    .pay-room-tabs {
-      display: flex;
-      gap: var(--if-space-7);
-      border-bottom: 1px solid var(--if-line);
-      overflow-x: auto;
-      margin-bottom: var(--if-space-8);
-    }
-    .pay-room-tabs a {
-      white-space: nowrap;
-      min-height: 44px;
-      padding-bottom: var(--if-space-3);
-      color: var(--if-fg-2);
-      border-bottom: 2px solid transparent;
-    }
-    .pay-room-tabs a[aria-current='page'] {
-      border-bottom-color: var(--if-lime);
-      color: var(--if-fg);
-    }
     .pay-filters {
       display: flex;
       gap: var(--if-space-4);

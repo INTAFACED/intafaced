@@ -1,26 +1,32 @@
 import { useState } from 'react';
 import { z } from 'zod';
 import { Button, Field } from '@intafaced/ui/lit';
-import { callAs, type ApiResult } from '../../../shared/api';
+import type { ApiResult } from '../../../shared/api';
 import { ReadFailure, ReadLoading } from '../../../shared/read-state';
 import { parseAmount } from '../../../shared/money';
 import { useSession } from '../../session';
-import { amount, bps, date, funds, positiveMoney, useBankRead, useBankRecord, usePageLimit, type ActionSpec } from '../components';
+import { amount, bps, date, funds, positiveMoney, useBankRecord, usePageLimit, type ActionSpec } from '../components';
 import { t as copyText } from '../copy';
 import { availableRow, earnFormFacts, earnLiveRows } from '../form-preview';
 import { useHoldings } from '../holdings';
-import { bankReads, bankWrites, type earnPoolPageSchema, type poolSchema, type positionSchema } from '../contracts';
+import { type earnPoolPageSchema, type poolSchema, type positionSchema } from '../contracts';
 import { CALCULATOR_MAX_DAYS, earnCalculation } from '../earn-calculator';
 import { earnCopy } from '../earn-copy';
 import { utcDay } from '../earn-rate-history';
 import { earnPoolActionsCopy } from '../earn-pool-actions-copy';
 import {
   BANK_EARN_INTEREST_HISTORY,
-  BANK_EARN_POOL,
   BANK_EARN_POOLS,
   BANK_EARN_POSITIONS,
+  BANK_EARN_POOL,
+  BANK_EARN_SET_AUTO_RENEW,
 } from '@intafaced/contracts/bank-earn-procedures';
-import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
+import { BANK_AUTO_INVEST_LIST, BANK_AUTO_INVEST_POLICY } from '@intafaced/contracts/bank-auto-invest-procedures';
+import { BANK_EARN_DEPOSIT, BANK_EARN_WITHDRAW } from '@intafaced/contracts/bank-earn-2-procedures';
+import {
+  BANK_AUTO_INVEST_CREATE_ROUND_UP,
+  BANK_AUTO_INVEST_CREATE_THRESHOLD_SWEEP,
+} from '@intafaced/contracts/bank-auto-invest-2-procedures';
 
 type Pool = z.infer<typeof earnPoolPageSchema>;
 type Position = z.infer<typeof positionSchema>;
@@ -100,7 +106,7 @@ export function PoolDeposit({ pool, open }: { pool: Pool; open: Open }) {
   const { t } = earnPoolActionsCopy.useCopy();
   const { api } = useSession();
   const preflight = async (): Promise<ApiResult<null>> => {
-    const fresh = await callAs(api, BANK_EARN_POOL, { poolId: pool.id }, bankReads['earn.pool']);
+    const fresh = await api.call(BANK_EARN_POOL, { poolId: pool.id });
     if (!fresh.ok) return readFailed(t('subjectPool'));
     return JSON.stringify(fresh.data) === JSON.stringify(pool) ? { ok: true, data: null } : changed();
   };
@@ -119,7 +125,7 @@ export function PoolDeposit({ pool, open }: { pool: Pool; open: Open }) {
         onClick={() =>
           open({
             title: t('depositTitle'),
-            procedure: 'earn.deposit',
+            record: BANK_EARN_DEPOSIT,
             unit: pool.assetId,
             fields: [positiveMoney(pool.assetId)],
             facts: [
@@ -135,7 +141,7 @@ export function PoolDeposit({ pool, open }: { pool: Pool; open: Open }) {
                 ? null
                 : t('belowMinimum', { minimum: amount(pool.minDeposit, pool.assetId) }),
             verifyOutcome: (data) => {
-              const returned = data as z.infer<(typeof bankWrites)['earn.deposit']>;
+              const returned = data as z.infer<(typeof BANK_EARN_DEPOSIT)['output']>;
               // The id is checked for every earn write (`bankWriteForReview`); a term is this review's own promise.
               return (pool.termDays === null) === (returned.maturesAt === null);
             },
@@ -226,7 +232,7 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
         onClick={() =>
           open({
             title: t('unbondTitle', { amount: amount(position.principal, position.assetId) }),
-            procedure: 'earn.withdraw',
+            record: BANK_EARN_WITHDRAW,
             unit: position.assetId,
             facts: [
               [t('pool'), pool.name],
@@ -240,7 +246,7 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
             ],
             preflight,
             verifyOutcome: (data) => {
-              const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
+              const returned = data as z.infer<(typeof BANK_EARN_WITHDRAW)['output']>;
               return returned.status === 'unbonding' && parseAmount(returned.principal) === parseAmount(position.principal);
             },
             // Only an ask that says so starts the wait; the bank refuses a plain take back of a staking-style saving.
@@ -256,7 +262,7 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
   const takeBack = () =>
     open({
       title: t('withdrawTitle', { amount: amount(position.principal, position.assetId) }),
-      procedure: 'earn.withdraw',
+      record: BANK_EARN_WITHDRAW,
       unit: position.assetId,
       facts: [
         [t('pool'), pool.name],
@@ -265,7 +271,7 @@ export function PoolWithdraw({ pool, position, open }: { pool: Pool; position: P
       notes: [t('withdrawNote'), t('withdrawOutcome')],
       preflight,
       verifyOutcome: (data) => {
-        const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
+        const returned = data as z.infer<(typeof BANK_EARN_WITHDRAW)['output']>;
         return returned.status === 'closed' && parseAmount(returned.principal) === parseAmount(position.principal);
       },
       input: () => ({ positionId: position.id }),
@@ -309,7 +315,7 @@ export function FixedTerm({ pool, position, open }: { pool: Pool; position: Posi
   const choose = (on: boolean) =>
     open({
       title: t(on ? 'renewOnTitle' : 'renewOffTitle'),
-      procedure: 'earn.setAutoRenew',
+      record: BANK_EARN_SET_AUTO_RENEW,
       unit: position.assetId,
       facts: [
         [t('pool'), pool.name],
@@ -454,12 +460,12 @@ function EarlierDays({ pool, before }: { pool: Pool; before: string }) {
 export function AutoEarn({ pool, open }: { pool: Pool; open: Open }) {
   const { t } = earnPoolActionsCopy.useCopy();
   const { api } = useSession();
-  const policy = useBankRead('autoInvest.policy', undefined);
+  const policy = useBankRecord(BANK_AUTO_INVEST_POLICY, undefined);
   const rules = useBankRecord(BANK_AUTO_INVEST_LIST, { limit: RULES });
   const preflight = async (): Promise<ApiResult<null>> => {
     const [freshPool, freshPolicy] = await Promise.all([
-      callAs(api, BANK_EARN_POOL, { poolId: pool.id }, bankReads['earn.pool']),
-      api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']),
+      api.call(BANK_EARN_POOL, { poolId: pool.id }),
+      api.call(BANK_AUTO_INVEST_POLICY, undefined),
     ]);
     if (!freshPool.ok) return readFailed(t('subjectPool'));
     if (!freshPolicy.ok) return readFailed(t('subjectPolicy'));
@@ -500,7 +506,7 @@ export function AutoEarn({ pool, open }: { pool: Pool; open: Open }) {
               onClick={() =>
                 open({
                   title: t('autoTitleDialog'),
-                  procedure: 'autoInvest.createThresholdSweep',
+                  record: BANK_AUTO_INVEST_CREATE_THRESHOLD_SWEEP,
                   unit: pool.assetId,
                   fields: [{ ...positiveMoney(pool.assetId, 'threshold', t('autoKeep')), hint: t('autoKeepHint') }],
                   facts: [
@@ -551,7 +557,7 @@ export function useEarnRoom() {
     const current = fresh.data.find((row) => row.id === pool.id);
     if (!current || JSON.stringify(current) !== JSON.stringify(pool)) return changed();
     if (automation) {
-      const policy = await api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);
+      const policy = await api.call(BANK_AUTO_INVEST_POLICY, undefined);
       if (!policy.ok) return fail(earnCopy.t('subjectPolicy'));
       if (!policy.data.enabled) return changed();
     }
@@ -568,7 +574,7 @@ export function useEarnRoom() {
   const positions = useBankRecord(BANK_EARN_POSITIONS, { limit });
   const held = useHoldings();
   const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
-  const automation = useBankRead('autoInvest.policy', undefined);
+  const automation = useBankRecord(BANK_AUTO_INVEST_POLICY, undefined);
   return {
     limit,
     setLimit,
@@ -581,11 +587,11 @@ export function useEarnRoom() {
       withdraw: (position: z.infer<typeof positionSchema>): ActionSpec => ({
         title: copyText('rooms.withdraw.earn.principal'),
         unit: position.assetId,
-        procedure: 'earn.withdraw',
+        record: BANK_EARN_WITHDRAW,
 
         preflight: () => checkPosition(position),
         verifyOutcome: (data) => {
-          const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
+          const returned = data as z.infer<(typeof BANK_EARN_WITHDRAW)['output']>;
           return (
             returned.positionId === position.id &&
             returned.status === 'closed' &&
@@ -602,11 +608,11 @@ export function useEarnRoom() {
       }),
       deposit: (pool: z.infer<typeof poolSchema>): ActionSpec => ({
         title: copyText('rooms.deposit.into.earn'),
-        procedure: 'earn.deposit',
+        record: BANK_EARN_DEPOSIT,
 
         preflight: () => checkPool(pool),
         verifyOutcome: (data, input) => {
-          const returned = data as z.infer<(typeof bankWrites)['earn.deposit']>;
+          const returned = data as z.infer<(typeof BANK_EARN_DEPOSIT)['output']>;
           const fixed = pool.kind === 'fixed' && pool.termDays !== null;
           return (
             returned.positionId === input.positionId &&
@@ -637,7 +643,7 @@ export function useEarnRoom() {
       }),
       sweep: (pool: z.infer<typeof poolSchema>): ActionSpec => ({
         title: copyText('rooms.create.threshold.sweep'),
-        procedure: 'autoInvest.createThresholdSweep',
+        record: BANK_AUTO_INVEST_CREATE_THRESHOLD_SWEEP,
         unit: pool.assetId,
         preflight: () => checkPool(pool, true),
         fields: [
@@ -655,7 +661,7 @@ export function useEarnRoom() {
       }),
       roundUp: (pool: z.infer<typeof poolSchema>): ActionSpec => ({
         title: copyText('rooms.create.card.round.up'),
-        procedure: 'autoInvest.createRoundUp',
+        record: BANK_AUTO_INVEST_CREATE_ROUND_UP,
         unit: pool.assetId,
         preflight: () => checkPool(pool, true),
         fields: [positiveMoney(pool.assetId, 'granularity', copyText('rooms.round.up.increment'))],

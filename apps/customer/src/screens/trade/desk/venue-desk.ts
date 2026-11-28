@@ -1,3 +1,5 @@
+import { VENUE_SPOT_OTHER_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
+import { venueBound } from '@intafaced/contracts/venue-price';
 import { formatAmount, parseAmount } from '../../../shared/money';
 import {
   canonicalDecimal,
@@ -29,7 +31,8 @@ export function shortAddress(address: string): string {
 
 /**
  * A market order's worst price from the venue's best prices and the owner's protection `bps` (never a default): a buy
- * pays at most the best ask plus `bps`, up to the tick; a sell at least the best bid less `bps`, down. Null with no price.
+ * pays at most the best ask plus `bps`, a sell at least the best bid less `bps`, on the venue's price rule rounded toward
+ * the market (`venueBound`, the one svc-trade bounds with). Null with no price.
  */
 export function slippageLimit(side: VenueSide, best: VenueBestPrices | null, bps: string, tick: string): string | null {
   const reference = side === 'buy' ? best?.ask : best?.bid;
@@ -41,9 +44,9 @@ export function slippageLimit(side: VenueSide, best: VenueBestPrices | null, bps
   if (price <= 0n || step <= 0n || ratio < 0n) return null;
   // Scaled bigint times a scaled ratio: divide by the scale of `one` to stay in the same units.
   const moved = side === 'buy' ? (price * (one + ratio)) / one : (price * (one - ratio)) / one;
-  const ticks = side === 'buy' ? (moved + step - 1n) / step : moved / step;
-  const limit = ticks * step;
-  return limit > 0n ? formatAmount(limit) : null;
+  if (moved <= 0n) return null;
+  const limit = venueBound(side, { moved: formatAmount(moved), reference: formatAmount(price), tick });
+  return parseAmount(limit) > 0n ? limit : null;
 }
 
 /** What the ticket holds for one side. `tif` is a limit's time in force (good till cancelled when absent). */
@@ -89,7 +92,7 @@ export function gtdClientId(orderKey: string): string {
 }
 
 /** Order types the desk names beside limit and market; a type the venue does not list is shown disabled. */
-export const OTHER_ORDER_TYPES = ['stop_limit', 'stop', 'take_profit', 'trailing_stop'] as const;
+export const OTHER_ORDER_TYPES = VENUE_SPOT_OTHER_ORDER_TYPES;
 
 /** Every self-trade mode the desk names (J-cex-spot-03 #8); only the venue's own published rule can be picked. */
 export const SELF_TRADE_MODES: readonly VenueSelfTradeMode[] = ['cancel_resting', 'cancel_new', 'cancel_both'];
@@ -131,8 +134,18 @@ export function tagProblem(tag: string): boolean {
   return tag.trim() !== '' && !TAG_PATTERN.test(tag.trim());
 }
 
+/**
+ * The person's own client order id (cex-spot-order-entry-023; J-cex-spot-02 #5): 1 to 32 letters, digits or dashes. Blank
+ * is none, and the desk mints one per reviewed draft. Unlike a tag it is part of the order's key: the same id is the same
+ * order, so a retry under it is never a second order and a changed order under it is refused (`idempotency.conflict`).
+ */
+const OWN_CLIENT_ID_PATTERN = /^[A-Za-z0-9-]{1,32}$/;
+export function ownClientIdProblem(id: string): boolean {
+  return id.trim() !== '' && !OWN_CLIENT_ID_PATTERN.test(id.trim());
+}
+
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
-export type TicketProblem = 'rule_unpublished' | 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
+export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'below_min' | 'no_book' | 'no_cap';
 
 /** A rule a spot order is checked against, which the venue may leave unpublished (J-cex-spot-04 #6). */
 export type VenueRule = 'min' | 'band' | 'cap';
@@ -152,17 +165,30 @@ export function bpsAsPercent(bps: string): string {
 }
 
 /**
- * `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). A spot
- * market whose venue publishes no smallest order value, band or open-order cap takes no order at all: the desk never
- * stands in a default (`trade.venue_rule_unpublished`, refused by our door too).
+ * `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`).
+ * Rules the venue itself does not publish (such as Hyperliquid's spot price band) are shown as not published and left
+ * to the venue without blocking or defaulting here (J-cex-spot-04 #6).
  */
 export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
-  if (market.kind === 'spot' && unpublishedRules(market).length > 0) return 'rule_unpublished';
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
-  if (fields.type === 'market') return !capSet ? 'no_cap' : worst === null ? 'no_book' : null;
+  if (fields.type === 'market') {
+    if (!capSet) return 'no_cap';
+    if (worst === null) return 'no_book';
+    // A market buy's worst price is at or above the best ask, so below min there is strictly below min on the book;
+    // a market sell's worst bound may sit far below the book, so its value is left to the venue's reference price.
+    if (market.kind === 'spot' && fields.side === 'buy' && market.minOrderNotional != null) {
+      const notional = valueOf(fields.amount, worst);
+      if (notional !== null && parseAmount(notional) < parseAmount(market.minOrderNotional)) return 'below_min';
+    }
+    return null;
+  }
   if (!fields.price.trim() || !isDecimal(fields.price)) return 'price';
   if (!onStep(fields.price, market.tickSize)) return 'price_step';
+  if (market.kind === 'spot' && market.minOrderNotional != null) {
+    const notional = valueOf(fields.amount, fields.price);
+    if (notional !== null && parseAmount(notional) < parseAmount(market.minOrderNotional)) return 'below_min';
+  }
   return null;
 }
 
@@ -221,11 +247,17 @@ export class HeldDraft {
     return this.hold(fields, null).key;
   }
 
-  /** The key for this order and the worst price held with it (a limit's is unused). */
-  hold(fields: TicketFields, worst: string | null): { key: string; worst: string | null } {
-    const signature = draftSignature(fields);
+  /**
+   * The key for this order and the worst price held with it (a limit's is unused). With the person's own client id
+   * (`ownClientId`, valid per OWN_CLIENT_ID_PATTERN) the key is that id's, whatever the order: the door, not the desk,
+   * answers whether it is the same order (a replay) or a changed one (refused).
+   */
+  hold(fields: TicketFields, worst: string | null, ownClientId = ''): { key: string; worst: string | null } {
+    const own = ownClientId.trim();
+    const signature = own ? `${draftSignature(fields)}|own:${own}` : draftSignature(fields);
     if (this.held?.signature !== signature) {
-      this.held = { signature, key: keys.order(this.owner, this.symbol, draftId(this.now(), this.counter++)), worst };
+      const draft = own ? `own-${own}` : draftId(this.now(), this.counter++);
+      this.held = { signature, key: keys.order(this.owner, this.symbol, draft), worst };
     } else if (this.held.worst === null && worst !== null) {
       // Nothing was built under the key without a worst price (no intent with no book), so the first one is held.
       this.held = { ...this.held, worst };

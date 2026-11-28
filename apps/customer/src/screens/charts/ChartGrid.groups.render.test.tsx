@@ -85,6 +85,10 @@ vi.mock('./history', async (original) => ({
   ...(await original<typeof import('./history')>()),
   useChartHistory: () => ({ state: { status: 'idle' }, load: async () => ({ status: 'idle' }), oldestReachable: 0 }),
 }));
+vi.mock('./venue-charts', async (original) => ({
+  ...(await original<typeof import('./venue-charts')>()),
+  useVenueChartMarkets: () => ({ status: 'off' }),
+}));
 import ChartsScreen from './index';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

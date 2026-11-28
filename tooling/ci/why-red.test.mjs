@@ -18,6 +18,7 @@ import {
   staleLines,
   summarize,
 } from './why-red.mjs';
+import { inheritedLines, mainsNotices, mainsOwn } from './journey-seal.mjs';
 
 const check = (cond, msg) => assert.ok(cond, msg);
 const sha = 'a'.repeat(40);
@@ -175,6 +176,10 @@ test('staleLines and runIdOf: an old run re-run hours later is STALE', () => {
   check(
     stale.some((l) => l.startsWith('STALE    run 40993723454') && l.includes('attempt 3')),
     'an old pull_request run re-run hours later is named stale',
+  );
+  check(
+    !stale.some((l) => /merge main into/i.test(l)),
+    'a STALE line invites no main merge (project-state#3754: such lines drove 34 of 55 merges after a red)',
   );
   check(runIdOf({ details_url: 'https://github.com/o/r/actions/runs/77/job/2' }) === '77', 'reads the run id');
   const at = (over) => ({ 1: { ...old, ...over } });
@@ -387,4 +392,100 @@ test('summarize prints the journey lines under the red journeys check, within th
   const size = out.join('\n').length;
   check(size < 3000, `the whole answer stays a few thousand characters, not the 30-40K a log read cost (${size})`);
   assert.match(last(out), /^RED: /);
+});
+
+// ---- project-state#4141: a journey red the seal counts as main's is named so, from the seal's own verdict ----
+// On 27-28 Nov main's recording break was in 18 of 22 red journeys runs on open PRs; why-red said "fix what the lines
+// above name" over each, and builders debugged reds that were not theirs. The seal leaves one notice per red it passes
+// over as main's (journey-seal.mjs mainsNotices); why-red reads that notice, never a second definition of main's.
+const MAIN_HEAD = 'e'.repeat(40);
+const mainsLatest = {
+  run: { id: 60, head_sha: MAIN_HEAD },
+  red: new Map([
+    ['J-wallet-05#3', 'failing, not in the baseline'],
+    ['J-bank-13#1', 'failing, not in the baseline'],
+  ]),
+  problems: [],
+};
+const mainsIssues = ['J-wallet-05', 'J-bank-13'].map((j, i) => ({
+  number: 9 + i,
+  state: 'open',
+  title: `Journey broken on main: ${j}`,
+  labels: [{ name: 'regression' }],
+}));
+const wallet = { step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: false };
+const bankMoney = { step: 'J-bank-13#1', why: 'failing, not in the baseline', money: true };
+// What the seal job prints, as GitHub keeps it: `::notice title=<t>::<m>` becomes a notice annotation on the seal's check.
+const asAnnotations = (printed) =>
+  printed.map((l) => {
+    const m = /^::notice title=(.*?)::(.*)$/.exec(l);
+    const un = (s) => s.replace(/%0A/g, '\n').replace(/%0D/g, '\r').replace(/%3A/g, ':').replace(/%2C/g, ',').replace(/%25/g, '%');
+    return { annotation_level: 'notice', path: '.github', title: un(m[1]), message: un(m[2]) };
+  });
+const sealNotices = ({ blocking, touches }) => {
+  const own = mainsOwn({ blocking, latest: mainsLatest, issues: mainsIssues, touches });
+  return asAnnotations(mainsNotices(inheritedLines({ notes: [], passed: own.passed }).map((l) => `touched journeys: ${l}`)));
+};
+const untouched = { journeys: new Set(), paths: new Set(['tooling/factory/x.mjs']), shared: false };
+const failed = (step) => {
+  const [j, n] = step.split('#');
+  return { title: `${j} #${n} does the thing`, file: `apps/customer/tests/real-app/${j}.pw.mjs`, line: 10, source: 'x', said: 'y' };
+};
+const mainsRun = ({ notices, steps, pull = { draft: false, armed: true } }) =>
+  summarize({
+    ...base,
+    checks: [ok(1, SEAL), red(7, JOURNEYS)],
+    annotations: { 1: notices, 7: [fail('Process completed with exit code 1.')] },
+    failedSteps: { 7: ['Verdict'] },
+    journeys: { 7: { failures: steps.map(failed), prev: null, green: null, read: 0 } },
+    pull,
+  });
+
+test("project-state#4141 planted: a step the seal's rule counts as main's prints MAIN'S, and an armed PR needs nothing", () => {
+  const notices = sealNotices({ blocking: [wallet], touches: untouched });
+  assert.equal(notices.length, 1, "the seal leaves one notice for the one red it passes over as main's");
+  const out = mainsRun({ notices, steps: ['J-wallet-05#3'] });
+  const line = out.find((l) => l.startsWith("MAIN'S   "));
+  assert.match(line, /^MAIN'S   J-wallet-05#3: red on main too \(#9\), not yours: don't fix it here; /);
+  assert.match(line, /fresh head once main loses it/);
+  assert.match(last(out), /^MAIN'S: /, 'every red step is main\'s: the verdict says so, not "fix what the lines above name"');
+  check(!out.some((l) => l.startsWith('RED: ')));
+  check(
+    out.every((l) => l.length <= 200),
+    'every line within WIDTH',
+  );
+});
+
+test("project-state#4141 planted: a draft or unarmed PR is told to merge main after main's fix lands", () => {
+  const notices = sealNotices({ blocking: [wallet], touches: untouched });
+  for (const pull of [
+    { draft: true, armed: true },
+    { draft: false, armed: false },
+  ]) {
+    const line = mainsRun({ notices, steps: ['J-wallet-05#3'], pull }).find((l) => l.startsWith("MAIN'S   "));
+    assert.match(line, /not yours: don't fix it here; merge main after its fix lands$/, JSON.stringify(pull));
+  }
+});
+
+test("project-state#4141 planted: a step the PR touches, or a money step, never prints MAIN'S", () => {
+  const touched = { journeys: new Set(['J-wallet-05']), paths: new Set(['services/svc-wallet/src/x.ts']), shared: false };
+  const tests = { journeys: new Set(), paths: new Set(['apps/customer/tests/real-app/J-x-01.pw.mjs']), shared: false };
+  for (const [why, blocking, touches] of [
+    ['the PR touches its journey', [wallet], touched],
+    ['the PR touches a test file', [wallet], tests],
+    ['a money step', [bankMoney], untouched],
+  ]) {
+    const notices = sealNotices({ blocking, touches });
+    assert.equal(notices.length, 0, `${why}: the seal leaves no main's notice`);
+    const out = mainsRun({ notices, steps: blocking.map((x) => x.step) });
+    check(!out.some((l) => l.startsWith("MAIN'S")), `${why}: no MAIN'S line`);
+    assert.match(last(out), /^RED: /, why);
+  }
+  // One main's step beside one of the PR's own: the main's one is named, the verdict stays RED.
+  const mixed = mainsRun({
+    notices: sealNotices({ blocking: [wallet, bankMoney], touches: untouched }),
+    steps: ['J-wallet-05#3', 'J-bank-13#1'],
+  });
+  assert.equal(mixed.filter((l) => l.startsWith("MAIN'S   ")).length, 1);
+  assert.match(last(mixed), /^RED: /);
 });

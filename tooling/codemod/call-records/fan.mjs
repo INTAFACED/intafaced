@@ -13,6 +13,8 @@ const ARG_AT = {
   founderEdgeCall: { module: 1, path: 2, input: 4 },
   payCall: { module: 5, path: 1, input: 3 },
   useBankRead: { path: 0, input: 1 },
+  payQuery: { path: 0, input: 1 },
+  payMutate: { path: 0, input: 1 },
 };
 
 const unwrap = (n) => {
@@ -35,23 +37,32 @@ export function fanOut(p, site) {
   if (set.open) return [{ ...site, problem: `${REASON}: ${set.open}` }];
   const values = [...new Map(set.values.map((v) => [v.value, v])).values()];
   if (values.length === 1) return [{ ...site, [key]: values[0].value }];
-  // Each value's input is typed by its own record: only an input written out here (or none) can be.
+  // Each value's input is typed by its own record: only an input written out here (or none) can be, or a `? :` on the
+  // very test that picks the value, whose branch each value sends (`rotate ? { keyId, ...ids } : ids`).
   const input = a[at.input];
-  const typed = !input || input.type === 'ObjectExpression' || (input.type === 'Identifier' && input.name === 'undefined');
+  const branches = inputBranches(p, input, values);
+  const typed = branches || !input || input.type === 'ObjectExpression' || (input.type === 'Identifier' && input.name === 'undefined');
   const why = `its ${set.by} sends one input value to ${values.length} records: each one's input type can't be kept`;
   return values.map((v, i) => ({
     ...site,
     [key]: v.value,
-    fan: { key: site.node, at: i, size: values.length, test: v.test },
+    fan: { key: site.node, at: i, size: values.length, test: v.test, ...(branches ? { input: branches[i] } : {}) },
     ...(typed ? {} : { problem: why }),
   }));
+}
+
+/** Each value's own input when the input is a `? :` on the same test that picks the call's two values, else undefined. */
+function inputBranches(p, input, values) {
+  const n = unwrap(input);
+  if (n?.type !== 'ConditionalExpression' || values.length !== 2 || values[0].test === undefined) return undefined;
+  return text(p, n.test) === values[0].test ? [n.consequent, n.alternate] : undefined;
 }
 
 /**
  * The strings an expression can take: `{ by, values: [{ value, test }] }`, where `test` is the condition that picks a value
  * (the last value needs none), or `{ open }` naming why the set is not closed.
  */
-function valuesOf(p, node, depth = 0) {
+export function valuesOf(p, node, depth = 0) {
   node = unwrap(node);
   if (!node) return { open: 'it names no service or call' };
   if (depth > 8) return { open: `${where(p, node)} is followed too far` };
@@ -60,8 +71,10 @@ function valuesOf(p, node, depth = 0) {
   if (node.type === 'ConditionalExpression') {
     const c = valuesOf(p, node.consequent, depth + 1);
     const alt = valuesOf(p, node.alternate, depth + 1);
-    if (c.values?.length !== 1 || alt.values?.length !== 1) return { open: `a \`? :\` whose branches are not each one string` };
-    return { by: '`? :`', values: [{ value: c.values[0].value, test: text(p, node.test) }, { value: alt.values[0].value }] };
+    // A chain (`a ? 'x' : b ? 'y' : 'z'`) is one string per test, in order: its else may be a chain of its own.
+    const chain = alt.by === '`? :`' && alt.values?.every((v, i) => (v.test === undefined) === (i === alt.values.length - 1));
+    if (c.values?.length !== 1 || (alt.values?.length !== 1 && !chain)) return { open: `a \`? :\` whose branches are not each one string` };
+    return { by: '`? :`', values: [{ value: c.values[0].value, test: text(p, node.test) }, ...alt.values] };
   }
   if (node.type === 'TemplateLiteral') {
     if (node.expressions.length !== 1) return { open: `${where(p, node)} fills in more than one value` };
@@ -239,9 +252,11 @@ export function fanIn(changes, planned, done, callText) {
         for (const x of back) planned.hand.push({ site: x, why: 'another value of its call stays, and one call sends them all' });
         continue;
       }
-      const call = (b) => callText(changes, b.s, b.name, b.takesNone);
+      // A write spec's `procedure:` names its record (`record: t ? A : B`); a call sends each value by its own record.
+      const spec = s.shape === 'write-spec';
+      const call = (b) => (spec ? b.name : callText(changes, b.s, b.name, b.takesNone));
       const body = got.slice(0, -1).reduceRight((rest, b) => `${b.s.fan.test} ? ${call(b)} : ${rest}`, call(got.at(-1)));
-      changes.edit(file, s.node.start, s.node.end, `(${body})`);
+      changes.edit(file, s.node.start, s.node.end, spec ? `record: ${body}` : `(${body})`);
       for (const b of got) changes.imp(file, b.spec, b.name);
     }
   }

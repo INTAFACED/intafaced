@@ -5,6 +5,7 @@ import {
   academySaveCourseQuizInputSchema,
   academyScoreCourseQuizEssaysInputSchema,
   academySetCourseQuizStateInputSchema,
+  type AcademySetCourseQuizStateInput,
 } from '@intafaced/contracts/academy-course-quizzes';
 import {
   founderCall,
@@ -17,7 +18,11 @@ import {
   founderRecordRead,
 } from '@/lib/desk';
 import type { AcademyAdminCourseQuiz, QuizDeskReply, QuizView } from './quizzes-model';
-import { ACADEMY_ADMIN_COURSE_QUIZ_REVIEWS } from '@intafaced/contracts/academy-admin-records';
+import {
+  ACADEMY_ADMIN_COURSE_QUIZ_REVIEWS,
+  ACADEMY_ADMIN_SCORE_COURSE_QUIZ_ESSAYS,
+  ACADEMY_ADMIN_SET_COURSE_QUIZ_STATE,
+} from '@intafaced/contracts/academy-admin-records';
 import { ACADEMY_ADMIN_COURSE_QUIZ } from '@intafaced/contracts/academy-admin-procedures';
 
 /**
@@ -67,23 +72,24 @@ function reply(result: FounderCallResult<AcademyAdminCourseQuiz | null>, what: s
   }
 }
 
-/** What the founder sent, checked as svc-academy checks it, so a form mistake is named before anything is sent. */
+/**
+ * What the founder sent, checked as svc-academy checks it, so a form mistake is named before anything is sent. Save is
+ * still sent by name: the door checks a numeric question's tolerance on the field and contracts on the question, so the
+ * two inputs differ and no record can be held to the door yet.
+ */
 const OPS = {
   save: {
     schema: academySaveCourseQuizInputSchema,
-    procedure: 'admin.saveCourseQuiz',
     what: 'quiz saved as a draft',
     why: 'Each question needs a prompt and whole points from 1. A choice question needs two to twenty choices, and in a graded quiz its answer; a multi-select with partial credit needs points that split evenly across its correct choices; a numeric question needs a decimal answer and a tolerance from 0. A pass mark and limits are whole numbers; an access code is 4 to 64 characters; results after the last attempt need an attempt limit; only a survey is anonymous.',
   },
   setState: {
     schema: academySetCourseQuizStateInputSchema,
-    procedure: 'admin.setCourseQuizState',
     what: 'quiz state changed',
     why: 'Publish or take back to draft, and say why in up to 500 characters.',
   },
   scoreEssays: {
     schema: academyScoreCourseQuizEssaysInputSchema,
-    procedure: 'admin.scoreCourseQuizEssays',
     what: 'essays scored',
     why: 'Score every essay of the attempt in whole points, from 0 to its question’s points. A blank score is not sent.',
   },
@@ -103,13 +109,16 @@ export async function changeQuiz(
     // svc-academy scores the attempt only when it is on the quiz named; the quiz is read back so the editor shows it as it is now.
     const parsed = OPS.scoreEssays.schema.safeParse(input);
     if (!parsed.success) return { why: spec.why };
-    const scored = await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readReviews);
+    const scored = await founderRecordRead(ctx, ACADEMY_ADMIN_SCORE_COURSE_QUIZ_ESSAYS, parsed.data, readReviews);
     if (scored.kind !== 'ok') return reply(scored as FounderCallResult<null>, spec.what);
     return reply(await founderRecordRead(ctx, ACADEMY_ADMIN_COURSE_QUIZ, { itemId: parsed.data.itemId }, readQuiz), spec.what);
   }
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: spec.why };
-  const what =
-    op === 'setState' ? ((parsed.data as { state: string }).state === 'published' ? 'quiz published' : 'quiz back to draft') : spec.what;
-  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readQuiz), what);
+  if (op === 'setState') {
+    const data = parsed.data as AcademySetCourseQuizStateInput;
+    const what = data.state === 'published' ? 'quiz published' : 'quiz back to draft';
+    return reply(await founderRecordRead(ctx, ACADEMY_ADMIN_SET_COURSE_QUIZ_STATE, data, readQuiz), what);
+  }
+  return reply(await founderCall(ctx, 'academy', 'admin.saveCourseQuiz', 'POST', parsed.data, readQuiz), spec.what);
 }

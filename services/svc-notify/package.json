@@ -21,6 +21,7 @@
     "@intafaced/db": "workspace:*",
     "@intafaced/events": "workspace:*",
     "@intafaced/i18n": "workspace:*",
+    "@intafaced/service-kit": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.10.0",
     "@trpc/server": "^11.28.0",

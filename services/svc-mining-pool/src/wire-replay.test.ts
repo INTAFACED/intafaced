@@ -36,6 +36,11 @@ import { createMiningRouter } from './router.js';
  */
 
 const GOLDEN = new URL('./wire-replay.golden.json', import.meta.url);
+/**
+ * Error replies no longer carry tRPC's stack. Recordings made before that hold `"stack":"<stack>"` in their error bodies;
+ * it is dropped on reading, while the live side still turns any stack into `<stack>`, so a stack that comes back fails.
+ */
+const RECORDED_STACK = '\\"stack\\":\\"<stack>\\",';
 const SECRET = 'a-mining-pool-wire-replay-edge-secret-long-enough';
 const INTERNAL = 'a-mining-pool-wire-replay-internal-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -367,7 +372,7 @@ async function writeGolden(g: Golden) {
 }
 
 function readGolden(): Golden {
-  const raw = JSON.parse(readFileSync(GOLDEN, 'utf8')) as {
+  const raw = JSON.parse(readFileSync(GOLDEN, 'utf8').replaceAll(RECORDED_STACK, '')) as {
     callers: unknown;
     inputs: Record<string, Samples>;
     bodies: string[];

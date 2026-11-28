@@ -274,13 +274,13 @@ test(`${J} #3 reports a scam with an amount and a transfer id: a ticket in the s
     .fill(`TEST ${J} ${RUN}: a caller said they were the bank and told me to move money to a safe account.`);
 
   // A transfer the person did not send is refused, and nothing is made.
-  await form.getByLabel('Transfer id').fill(`jb18-not-mine-${RUN}`);
+  await form.getByLabel('Transfer reference').fill(`jb18-not-mine-${RUN}`);
   await form.getByRole('button', { name: 'Send scam report' }).click();
   await expect(main).toContainText('That transfer id is not a transfer you sent.');
   expect((await desk.mine()).filter((a) => a.kind === 'scam')).toHaveLength(0);
 
   // The transfer they sent: one acknowledgement with a reference and the case note naming the amount and the transfer.
-  await form.getByLabel('Transfer id').fill(transferId);
+  await form.getByLabel('Transfer reference').fill(transferId);
   await form.getByRole('button', { name: 'Send scam report' }).click();
   const ack = main.getByRole('status').filter({ hasText: 'Scam report received' });
   await expect(ack).toBeVisible();

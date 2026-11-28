@@ -32,20 +32,13 @@ const fakeApi = (answer: () => unknown): ApiClient =>
       reads.push({ module, procedure, input });
       return answer();
     },
-    call(
-      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
-      record: { kind: string; module: string; path: string; output: unknown },
-      input?: unknown,
-      opts?: unknown,
+    // A call by its record is the same read, named by the record's module and path.
+    async call(
+      this: { query: (m: string, p: string, i: unknown) => Promise<unknown> },
+      record: { module: string; path: string },
+      input: unknown,
     ) {
-      // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
-      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
-        record.module,
-        record.path,
-        input,
-        record.output,
-        opts,
-      ]);
+      return this.query(record.module, record.path, input);
     },
   }) as unknown as ApiClient;
 async function mount(api: ApiClient, userId: string | null = USER) {

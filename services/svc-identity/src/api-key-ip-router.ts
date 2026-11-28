@@ -13,6 +13,10 @@ import {
 } from './auth/api-key-fresh-factor.js';
 import { normalizeIp } from './auth/api-key-ip.js';
 import { mintApiKeyWithIpAllowlist, type ApiKeyMinter } from './auth/mint-api-key-ip.js';
+import { IDENTITY_BIND_API_KEY_IP_ALLOWLIST } from '@intafaced/contracts/identity-bind-api-key-ip-allowlist-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
+import { IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST } from '@intafaced/contracts/identity-unbind-api-key-ip-allowlist-procedures';
 
 async function currentList(sql: Queryable, userId: string, keyId: string): Promise<string[]> {
   const rows = await sql<Array<{ ip_allowlist: string[] | null }>>`
@@ -27,17 +31,9 @@ async function currentList(sql: Queryable, userId: string, keyId: string): Promi
  */
 export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKeyFactorGate) {
   return router({
-    bindApiKeyIpAllowlist: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().guid(), ips: z.array(z.string()), factorProof: optionalFactorProof }))
-      .output(
-        z.object({
-          id: z.string().guid(),
-          ipAllowlist: z.array(z.string()),
-          requireSignature: z.boolean(),
-          requireNonEmptyIpAllowlist: z.boolean(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
+    bindApiKeyIpAllowlist: mountRecord(
+      IDENTITY_BIND_API_KEY_IP_ALLOWLIST,
+      async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
           const next = input.ips.map((ip) => normalizeIp(ip) ?? ip);
@@ -63,18 +59,12 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
           }
           throw err;
         }
-      }),
-    unbindApiKeyIpAllowlist: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().guid(), ip: z.string(), factorProof: optionalFactorProof }))
-      .output(
-        z.object({
-          id: z.string().guid(),
-          ipAllowlist: z.array(z.string()),
-          requireSignature: z.boolean(),
-          requireNonEmptyIpAllowlist: z.boolean(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
+      },
+      codedRefusal,
+    ),
+    unbindApiKeyIpAllowlist: mountRecord(
+      IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST,
+      async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
           const ip = normalizeIp(input.ip);
@@ -100,7 +90,9 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
           }
           throw err;
         }
-      }),
+      },
+      codedRefusal,
+    ),
     mintApiKeyWithIpAllowlist: scopedProcedure('identity:write')
       .input(
         z.object({

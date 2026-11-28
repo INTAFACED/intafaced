@@ -42,7 +42,7 @@ const OTHER_ASK = 'TEST: someone else asks';
 const ASKS = [ASK, REFUSED_ASK, LATER_ASK, B_ASK, OTHER_ASK];
 
 /**
- * The task Navigator may not run, as the service's refusal map has it (services/svc-agents/src/fleet/guardrails.ts:493,
+ * The task Navigator may not run, as the service's refusal map has it (crates/svc-agents/src/runtime/guardrails.rs, ported from the TypeScript's
  * `refuse('agents.task_not_allowed', 'agents.refused.task_not_allowed')`): the stored code is `code`, the answer's
  * message is `key` (router.ts:285 answers an AgentError with its user message key), and the answer's cause is the
  * guardrail error's own `agents.refused` (RefusedError, runtime.ts:123). The run and the log store `code`
@@ -87,6 +87,20 @@ async function call(key, procedure, input, method = 'GET') {
     headers: { authorization: `Bearer ${key}`, ...(method === 'POST' ? { 'content-type': 'application/json' } : {}) },
     body: method === 'POST' ? JSON.stringify(input) : undefined,
   }).then(json);
+}
+
+/**
+ * One read of the agents API with `key`, opened in a browser as the person's code would show it: Edge's JSON answer as
+ * the browser draws it, the step's picture. Returns the page (its context closed by the caller), the status and the body
+ * read back from the screen.
+ */
+async function shownRead(browser, key, procedure, input) {
+  const url = new URL(`${EDGE}/api/agents/trpc/${procedure}`);
+  if (input !== undefined) url.searchParams.set('input', JSON.stringify(input));
+  const context = await browser.newContext({ extraHTTPHeaders: { authorization: `Bearer ${key}` } });
+  const page = await context.newPage();
+  const res = await page.goto(url.href);
+  return { page, status: res?.status(), body: JSON.parse(await page.locator('pre').first().innerText()) };
 }
 
 /** One tRPC call through Edge as `who`, on their own sign-in (not a key): the independent source. */
@@ -142,13 +156,15 @@ function ok(answer) {
   return answer.body.result.data;
 }
 
-/** The agents service's own procedures, from its built router (what the stack runs): path → query or mutation. */
-async function agentsProcedures() {
-  const { createAgentsRouter } = await import(new URL('../../../../services/svc-agents/dist/router.js', import.meta.url).href);
-  return Object.entries(createAgentsRouter({ runtime: {}, gateway: {} })._def.procedures).map(([path, procedure]) => ({
-    path,
-    type: procedure._def.type,
+/** The agents service's own calls, from its door's generated list (crates/svc-agents/src/door/calls.rs): path → query or mutation. */
+function agentsProcedures() {
+  const calls = readFileSync(path.join(ROOT, 'crates/svc-agents/src/door/calls.rs'), 'utf8');
+  const found = [...calls.matchAll(/path: "([^"]+)",\s*kind: Kind::(Query|Mutation),/g)].map(([, at, kind]) => ({
+    path: at,
+    type: kind === 'Query' ? 'query' : 'mutation',
   }));
+  expect(found.length, 'calls.rs lists its calls').toBeGreaterThan(0);
+  return found;
 }
 
 /** Creates a key on the API keys page with the passkey's fresh step-up and returns its secret, shown once. */
@@ -158,7 +174,7 @@ async function createKey(page, name, scope) {
   await page.getByLabel('Key name').fill(name);
   // The read-only preset ticks every read scope, agents:read among them, so each key's one scope is chosen by hand.
   await page.getByLabel('Choose', { exact: true }).check();
-  await page.getByRole('checkbox', { name: new RegExp(`^${scope}`) }).check();
+  await page.locator(`input[name="scope"][value="${scope}"]`).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   const key = (await page.getByTestId('api-keys__key').textContent())?.trim();
   expect(key).toMatch(/^ifc_[A-Za-z0-9_-]{20,}$/);
@@ -185,7 +201,7 @@ async function passkeyPerson(page, prefix, usdt, start) {
 }
 
 /** The exact cost the service's rate card puts on `usage` for `task`: each token count times its published rate per
- * million, rounded up once at the ledger's last place (services/svc-agents/src/metering/pricing.ts). */
+ * million, rounded up once at the ledger's last place (crates/svc-agents/src/metering/pricing.rs). */
 async function rateCardCost(task, usage) {
   const matching = ok(await personCall('routes.list')).filter((row) => row.task === task && row.capability === 'complete');
   expect(matching).toHaveLength(1);
@@ -275,9 +291,10 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
     ]);
     await page.goto('/uc/safe/api-keys/new');
     await page.getByLabel('Choose', { exact: true }).check();
-    await expect(page.getByRole('checkbox', { name: /^agents:execute/ })).toHaveCount(0);
-    await expect(page.getByTestId('api-keys__blocked').getByRole('listitem').filter({ hasText: 'agents:execute' })).toHaveText(
-      'agents:execute: Only while you are signed in on a device, never by a key.',
+    await expect(page.locator('input[name="scope"][value="agents:execute"]')).toHaveCount(0);
+    // The form names each permission in plain words: agents:execute is "Agents: run agents".
+    await expect(page.getByTestId('api-keys__blocked').getByRole('listitem').filter({ hasText: 'Agents: run agents' })).toHaveText(
+      'Agents: run agents — Only while you are signed in on a device, never by a key.',
     );
 
     // The rates the service publishes are exactly the stack's TEST rate card.
@@ -415,26 +432,29 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
 
 /**
  * What a key may read of a person's sessions, each once, with an input naming the person's session A or its first run.
- * The list is the agents service's own (services/svc-agents/src/session-reads.ts), whose unit test compares it with the
- * router, so a read added to the router fails on its own pull request rather than here on main (#8495).
+ * The list is the agents service's own (crates/svc-agents/src/door/session_reads.json), whose crate test compares it with the
+ * door (tests/session_reads.rs), so a read added to the door fails on its own pull request rather than here on main (#8495).
  */
-async function readInputs() {
-  const { sessionReadInputs } = await import(new URL('../../../../services/svc-agents/dist/router.js', import.meta.url).href);
-  return sessionReadInputs({
-    sessionId: kept('sessionId'),
-    runId: kept('runId'),
-    requestId: kept('requestId'),
-    sessionB: kept('sessionB'),
-  });
+function readInputs() {
+  const { reads } = JSON.parse(readFileSync(path.join(ROOT, 'crates/svc-agents/src/door/session_reads.json'), 'utf8'));
+  const fill = (v) =>
+    typeof v === 'string' && /^<\w+>$/.test(v)
+      ? kept(v.slice(1, -1))
+      : v !== null && typeof v === 'object'
+        ? Array.isArray(v)
+          ? v.map(fill)
+          : Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)]))
+        : v;
+  return Object.fromEntries(Object.entries(reads).map(([at, e]) => [at, 'input' in e ? fill(e.input) : undefined]));
 }
 
-test(`${J} #1 calls the session API with a key lacking the agents read scope: refused`, async () => {
-  const inputs = await readInputs();
+test(`${J} #1 calls the session API with a key lacking the agents read scope: refused`, async ({ browser, stepPicture }) => {
+  const inputs = readInputs();
   // Every read of the session API, as the service's own router lists them, is tried exactly once. The session API is the
   // part of the router about a person's sessions and what ran in them: their sessions (session.*), runs (run.*), usage
   // windows (usage.*) and log (log.*). The other routers (routes, the doors, ops, the agents' own rooms) are not
   // session reads, and a new read under these four prefixes fails the inventory check until it is added below.
-  const reads = (await agentsProcedures())
+  const reads = agentsProcedures()
     .filter(({ path, type }) => type === 'query' && /^(session|run|usage|log|webhook)\./.test(path))
     .map(({ path }) => path);
   expect(Object.keys(inputs).sort()).toEqual([...reads].sort());
@@ -451,6 +471,12 @@ test(`${J} #1 calls the session API with a key lacking the agents read scope: re
   expect(await mine()).toEqual(sessionsBefore);
   expect(await logOf(agents.account(), kept('sessionId'))).toEqual(logBefore);
   expect(ok(await call(kept('onKey'), 'run.get', { runId: kept('runId') })).state).toBe('completed');
+
+  // The refusal as the person's code shows it: session A's events read with the key lacking the scope, in a browser.
+  const shown = await shownRead(browser, kept('offKey'), 'session.events', { sessionId: kept('sessionId'), limit: 500 });
+  scopeDenied(shown, 'agents:read');
+  await stepPicture(shown.page);
+  await shown.page.context().close();
 });
 
 test(`${J} #2 opens a background run with a key holding the scope: a run id and a status`, async () => {
@@ -477,7 +503,10 @@ test(`${J} #2 opens a background run with a key holding the scope: a run id and 
   });
 });
 
-test(`${J} #3 tries to start a run with the key: refused, runs start only in the person's own session; then a background run started there, its events listed from a cursor`, async () => {
+test(`${J} #3 tries to start a run with the key: refused, runs start only in the person's own session; then a background run started there, its events listed from a cursor`, async ({
+  browser,
+  stepPicture,
+}) => {
   const sessionId = kept('sessionId');
   const onKey = kept('onKey');
   const sessionB = kept('sessionB');
@@ -593,6 +622,11 @@ test(`${J} #3 tries to start a run with the key: refused, runs start only in the
     expect(toUnits(after.events[0].cost) > 0n).toBe(true);
     for (const event of after.events) expect(event.sessionId).toBe(sessionC);
     expect(JSON.stringify(after)).not.toContain(LATER_ASK);
+    // The list as the person's code shows it: the same read from the held cursor, in a browser, only the run's action.
+    const shown = await shownRead(browser, onKey, 'session.events', { sessionId: sessionC, cursor: held.cursor, limit: 500 });
+    expect(ok(shown)).toEqual(after);
+    await stepPicture(shown.page);
+    await shown.page.context().close();
     // Another person's key reads none of it.
     refusedWith(
       await call(kept('otherKey'), 'session.events', { sessionId: sessionC, cursor: held.cursor, limit: 500 }),
@@ -604,7 +638,10 @@ test(`${J} #3 tries to start a run with the key: refused, runs start only in the
   }
 });
 
-test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal codes as keys, no prompt text`, async () => {
+test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal codes as keys, no prompt text`, async ({
+  browser,
+  stepPicture,
+}) => {
   const sessionId = kept('sessionId');
   const onKey = kept('onKey');
   const runId = kept('runId');
@@ -694,9 +731,19 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
   // The same for the run in the person's open session B.
   refusedWith(await call(kept('otherKey'), 'run.get', { runId: kept('runBId') }), 404, NOT_YOUR_RUN);
   expect((await call(onKey, 'run.get', { runId })).body).toEqual(finished.body);
+
+  // The refused run as the person's code shows it: its refusal code as a key, no reply, no cost and no prompt text.
+  const shown = await shownRead(browser, onKey, 'run.get', { runId: refusedId });
+  expect(shown.body).toEqual(refused.body);
+  for (const ask of ASKS) expect(JSON.stringify(shown.body)).not.toContain(ask);
+  await stepPicture(shown.page);
+  await shown.page.context().close();
 });
 
-test(`${J} #5 registers a webhook with the key: one signed delivery per finished run the person started in their own session`, async () => {
+test(`${J} #5 registers a webhook with the key: one signed delivery per finished run the person started in their own session`, async ({
+  browser,
+  stepPicture,
+}) => {
   const onKey = kept('onKey');
   // This test's own TEST receiver on loopback: every request it takes, with its headers and raw body.
   const posts = [];
@@ -859,6 +906,12 @@ test(`${J} #5 registers a webhook with the key: one signed delivery per finished
         .map((runId) => ({ runId, state: 'delivered', attempts: 1, lastStatus: 200 })),
     );
     expect(ok(await call(kept('otherKey'), 'webhook.deliveries', { endpointId, limit: 500 }))).toEqual([]);
+
+    // The deliveries as the person's code shows them: one per finished run, each delivered on its first attempt.
+    const shown = await shownRead(browser, onKey, 'webhook.deliveries', { endpointId, limit: 500 });
+    expect(ok(shown)).toEqual(read);
+    await stepPicture(shown.page);
+    await shown.page.context().close();
   } finally {
     await new Promise((resolve) => hook.close(resolve));
   }

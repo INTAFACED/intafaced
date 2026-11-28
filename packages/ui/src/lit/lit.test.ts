@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { roleNames, roleVar, templateSlots, templates, typeRoles } from './contracts.js';
 import { formattedLitCss } from './format.js';
 import { looks } from '../theme/tokens.js';
-import { flat, flatTypeMap, lit, litLight } from './tokens.js';
+import { flat, flatTypeMap, lit, litLight, pro } from './tokens.js';
 import { contrastRatio, deltaE2000, hue, toHex } from './colour.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -120,7 +120,10 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
   it('draws Volt on the root with no switch: no direction or accent selector is left in lit.css', () => {
     expect(css).not.toMatch(/data-direction|data-accent/);
     expect(css.toLowerCase()).toContain(`--lit-accent: ${lit.accent.toLowerCase()};`);
-    expect(lit.accent).toBe('#E0F83A');
+    // Volt's lime is the main action's (primary-bg) and the older rooms' primary fill; the accent family is bone.
+    expect(lit['primary-bg']).toBe('#E0F83A');
+    expect(lit['accent-fill']).toBe('#E0F83A');
+    expect(lit.accent).toBe('#F3F2EC');
   });
 
   it("today's medium and large radii are box radii, never the control's pill (a tall box drawn with a pill clips into an ellipse)", () => {
@@ -139,6 +142,7 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     'text-1',
     'text-2',
     'text-3',
+    'text-disabled',
     'accent-text',
     'up-text',
     'down-text',
@@ -223,9 +227,14 @@ describe('Volt: the chartreuse spark (intafaced issue 9302)', () => {
   });
 
   it('is chartreuse, not lemon: its hue sits on the green side of yellow, as in the references', () => {
-    expect(hue(dark.accent)).toBeGreaterThanOrEqual(64);
-    expect(hue(dark.accent)).toBeLessThanOrEqual(80);
+    expect(hue(dark['primary-bg'])).toBeGreaterThanOrEqual(64);
+    expect(hue(dark['primary-bg'])).toBeLessThanOrEqual(80);
     expect(hue('#FAF33E')).toBeLessThan(64);
+  });
+
+  it('keeps lime on the one main action: in dark, a link, a current step, a checked box and a chart line are bone', () => {
+    for (const role of ['accent', 'accent-text', 'accent-pair'] as const) expect(dark[role], role).toBe(dark['text-1']);
+    expect(dark['primary-bg']).toBe('#E0F83A');
   });
 
   it('reads as another colour than the warning and the gain, in both schemes (CIEDE2000 at least 20)', () => {
@@ -294,17 +303,121 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
     expect([...fonts.matchAll(/@import '([^']+)'/g)].map((m) => m[1])).toEqual([
       '@fontsource-variable/geist/index.css',
       '@fontsource-variable/geist-mono/index.css',
-      '@fontsource-variable/archivo/wdth.css',
+      '@fontsource-variable/manrope/index.css',
+      '@fontsource-variable/inter/index.css',
     ]);
   });
   it('the font roles lead with the families those packages declare', () => {
-    expect(lit['font-ui'].startsWith("'Archivo Variable'")).toBe(true);
-    expect(lit['font-figure'].startsWith("'Archivo Variable'")).toBe(true);
+    expect(lit['font-ui'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(lit['font-figure'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(readFileSync(require.resolve('@fontsource-variable/manrope/index.css'), 'utf8')).toContain("font-family: 'Manrope Variable'");
     expect(lit['font-mono'].startsWith("'Geist Mono Variable'")).toBe(true);
-    expect(readFileSync(require.resolve('@fontsource-variable/archivo/wdth.css'), 'utf8')).toContain("font-family: 'Archivo Variable'");
     for (const pkg of ['geist', 'geist-mono']) {
       const css = readFileSync(require.resolve(`@fontsource-variable/${pkg}/index.css`), 'utf8');
       expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");
     }
+  });
+  it('every Volt family draws arrows, shapes and check marks from its own symbol faces, not a system fallback', () => {
+    const faces = [...fonts.matchAll(/@font-face\s*{([^}]*)}/g)].map((m) => m[1] ?? '');
+    for (const family of ['Manrope Variable', 'Inter Variable', 'Geist Variable', 'Geist Mono Variable']) {
+      const own = faces.filter((f) => f.includes(`font-family: '${family}'`));
+      const ranges = own.map((f) => /unicode-range:\s*([^;]+);/.exec(f)?.[1] ?? '').join(',');
+      // → ↗ ← ↔ ↙ ↘ ↕ ↻ ▲ ▼ ▾ ▸ ○ ● ✓ ✕: every symbol the Customer app types today.
+      for (const ch of '→↗←↔↙↘↕↻▲▼▾▸○●✓✕') {
+        const cp = ch.codePointAt(0)!;
+        const covered = ranges.split(',').some((r) => {
+          const [a = '', b = a] = r.trim().replace(/^U\+/, '').split('-');
+          return cp >= parseInt(a, 16) && cp <= parseInt(b, 16);
+        });
+        expect(covered, `${family} draws ${ch}`).toBe(true);
+      }
+      for (const f of own) {
+        const file = /url\(\.\/(fonts\/[^)]+)\)/.exec(f)?.[1];
+        expect(file && statSync(join(here, file)).size).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe('one part per role', () => {
+  /**
+   * Names main's kit exports that are defined in two files under src/lit: Segmented and RefusalBox twice on main, and
+   * Select (a combobox beside main's native one) and Checkbox beside main's. Folding a name main exports changes every
+   * layer that imports it, so these are the kit owner's to fold. The list only shrinks: a folded name fails the second
+   * test until it comes off.
+   */
+  const mainOwned = ['Checkbox', 'RefusalBox', 'Segmented', 'Select'];
+
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) return name === '__gallery__' ? [] : files(path);
+      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
+    });
+  const definedTwice = () => {
+    const where = new Map<string, string[]>();
+    for (const file of files(here)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/^export (?:function|const|class) ([A-Z][A-Za-z0-9]*)\b/gm)) {
+        const name = m[1]!;
+        where.set(name, [...(where.get(name) ?? []), file.slice(here.length)]);
+      }
+    }
+    return [...where].filter(([, at]) => at.length > 1);
+  };
+
+  it('no other part is defined twice in the kit: each exported name lives in one file under src/lit', () => {
+    expect(definedTwice().filter(([name]) => !mainOwned.includes(name))).toEqual([]);
+  });
+
+  it("every name on the kit owner's list is still defined twice (a folded name comes off the list)", () => {
+    expect(mainOwned.filter((name) => !definedTwice().some(([n]) => n === name))).toEqual([]);
+  });
+});
+
+describe('the kit draws the arrows its faces lack', () => {
+  // Manrope and Geist carry no ▲ ▼ → ← ↗ (look gate run 45061471946: ▲ in WenQuanYi Zen Hei); fonts.css now gives each
+  // family symbol faces for typed text, and the kit's own parts still draw theirs: lt-arrow-up, lt-arrow-down,
+  // lt-arrow-go, lt-arrow-back, lt-arrow-out.
+  it('no kit component types one outside a comment', () => {
+    const typed = walk(here)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .flatMap((f) =>
+        readFileSync(f, 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ''))
+          .split('\n')
+          .map((line, i) => ({ at: `${f.slice(here.length)}:${i + 1}`, code: line.replace(/\/\/.*$/, '') }))
+          .filter(({ code }) => /[▲▼→←↗]/.test(code))
+          .map(({ at }) => at),
+      );
+    expect(typed).toEqual([]);
+  });
+});
+
+describe("Volt's material is the owner's pick (1A, 2B, 3A)", () => {
+  it('sets type and figures in Manrope, cents dimmed on the line, a black page, a flat lime primary and unpainted panels', () => {
+    expect(lit['font-figure'].startsWith("'Manrope Variable'")).toBe(true);
+    expect(lit['cents-size']).toBe('0.6em');
+    expect(lit['cents-shift']).toBe('0');
+    expect(lit['cents-tone']).toBe('var(--lit-text-3)');
+    expect(lit.page).toBe('#000000');
+    expect(lit['primary-bg']).toBe('#E0F83A');
+    expect(lit['solid-bg']).toBe('#000000');
+    // An unpainted panel keeps one even hairline, as the picked samples draw it, so a panel still has an edge on black.
+    expect(lit['solid-rim']).toBe(lit['solid-rim-dim']);
+    expect(lit['solid-rim']).not.toMatch(/,\s*0\)$/);
+  });
+  it("draws every big figure at the figure weight (the owner's pick: Manrope 300), never a fixed bold", () => {
+    const css = readFileSync(join(here, 'components/components.css'), 'utf8');
+    for (const sel of ['.lt-mover-price', '.lt-featured-price', ".lit-stack__card[data-card='front'] [data-part='figure']"]) {
+      const rule = css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
+      expect(rule, sel).toContain('font-weight: var(--lit-type-figure-weight);');
+    }
+  });
+  it('draws flat tiles in Pro and on a board that asks for them', () => {
+    const css = readFileSync(join(here, 'lit.css'), 'utf8');
+    expect(css).toMatch(/\[data-panels='tiles'\] \{\n {2}--lit-solid-bg: #0d0e0e;/i);
+    expect(pro['solid-bg']).toBe('#0D0E0E');
+    expect(pro['radius-panel']).toBe('6px');
+    expect(pro['solid-rim']).toMatch(/,\s*0\)$/);
   });
 });

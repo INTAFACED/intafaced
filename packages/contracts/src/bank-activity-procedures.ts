@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `activity.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -144,9 +144,29 @@ export const activityItem = z.object({
   address: z.string().min(1).max(256).optional(),
   /** Set on a line the partner bank reports: whose record it is, TEST on the TEST partner. */
   heldAt: z.object({ label: z.string() }).optional(),
+  /**
+   * On a personal send, the payment's fees as the bank recorded them when it was made: our fee, and the network fee
+   * the book that moved it stated ("0" on our own book; null when the partner gave none). Omitted on every other line.
+   */
+  fees: z.object({ fee: amountString.nullable(), networkFee: amountString.nullable() }).optional(),
 });
 
 export const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
+
+export const BANK_ACTIVITY_LIST = defineProcedure({
+  ...base,
+  name: 'bank.activity.list',
+  kind: 'query',
+  path: 'activity.list',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: activityListInput,
+  output: activityListOutput,
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
 
 /**
  * Lines grouped by how they are taxed. Refuses while the owner has not set the effect of each kind; on a test stack

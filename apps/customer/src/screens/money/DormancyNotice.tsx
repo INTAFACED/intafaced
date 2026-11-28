@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { classifyRefusal } from '../../data/refusal-codes';
 import { useSession } from '../../features/session/session';
 import { defineCopy } from '../../shared/i18n';
 import { BANK_DORMANCY_NOTICES } from '@intafaced/contracts/bank-dormancy-procedures';
@@ -30,9 +31,11 @@ export function DormancyNotice() {
     let live = true;
     void api.call(BANK_DORMANCY_NOTICES, undefined).then((result) => {
       if (!live) return;
-      // No rule published is no notice to give; any other refusal is shown, never dropped.
+      // No rule published is no notice to give. A person not yet verified is told so by the page itself, so a bank that
+      // will not read them notices is not a failed read. Any other refusal is shown, never dropped.
       if (result.ok) setNotice(result.data[0] ?? null);
-      else if (result.code !== 'bank.dormancy_rule_unset') setRefused(result.code ?? result.message);
+      else if (result.code !== 'bank.dormancy_rule_unset' && classifyRefusal(result.code) !== 'verify')
+        setRefused(result.code ?? result.message);
     });
     return () => {
       live = false;
@@ -40,7 +43,7 @@ export function DormancyNotice() {
   }, [api, userId]);
   if (refused)
     return (
-      <p role="status" className="money-caption" data-testid="dormancy-notice" data-state="unread" data-code={refused}>
+      <p role="status" className="lt-muted" data-testid="dormancy-notice" data-state="unread" data-code={refused}>
         {t('unread')}
       </p>
     );
@@ -53,12 +56,12 @@ export function DormancyNotice() {
       data-fee={notice.fee}
       data-debit-date={notice.debitDate}
       role={notice.state === 'noticed' ? 'alert' : 'status'}
-      className="money-card"
+      className="lt-callout lt-callout-warn"
     >
       {notice.state === 'noticed' ? (
         <>
           <p>{t('noticed', words)}</p>
-          <a className="text-link" href={`/uc/withdraw?asset=${encodeURIComponent(notice.assetId)}`}>
+          <a className="lt-link" href={`/uc/withdraw?asset=${encodeURIComponent(notice.assetId)}`}>
             {t('withdraw')}
           </a>
         </>

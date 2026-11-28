@@ -69,6 +69,8 @@ import { createIncidentsRouter } from './incidents/router.js';
 import type { IncidentStore } from './incidents/store.js';
 import { StaffHoldDesk } from './staff-holds/desk.js';
 import { createStaffHoldsRouter } from './staff-holds/router.js';
+import { LedgerReversalDesk } from './ledger-reversals/desk.js';
+import { createLedgerReversalsRouter } from './ledger-reversals/router.js';
 import type { ServiceRecordStore } from './service-records/store.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
@@ -84,7 +86,12 @@ import { composeVenueEconomics, parseCostEntry, parseCostPeriod, periodWindow, r
 import { OPS_RECORD_VENUE_COST } from '@intafaced/contracts/ops-record-venue-cost-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from './refusal.js';
-import { OPS_RESTORE_WATERMARKS } from '@intafaced/contracts/ops-restore-procedures';
+import {
+  OPS_RESTORE_WATERMARKS,
+  OPS_RESTORE_BACKUPS,
+  OPS_RESTORE_RUNS,
+  OPS_RESTORE_RUN,
+} from '@intafaced/contracts/ops-restore-procedures';
 import { OPS_VENUE_ECONOMICS } from '@intafaced/contracts/ops-venue-economics-procedures';
 
 /**
@@ -261,6 +268,8 @@ export interface OperatorDeskConfig {
   readonly incidentSeverities?: readonly string[] | null;
   /** Staff holds on funds. Absent means every call refuses `ops.hold_storage_unconfigured`. */
   readonly staffHolds?: StaffHoldDesk;
+  /** Operator reversals of posted ledger transactions. Absent means every call refuses `ops.reversal_storage_unconfigured`. */
+  readonly ledgerReversals?: LedgerReversalDesk;
   /** Home's owner values for the public `home.config` read. Absent means every value is blank. */
   readonly homeConfig?: HomeConfig;
   /** The prices Home and Assets value holdings with (`valuation.prices`); absent is unpublished. */
@@ -643,43 +652,53 @@ export function createOpsRouter(
         opsRefusal,
       ),
       // A blank URL is unconfigured. A probe that fails or is unwired stays unprobed. A manifest is listed as returned.
-      backups: scopedProcedure('admin:read', guards).query(async () => {
-        const archive = archivePosture(desks.restoreArchiveUrl);
-        if (!archive.configured || !desks.restoreArchiveProbe || desks.restoreArchiveUrl == null) {
-          return { asOf: now(), archive, backups: [] as const, reason: archive.code };
-        }
-        let probed: RestoreArchiveProbeResult;
-        try {
-          probed = await desks.restoreArchiveProbe(desks.restoreArchiveUrl);
-        } catch {
-          probed = { probed: false };
-        }
-        if (!probed.probed) {
-          return { asOf: now(), archive, backups: [] as const, reason: OPS_RESTORE_ARCHIVE_UNPROBED };
-        }
-        return {
-          asOf: now(),
-          archive: { configured: true as const, probed: true as const, code: null },
-          backups: probed.backups,
-          reason: probed.backups.length === 0 ? 'The archive listed no backups.' : 'The archive listed these backups.',
-        };
-      }),
-      runs: scopedProcedure('admin:read', guards).query(async () => {
-        try {
-          return { asOf: now(), runs: [...(await requireRestoreDesk(desks.restoreDesk).list())] };
-        } catch (err) {
-          mapError(err);
-        }
-      }),
-      run: scopedProcedure('admin:read', guards)
-        .input(z.object({ restoreNo: z.string().min(1).max(128) }))
-        .query(async ({ input }) => {
+      backups: mountRecord(
+        OPS_RESTORE_BACKUPS,
+        async () => {
+          const archive = archivePosture(desks.restoreArchiveUrl);
+          if (!archive.configured || !desks.restoreArchiveProbe || desks.restoreArchiveUrl == null) {
+            return { asOf: now(), archive, backups: [] as const, reason: archive.code };
+          }
+          let probed: RestoreArchiveProbeResult;
+          try {
+            probed = await desks.restoreArchiveProbe(desks.restoreArchiveUrl);
+          } catch {
+            probed = { probed: false };
+          }
+          if (!probed.probed) {
+            return { asOf: now(), archive, backups: [] as const, reason: OPS_RESTORE_ARCHIVE_UNPROBED };
+          }
+          return {
+            asOf: now(),
+            archive: { configured: true as const, probed: true as const, code: null },
+            backups: probed.backups,
+            reason: probed.backups.length === 0 ? 'The archive listed no backups.' : 'The archive listed these backups.',
+          };
+        },
+        opsRefusal,
+      ),
+      runs: mountRecord(
+        OPS_RESTORE_RUNS,
+        async () => {
+          try {
+            return { asOf: now(), runs: [...(await requireRestoreDesk(desks.restoreDesk).list())] };
+          } catch (err) {
+            mapError(err);
+          }
+        },
+        opsRefusal,
+      ),
+      run: mountRecord(
+        OPS_RESTORE_RUN,
+        async ({ input }) => {
           try {
             return await requireRestoreDesk(desks.restoreDesk).get(input.restoreNo);
           } catch (err) {
             mapError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
       start: scopedProcedure('admin:treasury', guards)
         .input(z.object({ restoreNo: z.string().min(1).max(128), cutOff: z.string(), idempotencyKey: z.string() }))
         .mutation(async ({ ctx, input }) => {
@@ -864,6 +883,11 @@ export function createOpsRouter(
           settings: { confirmAccount: null, expiryMaxHours: null },
           now: () => new Date(),
         }),
+    ),
+
+    ledgerReversals: createLedgerReversalsRouter(
+      desks.ledgerReversals ??
+        new LedgerReversalDesk({ store: undefined, ledger: undefined, approvals: desks.approvals, now: () => new Date() }),
     ),
 
     alerts: router({

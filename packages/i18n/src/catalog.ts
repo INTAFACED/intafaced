@@ -223,6 +223,18 @@ export const en = {
     'Your agent has spent {amount} {asset} in {month}, reaching the alert you set at {alertAt} {asset}. Open the agent to see its limits.',
   'notify.agents.alert.fired.title': 'Agent alert: {rule}',
   'notify.agents.alert.fired.body': '{measure} was {value} from {from} to {to}, above the rule’s threshold of {threshold}.',
+  'notify.trade.risk.margin.title': 'Margin alert: {symbol}',
+  'notify.trade.risk.margin.body':
+    'The margin on your {symbol} position, with its unrealised result, fell to {margin} {asset}, at or below your level of {level} {asset}.',
+  'notify.trade.risk.margin_call.title': 'Margin call: {symbol}',
+  'notify.trade.risk.margin_call.body':
+    'Your {symbol} margin ratio reached {ratio}%, at or above your level of {level}%. Add {asked} {asset} of margin to bring it back to {level}%.',
+  'notify.trade.risk.liquidation.title': 'Liquidation alert: {symbol}',
+  'notify.trade.risk.liquidation.body':
+    'Your {symbol} margin ratio reached {ratio}%: at {level}% the venue liquidates the position. Add {asked} {asset} of margin to bring it back to {level}%.',
+  'notify.trade.profit_lock.ready.title': 'Profit lock ready',
+  'notify.trade.profit_lock.ready.body':
+    'This week’s realised profit on your venue account is {profit} {asset}, as the venue reports it, past your target of {target} {asset}. Your {share}% share, {amount} {asset}, is ready to withdraw to your cold wallet {address}. Open it to sign, or close it and nothing moves.',
   'notify.agents.approval.requested.comment.title': 'Your agent wants to send a comment',
   'notify.agents.approval.requested.title': 'Your agent wants to use a tool that needs your approval',
   'notify.agents.approval.requested.body': 'It waits for your approval in the Approvals inbox. Nothing runs until you approve it.',

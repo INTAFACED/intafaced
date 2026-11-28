@@ -5,6 +5,7 @@ import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import type { Resource } from '../../shared/resource';
 import { balanceEntriesHref } from '../../screens/money/balance-entries-model';
 import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
+import { useVenueMode } from '../trade';
 import { supportedAssetsCopy } from './supported-assets-copy';
 import {
   useSupportedAssets,
@@ -27,14 +28,27 @@ const STATE_KEY = { active: 'stateActive', halted: 'stateHalted', retired: 'stat
 
 /**
  * The supported asset and network list (W-balances-05, J-wallet-01 #5): svc-ledger's registry as svc-bank hands it on, the
- * rows Deposit and Withdraw read. Every state is listed; a retired asset keeps its row and a link to its history.
+ * rows Deposit and Withdraw read. Every state is listed; a retired asset keeps its row and a link to its history. On
+ * the launch model (the user-venue door on) that history is the records of the places that hold the coin, the wallet,
+ * the venue and the partner (`?source=all`, SourceEntries), since our ledger holds none of it; otherwise our ledger's.
  */
 export function SupportedAssets() {
   const { resource, reload } = useSupportedAssets();
-  return <SupportedAssetsView resource={resource} reload={reload} />;
+  const venue = useVenueMode();
+  const sourceRecords = venue.mode === 'on' && venue.status.available;
+  return <SupportedAssetsView resource={resource} reload={reload} sourceRecords={sourceRecords} />;
 }
 
-export function SupportedAssetsView({ resource, reload }: { resource: Resource<SupportedAssetsData>; reload: () => void }) {
+export function SupportedAssetsView({
+  resource,
+  reload,
+  sourceRecords = false,
+}: {
+  resource: Resource<SupportedAssetsData>;
+  reload: () => void;
+  /** The history links ask for the sources' own records (the launch model) rather than our ledger's entries. */
+  sourceRecords?: boolean;
+}) {
   const { t } = supportedAssetsCopy.useCopy();
   const heading = useId();
   return (
@@ -52,7 +66,6 @@ export function SupportedAssetsView({ resource, reload }: { resource: Resource<S
           </a>
         </div>
       }
-      summary={<p className="lt-hint">{t('eyebrow')}</p>}
       list={
         <section aria-labelledby={heading}>
           <h3 id={heading}>{t('title')}</h3>
@@ -63,7 +76,7 @@ export function SupportedAssetsView({ resource, reload }: { resource: Resource<S
           ) : resource.data.assets.length === 0 ? (
             <EmptyState title={t('emptyTitle')} body={t('emptyBody')} />
           ) : (
-            <AssetTable assets={resource.data.assets} />
+            <AssetTable assets={resource.data.assets} sourceRecords={sourceRecords} />
           )}
         </section>
       }
@@ -71,7 +84,7 @@ export function SupportedAssetsView({ resource, reload }: { resource: Resource<S
   );
 }
 
-function AssetTable({ assets }: { assets: readonly SupportedAsset[] }) {
+function AssetTable({ assets, sourceRecords }: { assets: readonly SupportedAsset[]; sourceRecords: boolean }) {
   const { t } = supportedAssetsCopy.useCopy();
   return (
     <>
@@ -93,10 +106,10 @@ function AssetTable({ assets }: { assets: readonly SupportedAsset[] }) {
           {assets.map((asset) => (
             <tr key={asset.assetId} data-asset={asset.assetId} data-state={asset.state}>
               <th scope="row">{asset.assetId}</th>
-              <td className="lt-mono" data-col="precision">
+              <td className="lt-mono" data-col="precision" data-label={t('colPrecision')}>
                 {asset.precision}
               </td>
-              <td data-col="networks">
+              <td data-col="networks" data-label={t('colNetworks')}>
                 {asset.networks.length === 0 ? (
                   t('noNetwork')
                 ) : (
@@ -109,12 +122,12 @@ function AssetTable({ assets }: { assets: readonly SupportedAsset[] }) {
                   </ul>
                 )}
               </td>
-              <td data-col="actions">
+              <td data-col="actions" data-label={t('colActions')}>
                 {asset.allowedActions.length === 0 || asset.state !== 'active'
                   ? t('noActions')
                   : asset.allowedActions.map((action) => t(ACTION_KEY[action])).join(', ')}
               </td>
-              <td data-col="state">
+              <td data-col="state" data-label={t('colState')}>
                 <strong>{t(STATE_KEY[asset.state])}</strong>
                 {asset.state !== 'active' && (
                   <>
@@ -123,8 +136,11 @@ function AssetTable({ assets }: { assets: readonly SupportedAsset[] }) {
                   </>
                 )}
               </td>
-              <td data-col="history">
-                <a className="lt-link" href={balanceEntriesHref(asset.assetId)}>
+              <td data-col="history" data-label={t('colHistory')}>
+                <a
+                  className="lt-link"
+                  href={sourceRecords ? `${balanceEntriesHref(asset.assetId)}?source=all` : balanceEntriesHref(asset.assetId)}
+                >
                   {t('history', { asset: asset.assetId })}
                 </a>
               </td>

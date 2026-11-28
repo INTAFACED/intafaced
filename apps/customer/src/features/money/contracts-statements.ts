@@ -2,7 +2,6 @@
 import { z } from 'zod';
 import { signedDecimalSchema } from '../../shared/money';
 
-/** A signed statement file from `bank.statements.export`: the whole account, or one space (BK-pots-02). */
 /** Per coin, the net of a set of posted lines (J-bank-16 #1): money in minus money out. Not a balance. */
 const lineTotalSchema = z.object({ asset: z.string(), net: signedDecimalSchema, lines: z.number().int().nonnegative() });
 export type LineTotal = z.infer<typeof lineTotalSchema>;

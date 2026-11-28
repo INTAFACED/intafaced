@@ -249,9 +249,11 @@ fn now_seconds() -> i64 {
 /// consumed approval, so the consume is refused after the request went out; only the request is judged.
 fn identity_call() -> HttpRequest {
     let recorder = Arc::new(Recorder::default());
+    // No key: the shared-secret case; the keyed cases are tests/approval_keys.rs's.
     let identity = Identity::new(
         "http://identity.test",
         SECRET,
+        None,
         recorder.clone(),
         now_seconds,
     );

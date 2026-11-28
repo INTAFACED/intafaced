@@ -2,6 +2,15 @@
 //! `tests/door_auth.rs` builds it, with the TypeScript router tests' `registerRoutes(app, engine, SECRET, { bodyBind:
 //! 'require' })`, their `submitBody` and their `engine.book(MARKET).toState()` reads.
 
+#![allow(
+    dead_code,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    reason = "a test helper: each test file uses its own share of it, and a failure is the point"
+)]
+
 use service_kit::json::{self, Json};
 use service_kit::s2s::{legacy_headers, system_seconds};
 use service_kit::s2s_verify::BodyBind;

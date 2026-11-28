@@ -113,6 +113,24 @@ test('a step whose own test changed is read, with its words and its journey file
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')).required, ['J-x-01 #2']);
 });
 
+test('a step with tests in two files of a split journey is read from both; its test_file is the one the PR changed (#7905)', async () => {
+  // `-` sorts before `.`, so the sibling J-x-01-blocked.pw.mjs comes first: the read once gave the reader only it.
+  const sibling = JFILE.replace('toBe(1);', "toBe('SIBLING_CHECK');");
+  const src = fakeSrc(DIFF, { [`${RA}/J-x-01-blocked.pw.mjs`]: sibling });
+  const journeys = src.journeys;
+  src.journeys = async () => [...(await journeys()), `${RA}/J-x-01-blocked.pw.mjs`].sort();
+  const dir = tmp();
+  await writeReads(dir, { src, base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/J-x-01\.pw\.mjs\n[^]*toBeTruthy/);
+  assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/J-x-01-blocked\.pw\.mjs\n[^]*SIBLING_CHECK/);
+  const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
+  assert.deepEqual(
+    meta.read.steps.map((s) => [s.step, s.test_file]),
+    [['J-x-01 #2', `${RA}/J-x-01.pw.mjs`]],
+  );
+});
+
 test("a journey file's own helpers are read with it, and theirs in turn; another journey file and a path outside its folder are not", async () => {
   const dir = tmp();
   const imports =
@@ -227,7 +245,10 @@ test('planted WEAK: the read records WEAK, the status fails, and the step words 
   await writeReads(dir, { src: fakeSrc(), base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
   const leak = 'it never checks that the balance equals the deposit exactly';
   attach(dir, shards({ 'J-x-01 #2 sees': true }));
-  writeFileSync(join(dir, 'answer.json'), answer([{ step: 'J-x-01 #2', verdict: 'WEAK', refusal: false, note: leak, picture: 'SHOWN' }]));
+  writeFileSync(
+    join(dir, 'answer.json'),
+    answer([{ step: 'J-x-01 #2', verdict: 'WEAK', refusal: false, note: leak, picture: 'SHOWN', picture_note: '' }]),
+  );
   const v = cmdRead(dir, env);
   assert.equal(v.ok, true);
   const raw = readFileSync(join(dir, 'read.json'), 'utf8');
@@ -244,7 +265,7 @@ test('planted WEAK: the read records WEAK, the status fails, and the step words 
   // The control: FAITHFUL is a success.
   writeFileSync(
     join(dir, 'answer.json'),
-    answer([{ step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'a.pw.mjs:7 toBe', picture: 'SHOWN' }]),
+    answer([{ step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'a.pw.mjs:7 toBe', picture: 'SHOWN', picture_note: '' }]),
   );
   assert.equal(cmdRead(dir, env).ok, true);
   assert.match(readFileSync(join(dir, 'status.tsv'), 'utf8'), /^success\t1 FAITHFUL/);
@@ -264,14 +285,16 @@ test('fails closed: an unanswered step, a bad verdict, an errored call or a miss
     })(),
   });
   const ok = [
-    { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
-    { step: 'J-wallet-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
+    { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
+    { step: 'J-wallet-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
   ];
   for (const [why, text] of [
     ['unanswered', answer(ok.slice(0, 1))],
     ['bad verdict', answer([{ ...ok[0], verdict: 'FINE' }, ok[1]])],
     ['no picture answer', answer([{ ...ok[0], picture: undefined }, ok[1]])],
     ['bad picture answer', answer([{ ...ok[0], picture: 'FINE' }, ok[1]])],
+    ['no picture_note', answer([{ ...ok[0], picture_note: undefined }, ok[1]])],
+    ['bad picture_note', answer([{ ...ok[0], picture_note: 7 }, ok[1]])],
     ['errored', JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true })],
     ['not JSON', 'oops'],
     ['answered twice', answer([ok[0], ok[1], { ...ok[1], step: 'J-wallet-01#1', verdict: 'WEAK' }])],
@@ -376,8 +399,8 @@ test('#2693: each step gets its own end picture from the newest run; a step with
   writeFileSync(
     join(dir, 'answer.json'),
     answer([
-      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
-      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
+      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
+      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
     ]),
   );
   assert.equal(cmdRead(dir, env).ok, true);
@@ -397,8 +420,8 @@ test('#2693 planted: a BROKEN picture caps a FAITHFUL verdict at WEAK; NOT SHOWN
   writeFileSync(
     join(dir, 'answer.json'),
     answer([
-      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'BROKEN' },
-      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'NOT SHOWN' },
+      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'BROKEN', picture_note: '' },
+      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'NOT SHOWN', picture_note: '' },
     ]),
   );
   assert.equal(cmdRead(dir, env).ok, true);
@@ -517,4 +540,67 @@ test('a shard that keeps failing, or is refused, still ends the fetch, and no .d
     assert.equal(seen, tries, `HTTP ${code}`);
     assert.ok(!existsSync(join(pic, '5-1', '.done')));
   }
+});
+
+// A BROKEN picture's finding was lost in the one `note` the test verdict also uses: the read now keeps the reader's
+// picture_note as picture.note, so the builder who takes the step knows what to fix. It changes no verdict, cap or status.
+test('a BROKEN or NOT SHOWN picture keeps its picture_note as picture.note; verdicts, caps and a SHOWN read are unchanged', async () => {
+  const dir = tmp();
+  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-x-01 #1 #2', loadWords: words, runId: RUN });
+  attach(dir, shards({ 'J-x-01 #1 does': true, 'J-x-01 #2 sees': true }));
+  const read = (one, two) => {
+    writeFileSync(
+      join(dir, 'answer.json'),
+      answer([
+        { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', ...one },
+        { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', ...two },
+      ]),
+    );
+    const v = cmdRead(dir, env);
+    assert.equal(v.ok, true, v.why);
+    return { v, raw: readFileSync(join(dir, 'read.json'), 'utf8'), status: readFileSync(join(dir, 'status.tsv'), 'utf8') };
+  };
+  // An answer without the field is not well-formed, as one without its note is: no read.
+  for (const bad of [
+    { picture: 'BROKEN' },
+    { picture: 'BROKEN', picture_note: 7 },
+    { picture: 'BROKEN', picture_note: '', note: undefined },
+  ]) {
+    writeFileSync(
+      join(dir, 'answer.json'),
+      answer([
+        { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', ...bad },
+        { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN', picture_note: '' },
+      ]),
+    );
+    assert.deepEqual(cmdRead(dir, env), { ok: false, why: 'the reads are not well-formed' }, JSON.stringify(bad));
+  }
+  const chart = 'the price chart is drawn with no height under the order buttons, top of the desk';
+  const before = read({ picture: 'BROKEN', picture_note: '' }, { picture: 'NOT SHOWN', picture_note: '' });
+  const after = read({ picture: 'BROKEN', picture_note: chart }, { picture: 'NOT SHOWN', picture_note: 'a dialog fading out' });
+  const doc = JSON.parse(after.raw);
+  assert.deepEqual(
+    doc.steps.map((s) => [s.readers[0].verdict, s.picture.seen, s.picture.capped, s.picture.note]),
+    [
+      ['WEAK', 'BROKEN', true, chart],
+      ['FAITHFUL', 'NOT SHOWN', false, 'a dialog fading out'],
+    ],
+  );
+  assert.equal(after.status, before.status, 'the status is the same with or without the finding');
+  const strip = (raw) => JSON.parse(raw).steps.map(({ picture: { note: _note, ...p }, ...s }) => ({ ...s, picture: p }));
+  assert.deepEqual(strip(after.raw), strip(before.raw), 'the finding adds picture.note and changes nothing else');
+  // A blank finding is no note, and the run's log says so.
+  assert.equal(JSON.parse(before.raw).steps[0].picture.note, undefined);
+  assert.match(before.v.why, /; 2 BROKEN or NOT SHOWN picture\(s\) without the reader's picture_note$/);
+  assert.doesNotMatch(after.v.why, /without the reader's picture_note/);
+  // A SHOWN read is the same file whatever picture_note says; so is a step with no picture (NOT READ).
+  const shown = read({ picture: 'SHOWN', picture_note: '' }, { picture: 'SHOWN', picture_note: '' });
+  assert.equal(read({ picture: 'SHOWN', picture_note: chart }, { picture: 'SHOWN', picture_note: chart }).raw, shown.raw);
+  assert.deepEqual(Object.keys(JSON.parse(shown.raw).steps[0].picture), ['seen', 'file', 'run', 'capped']);
+  // The finding is public, so step words in it are withheld like a note's.
+  const leak = read(
+    { picture: 'BROKEN', picture_note: 'it never checks that the balance equals the deposit exactly' },
+    { picture: 'SHOWN', picture_note: '' },
+  );
+  assert.match(JSON.parse(leak.raw).steps[0].picture.note, /withheld/);
 });

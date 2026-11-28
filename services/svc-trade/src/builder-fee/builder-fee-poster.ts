@@ -1,5 +1,6 @@
 import { recipes, type LedgerClient } from '@intafaced/ledger-client';
 import { VenueRefusalError, type UserVenue, type UserVenueAccount } from '@intafaced/venue-contracts';
+import type { AccountPace } from '../venue/account-pace.js';
 import { builderFeeVenueAccount, type BuilderFeeStop, type BuilderFeeStore } from './builder-fee-store.js';
 
 /**
@@ -30,6 +31,13 @@ export interface BuilderFeePosterDeps {
   /** Raised once per stopped run: the alert (OWNER 288 change 1c). Must not throw. */
   readonly onStop?: (stop: BuilderFeeStop) => void;
   readonly now: () => Date;
+  /**
+   * How many accounts a run may read, a minute's worth at a time, one pace per venue: on a venue that limits the
+   * box by weight a minute, the poster's spend stays the same however many accounts there are, and each account's fills
+   * are read less often. Omitted: every account each run. A complete run is then a complete round: every account read
+   * since the round began, recorded at that time.
+   */
+  readonly pace?: AccountPace;
 }
 
 export interface BuilderFeePosterRun {
@@ -41,7 +49,9 @@ export interface BuilderFeePosterRun {
   readonly notOurOrder: number;
   /** Accounts the venue refused to read this run, with its refusal code. */
   readonly unread: readonly { readonly owner: string; readonly subAccount: string | null; readonly code: string }[];
-  /** True when every account was read and every fill posted or recorded. */
+  /** Accounts read this run: all of them, or the pace's share. */
+  readonly read: number;
+  /** True when every account was read and every fill posted or recorded (with a pace: in the round this run ended). */
   readonly complete: boolean;
 }
 
@@ -87,10 +97,11 @@ export async function postBuilderFees(deps: BuilderFeePosterDeps): Promise<Build
     fillId: null,
   };
   try {
-    const run = await postAll(deps, at);
-    if (run.complete) await deps.store.markComplete(run.venueId, deps.now());
+    const { run, completeAt } = await postAll(deps, at);
+    if (completeAt) await deps.store.markComplete(run.venueId, completeAt);
     return run;
   } catch (error) {
+    deps.pace?.spoilRound();
     const stop: BuilderFeeStop = {
       venueId: at.venueId ?? 'unknown',
       venueAccount: at.venueAccount,
@@ -114,16 +125,18 @@ export async function postBuilderFees(deps: BuilderFeePosterDeps): Promise<Build
 async function postAll(
   deps: BuilderFeePosterDeps,
   at: { venueId: string | null; venueAccount: string | null; fillId: string | null },
-): Promise<BuilderFeePosterRun> {
+): Promise<{ run: BuilderFeePosterRun; completeAt: Date | null }> {
   const venue = await deps.venue();
   const venueId = venue.venue.id;
   at.venueId = venueId;
   const accounts = await deps.store.accounts(venueId);
+  const taken = deps.pace?.take(accounts, (a) => builderFeeVenueAccount(a.account)) ?? null;
+  const due = taken ? taken.due : accounts;
   let posted = 0;
   let refused = 0;
   let notOurOrder = 0;
   const unread: { owner: string; subAccount: string | null; code: string }[] = [];
-  for (const { userId, account, since } of accounts) {
+  for (const { userId, account, since } of due) {
     const venueAccount = builderFeeVenueAccount(account);
     at.venueAccount = venueAccount;
     at.fillId = null;
@@ -175,5 +188,11 @@ async function postAll(
       }
     }
   }
-  return { venueId, accounts: accounts.length, posted, refused, notOurOrder, unread, complete: unread.length === 0 };
+  if (unread.length > 0) deps.pace?.spoilRound();
+  const complete = taken === null ? unread.length === 0 : taken.round.ends && (deps.pace?.roundIsClean ?? false);
+  const completeAt = complete ? (taken === null ? deps.now() : taken.round.began) : null;
+  return {
+    run: { venueId, accounts: accounts.length, read: due.length, posted, refused, notOurOrder, unread, complete },
+    completeAt,
+  };
 }

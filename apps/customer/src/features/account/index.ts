@@ -6,3 +6,4 @@ export { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from './securi
 export { selfFreezeCopy } from './self-freeze-copy';
 export { OwnFreezeNotice } from './OwnFreezeNotice';
 export { useAccountViewStatus } from './ViewSync';
+export { EmailProofNotice } from './EmailProofNotice';

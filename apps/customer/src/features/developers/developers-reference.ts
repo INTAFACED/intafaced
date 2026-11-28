@@ -164,6 +164,30 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'One market’s aggressor differential and trade count over a named window',
   },
   {
+    name: 'fetchHistorySchemas',
+    method: 'GET',
+    path: '/api/v1/history/schemas',
+    product: 'spot',
+
+    summary: 'Versioned NDJSON schemas, compression, checksum algorithm and provenance for historical downloads',
+  },
+  {
+    name: 'fetchHistoryDatasets',
+    method: 'GET',
+    path: '/api/v1/history/datasets',
+    product: 'spot',
+
+    summary: 'Published historical trade, candle and book-snapshot datasets with completeness, gaps, checksums and corrections',
+  },
+  {
+    name: 'downloadHistoryDataset',
+    method: 'GET',
+    path: '/api/v1/history/datasets/:id/download',
+    product: 'spot',
+
+    summary: 'Download one published historical dataset as gzip-compressed NDJSON with its SHA-256 checksum header',
+  },
+  {
     name: 'fetchOrderBook',
     method: 'GET',
     path: '/api/v1/orderbook/:symbol',
@@ -967,6 +991,24 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: "Candles of the venue's own prints on the spot market listed on one asset, oldest first, with the market's symbol",
   },
   {
+    name: 'venueChartMarkets',
+    method: 'GET',
+    path: '/api/v1/venue/chart-markets',
+    product: 'accounts',
+
+    summary:
+      'Public chart metadata for every listed venue market (tick and lot size, status, listing routing and offered intervals), signed in or out',
+  },
+  {
+    name: 'venueChartCandles',
+    method: 'GET',
+    path: '/api/v1/venue/chart-candles',
+    product: 'accounts',
+
+    summary:
+      "Candles of the venue's own prints on one listed market, oldest first, up to 720 bars with an optional start time, signed in or out",
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',
@@ -1057,6 +1099,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
   },
   {
+    name: 'venueArrivals',
+    method: 'GET',
+    path: '/api/v1/venue/arrivals',
+    product: 'accounts',
+
+    summary: 'Credits into your venue account from outside it (deposits and transfers in), as the venue records them',
+  },
+  {
     name: 'venueDepositRoutes',
     method: 'GET',
     path: '/api/v1/venue/deposit-routes',
@@ -1113,6 +1163,22 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'Your venue account’s mode, its spot and perps balances in standard mode, and today’s action count, as the venue reports them',
   },
   {
+    name: 'venuePositionMode',
+    method: 'GET',
+    path: '/api/v1/venue/position-mode',
+    product: 'accounts',
+
+    summary: 'The position mode, one-way or hedge, your account holds one venue perpetual in, as the venue reports it',
+  },
+  {
+    name: 'venueStakingAccount',
+    method: 'GET',
+    path: '/api/v1/venue/staking-account',
+    product: 'accounts',
+
+    summary: 'Your staking balance, delegations with each lock-up’s end, the unstaking queue and rewards, as the venue reports them',
+  },
+  {
     name: 'venueVaultHoldings',
     method: 'GET',
     path: '/api/v1/venue/vault-holdings',
@@ -1167,6 +1233,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'accounts',
 
     summary: 'The venue’s own insurance fund and where to read it, or “not published by this venue”, never 0',
+  },
+  {
+    name: 'venueStaking',
+    method: 'GET',
+    path: '/api/v1/venue/staking',
+    product: 'accounts',
+
+    summary: 'The venue’s validators, reward rate, staking fee-discount tiers, lock-up and unstaking queue as it publishes them',
   },
   {
     name: 'venueVaults',
@@ -1298,6 +1372,47 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
 
     summary:
       'The venue’s published fee tiers, each listed market’s maker and taker rates, the venue’s cap on a builder fee there, and our builder fee: blank reads not set',
+  },
+  {
+    name: 'venueMarketStates',
+    method: 'GET',
+    path: '/api/v1/venue/market-states',
+    product: 'accounts',
+
+    summary:
+      'Each market we list on the venue, signed in or not: the venue’s own trading state and session beside our listing (when it opens, when it is delisted, our routing), as of the venue read',
+  },
+  {
+    name: 'venuePublicBook',
+    method: 'GET',
+    path: '/api/v1/venue/public-book',
+    product: 'accounts',
+
+    summary: 'Public order book and sequence for a listed venue market, signed in or out',
+  },
+  {
+    name: 'venueTickers',
+    method: 'GET',
+    path: '/api/v1/venue/tickers',
+    product: 'accounts',
+
+    summary: 'Public 24 h tickers and spreads for every listed venue spot market, derived from the venue’s book and trade tape',
+  },
+  {
+    name: 'venueSpreads',
+    method: 'GET',
+    path: '/api/v1/venue/spreads',
+    product: 'accounts',
+
+    summary: 'Public best bid, best ask and exact spread for every listed venue spot market',
+  },
+  {
+    name: 'venueAnalytics',
+    method: 'GET',
+    path: '/api/v1/venue/analytics',
+    product: 'accounts',
+
+    summary: 'Public aggressor differential and window stats for a listed venue market; a blank window refuses',
   },
   {
     name: 'venueMarketVenues',
@@ -1604,6 +1719,24 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
 
     summary:
       'Protect a position: a take profit, stop loss, stop market or stop limit the venue takes answers its unsigned trigger order for your wallet; a trailing stop or an index stop is armed on our engine (201) under your agent permission',
+  },
+  {
+    name: 'venueProtectionBreakeven',
+    method: 'POST',
+    path: '/api/v1/venue/protections/breakeven',
+    product: 'accounts',
+
+    summary:
+      'Move your stop to breakeven: the price at which closing the whole perp position nets zero after the venue’s fees and ours, and the unsigned actions, in order, that leave exactly one reduce-only stop resting there on the venue',
+  },
+  {
+    name: 'venueProtectionMove',
+    method: 'POST',
+    path: '/api/v1/venue/protections/move',
+    product: 'accounts',
+
+    summary:
+      'Move a resting stop or take profit to a new trigger in place, on a venue that moves trigger orders in place: the one unsigned action for your wallet, the same order and client id, never a second one',
   },
   {
     name: 'venueProtectionCancel',
@@ -2052,7 +2185,8 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     path: '/api/v1/algo/:id',
     product: 'spot',
 
-    summary: 'Refused trade.algo_params_immutable: an algo order’s parameters are fixed at create',
+    summary:
+      'Refused trade.algo_params_immutable on this door: amend a TWAP’s quantity down or its trigger with PATCH /api/v1/algo/orders/:id',
   },
   {
     name: 'cancelAlgoOrder',
@@ -2061,6 +2195,41 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'spot',
 
     summary: 'Cancel an algo order; no new slices are placed',
+  },
+  {
+    name: 'createAlgoOrderV2',
+    method: 'POST',
+    path: '/api/v1/algo/orders',
+    product: 'spot',
+
+    summary:
+      'Place an algo order (the same body as POST /api/v1/algo); answers it with filledQty and its state: live, effective, partially_effective, canceled or order_failed',
+  },
+  {
+    name: 'fetchAlgoOrderState',
+    method: 'GET',
+    path: '/api/v1/algo/orders/:id',
+    product: 'spot',
+
+    summary:
+      'One algo order with filledQty and its state, the same for every kind: live (running or waiting), effective (finished, filled whole), partially_effective (finished, part filled), canceled, order_failed (halted, or finished with nothing filled)',
+  },
+  {
+    name: 'amendAlgoOrder',
+    method: 'PATCH',
+    path: '/api/v1/algo/orders/:id',
+    product: 'spot',
+
+    summary:
+      'Amend a TWAP: totalQty down, or triggerPrice while it waits; a larger quantity refuses trade.amend_qty_up, one no more than already scheduled trade.algo_amend_below_placed',
+  },
+  {
+    name: 'cancelAlgoOrderV2',
+    method: 'DELETE',
+    path: '/api/v1/algo/orders/:id',
+    product: 'spot',
+
+    summary: 'Cancel an algo order; no new slices are placed, and its state reads canceled',
   },
   {
     name: 'fetchVipApplications',
@@ -2130,6 +2299,7 @@ export const STREAM_REFERENCE: readonly Stream[] = [
   { door: 'private', channel: 'orders', product: 'spot', private: true },
   { door: 'private', channel: 'fills', product: 'spot', private: true },
   { door: 'private', channel: 'positions', product: 'derivatives', private: true },
+  { door: 'private', channel: 'balances', product: 'accounts', private: true },
   { door: 'drop-copy', channel: 'drop_copy', product: 'accounts', private: true },
 ];
 

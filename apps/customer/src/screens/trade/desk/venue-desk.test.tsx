@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+
+// The venue header's email notice reads the session; a static render runs no effect, so identity is never asked.
+vi.mock('../../../features/session', async (actual) => ({
+  ...(await actual<typeof import('../../../features/session')>()),
+  useSession: () => ({ api: {}, userId: 'u1' }),
+}));
 import { OrdersTable } from '../../../features/trade/venue/VenueKit';
+import { builderApproved, requiredBuilderFeeBps } from '../../../features/trade/venue/VenueReview';
 import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp } from '../../../features/trade/venue-api';
 import { VenueReviewRows } from './VenueReviewRows';
 import { VenueVerifyDesk } from './VenueVerifyDesk';
@@ -16,6 +23,7 @@ import {
   listedPlaces,
   offeredTif,
   tagProblem,
+  ownClientIdProblem,
   valueOf,
   venueSelfTrade,
   intentOf,
@@ -111,10 +119,19 @@ describe('the ticket asks the venue as the order is typed', () => {
 
 describe('the slippage limit, from the venue’s own best prices', () => {
   const best = { symbol: 'BTC-USDC', bid: '59999.9', ask: '60000.1' };
-  it('a buy pays at most the ask plus the bound, rounded up to the tick; a sell at least the bid less it, rounded down', () => {
-    expect(slippageLimit('buy', best, '100', '0.1')).toBe('60600.2'); // 60600.101 → up to the tick
-    expect(slippageLimit('sell', best, '100', '0.1')).toBe('59399.9'); // 59399.901 → down to the tick
-    expect(slippageLimit('buy', best, '50', '0.1')).toBe('60300.2');
+  it('a buy pays at most the ask plus the bound, a sell at least the bid less it, each rounded toward the market', () => {
+    // 6 significant figures (60600.2) is a price the venue refuses: 5 at most, a buy's cap down, a sell's up.
+    expect(slippageLimit('buy', best, '100', '0.1')).toBe('60600'); // 60600.101
+    expect(slippageLimit('sell', best, '100', '0.1')).toBe('59400'); // 59399.901
+    expect(slippageLimit('buy', best, '50', '0.1')).toBe('60300'); // 60300.1005
+    expect(slippageLimit('buy', { ...best, ask: '1.23456' }, '100', '0.0001')).toBe('1.2469'); // 1.2469056 down
+  });
+  it('the limit is a price the venue takes: at most 5 significant figures, rounded toward the market', () => {
+    // BTC-PERP, tick 0.1: 62432 × 1.005 = 62744.16, which the venue refuses at 6 figures; a buy's cap rounds down.
+    const btc = { symbol: 'BTC-PERP', bid: '62423', ask: '62432' };
+    expect(slippageLimit('buy', btc, '50', '0.1')).toBe('62744');
+    // 62423 × 0.995 = 62110.885; a sell's floor rounds up, so neither goes past the protection the review shows.
+    expect(slippageLimit('sell', btc, '50', '0.1')).toBe('62111');
   });
   it('no price on the side the order meets is no limit', () => {
     expect(slippageLimit('buy', { ...best, ask: null }, '100', '0.1')).toBeNull();
@@ -135,6 +152,26 @@ describe('the client id held for retry', () => {
     expect(changed).not.toBe(first);
     draft.settle(changed);
     expect(draft.keyFor({ ...limitBuy, price: '60000.2' })).not.toBe(changed);
+  });
+
+  it('the person’s own client order id is the key, whatever the order: a changed order under it goes to the door to refuse (J-cex-spot-02 #5)', () => {
+    let now = 1_500;
+    const draft = new HeldDraft(OWNER, MARKET.symbol, () => now++);
+    const own = draft.keyFor({ ...limitBuy });
+    const first = draft.hold(limitBuy, null, 'my-bot-7').key;
+    expect(first).toBe('order:0x1234567890abcdef1234567890abcdef1234abcd:btc-usdc:own-my-bot-7');
+    expect(first).not.toBe(own);
+    // Another price under the same id is the same key: the desk never mints its way past the door's conflict.
+    expect(draft.hold({ ...limitBuy, price: '60000.2' }, null, 'my-bot-7').key).toBe(first);
+    draft.settle(first);
+    expect(draft.hold(limitBuy, null, ' my-bot-7 ').key).toBe(first);
+    // Blank is the desk's own minted id, never the own one.
+    expect(draft.hold(limitBuy, null, '').key).not.toBe(first);
+    expect(ownClientIdProblem('')).toBe(false);
+    expect(ownClientIdProblem('my-bot-7')).toBe(false);
+    expect(ownClientIdProblem('my bot')).toBe(true);
+    expect(ownClientIdProblem('a:b')).toBe(true);
+    expect(ownClientIdProblem('x'.repeat(33))).toBe(true);
   });
 
   it('a market order’s worst price is held with its key: polled best prices never change the intent sent for a key', () => {
@@ -228,6 +265,31 @@ describe('the review’s lines are the venue’s', () => {
       />,
     );
     expect(text(html)).toMatch(/Our builder fee 1\.2 USDC · Not signed/);
+  });
+
+  it('uses the versioned preview builderFeeBps for approval instead of the boot status rate', () => {
+    const status = {
+      enabled: true as const,
+      available: true as const,
+      venue: { id: 'test-venue-sim', displayName: 'TEST venue', proofLevel: 'simulator' as const },
+      test: true,
+      chainId: 84532,
+      builder: { address: '0x00000000000000000000000000000000000000bb', feeBps: '0.5' },
+    };
+    const v2Preview = preview({ builderFee: { known: true, value: { asset: 'USDC', amount: '1.8' } }, builderFeeBps: '3' });
+    expect(requiredBuilderFeeBps(status, v2Preview.value)).toBe('3');
+    const accountWith = (approvedBps: string) =>
+      ({ approval: { data: { value: approvedBps, venueId: 'test-venue-sim', asOf: '2026-11-24T00:00:00Z' } } }) as Parameters<
+        typeof builderApproved
+      >[0];
+    // Approved 2 bps under v1: not enough for v2's 3 bps, even though boot status is 0.5 bps.
+    expect(builderApproved(accountWith('2'), status, requiredBuilderFeeBps(status, v2Preview.value))).toBe(false);
+    expect(builderApproved(accountWith('3'), status, requiredBuilderFeeBps(status, v2Preview.value))).toBe(true);
+    const html = renderToStaticMarkup(
+      <VenueReviewRows intent={{ ...intent, side: 'sell' }} preview={v2Preview} status={status} approved={false} />,
+    );
+    expect(text(html)).toContain('3 bps');
+    expect(text(html)).not.toContain('0.5 bps');
   });
 });
 
@@ -477,7 +539,7 @@ describe('an order the desk placed that filled (J-cex-spot-01 #8)', () => {
     const rows = [...html.matchAll(row(''))].map((m) => ({ id: m[1], body: m[2] }));
     // The open order once (its open record wins), the filled one once; a non-filled read-back is never listed here.
     expect(rows.map((r) => r.id)).toEqual(['0xopen', '0xdone']);
-    expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*>Filled</);
+    expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*><bdi>Filled<\/bdi>/);
     expect(rows[1]!.body).not.toContain('<button');
     expect(rows[0]!.body).toContain('Cancel');
   });

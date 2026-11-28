@@ -1,37 +1,40 @@
+import { Candles, type Candle } from '@intafaced/ui/lit/templates';
 import type { PoolCandle } from './pools-api';
-import { chartValue } from '../../../shared/chart-value';
 import type { PoolsTranslate } from './copy';
 
-const W = 600;
-const H = 200;
+/**
+ * The pool's candles as the kit draws them: each at its own start time, with its figures in its title. Prices stay the
+ * indexer's decimal strings; the kit turns them into floats only to place pixels.
+ */
+export function poolCandles(candles: readonly PoolCandle[], when: (date: Date) => string, t: PoolsTranslate): Candle[] {
+  return candles.map((c) => ({
+    key: String(c.start),
+    at: c.start,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+    title: t('candleTitle', {
+      time: when(new Date(c.start * 1000)),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      swaps: c.swaps,
+    }),
+    marks: { 'data-testid': 'pool-candle' },
+  }));
+}
 
 /**
- * Candle geometry in SVG units. Numbers here only place shapes on the drawing; every figure a person reads comes from
- * the indexer's decimal strings, in the title of each candle and in the range line under the chart.
+ * The chart's time axis for a day of candles: the indexer's day starts at any second (now less 24 hours), but its candles
+ * start on whole widths, so the newest candle runs past the day's end and the oldest may start before it. The axis is
+ * widened to whole candle widths on both sides, so every candle the day holds is drawn inside the chart.
  */
-export function candleGeometry(candles: readonly PoolCandle[], window: { start: number; seconds: number; width: number }) {
-  if (candles.length === 0) return null;
-  const highs = candles.map((c) => chartValue(c.high));
-  const lows = candles.map((c) => chartValue(c.low));
-  const top = Math.max(...highs);
-  const bottom = Math.min(...lows);
-  const span = top - bottom || Math.abs(top) || 1;
-  const y = (price: string) => H - ((chartValue(price) - bottom) / span) * H;
-  // Each candle sits at its own time across the day, so a quiet stretch shows as a gap and not as steady movement.
-  const step = (W * window.width) / window.seconds;
-  const body = Math.max(step * 0.6, 1);
-  return candles.map((c) => {
-    const x = ((c.start - window.start) / window.seconds) * W + step / 2;
-    const open = y(c.open);
-    const close = y(c.close);
-    return {
-      candle: c,
-      x,
-      wick: { y1: y(c.high), y2: y(c.low) },
-      body: { x: x - body / 2, y: Math.min(open, close), width: body, height: Math.max(Math.abs(open - close), 1) },
-      rising: chartValue(c.close) >= chartValue(c.open),
-    };
-  });
+export function candleAxis(since: number, seconds: number, width: number): { start: number; seconds: number; width: number } {
+  const start = Math.floor(since / width) * width;
+  const end = Math.ceil((since + seconds) / width) * width;
+  return { start, seconds: Math.max(end - start, width), width };
 }
 
 /** Lowest low and highest high as the indexer gave them, compared as decimals without a float. */
@@ -70,56 +73,28 @@ export function PriceChart({
   when: (date: Date) => string;
   t: PoolsTranslate;
 }) {
-  const geometry = candleGeometry(candles, window);
-  const label = t('chartLabel', { base, quote, width });
-  if (!geometry) return <p role="status">{t('chartEmpty')}</p>;
   return (
-    <figure className="pool-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label} data-testid="pool-price-chart">
-        {geometry.map((g) => (
-          <g key={g.candle.start} data-testid="pool-candle" data-rising={g.rising}>
-            <title>
-              {t('candleTitle', {
-                time: when(new Date(g.candle.start * 1000)),
-                open: g.candle.open,
-                high: g.candle.high,
-                low: g.candle.low,
-                close: g.candle.close,
-                swaps: g.candle.swaps,
-              })}
-            </title>
-            <line
-              x1={g.x}
-              x2={g.x}
-              y1={g.wick.y1}
-              y2={g.wick.y2}
-              style={{ stroke: 'var(--if-text-muted)' }}
-              vectorEffect="non-scaling-stroke"
-            />
-            <rect
-              x={g.body.x}
-              y={g.body.y}
-              width={g.body.width}
-              height={g.body.height}
-              style={{ fill: g.rising ? 'var(--if-up-text)' : 'var(--if-down-text)' }}
-            />
-          </g>
-        ))}
-      </svg>
-      <figcaption>
-        {t('chartRange', {
-          low: extreme(
-            candles.map((c) => c.low),
-            'min',
-          ),
-          high: extreme(
-            candles.map((c) => c.high),
-            'max',
-          ),
-          base,
-          quote,
-        })}
-      </figcaption>
-    </figure>
+    <Candles
+      label={t('chartLabel', { base, quote, width })}
+      candles={poolCandles(candles, when, t)}
+      window={window}
+      empty={t('chartEmpty')}
+      caption={
+        candles.length === 0
+          ? undefined
+          : t('chartRange', {
+              low: extreme(
+                candles.map((c) => c.low),
+                'min',
+              ),
+              high: extreme(
+                candles.map((c) => c.high),
+                'max',
+              ),
+              base,
+              quote,
+            })
+      }
+    />
   );
 }

@@ -22,6 +22,7 @@ let asked: Array<[string, unknown, boolean]>;
 let reloaded: string[] = [];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
   const useBankRead = (procedure: string, input: unknown, enabled = true) => {
     asked.push([procedure, input, enabled]);
     return { resource: (enabled && reads[procedure]) || { status: 'loading' }, reload: () => void reloaded.push(procedure) };
@@ -29,8 +30,7 @@ vi.mock('./components', async (original) => {
   return {
     ...real,
     useBankRead,
-    // A room that reads by record reaches the same double, by the record's path.
-    useBankRecord: (record: { path: string }, input?: unknown, enabled?: boolean) => useBankRead(record.path, input, enabled),
+    useBankRecord: (record: { path: string }, input: unknown, enabled = true) => useBankRead(record.path, input, enabled),
   };
 });
 import { LoanApply } from './LoanApply';
@@ -146,7 +146,7 @@ describe('LoanApply', () => {
     await act(async () => button('Review and open').click());
     expect(opened).toHaveLength(1);
     const spec = opened[0]!;
-    expect(spec.procedure).toBe('loans.open');
+    expect(spec.record?.path).toBe('loans.open');
     expect(spec.initial).toEqual({ principal: '1000', collateralAmount: '0.033333333333333334' });
     expect(spec.input({ principal: '1000', collateralAmount: '0.033333333333333334' }, 'req-1')).toEqual({
       loanId: 'req-1',
@@ -197,7 +197,8 @@ describe('LoanApply', () => {
     await mount();
     const policy = testId('loan-apply-eligibility')!.querySelector('[data-key="lending_policy"]')!;
     expect(policy.getAttribute('data-state')).toBe('unmet');
-    expect(policy.textContent).toContain('Reference: bank.loans_disabled');
+    expect(policy.getAttribute('data-code')).toBe('bank.loans_disabled');
+    expect(policy.textContent).not.toContain('bank.loans_disabled');
     await work('1000');
     expect(host.querySelector('[role="alert"][data-code="bank.loans_disabled"]')?.textContent).toContain('Lending is closed');
     expect(button('Review and open').disabled).toBe(true);

@@ -1,0 +1,70 @@
+# Get 1,000 TEST USDC for the platform's TESTNET funder from Hyperliquid's testnet faucet, by hand only. The faucet pays
+# once per address that exists on mainnet, and the funder spent its claim; so a fresh address made inside the run is sent
+# 0.01 USDC on MAINNET from the platform account (about 1.01 USDC with the venue's activation fee), claims its drip, and
+# sends the TEST USDC to the funder. The script caps it (packages/venue-hyperliquid/scripts/faucet-activate.ts): one
+# mainnet action per run, at most 0.01 USDC plus the fee, at most 2 runs ever, and prints only addresses and amounts.
+# The owner allowed about 2 USDC of the platform account's mainnet balance for this, and this key to sign this one
+# capped mainnet send (project-state decision PR #4093, 27 Nov 2026; intafaced#11043). The round.log line for a low funder (#11032) says when to run it again.
+name: Hyperliquid faucet activate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hl-faucet-activate
+  cancel-in-progress: false
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  activate:
+    name: Activate one address and claim its TEST USDC
+    # The platform account's key is used only from main's own copy of this file and the script.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      # Every attempt of this workflow on main counts against the cap of 2 ever, whatever its result: a failed one may
+      # still have spent. A re-run keeps its run id and raises its attempt, so attempts are summed: each other run's
+      # run_attempt, plus this run's earlier attempts. More need the owner's yes again.
+      - name: Count earlier runs
+        id: count
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          n="$(gh api --paginate "repos/$REPO/actions/workflows/hl-faucet-activate.yml/runs?branch=main&per_page=100" \
+            --jq ".workflow_runs[] | select(.id != $RUN_ID) | .run_attempt" | awk '{ s += $1 } END { print s + 0 }')"
+          n=$((n + RUN_ATTEMPT - 1))
+          echo "earlier attempts: $n"
+          echo "n=$n" >> "$GITHUB_OUTPUT"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build what the script imports
+        run: pnpm exec turbo run build --filter=@intafaced/venue-hyperliquid^...
+
+      - name: Activate and claim
+        env:
+          APP_ENV: test
+          HL_TESTNET_FUNDER_KEY: ${{ secrets.HL_TESTNET_TRADER_KEY }}
+          HL_ACTIVATIONS_SO_FAR: ${{ steps.count.outputs.n }}
+        run: pnpm --filter @intafaced/venue-hyperliquid faucet:activate

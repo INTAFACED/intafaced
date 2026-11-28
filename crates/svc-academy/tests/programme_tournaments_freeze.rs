@@ -10,8 +10,7 @@
     reason = "a test: a failure is the point"
 )]
 
-#[path = "prog_support/mod.rs"]
-mod support;
+use crate::prog_support as support;
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};

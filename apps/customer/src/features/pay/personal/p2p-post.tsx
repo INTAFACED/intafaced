@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { useResource } from '../../../shared/resource';
 import { uiCopy } from '../../../shared/ui-copy';
-import { PayDetails, PayFailure } from '../components';
+import { PayDetails, PayFailure } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { Offer, P2PPostingEligibility, PostOfferInput } from '../schemas';
 import { postCopy } from './p2p-post-copy';
@@ -18,16 +19,16 @@ export function SellAvailability({ pay, asset }: { pay: PersonalPayApi; asset: s
   const { t } = postCopy.useCopy();
   const balance = useResource((signal) => pay.sellBalance(asset, signal), `pay:p2p-sell-balance:${asset}`);
   return (
-    <div className="stack" data-testid="offer-available">
+    <div className="lt-stack" data-testid="offer-available">
       {balance.resource.status === 'ready' ? (
         <p>{t('available', { amount: displayAmount(balance.resource.data.available), asset })}</p>
       ) : balance.resource.status === 'failed' ? (
-        <p className="muted">{t('availableFailed')}</p>
+        <p className="lt-muted">{t('availableFailed')}</p>
       ) : (
-        <p className="muted">{t('availableLoading')}</p>
+        <p className="lt-muted">{t('availableLoading')}</p>
       )}
-      <small className="muted">{t('availableHint')}</small>
-      <small className="muted">{t('availableShared')}</small>
+      <small className="lt-muted">{t('availableHint')}</small>
+      <small className="lt-muted">{t('availableShared')}</small>
     </div>
   );
 }
@@ -41,7 +42,7 @@ export function LevelLimits({ pay, side }: { pay: PersonalPayApi; side: 'buy' | 
   const limits = useResource((signal) => pay.levelLimits(signal), 'pay:p2p-level-limits');
   const resource = limits.resource;
   return (
-    <div className="stack" data-testid="offer-level-limits">
+    <div className="lt-stack" data-testid="offer-level-limits">
       {resource.status === 'ready' ? (
         <>
           <p>
@@ -52,12 +53,12 @@ export function LevelLimits({ pay, side }: { pay: PersonalPayApi; side: 'buy' | 
               currency: resource.data.currency,
             })}
           </p>
-          <small className="muted">{t(side === 'buy' ? 'levelBuyHint' : 'levelSellHint')}</small>
+          <small className="lt-muted">{t(side === 'buy' ? 'levelBuyHint' : 'levelSellHint')}</small>
         </>
       ) : resource.status === 'failed' ? (
         <LevelLimitsFailure code={resource.failure.code} retry={limits.reload} />
       ) : (
-        <p className="muted">{t('levelLoading')}</p>
+        <p className="lt-muted">{t('levelLoading')}</p>
       )}
     </div>
   );
@@ -74,11 +75,11 @@ function LevelLimitsFailure({ code, retry }: { code: string | undefined; retry: 
         : code === 'p2p.verification_level_unwired'
           ? 'levelUnwired'
           : null;
-  if (settled) return <p className="muted">{t(settled)}</p>;
+  if (settled) return <p className="lt-muted">{t(settled)}</p>;
   return (
-    <p className="muted">
+    <p className="lt-muted">
       {t('levelFailed')}{' '}
-      <Button variant="ghost" onClick={retry}>
+      <Button tone="quiet" onClick={retry}>
         {t('levelRetry')}
       </Button>
     </p>
@@ -94,8 +95,8 @@ const LEVEL_LABEL = { none: 'levelNone', basic: 'levelBasic', full: 'levelFull',
 export function PostingChecklist({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrency: string }) {
   const { t } = postCopy.useCopy();
   return (
-    <div className="stack" data-testid="posting-checklist">
-      {fiatCurrency === '' ? <p className="muted">{t('checklistPickFiat')}</p> : <PostingChecks pay={pay} fiatCurrency={fiatCurrency} />}
+    <div className="lt-stack" data-testid="posting-checklist">
+      {fiatCurrency === '' ? <p className="lt-muted">{t('checklistPickFiat')}</p> : <PostingChecks pay={pay} fiatCurrency={fiatCurrency} />}
     </div>
   );
 }
@@ -104,12 +105,12 @@ function PostingChecks({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrenc
   const { t } = postCopy.useCopy();
   const eligibility = useResource((signal) => pay.postingEligibility(fiatCurrency, signal), `pay:p2p-posting:${fiatCurrency}`);
   const resource = eligibility.resource;
-  if (resource.status === 'loading') return <p className="muted">{t('checklistLoading')}</p>;
+  if (resource.status === 'loading') return <p className="lt-muted">{t('checklistLoading')}</p>;
   if (resource.status === 'failed')
     return (
-      <p className="muted">
+      <p className="lt-muted">
         {t('checklistFailed')}{' '}
-        <Button variant="ghost" onClick={eligibility.reload}>
+        <Button tone="quiet" onClick={eligibility.reload}>
           {t('levelRetry')}
         </Button>
       </p>
@@ -118,11 +119,11 @@ function PostingChecks({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrenc
   return (
     <>
       <p>{t('checklistTitle', { fiat: fiatCurrency })}</p>
-      {policy === 'unset' ? <p className="muted">{t('checklistUnset', { fiat: fiatCurrency })}</p> : null}
-      {policy === 'invalid' ? <p className="muted">{t('checklistInvalid')}</p> : null}
-      {policy === 'none' ? <p className="muted">{t('checklistNone', { fiat: fiatCurrency })}</p> : null}
+      {policy === 'unset' ? <p className="lt-muted">{t('checklistUnset', { fiat: fiatCurrency })}</p> : null}
+      {policy === 'invalid' ? <p className="lt-muted">{t('checklistInvalid')}</p> : null}
+      {policy === 'none' ? <p className="lt-muted">{t('checklistNone', { fiat: fiatCurrency })}</p> : null}
       {checks.length > 0 ? (
-        <ul className="p2p-risk-points">
+        <ul className="lt-points">
           {checks.map((check) => (
             <li key={check.id} data-check={check.id} data-state={check.state}>
               <strong>{t(CHECK_LABEL[check.id])}</strong> · {t(STATE_LABEL[check.state])}.{' '}
@@ -176,9 +177,9 @@ export function AdvertiserTermsSheet({
   };
   return (
     <Dialog closeLabel={uiCopy.t('closeDialog')} title={t('termsTitle')} onClose={() => (busy ? undefined : onClose())}>
-      <div className="form-stack" data-testid="advertiser-terms">
-        <p className="muted">{t('termsVersion', { version })}</p>
-        <ul className="p2p-risk-points">
+      <div className="lt-stack" data-testid="advertiser-terms">
+        <p className="lt-muted">{t('termsVersion', { version })}</p>
+        <ul className="lt-points">
           <li>{t('termsBalance')}</li>
           <li>{t('termsRelease')}</li>
           <li>{t('termsHonour')}</li>
@@ -186,15 +187,15 @@ export function AdvertiserTermsSheet({
           <li>{t('termsAction')}</li>
         </ul>
         {failed ? (
-          <p data-testid="failure" className="failure" role="alert">
+          <p data-testid="failure" className="lt-refusal" role="alert">
             {t('termsAcceptFailed')}
           </p>
         ) : null}
-        <div className="actions">
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
+        <div className="lt-actions">
+          <Button tone="quiet" disabled={busy} onClick={onClose}>
             {t('termsClose')}
           </Button>
-          <Button variant="primary" disabled={busy} onClick={() => void accept()}>
+          <Button tone="primary" disabled={busy} onClick={() => void accept()}>
             {busy ? t('termsAccepting') : t('termsAccept')}
           </Button>
         </div>
@@ -291,7 +292,7 @@ export function OfferSummary({
   const ruleClass = failure?.code === 'p2p.content_rule_violation' ? failure.p2pLimit?.ruleClass : undefined;
   const refused = refusalKey(failure);
   return (
-    <section className="stack" data-testid="offer-summary" aria-label={t('summaryTitle')}>
+    <section className="lt-stack" data-testid="offer-summary" aria-label={t('summaryTitle')}>
       <h2>{t('summaryTitle')}</h2>
       <PayDetails
         values={[
@@ -312,33 +313,33 @@ export function OfferSummary({
           [t('summaryTerms'), input.terms ? <span lang="und">{input.terms}</span> : t('summaryNoTerms')],
         ]}
       />
-      {input.acceptsNonInstant ? <p className="muted">{t('summaryNonInstant')}</p> : null}
-      <p className="muted">{t('frozenNote')}</p>
+      {input.acceptsNonInstant ? <p className="lt-muted">{t('summaryNonInstant')}</p> : null}
+      <p className="lt-muted">{t('frozenNote')}</p>
       {termsNote ? <p role="status">{termsNote}</p> : null}
       {limit?.available && limit.shortBy ? (
-        <p data-testid="failure" className="failure" role="alert">
+        <p data-testid="failure" className="lt-refusal" role="alert">
           {t('overBalance', { available: displayAmount(limit.available), shortBy: displayAmount(limit.shortBy), asset: input.asset })}
         </p>
       ) : band?.min && band.max && band.currency ? (
-        <p data-testid="failure" className="failure" role="alert">
+        <p data-testid="failure" className="lt-refusal" role="alert">
           {t('overLevel', { min: displayAmount(band.min), max: displayAmount(band.max), currency: band.currency })}
         </p>
       ) : ruleClass ? (
-        <p data-testid="failure" className="failure" role="alert">
+        <p data-testid="failure" className="lt-refusal" role="alert">
           {t('refusedContentClass', { rule: ruleClass.replaceAll('_', ' ') })}
         </p>
       ) : refused ? (
-        <p data-testid="failure" className="failure" role="alert">
+        <p data-testid="failure" className="lt-refusal" role="alert">
           {t(refused)}
         </p>
       ) : failure ? (
         <PayFailure result={failure} />
       ) : null}
-      <div className="actions">
-        <Button variant="ghost" disabled={posting} onClick={onBack}>
+      <div className="lt-actions">
+        <Button tone="quiet" disabled={posting} onClick={onBack}>
           {t('back')}
         </Button>
-        <Button variant="primary" disabled={posting} onClick={onConfirm} data-testid="offer-confirm">
+        <Button tone="primary" disabled={posting} onClick={onConfirm} data-testid="offer-confirm">
           {posting ? t('posting') : t('confirm')}
         </Button>
       </div>
@@ -351,7 +352,7 @@ export function OfferReceipt({ offer, onAnother }: { offer: Offer; onAnother: ()
   const { t } = postCopy.useCopy();
   const status = offer.status === 'active' ? t('statusActive') : offer.status === 'paused' ? t('statusPaused') : t('statusClosed');
   return (
-    <section className="stack" role="status" data-testid="offer-receipt" aria-label={t('receiptTitle')}>
+    <section className="lt-stack" role="status" data-testid="offer-receipt" aria-label={t('receiptTitle')}>
       <h2>{t('receiptTitle')}</h2>
       <PayDetails
         values={[
@@ -359,14 +360,14 @@ export function OfferReceipt({ offer, onAnother }: { offer: Offer; onAnother: ()
           [t('receiptStatus'), status],
         ]}
       />
-      <div className="actions">
-        <a className="button button--primary" href="/uc/ad">
+      <div className="lt-actions">
+        <a className="lt-button lt-button-primary" href="/uc/ad">
           {t('receiptMine')}
         </a>
-        <a className="button button--secondary" href={`/p2p?asset=${encodeURIComponent(offer.asset)}`}>
+        <a className="lt-button lt-button-secondary" href={`/p2p?asset=${encodeURIComponent(offer.asset)}`}>
           {t('receiptBoard')}
         </a>
-        <Button variant="ghost" onClick={onAnother}>
+        <Button tone="quiet" onClick={onAnother}>
           {t('receiptAnother')}
         </Button>
       </div>

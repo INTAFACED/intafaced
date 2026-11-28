@@ -1,11 +1,24 @@
 import { z } from 'zod';
-import { defineProcedure } from './procedure.js';
+import { defineProcedure, NO_INPUT } from './procedure.js';
 import { account } from './bank-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `linkedAccounts.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
 
 const base = { service: 'svc-bank', module: 'bank', transport: 'trpc' } as const;
+
+/** Every account the customer has linked, oldest first, each with its state and why it cannot be used yet. */
+export const BANK_LINKED_ACCOUNTS_LIST = defineProcedure({
+  ...base,
+  name: 'bank.linkedAccounts.list',
+  kind: 'query',
+  path: 'linkedAccounts.list',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({ accounts: z.array(account) }).strict(),
+  samples: [{ verdict: 'accept' }],
+});
 
 /** Link an account, kept `unverified`. The IBAN is the business key: linking it again returns the same account. */
 export const BANK_LINKED_ACCOUNTS_LINK = defineProcedure({

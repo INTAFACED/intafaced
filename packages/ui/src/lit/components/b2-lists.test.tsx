@@ -75,6 +75,23 @@ describe('table: sort, marks and virtual rows', () => {
     expect(out).toContain('<a data-row-link="" href="/coin/C0/USDT">');
   });
 
+  it("keeps the header row's and each header's own marks, and says when its rows are placeholders", () => {
+    const marked = columns.map((c) => ({ ...c, headMarks: { 'data-col': c.key } }));
+    const out = html(
+      <Table
+        caption="Markets"
+        columns={marked}
+        rows={markets.slice(0, 1)}
+        rowKey={(m) => m.symbol}
+        headMarks={{ 'data-testid': 'mkt-header' }}
+        busy
+      />,
+    );
+    expect(out).toContain('<table class="lt-table" data-mode="simple" aria-busy="true">');
+    expect(out).toContain('<tr data-testid="mkt-header"><th data-col="name" scope="col" data-align="start">Name</th>');
+    expect(html(<Table caption="Markets" columns={columns} rows={[]} rowKey={(m) => m.symbol} />)).not.toContain('aria-busy');
+  });
+
   it('draws an honest empty line in place of no rows', () => {
     const out = html(<Table caption="Markets" columns={columns} rows={[]} rowKey={(m) => m.symbol} empty="No markets match" />);
     expect(out).toContain('<tr data-empty=""><td colSpan="3">No markets match</td></tr>');
@@ -111,6 +128,65 @@ describe('table: sort, marks and virtual rows', () => {
     expect(rowStep('End', 0, 3)).toBe(2);
     expect(rowStep('End', 2, 3)).toBeNull();
     expect(rowStep('Enter', 0, 3)).toBeNull();
+  });
+
+  it('a long virtual list also takes dense rows, a scrolling region and sorting headers', () => {
+    const out = html(
+      <Table
+        caption="Markets"
+        columns={columns}
+        rows={markets}
+        rowKey={(m) => m.symbol}
+        virtual={{ estimate: 40 }}
+        dense
+        scroll
+        sort={{ columnId: 'last', direction: 'asc' }}
+        onSort={() => {}}
+      />,
+    );
+    expect(
+      out.startsWith('<div class="lt-table-scroll" tabindex="0" role="region" aria-label="Markets"><table class="lt-table lt-table-dense"'),
+    ).toBe(true);
+    expect(out).toContain('aria-rowcount="201"');
+    expect(out).toContain('data-spacer=""');
+    expect(out).toContain('aria-sort="ascending"><button type="button" class="lt-sort" aria-label="Sort by Price">');
+    expect(out).not.toContain('role="grid"');
+  });
+
+  it('a pickable grid also takes dense rows, a scrolling region, sorting headers and its empty line', () => {
+    const picked = html(
+      <Table
+        caption="Markets"
+        columns={columns}
+        rows={markets.slice(0, 3)}
+        rowKey={(m) => m.symbol}
+        selected="C1/USDT"
+        onSelect={() => {}}
+        dense
+        scroll
+        sort={null}
+        onSort={() => {}}
+      />,
+    );
+    expect(picked).toContain(
+      '<div class="lt-table-scroll" tabindex="0" role="region" aria-label="Markets"><table class="lt-table lt-table-dense" data-mode="simple" role="grid">',
+    );
+    expect(picked).toContain('data-selected="true" aria-selected="true" tabindex="0"');
+    expect(picked.match(/tabindex="-1"/g)).toHaveLength(2);
+    expect(picked).toContain('class="lt-sort" aria-label="Sort by Price"');
+    expect(picked).not.toContain('data-index');
+    const none = html(
+      <Table caption="Markets" columns={columns} rows={[]} rowKey={(m) => m.symbol} onSelect={() => {}} empty="No markets" />,
+    );
+    expect(none).toContain('<tr data-empty=""><td colSpan="3">No markets</td></tr>');
+  });
+
+  it('refuses a pickable grid that is also virtual: its one Tab stop could be an undrawn row', () => {
+    const both = (
+      // @ts-expect-error onSelect and virtual never go together
+      <Table caption="Markets" columns={columns} rows={markets} rowKey={(m) => m.symbol} onSelect={() => {}} virtual={{ estimate: 60 }} />
+    );
+    expect(both).toBeTruthy();
   });
 
   it('sorts decimal strings exactly, past what a float holds', () => {

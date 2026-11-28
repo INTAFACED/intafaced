@@ -105,11 +105,16 @@ const BURNED_TOPIC = '0x4607200a6ff772a0fc9e5a46711cabae1f14a9b73205ac2fd9dba0e3
 /** Each TEST chain's own anvil port, by chain id. */
 const ANVIL_PORT = { [TEST_CHAIN_ID]: CHAIN_PORTS.anvil, [SECOND_CHAIN_ID]: SECOND_CHAIN_PORTS.anvil };
 
-/** Installs the TEST bridge token on both TEST chains where it is not there yet; the stack runs it after the seed. */
-export async function installTestBridge() {
+/**
+ * Installs the TEST bridge token on both TEST chains where it is not there yet; the stack runs it after the seed. The
+ * stack waits only for the first chain (through its gate), so each anvil is first given up to `waitMs` to answer: a
+ * second anvil still binding its port is waited for, never reported as a failed start (#9549).
+ */
+export async function installTestBridge({ ports = Object.values(ANVIL_PORT), waitMs = 30_000 } = {}) {
   const { deployedBytecode } = JSON.parse(fs.readFileSync(path.join(PROTOCOL_DIR, 'contracts', 'out', 'TestBridgeToken.json'), 'utf8'));
   if (!/^0x[0-9a-f]+$/i.test(deployedBytecode)) throw new Error('TestBridgeToken.json holds no runtime code');
-  for (const port of Object.values(ANVIL_PORT)) {
+  for (const port of ports) {
+    await anvilAnswers(port, waitMs);
     const code = await anvilRpc('eth_getCode', [BRIDGE_TOKEN, 'latest'], port);
     if (code === deployedBytecode) continue;
     await anvilRpc('anvil_setCode', [BRIDGE_TOKEN, deployedBytecode], port);
@@ -192,18 +197,26 @@ function makeGate(gatePort, anvilPort) {
   };
 }
 
+/**
+ * The flags of one TEST chain's anvil. With LOCAL_STACK_CHAIN_HISTORY unset, anvil keeps every block's state, which a
+ * journey's short-lived stack can afford. svc-protocol's seed mines a block a second (evm_setIntervalMining), so the
+ * long-lived beta's chain held 26 GB after 21 hours (75,709 blocks), nearly all of the box's swap. A whole number keeps
+ * at most that many past states in memory (`--prune-history N`): a read at an older block fails.
+ */
+export function anvilArgs(port, chainId, history = process.env.LOCAL_STACK_CHAIN_HISTORY) {
+  const args = ['--host', HOST, '--port', String(port), '--chain-id', String(chainId), '--accounts', '1', '--silent'];
+  if (history === undefined || history === '') return args;
+  const n = Number(history);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`LOCAL_STACK_CHAIN_HISTORY=${history}: a whole number of blocks, 1 or more`);
+  return [...args, '--prune-history', String(n)];
+}
+
 function serve() {
   const bin = anvilBin();
   if (!bin) throw new Error('no anvil binary (set LOCAL_STACK_ANVIL_BIN or put anvil on PATH)');
   const anvils = [
-    spawn(bin, ['--host', HOST, '--port', String(CHAIN_PORTS.anvil), '--chain-id', String(TEST_CHAIN_ID), '--accounts', '1', '--silent'], {
-      stdio: 'inherit',
-    }),
-    spawn(
-      bin,
-      ['--host', HOST, '--port', String(SECOND_CHAIN_PORTS.anvil), '--chain-id', String(SECOND_CHAIN_ID), '--accounts', '1', '--silent'],
-      { stdio: 'inherit' },
-    ),
+    spawn(bin, anvilArgs(CHAIN_PORTS.anvil, TEST_CHAIN_ID), { stdio: 'inherit' }),
+    spawn(bin, anvilArgs(SECOND_CHAIN_PORTS.anvil, SECOND_CHAIN_ID), { stdio: 'inherit' }),
   ];
   const gate = makeGate(CHAIN_PORTS.gate, CHAIN_PORTS.anvil);
   const second = makeGate(SECOND_CHAIN_PORTS.gate, SECOND_CHAIN_PORTS.anvil);
@@ -285,6 +298,27 @@ async function anvilRpc(method, params, port = CHAIN_PORTS.anvil) {
   const answer = await res.json();
   if (answer.error) throw new Error(answer.error.message ?? JSON.stringify(answer.error));
   return answer.result;
+}
+
+/**
+ * Waits until the anvil on `port` answers eth_chainId, for at most `waitMs`. Only a refused or failed connection (fetch's
+ * TypeError) is waited out; an anvil that answers with an error throws at once.
+ */
+async function anvilAnswers(port, waitMs) {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      await anvilRpc('eth_chainId', [], port);
+      return;
+    } catch (err) {
+      if (!(err instanceof TypeError)) throw err;
+      if (Date.now() >= deadline)
+        throw new Error(
+          `the TEST chain's anvil on port ${port} never answered within ${waitMs / 1000} s (${err.cause?.code ?? err.message})`,
+        );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
 }
 
 const HEX = /^0x[0-9a-fA-F]*$/;
@@ -625,8 +659,11 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain', 'positions', 'bridge'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable|spam|venue|plain|positions|bridge]');
+  if (
+    !/^0x[0-9a-fA-F]{40}$/.test(address ?? '') ||
+    ![undefined, 'stable', 'spam', 'venue', 'plain', 'reset', 'positions', 'bridge'].includes(kind)
+  )
+    throw new Error('usage: fund <0x address> [stable|spam|venue|plain|reset|positions|bridge]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');

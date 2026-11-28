@@ -6,7 +6,7 @@ import { parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { useSession, useApi } from '../session';
 import { createMoneyClient } from './client';
-import { bankReads, ruleSchema } from './contracts';
+import { ruleSchema } from './contracts';
 import { t } from './repeat-buy-copy';
 import { AutoInvestRules } from './earn/AutoInvestRules';
 import {
@@ -19,12 +19,18 @@ import {
   ResourceView,
   Section,
   startsField,
-  useBankRead,
   usePageLimit,
   type ActionSpec,
   useBankRecord,
 } from './components';
-import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
+import {
+  BANK_AUTO_INVEST_LIST,
+  BANK_AUTO_INVEST_PAUSE,
+  BANK_AUTO_INVEST_RESUME,
+  BANK_AUTO_INVEST_CANCEL,
+  BANK_AUTO_INVEST_POLICY,
+} from '@intafaced/contracts/bank-auto-invest-procedures';
+import { BANK_AUTO_INVEST_CREATE_DCA } from '@intafaced/contracts/bank-auto-invest-2-procedures';
 
 type Rule = z.infer<typeof ruleSchema>;
 const validAsset = (asset: string) => asset.trim().length > 0 && asset === asset.trim() && asset.length <= 16;
@@ -56,7 +62,7 @@ export function useAutoInvestRules() {
     facts.push([t('nextRun'), date(rule.nextRunAt)]);
     return {
       title: t(action === 'pause' ? 'pauseTitle' : action === 'resume' ? 'resumeTitle' : 'cancelTitle'),
-      procedure: `autoInvest.${action}`,
+      record: action === 'pause' ? BANK_AUTO_INVEST_PAUSE : action === 'resume' ? BANK_AUTO_INVEST_RESUME : BANK_AUTO_INVEST_CANCEL,
       facts,
       notes: [t(action === 'pause' ? 'pauseNote' : action === 'resume' ? 'pausedNote' : 'cancelNote')],
       input: () => ({ ruleId: rule.id }),
@@ -87,7 +93,7 @@ export function useAutoInvestRules() {
         // Missing from this bounded read cannot establish cancellation or an outcome.
         if (!current || JSON.stringify(current) !== JSON.stringify(rule)) return refusal(t('contextChanged'));
         if (action === 'resume') {
-          const policy = await api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);
+          const policy = await api.call(BANK_AUTO_INVEST_POLICY, undefined);
           if (!policy.ok) return readRefusal(t('policySubject'));
           if (!policy.data.enabled || (rule.kind === 'dca' && !policy.data.convertWired)) return refusal(t('contextChanged'));
         }
@@ -112,7 +118,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
         function setup(): ActionSpec {
           return {
             title: t('title', { asset }),
-            procedure: 'autoInvest.createDca',
+            record: BANK_AUTO_INVEST_CREATE_DCA,
             fields: [positiveMoney(spendAsset, 'amount', t('budget')), cadenceField, startsField],
             facts: [
               [t('buy'), asset],
@@ -131,10 +137,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
             preflight: async (input) => {
               if (!spendAsset || spendAsset === asset) return refusal(t('contextChanged'));
               if (typeof input.startsAt !== 'string' || Date.parse(input.startsAt) <= Date.now()) return refusal(t('startExpired'));
-              const [policy, fresh] = await Promise.all([
-                api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']),
-                createMoneyClient(api).balances(),
-              ]);
+              const [policy, fresh] = await Promise.all([api.call(BANK_AUTO_INVEST_POLICY, undefined), createMoneyClient(api).balances()]);
               if (!policy.ok) return readRefusal(t('policySubject'));
               if (!fresh.ok) return readRefusal(t('sourceSubject'));
               if (!policy.data.enabled || !policy.data.convertWired || !Object.hasOwn(fresh.data.balances, spendAsset))
@@ -147,7 +150,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
         }
         return (
           <div className="money-repeat-setup">
-            <label className="field">
+            <label className="lt-field">
               <span>{t('spendSource')}</span>
               <select value={spendAsset} onChange={(event) => setSelected(event.target.value)} aria-label={t('spendSource')}>
                 <option value="">{t('choose')}</option>
@@ -158,12 +161,12 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
                 ))}
               </select>
             </label>
-            {source && <p className="muted numeric">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
-            <p className="muted">{t('unreserved')}</p>
+            {source && <p className="lt-muted lt-num">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
+            <p className="lt-muted">{t('unreserved')}</p>
             <Button disabled={!source} onClick={() => open(setup())}>
               {t('setup')}
             </Button>
-            {source && <p className="muted">{t('setupHint', { asset: spendAsset })}</p>}
+            {source && <p className="lt-muted">{t('setupHint', { asset: spendAsset })}</p>}
           </div>
         );
       }}
@@ -172,14 +175,14 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
 }
 
 function PersonalRepeatBuy({ asset, open }: { asset: string; open: (spec: ActionSpec) => void }) {
-  const { resource, reload } = useBankRead('autoInvest.policy', undefined);
+  const { resource, reload } = useBankRecord(BANK_AUTO_INVEST_POLICY, undefined);
   return (
     <Page
       eyebrow={t('eyebrow')}
       title={t('title', { asset })}
       description={t('description')}
       actions={
-        <a className="button button--secondary" href={`/portfolio/${encodeURIComponent(asset)}`}>
+        <a className="lt-button lt-button-secondary" href={`/portfolio/${encodeURIComponent(asset)}`}>
           {t('back', { asset })}
         </a>
       }

@@ -5,11 +5,12 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { AccountDetailsBody, AccountDetailsList } from './AccountDetails';
-import { EligibilityBody, EligibilityView, isRegion } from './Eligibility';
-import { accountDetailsRowSchema, bankReads, eligibilitySchema, type AccountDetailsRow, type Eligibility } from './contracts';
+import { EligibilityBody, EligibilityView, isRegion } from './eligibility/Eligibility';
+import { accountDetailsRowSchema, eligibilitySchema, type AccountDetailsRow, type Eligibility } from './contracts';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { refusalCopy } from '../../data/refusals';
 import { accountDetailsCopy } from './account-details-copy';
+import { BANK_ACCOUNT_DETAILS_LIST } from '@intafaced/contracts/bank-account-details-procedures';
 
 /** BK-acct-03 screen half: account details per currency, and who can open an account. */
 
@@ -77,7 +78,7 @@ describe('account details per currency', () => {
 
   it('reads the bank answer exactly and refuses a drifting one', () => {
     const answer = { currencies: [unavailable('GBP')] };
-    expect(bankReads['accountDetails.list'].parse(answer).currencies[0]!.blocker).toBe('rail.bank');
+    expect(BANK_ACCOUNT_DETAILS_LIST.output.parse(answer).currencies[0]!.blocker).toBe('rail.bank');
     expect(() => accountDetailsRowSchema.parse({ ...unavailable('GBP'), blocker: 'something.else' })).toThrow();
     expect(() => accountDetailsRowSchema.parse({ ...unavailable('GBP'), state: 'maybe' })).toThrow();
   });

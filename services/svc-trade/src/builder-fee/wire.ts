@@ -9,6 +9,7 @@ import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { env } from '../env.js';
 import type { JobHost } from '../futures/job-host.js';
+import { AccountPace, AccountReadPace, accountPaceSetting } from '../venue/account-pace.js';
 import { SqlPreparedActionStore } from '../venue/prepared-action-store.js';
 import { parseBuilderFee, type UserVenueDoor } from '../venue/user-venue-door.js';
 import type { UserVenue, UserVenueAccount } from '@intafaced/venue-contracts';
@@ -71,9 +72,10 @@ export function wireBuilderFees(deps: {
   const builderFees = {
     /** One person's builder fees on one venue account, with each fee's ledger transaction (J-derivatives-12 #4). */
     ofUser: (userId: string, account: UserVenueAccount, since: Date) => builderFeeStore.ofUser(userId, account, since),
-    recon: (from: Date, to: Date) =>
+    recon: (from: Date, to: Date, readPace?: AccountReadPace) =>
       builderFeeRecon(
         {
+          ...(readPace ? { readPace } : {}),
           venue: userVenue ? () => userVenue.venue() : null,
           ledger,
           store: builderFeeStore,
@@ -113,11 +115,19 @@ export function wireBuilderFees(deps: {
     // order can be routed to (J-derivatives-28): each venue's accounts, fills and keys are its own, so one venue that can't
     // be read or stops its run leaves the others' fills posted, and the job still fails for the next tick to retry it.
     if (userVenueDoors.length > 0 && env.TRADE_BUILDER_FEE_POSTER === 'on') {
+      const perMinute = accountPaceSetting(
+        env.TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE,
+        'TRADE_BUILDER_FEE_POSTER_ACCOUNTS_PER_MINUTE',
+      );
+      // One pace per venue: each venue limits its own reads.
+      const paces = new Map(userVenueDoors.map((door) => [door, perMinute === null ? null : new AccountPace(perMinute, () => new Date())]));
       host.every('venue.builder_fees', env.TRADE_BUILDER_FEE_POSTER_INTERVAL_MS, async () => {
         const stopped: unknown[] = [];
         for (const door of userVenueDoors) {
+          const pace = paces.get(door) ?? null;
           try {
             const run = await postBuilderFees({
+              ...(pace ? { pace } : {}),
               venue: () => door.venue(),
               ledger,
               store: builderFeeStore,
@@ -204,10 +214,17 @@ export function wireBuilderFees(deps: {
     }
     // OWNER 288 change 1e: the builder-fee recon also runs on its own, over the last day, so a break is raised without anyone
     // opening the console. Read only: it posts nothing. A break or a venue whose totals are unknown is logged for the desk.
+    // With a pace set, its reads of each account's fills are spread over the run, so a run weighs no more in any minute
+    // however many accounts there are; the period still ends when the run starts.
     if (userVenue) {
+      const reconPerMinute = accountPaceSetting(
+        env.TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE,
+        'TRADE_BUILDER_FEE_RECON_ACCOUNTS_PER_MINUTE',
+      );
       host.every('venue.builder_fee_recon', env.TRADE_BUILDER_FEE_RECON_INTERVAL_MS, async () => {
         const to = new Date();
-        const read = await builderFees.recon(new Date(to.getTime() - 86_400_000), to);
+        const readPace = reconPerMinute === null ? undefined : new AccountReadPace(reconPerMinute, () => new Date());
+        const read = await builderFees.recon(new Date(to.getTime() - 86_400_000), to, readPace);
         for (const v of read.venues) {
           if (v.state === 'unknown') {
             log.warn({ job: 'venue.builder_fee_recon', code: v.code }, 'builder-fee recon: the venue could not be read');

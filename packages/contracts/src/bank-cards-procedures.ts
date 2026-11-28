@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `cards.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -300,6 +300,36 @@ export const BANK_CARDS_CONTROLS_GET = defineProcedure({
   output: cardControlsOutput,
   samples: [
     { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_CARDS_CONTROLS_BLOCK = defineProcedure({
+  ...base,
+  name: 'bank.cards.controls.block',
+  kind: 'mutation',
+  path: 'cards.controls.block',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ cardId: z.string().guid(), kind: z.enum(CARD_CONTROL_KINDS), value: z.string().min(1).max(64) }),
+  output: cardControlsOutput,
+  samples: [
+    { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111', kind: 'category', value: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_CARDS_CONTROLS_LIFT = defineProcedure({
+  ...base,
+  name: 'bank.cards.controls.lift',
+  kind: 'mutation',
+  path: 'cards.controls.lift',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ cardId: z.string().guid(), controlId: z.string().guid() }),
+  output: cardControlsOutput,
+  samples: [
+    { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111', controlId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });
@@ -664,6 +694,51 @@ export const BANK_CARDS_ACCEPT_TERMS = defineProcedure({
   ],
 });
 
+/**
+ * Order a card: virtual (optionally single-use or n-use) or physical with a design, a delivery speed and an address.
+ * `cardId` is the request, so a retry is the same card. Step-up, when the owner's rule is on, binds every term of the
+ * order (`bank.step_up.cards.order`).
+ */
+export const BANK_CARDS_ORDER = defineProcedure({
+  ...base,
+  name: 'bank.cards.order',
+  kind: 'mutation',
+  path: 'cards.order',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({
+    cardId: z.string().guid(),
+    country: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{2}$/),
+    termsVersion: z.string().min(1).max(64),
+    assetId: assetIdSchema.min(1).max(16),
+    perAuthorizationLimit: amountString,
+    cardType: z.enum(['virtual', 'physical']),
+    usesAllowed: z.number().int().min(1).max(1000).nullable().optional(),
+    designId: z.string().min(1).max(32).optional(),
+    deliverySpeed: z.enum(DELIVERY_SPEEDS).optional(),
+    shippingAddress: shippingAddressInput.optional(),
+    stepUpApprovalId: stepUpApprovalField,
+  }),
+  output: cardOutput,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        cardId: '11111111-1111-4111-8111-111111111111',
+        country: 'en',
+        termsVersion: 'USDC',
+        assetId: 'USDC',
+        perAuthorizationLimit: '1',
+        cardType: 'virtual',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 export const BANK_CARDS_THREE_DS_LIST = defineProcedure({
   ...base,
   name: 'bank.cards.threeDS.list',
@@ -909,6 +984,25 @@ export const BANK_CARDS_PARTNER_HELD = defineProcedure({
   }),
   samples: [
     { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Freeze, unfreeze or close. The gesture a user reaches for first when
+ * something is wrong, so it is user surface and not an operator ticket.
+ */
+export const BANK_CARDS_SET_STATUS = defineProcedure({
+  ...base,
+  name: 'bank.cards.setStatus',
+  kind: 'mutation',
+  path: 'cards.setStatus',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ cardId: z.string().guid(), status: z.enum(['active', 'frozen', 'closed']), stepUpApprovalId: stepUpApprovalField }),
+  output: z.object({ id: z.string(), status: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111', status: 'active' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { assetIdSchema } from './asset-id.js';
-import { defineProcedure } from './procedure.js';
+import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `autoInvest.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -50,4 +50,73 @@ export const BANK_AUTO_INVEST_LIST = defineProcedure({
     { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
   ],
+});
+
+/**
+ * Hold a rule without cancelling. Runner only considers `active` rules.
+ */
+export const BANK_AUTO_INVEST_PAUSE = defineProcedure({
+  ...base,
+  name: 'bank.autoInvest.pause',
+  kind: 'mutation',
+  path: 'autoInvest.pause',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ ruleId: z.string().guid() }),
+  output: autoInvestRuleOutput,
+  samples: [
+    { verdict: 'accept', input: { ruleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Resume a paused rule. Next runDue pass applies normal due rules — no
+ * multi-fire invent of missed windows.
+ */
+export const BANK_AUTO_INVEST_RESUME = defineProcedure({
+  ...base,
+  name: 'bank.autoInvest.resume',
+  kind: 'mutation',
+  path: 'autoInvest.resume',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ ruleId: z.string().guid() }),
+  output: autoInvestRuleOutput,
+  samples: [
+    { verdict: 'accept', input: { ruleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_AUTO_INVEST_CANCEL = defineProcedure({
+  ...base,
+  name: 'bank.autoInvest.cancel',
+  kind: 'mutation',
+  path: 'autoInvest.cancel',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ ruleId: z.string().guid() }),
+  output: z.object({ ok: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { ruleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_AUTO_INVEST_POLICY = defineProcedure({
+  ...base,
+  name: 'bank.autoInvest.policy',
+  kind: 'query',
+  path: 'autoInvest.policy',
+  access: { caller: 'public' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({
+    enabled: z.boolean(),
+    convertWired: z.boolean(),
+    dcaRequiresConvert: z.literal(true),
+    inventsRates: z.literal(false),
+  }),
+  samples: [{ verdict: 'accept' }],
 });

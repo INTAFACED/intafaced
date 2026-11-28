@@ -42,6 +42,17 @@ fn inputs() -> Result<&'static Inputs, String> {
     INPUTS.get_or_init(load).as_ref().map_err(Clone::clone)
 }
 
+/// The schemas a handler runs on a value it holds, not on a call's input (`scripts/record-door.mjs`'s `HANDLER_SCHEMAS`):
+/// the card programme desk's settings and its stored rules' params.
+pub const HANDLER_SCHEMAS: [&str; 6] = [
+    "ops.cardProgrammeConfigure#programme",
+    "ops.cardProgrammeConfigure#product",
+    "ops.cardProgrammeConfigure#bin",
+    "ops.cardProgrammeConfigure#fees",
+    "ops.cardProgrammeConfigure#threeds",
+    "ops.cardProgrammeRuleCreate#params",
+];
+
 /// Why an input was refused.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Refused {

@@ -94,9 +94,10 @@ describe('no room renders while the stored session is still restoring (#8658)', 
   for (const path of BOTH) {
     it(`${path} shows only the opening state, no signed-out control, and runs no read`, async () => {
       await open(path);
-      expect(host.querySelector('[data-testid="page"]')?.textContent).toContain('Opening room');
+      expect(host.querySelector('.room-loading[role="status"]')?.textContent).toContain('Opening room');
       expect(host.textContent).not.toMatch(/Sign in|Sign up|Log in|Connect wallet|signed out/i);
-      expect(host.querySelector('header, nav, main h1')).toBeNull();
+      // The bar is drawn at once (no page opens on bare black), but no room: no heading, no account control.
+      expect(host.querySelector('main h1, .tb-login, .tb-account')).toBeNull();
       expect(reads.count).toBe(0);
     });
   }

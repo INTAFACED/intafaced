@@ -4,8 +4,10 @@
 // schema its callers already parsed with: an answer that fits it reaches them as before, and one that doesn't is refused
 // at the service instead of at the caller. A caller with no schema (a reader function, or none) would lose every field the
 // schema does not name, so its call stays, named; so does a call two callers parse with different schemas.
+// A portal `list` caller parses one row (`list('x.y', item, input)`, a page of `item` on the wire): the record's answer is
+// that page, `{ items: item[], nextCursor }`, the very shape the tool parsed with (`page` in the portal's schemas).
 import { relative } from 'node:path';
-import { bindingOf, load } from './ast.mjs';
+import { bindingOf, keyedEntry, load, resolveRelative } from './ast.mjs';
 
 const at = (repo, s) => `${relative(repo, s.file)}:${s.line}`;
 
@@ -21,15 +23,60 @@ function declarationOf(p, node, depth = 0) {
 }
 
 /**
+ * A schema read through a namespace import (`p.teamMeSchema`, with `import * as p from './schemas'`), as the name its own
+ * file declares or re-exports: the record writes that name and the closure follows it from there, as it does a named
+ * import. Anything else is returned as it is.
+ */
+function throughNamespace(p, node) {
+  if (node?.type !== 'MemberExpression' || node.computed || node.object?.type !== 'Identifier' || node.property?.type !== 'Identifier')
+    return { p, node };
+  const b = bindingOf(p, node.object, node.object.name);
+  const file = b.kind === 'import' && b.imported === '*' ? resolveRelative(p.file, b.from) : undefined;
+  if (!file) return { p, node };
+  const q = load(file);
+  const name = node.property.name;
+  for (const stmt of q.program.body) {
+    const decl = stmt.type === 'ExportNamedDeclaration' && stmt.declaration ? stmt.declaration : undefined;
+    if (decl?.type === 'VariableDeclaration')
+      for (const d of decl.declarations) if (d.id.type === 'Identifier' && d.id.name === name) return { p: q, node: d.id };
+    if (stmt.type === 'ExportNamedDeclaration' && !stmt.declaration && !stmt.source)
+      for (const sp of stmt.specifiers ?? [])
+        if (
+          (sp.exported.name ?? sp.exported.value) === name &&
+          (sp.local.name ?? sp.local.value) === name &&
+          sp.local.type === 'Identifier'
+        )
+          return { p: q, node: sp.local };
+  }
+  return { p, node };
+}
+
+/**
+ * A schema read from a map by its call name (`bankReads['autoInvest.policy']`), as the map's entry: the same schema
+ * `useBankRead('autoInvest.policy')` parses with, so two callers reading it the two ways parse with one schema.
+ * Anything else is returned as it is.
+ */
+function throughKeyedRead(p, node) {
+  if (node?.type !== 'MemberExpression' || !node.computed || node.object?.type !== 'Identifier') return { p, node };
+  const key = node.property?.type === 'Literal' && typeof node.property.value === 'string' ? node.property.value : undefined;
+  if (!key) return { p, node };
+  return keyedEntry(p, bindingOf(p, node.object, node.object.name), node.object.name, key) ?? { p, node };
+}
+
+/**
  * The output a record takes from its callers, `{ output: { p, node } }`, or `{ why }` naming the caller that keeps the
  * call by name. `schemaOf(s)` is the caller's answer schema node in its own file (undefined when it parses with none);
+ * `itemOf(s)` is a portal list caller's row schema, its answer a page of that row (`{ output: { p, node, page: true } }`);
  * `checksOf(p, node)` lists what that schema checks beyond its shape (answerChecks in index.mjs).
  */
-export function answerFromCallers(repo, sites, { schemaOf, checksOf }) {
+export function answerFromCallers(repo, sites, { schemaOf, checksOf, itemOf = () => undefined }) {
   let taken;
   let first;
   for (const s of sites) {
-    const own = s.schema ?? (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : undefined);
+    const item = s.schema || schemaOf(s) ? undefined : itemOf(s);
+    const written = s.schema ?? (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : item ? { p: load(s.file), node: item } : undefined);
+    const named = written && throughNamespace(written.p, written.node);
+    const own = named && { ...throughKeyedRead(named.p, named.node), ...(item ? { page: true } : {}) };
     if (!own)
       return {
         why: `${at(repo, s)} reads the answer ${s.reader ? 'with its own reader function' : 'unparsed'}, not a zod schema a record can take`,
@@ -37,7 +84,7 @@ export function answerFromCallers(repo, sites, { schemaOf, checksOf }) {
     const checks = checksOf(own.p, own.node);
     if (checks.length) return { why: `${at(repo, s)} parses it with a schema that is not pure zod (${checks.join(', ')})` };
     const d = declarationOf(own.p, own.node);
-    const key = `${d.p.file}:${d.node.start}`;
+    const key = `${own.page ? 'page of ' : ''}${d.p.file}:${d.node.start}`;
     if (!taken) {
       taken = own;
       first = { s, key };

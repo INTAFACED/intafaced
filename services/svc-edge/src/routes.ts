@@ -273,8 +273,19 @@ function firstSegmentName(path: string): string | null {
  */
 export const UPSTREAM_ENFORCED_ENVS = ['staging', 'prod'] as const;
 
+/**
+ * Upstreams a deployment runs without (`EDGE_UPSTREAMS_OFF`, a comma list of their env vars, e.g. `P2P_URL,DEX_URL`): the
+ * hosted beta starts only the launch desk's services. Each refuses as unwired in every APP_ENV, never a fall back
+ * to its local default nor a 502 that reads as a network fault, so the app says plainly that it is not connected here.
+ */
+export function upstreamOff(upstream: Upstream, envLookup: (name: string) => string | undefined): boolean {
+  const raw = envLookup('EDGE_UPSTREAMS_OFF') ?? '';
+  return raw.split(',').some((name) => name.trim() === upstream.envVar);
+}
+
 /** Env var nonempty — configuration, not a live hop. `/ready` must not call this wired. */
 export function isUpstreamConfigured(upstream: Upstream, envLookup: (name: string) => string | undefined): boolean {
+  if (upstreamOff(upstream, envLookup)) return false;
   const raw = envLookup(upstream.envVar);
   return typeof raw === 'string' && raw.trim().length > 0;
 }
@@ -284,6 +295,7 @@ export function resolveUpstreamBase(
   envLookup: (name: string) => string | undefined,
   appEnv: string,
 ): { readonly base: string } | { readonly unwired: true } {
+  if (upstreamOff(upstream, envLookup)) return { unwired: true };
   const raw = envLookup(upstream.envVar);
   if (typeof raw === 'string' && raw.trim().length > 0) {
     return { base: raw.replace(/\/$/, '') };

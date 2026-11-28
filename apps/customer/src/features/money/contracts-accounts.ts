@@ -57,18 +57,6 @@ const accountTermsSchema = z.object({
 export type AccountTerms = z.infer<typeof accountTermsSchema>;
 const accountCurrencySchema = z.object({ assetId: z.string(), spaceId: z.string(), balance: money });
 export type AccountCurrency = z.infer<typeof accountCurrencySchema>;
-/** svc-bank `bank.currencies.list`: the currencies on the account, and what the owner lets the customer add. */
-const currencySetSchema = z.object({
-  currencies: z.array(accountCurrencySchema),
-  addable: z.array(z.string()).nullable(),
-  addableBlocker: z.literal('bank.account_currencies_unset').nullable(),
-});
-/** svc-bank `bank.accounts.profile`: the profile in view, proved held by the person, with their role in a business. */
-const bankProfileSchema = z.object({
-  profile: z.string(),
-  kind: z.enum(['personal', 'business']),
-  business: z.object({ accountId: z.string(), name: z.string(), role: z.string() }).nullable(),
-});
 /** svc-bank `bank.addMoney.*` (J-bank-02): the ways to pay in with their quotes, and the customer's add-money requests. */
 const ADD_MONEY_METHODS = ['bank_transfer', 'pay_by_bank', 'card', 'wallet_pay'] as const;
 export type AddMoneyMethod = (typeof ADD_MONEY_METHODS)[number];
@@ -152,6 +140,7 @@ export const linkedAccountSchema = z.object({
   coolingOffEndsAt: z.string().nullable(),
 });
 export type LinkedAccount = z.infer<typeof linkedAccountSchema>;
+
 /** svc-bank `bank.activity.list` lines read for incoming payments (J-bank-02 #7). Unknown fields are dropped. */
 const incomingLineSchema = z.object({
   id: z.string(),
@@ -165,10 +154,8 @@ const incomingLineSchema = z.object({
   counterparty: z.object({ handle: z.string() }).nullable(),
 });
 export type IncomingLine = z.infer<typeof incomingLineSchema>;
-export const currencyWrites = {
-  add: accountCurrencySchema,
-  remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
-};
+/** The caller's own stricter answer for incoming payments' `activity.list` read: only the kinds it asked for. */
+export const incomingPageSchema = z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() });
 /** A ledger balance of a dead owner's account, as the heir's claim room shows it (RC-identity-08). */
 const recoveryAccountSchema = z.object({
   ownerType: z.enum(['user', 'subaccount']),
@@ -221,26 +208,7 @@ export const recoveryWrites = {
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
 
-/** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 /** `bank.salary.*` (J-bank-30): the details salary is paid to, the employer form, and the salary credits. */
-const salaryDetailsSchema = z.object({
-  partnerBank: z.string(),
-  network: z.string(),
-  holderName: z.string().nullable(),
-  currencies: z.array(accountDetailsRowSchema),
-});
-const salaryFormSchema = z.object({
-  currency: z.string(),
-  holderName: z.string(),
-  partnerBank: z.string(),
-  accountNumber: z.string().nullable(),
-  sortCode: z.string().nullable(),
-  routingNumber: z.string().nullable(),
-  iban: z.string().nullable(),
-  bic: z.string().nullable(),
-  reference: z.string(),
-  text: z.string(),
-});
 const salaryCreditSchema = z.object({
   networkId: z.string(),
   assetId: z.string(),
@@ -266,17 +234,3 @@ const salaryCreditSchema = z.object({
   ),
 });
 export type SalaryCredit = z.infer<typeof salaryCreditSchema>;
-
-export const accountsReads = {
-  'salary.details': salaryDetailsSchema,
-  'salary.form': salaryFormSchema,
-  'accounts.features': accountTermsSchema,
-  'accounts.profile': bankProfileSchema,
-  'addMoney.methods': addMoneyMethodsSchema,
-  'addMoney.request': addMoneyRequestSchema,
-  'currencies.list': currencySetSchema,
-  'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
-  'eligibility.get': eligibilitySchema,
-  'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
-  'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
-} as const;

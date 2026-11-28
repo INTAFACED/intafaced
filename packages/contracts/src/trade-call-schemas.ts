@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
 import { venueGridSchema } from './trade-grid-procedures.js';
+import { orderSideSchema } from './order-enums.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-trade's records share, moved from the service so the records and every caller read one copy. */
@@ -609,4 +610,204 @@ export const gridWithdrawalAnswer = z.object({
   capRemaining: z.string(),
   stepUpEventId: z.string(),
   appliedAt: z.string(),
+});
+
+export const convertSourceOutput = z.object({
+  kind: z.literal('book'),
+  symbol: z.string(),
+  asOf: z.string(),
+});
+
+export const convertQuoteOutput = z.object({
+  quoteId: z.string(),
+  symbol: z.string(),
+  side: orderSideSchema,
+  requestedQty: decimal,
+  filledQty: decimal,
+  bookNotional: decimal,
+  userNotional: decimal,
+  avgPrice: decimal,
+  fullyFilled: z.boolean(),
+  convertSpreadBps: z.number().int(),
+  expiresAt: z.string(),
+  source: convertSourceOutput,
+  inAsset: z.string(),
+  outAsset: z.string(),
+  inAmount: decimal,
+  outAmount: decimal,
+});
+
+export const convertAcceptInput = z.object({
+  quoteId: z.string().min(1).max(64),
+  clientConvertId: z.string().min(1).max(48).optional(),
+  symbol: z.string().min(3).optional(),
+  side: orderSideSchema.optional(),
+  qty: decimal.optional(),
+  maxAvgPrice: decimal.optional(),
+});
+
+export const convertTradeOutput = z.object({
+  quoteId: z.string(),
+  fillId: z.string(),
+  takerOrderId: z.string(),
+  makerOrderId: z.string(),
+  symbol: z.string(),
+  side: orderSideSchema,
+  inAsset: z.string(),
+  outAsset: z.string(),
+  inAmount: decimal,
+  outAmount: decimal,
+  fillPrice: decimal,
+  fillNotional: decimal,
+  convertSpreadBps: z.number().int(),
+  source: convertSourceOutput,
+  expiresAt: z.string(),
+  acceptedAt: z.string(),
+  settledAt: z.string(),
+});
+
+/**
+ * What a POV participation rate is applied to: the taker volume traded in the last interval, or the resting
+ * quantity on the opposite side of the book (the side the child would take from).
+ */
+export type PovBasis = 'traded_volume' | 'opposite_liquidity';
+
+export const POV_BASES: readonly PovBasis[] = ['traded_volume', 'opposite_liquidity'];
+
+export const algoParentOutputSchema = z.object({
+  id: z.string(),
+  symbol: z.string(),
+  side: orderSideSchema,
+  kind: z.enum(['twap', 'vwap', 'pov', 'chase']),
+  totalQty: decimal,
+  durationMs: z.number().int(),
+  sliceIntervalMs: z.number().int(),
+  limitPrice: decimal.nullable(),
+  status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
+  slicesPlanned: z.number().int(),
+  nextSliceIndex: z.number().int(),
+  childrenEmitted: z.number().int(),
+  missesRecorded: z.number().int(),
+  haltReason: z.string().nullable(),
+  stopReason: algoStopReasonSchema,
+  participationBps: z.number().int().nullable(),
+  /** POV: what participation is applied to; null for TWAP and VWAP. */
+  povBasis: z.enum(POV_BASES).nullable(),
+  createdAt: z.string(),
+  startedAt: z.string(),
+  nextDueAt: z.string(),
+  /** Projected wall-clock end after last re-space (ADR 2026-08-08). */
+  projectedEndsAt: z.string(),
+  /** Distinguishes user pause from tick outage; null until first stretch. */
+  scheduleStretchReason: z.enum(['user_pause', 'tick_outage']).nullable(),
+  /** Set when the slice sizes are random, fixed by this seed. */
+  randomSeed: z.number().int().nullable(),
+  /** The price the schedule waits for before its first slice; null when it starts at once. */
+  triggerPrice: decimal.nullable(),
+  triggeredAt: z.string().nullable(),
+  awaitingTrigger: z.boolean(),
+  /** Chase: the caller's maximum distance from the start price, in bps; null for other kinds. */
+  chaseMaxDistanceBps: z.number().int().nullable(),
+  /** Chase: the best same-side price read at create, the distance's origin. */
+  chaseStartPrice: decimal.nullable(),
+  /** Chase: the price of the newest child; null before the first child and for other kinds. */
+  chasePrice: decimal.nullable(),
+  /** Chase: how many times the child was re-priced (children placed after the first). */
+  chaseReprices: z.number().int().nullable(),
+});
+
+export const algoGetOutputSchema = algoParentOutputSchema.extend({
+  children: z.array(
+    z.object({
+      orderId: z.string(),
+      sliceIndex: z.number().int(),
+      time: z.string(),
+      qty: decimal,
+      basisQty: decimal.nullable(),
+      price: decimal.nullable(),
+    }),
+  ),
+  misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
+  filledQty: decimal,
+  /** The planned size of every slice, in order, as stored with the parent. */
+  plannedSliceQtys: z.array(decimal),
+  ...algoScheduleHonestySchema,
+});
+
+export const algoPolicyAnswer = z.object({
+  productKind: z.literal('twap'),
+  capability: z.object({
+    createEnabled: z.boolean(),
+    jobsEnabled: z.boolean(),
+    jobsDefault: z.literal(false),
+    icebergs: z.literal('out'),
+  }),
+  parentHoldsNoBalance: z.literal(true),
+  progressFromChildFillsOnly: z.literal(true),
+  cancelIncompleteHalt: z.literal('cancel_incomplete'),
+  cancelIncompleteCode: z.literal('trade.algo_cancel_incomplete'),
+  resumeRefusedOnCancelIncomplete: z.literal(true),
+  vwapPovImmatureRefused: z.literal(true),
+  volumeImmatureCode: z.literal('trade.algo_volume_immature'),
+  immatureKinds: z.tuple([z.literal('vwap'), z.literal('pov')]).readonly(),
+  inventsParentFill: z.literal(false),
+  inventsVwapCurve: z.literal(false),
+  inventsPovVolume: z.literal(false),
+  moneyViaLedgerClientOnly: z.literal(true),
+});
+
+/** The kinds an engine runs. */
+export const ALGO_KINDS = ['twap', 'vwap', 'pov', 'chase'] as const;
+
+/**
+ * The algo order API's states (SP-conditional-algo-04), one set for every kind, in the order the developer page lists
+ * them: live (running or waiting), effective (finished, filled whole), partially_effective (finished, part filled),
+ * canceled, order_failed (halted, or finished with nothing filled). svc-trade maps each parent to one of them.
+ */
+export const ALGO_API_STATES = ['live', 'effective', 'partially_effective', 'canceled', 'order_failed'] as const;
+export type AlgoApiState = (typeof ALGO_API_STATES)[number];
+
+/** One algo create, as the web's `trade.algo.createTwap` and the public `POST /api/v1/algo` take it. */
+export const algoCreateInputSchema = z.object({
+  symbol: z.string().min(3),
+  side: orderSideSchema,
+  totalQty: decimal,
+  durationMs: z.number().int().min(1_000).max(86_400_000),
+  sliceIntervalMs: z.number().int().min(1_000).max(86_400_000),
+  limitPrice: decimal.optional(),
+  clientAlgoId: z.string().trim().min(1).max(48),
+  subAccountId: z.string().guid().optional(),
+  kind: z.enum(ALGO_KINDS).optional(),
+  participationBps: z.number().int().min(1).max(10_000).optional(),
+  chaseDistanceBps: z.number().int().min(1).max(10_000).optional(),
+  povBasis: z.enum(POV_BASES).optional(),
+  randomSeed: z.number().int().min(0).max(MAX_ALGO_SEED).optional(),
+  triggerPrice: decimal.optional(),
+});
+
+export const algoListAnswer = z.object({
+  rows: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.string(),
+      market: z.string(),
+      side: orderSideSchema,
+      totalQty: z.string(),
+      filledQty: z.string(),
+      status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
+      created: z.string(),
+      nextSliceAt: z.string().nullable(),
+      scheduler: z.object({
+        running: z.boolean().nullable(),
+        reason: z.enum(['jobs_disabled', 'heartbeat_unknown', 'heartbeat_stale', 'jobs_interval_unset']).nullable(),
+      }),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+});
+
+export const otcConvertQuoteAnswer = z.object({
+  flow: z.enum(['convert', 'oneClickBuy']),
+  ...otcQuoteFields,
+  settleWindowMs: z.number().nullable(),
 });

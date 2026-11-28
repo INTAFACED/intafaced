@@ -1,5 +1,7 @@
 import { Children, isValidElement, useId, type ReactElement, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui';
+import { FirstState } from '@intafaced/ui/lit/templates';
+import { Store } from 'lucide-react';
 import { chromeCopy } from '../chrome/copy';
 
 /** Where a person with no business account goes to make one. */
@@ -13,13 +15,19 @@ export const ONBOARDING_HREF = '/pay/onboarding';
 export function NoBusiness({ children }: { children?: ReactNode }) {
   const { t } = chromeCopy.useCopy();
   return (
-    <section className="pfo-nobiz" aria-labelledby="pfo-nobiz-title">
-      <h2 id="pfo-nobiz-title">{t('noBusinessTitle')}</h2>
-      <p>{t('noBusinessBody')}</p>
-      <Button variant="primary" nativeButton={false} role="link" render={<a href={ONBOARDING_HREF} />}>
-        {t('noBusinessStart')}
-      </Button>
-      {children}
+    <section className="pfo-nobiz">
+      <FirstState
+        level={2}
+        icon={<Store size={24} />}
+        title={t('noBusinessTitle')}
+        body={t('noBusinessBody')}
+        points={[t('noBusinessPointLinks'), t('noBusinessPointPayments'), t('noBusinessPointTeam')]}
+      >
+        <Button variant="primary" nativeButton={false} role="link" render={<a href={ONBOARDING_HREF} />}>
+          {t('noBusinessStart')}
+        </Button>
+        {children}
+      </FirstState>
     </section>
   );
 }

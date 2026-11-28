@@ -2,10 +2,8 @@ import { createContext, useContext, useEffect, useId, useRef, type ReactNode } f
 import type { ApiResult } from '../../../shared/api';
 import { MoneyDisplay } from './presentation';
 import { Button, StateBlock } from '@intafaced/ui';
-import { EmptyState } from '../ui-kit';
 import { DateTime } from './ui/DateTime';
-import type { ListState } from './hooks';
-import { activeHalts, spanParts, staleness, lagParts, type PayoutState } from './model';
+import { activeHalts, type PayoutState } from './model';
 import { portalCopy } from './copy';
 import { StatusChip } from './ui/StatusChip';
 import { CopyReference } from './ui/CopyReference';
@@ -13,7 +11,7 @@ import { uiCopy } from './ui/copy';
 import type { ChipKind } from './ui/status-vocabulary';
 import { NotLiveCard } from './chrome/NotLiveCard';
 import { isNotLive, notLiveReason, refusalText, refusalTitle } from './refusal';
-import type { AssetAmount, Freshness, HaltScope, HaltStatus } from './schemas';
+import type { AssetAmount, HaltScope, HaltStatus } from './schemas';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -35,6 +33,17 @@ export function RefusalOnceProvider({ children }: { children: ReactNode }) {
   return <RefusalOnce.Provider value={store.current}>{children}</RefusalOnce.Provider>;
 }
 
+/**
+ * "Say each refusal once" for one refusal on the page: `claim()` is true when this part is the one that says `key`; the
+ * words are given back when it goes. Outside the frame's `RefusalOnceProvider` every part says its own.
+ */
+export function useSaidOnce(key: string): () => boolean {
+  const once = useContext(RefusalOnce);
+  const id = useId();
+  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  return () => !once || once.claim(key, id);
+}
+
 /** Loading skeleton (B11): the shape of the page that is coming, announced once to assistive tech. */
 export function PortalLoading({ rows = 3, label }: { rows?: number; label?: string }) {
   const { t } = portalCopy.useCopy();
@@ -51,25 +60,22 @@ export const NotLive = NotLiveCard;
 export function PortalFailure({ result, retry, notLive }: { result: Failed; retry?: () => void; notLive?: string }) {
   const { t } = portalCopy.useCopy();
   const { t: u } = uiCopy.useCopy();
-  const once = useContext(RefusalOnce);
-  const id = useId();
-  const key = `${refusalTitle(result)}|${refusalText(result)}`;
-  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  const claim = useSaidOnce(`${refusalTitle(result)}|${refusalText(result)}`);
   if (isNotLive(result)) return <NotLive reason={notLive ?? notLiveReason(result)} />;
   // The same refusal, twice on one page, is said once.
-  if (once && !once.claim(key, id)) return null;
+  if (!claim()) return null;
   return (
-    <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
+    <div data-testid="failure" className="lt-refusal" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>
       <p>{refusalText(result)}</p>
       {result.requestId && (
-        <p className="muted">
+        <p className="lt-muted">
           {u('reference')} <CopyReference value={result.requestId} what={u('reference')} />
         </p>
       )}
       {result.reason === 'unauthorized' ? (
         <a
-          className="text-link"
+          className="lt-link"
           href={`/login?redirect=${encodeURIComponent(typeof location === 'undefined' ? '/pay/merchant' : location.pathname + location.search)}`}
         >
           {t('signIn')}
@@ -88,106 +94,19 @@ export function PortalFailure({ result, retry, notLive }: { result: Failed; retr
   );
 }
 
-/** Loading, refused and empty for a paged list; the rows themselves come from `children`. */
-export function ListShell<T>({
-  state,
-  empty,
-  retry,
-  children,
-}: {
-  state: ListState<T>;
-  empty: { title: string; body: string; action?: ReactNode };
-  retry: () => void;
-  children: (items: T[]) => ReactNode;
-}) {
-  if (state.status === 'loading') return <PortalLoading />;
-  if (state.status === 'failed') return <PortalFailure result={state.failure} retry={retry} />;
-  if (state.items.length === 0)
-    return (
-      <EmptyState title={empty.title} action={empty.action}>
-        {empty.body}
-      </EmptyState>
-    );
-  return <>{children(state.items)}</>;
-}
-
-/** Row count and "Load more" (B3). The count says "so far" while another page exists, so it is never read as a total. */
-export function MoreFooter<T>({ state, onMore }: { state: Extract<ListState<T>, { status: 'ready' }>; onMore: () => void }) {
-  const { t } = portalCopy.useCopy();
-  const failed = typeof state.more === 'object';
-  return (
-    <div className="pp-more">
-      <p className="muted" role="status">
-        {state.hasMore ? t('rowsSoFar', { count: state.items.length }) : t('rowsAll', { count: state.items.length })}
-      </p>
-      {state.hasMore && (
-        <Button variant="secondary" onClick={onMore} disabled={state.more === 'loading'}>
-          {state.more === 'loading' ? t('loadingMore') : failed ? t('tryAgain') : t('loadMore')}
-        </Button>
-      )}
-      {failed && (
-        <p className="error-text" role="alert">
-          {refusalText(state.more as Failed)}
-        </p>
-      )}
-    </div>
-  );
-}
-
-export function Kpi({
-  label,
-  period,
-  value,
-  note,
-  href,
-  tone,
-}: {
-  label: string;
-  period?: string;
-  value: ReactNode;
-  note?: ReactNode;
-  href?: string;
-  tone?: 'attention';
-}) {
-  const body = (
-    <>
-      <span className="pp-kpi-label">
-        {label}
-        {period && <em>{period}</em>}
-      </span>
-      <strong className="pp-kpi-value numeric">{value}</strong>
-      {note && <small className="pp-kpi-note">{note}</small>}
-    </>
-  );
-  return href ? (
-    <a className={`pp-kpi pp-kpi--link${tone ? ` pp-kpi--${tone}` : ''}`} href={href}>
-      {body}
-    </a>
-  ) : (
-    <div className={`pp-kpi${tone ? ` pp-kpi--${tone}` : ''}`}>{body}</div>
-  );
-}
-export function KpiGrid({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="pp-kpis" role="group" aria-label={label}>
-      {children}
-    </div>
-  );
-}
-
 /** One line per asset. Two assets are never added together; an empty list is "nothing yet", not zero. */
 export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[]; emptyLabel?: string }) {
   const { t } = portalCopy.useCopy();
   if (items.length === 0)
     return (
-      <span className="pp-none" title={emptyLabel ?? t('noPaymentsInPeriod')}>
+      <span className="lt-muted" title={emptyLabel ?? t('noPaymentsInPeriod')}>
         —
       </span>
     );
   return (
     <span className="pp-lines">
       {items.map((item) => (
-        <span key={item.assetCode} className="pp-line">
+        <span key={item.assetCode}>
           <MoneyDisplay value={item.amount} asset={item.assetCode} unit={item.assetCode} />
         </span>
       ))}
@@ -202,37 +121,10 @@ export function Money({ value, asset }: { value: string; asset: string }) {
   );
 }
 
-/** "As of" and lag on every metric (B12). Unknown freshness is stated, never dressed as live. */
-export function AsOf({ freshness }: { freshness: Freshness }) {
-  const { t } = portalCopy.useCopy();
-  const state = staleness(freshness);
-  if (state.kind === 'unknown')
-    return (
-      <p className="pp-asof pp-asof--warn" role="status">
-        {t('asOfUnknown')}
-      </p>
-    );
-  const lag = lagParts(state.lagSeconds);
-  const lagText =
-    lag.unit === 'seconds'
-      ? t('lagSeconds', { n: lag.n })
-      : lag.unit === 'minutes'
-        ? t('lagMinutes', { n: lag.n })
-        : t('lagHours', { n: lag.n });
-  return (
-    <p className={`pp-asof${state.kind === 'stale' ? ' pp-asof--warn' : ''}`} role="status">
-      {t('asOf')} <DateTime value={freshness.asOf!} /> · {lagText}
-      {state.kind === 'stale' && <> · {t('staleWarning')}</>}
-    </p>
-  );
-}
-
 /** One shared vocabulary per entity (B4): the words come from `ui/StatusChip`. Kept under this name for existing pages. */
 export function Chip({ kind, value }: { kind: ChipKind; value: string }) {
   return <StatusChip entity={kind} value={value} />;
 }
-
-export { Timeline, type TimelineEvent as TimelineItem } from './ui/Timeline';
 
 export function SelectField({
   label,
@@ -261,14 +153,6 @@ export function SelectField({
       </select>
       {hint && <small>{hint}</small>}
     </label>
-  );
-}
-
-export function BackLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <a className="text-link pp-back" href={href}>
-      ← {children}
-    </a>
   );
 }
 
@@ -305,45 +189,10 @@ export function Gate<T>({
 
 // ---- W3b -------------------------------------------------------------------------------------------------
 
-/** "As of" for a list the page read straight from the account's records (B12): there is no projection, so no lag. */
-export function ReadAt({ at }: { at: string | null }) {
-  const { t } = portalCopy.useCopy();
-  if (!at) return null;
-  return (
-    <p className="pp-asof" role="status">
-      {t('readAt')} <DateTime value={at} />
-    </p>
-  );
-}
-
 /** A figure or setting nobody has configured. It is never a zero and never a default. */
 export function NotConfigured({ children }: { children?: ReactNode }) {
   const { t } = portalCopy.useCopy();
   return <span className="pp-notconf">{children ?? t('notConfigured')}</span>;
-}
-export function TestTag() {
-  const { t } = portalCopy.useCopy();
-  return (
-    <span className="pp-test" title={t('testValueTip')}>
-      {t('testValue')}
-    </span>
-  );
-}
-
-/** A length of time in words ("3 h", "just now"). Used for the age and the time left on a request. */
-export function SpanText({ ms }: { ms: number }) {
-  const { t } = portalCopy.useCopy();
-  const span = spanParts(ms);
-  if (span.unit === 'minutes' && span.n === 0) return <>{t('spanNow')}</>;
-  return (
-    <>
-      {span.unit === 'minutes'
-        ? t('spanMinutes', { n: span.n })
-        : span.unit === 'hours'
-          ? t('spanHours', { n: span.n })
-          : t('spanDays', { n: span.n })}
-    </>
-  );
 }
 
 /** Operation pauses (B11): which operation is paused and since when. An unreadable pause store counts as paused. */
@@ -409,9 +258,9 @@ export function Steps({
           <div>
             <strong>
               {item.title}
-              <span className="pp-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
+              <span className="lt-sr"> ({t(`stepItem_${item.state}` as 'stepItem_done')})</span>
             </strong>
-            {item.detail && <p className="muted">{item.detail}</p>}
+            {item.detail && <p className="lt-muted">{item.detail}</p>}
           </div>
         </li>
       ))}
@@ -419,15 +268,4 @@ export function Steps({
   );
 }
 
-/** A used-against-limit bar. The numbers beside it are exact; the bar is only a picture of them. */
-export function UsageBar({ pct, label }: { pct: number; label: string }) {
-  const { t } = portalCopy.useCopy();
-  const full = pct >= 100;
-  return (
-    <div className="pp-usage" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
-      <span className={`pp-usage-fill${full ? ' pp-usage-fill--full' : ''}`} style={{ width: `${pct}%` }} />
-      <span className="pp-sr">{full ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })}</span>
-    </div>
-  );
-}
 export type { PayoutState };

@@ -1,0 +1,267 @@
+# The venue files that opt in to Hyperliquid's own test network (a `*-venue.pw.mjs` that calls
+# `hyperliquidForThisFile(test, '<recording>')`: tooling/ci/hl-venue-daily.mjs) run once a day on main against the live
+# test network (api.hyperliquid-testnet.xyz) with HL_VENUE_LIVE=1, signing with the funded TEST wallet, and each writes
+# its recording (packages/venue-hyperliquid/recordings/<recording>.json, the address only, never a key). Pull requests and
+# main's journeys never see the key: they replay those recordings strictly (`hl-recorded`). When the recordings changed,
+# this run opens or updates one pull request with them, so the replay follows the venue; a red run opens or updates one
+# issue, and the next green run closes it. Until a file opts in, the run finds none and stops after its first step.
+# The key is used only from main's own copy of this file (the owner allowed it in CI from main, project-state decision
+# PR #3883; hl-testnet-send.yml uses it the same way). TEST funds only: the test network's money is not real.
+# The pull request is opened with the INTAFACED App's token, so its checks and journeys run as on any pull request; when
+# the App can't mint one, with this run's own token, whose pull request starts no checks until someone pushes to it.
+name: Hyperliquid venue daily
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: hl-venue-daily
+  cancel-in-progress: false
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  ISSUE_TITLE: Hyperliquid daily venue run is red
+
+jobs:
+  live:
+    name: Venue files on the live test network
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      files: ${{ steps.plan.outputs.files }}
+      changed: ${{ steps.changed.outputs.changed }}
+    env:
+      INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+      INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # tooling/ci/hl-venue-daily.mjs: the opted-in files, or nothing. A call it can't read fails here by the file's name.
+      - name: Which venue files opt in
+        id: plan
+        run: |
+          files=$(node tooling/ci/hl-venue-daily.mjs files)
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          if [ -z "$files" ]; then
+            echo "::notice::no venue file calls hyperliquidForThisFile yet, so there is nothing to run live"
+          else
+            echo "$files" | tr ' ' '\n'
+          fi
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        if: steps.plan.outputs.files != ''
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.plan.outputs.files != ''
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      # The runner context is not allowed in a job's env, so the paths under the runner's temp folder are set here.
+      - name: Paths
+        if: steps.plan.outputs.files != ''
+        run: |
+          echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
+          echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
+          echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil" >> "$GITHUB_ENV"
+          echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
+      # The stack runs its builds with a clean PATH that holds node's own folder, not the folder pnpm/action-setup uses.
+      - name: Put pnpm next to node
+        if: steps.plan.outputs.files != ''
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      - name: Install
+        if: steps.plan.outputs.files != ''
+        run: pnpm install --frozen-lockfile
+      # svc-fix's pinned JDK and Maven archives, the same cache Real-app journeys keeps.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.plan.outputs.files != ''
+        with:
+          path: |
+            ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
+            ${{ runner.temp }}/stack-state/java-tools/maven.tgz
+          key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
+      - name: Install the browser
+        if: steps.plan.outputs.files != ''
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
+      - name: Build what the stack starts
+        if: steps.plan.outputs.files != ''
+        run: node tooling/scripts/local-test-stack.mjs build
+      # The one way CI seeds the stack (gates, market maker accounts, chart history); it leaves the stack stopped, with
+      # the nats-server and anvil launchers at the paths above.
+      - name: Seed the stack (TEST funds only)
+        if: steps.plan.outputs.files != ''
+        timeout-minutes: 20
+        uses: ./.github/actions/stack-seed
+        with:
+          sanctions-regions: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+          sanctions-list-source: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+      - name: Start the local test stack (TEST funds only)
+        if: steps.plan.outputs.files != ''
+        run: |
+          node tooling/scripts/local-test-stack.mjs start
+          LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
+
+      # HL_VENUE_LIVE=1 makes each opted-in file run `hl-testnet` and write its recording. The key
+      # reaches the files only as an environment value; nothing prints it. LOCAL_STACK_LIVE_TEST_NETWORK=on lets the stack
+      # reach the live test network at all: only this run and the hosted beta set it (#11061).
+      - name: Venue files, live (TEST funds only)
+        if: steps.plan.outputs.files != ''
+        env:
+          JOURNEY_FILES: ${{ steps.plan.outputs.files }}
+          HL_VENUE_LIVE: '1'
+          LOCAL_STACK_LIVE_TEST_NETWORK: 'on'
+          HL_TESTNET_TRADER_KEY: ${{ secrets.HL_TESTNET_TRADER_KEY }}
+          JOURNEY_RUN_ID: hl-daily-${{ github.run_id }}
+        run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+
+      # What Hyperliquid answered, per recording: each call's path, request type and status. The recordings hold the
+      # trader as `<trader>` and no signature (venue-hyperliquid recorded.ts traderRecording).
+      - name: Hyperliquid's answers
+        if: ${{ !cancelled() && steps.plan.outputs.files != '' }}
+        run: |
+          for f in packages/venue-hyperliquid/recordings/*.json; do
+            echo "::group::$f"
+            jq -r '"trader: \(.trader // "none")", (.calls[] | "\(.path) \(.request.type // .request.action.type // "?") -> \(.status)")' "$f"
+            echo "::endgroup::"
+          done
+      - name: Recordings changed?
+        id: changed
+        if: steps.plan.outputs.files != ''
+        run: |
+          git add -N packages/venue-hyperliquid/recordings
+          if git diff --quiet -- packages/venue-hyperliquid/recordings; then
+            echo "the recordings are as on main"
+          else
+            git diff --stat -- packages/venue-hyperliquid/recordings
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.changed.outputs.changed == 'true'
+        with:
+          name: hl-recordings
+          path: packages/venue-hyperliquid/recordings
+          retention-days: 7
+          if-no-files-found: error
+      - name: Stack logs
+        if: failure() && steps.plan.outputs.files != ''
+        run: |
+          for f in "$LOCAL_STACK_STATE"/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; tail -100 "$f" || true; echo "::endgroup::"
+          done
+      - name: Stop the stack
+        if: always() && steps.plan.outputs.files != ''
+        run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  # Only after a green live run, so a recording cut short by a failure never reaches a pull request. One branch,
+  # hl-recordings/daily, which only this job writes: each run replaces it from main with the new recordings.
+  refresh:
+    name: Pull request with the new recordings
+    needs: live
+    if: github.ref == 'refs/heads/main' && needs.live.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ci-review # the App key's environment, limited to main
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      APP_KEY_SET: ${{ secrets.INTAFACED_APP_KEY != '' }}
+    steps:
+      - name: Mint an intafaced pull-request token
+        id: app-token
+        if: env.APP_KEY_SET == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: Iv23lihKJK3UhiuiTgLa
+          private-key: ${{ secrets.INTAFACED_APP_KEY }}
+          owner: INTAFACED
+          repositories: intafaced
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hl-recordings
+          path: packages/venue-hyperliquid/recordings
+      - name: Open or update the pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          APP_MINTED: ${{ steps.app-token.outputs.token != '' }}
+          FILES: ${{ needs.live.outputs.files }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          branch=hl-recordings/daily
+          day=$(date -u +%Y-%m-%d)
+          git config user.name 'intafaced-hl-daily'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git add packages/venue-hyperliquid/recordings
+          git commit -m "chore(venue-hyperliquid): the daily live run's recordings, $day (#9049)" -m "Recorded by $RUN_URL"
+          # Only this job writes the branch; the lease names what it last saw there, so nothing else is overwritten.
+          seen=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          git push --force-with-lease="$branch:$seen" origin "HEAD:refs/heads/$branch"
+          {
+            echo "The venue files that opt in to Hyperliquid's test network ran live on main (TEST funds only) and wrote these recordings: $RUN_URL"
+            echo
+            echo "Files: \`${FILES// /\`, \`}\`"
+            echo
+            echo "Each pull request's journeys replay them strictly (\`hl-recorded\`): a request with no recorded answer fails its file. The recordings hold the trader as \`<trader>\` and no signature or key."
+            echo
+            echo "Part of #9049."
+            if [ "$APP_MINTED" != true ]; then
+              echo
+              echo "Opened with the run's own token (the App could not mint one), so no checks start until someone pushes to this branch."
+            fi
+          } > "$RUNNER_TEMP/body.md"
+          open=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh pr edit "$open" -R "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/body.md"
+            echo "updated #$open"
+          else
+            gh pr create -R "$GITHUB_REPOSITORY" --head "$branch" --base main \
+              --title "chore(venue-hyperliquid): the daily live run's Hyperliquid recordings (#9049)" --body-file "$RUNNER_TEMP/body.md"
+          fi
+
+  # One issue while the live run is red: opened on the first red, commented on each later one, closed by the next green.
+  issue:
+    name: Keep the red-run issue
+    needs: live
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT: ${{ needs.live.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          open=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --label bug --search "in:title \"$ISSUE_TITLE\"" \
+            --json number,title --jq "[.[] | select(.title == env.ISSUE_TITLE) | .number] | first // empty")
+          if [ "$RESULT" = success ]; then
+            if [ -n "$open" ]; then gh issue close "$open" -R "$GITHUB_REPOSITORY" --comment "Green again: $RUN_URL"; fi
+            exit 0
+          fi
+          if [ -n "$open" ]; then
+            gh issue comment "$open" -R "$GITHUB_REPOSITORY" --body "Still red ($RESULT): $RUN_URL"
+            exit 0
+          fi
+          body="The daily run of the venue files that opt in to Hyperliquid's test network ended $RESULT on main: $RUN_URL
+
+          Read the failing file's steps in that run's log (\`Venue files, live\`), fix the cause on a branch of main, and dispatch this workflow on main once merged (.github/workflows/hl-venue-daily.yml). The next green run closes this issue. Part of #9049."
+          gh issue create -R "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --label bug --body "$body"

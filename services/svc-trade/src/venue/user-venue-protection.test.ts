@@ -123,6 +123,8 @@ function door(
     builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
     slippageCapBps,
     spreadLimitBps,
+    // A labelled TEST close tolerance: 10%, so a reduce-only close is priced.
+    closeSlippageBps: 1000,
     now: () => new Date(),
     // Our listing shows the one market these orders use (J-cex-spot-16).
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'BAR-USDC', 'BAR-PERP'], 'stub')),
@@ -156,12 +158,26 @@ async function refusal(run: () => Promise<unknown>): Promise<string> {
 }
 
 describe('marketProtectionBound: the same rounding as the desk', () => {
-  it('a buy is the best ask plus the cap rounded up to the tick; a sell the best bid less the cap rounded down', () => {
-    // 60010 × 1.005 = 60310.05 → 60311; 59990 × 0.995 = 59690.05 → 59690.
-    expect(marketProtectionBound('buy', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('60311'));
-    expect(marketProtectionBound('sell', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('59690'));
+  it('a buy is the best ask plus the cap rounded down toward the market; a sell the best bid less the cap rounded up', () => {
+    // 60010 × 1.005 = 60310.05 → 60310; 59990 × 0.995 = 59690.05 → 59691: never past the protection.
+    expect(marketProtectionBound('buy', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('60310'));
+    expect(marketProtectionBound('sell', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('59691'));
     expect(marketProtectionBound('buy', { bid: a('1'), ask: null }, 50, a('1'))).toBeNull();
     expect(marketProtectionBound('sell', { bid: null, ask: a('1') }, 50, a('1'))).toBeNull();
+  });
+});
+
+describe('marketProtectionBound: a price the venue takes', () => {
+  it('BTC-PERP at about 62,424 with a 50 bps cap: 5 significant figures, rounded toward the market', () => {
+    // 62432 × 1.005 = 62744.16 → 62744 (a buy's cap down); 62423 × 0.995 = 62110.885 → 62111 (a sell's floor up).
+    expect(marketProtectionBound('buy', { bid: a('62423'), ask: a('62432') }, 50, a('0.1'))).toBe(a('62744'));
+    expect(marketProtectionBound('sell', { bid: a('62423'), ask: a('62432') }, 50, a('0.1'))).toBe(a('62111'));
+  });
+
+  it('a cap finer than one price step still bounds past the best price, by the nearest step (J-cex-spot-11 #3)', () => {
+    // 10 × 1.0001 = 10.001 would round down to the ask itself and leave no slippage limit.
+    expect(marketProtectionBound('buy', { bid: a('9.99'), ask: a('10') }, 1, a('0.01'))).toBe(a('10.01'));
+    expect(marketProtectionBound('sell', { bid: a('10'), ask: a('10.01') }, 1, a('0.01'))).toBe(a('9.99'));
   });
 });
 
@@ -195,12 +211,20 @@ describe('the owner spread limit (J-cex-spot-03 #2)', () => {
 });
 
 describe('the door bounds a spot market order by the owner protection', () => {
-  it("a perpetual's market order is not bounded by it: the futures ticket's own worst price goes to the venue as typed", async () => {
-    // Past the spot bound (60311) and with the protection blank: the venue is asked, on preview and prepare.
-    const { d, asked } = door(null);
-    const perp = order({ symbol: 'BTC-PERP', price: a('62000') });
-    expect(await refusal(() => d.preview(principal, owner, perp))).toBe('passed');
-    expect(asked.previews).toBe(1);
+  it("a perpetual market open refuses trade.slippage_cap_unset when the cap is blank (J-derivatives-02 #5), while reduce-only closes pass and a set cap lets the ticket's worst price through", async () => {
+    const blank = door(null);
+    const perpOpen = order({ symbol: 'BTC-PERP', price: a('62000'), reduceOnly: false });
+    expect(await refusal(() => blank.d.preview(principal, owner, perpOpen))).toBe('trade.slippage_cap_unset');
+    expect(await refusal(() => blank.d.prepare(principal, { owner, signer, intent: perpOpen }))).toBe('trade.slippage_cap_unset');
+    expect(blank.asked).toEqual({ previews: 0, prepares: 0 });
+    // Reduce-only close is never blocked by a blank slippage cap.
+    const perpClose = order({ symbol: 'BTC-PERP', side: 'sell', price: a('58000'), reduceOnly: true });
+    expect(await refusal(() => blank.d.preview(principal, owner, perpClose))).toBe('passed');
+    expect(blank.asked.previews).toBe(1);
+    // With a cap published, the futures ticket's typed worst price goes to the venue as typed.
+    const set = door(50);
+    expect(await refusal(() => set.d.preview(principal, owner, perpOpen))).toBe('passed');
+    expect(set.asked.previews).toBe(1);
   });
 
   it('blank cap: a market order refuses trade.slippage_cap_unset on preview and prepare, and the venue is never asked', async () => {
@@ -212,7 +236,7 @@ describe('the door bounds a spot market order by the owner protection', () => {
 
   it('a buy past the bound refuses trade.venue.price_outside_protection on preview and prepare; nothing is prepared', async () => {
     const { d, asked } = door(50);
-    const over = order({ price: a('60312') });
+    const over = order({ price: a('60311') });
     expect(await refusal(() => d.preview(principal, owner, over))).toBe('trade.venue.price_outside_protection');
     expect(await refusal(() => d.prepare(principal, { owner, signer, intent: over }))).toBe('trade.venue.price_outside_protection');
     expect(asked).toEqual({ previews: 0, prepares: 0 });
@@ -220,18 +244,19 @@ describe('the door bounds a spot market order by the owner protection', () => {
 
   it('a buy at the bound passes preview and prepare', async () => {
     const { d, asked } = door(50);
-    expect(await refusal(() => d.preview(principal, owner, order({ price: a('60311') })))).toBe('passed');
-    const prepared = await d.prepare(principal, { owner, signer, intent: order({ price: a('60311') }) });
+    // The bound is 60310 (60310.05 rounded toward the market), the desk's own worst price.
+    expect(await refusal(() => d.preview(principal, owner, order({ price: a('60310') })))).toBe('passed');
+    const prepared = await d.prepare(principal, { owner, signer, intent: order({ price: a('60310') }) });
     expect(prepared.reused).toBe(false);
     expect(asked).toEqual({ previews: 1, prepares: 1 });
   });
 
   it('a sell below the bound refuses; at the bound it passes', async () => {
     const { d } = door(50);
-    expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59689') })))).toBe(
+    expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59690') })))).toBe(
       'trade.venue.price_outside_protection',
     );
-    expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59690') })))).toBe('passed');
+    expect(await refusal(() => d.preview(principal, owner, order({ side: 'sell', price: a('59691') })))).toBe('passed');
   });
 
   it("an alert's order carries its own worst price: the signal desk's prepare skips the protection, and only it", async () => {
@@ -301,21 +326,26 @@ describe('POST /api/v1/venue/preview and /prepare answer the protection refusals
   });
 });
 
-describe('the door takes a spot order only against rules the venue publishes (J-cex-spot-04 #6)', () => {
-  it('a spot market with no published smallest order value or band refuses trade.venue_rule_unpublished on preview and prepare, naming each; the venue is never asked', async () => {
+describe('unpublished venue rules are left to the venue, while blank owner values still refuse (J-cex-spot-04 #6, project-state decision PR #4036)', () => {
+  it('a spot market whose venue publishes no smallest order value or price band still forwards preview and prepare to the venue', async () => {
     const { d, asked } = door(50);
     const limit = order({ symbol: 'BAR-USDC', type: 'limit', timeInForce: 'GTC', price: a('59000') });
-    expect(await refusal(() => d.preview(principal, owner, limit))).toBe('trade.venue_rule_unpublished');
-    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }))).toBe('trade.venue_rule_unpublished');
-    // The alert's own worst price skips the owner's protection, never the venue's rules.
-    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }, { ownWorstPrice: true }))).toBe(
-      'trade.venue_rule_unpublished',
-    );
-    const words = await d.preview(principal, owner, limit).catch((e: Error) => e.message);
-    expect(words).toBe(
-      "stub TEST venue publishes no smallest order value, no price band for BAR-USDC, so this order can't be checked against it; nothing was prepared",
-    );
-    expect(asked).toEqual({ previews: 0, prepares: 0 });
+    expect(await refusal(() => d.preview(principal, owner, limit))).toBe('passed');
+    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }))).toBe('passed');
+    // The alert's own worst price also passes through on a bare spot market.
+    expect(
+      await refusal(() =>
+        d.prepare(principal, { owner, signer, intent: { ...limit, clientOrderKey: 'order:u:2' } }, { ownWorstPrice: true }),
+      ),
+    ).toBe('passed');
+    expect(asked).toEqual({ previews: 1, prepares: 2 });
+
+    // A blank owner cap still refuses a market order on the same bare spot market, without asking the venue.
+    const blankOwner = door(null);
+    const market = order({ symbol: 'BAR-USDC' });
+    expect(await refusal(() => blankOwner.d.preview(principal, owner, market))).toBe('trade.slippage_cap_unset');
+    expect(await refusal(() => blankOwner.d.prepare(principal, { owner, signer, intent: market }))).toBe('trade.slippage_cap_unset');
+    expect(blankOwner.asked).toEqual({ previews: 0, prepares: 0 });
   });
 
   it('the same order on a spot market that publishes all three passes, and a perpetual is not held to the spot rules', async () => {

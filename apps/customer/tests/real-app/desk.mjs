@@ -181,13 +181,12 @@ export function placements(page) {
 }
 
 /**
- * The step's picture from the top of the page with nothing focused, so the bar that stays at the top covers nothing of the
- * step's answer (a whole-page picture of a scrolled page draws that bar over the middle) and the skip link stays hidden.
+ * Opens Home's "How this is worked out", the total's own fold where its provenance lines sit (closed by default). With
+ * `within`, the fold of that total (Home can draw the partner's total before a wallet beside its own), else the first.
  */
-export async function pictureFromTop(page, stepPicture) {
-  await page.evaluate(() => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    window.scrollTo(0, 0);
-  });
-  await stepPicture(page);
+export async function openHow(page, within) {
+  const scope =
+    within ?? page.locator('[data-testid="home-standing"], [data-testid="home-standing-before-wallet"], [data-testid="home-hero"]');
+  const fold = scope.locator('[data-testid="standing-worked-out"], [data-testid="home-worked-out"]').first();
+  if ((await fold.getAttribute('open')) === null) await fold.locator('summary').click();
 }

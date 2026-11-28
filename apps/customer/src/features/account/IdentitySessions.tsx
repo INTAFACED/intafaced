@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { Failure, Loading } from './kit-parts';
 import { identitySessionCopy as copy } from './identity-session-copy';
 import {
   finishRevoke,
@@ -21,7 +23,9 @@ import {
 } from './identity-session-guards';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
-import './identity-session.css';
+import { callAs } from '../../shared/api';
+import { IDENTITY_LIST_SESSIONS } from '@intafaced/contracts/identity-list-sessions-procedures';
+import { IDENTITY_REVOKE_SESSION } from '@intafaced/contracts/identity-revoke-session-procedures';
 export type { PrivateSessionSource } from './identity-session-guards';
 type Review = { owner: string; seat: IdentitySeat; limit: number; client: ApiClient };
 type Response = { original: Review; marker?: RevokeMarker; answer: ApiResult<{ userId: string; sessionId: string; revoked: boolean }> };
@@ -37,7 +41,7 @@ export function IdentitySessions() {
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'listSessions', { userId, limit }, sessionsFor(userId, limit), { signal })
+        ? callAs(api, IDENTITY_LIST_SESSIONS, { userId, limit }, sessionsFor(userId, limit), { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     // A new session id (the sign-in renews about every 15 minutes) reloads the list, so "This device" never goes stale.
     `identity-seats:${userId}:${limit}:${thisDevice ?? ''}`,
@@ -131,9 +135,9 @@ export function IdentitySessions() {
         }
         const abort = new AbortController();
         controller.current = abort;
-        const fresh = await api.query(
-          'identity',
-          'listSessions',
+        const fresh = await callAs(
+          api,
+          IDENTITY_LIST_SESSIONS,
           { userId: original.owner, limit: original.limit },
           sessionsFor(original.owner, original.limit),
           { signal: abort.signal },
@@ -165,9 +169,9 @@ export function IdentitySessions() {
         }
         updateJournal(original.owner);
         if (!sameContext(original)) return;
-        const answer = await api.mutate(
-          'identity',
-          'revokeSession',
+        const answer = await callAs(
+          api,
+          IDENTITY_REVOKE_SESSION,
           { userId: original.owner, sessionId: original.seat.id },
           revokeResponse.refine((value) => value.userId === original.owner && value.sessionId === original.seat.id),
           { signal: abort.signal },
@@ -193,7 +197,7 @@ export function IdentitySessions() {
   /** The one place a raw id earns its place: what Support asks for when a sign-out result is unknown. */
   function supportReference(seatId: string) {
     return (
-      <dl className="identity-sessions__context">
+      <dl className="lt-kv">
         <div>
           <dt>
             <Copy k="supportReference" />
@@ -207,15 +211,15 @@ export function IdentitySessions() {
   const knownGuard =
     result && result.marker?.requestId === journal.marker?.requestId && (result.answer.ok || result.answer.reason !== 'uncertain');
   return (
-    <section data-testid="identity-sessions" className="stack identity-sessions" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="identity-sessions" aria-label={t('title')} lang={languageFor('title')}>
       <h3>
         <Copy k="title" />
       </h3>
-      <p className="muted">
+      <p className="lt-hint">
         <Copy k="scope" />
       </p>
       {journal.marker && (
-        <section className="stack identity-sessions__unknown" aria-label={t(knownGuard ? 'guardRetained' : 'unknown')}>
+        <section aria-label={t(knownGuard ? 'guardRetained' : 'unknown')}>
           <h3>
             <Copy k={busy ? 'sending' : knownGuard ? 'guardRetained' : 'unknown'} />
           </h3>
@@ -223,16 +227,16 @@ export function IdentitySessions() {
             <Copy k={knownGuard ? 'guardBody' : 'unknownBody'} />
           </p>
           {supportReference(journal.marker.seat.id)}
-          <p className="muted">
+          <p className="lt-hint">
             <Copy k="lookup" />
           </p>
-          <a className="text-link identity-sessions__support" href="/support">
+          <a className="lt-link" href="/support">
             <Copy k="support" />
           </a>
         </section>
       )}
       {(problem || journal.failed) && (
-        <p role="status" className="notice">
+        <p role="status" className="lt-hint">
           <Copy k={journal.failed ? 'storage' : problem!} />
         </p>
       )}
@@ -243,35 +247,28 @@ export function IdentitySessions() {
           <Failure result={resource.failure} retry={reload} />
         </div>
       ) : !resource.data || resource.data.sessions.length === 0 ? (
-        <EmptyState title={<Copy k="empty" />}>
-          <Copy k="emptyBody" />
-        </EmptyState>
+        <EmptyState title={t('empty')} body={t('emptyBody')} />
       ) : (
         <>
-          <ul className="identity-sessions__rows" aria-label={t('table')}>
+          <ul aria-label={t('table')}>
             {(split ? (showOlder ? [...split.recent, ...split.older] : split.recent) : resource.data.sessions).map((seat) => {
               const mine = thisDevice !== null && seat.id.toLowerCase() === thisDevice;
               const started = stamp(seat.lastUsedAt ?? seat.createdAt, timeZone);
               return (
-                <li className="identity-sessions__row" key={seat.id} data-session-id={seat.id} data-this-device={mine ? 'true' : undefined}>
+                <li key={seat.id} data-session-id={seat.id} data-this-device={mine ? 'true' : undefined}>
                   <div>
                     <time dateTime={seat.lastUsedAt ?? seat.createdAt} lang={requestedLocale}>
                       {t('createdLabel', { time: started })}
                     </time>
                     {mine ? (
-                      <span className="identity-sessions__mine">
+                      <span>
                         <Copy k="thisDevice" />
                       </span>
                     ) : null}
                   </div>
                   {/* Signing out the session this browser uses would end this visit: Sign out below does that on purpose. */}
                   {mine ? null : (
-                    <Button
-                      variant="secondary"
-                      disabled={blocked}
-                      aria-label={t('reviewSeat', { time: started })}
-                      onClick={() => open(seat)}
-                    >
+                    <Button tone="secondary" disabled={blocked} aria-label={t('reviewSeat', { time: started })} onClick={() => open(seat)}>
                       <Copy k="reviewAction" />
                     </Button>
                   )}
@@ -281,41 +278,41 @@ export function IdentitySessions() {
           </ul>
           {/* One control. It first unfolds the rows already loaded, then asks the server for the next page. */}
           {moreControl === 'unfold' && split ? (
-            <Button variant="ghost" aria-expanded={false} onClick={() => setShowOlder(true)}>
+            <Button tone="quiet" aria-expanded={false} onClick={() => setShowOlder(true)}>
               <Copy k="showOlder" params={{ count: split.older.length }} />
             </Button>
           ) : moreControl === 'fetch' ? (
-            <Button variant="ghost" disabled={busy} onClick={() => setLimit((value) => Math.min(MAX_LIMIT, value + PAGE))}>
+            <Button tone="quiet" disabled={busy} onClick={() => setLimit((value) => Math.min(MAX_LIMIT, value + PAGE))}>
               <Copy k="more" params={{ count: Math.min(PAGE, MAX_LIMIT - limit) }} />
             </Button>
           ) : moreControl === 'fold' ? (
-            <Button variant="ghost" aria-expanded onClick={() => setShowOlder(false)}>
+            <Button tone="quiet" aria-expanded onClick={() => setShowOlder(false)}>
               <Copy k="hideOlder" />
             </Button>
           ) : null}
         </>
       )}
-      <p className="muted">
+      <p className="lt-hint">
         <Copy k="window" params={{ limit }} />
       </p>
       {journal.marker && (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="readOnly" />
         </p>
       )}
       {limit >= MAX_LIMIT && seats && seats.length >= limit ? (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="maximumBoundary" />
         </p>
       ) : null}
-      <div className="actions">
-        <Button variant="secondary" disabled={busy} onClick={reload}>
+      <div className="lt-actions">
+        <Button tone="secondary" disabled={busy} onClick={reload}>
           <Copy k="refresh" />
         </Button>
       </div>
       {result &&
         (result.answer.ok ? (
-          <section className="stack notice" aria-label={t('receipt')}>
+          <section className="lt-hint" aria-label={t('receipt')}>
             <h3>
               <Copy k="receipt" />
             </h3>
@@ -337,8 +334,9 @@ export function IdentitySessions() {
           </div>
         ))}
       {review && review.owner === userId && (
-        <Dialog
-          title={<Copy k="review" />}
+        <Sheet
+          open
+          title={t('review')}
           onClose={() => {
             if (!busy) {
               originalReview.current = null;
@@ -346,21 +344,21 @@ export function IdentitySessions() {
             }
           }}
         >
-          <div className="stack">
+          <div>
             <p>
               <Copy k="reviewBody" />
             </p>
-            <p className="muted">
+            <p className="lt-hint">
               <Copy k="scope" />
             </p>
             <p>
               <Copy k="startedAt" params={{ time: stamp(review.seat.createdAt, timeZone) }} />
             </p>
-            <Button variant="danger" disabled={blocked} onClick={() => void revoke()}>
+            <Button tone="primary" disabled={blocked} onClick={() => void revoke()}>
               <Copy k="confirm" />
             </Button>
           </div>
-        </Dialog>
+        </Sheet>
       )}
     </section>
   );

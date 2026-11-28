@@ -229,3 +229,50 @@ describe('pause, resume and retire', () => {
     ).toBe(false);
   });
 });
+
+describe('a run over the venue and partner reports', () => {
+  it("names each report's own as-of, a report not published as not reported, and each place's own figures", () => {
+    const text = describeRun(
+      runView({
+        status: 'UNSET',
+        errorCode: { status: 'set', value: 'ledger.reconcile_not_reported' },
+        phase: { status: 'set', value: 'outside' },
+        outsideSide: 'unset',
+        reports: [
+          {
+            reporter: 'venue',
+            place: 'ltv-1',
+            asOf: '2026-10-24T05:59:00.000Z',
+            assets: [{ assetId: 'USDT', observed: '-5', expected: '-5', difference: '0', tolerance: '0' }],
+          },
+          {
+            reporter: 'partner',
+            place: 'ltp-1',
+            asOf: 'not_reported',
+            assets: [{ assetId: 'USDT', observed: '-3', expected: 'unset', difference: 'unset', tolerance: '0' }],
+          },
+        ],
+      }),
+    );
+    expect(text).toContain('Error: ledger.reconcile_not_reported at outside.');
+    expect(text).toContain('Venue ltv-1 report: as of 2026-10-24T05:59:00.000Z.');
+    expect(text).toContain('venue ltv-1 USDT: observed -5, expected -5, difference 0, tolerance 0.');
+    expect(text).toContain('Partner ltp-1 report: not reported for this instant, never a match.');
+    expect(text).toContain('partner ltp-1 USDT: observed -3, expected unset, difference unset, tolerance 0.');
+  });
+
+  it('sends the venue and partner ids as the account set, and refuses them beside a rail', () => {
+    const form = {
+      ...emptyControlForm(),
+      template: 'outside_balance' as const,
+      reportVenue: 'ltv-1',
+      reportPartner: 'ltp-1',
+      reason: 'LOCAL TEST reports control',
+    };
+    const built = buildDefineBody(form);
+    expect(built.ok && built.body.accountSet).toEqual({ mode: 'query', reports: { venue: 'ltv-1', partner: 'ltp-1' } });
+    const clash = buildDefineBody({ ...form, rail: 'crypto-native' });
+    expect(clash.ok).toBe(false);
+    expect(!clash.ok && clash.why).toMatch(/Venue and partner reports name their own accounts/);
+  });
+});

@@ -2,24 +2,9 @@ import { memo, useEffect, useMemo, useRef, useState, type HTMLAttributes, type R
 import type { OrderBook as WireBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { buildBook, buyShare, type BookRow } from './book-math';
 import { deskCopy } from './copy';
-import {
-  fmtAmount,
-  fmtPrice,
-  refusalCopy,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-  StateBlock,
-  Tabs,
-  TabsList,
-  TabsPanel,
-  TabsTab,
-  type Loadable,
-  type TickerRow,
-} from './deps';
+import { Bone, StateBlock } from '@intafaced/ui/lit';
+import { Select, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
+import { fmtAmount, fmtPrice, refusalCopy, type Loadable, type TickerRow } from '../../../data';
 import { useTape } from './data';
 import { useFlash, useNow, useTickDirection } from './hooks';
 import type { DeskMarket } from './market';
@@ -27,6 +12,13 @@ import { scaleStep } from './order-math';
 import { clockSeconds } from './time';
 import { dollarPrice, placesOf } from './text';
 import type { Preferences } from '../../../shared/preferences';
+
+/** Kit classes for each side of the book: bids in the gain colour, asks in the loss colour. */
+const SIDE_TONE = { bid: 'lt-up', ask: 'lt-down' } as const;
+const SIDE_METER = { bid: 'lt-depth lt-depth-up', ask: 'lt-depth lt-depth-down' } as const;
+const MID_TONE = { up: 'lt-num lt-strong lt-up', down: 'lt-num lt-strong lt-down', none: 'lt-num lt-strong' } as const;
+const midTone = (direction: 'up' | 'down' | null) => MID_TONE[direction ?? 'none'];
+const printTone = (side: Trade['side']) => SIDE_TONE[side === 'buy' ? 'bid' : 'ask'];
 
 const ROW_H = 22;
 const MAX_ROWS = 20;
@@ -75,11 +67,11 @@ const Row = memo(function Row({
   return (
     <div
       data-testid="dk-bk-row"
-      className="dk-bk-row"
+      className="lt-level"
       data-side={side}
+      data-depth={row.depth}
       role="row"
       tabIndex={0}
-      style={{ '--depth': row.depth } as React.CSSProperties}
       onClick={(event) => onPick(row, event.shiftKey)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -88,18 +80,18 @@ const Row = memo(function Row({
         }
       }}
     >
-      <span data-testid="dk-bk-bar" className="dk-bk-bar" aria-hidden="true" />
-      <span data-testid="dk-bk-price" className="dk-bk-price" role="gridcell">
+      <meter data-testid="dk-bk-bar" className={SIDE_METER[side]} min={0} max={1000} value={row.depth} aria-hidden="true" />
+      <span data-testid="dk-bk-price" className={SIDE_TONE[side]} role="gridcell">
         {fmtPrice(row.price, priceDecimals)}
       </span>
       <span
-        className="dk-bk-num"
+        className="lt-num"
         role="gridcell"
         aria-label={`${fmtAmount(row.amount, { places: amountDecimals, fixed: true })} ${baseAsset}`}
       >
         {fmtAmount(row.amount, { places: amountDecimals, fixed: true })}
       </span>
-      <span className="dk-bk-num" role="gridcell">
+      <span className="lt-num" role="gridcell">
         {fmtAmount(row.total, { places: amountDecimals, fixed: true })}
       </span>
     </div>
@@ -155,8 +147,8 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   }, [view]);
 
   const group = useMemo(() => scaleStep(market.tickSize, places), [market.tickSize, places]);
-  const groupItems = useMemo(
-    () => Object.fromEntries([0, 1, 2].map((p) => [String(p), fmtPrice(scaleStep(market.tickSize, p), scaleStep(market.tickSize, p))])),
+  const groupOptions = useMemo(
+    () => [0, 1, 2].map((p) => ({ value: String(p), label: fmtPrice(scaleStep(market.tickSize, p), scaleStep(market.tickSize, p)) })),
     [market.tickSize],
   );
   const amountDecimals = placesOf(market.lotSize);
@@ -176,14 +168,17 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
     nonce.current += 1;
     onPick({ price: row.price, amount: shift ? row.total : '', nonce: nonce.current });
   };
-  const stepLabel = (value: number) => groupItems[String(value)];
 
+  // A grid owns rows only (axe aria-required-children): the notes and the buy and sell share sit after it, and a state
+  // with no rows (loading, error, refused) is drawn in its place.
   let content: React.ReactNode;
+  let after: React.ReactNode = null;
+  let grid = false;
   if (book.status === 'loading') {
     content = (
-      <div data-testid="dk-bk-skeleton" className="dk-bk-skeleton" role="status" aria-busy="true" aria-label={t('Order book')}>
+      <div data-testid="dk-bk-skeleton" className="lt-stack-tight lt-tight" role="status" aria-busy="true" aria-label={t('Order book')}>
         {Array.from({ length: 16 }, (_, i) => (
-          <Skeleton key={i} height={ROW_H - 4} className="bg-field" />
+          <Bone key={i} size="row" />
         ))}
       </div>
     );
@@ -193,16 +188,17 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
     const words = refusalCopy(book.code, { pair: market.symbol.replace('/', '-') });
     content = <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />;
   } else {
+    grid = true;
     content = (
       <>
-        <div className="dk-bk-head" role="row">
-          <span>{t('Price column', { asset: market.quote })}</span>
-          <span>{t('Amount column', { asset: market.base })}</span>
-          <span>{t('Total column', { asset: market.base })}</span>
+        <div className="lt-level lt-level-head" role="row">
+          <span role="columnheader">{t('Price column', { asset: market.quote })}</span>
+          <span role="columnheader">{t('Amount column', { asset: market.base })}</span>
+          <span role="columnheader">{t('Total column', { asset: market.base })}</span>
         </div>
-        <div className="dk-bk-rows" role="rowgroup">
+        <div className="lt-levels" role="rowgroup">
           {view !== 'bids' ? (
-            <div className="dk-bk-side dk-bk-side--asks">
+            <div className="lt-levels" data-side="ask">
               {built?.asks.map((row) => (
                 <Row
                   key={`a${row.price}`}
@@ -216,18 +212,21 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
               ))}
             </div>
           ) : null}
-          <div data-testid="dk-bk-mid" className="dk-bk-mid" data-direction={direction ?? undefined} data-flash={flash ?? undefined}>
-            <span className="dk-bk-last if-num">
+          <div
+            data-testid="dk-bk-mid"
+            className="lt-row lt-row-between"
+            data-direction={direction ?? undefined}
+            data-flash={flash ?? undefined}
+          >
+            <span className={midTone(direction)}>
               {last === null || empty ? '—' : dollarPrice(last, market)}
               {direction && !empty ? (
-                <span className="dk-bk-arrow" aria-label={direction === 'up' ? t('Price up') : t('Price down')}>
-                  {direction === 'up' ? '▲' : '▼'}
-                </span>
+                <span aria-label={direction === 'up' ? t('Price up') : t('Price down')}>{direction === 'up' ? '▲' : '▼'}</span>
               ) : null}
             </span>
           </div>
           {view !== 'asks' ? (
-            <div className="dk-bk-side dk-bk-side--bids">
+            <div className="lt-levels" data-side="bid">
               {built?.bids.map((row) => (
                 <Row
                   key={`b${row.price}`}
@@ -242,26 +241,32 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
             </div>
           ) : null}
         </div>
+      </>
+    );
+    after = (
+      <>
         {empty ? (
-          <p data-testid="dk-bk-note" className="dk-bk-note">
+          <p data-testid="dk-bk-note" className="lt-note">
             {t('No orders')}
           </p>
         ) : null}
         {old && !empty ? (
-          <p data-testid="dk-bk-note" className="dk-bk-note">
+          <p data-testid="dk-bk-note" className="lt-note lt-note-warn">
             {t('Book may be old')}
           </p>
         ) : null}
         {share ? (
           <div
             data-testid="dk-bk-ratio"
-            className="dk-bk-ratio"
+            className="lt-stack-tight lt-tight"
             role="img"
             aria-label={t('Buy and sell share', { buy: share.buy, sell: share.sell })}
-            style={{ '--buy': `${share.buy}%` } as React.CSSProperties}
           >
-            <span className="dk-bk-ratio-b">{t('Buy share', { value: share.buy })}</span>
-            <span className="dk-bk-ratio-s">{t('Sell share', { value: share.sell })}</span>
+            <meter className="lt-depth lt-depth-up lt-depth-inline" min={0} max={100} value={share.buy} aria-hidden="true" />
+            <span className="lt-row lt-row-between lt-small">
+              <span className="lt-up">{t('Buy share', { value: share.buy })}</span>
+              <span className="lt-down">{t('Sell share', { value: share.sell })}</span>
+            </span>
           </div>
         ) : null}
       </>
@@ -269,35 +274,53 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   }
 
   return (
-    <div data-testid="dk-bk" className="dk-bk" ref={body}>
-      <div className="dk-bk-tools">
-        <div className="dk-bk-views" role="group" aria-label={t('Order book')}>
-          <button type="button" aria-pressed={view === 'both'} aria-label={t('Book view both')} onClick={() => setView('both')}>
-            <Glyph top="var(--if-down-text)" bottom="var(--if-up-text)" />
+    <div data-testid="dk-bk" className="lt-stack" ref={body}>
+      <div className="lt-row lt-row-between">
+        <div className="lt-row" role="group" aria-label={t('Order book')}>
+          <button
+            type="button"
+            className="lt-icon-button"
+            aria-pressed={view === 'both'}
+            aria-label={t('Book view both')}
+            onClick={() => setView('both')}
+          >
+            <Glyph top="var(--lit-down-text)" bottom="var(--lit-up-text)" />
           </button>
-          <button type="button" aria-pressed={view === 'bids'} aria-label={t('Book view bids')} onClick={() => setView('bids')}>
-            <Glyph top="var(--if-up-text)" bottom="var(--if-up-text)" />
+          <button
+            type="button"
+            className="lt-icon-button"
+            aria-pressed={view === 'bids'}
+            aria-label={t('Book view bids')}
+            onClick={() => setView('bids')}
+          >
+            <Glyph top="var(--lit-up-text)" bottom="var(--lit-up-text)" />
           </button>
-          <button type="button" aria-pressed={view === 'asks'} aria-label={t('Book view asks')} onClick={() => setView('asks')}>
-            <Glyph top="var(--if-down-text)" bottom="var(--if-down-text)" />
+          <button
+            type="button"
+            className="lt-icon-button"
+            aria-pressed={view === 'asks'}
+            aria-label={t('Book view asks')}
+            onClick={() => setView('asks')}
+          >
+            <Glyph top="var(--lit-down-text)" bottom="var(--lit-down-text)" />
           </button>
         </div>
-        <Select items={groupItems} value={String(places)} onValueChange={(value) => setPlaces(parseInt(value ?? '0', 10))}>
-          <SelectTrigger size={32} aria-label={t('Group prices by')} className="dk-bk-group">
-            <SelectValue>{stepLabel(places)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent align="end">
-            {[0, 1, 2].map((p) => (
-              <SelectItem key={p} value={String(p)}>
-                {stepLabel(p)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Select
+          size="sm"
+          label={t('Group prices by')}
+          value={String(places)}
+          onChange={(value) => setPlaces(parseInt(value, 10))}
+          options={groupOptions}
+        />
       </div>
-      <div className="dk-bk-grid" role="grid" aria-label={t('Order book')}>
-        {content}
-      </div>
+      {grid ? (
+        <div className="lt-stack-tight lt-tight" role="grid" aria-label={t('Order book')}>
+          {content}
+        </div>
+      ) : (
+        content
+      )}
+      {after}
     </div>
   );
 }
@@ -318,9 +341,9 @@ export function Tape({
   const amountDecimals = placesOf(market.lotSize);
   if (tape.status === 'loading' || tape.status === 'empty')
     return (
-      <div data-testid="dk-bk-skeleton" className="dk-bk-skeleton" role="status" aria-busy="true" aria-label={t('Last trades')}>
+      <div data-testid="dk-bk-skeleton" className="lt-stack-tight lt-tight" role="status" aria-busy="true" aria-label={t('Last trades')}>
         {Array.from({ length: 16 }, (_, i) => (
-          <Skeleton key={i} height={ROW_H - 4} className="bg-field" />
+          <Bone key={i} size="row" />
         ))}
       </div>
     );
@@ -333,18 +356,18 @@ export function Tape({
   const rows: Trade[] = [...tape.data].sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
   if (rows.length === 0) return <StateBlock kind="empty" title={t('No trades')} />;
   return (
-    <div className="dk-bk-tape" role="grid" aria-label={t('Last trades')}>
-      <div className="dk-bk-head" role="row">
+    <div className="lt-levels" role="grid" aria-label={t('Last trades')}>
+      <div className="lt-level lt-level-head" role="row">
         <span>{t('Time column')}</span>
         <span>{t('Price column', { asset: market.quote })}</span>
         <span>{t('Amount column', { asset: market.base })}</span>
       </div>
-      <div className="dk-bk-rows" role="rowgroup">
+      <div className="lt-levels" role="rowgroup">
         {rows.map((trade) => (
           <div
             key={trade.id}
             data-testid="dk-bk-row--tape"
-            className="dk-bk-row dk-bk-row--tape"
+            className="lt-level"
             role="row"
             tabIndex={0}
             onClick={() => onPickPrice(trade.price)}
@@ -355,13 +378,18 @@ export function Tape({
               }
             }}
           >
-            <span className="dk-bk-time" role="gridcell">
+            <span className="lt-quiet" role="gridcell">
               {clockSeconds(trade.timestamp, zone)}
             </span>
-            <span data-testid="dk-bk-price" className="dk-bk-price" data-side={trade.side === 'buy' ? 'bid' : 'ask'} role="gridcell">
+            <span
+              data-testid="dk-bk-price"
+              className={printTone(trade.side)}
+              data-side={trade.side === 'buy' ? 'bid' : 'ask'}
+              role="gridcell"
+            >
               {fmtPrice(trade.price, market.tickSize)}
             </span>
-            <span className="dk-bk-num" role="gridcell">
+            <span className="lt-num" role="gridcell">
               {fmtAmount(trade.amount, { places: amountDecimals, fixed: true })}
             </span>
           </div>
@@ -376,20 +404,23 @@ export const BookPanel = memo(function BookPanel({ market, book, ticker, zone, o
   const { t } = deskCopy.useCopy();
   const [tab, setTab] = useState<'book' | 'trades'>('book');
   return (
-    <div data-testid="dk-book" className="dk-panel dk-book" {...frame}>
+    <div data-testid="dk-book" className="lt-stack" {...frame}>
       {chrome}
-      <Tabs value={tab} onValueChange={(value) => setTab(value as 'book' | 'trades')} className="dk-fill">
-        <TabsList divider className="dk-tabs">
-          <TabsTab value="book">{t('Order book')}</TabsTab>
-          <TabsTab value="trades">{t('Last trades')}</TabsTab>
-        </TabsList>
-        <TabsPanel value="book" className="dk-panel-body">
-          <BookView market={market} book={book} ticker={ticker} onPick={onPick} />
-        </TabsPanel>
-        <TabsPanel value="trades" className="dk-panel-body">
-          <Tape market={market} zone={zone} onPickPrice={onPickPrice} active={tab === 'trades'} />
-        </TabsPanel>
-      </Tabs>
+      <Tabs
+        id="dk-book"
+        items={[
+          { value: 'book', label: t('Order book') },
+          { value: 'trades', label: t('Last trades') },
+        ]}
+        value={tab}
+        onChange={(value) => setTab(value as 'book' | 'trades')}
+      />
+      <TabPanel id="dk-book" value="book" current={tab}>
+        <BookView market={market} book={book} ticker={ticker} onPick={onPick} />
+      </TabPanel>
+      <TabPanel id="dk-book" value="trades" current={tab}>
+        <Tape market={market} zone={zone} onPickPrice={onPickPrice} active={tab === 'trades'} />
+      </TabPanel>
     </div>
   );
 });

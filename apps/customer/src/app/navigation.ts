@@ -68,15 +68,26 @@ export function resolveAlias(room: Room, path: string, search = ''): string | un
   const text = query.toString();
   return text ? `${targetPath}?${text}` : targetPath;
 }
-export function customerRoomHref(candidate: string | null | undefined): string | undefined {
+function roomHref(candidate: string | null | undefined, refused: readonly Room['area'][]): string | undefined {
   if (!candidate || !candidate.startsWith('/') || candidate.startsWith('//') || candidate.includes('\\')) return undefined;
   try {
     const url = new URL(candidate, 'https://intafaced.invalid');
     const room = findRoom(url.pathname);
-    return room && !['team', 'web3'].includes(room.area) ? `${url.pathname}${url.search}` : undefined;
+    return room && !refused.includes(room.area) ? `${url.pathname}${url.search}` : undefined;
   } catch {
     return undefined;
   }
+}
+export function customerRoomHref(candidate: string | null | undefined): string | undefined {
+  return roomHref(candidate, ['team', 'web3']);
+}
+/**
+ * Where a message in the inbox may lead: a customer room, or a Web3 room, which opens in its own frame (the venue
+ * account room holds a week's Profit lock offer, J-wallet-26 #3); never the Team desk. Not a sign-in return target: those
+ * go through `safeReturnTo`.
+ */
+export function inboxRoomHref(candidate: string | null | undefined): string | undefined {
+  return roomHref(candidate, ['team']);
 }
 /** Where a sign-in may land: a signed-in room, or a public room marked `returnAfterSignIn`. One rule for every guard. */
 export function isSignInDestination(room: Room): boolean {
@@ -107,6 +118,7 @@ export function doorLabel(door: Door, locale: UiLocale = currentPreferences().la
 }
 const publicSearchable = new Set([
   '/help',
+  '/help/official-channels',
   '/status',
   '/notice',
   '/lab',
@@ -159,6 +171,28 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business', locale
 }
 
 export const defaultDeskPair = 'BTC-USDT';
+
+const MENU_SPOT_KEY = 'if.menuSpot';
+
+/** Marks that the trader clicked a generic Spot menu link (Trade › Spot or Pro Trade tab). */
+export function markMenuSpotNavigation(): void {
+  try {
+    sessionStorage.setItem(MENU_SPOT_KEY, '1');
+  } catch {
+    /* private mode or SSR */
+  }
+}
+
+/** Reads and clears the one-shot flag set when opening the default spot pair from a menu click. */
+export function consumeMenuSpotNavigation(): boolean {
+  try {
+    const marked = sessionStorage.getItem(MENU_SPOT_KEY) === '1';
+    if (marked) sessionStorage.removeItem(MENU_SPOT_KEY);
+    return marked;
+  } catch {
+    return false;
+  }
+}
 /** The pair of a desk path (`/trade/spot/ETH-USDT`, `/exchange/ETH_USDT`), as "ETH/USDT"; null for any other path. */
 export function deskPairLabel(path: string): string | null {
   const match = /^\/(?:trade\/spot|exchange)\/([^/]+)$/.exec(path);

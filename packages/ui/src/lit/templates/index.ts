@@ -5,12 +5,28 @@
  */
 export * from './templates.js';
 export { NOT_CONNECTED_CODES, ServiceOffNotice, type NotConnectedCode, type ServiceOffNoticeProps } from './service-off.js';
-export { GateArea, LegalSlotsSwitch, Receipt, Review, RefusalBox, Region, RoomFrame, StateView, reviewComplete } from './frame.js';
+export {
+  FirstState,
+  GateArea,
+  LegalSlotsSwitch,
+  Receipt,
+  Review,
+  RefusalBox,
+  Region,
+  RoomFrame,
+  StateView,
+  reviewComplete,
+  type FirstStateProps,
+} from './frame.js';
 export { RegistryLegalSlot, BAND_MOMENTS, type RegistryLegalSlotProps } from './legal/LegalSlot.js';
 export { LEGAL_MOMENTS, resolveLegal, type LegalMoment, type LegalSlotType, type TextRun, type Wording } from './legal/registry.js';
 export { formatMoney, isDecimal, reconcileParts, sumDecimals, sumMoney, subtractDecimals, type Part } from './money.js';
 export * from './types.js';
 export * from '../components/b2-basics.js';
 export * from '../components/b2-charts.js';
+export { TimeLine, type TimePoint } from '../components/b2-time-chart.js';
+export { ChartBox, ChartCanvas } from '../components/b2-chart-box.js';
 export * from '../components/b2-table.js';
 export * from '../components/b2-people.js';
+export * from '../components/b2-fields.js';
+export * from '../components/b2-qr.js';

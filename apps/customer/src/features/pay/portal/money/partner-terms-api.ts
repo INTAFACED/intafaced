@@ -3,6 +3,7 @@ import { merchantPartnerTermsSchema } from '@intafaced/contracts/merchant-metric
 import { registerRefusals } from '../refusal';
 import type { PortalTools } from '../api-tools';
 import { mc } from './copy';
+import { PAY_MERCHANT_METRICS_PARTNER_TERMS } from '@intafaced/contracts/pay-merchant-metrics-procedures';
 
 /**
  * svc-pay `merchantMetrics.partnerTerms`, read with the contract's own schema: the acquiring partner's terms for this
@@ -16,7 +17,6 @@ export type PartnerTerms = z.infer<typeof partnerTermsSchema>;
 export const PARTNER_TERMS_UNAVAILABLE = 'pay.partner_terms_unavailable';
 registerRefusals({ [PARTNER_TERMS_UNAVAILABLE]: () => mc.t('rPartnerTermsUnavailable') });
 
-export const partnerTermsApi = ({ query }: PortalTools) => ({
-  partnerTerms: (merchantId: string, signal?: AbortSignal) =>
-    query('merchantMetrics.partnerTerms', { merchantId }, partnerTermsSchema, signal),
+export const partnerTermsApi = ({ queryRecord }: PortalTools) => ({
+  partnerTerms: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_METRICS_PARTNER_TERMS, { merchantId }, signal),
 });

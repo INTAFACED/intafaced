@@ -2,19 +2,15 @@ import { useState } from 'react';
 import type { VenueStatementJob, VenueUp } from '../../../features/trade/venue-api';
 import { useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { deskCopy } from './copy';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  refusalCopy,
-} from './deps';
+import { Button, DateInput } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { refusalCopy } from '../../../data';
 import { sha256Hex, statementRange, todayEnd } from './ledger';
 import { clockMinutes } from './time';
 import { spotVenueCopy } from './venue-copy';
+
+/** A note's kit classes: plain, or the refusal tone. */
+const NOTE = { plain: 'lt-note', bad: 'lt-note lt-note-bad' } as const;
 
 type Asked = { status: 'idle' } | { status: 'busy' } | { status: 'job'; job: VenueStatementJob } | { status: 'refused'; text: string };
 
@@ -69,11 +65,12 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
   }
 
   const job = asked.status === 'job' ? asked.job : null;
+  const jobFailed = job?.status === 'failed';
   return (
     <>
       <Button
-        variant="secondary"
-        size={32}
+        tone="secondary"
+        size="sm"
         disabled={!owner}
         onClick={() => {
           setAsOf(new Date());
@@ -84,60 +81,62 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
       >
         {t('Statement open')}
       </Button>
-      <AlertDialog open={open} onOpenChange={(next) => setOpen(next)}>
-        {open ? (
-          <AlertDialogContent className="dk-review">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('Statement title')}</AlertDialogTitle>
-              <AlertDialogDescription>{t('Statement intro', { venue: status.venue.displayName })}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="dk-statement-days">
-              <label>
-                <span>{d('Statement from')}</span>
-                <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
-              </label>
-              <label>
-                <span>{d('Statement to')}</span>
-                <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
-              </label>
-            </div>
-            <p className="dk-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
-            {asked.status === 'refused' ? (
-              <p className="dk-note dk-note--bad" role="alert">
-                {asked.text}
-              </p>
-            ) : null}
-            {job ? (
-              <p className={job.status === 'failed' ? 'dk-note dk-note--bad' : 'dk-note'} role="status">
-                {job.status === 'finished' && job.rows
-                  ? t('Statement ready', { orders: job.rows.orders, trades: job.rows.trades, movements: job.rows.movements, id: job.id })
-                  : job.status === 'failed'
-                    ? t('Statement failed', { reason: job.error ? refusalCopy(job.error).title : d('Statement refused') })
-                    : d('Statement pending')}
-              </p>
-            ) : null}
-            {job?.sha256 ? <p className="dk-note dk-note-ref">{d('Statement fingerprint', { sha: job.sha256 })}</p> : null}
-            {saved ? (
-              <p className="dk-note" role="status">
-                {saved}
-              </p>
-            ) : null}
-            <AlertDialogFooter>
-              <Button variant="secondary" size={40} onClick={() => setOpen(false)}>
+      {open ? (
+        <Sheet
+          open
+          role="alertdialog"
+          title={t('Statement title')}
+          description={t('Statement intro', { venue: status.venue.displayName })}
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <Button tone="secondary" onClick={() => setOpen(false)}>
                 {d('Dead man close')}
               </Button>
               {job?.status === 'finished' ? (
-                <Button variant="secondary" size={40} onClick={() => void save(job)}>
+                <Button tone="secondary" onClick={() => void save(job)}>
                   {d('Statement download')}
                 </Button>
               ) : null}
-              <Button variant="primary" shape="pill" size={40} loading={asked.status === 'busy'} onClick={() => void ask()}>
+              <Button busy={asked.status === 'busy'} tone="secondary" onClick={() => void ask()}>
                 {job?.status === 'pending' ? d('Statement check again') : d('Statement request')}
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        ) : null}
-      </AlertDialog>
+            </>
+          }
+        >
+          <div className="lt-cols-2">
+            <label className="lt-field">
+              <span>{d('Statement from')}</span>
+              <DateInput type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
+            </label>
+            <label className="lt-field">
+              <span>{d('Statement to')}</span>
+              <DateInput type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
+            </label>
+          </div>
+          <p className="lt-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
+          {asked.status === 'refused' ? (
+            <p className="lt-note lt-note-bad" role="alert">
+              {asked.text}
+            </p>
+          ) : null}
+          {job ? (
+            <p className={jobFailed ? NOTE.bad : NOTE.plain} role="status">
+              {job.status === 'finished' && job.rows
+                ? t('Statement ready', { orders: job.rows.orders, trades: job.rows.trades, movements: job.rows.movements, id: job.id })
+                : job.status === 'failed'
+                  ? t('Statement failed', { reason: job.error ? refusalCopy(job.error).title : d('Statement refused') })
+                  : d('Statement pending')}
+            </p>
+          ) : null}
+          {job?.sha256 ? <p className="lt-note lt-ref">{d('Statement fingerprint', { sha: job.sha256 })}</p> : null}
+          {saved ? (
+            <p className="lt-note" role="status">
+              {saved}
+            </p>
+          ) : null}
+        </Sheet>
+      ) : null}
     </>
   );
 }

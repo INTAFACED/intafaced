@@ -526,16 +526,14 @@ export class RecurringBuys {
     const pending = slots.find((s) => s.outcome === 'pending');
     if (pending) return this.runSlot(rule, actor, pending);
     if (rule.nextRunAt === null || rule.nextRunAt.getTime() > at.getTime()) return;
-    // The slot is moved on first, only from the time this pass read, so one due slot is written once.
+    // The slot is written and the next time moved on together, only from the time this pass read: one due slot is
+    // written once, and a failed write leaves it due.
     const next = new Date(rule.nextRunAt.getTime() + PERIOD_MS[rule.frequency]);
-    if (!(await this.deps.store.setNextRun({ ruleId: rule.ruleId, from: rule.nextRunAt, to: next, at }))) return;
-    const slot = await this.deps.store.insertSlot({
-      ruleId: rule.ruleId,
-      slot: slots.length,
-      amount: rule.amount,
-      outcome: 'pending',
-      at,
-    });
+    const slot = await this.deps.store.scheduleSlot(
+      { ruleId: rule.ruleId, from: rule.nextRunAt, to: next, at },
+      { ruleId: rule.ruleId, slot: slots.length, amount: rule.amount, outcome: 'pending', at },
+    );
+    if (!slot) return;
     await this.runSlot(await this.stored(rule.ruleId), actor, slot);
   }
 
@@ -631,7 +629,10 @@ export class RecurringBuys {
       if (sent === 'refused') await this.deps.store.updateOrder({ ...order, status: 'refused', closedAt: this.deps.now() });
     }
     await this.readOrders(rule, actor);
-    await this.deps.store.setSlotOutcome(rule.ruleId, slot.slot, 'bought');
+    // An order whose answer is still unknown (a submit that timed out, a read-back that found nothing) keeps the slot
+    // pending, so the next pass runs it again under the same key and re-sends only the stored bytes.
+    const unanswered = (await this.deps.store.orders(rule.ruleId)).some((o) => o.slot === slot.slot && o.status === 'open');
+    if (!unanswered) await this.deps.store.setSlotOutcome(rule.ruleId, slot.slot, 'bought');
   }
 
   /** What one buy cost in the quote: its fills' quote and any fee the venue charged in the quote. */

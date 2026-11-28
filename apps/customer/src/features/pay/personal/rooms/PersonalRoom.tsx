@@ -1,36 +1,41 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { Button, StateBlock } from '@intafaced/ui';
+// volt-room: /pay/request/:requestId
+// volt-room: /pay/claim/:token
+// volt-room: /pay/scan
+// volt-room: /pay/l/:linkId
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Button, EmptyState, StatusNote } from '@intafaced/ui/lit';
+import { FileField, FlowTemplate, KeyValue, RefusalBox } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../../app/location';
 import { usePreferences } from '../../../../shared/preferences';
 import { stamp } from '../../../../screens/money/time';
 import { useSession } from '../../../session';
-import { contactLabel, contactsFrom, readRequests, readSent, removeRequest, requestPath } from '../personal-model';
+import { readRequests, removeRequest } from '../personal-model';
 import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefusal } from '../scan';
 import { decodedSegment, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
+import { SETTINGS_ROOM_IDS, SettingsRoom } from './SettingsRooms';
 import { isServerRequestId } from '../requests';
 import { ServerRequestRoom } from '../../../../screens/pay/ServerRequests';
 import { PersonalRecordRoom } from '../../../../screens/pay/PersonalRecordRooms';
 
-/** The room's layout: headline on the left, one card on the right, the way Send and Receive sit. */
+/** The room on the flow template: its title and line, the body in the flow's main slot, and the way back to Pay under it. */
 function Frame({ title, line, children }: { title: string; line: string; children: ReactNode }) {
   const { t } = roomsCopy.useCopy();
   return (
-    <div className="if-pay" data-testid="pay-room">
-      <div className="pay-grid">
-        <header data-testid="pay-hero" className="pay-hero">
-          <h1>{title}</h1>
-          <p>{line}</p>
-        </header>
-        <section data-testid="pay-card" className="pay-card" aria-label={title}>
-          <div className="pay-body">
+    <div data-testid="pay-room">
+      <FlowTemplate
+        title={title}
+        description={line}
+        state={{ kind: 'ready' }}
+        step={
+          <div className="lt-stack">
             {children}
-            <a className="pay-recent__link" href="/pay" data-testid="pay-room-back">
+            <a className="lt-link" href="/pay" data-testid="pay-room-back">
               {t('back')}
             </a>
           </div>
-        </section>
-      </div>
+        }
+      />
     </div>
   );
 }
@@ -39,44 +44,15 @@ function Frame({ title, line, children }: { title: string; line: string; childre
 function Blocked({ slice, children }: { slice: string; children: ReactNode }) {
   const { t } = roomsCopy.useCopy();
   return (
-    <div className="pay-reason" id="pay-room-reason" role="note" data-testid="pay-reason" data-slice={slice}>
-      <p className="pay-reason__title">{t('blockedTitle')}</p>
-      <p className="pay-reason__body">{children}</p>
+    <div id="pay-room-reason" role="note" data-testid="pay-reason" data-slice={slice}>
+      <StatusNote title={t('blockedTitle')}>{children}</StatusNote>
     </div>
   );
 }
 
 /** Rows of a fact and its value. A value that is not known says so; it is never filled in. */
 function Rows({ rows }: { rows: ReadonlyArray<readonly [string, ReactNode]> }) {
-  return (
-    <dl className="pay-quote">
-      {rows.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-/** A control that cannot run yet: visible, off, and tied to the reason on screen. */
-function Off({ children, describedBy }: { children: ReactNode; describedBy: string }) {
-  return (
-    <Button type="button" variant="secondary" size={40} disabled aria-describedby={describedBy}>
-      {children}
-    </Button>
-  );
-}
-
-function Section({ title, empty, off, describedBy }: { title: string; empty: string; off: string; describedBy: string }) {
-  return (
-    <div className="pay-block">
-      <h3 className="pay-section-title">{title}</h3>
-      <p className="pay-empty">{empty}</p>
-      <Off describedBy={describedBy}>{off}</Off>
-    </div>
-  );
+  return <KeyValue rows={rows.map(([label, value]) => ({ label, value }))} />;
 }
 
 function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
@@ -107,13 +83,12 @@ function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
               [t('requestStatus'), t('requestStatusBody')],
             ]}
           />
-          <div className="pay-row-actions">
-            <Button variant="secondary" size={40} nativeButton={false} render={<a href={entry.path} />}>
+          <div className="lt-actions">
+            <a className="lt-button lt-button-secondary" href={entry.path}>
               {t('requestOpen')}
-            </Button>
+            </a>
             <Button
-              variant="ghost"
-              size={40}
+              tone="quiet"
               onClick={() => {
                 if (userId) removeRequest(userId, entry.id);
                 setGone(true);
@@ -124,70 +99,17 @@ function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
           </div>
         </>
       ) : (
-        <StateBlock
-          kind="empty"
+        <EmptyState
           title={gone ? t('requestRemoved') : t('requestMissingTitle')}
           body={t('requestMissingBody')}
-          action={{ label: t('requestOpenRequest'), href: '/pay/request' }}
+          action={
+            <a className="lt-button lt-button-secondary" href="/pay/request">
+              {t('requestOpenRequest')}
+            </a>
+          }
         />
       )}
       <Blocked slice={slice}>{t('requestReason')}</Blocked>
-    </Frame>
-  );
-}
-
-function ContactsRoom({ slice }: { slice: string }) {
-  const copy = roomsCopy.useCopy();
-  const { t } = copy;
-  const { userId } = useSession();
-  const people = useMemo(() => (userId ? contactsFrom(readSent(userId), 50) : []), [userId]);
-  return (
-    <Frame title={t('contactsTitle')} line={t('contactsLine')}>
-      <div className="pay-block" data-testid="contacts-device">
-        <h3 className="pay-section-title">{t('contactsRecentTitle')}</h3>
-        {people.length === 0 ? (
-          <p className="pay-empty">{t('contactsRecentEmpty')}</p>
-        ) : (
-          <ul className="pay-list">
-            {people.map((person) => (
-              <li key={person.userId} data-testid="contact-row">
-                <div className="pay-list__main">
-                  <span>{contactLabel(person)}</span>
-                  <span className="pay-list__sub">{copy.t('contactsTimes', { count: String(person.times) })}</span>
-                </div>
-                <div className="pay-row-actions">
-                  <Button
-                    variant="secondary"
-                    size={32}
-                    nativeButton={false}
-                    render={<a href={requestPath({ to: person.handle ?? person.userId })} />}
-                  >
-                    {t('contactsPay')}
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <Section title={t('contactsSaved')} empty={t('contactsSavedEmpty')} off={t('contactsAdd')} describedBy="pay-room-reason" />
-      <Section title={t('contactsGroups')} empty={t('contactsGroupsEmpty')} off={t('contactsNewGroup')} describedBy="pay-room-reason" />
-      <Section title={t('contactsPools')} empty={t('contactsPoolsEmpty')} off={t('contactsNewPool')} describedBy="pay-room-reason" />
-      <Blocked slice={slice}>{t('contactsReason')}</Blocked>
-    </Frame>
-  );
-}
-
-function GroupRoom({ kind, id, slice }: { kind: 'group' | 'pool'; id: string | null; slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  const pool = kind === 'pool';
-  const rows: Array<readonly [string, string]> = [[t('reference'), id ?? t('notSet')]];
-  if (pool) rows.push([t('poolAmount'), t('notSet')], [t('poolPaid'), t('notSet')]);
-  return (
-    <Frame title={t(pool ? 'poolTitle' : 'groupTitle')} line={t(pool ? 'poolLine' : 'groupLine')}>
-      <Rows rows={rows} />
-      <Section title={t('members')} empty={t('membersEmpty')} off={t('addMember')} describedBy="pay-room-reason" />
-      <Blocked slice={slice}>{t('groupReason')}</Blocked>
     </Frame>
   );
 }
@@ -196,56 +118,21 @@ function ClaimRoom({ slice }: { slice: string }) {
   const { t } = roomsCopy.useCopy();
   return (
     <Frame title={t('claimTitle')} line={t('claimLine')}>
-      <h3 className="pay-section-title">{t('claimStepsTitle')}</h3>
-      <ol className="pay-steps" data-testid="pay-steps">
+      <h3>{t('claimStepsTitle')}</h3>
+      <ol className="lt-steps" data-testid="pay-steps">
         {t('claimSteps')
           .split('|')
           .map((step) => (
-            <li key={step}>{step}</li>
+            <li key={step} className="lt-step">
+              <span className="lt-step-dot" aria-hidden="true" />
+              <span>{step}</span>
+            </li>
           ))}
       </ol>
-      <Button type="button" variant="primary" size={56} fullWidth disabled aria-describedby="pay-room-reason">
+      <Button type="button" tone="primary" size="lg" block disabled aria-describedby="pay-room-reason">
         {t('claimButton')}
       </Button>
       <Blocked slice={slice}>{t('claimReason')}</Blocked>
-    </Frame>
-  );
-}
-
-function FactsRoom({ title, line, facts, reason, slice }: { title: string; line: string; facts: string[]; reason: string; slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  return (
-    <Frame title={title} line={line}>
-      <Rows rows={facts.map((fact): readonly [string, string] => [fact, t('notSet')])} />
-      <Blocked slice={slice}>{reason}</Blocked>
-    </Frame>
-  );
-}
-
-function PreferencesRoom({ slice }: { slice: string }) {
-  const { t } = roomsCopy.useCopy();
-  return (
-    <Frame title={t('preferencesTitle')} line={t('preferencesLine')}>
-      <form className="pay-body" noValidate onSubmit={(event) => event.preventDefault()}>
-        <fieldset className="pay-fieldset" disabled aria-describedby="pay-room-reason">
-          <div className="pay-field">
-            <label className="pay-field__label" htmlFor="pay-pref-source">
-              {t('prefSource')}
-            </label>
-            <select id="pay-pref-source" className="pay-text" defaultValue="">
-              <option value="">{t('notSet')}</option>
-            </select>
-            <p className="pay-hint">{t('prefSourceHint')}</p>
-          </div>
-          <label className="pay-field__label">
-            <input type="checkbox" /> {t('prefFind')}
-          </label>
-          <label className="pay-field__label">
-            <input type="checkbox" /> {t('prefReceipts')}
-          </label>
-        </fieldset>
-      </form>
-      <Blocked slice={slice}>{t('preferencesReason')}</Blocked>
     </Frame>
   );
 }
@@ -259,10 +146,10 @@ function ScanRoom({ slice }: { slice: string }) {
   const [reading, setReading] = useState(false);
   const [camera, setCamera] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
-  const picked = async (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
+  const picked = async (file: File | null) => {
+    const input = fileInput.current;
     if (!file) return;
     setCamera(false);
     setRefusal(null);
@@ -274,7 +161,7 @@ function ScanRoom({ slice }: { slice: string }) {
     } finally {
       setReading(false);
       // The same image chosen again after a refusal is read again.
-      input.value = '';
+      if (input) input.value = '';
     }
   };
 
@@ -329,11 +216,10 @@ function ScanRoom({ slice }: { slice: string }) {
 
   return (
     <Frame title={t('scanTitle')} line={t('scanLine')}>
-      <div className="pay-row-actions">
+      <div className="lt-actions">
         <Button
           type="button"
-          variant="secondary"
-          size={40}
+          tone="secondary"
           disabled={reading}
           onClick={() => {
             setRefusal(null);
@@ -342,38 +228,37 @@ function ScanRoom({ slice }: { slice: string }) {
         >
           {camera ? t('scanCameraStop') : t('scanCamera')}
         </Button>
-        <Button variant="secondary" size={40} nativeButton={false} render={<a href="/pay/receive" />}>
+        <a className="lt-button lt-button-secondary" href="/pay/receive">
           {t('scanShow')}
-        </Button>
+        </a>
       </div>
       {camera && (
         <>
-          <video ref={video} className="pay-scan-video" muted playsInline aria-label={t('scanCameraLabel')} />
-          <p className="pay-hint" role="status">
+          <video ref={video} muted playsInline aria-label={t('scanCameraLabel')} />
+          <p className="lt-hint" role="status">
             {t('scanLooking')}
           </p>
         </>
       )}
-      <div className="pay-field">
-        <label className="pay-field__label" htmlFor="pay-scan-file">
-          {t('scanFile')}
-        </label>
-        <input
-          id="pay-scan-file"
-          className="pay-text"
-          type="file"
-          accept="image/*"
-          disabled={reading}
-          onChange={(event) => void picked(event)}
-          data-testid="pay-scan-file"
-        />
-      </div>
+      <FileField
+        ref={fileInput}
+        id="pay-scan-file"
+        label={t('scanFile')}
+        accept="image/*"
+        disabled={reading}
+        onChange={(file) => void picked(file)}
+        data-testid="pay-scan-file"
+      />
       {reading && (
-        <p className="pay-hint" role="status">
+        <p className="lt-hint" role="status">
           {t('scanReading')}
         </p>
       )}
-      {refusal && <StateBlock kind="refused" title={t('scanRefusedTitle')} body={t(refusal)} code={refusal} />}
+      {refusal && (
+        <div data-kind="refused">
+          <RefusalBox refusal={{ variant: 'refused', title: t('scanRefusedTitle'), body: t(refusal), reference: refusal }} />
+        </div>
+      )}
       <Blocked slice={slice}>{t('scanReason')}</Blocked>
     </Frame>
   );
@@ -391,7 +276,7 @@ function LinkRoom({ id, slice }: { id: string | null; slice: string }) {
           [t('linkFor'), t('notSet')],
         ]}
       />
-      <Button type="button" variant="primary" size={56} fullWidth disabled aria-describedby="pay-room-reason">
+      <Button type="button" tone="primary" size="lg" block disabled aria-describedby="pay-room-reason">
         {t('linkPay')}
       </Button>
       <Blocked slice={slice}>
@@ -405,13 +290,15 @@ function LinkRoom({ id, slice }: { id: string | null; slice: string }) {
 export function PersonalRoom({ match }: { match: PersonalRoomMatch }) {
   const { t } = roomsCopy.useCopy();
   const { session } = useSession();
+  // The settings rooms are on their template, and say sign in there themselves.
+  if (SETTINGS_ROOM_IDS.has(match.room.id)) return <SettingsRoom match={match} />;
   if (!session) {
     const loginHref = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
     return (
       <Frame title={t('pay')} line={t('signIn')}>
-        <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={loginHref} role="link" />}>
+        <a className="lt-button lt-button-primary" href={loginHref}>
           {t('signInButton')}
-        </Button>
+        </a>
       </Frame>
     );
   }
@@ -419,42 +306,13 @@ export function PersonalRoom({ match }: { match: PersonalRoomMatch }) {
 }
 
 function RoomBody({ match }: { match: PersonalRoomMatch }) {
-  const { t } = roomsCopy.useCopy();
   const { room, params } = match;
   const slice = room.slice;
   switch (room.id) {
     case 'request':
       return <RequestRoom id={decodedSegment(params.requestId)} slice={slice} />;
-    case 'contacts':
-      return <ContactsRoom slice={slice} />;
-    case 'group':
-      return <GroupRoom kind="group" id={decodedSegment(params.groupId)} slice={slice} />;
-    case 'pool':
-      return <GroupRoom kind="pool" id={decodedSegment(params.poolId)} slice={slice} />;
     case 'claim':
       return <ClaimRoom slice={slice} />;
-    case 'limits':
-      return (
-        <FactsRoom
-          title={t('limitsTitle')}
-          line={t('limitsLine')}
-          facts={[t('limitsTier'), t('limitsPerPayment'), t('limitsPerDay'), t('limitsUsedToday')]}
-          reason={t('limitsReason')}
-          slice={slice}
-        />
-      );
-    case 'fees':
-      return (
-        <FactsRoom
-          title={t('feesTitle')}
-          line={t('feesLine')}
-          facts={[t('feesSend'), t('feesRequest'), t('feesGlobal')]}
-          reason={t('feesReason')}
-          slice={slice}
-        />
-      );
-    case 'preferences':
-      return <PreferencesRoom slice={slice} />;
     case 'scan':
       return <ScanRoom slice={slice} />;
     case 'link':

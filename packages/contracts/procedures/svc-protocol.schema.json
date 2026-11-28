@@ -10383,6 +10383,35 @@
               "algorithm": {
                 "type": "number",
                 "const": -7
+              },
+              "registration": {
+                "type": "object",
+                "properties": {
+                  "challenge": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "clientDataJson": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "attestationObject": {
+                    "type": "string",
+                    "maxLength": 8000,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "transports": {
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["ble", "internal", "nfc", "usb", "hybrid", "smart-card"]
+                    }
+                  }
+                },
+                "required": ["challenge", "clientDataJson", "attestationObject", "transports"]
               }
             },
             "required": ["credentialId", "publicKey", "algorithm"]
@@ -10455,6 +10484,85 @@
         {
           "verdict": "refuse",
           "input": {}
+        }
+      ]
+    },
+    "protocol.embeddedWallet.outcome": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "embeddedWallet.outcome",
+      "access": {
+        "caller": "scope",
+        "scope": "protocol:read",
+        "module": "protocol",
+        "plane": "protocol",
+        "person": true
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": ["signed", "quota", "refused", "down"]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 599
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["outcome", "status"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "boolean"
+          }
+        },
+        "required": ["recorded"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "outcome": "quota",
+            "status": 429
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "outcome": "down",
+            "status": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "outcome": "busy",
+            "status": 429
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "outcome": "signed",
+            "status": 42
+          }
         }
       ]
     },

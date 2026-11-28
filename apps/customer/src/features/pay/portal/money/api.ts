@@ -1,83 +1,94 @@
-import { conversionOrderSchema, conversionQuoteSchema } from '@intafaced/contracts/conversion';
-import {
-  merchantLimitIncreaseResultSchema,
-  merchantLimitOpenSchema,
-  merchantLimitWithdrawResultSchema,
-  merchantPricingHistorySchema,
-  merchantReserveViewSchema,
-  merchantTierListSchema,
-  type PayCap,
-} from '@intafaced/contracts/merchant-control';
-import {
-  payPageSchema,
-  paySettlementClearingSchema,
-  paySettlementLineSchema,
-  paySettlementViewSchema,
-} from '@intafaced/contracts/pay-merchant-reads';
-import {
-  payDestinationAddOutputSchema,
-  payDestinationCancelHoldOutputSchema,
-  payDestinationRemoveOutputSchema,
-  payExportJobSchema,
-  payPayoutDestinationItemSchema,
-  payPayoutLifecycleSchema,
-  payPayoutListItemSchema,
-  payRefundItemSchema,
-  payStatementPageSchema,
-} from '@intafaced/contracts/pay-portal-reads';
-import { z } from 'zod';
+import { merchantLimitIncreaseResultSchema, type PayCap } from '@intafaced/contracts/merchant-control';
+import { payDestinationAddOutputSchema, payRefundItemSchema, type PayExportKind } from '@intafaced/contracts/pay-portal-reads';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
-import { pageOrArray } from '../ui/page';
-import { feeRatesReadSchema } from './fee-rate-schema';
+import { PAY_PAYMENT_REFUNDS_GET } from '@intafaced/contracts/pay-payment-procedures';
+import {
+  PAY_MERCHANT_CONTROL_GET,
+  PAY_MERCHANT_CONTROL_RESERVE,
+  PAY_MERCHANT_CONTROL_TOP_UP_OPTIONS,
+  PAY_MERCHANT_CONTROL_USAGE,
+  PAY_MERCHANT_CONTROL_PRICING_PREVIEW,
+  PAY_MERCHANT_CONTROL_APPROVALS_CANCEL,
+  PAY_MERCHANT_CONTROL_APPROVALS_REQUEST,
+  PAY_MERCHANT_CONTROL_LIMITS_OPEN,
+  PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW,
+  PAY_MERCHANT_CONTROL_PRICING_HISTORY,
+  PAY_MERCHANT_CONTROL_APPROVALS_LIST,
+  PAY_MERCHANT_CONTROL_TIERS_LIST,
+} from '@intafaced/contracts/pay-merchant-control-procedures';
+import {
+  PAY_SETTLEMENT_LINES,
+  PAY_SETTLEMENT_CLEARING,
+  PAY_SETTLEMENT_LIFECYCLE,
+  PAY_SETTLEMENT_PAYOUT,
+  PAY_SETTLEMENT_GET,
+} from '@intafaced/contracts/pay-settlement-procedures';
+import {
+  PAY_MERCHANT_STATEMENT_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT,
+  PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE,
+} from '@intafaced/contracts/pay-merchant-procedures';
+import {
+  PAY_CONVERSION_LIST,
+  PAY_CONVERSION_GET,
+  PAY_CONVERSION_QUOTE,
+  PAY_CONVERSION_EXECUTE,
+} from '@intafaced/contracts/pay-conversion-procedures';
+import { PAY_MERCHANT_OPS_EXPORTS_CREATE, PAY_MERCHANT_OPS_PAYOUTS_LIST } from '@intafaced/contracts/pay-merchant-ops-procedures';
+import { PAY_MERCHANT_ANALYTICS_FEES } from '@intafaced/contracts/pay-merchant-analytics-procedures';
 
 /** The filters a list sends to the service. A blank one is left out, never sent empty. */
 export type ListQuery = { status?: string; assetId?: string; from?: string; to?: string; search?: string };
 const only = (q: ListQuery) => Object.fromEntries(Object.entries(q).filter(([, v]) => v !== undefined && v !== ''));
-const tolerantPage = <T extends z.ZodTypeAny>(item: T) => z.union([z.array(item), p.page(item)]);
 
-export const moneyApi = ({ query, mutate }: PortalTools) => ({
+export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalTools) => ({
   // ---- reads that were here first ------------------------------------------------------------------
   settlements: async (merchantId: string, status: string, limit: number, signal?: AbortSignal) => {
     const page = await query('settlement.list', { merchantId, limit, ...(status ? { status } : {}) }, p.page(p.settlementSchema), signal);
     return page.ok ? { ok: true as const, data: page.data.items } : page;
   },
-  settlement: (settlementId: string, signal?: AbortSignal) => query('settlement.get', { settlementId }, p.settlementSchema, signal),
-  control: (merchantId: string, signal?: AbortSignal) => query('merchantControl.get', { merchantId }, p.controlProfileSchema, signal),
-  reserve: (merchantId: string, signal?: AbortSignal) =>
-    query('merchantControl.reserve', { merchantId }, merchantReserveViewSchema, signal),
+  settlement: (settlementId: string, signal?: AbortSignal) => queryRecord(PAY_SETTLEMENT_GET, { settlementId }, signal),
+  control: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_GET, { merchantId }, signal),
+  reserve: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_RESERVE, { merchantId }, signal),
   /** M-money-out-02. With no top-up rail the service always refuses `pay.topup_unconfigured`; there is no answer shape yet. */
-  topUpOptions: (merchantId: string, signal?: AbortSignal) => query('merchantControl.topUp.options', { merchantId }, z.never(), signal),
-  usage: (merchantId: string, signal?: AbortSignal) => query('merchantControl.usage', { merchantId }, p.usageSchema, signal),
+  topUpOptions: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_TOP_UP_OPTIONS, { merchantId }, signal),
+  usage: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_USAGE, { merchantId }, signal),
   pricingPreview: (input: { merchantId: string; assetCode: string; amount: string; monthlyVolume?: string; conversion?: boolean }) =>
-    query('merchantControl.pricing.preview', input, p.quoteSchema),
+    queryRecord(PAY_MERCHANT_CONTROL_PRICING_PREVIEW, input),
   approvals: async (merchantId: string, status: string, signal?: AbortSignal) => {
-    const result = await query(
-      'merchantControl.approvals.list',
-      { merchantId, limit: 200, ...(status ? { status } : {}) },
-      tolerantPage(p.approvalSchema),
+    const result = await queryRecord(
+      PAY_MERCHANT_CONTROL_APPROVALS_LIST,
+      // The page's filter text is sent as before; the service checks it against its own list and refuses any other.
+      {
+        merchantId,
+        limit: 200,
+        ...(status ? { status: status as ProcedureInput<typeof PAY_MERCHANT_CONTROL_APPROVALS_LIST>['status'] } : {}),
+      },
       signal,
     );
-    return result.ok ? { ok: true as const, data: pageOrArray(result.data).items } : result;
+    return result.ok ? { ok: true as const, data: result.data.items } : result;
   },
   decideApproval: (input: { approvalId: string; decision: 'approve' | 'reject'; expectedPayloadHash: string; reason: string }) =>
     mutate('merchantControl.approvals.decide', input, p.approvalSchema),
-  cancelApproval: (input: { approvalId: string; reason: string }) => mutate('merchantControl.approvals.cancel', input, p.approvalSchema),
+  cancelApproval: (input: { approvalId: string; reason: string }) => mutateRecord(PAY_MERCHANT_CONTROL_APPROVALS_CANCEL, input),
 
   // ---- pages (a server cursor each) ----------------------------------------------------------------
   settlementPage: (merchantId: string, q: ListQuery, cursor: string | undefined, signal?: AbortSignal) =>
     query('settlement.list', { merchantId, limit: 25, ...only(q), ...(cursor ? { cursor } : {}) }, p.page(p.settlementSchema), signal),
   settlementLines: (settlementId: string, cursor: string | undefined, signal?: AbortSignal) =>
-    query('settlement.lines', { settlementId, limit: 25, ...(cursor ? { cursor } : {}) }, p.page(paySettlementLineSchema), signal),
+    queryRecord(PAY_SETTLEMENT_LINES, { settlementId, limit: 25, ...(cursor ? { cursor } : {}) }, signal),
   /** RC-merchant-10: captured payments the rail has not made available yet, with the day it named. */
-  clearing: (merchantId: string, signal?: AbortSignal) => query('settlement.clearing', { merchantId }, paySettlementClearingSchema, signal),
+  clearing: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_SETTLEMENT_CLEARING, { merchantId }, signal),
   /** mirrors feat/pay-portal-be-reads-money settlement.lifecycle */
-  settlementLifecycle: (settlementId: string, signal?: AbortSignal) =>
-    query('settlement.lifecycle', { settlementId }, payPayoutLifecycleSchema, signal),
+  settlementLifecycle: (settlementId: string, signal?: AbortSignal) => queryRecord(PAY_SETTLEMENT_LIFECYCLE, { settlementId }, signal),
   payoutPage: (q: ListQuery, cursor: string | undefined, signal?: AbortSignal, limit = 25) =>
-    query('merchantOps.payouts.list', { limit, ...only(q), ...(cursor ? { cursor } : {}) }, payPageSchema(payPayoutListItemSchema), signal),
+    queryRecord(PAY_MERCHANT_OPS_PAYOUTS_LIST, { limit, ...only(q), ...(cursor ? { cursor } : {}) }, signal),
   statementPage: (merchantId: string, q: ListQuery, cursor: string | undefined, signal?: AbortSignal, limit = 50) =>
-    query('merchant.statement.list', { merchantId, limit, ...only(q), ...(cursor ? { cursor } : {}) }, payStatementPageSchema, signal),
+    queryRecord(PAY_MERCHANT_STATEMENT_LIST, { merchantId, limit, ...only(q), ...(cursor ? { cursor } : {}) }, signal),
   refundPage: (merchantId: string, q: ListQuery & { paymentId?: string }, cursor: string | undefined, signal?: AbortSignal) =>
     query(
       'payment.refunds.list',
@@ -85,14 +96,9 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
       p.page(payRefundItemSchema),
       signal,
     ),
-  refundGet: (refundEventId: string, signal?: AbortSignal) => query('payment.refunds.get', { refundEventId }, payRefundItemSchema, signal),
+  refundGet: (refundEventId: string, signal?: AbortSignal) => queryRecord(PAY_PAYMENT_REFUNDS_GET, { refundEventId }, signal),
   destinationPage: (merchantId: string, cursor: string | undefined, signal?: AbortSignal) =>
-    query(
-      'merchant.payoutDestinations.list',
-      { merchantId, limit: 50, ...(cursor ? { cursor } : {}) },
-      p.page(payPayoutDestinationItemSchema),
-      signal,
-    ),
+    queryRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_LIST, { merchantId, limit: 50, ...(cursor ? { cursor } : {}) }, signal),
   /**
    * Owner or admin. Saves a destination unverified (J-merchant-02 #5): nothing is paid to it until it is verified with a
    * fresh confirmation (`setPayoutDestination`), and then only after the hold.
@@ -101,20 +107,14 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
     mutate('merchant.payoutDestinations.add', input, payDestinationAddOutputSchema),
   /** Owner only. A held destination goes back to unverified; nothing is paid to it until it is verified again. */
   destinationCancelHold: (input: { merchantId: string; destinationId: string }) =>
-    mutate('merchant.payoutDestinations.cancelHold', input, payDestinationCancelHoldOutputSchema),
+    mutateRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_CANCEL_HOLD, input),
   /** Owner only. Marks one saved destination as the default; the previous mark is cleared by the service. */
   destinationSetDefault: (input: { merchantId: string; destinationId: string }) =>
-    mutate('merchant.payoutDestinations.setDefault', input, payPayoutDestinationItemSchema),
+    mutateRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_SET_DEFAULT, input),
   /** Owner only. Refuses with `pay.payout_destination_in_flight` while a payout to it is waiting or on its way. */
-  destinationRemove: (input: { merchantId: string; destinationId: string }) =>
-    mutate('merchant.payoutDestinations.remove', input, payDestinationRemoveOutputSchema),
+  destinationRemove: (input: { merchantId: string; destinationId: string }) => mutateRecord(PAY_MERCHANT_PAYOUT_DESTINATIONS_REMOVE, input),
   approvalPage: (merchantId: string, q: ListQuery, cursor: string | undefined, signal?: AbortSignal) =>
-    query(
-      'merchantControl.approvals.list',
-      { merchantId, limit: 50, ...only(q), ...(cursor ? { cursor } : {}) },
-      tolerantPage(p.approvalSchema),
-      signal,
-    ),
+    queryRecord(PAY_MERCHANT_CONTROL_APPROVALS_LIST, { merchantId, limit: 50, ...only(q), ...(cursor ? { cursor } : {}) }, signal),
   /** The payments that can be refunded, found by the words a merchant remembers (customer, reference), not by an id. */
   refundablePayments: (merchantId: string, search: string, signal?: AbortSignal) =>
     query('payment.list', { merchantId, limit: 10, ...(search ? { search } : {}) }, p.page(p.paymentSchema), signal),
@@ -122,38 +122,35 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
   // ---- payout: ask, or send ------------------------------------------------------------------------
   /** Asks for a second person's approval. The service answers `approval_not_required` below the approval limit. */
   requestPayoutApproval: (input: { merchantId: string; settlementId: string; railId: string }) =>
-    mutate('merchantControl.approvals.request', input, p.approvalSchema),
+    mutateRecord(PAY_MERCHANT_CONTROL_APPROVALS_REQUEST, input),
   /** Sends the payout straight away to the saved destination, when no approval is needed. */
-  sendPayout: (input: { settlementId: string; railId: string }) => mutate('settlement.payout', input, paySettlementViewSchema),
+  sendPayout: (input: { settlementId: string; railId: string }) => mutateRecord(PAY_SETTLEMENT_PAYOUT, input),
 
   // ---- limits, tiers, pricing history --------------------------------------------------------------
-  limitOpen: (merchantId: string, signal?: AbortSignal) =>
-    query('merchantControl.limits.open', { merchantId }, merchantLimitOpenSchema, signal),
+  limitOpen: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_LIMITS_OPEN, { merchantId }, signal),
   limitRequestIncrease: (input: { merchantId: string; requestId: string; caps: PayCap[]; reason: string }) =>
     mutate('merchantControl.limits.requestIncrease', input, merchantLimitIncreaseResultSchema),
   limitWithdraw: (input: { merchantId: string; requestId: string; reason: string }) =>
-    mutate('merchantControl.limits.withdraw', input, merchantLimitWithdrawResultSchema),
-  tiersList: (merchantId: string, signal?: AbortSignal) =>
-    query('merchantControl.tiers.list', { merchantId }, merchantTierListSchema, signal),
+    mutateRecord(PAY_MERCHANT_CONTROL_LIMITS_WITHDRAW, input),
+  tiersList: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CONTROL_TIERS_LIST, { merchantId }, signal),
   pricingHistory: (merchantId: string, signal?: AbortSignal) =>
-    query('merchantControl.pricing.history', { merchantId, limit: 50 }, merchantPricingHistorySchema, signal),
+    queryRecord(PAY_MERCHANT_CONTROL_PRICING_HISTORY, { merchantId, limit: 50 }, signal),
 
   /** The effective fee rate per asset over a window (fees ÷ gross, by INTAFACED). One small page: only `rates` is read. */
   feeRates: (input: { merchantId: string; from: string; to: string; assetId?: string }, signal?: AbortSignal) =>
-    query('merchantAnalytics.fees', { ...input, bucket: 'day', limit: 1 }, feeRatesReadSchema, signal),
+    queryRecord(PAY_MERCHANT_ANALYTICS_FEES, { ...input, bucket: 'day', limit: 1 }, signal),
 
   // ---- conversion (sandbox) ------------------------------------------------------------------------
-  conversionList: (merchantId: string, signal?: AbortSignal) =>
-    query('conversion.list', { merchantId, limit: 50 }, z.array(conversionOrderSchema), signal),
-  conversionGet: (conversionId: string, signal?: AbortSignal) => query('conversion.get', { conversionId }, conversionOrderSchema, signal),
+  conversionList: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_CONVERSION_LIST, { merchantId, limit: 50 }, signal),
+  conversionGet: (conversionId: string, signal?: AbortSignal) => queryRecord(PAY_CONVERSION_GET, { conversionId }, signal),
   conversionQuote: (input: { merchantId: string; settlementId: string; fromAsset: string; toAsset: string; fromAmount: string }) =>
-    mutate('conversion.quote', input, conversionQuoteSchema),
-  conversionExecute: (input: { requestId: string; quoteId: string }) => mutate('conversion.execute', input, conversionOrderSchema),
+    mutateRecord(PAY_CONVERSION_QUOTE, input),
+  conversionExecute: (input: { requestId: string; quoteId: string }) => mutateRecord(PAY_CONVERSION_EXECUTE, input),
 
   // ---- exports -------------------------------------------------------------------------------------
   moneyExportCreate: (input: {
     requestId: string;
-    kind: string;
+    kind: PayExportKind;
     filters: { from?: string; to?: string; status?: string; assetId?: string };
-  }) => mutate('merchantOps.exports.create', input, payExportJobSchema),
+  }) => mutateRecord(PAY_MERCHANT_OPS_EXPORTS_CREATE, input),
 });

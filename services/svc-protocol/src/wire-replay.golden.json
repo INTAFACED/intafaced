@@ -77,6 +77,7 @@
     { "path": "contract.read", "type": "query", "caller": "jurisdiction" },
     { "path": "deployments.list", "type": "query", "caller": "public" },
     { "path": "embeddedWallet.create", "type": "mutation", "caller": "scope" },
+    { "path": "embeddedWallet.outcome", "type": "mutation", "caller": "scope" },
     { "path": "embeddedWallet.status", "type": "query", "caller": "scope" },
     { "path": "escrow.build", "type": "query", "caller": "jurisdiction" },
     { "path": "escrow.deal", "type": "query", "caller": "jurisdiction" },

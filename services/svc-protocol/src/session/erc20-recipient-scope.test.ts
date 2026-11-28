@@ -349,6 +349,7 @@ describe('every function with an address input in the compiled contracts is clas
     'MockERC20Dec.mint(address,uint256)': 'test token faucet; not a deployed protocol surface',
     'TestToken.mint(address,uint256)': 'test token faucet on the LOCAL TEST chain only; not a deployed protocol surface',
     'TestPlainToken.mint(address,uint256)': 'test token faucet on the LOCAL TEST chain only; not a deployed protocol surface',
+    'TestResetToken.mint(address,uint256)': 'test token faucet on the LOCAL TEST chain only; not a deployed protocol surface',
     'TestBridgeToken.burn(bytes32,uint256,address,uint256)':
       'TEST bridge token on the LOCAL TEST chains only (D-bridge-chain-03); the recipient is minted on another chain; not a deployed protocol surface',
     'TestBridgeToken.issue(address,uint256)': 'TEST bridge token faucet on the LOCAL TEST chains only; not a deployed protocol surface',

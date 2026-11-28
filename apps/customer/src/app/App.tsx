@@ -1,5 +1,6 @@
 import { Component, Suspense, lazy, useEffect, type MouseEvent, type ReactNode } from 'react';
-import { Page, EmptyState, Button, Loading } from '../shared/ui';
+import { Page, EmptyState, Button } from '../shared/ui';
+import { RoomLoading } from './RoomLoading';
 import { deskPairLabel, findRoom, resolveAlias, roomTitle, type Room } from './navigation';
 import { useLocation, navigate } from './location';
 import { Shell } from './Shell';
@@ -11,6 +12,9 @@ import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
 import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
+import { betaHides } from './beta-volt';
+import { BetaNotInVolt } from './BetaNotInVolt';
+import { useBetaAccess } from './BetaAccess';
 import { LegacyRoom, preloadAccountRoutes, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { preloadScreen, screens } from './screens';
@@ -98,6 +102,8 @@ export function App() {
   const search = current.slice(path.length);
   const room = findRoom(path);
   const { session, restoring, restoreFailed, retryRestore } = useSession();
+  // The beta's build reads what the account can use and draws the menus again when it changes (beta-volt.ts).
+  useBetaAccess();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
   const voltKit = !room && path === '/kit';
@@ -169,13 +175,17 @@ export function App() {
     if (isMerchantArea(path)) quiet(preloadMerchantChrome);
   }, [room, path, willRender]);
   const ribbon = dev && hidden && !devFeatures && !isMerchantArea(path) ? <DevRibbon feature={hidden} /> : null;
-  const fallback = (
-    <div className="legacy-room">
-      <div data-testid="page" className="page">
-        <Loading room label={t('Opening room')} />
-      </div>
-    </div>
-  );
+  const fallback = <RoomLoading label={t('Opening room')} />;
+  // While a room's code loads, the bar is drawn already: no page opens on bare black. A Web3 room keeps the bare
+  // fallback: the Exchange bar would put a second Exchange | Web3 switch on the page, whose Exchange link is this path.
+  const framedFallback =
+    room?.area === 'web3' ? (
+      fallback
+    ) : (
+      <Shell door={room?.door} path={path}>
+        {fallback}
+      </Shell>
+    );
   const area = room ? legacyArea(room) : undefined;
   let body: ReactNode;
   if (devFeatures)
@@ -207,6 +217,7 @@ export function App() {
         </Page>
       </div>
     );
+  else if (betaHides(path)) body = <BetaNotInVolt />;
   else if (room?.screen) {
     const Screen = screens[room.screen];
     body = (
@@ -226,12 +237,22 @@ export function App() {
   // No room renders until the boot refresh has answered (issue 8658): a room that opens signed in and signed out would
   // otherwise draw its signed-out view and run its reads as signed out, then swap. The rooms never read `restoring`.
   const content = redirectTo ? null : restoring ? (
-    fallback
+    framedFallback
+  ) : room?.area === 'public' && session && !room.publicFrame ? (
+    // A signed-in person reading help, status, notices, fees or the developer pages keeps the app header.
+    <Shell door={undefined} path={path}>
+      {ribbon}
+      <div className="legacy-room">
+        <Suspense fallback={fallback}>
+          <PublicRoutes path={path} SharedResult={SharedResultRoute} framed />
+        </Suspense>
+      </div>
+    </Shell>
   ) : room?.area === 'public' || guestRequest ? (
     <div className="legacy-room">
       {ribbon}
       <SessionNotice />
-      <Suspense fallback={fallback}>
+      <Suspense fallback={framedFallback}>
         <PublicRoutes path={path} SharedResult={SharedResultRoute} />
       </Suspense>
     </div>
@@ -244,11 +265,11 @@ export function App() {
   ) : room?.area === 'web3' ? (
     // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target. The
     // frame, and the wallet connection in it, outlast a move between Web3 rooms; only the room inside remounts.
-    <Suspense fallback={fallback}>
+    <Suspense fallback={framedFallback}>
       <Web3Shell path={path}>
         <RoomBoundary key={path}>
           {ribbon}
-          <ProtocolRoutes path={path} />
+          {betaHides(path) ? <BetaNotInVolt /> : <ProtocolRoutes path={path} />}
         </RoomBoundary>
       </Web3Shell>
     </Suspense>

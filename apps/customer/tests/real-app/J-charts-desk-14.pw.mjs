@@ -2,8 +2,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, otherTrader, toUnits } from './stack.mjs';
-import { awayBid as engineAwayBid, reviewSheet, signUp, verify } from './desk.mjs';
+import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
+import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
 import {
@@ -30,6 +30,7 @@ import {
 // is read only to show it posts nothing. Money line: an order from the ladder or the chart is the desk's own signed venue
 // order (J-cex-spot-02): one venue order per client order id and one signature; nothing is signed or sent from a click
 // without the review unless instant placement is on. The user-venue door is on for this file only.
+// Today's engine queue read's privacy (#8 on our own book, custody on) is J-charts-desk-14-custodial.pw.mjs.
 const J = 'J-charts-desk-14';
 const SYMBOL = 'BTC-USDC';
 const DESK = `/trade/spot/${SYMBOL}`;
@@ -51,8 +52,6 @@ const ownerOf = (s) => privateKeyToAccount(s.walletKey).address.toLowerCase();
 
 // ── the TEST venue's own record ──
 
-/** Today's engine market, read only for the engine queue read's privacy checks in #8. */
-const ENGINE_SYMBOL = 'BTC/USDT';
 const venueOpen = async (owner) => (await venueRecord(owner, '/open-orders')).value;
 const venueByClientId = async (owner, venueClientOrderId) =>
   (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId })).value;
@@ -674,7 +673,7 @@ test(`${J} #3 sets the ladder to double columns with a price step of 2 ticks; pr
   await expect(dom(page)).toHaveAttribute('data-step-ticks', '2');
   for (const name of ['My bids', 'Bids (BTC)', 'Price (USDC)', 'Asks (BTC)', 'My asks'])
     await expect(ladder(page).getByRole('columnheader', { name })).toBeVisible();
-  expect(same(await ladder(page).getAttribute('data-step'), fromUnits(step))).toBe(true);
+  await expect.poll(async () => same(await ladder(page).getAttribute('data-step'), fromUnits(step))).toBe(true);
 
   await expect
     .poll(
@@ -756,8 +755,8 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
   // The ticket holds the clicked price and the click's size.
-  expect(same(await buyForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
-  expect(same(await buyForm(page).getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
+  await expect.poll(async () => same(await buyForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
+  await expect.poll(async () => same(await buyForm(page).getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
   await page.waitForTimeout(1_000);
   expect(door.sent()).toEqual([]);
   expect(await venueOpen(owner)).toEqual(openBefore);
@@ -790,6 +789,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
 
 test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread, and a type the market does not list refuses`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const s = state();
@@ -823,8 +823,8 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   const spreadText = await spread.innerText();
   await expect(buy).toHaveAccessibleDescription(spreadText);
   await expect(sell).toHaveAccessibleDescription(spreadText);
-  expect(same(await buy.innerText(), await buy.getAttribute('data-price'))).toBe(true);
-  expect(same(await sell.innerText(), await sell.getAttribute('data-price'))).toBe(true);
+  await expect.poll(async () => same(await buy.innerText(), await buy.getAttribute('data-price'))).toBe(true);
+  await expect.poll(async () => same(await sell.innerText(), await sell.getAttribute('data-price'))).toBe(true);
 
   await group.getByLabel('Click size (BTC)').fill(SMALL);
   const review = reviewSheet(page);
@@ -849,7 +849,7 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   expect(same(sold.price, bidShown) && same(sold.amount, SMALL)).toBe(true);
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
-  expect(same(await sellForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
+  await expect.poll(async () => same(await sellForm(page).getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
 
   // A type the venue market does not list: the venue desk's existing reason, and no review, no draft.
   const rules = await venueMarketRules();
@@ -876,6 +876,10 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   expect(signatures(wallet)).toBe(0);
   expect(await venueOpen(owner)).toEqual(openBefore);
   expect(await ledgerView(s.account)).toEqual(ledgerBefore);
+  // The step's picture: the chart's Buy and Sell with the spread and the Stop refusal, from the top, so the bar that stays
+  // at the top of a scrolled page is not drawn over the chart's trade row.
+  await expect(note).toHaveText('Stop: not offered by this venue');
+  await stepPicture(page);
 });
 
 test(`${J} #6 turns instant placement on: a click sends after the settings summary; off, it always reviews`, async ({ page }) => {
@@ -1298,9 +1302,9 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
       )
       .toBe('same');
     // The print at my price moved the chance above zero, and the order ahead shrank to 0.001 BTC.
-    expect(toUnits(await row.getAttribute('data-chance'))).toBeGreaterThan(0n);
-    expect(toUnits(await row.getAttribute('data-traded'))).toBeGreaterThanOrEqual(toUnits(SMALL));
-    expect(toUnits(await row.getAttribute('data-size-ahead'))).toBe(toUnits(SMALL));
+    await expect.poll(async () => toUnits(await row.getAttribute('data-chance'))).toBeGreaterThan(0n);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-traded'))).toBeGreaterThanOrEqual(toUnits(SMALL));
+    await expect.poll(async () => toUnits(await row.getAttribute('data-size-ahead'))).toBe(toUnits(SMALL));
     await expect(row.getByTestId('of-queue-ahead')).toHaveText(/^At most 0\.0010* BTC ahead of you at this price$/);
     await expect(row.getByTestId('of-queue-chance')).toHaveText(/^Estimated chance of a fill: \d+\.\d{2}%$/);
     await expect(row.getByTestId('of-queue-basis')).toContainText(
@@ -1341,39 +1345,4 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
   ).get(`/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderId=${encodeURIComponent(mine.venueClientOrderId)}`);
   expect(gone.status, JSON.stringify(gone.body).slice(0, 300)).toBe(200);
   expect(gone.body.value?.status).toBe('canceled');
-
-  // Today's engine queue read keeps its privacy: another person's order id refuses exactly as an order that does not
-  // exist (no existence leak), its owner reads it, and once cancelled it is not open.
-  const other = await api(otherTrader());
-  const engine = await api(s.account);
-  const away = await engineAwayBid(85, ENGINE_SYMBOL);
-  const rested = await other.post('/api/v1/orders', {
-    symbol: ENGINE_SYMBOL,
-    type: 'limit',
-    side: 'buy',
-    price: away,
-    amount: SMALL,
-    timeInForce: 'GTC',
-    clientOrderId: `jcd14-q8-other-${randomBytes(4).toString('hex')}`,
-  });
-  expect(rested.status, JSON.stringify(rested.body).slice(0, 300)).toBeLessThan(300);
-  const theirId = rested.body.id;
-  let cancelled = false;
-  try {
-    const own = await other.get(`/api/v1/orders/${theirId}/queue`);
-    expect(own.status, JSON.stringify(own.body).slice(0, 300)).toBe(200);
-    const foreign = await engine.get(`/api/v1/orders/${theirId}/queue`);
-    const missing = await engine.get(`/api/v1/orders/${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}/queue`);
-    expect(foreign.status).toBe(404);
-    expect(foreign.body.intafacedCode).toBe('trade.order_not_found');
-    expect([missing.status, missing.body.intafacedCode]).toEqual([foreign.status, foreign.body.intafacedCode]);
-    const del = await other.delete(`/api/v1/orders/${theirId}?symbol=${encodeURIComponent(ENGINE_SYMBOL)}`);
-    expect(del.status, JSON.stringify(del.body).slice(0, 300)).toBeLessThan(300);
-    cancelled = true;
-    const closed = await other.get(`/api/v1/orders/${theirId}/queue`);
-    expect(closed.status).toBe(409);
-    expect(closed.body.intafacedCode).toBe('trade.order_not_open');
-  } finally {
-    if (!cancelled) await other.delete(`/api/v1/orders/${theirId}?symbol=${encodeURIComponent(ENGINE_SYMBOL)}`).catch(() => undefined);
-  }
 });

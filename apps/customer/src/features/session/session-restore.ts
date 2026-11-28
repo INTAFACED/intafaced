@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { createApiClient, type ApiResult } from '../../shared/api';
+import { createApiClient, type ApiResult, callAs } from '../../shared/api';
 import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
-import { IDENTITY_AUTH_SUB_ACCOUNT_SESSION } from '@intafaced/contracts/identity-auth-procedures';
+import { IDENTITY_AUTH_SUB_ACCOUNT_SESSION, IDENTITY_AUTH_REFRESH } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -133,7 +133,7 @@ export function createSessionRefresher(
   const retryDelayMs = options.retryDelayMs ?? REFRESH_RETRY_MS;
   let flight: Promise<RefreshOutcome> | null = null;
   const attempt = async (idle: boolean) =>
-    mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle ? { idle: true } : {}, sessionSchema));
+    mapRefreshResult(await callAs(api, IDENTITY_AUTH_REFRESH, idle ? { idle: true } : {}, sessionSchema));
   async function once(idle: boolean): Promise<RefreshOutcome> {
     const first = await attempt(idle);
     if (first.kind !== 'unavailable') return first;
@@ -322,6 +322,8 @@ export function createSessionController(
     tell({ type: 'used', at });
   }
   let failures = 0;
+  /** The refresh a 401 on an expired token started (a tab that slept or was offline); further 401s wait for it. */
+  let healing: Promise<void> | null = null;
   /** When the last silent refresh was asked for, by this tab's clock: the next one waits at least MIN_REFRESH_GAP_MS. */
   let lastSilentAt = Number.NEGATIVE_INFINITY;
   let boot: Promise<void> | null = null;
@@ -601,13 +603,23 @@ export function createSessionController(
     clear,
     /**
      * A request on this token came back 401. A tab acting as a sub-account asks for it again (its session may have just
-     * been rotated); any other tab is signed out, as before. While it is already asking, or waiting to ask again, a 401
-     * starts nothing new: the pauses keep growing.
+     * been rotated). A token past its own expiry by this tab's clock is a refresh the tab missed (it slept, so its timer
+     * never ran, or ran while the network was gone): it is refreshed from the cookie at once, at most once every
+     * BACKOFF_FIRST_MS, and only a refused refresh signs out. Any other tab is signed out. A sub-account tab already
+     * asking, or waiting to ask again, starts nothing new on a 401: the pauses keep growing.
      */
     unauthorized(requestToken: string | undefined) {
       if (!requestToken || state.session?.accessToken !== requestToken) return;
-      if (!state.session.subAccountId || !wanted) clear();
-      else if (!reentry && reentryTimer === undefined) void reenter('keep');
+      const session = state.session;
+      if (!session.subAccountId || !wanted) {
+        if (!(Date.parse(session.expiresAt) <= now())) clear();
+        else if (!healing && now() - lastSilentAt >= BACKOFF_FIRST_MS) {
+          disarm();
+          healing = silent(session).finally(() => {
+            healing = null;
+          });
+        }
+      } else if (!reentry && reentryTimer === undefined) void reenter('keep');
     },
     /** Idempotent: the boot refresh runs once however often this is called (React StrictMode mounts twice). */
     start(): Promise<void> {

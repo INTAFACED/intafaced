@@ -2,12 +2,14 @@
 // The call-records codemod over every service at once, report only: per service and per reason, what it would move and
 // what it would leave, so each kind of gap is fixed once in the script before any service is run for real.
 //
-//   node tooling/codemod/call-records/report.mjs [--deep] [--out report.json]
+//   node tooling/codemod/call-records/report.mjs [--deep] [--service svc-a[,svc-b]] [--out report.json]
 //
 // Every finding of `garden/no-call-by-name` is one site the codemod finds, and each site is counted once, under the
 // service its call names: planned (a TypeScript router, or a door the Rust crate serves, its router read from the commit
 // before it was deleted), refused (its port in flight, or its plan failed: the reason and the count), or named by why it
-// has no service run (no service of that name; no service named at all). The totals add up to the rule's count.
+// has no service run (no service of that name; no service named at all). The totals add up to the rule's count, with
+// `wrapperSenders` for a wrapper whose sender the rule counts once where the codemod finds each caller, and
+// `helperCallers` for the callers of a helper given the call's name that the rule counts inside one site of the codemod's.
 //
 // Without --deep it only plans (index.mjs without --write): `planned` is what the plan rewrites, before the run's own
 // export, samples and type checks, so it is not what a run moves. With --deep each planned service is run for real
@@ -15,12 +17,17 @@
 // call it left, with the export's own reason (.refine, transform, regex lookaround, ...); then the apps are typechecked
 // and the secret scan run over what it wrote, and the checkout is put back exactly as it was before the next service. It
 // starts only on a clean tree, as run.mjs does.
+//
+// --service plans (and with --deep runs) only the services it names: each row is the one the full report gives, but there
+// are no totals, which add up to the rule's count only over every service. For work on one service; the count is the
+// full report's.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { portInFlight } from './index.mjs';
 import { findSites } from './sites.mjs';
+import { toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const here = (f) => join(REPO, 'tooling/codemod/call-records', f);
@@ -31,8 +38,10 @@ export function reasonOf(why) {
   const rules = [
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
     [/which depends on @intafaced\/contracts, so contracts can't import it/, 'schema from a package that depends on contracts (it stays)'],
+    [/reads process\.env, so its schema changes/, "schema picked by the service's settings (one record: field optional, handler refuses)"],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
     [/named by a template/, 'service or call named by a template'],
+    [/has a record form its callers move to one by one/, 'tool kept while a caller is left (each caller named under its own reason)'],
     [
       /call name passed through a wrapper|another caller of its wrapper|but its wrapper/,
       'wrapper that takes its call name (named, with its reason)',
@@ -44,9 +53,11 @@ export function reasonOf(why) {
     [/can't be exported|cannot be exported/, exportReason],
     [/has no procedure/, 'procedure the codemod cannot find'],
     [/two procedures under one path/, 'two procedures under one path (a switch router)'],
-    [/clashes with another/, 'helper name clash (a rerun places it)'],
+    [/clashes with another/, 'helper name clash (in its record file and its sub-area file)'],
+    [/an import cycle/, 'record that would close an import cycle between two contracts files'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
+    [/which a record cannot name|does not map to a record's/, 'door access a record cannot name (Pre::CoachRun, Settle, ...)'],
     [/guard \S+ kept by hand/, 'guard kept by hand (named, with its reason)'],
     [/guard .*chained/, 'guard chained with .use()'],
     [/guard /, 'guard a record cannot name'],
@@ -72,6 +83,49 @@ function exportReason(why) {
   const found = EXPORT_CONSTRUCTS.filter(([re]) => re.test(why)).map(([, name]) => name);
   return `record can't be exported as written${found.length ? `: ${found.join(' + ')}` : ''}`;
 }
+
+/**
+ * The rule's findings at a helper given the call's name (`useBank('x.y', …)`), keyed `file:line` → count in `found`,
+ * matched to the sites the codemod finds there: `counted`, the wrapper and tool sites the rule now counts too, and
+ * `helperCallers`, the findings that are no site of the codemod's (it sees the helper's one sender, as a template or a
+ * caller it does not follow).
+ */
+export function helperFindings(sites, found = new Map(), key = (s) => `${s.file}:${s.line}`) {
+  const left = new Map(found);
+  const counted = new Set();
+  for (const s of sites) {
+    if ((!s.wrapper && !toolShape(s)) || s.node?.type === 'Property') continue;
+    const n = left.get(key(s)) ?? 0;
+    if (n === 0) continue;
+    left.set(key(s), n - 1);
+    counted.add(s);
+  }
+  return { counted, helperCallers: [...left.values()].reduce((a, b) => a + b, 0) };
+}
+
+/**
+ * What the rule counts beyond the sites for wrappers that take their call name (wrapper.mjs): the codemod finds one site
+ * per caller, while the rule counts the wrapper's sender once, and a caller where it names the call in a property
+ * (`procedure: 'x.y'`) or hands the wrapper a string (`counted`, helperFindings). The sum over wrappers of (rule findings
+ * - sites), negative when callers the rule does not follow pass plain strings.
+ */
+export function wrapperSenders(sites, counted = new Set()) {
+  const by = new Map();
+  for (const s of sites) {
+    if (!s.wrapper) continue;
+    const w = by.get(s.wrapper.key) ?? by.set(s.wrapper.key, { sites: 0, findings: 1 }).get(s.wrapper.key);
+    w.sites += 1;
+    if (s.node?.type === 'Property' || counted.has(s)) w.findings += 1;
+  }
+  return [...by.values()].reduce((a, w) => a + w.findings - w.sites, 0);
+}
+
+/**
+ * The sites the rule does not count: a tool's caller that names its call bare (`query('x.y', ...)` taken from the portal's
+ * tools, `validatedMutation(pay, 'x.y', ...)`; tool-forms.mjs). The rule counts the tool's own sender, and a caller only
+ * where it sees the tool as a helper given the call's name (`counted`, helperFindings).
+ */
+const toolCallers = (sites, counted) => [...sites].filter((s) => toolShape(s) && !counted.has(s)).length;
 
 /** The commit that deleted services/<service>: its parent holds the router a door's records are read from. */
 const deletedAt = (service) => git('log', '--diff-filter=D', '-1', '--format=%H', '--', `services/${service}/src/router.ts`).trim();
@@ -195,6 +249,16 @@ function checksAfter() {
   return { typeErrors, untouchedTypeErrors, secretLiterals };
 }
 
+/** The services a run covers: every one, or those --service names (an error naming the rest when one is no service). */
+export function chosen(all, argv) {
+  if (!argv.includes('--service')) return { rows: all };
+  const only = (argv[argv.indexOf('--service') + 1] ?? '').split(',').filter(Boolean);
+  const unknown = only.filter((s) => !all.includes(s));
+  if (!only.length || unknown.length)
+    return { error: `--service takes names from: ${all.join(', ')} (not: ${unknown.join(', ') || 'none given'})` };
+  return { rows: all.filter((s) => only.includes(s)), only };
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const out = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : undefined;
@@ -203,11 +267,16 @@ function main() {
     console.error(`commit or put back these first, so the report can put back exactly what it wrote:\n${dirty}`);
     process.exit(1);
   }
+  const pick = chosen(services(), argv);
+  if (pick.error) {
+    console.error(pick.error);
+    process.exit(1);
+  }
   // Each site the rule counts, once (a call named by a `? :` or a closed set is one finding, and one site per value).
   const nodes = new Map();
   for (const s of findSites(REPO)) if (!nodes.has(s.node)) nodes.set(s.node, s);
   const named = count([...nodes.values()].map((s) => s.module ?? ''));
-  const rows = services().map((service) => {
+  const rows = pick.rows.map((service) => {
     const how = howToPlan(service);
     const found = named[service.slice(4)] ?? 0;
     if (how.refused) return { service, sites: found, refused: how.refused };
@@ -226,6 +295,13 @@ function main() {
       left: count(s.hand.map((h) => reasonOf(h.why))),
     };
   });
+  if (pick.only) {
+    if (argv.includes('--deep')) deep(rows);
+    const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), only: pick.only, services: rows };
+    if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
+    console.log(JSON.stringify({ services: rows }, null, 2));
+    return;
+  }
   // Sites no service run sees, each kind named: a module no service has, or no module named at all.
   const planned = new Set(rows.map((r) => r.service.slice(4)));
   const noService = {};
@@ -270,18 +346,31 @@ function main() {
     process.exit(1);
   }
   const shapes = {};
+  const found = new Map();
   for (const d of JSON.parse(ox.stdout || '{"diagnostics":[]}').diagnostics ?? []) {
     if (!/no-call-by-name/.test(d.code ?? '')) continue;
-    const k =
-      /^`([^`]+)`/.exec(d.message)?.[1] ?? (/keyed by the call's name/.test(d.message) ? 'hand schema keyed by a call name' : 'other');
+    const helper = d.message.startsWith("a helper given the call's name");
+    if (helper) {
+      const at = `${join(REPO, d.filename)}:${d.labels?.[0]?.span?.line}`;
+      found.set(at, (found.get(at) ?? 0) + 1);
+    }
+    const k = helper
+      ? 'helper given the call name'
+      : (/^`([^`]+)`/.exec(d.message)?.[1] ?? (/keyed by the call's name/.test(d.message) ? 'hand schema keyed by a call name' : 'other'));
     shapes[k] = (shapes[k] ?? 0) + 1;
   }
   totals.ruleFindings = Object.values(shapes).reduce((a, b) => a + b, 0);
   totals.byShape = shapes;
   const refusedSites = Object.values(totals.refused).reduce((a, r) => a + r.sites, 0);
   const noServiceSites = Object.values(noService).reduce((a, b) => a + b, 0);
+  const sites = [...nodes.values()];
+  const { counted, helperCallers } = helperFindings(sites, found);
+  totals.wrapperSenders = wrapperSenders(sites, counted);
+  totals.toolCallers = toolCallers(sites, counted);
+  totals.helperCallers = helperCallers;
   // What the rule counts and no row above names: 0 when every finding is a site the codemod finds.
-  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites;
+  totals.unnamed =
+    totals.ruleFindings - totals.sites - refusedSites - noServiceSites - totals.wrapperSenders + totals.toolCallers - totals.helperCallers;
   const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), totals, services: rows };
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify({ totals }, null, 2));

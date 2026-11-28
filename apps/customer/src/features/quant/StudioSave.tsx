@@ -123,7 +123,7 @@ export function StudioSave({
       <Button type="button" onClick={() => void save()} disabled={busy || unchanged} data-testid="quant-save-library">
         {t('save')}
       </Button>
-      <p className="muted" role="status" data-testid="quant-save-state">
+      <p className="lt-muted" role="status" data-testid="quant-save-state">
         {unchanged && link.version
           ? t('savedAs', { version: link.version })
           : !ready

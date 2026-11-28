@@ -59,7 +59,7 @@ pub fn to_amount_scale(units: u128, decimals: u32) -> Option<Amount> {
             .checked_pow(decimals - AMOUNT_DECIMALS)
             .map_or(0, |d| units / d)
     };
-    Amount::try_from(scaled).ok()
+    i128::try_from(scaled).ok().map(Amount::from_scaled)
 }
 
 /// `createChainBalance` over JSON-RPC: three seconds a request, no retry.
@@ -214,13 +214,13 @@ mod tests {
     fn units_scale_to_eighteen_places_rounding_down() {
         assert_eq!(
             to_amount_scale(1_500_000, 6),
-            Some(1_500_000_000_000_000_000)
+            Some(Amount::from_scaled(1_500_000_000_000_000_000))
         );
-        assert_eq!(to_amount_scale(7, 18), Some(7));
-        assert_eq!(to_amount_scale(1_999, 21), Some(1));
-        assert_eq!(to_amount_scale(19, 19), Some(1));
-        assert_eq!(to_amount_scale(9, 19), Some(0));
-        assert_eq!(to_amount_scale(5, 60), Some(0));
+        assert_eq!(to_amount_scale(7, 18), Some(Amount::from_scaled(7)));
+        assert_eq!(to_amount_scale(1_999, 21), Some(Amount::from_scaled(1)));
+        assert_eq!(to_amount_scale(19, 19), Some(Amount::from_scaled(1)));
+        assert_eq!(to_amount_scale(9, 19), Some(Amount::ZERO));
+        assert_eq!(to_amount_scale(5, 60), Some(Amount::ZERO));
     }
 
     #[test]
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(
             r.read(WALLET),
             Ok(WalletBalance {
-                available: 4_000 * 10i128.pow(12),
+                available: Amount::from_scaled(4_000 * 10i128.pow(12)),
                 token: "TESTUSD".to_owned(),
                 chain_id: 84532,
                 block: "1234".to_owned(),

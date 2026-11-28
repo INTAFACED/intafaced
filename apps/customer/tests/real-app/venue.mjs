@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createPublicClient, erc20Abi, http, keccak256, toHex } from 'viem';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -6,6 +7,7 @@ import { restartWithSetting, stackUrl, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 import { connectWhenAsked } from './dex.mjs';
+import { HL_TRADER_KEY_ENV, HyperliquidFileError, hlLiveKey, hyperliquidFileRun } from './hl-file-run.mjs';
 
 // What the venue journeys (J-derivatives-01-venue; J-cex-spot-01 had one until its own file covered its venue steps) share: svc-trade's user-venue door switched on
 // for one file and off after it, the stack's LOCAL TEST venue simulator (tooling/scripts/local-test-venue.mjs) reached
@@ -24,8 +26,9 @@ const SWITCH = 'LOCAL_STACK_USER_VENUE';
  * switches the door off on its way out, so the next file in the shard does not start with it on. A worker killed outright
  * (SIGKILL, out of memory) runs no handler, so that case is not covered.
  */
-export function venueForThisFile(test, value = 'on') {
+export function venueForThisFile(test, value = 'on', { recording = null, trader = null } = {}) {
   let on = false;
+  const hl = hyperliquidFileSettings(value, recording, trader);
   const offOnExit = () => {
     if (!on) return;
     on = false;
@@ -40,14 +43,76 @@ export function venueForThisFile(test, value = 'on') {
     on = true;
     process.once('exit', offOnExit);
     // `on` is the one TEST venue; `two` adds the second (J-derivatives-28), started and stopped the same way.
-    restartWithSetting('trade', SWITCH, value);
+    // `hl-recorded` and `hl-testnet` are Hyperliquid's test network, replayed from this file's recording or live and
+    // recorded into it, for the address the file's wallet signs as.
+    withSettings(hl, () => restartWithSetting('trade', SWITCH, value));
   });
-  test.afterAll(() => {
+  test.afterAll(async () => {
     test.setTimeout(240_000);
+    // A replayed file fails on every request its recording had no answer for, by its key, even one no step checked,
+    // except a read about an account the stack held before this file did anything (`otherAccount`, recorded.ts
+    // ReplayMiss): the service still reconciles it, and the replay refuses it too. Read before the switch-off and
+    // checked after it, so a miss never leaves the door on for the next file.
+    const all = value === 'hl-recorded' ? (await venueOk(TEST_VENUE, '/replay/misses')).misses : [];
+    const misses = all.filter((miss) => miss.otherAccount !== true);
     restartWithSetting('trade', SWITCH, 'off');
     on = false;
     process.off('exit', offOnExit);
+    expect(misses, 'requests the Hyperliquid recording has no answer for').toEqual([]);
   });
+}
+
+/** The funded test-network wallet an `hl-testnet` file signs with (hl-file-run.mjs `hlLiveKey`). Never printed. */
+const hlLiveTrader = (env = process.env) => privateKeyToAccount(hlLiveKey(env));
+
+/**
+ * A venue file that opts in to Hyperliquid's test network under its recording's name (hl-file-run.mjs
+ * `hyperliquidFileRun`): live on main's daily run (.github/workflows/hl-venue-daily.yml finds the files that call this),
+ * replayed strictly from its recording everywhere else, and on the TEST venue simulator until its first recording lands.
+ * Returns `{ kind, key, trader }`: the wallet key the file signs with, null on the simulator (the file keeps its own).
+ */
+export function hyperliquidForThisFile(test, recording) {
+  const run = hyperliquidFileRun(recording);
+  if (run.kind === 'on') {
+    venueForThisFile(test, 'on');
+    test.beforeAll(() => {
+      console.warn(
+        `hl_recording_pending: no Hyperliquid recording "${recording}" yet, so this file runs on the TEST venue simulator until the daily run adds it`,
+      );
+    });
+  } else venueForThisFile(test, run.kind, { recording, trader: run.trader });
+  return run;
+}
+
+/**
+ * The settings a Hyperliquid file restarts trade with (local-test-venue.mjs `hlSource`): its recording's name and the
+ * address its wallet signs as. Null on the simulator. A Hyperliquid file must name both.
+ */
+function hyperliquidFileSettings(value, recording, trader) {
+  if (value !== 'hl-recorded' && value !== 'hl-testnet') return null;
+  if (!recording || !trader)
+    throw new HyperliquidFileError(
+      'hl_file_unnamed',
+      `venueForThisFile(${value}) needs { recording, trader }: the recording's name and the wallet address`,
+    );
+  // Live, the file signs with the funded test-network wallet: no key refuses by name, and the trader must be its address.
+  if (value === 'hl-testnet' && hlLiveTrader().address.toLowerCase() !== trader.toLowerCase())
+    throw new HyperliquidFileError('hl_live_trader_mismatch', `hl-testnet records for ${HL_TRADER_KEY_ENV}'s address, not ${trader}`);
+  return { LOCAL_STACK_HL_RECORDING: recording, LOCAL_STACK_HL_TRADER: trader.toLowerCase() };
+}
+
+/** `fn` with each setting in the environment, each put back after. */
+function withSettings(settings, fn) {
+  const saved = Object.fromEntries(Object.keys(settings ?? {}).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, settings ?? {});
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 }
 
 /** One call to the TEST venue: its JSON answer and status. Amounts travel as decimal strings. */
@@ -182,6 +247,21 @@ export async function openVenueDesk(page, who, path, privateKey) {
 }
 
 /**
+ * The trading session a session-key venue needs before any order, from the desk's own panel, signed once by the wallet;
+ * nothing when this tab's session is already live. The line is waited for first, so a session not yet read is never
+ * taken for one that needs a start.
+ */
+export async function startVenueSession(page) {
+  const session = page.getByTestId('venue-session');
+  const line = session.getByTestId('venue-session-line');
+  await expect(line, "the desk's session line, read from the venue").toBeVisible({ timeout: 30_000 });
+  if ((await line.getAttribute('data-session')) === 'live') return;
+  await session.getByTestId('venue-session-start').click();
+  await continueInWallet(page);
+  await session.locator('[data-testid="venue-session-line"][data-session="live"]').waitFor({ timeout: 60_000 });
+}
+
+/**
  * Signs in, installs the browser TEST wallet with this key on the venue's chain, opens a venue page that is not a desk
  * (an order, the order history) and connects the wallet when the page asks. Returns the wallet.
  */
@@ -279,3 +359,15 @@ export async function walletDoorAct(session, key, { subAccount = null, intent, a
   expect(sent.outcome, JSON.stringify(sent.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   return sent;
 }
+
+/** Keys sorted, no spaces: the canonical form svc-trade hashes (services/svc-trade/src/admin/common.ts payloadHash). */
+function canonical(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  const keys = Object.keys(value)
+    .filter((k) => value[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+}
+/** The payload hash svc-trade binds an operator's two-person change to (`sha256:` over the canonical body). */
+export const tradePayloadHash = (body) => `sha256:${createHash('sha256').update(canonical(body)).digest('hex')}`;

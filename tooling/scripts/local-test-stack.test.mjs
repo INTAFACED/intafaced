@@ -76,6 +76,8 @@ const script = resolve(here, 'local-test-stack.mjs');
   const servicePorts = defs.map((d) => d.env.HTTP_PORT);
   for (const k of ['FIX_SOCKET_ACCEPT_PORT', 'FIX_DROPCOPY_SOCKET_ACCEPT_PORT']) assert.ok(!servicePorts.includes(fixEnv[k]), k);
   assert.ok(/TEST/.test(fixEnv.FIX_COMPID_ACCOUNT_JSON), 'the CompID map is labelled TEST');
+  // svc-fix binds its FIX sockets and ingest listener to HTTP_HOST: loopback, never the home network (#10244).
+  assert.equal(fixEnv.HTTP_HOST, '127.0.0.1', 'svc-fix listens on loopback only');
   // Only services listed earlier are waited for, so the order can never deadlock.
   for (const def of defs) {
     for (const dep of startDependencies(defs, def, envOf)) assert.ok(defs.indexOf(dep) < defs.indexOf(def));
@@ -320,8 +322,9 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
-// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1): svc-protocol and svc-bank hold a TEST business
-// block for the TEST region AA, Edge stamps every request from AA, and nothing else changes; no service's sanctions list moves.
+// `LOCAL_STACK_TEST_REGION_SERVED=off` (J-wallet-09 #1, J-bank-18 #1, J-derivatives-01 #2): svc-protocol, svc-bank and
+// svc-trade hold a TEST business block for the TEST region AA, Edge stamps every request from AA, and nothing else
+// changes; no service's sanctions list moves.
 {
   const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
   const prior = process.env.LOCAL_STACK_TEST_REGION_SERVED;
@@ -332,16 +335,18 @@ const script = resolve(here, 'local-test-stack.mjs');
     const served = envs();
     assert.equal(envOf(served, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST block by default');
     assert.equal(envOf(served, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST bank block by default');
+    assert.equal(envOf(served, 'trade').INTAFACED_TEST_BUSINESS_BLOCKS, undefined, 'no TEST trade block by default');
     assert.equal(envOf(served, 'edge').DEFAULT_REGION, undefined, 'edge keeps its own default region');
     process.env.LOCAL_STACK_TEST_REGION_SERVED = 'off';
     const blocked = envs();
     assert.equal(envOf(blocked, 'protocol').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'bank').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
+    assert.equal(envOf(blocked, 'trade').INTAFACED_TEST_BUSINESS_BLOCKS, 'TEST:AA');
     assert.equal(envOf(blocked, 'edge').DEFAULT_REGION, 'AA');
     for (const { name, env } of blocked) {
       const before = envOf(served, name);
       assert.equal(env.INTAFACED_SANCTIONS_REGIONS, before.INTAFACED_SANCTIONS_REGIONS, `${name}'s sanctions list is unchanged`);
-      if (name !== 'protocol' && name !== 'bank')
+      if (name !== 'protocol' && name !== 'bank' && name !== 'trade')
         assert.equal(env.INTAFACED_TEST_BUSINESS_BLOCKS, undefined, `${name} holds no TEST block`);
       if (name !== 'edge') assert.equal(env.DEFAULT_REGION, before.DEFAULT_REGION, `${name}'s region is unchanged`);
     }
@@ -441,6 +446,9 @@ const script = resolve(here, 'local-test-stack.mjs');
     const rails = Object.keys(unset).filter((name) => name.startsWith('LEDGER_RECONCILE_RAIL_'));
     assert.deepEqual(rails.sort(), ['LEDGER_RECONCILE_RAIL_CRYPTO_NATIVE_URL', 'LEDGER_RECONCILE_RAIL_PAYOUT_SIM_URL']);
     for (const name of rails) assert.equal(unset[name], 'http://127.0.0.1:14525/statement');
+    // The TEST venue and TEST partner report from the same server (J-ops-console-07 #4).
+    assert.equal(unset.LEDGER_RECONCILE_REPORT_VENUE_URL, 'http://127.0.0.1:14525/report');
+    assert.equal(unset.LEDGER_RECONCILE_REPORT_PARTNER_URL, 'http://127.0.0.1:14525/report');
     // A LOCAL TEST clock skew bound, so a joint-restore watermark can be read as of a cut-off (OPS-ledger-desk-05).
     assert.equal(unset.LEDGER_CLOCK_SKEW_BOUND_MS, '1000');
     process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
@@ -501,6 +509,33 @@ const script = resolve(here, 'local-test-stack.mjs');
     'matching must leave its engine to the custody switch',
   );
   console.log("local-test-stack: trade and matching carry svc-ledger's custody switch, so the own book runs only with custody on");
+}
+
+// The stack's one custody switch (#11019): LOCAL_STACK_CUSTODY_LAYER=off on a start runs every carrier off together, as
+// the launch build does (the beta); unset keeps them on; any other value refuses by name.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const before = process.env.LOCAL_STACK_CUSTODY_LAYER;
+  const carried = () =>
+    Object.fromEntries(
+      localTestServiceEnvs()
+        .filter((s) => 'LEDGER_CUSTODY_LAYER' in s.env)
+        .map((s) => [s.name, s.env.LEDGER_CUSTODY_LAYER]),
+    );
+  try {
+    delete process.env.LOCAL_STACK_CUSTODY_LAYER;
+    const on = carried();
+    assert.deepEqual(Object.keys(on).sort(), ['bank', 'ledger', 'matching', 'pay', 'trade']);
+    for (const [name, value] of Object.entries(on)) assert.equal(value, 'on', `${name} unset`);
+    process.env.LOCAL_STACK_CUSTODY_LAYER = 'off';
+    for (const [name, value] of Object.entries(carried())) assert.equal(value, 'off', `${name} with LOCAL_STACK_CUSTODY_LAYER=off`);
+    process.env.LOCAL_STACK_CUSTODY_LAYER = 'OFF';
+    assert.throws(localTestServiceEnvs, /LOCAL_STACK_CUSTODY_LAYER is "OFF"/);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_CUSTODY_LAYER;
+    else process.env.LOCAL_STACK_CUSTODY_LAYER = before;
+  }
+  console.log('local-test-stack: LOCAL_STACK_CUSTODY_LAYER=off starts every custody carrier off together');
 }
 
 // The bank carries the one LOCAL TEST sanctioned destination (J-wallet-05 #2), never a real list and never blank here.
@@ -617,6 +652,26 @@ const script = resolve(here, 'local-test-stack.mjs');
     else process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = before;
   }
   console.log('local-test-stack: the copy country list blank switch blanks only TRADE_COPY_JURISDICTION_LAW');
+}
+
+// LOCAL_STACK_TEST_MARKETS=off (the beta's stack) keeps the journeys' TEST listings off svc-trade's board (#10599):
+// only TRADE_FUTURES_TEST_SEED turns false; unset, the journeys' stack lists them as before.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const before = process.env.LOCAL_STACK_TEST_MARKETS;
+  try {
+    delete process.env.LOCAL_STACK_TEST_MARKETS;
+    const set = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(set.TRADE_FUTURES_TEST_SEED, 'true', 'the journeys see the TEST listings');
+    process.env.LOCAL_STACK_TEST_MARKETS = 'off';
+    const off = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(off.TRADE_FUTURES_TEST_SEED, 'false', 'the off switch must keep the TEST listings off the board');
+    assert.deepEqual({ ...off, TRADE_FUTURES_TEST_SEED: 'true' }, set, 'the off switch must change nothing else in trade');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TEST_MARKETS;
+    else process.env.LOCAL_STACK_TEST_MARKETS = before;
+  }
+  console.log('local-test-stack: the TEST markets off switch turns off only TRADE_FUTURES_TEST_SEED');
 }
 
 // LOCAL_STACK_TRADE_COPY_LEAD_BALANCE=blank leaves only the TEST least venue balance to lead blank, so
@@ -1134,8 +1189,24 @@ try {
 // The only Customer build call is inside the `!override` guard in ensureBuilt.
 assert.match(
   source,
-  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer', \{\s*VITE_TEAM_URL: TEAM_TLS_ORIGIN,\s*INTAFACED_SOURCEMAP: 'hidden',\s*\}\);/,
+  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer', \{\s*VITE_TEAM_URL: TEAM_TLS_ORIGIN,\s*INTAFACED_SOURCEMAP: 'hidden',\s*(\/\/[^\n]*\s*)*\.\.\.\(betaVoltBuild\(\) \? \{ INTAFACED_BETA_VOLT_ONLY: '1' \} : \{\}\),\s*\}\);/,
 );
+// A Customer build made with another beta switch is stale, so the beta rebuilds it with the switch and a plain stack
+// without it (#10599). A stamp from before this rule has no switch recorded: stale on the beta only.
+{
+  const { ownCustomerDistOk } = await import('./local-test-stack.mjs');
+  const teamUrl = 'https://127.0.0.1:1';
+  const built = { customerTeamUrl: teamUrl, customerPositions: true };
+  const ok = (stamp, betaVolt) => ownCustomerDistOk(stamp, { indexExists: true, teamUrl, betaVolt });
+  assert.equal(ok(built, false), true, 'a plain stack keeps a build from before the rule');
+  assert.equal(ok(built, true), false, 'the beta rebuilds a build that has no switch recorded');
+  assert.equal(ok({ ...built, customerBetaVolt: false }, true), false, 'the beta rebuilds a build made without its switch');
+  assert.equal(ok({ ...built, customerBetaVolt: true }, true), true, 'the beta keeps a build made with its switch');
+  assert.equal(ok({ ...built, customerBetaVolt: true }, false), false, 'a plain stack rebuilds the beta build');
+  assert.equal(ownCustomerDistOk({ ...built, customerBetaVolt: true }, { indexExists: false, teamUrl, betaVolt: true }), false);
+  assert.equal(ok({ ...built, customerTeamUrl: 'https://other' }, false), false, 'another Team link stays stale');
+  assert.match(source, /customerBetaVolt: override \? stamp\.customerBetaVolt : betaVoltBuild\(\),/, 'each own build records its switch');
+}
 // Its Team link points at the console's TEST HTTPS front: the build's HTTPS-only check stays as it is (TeamDesk.tsx).
 assert.match(source, /const TEAM_TLS_ORIGIN = `https:\/\/\$\{HOST\}:\$\{PORTS\['team-tls'\]\}`;/);
 assert.match(source, /serveTeamTls\(\{ host: HOST, port: PORTS\['team-tls'\], target: ADMIN_ORIGIN, \.\.\.ensureTestCert\(P\.tls\) \}\)/);
@@ -1167,7 +1238,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // the market check, and stops first.
   assert.match(
     source,
-    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*if \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
+    /if \(on\('customer'\) && \(!only \|\| only\.includes\('customer'\)\)\) await startCustomer\(\);\s*if \(on\('invitation'\) && \(!only \|\| only\.includes\('invitation'\)\)\) await startInvitation\(\);\s*if \(on\('apex'\) && \(!only \|\| only\.includes\('apex'\)\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(admin && \(!only \|\| only\.includes\('admin'\)\)\) await startAdmin\(secrets\);\s*if \(admin && \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
   );
   // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS. A second
   // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against. The TEST
@@ -1177,9 +1248,16 @@ console.log('local-test-stack: customer folder override checks passed');
     /const order = \[\s*\/\/[^\n]*\n\s*MAKER_RECORD,\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
-  assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
+  {
+    const { mintLocalTestSecret } = await import('./local-test-stack.mjs');
+    const key = mintLocalTestSecret('adminSession');
+    assert.match(key, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(Buffer.from(key, 'base64url').length, 32);
+    assert.equal(Buffer.from(key, 'base64url').toString('base64url'), key);
+    assert.match(source, /s\.adminSession = mintLocalTestSecret\('adminSession'\);/);
+  }
   assert.match(source, /APP_ENV: 'dev',/);
-  assert.match(source, /async function cmdRestart\(names, \{[^}]*start = cmdStart \}[\s\S]*?await start\(\[\]\);/);
+  assert.match(source, /async function cmdRestart\(\s*names,\s*\{[^}]*start = cmdStart,[^}]*\}[\s\S]*?await start\(/);
   assert.match(source, /function ensureMarket\(\) \{\n\s+const r = marketTool\('ensure'\);/);
   assert.match(source, /local-test-market\.mjs'\), cmd\]/);
   console.log('local-test-stack: market supervision checks passed');
@@ -1351,9 +1429,20 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   assert.match(
     headers['Content-Security-Policy'],
-    /connect-src 'self' http:\/\/localhost:14500;/,
-    'the TEST sandbox address stands in for the sandbox API origin',
+    /connect-src 'self' http:\/\/localhost:14500 https:\/\/api\.turnkey\.com;/,
+    'the TEST sandbox address stands in for the sandbox API origin; the wallet provider is the fixed one (#10853)',
   );
+  // On the live test network the desk reads the person's own wallet from their browser; only that origin is added.
+  assert.match(
+    customerSecurityHeaders({ LOCAL_STACK_USER_VENUE: 'hl-testnet' })['Content-Security-Policy'],
+    /connect-src 'self' http:\/\/localhost:14500 https:\/\/api\.hyperliquid-testnet\.xyz https:\/\/api\.turnkey\.com;/,
+  );
+  for (const venue of ['hl-recorded', 'on', undefined])
+    assert.doesNotMatch(
+      customerSecurityHeaders({ LOCAL_STACK_USER_VENUE: venue })['Content-Security-Policy'],
+      /hyperliquid/,
+      String(venue),
+    );
   assert.match(headers['Content-Security-Policy'], /; report-uri \/__csp-report$/);
   assert.equal(headers['X-Frame-Options'], 'DENY');
   const legacy = cspReportRows(
@@ -1460,6 +1549,41 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   assert.equal(buildStillFresh({ stampHead: 'h1' }, { repo: '/w/a', head: 'h1', edits: '' }, same), false, 'an older stamp builds once');
 
+  // #11041: a commit that changes only a service's start settings (tooling/scripts/local-stack-services/, #11230's
+  // once-a-minute sweep on the beta) moved no backend source, so the long-lived beta kept svc-trade on its old settings.
+  // A move there gives the services a new build id, which restarts them onto the new settings; tooling and docs elsewhere don't.
+  {
+    const { serviceSettingsMoved } = await import('./local-test-stack.mjs');
+    const repo = mkdtempSync(join(tmpdir(), 'settings-moved-'));
+    const git = (...args) => {
+      const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    const commit = (file, text) => {
+      mkdirSync(dirname(join(repo, file)), { recursive: true });
+      writeFileSync(join(repo, file), text);
+      git('add', '-A');
+      git('commit', '-qm', file);
+      return git('rev-parse', 'HEAD');
+    };
+    try {
+      git('init', '-q');
+      const c1 = commit('tooling/scripts/local-stack-services/trade.mjs', "export default () => ({ SWEEP: '3000' });\n");
+      const c2 = commit('tooling/scripts/local-stack-services/trade.mjs', "export default () => ({ SWEEP: '60000' });\n");
+      const c3 = commit('docs/notes.md', 'a note\n');
+      const stampAt = (head) => ({ repo, head, settingsEdits: '' });
+      const now = (head) => ({ repo, head, edits: '' });
+      assert.equal(serviceSettingsMoved(stampAt(c1), now(c2)), true, "a service's settings changed: its services restart");
+      assert.equal(serviceSettingsMoved(stampAt(c2), now(c3)), false, 'a docs-only move restarts nothing');
+      assert.equal(serviceSettingsMoved(stampAt(c2), now(c2)), false, 'the same commit restarts nothing');
+      assert.equal(serviceSettingsMoved(stampAt(c2), { ...now(c2), edits: 'e1' }), true, 'an uncommitted settings edit restarts them');
+      assert.equal(serviceSettingsMoved({ repo, head: c2 }, now(c2)), true, 'a stamp from before settings counted restarts them once');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }
+
   assert.equal(onCurrentBuild({ build: 'b1' }, 'b1'), true);
   assert.equal(onCurrentBuild({ build: 'b1' }, 'b2'), false, 'rebuilt since it started');
   assert.equal(onCurrentBuild({}, 'b2'), false, 'started before builds had ids');
@@ -1493,6 +1617,123 @@ console.log('local-test-stack: customer folder override checks passed');
     }
   }
   console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
+}
+
+// 20a. A running service whose launch settings changed restarts onto them, as one on another build does. Before this, a
+// tooling-only commit kept the build fresh and the beta's svc-trade kept the TEST venue's 3 s own-funds sweep after
+// #11230 set a minute on the test network: 20 balance reads a minute went on (trade.venue_reads_minute, #11041).
+{
+  const { settingsMark, restartReason, startNodeService, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const before = { TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '3000', HTTP_PORT: '17504' };
+  const after = { ...before, TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '60000' };
+  assert.equal(
+    settingsMark(before),
+    settingsMark({ HTTP_PORT: '17504', TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: '3000' }),
+    'key order is no change',
+  );
+  assert.notEqual(settingsMark(before), settingsMark(after), 'a changed value is a change');
+  assert.notEqual(
+    settingsMark(before),
+    settingsMark({ ...before, TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: '60000' }),
+    'a new key is a change',
+  );
+  const rec = { pid: 1, build: 'b1', settings: settingsMark(before) };
+  assert.equal(restartReason(rec, 'b1', settingsMark(before)), null, 'the same build and settings keep running');
+  assert.equal(restartReason(rec, 'b1', settingsMark(after)), 'new settings', 'a process on the old settings restarts');
+  assert.equal(restartReason(rec, 'b2', settingsMark(before)), 'the new build');
+  assert.equal(
+    restartReason({ pid: 1, build: 'b1' }, 'b1', settingsMark(before)),
+    'new settings',
+    'a record kept before settings restarts once',
+  );
+  assert.equal(restartReason({ pid: 1, build: 'b1' }, 'b1', undefined), null, 'a part that passes no settings restarts on its build only');
+  // With LOCAL_STACK_RESTART_ON_SETTINGS=on (the beta's), a service's start hands its own settings to the stop, so a live
+  // process on other settings is stopped first. Without it (a journey's stack), the stop judges the build alone, so a
+  // service keeps the one-off settings a `restart <service>` gave it through a later restart of another service.
+  const ledger = localTestServiceEnvs().find((d) => d.name === 'ledger');
+  const halt = new Error('stopped here');
+  const stopsWith = async (value) => {
+    const before = process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+    if (value === undefined) delete process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+    else process.env.LOCAL_STACK_RESTART_ON_SETTINGS = value;
+    const stops = [];
+    try {
+      await assert.rejects(
+        startNodeService(
+          { name: 'ledger', env: () => ledger.env },
+          {
+            stop: (...args) => {
+              stops.push(args);
+              throw halt;
+            },
+          },
+        ),
+        (err) => err === halt,
+      );
+    } finally {
+      if (before === undefined) delete process.env.LOCAL_STACK_RESTART_ON_SETTINGS;
+      else process.env.LOCAL_STACK_RESTART_ON_SETTINGS = before;
+    }
+    return stops[0];
+  };
+  assert.equal((await stopsWith('on'))[4], settingsMark(ledger.env), "on the beta the stop is given the start's settings");
+  assert.equal((await stopsWith(undefined))[4], undefined, "on a journey's stack the stop judges the build alone");
+  console.log('local-test-stack: a running service restarts onto changed launch settings');
+}
+
+// 20b. A banner site (customer, invitation, apex) still serving another banner restarts: before #10863's fix a start
+// kept a process that answered 200 with the old BANNER_TEXT, and the status table called the beta's apex DOWN.
+{
+  const { bannerSiteDecision } = await import('./local-test-stack.mjs');
+  const { BANNER_TEXT } = await import('../../apps/customer/deployment/test-banner.mjs');
+  const page = (banner) => `<html><body><div>${banner}</div></body></html>`;
+  assert.equal(bannerSiteDecision({ owned: true, status: 200, text: page(BANNER_TEXT) }), 'ready');
+  assert.equal(
+    bannerSiteDecision({ owned: true, status: 200, text: page('LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money') }),
+    'restart',
+    'a page with an older banner restarts its process',
+  );
+  assert.equal(bannerSiteDecision({ owned: true, status: 200, text: page(BANNER_TEXT) }, 'A NEWER BANNER'), 'restart');
+  assert.equal(bannerSiteDecision({ owned: true, status: 0, text: '' }), 'start');
+  assert.equal(bannerSiteDecision({ owned: false, status: 200, text: page(BANNER_TEXT) }), 'start');
+  // The check itself: a live process answering with the old banner is stopped and its port waited on; today's is kept.
+  const { bannerSiteReady, startCustomer, startInvitation, startApex } = await import('./local-test-stack.mjs');
+  const { STACK_PORTS } = await import('./local-test-facts.mjs');
+  const rec = { pid: 4242 };
+  for (const [banner, kept] of [
+    ['LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money', false],
+    [BANNER_TEXT, true],
+  ]) {
+    const stops = [];
+    const answer = await bannerSiteReady('apex', rec, 'http://apex.test/', STACK_PORTS.apex, {
+      alive: (r) => r === rec,
+      get: async () => ({ status: 200, text: page(banner) }),
+      stop: async (...args) => stops.push(args),
+      open: async () => false,
+    });
+    assert.equal(answer, kept, kept ? "today's banner keeps the process" : 'the old banner does not');
+    assert.deepEqual(stops, kept ? [] : [['apex', rec]], kept ? 'nothing stopped' : 'the stale process is stopped');
+  }
+  // Each banner site's start asks that check first, for its own name and port. The stand-in ends the start there.
+  const halt = new Error('stopped here');
+  for (const [part, start] of [
+    ['customer', (ready) => startCustomer({ stop: async () => {}, ready })],
+    ['invitation', (ready) => startInvitation({ stop: async () => {}, ready })],
+    ['apex', (ready) => startApex({ ready })],
+  ]) {
+    const asks = [];
+    await assert.rejects(
+      start((...args) => {
+        asks.push(args);
+        throw halt;
+      }),
+      (err) => err === halt,
+    );
+    assert.equal(asks.length, 1, `${part} asks the banner check once`);
+    assert.equal(asks[0][0], part);
+    assert.equal(asks[0][3], STACK_PORTS[part], `${part} checks its own port`);
+  }
+  console.log('local-test-stack: a banner site serving another banner restarts onto the current one');
 }
 
 // 21. A new TEST chain empties what services stored from the old one, so the indexer reads it from block 0 instead
@@ -1594,6 +1835,40 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: a halted indexer reads HALTED in the health table');
 }
 
+// 22b. The founder console is left out (neither built nor started) after `start --no-admin`, through every later
+// `--only` start of a running stack (a journey restarting one service), until a start names it or names nothing
+// (project-state #3674: its Next build alone peaks near 1.6 GB, and most journeys never open it).
+{
+  const { adminWantedBy, consoleRows, healthAllOk } = await import('./local-test-stack.mjs');
+  assert.equal(adminWantedBy([], null, null), true, 'a plain start brings the console');
+  assert.equal(adminWantedBy([], null, 'off'), true, 'a plain start brings it back');
+  assert.equal(adminWantedBy(['--no-admin'], null, null), false);
+  assert.equal(adminWantedBy(['--only', 'trade', '--no-admin'], ['trade'], 'on'), false);
+  assert.equal(adminWantedBy(['--only', 'ledger'], ['ledger'], 'off'), false, 'a mid-run --only start keeps it out');
+  assert.equal(adminWantedBy(['--only', 'ledger'], ['ledger'], null), true);
+  assert.equal(adminWantedBy(['--only', 'admin'], ['admin'], 'off'), true, 'naming it brings it in');
+  assert.equal(adminWantedBy(['--only', 'team-tls'], ['team-tls'], 'off'), true);
+  const rows = (adminWanted, status, ok) =>
+    consoleRows({ adminWanted, admin: { port: 3100, pid: undefined, status }, teamTls: { port: 3110, pid: undefined, ok } });
+  const market = ['market-maker', '-', '-', 'ok'];
+  assert.deepEqual(
+    rows(false, 0, false).map((r) => r[3]),
+    ['off (--no-admin; bring it up: pnpm local:stack restart admin)', 'off (--no-admin; bring it up: pnpm local:stack restart admin)'],
+  );
+  assert.equal(healthAllOk([...rows(false, 0, false), market]), true, 'left out on purpose does not fail the start');
+  assert.deepEqual(
+    rows(true, 0, false).map((r) => r[3]),
+    ['DOWN (0)', 'DOWN'],
+  );
+  assert.equal(healthAllOk([...rows(true, 0, false), market]), false, 'wanted and down still fails');
+  assert.deepEqual(
+    rows(false, 200, true).map((r) => r[3]),
+    ['ok', 'ok'],
+    'one still running reads ok',
+  );
+  console.log('local-test-stack: --no-admin leaves the console out until a start names it');
+}
+
 // 23. A running service on another build is restarted onto the new one, so the start migrates it first (a new
 // migration would otherwise be missing: svc-protocol refused to boot without protocol.listing_challenges).
 {
@@ -1671,6 +1946,11 @@ console.log('local-test-stack: customer folder override checks passed');
   const down = async () => ({ status: 0 });
   const absentRow = await serviceHealthRow('indexer', { procs: {}, chain: null, read: down });
   assert.equal(absentRow[3], 'absent (no TEST chain)');
+  // A service LOCAL_STACK_PROFILE leaves off reads off without being read, and doesn't fail the start (#11075).
+  const offRow = await serviceHealthRow('p2p', { procs: {}, chain, read: down, off: (n) => n === 'p2p' });
+  assert.equal(offRow[3], 'off (not in this profile)');
+  assert.equal(healthAllOk([offRow, ['market-maker', '-', '-', 'down']]), true);
+  assert.deepEqual(adaptersWanted({ LOCAL_STACK_PROFILE: 'launch-desk' })['test-wallet-provider'], true);
   assert.equal(
     (await serviceHealthRow('indexer', { procs: {}, chain, read: down }))[3],
     'DOWN (0)',
@@ -1716,6 +1996,25 @@ console.log('local-test-stack: customer folder override checks passed');
       start: async (flags) => did.push(['start', flags]),
     });
     assert.deepEqual(did, ['take', 'refuse', ['stop', ['ledger']], ['start', []]]);
+  }
+  // A stack started with --no-admin keeps its console out across a restart, unless the restart names the console.
+  {
+    const startsOf = async (names, wanted) => {
+      const flags = [];
+      await cmdRestart(names, {
+        take: async () => {},
+        refuse: async () => {},
+        stop: async () => {},
+        start: async (f) => flags.push(f),
+        adminWanted: () => wanted,
+      });
+      return flags;
+    };
+    assert.deepEqual(await startsOf(['support'], 'off'), [['--no-admin']]);
+    assert.deepEqual(await startsOf(['support'], 'on'), [[]]);
+    assert.deepEqual(await startsOf(['support'], null), [[]]);
+    assert.deepEqual(await startsOf(['admin'], 'off'), [[]]);
+    assert.deepEqual(await startsOf(['team-tls'], 'off'), [[]]);
   }
   console.log('local-test-stack: with no TEST chain the indexer is left out and named, and the start still passes');
 }
@@ -1865,7 +2164,7 @@ console.log('local-test-stack: customer folder override checks passed');
 // and points trade at it (never one without the other), and a bad value is refused by both.
 {
   const { userVenueOn, localTestServiceEnvs } = await import('./local-test-stack.mjs');
-  const { userVenueSwitchOn } = await import('./local-test-venue.mjs');
+  const { testVenueKind, userVenueKind, userVenueSwitchOn } = await import('./local-test-venue.mjs');
   const saved = process.env.LOCAL_STACK_USER_VENUE;
   try {
     for (const [raw, on, second] of [
@@ -1876,6 +2175,9 @@ console.log('local-test-stack: customer folder override checks passed');
       [' on ', true, false],
       // J-derivatives-28: `two` is the first venue and the second TEST venue beside it.
       ['two', true, true],
+      // #10203: the Hyperliquid test network, recorded or live, as the one venue.
+      ['hl-recorded', true, false],
+      ['hl-testnet', true, false],
     ]) {
       if (raw === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
       else process.env.LOCAL_STACK_USER_VENUE = raw;
@@ -1885,12 +2187,117 @@ console.log('local-test-stack: customer folder override checks passed');
       assert.equal('TRADE_USER_VENUE_URLS' in trade, second, `trade env, second venue: ${JSON.stringify(raw)}`);
       if (second) assert.match(trade.TRADE_USER_VENUE_URLS, /:14562$/);
     }
-    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on or two/);
+    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on, two, hl-recorded or hl-testnet/);
+    assert.equal(testVenueKind(''), 'sim');
+    assert.throws(() => testVenueKind('on'), /TEST_VENUE_KIND must be sim, hl-recorded or hl-testnet/);
+    // Which venue it is; the bank's TEST cash leg runs on the simulator only.
+    for (const [raw, kind] of [
+      ['off', null],
+      ['on', 'sim'],
+      ['two', 'sim'],
+      ['hl-recorded', 'hl-recorded'],
+      ['hl-testnet', 'hl-testnet'],
+    ]) {
+      assert.equal(userVenueKind(raw), kind, `kind: ${raw}`);
+      // The venue process reads back exactly what the stack hands it (TEST_VENUE_KIND), the simulator included.
+      if (kind !== null) assert.equal(testVenueKind(kind), kind, `TEST_VENUE_KIND: ${kind}`);
+      process.env.LOCAL_STACK_USER_VENUE = raw;
+      const bank = localTestServiceEnvs().find((d) => d.name === 'bank').env;
+      assert.equal('BANK_TEST_CASH_LEG_VENUE_URL' in bank, kind === 'sim', `bank env: ${raw}`);
+    }
   } finally {
     if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = saved;
   }
   console.log('local-test-stack: LOCAL_STACK_USER_VENUE reads the same in the stack and in trade env');
+}
+
+// On Hyperliquid's test network the seed lists no BTC-USDC spot pair (it has no bids, one stray ask at 6,100 and
+// no print since 10 Nov 2026, so it showed a BTC price ten times below the venue's BTC perpetual); the TEST venue keeps it.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const saved = process.env.LOCAL_STACK_USER_VENUE;
+  try {
+    const listings = (raw) => {
+      process.env.LOCAL_STACK_USER_VENUE = raw;
+      return localTestServiceEnvs()
+        .find((d) => d.name === 'trade')
+        .env.TRADE_USER_VENUE_TEST_LISTINGS.split(',');
+    };
+    // Live and replayed alike: a replay lists what the live run that wrote its recording listed.
+    for (const raw of ['hl-testnet', 'hl-recorded']) {
+      const testnet = listings(raw);
+      assert.ok(!testnet.includes('BTC-USDC'), `${raw} seeds no BTC-USDC`);
+      assert.ok(testnet.includes('PURR-USDC') && testnet.includes('BTC-PERP'), `${raw} keeps PURR-USDC and BTC-PERP`);
+    }
+    for (const raw of ['on', 'two']) assert.ok(listings(raw).includes('BTC-USDC'), `${raw} seeds BTC-USDC`);
+    // Every TEST perpetual the venue lists, one file each in packages/venue-sim/src/instruments/, is seeded, in file order.
+    const { testVenuePerpetuals } = await import('./local-test-venue.mjs');
+    const perps = testVenuePerpetuals();
+    assert.ok(perps.length >= 13 && perps[0] === 'BTC-PERP' && perps.includes('XJRN-PERP'), `the venue's perpetuals: ${perps}`);
+    assert.deepEqual(
+      listings('on').filter((s) => !s.startsWith('xyz:') && s.endsWith('-PERP')),
+      perps,
+    );
+  } finally {
+    if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+    else process.env.LOCAL_STACK_USER_VENUE = saved;
+  }
+  console.log('local-test-stack: the Hyperliquid test network seeds no BTC-USDC spot pair');
+}
+
+// A Hyperliquid start names its recording and the address it is for, never a key; a running venue that
+// answers for another source (the simulator where Hyperliquid is wanted, another recording or trader) is not kept.
+{
+  const { venueAnswersFor } = await import('./local-test-stack.mjs');
+  const { hlSource, hlRecordingPath } = await import('./local-test-venue.mjs');
+  const trader = `0x${'ab'.repeat(20)}`;
+  assert.deepEqual(hlSource({}), { recording: null, trader: null });
+  assert.deepEqual(hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x', LOCAL_STACK_HL_TRADER: trader.toUpperCase().replace('0X', '0x') }), {
+    recording: 'J-x',
+    trader,
+  });
+  assert.throws(() => hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x' }), /needs LOCAL_STACK_HL_TRADER/);
+  assert.throws(() => hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x', LOCAL_STACK_HL_TRADER: 'ab'.repeat(32) }), /needs LOCAL_STACK_HL_TRADER/);
+  assert.throws(() => hlRecordingPath('../x'), /letters, digits/);
+  const hl = { recording: 'J-x', trader };
+  const health = (source) => JSON.stringify({ ok: true, label: 'TEST', ...(source ? { source } : {}) });
+  assert.equal(venueAnswersFor(health(null), 'sim', hl), true);
+  assert.equal(venueAnswersFor(health(null), 'hl-recorded', hl), false, 'the simulator is not kept where Hyperliquid is wanted');
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl }), 'sim', hl), false, 'Hyperliquid is not kept where the simulator is');
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl }), 'hl-recorded', hl), true);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-testnet', ...hl }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl, recording: 'J-y' }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl, trader: `0x${'cd'.repeat(20)}` }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor('not json', 'sim', hl), true);
+  console.log('local-test-stack: a Hyperliquid start names its recording and trader, and a venue answering for another is not kept');
+}
+
+// #11061: the live Hyperliquid test network is the hosted beta's alone. A builder's or CI's stack shares the beta's box
+// and IP, and one live desk spent about 880 of the IP's 1,200 weight a minute (#11045), so `hl-testnet` alone refuses:
+// it reaches the live network only beside LOCAL_STACK_LIVE_TEST_NETWORK=on, which the beta host and the daily live run
+// set. The default (unset) starts no venue, and a flip of either default fails here.
+{
+  const { liveTestNetworkRefusal, serveTestVenue, userVenueKind } = await import('./local-test-venue.mjs');
+  assert.equal(userVenueKind(undefined), null, 'unset starts no venue');
+  for (const raw of [undefined, '', 'off', 'yes', '1', 'true', ' on-ish ']) {
+    const env = raw === undefined ? {} : { LOCAL_STACK_LIVE_TEST_NETWORK: raw };
+    assert.match(liveTestNetworkRefusal('hl-testnet', env) ?? '', /LOCAL_STACK_LIVE_TEST_NETWORK=on/, `refused: ${JSON.stringify(raw)}`);
+  }
+  assert.equal(liveTestNetworkRefusal('hl-testnet', { LOCAL_STACK_LIVE_TEST_NETWORK: 'on' }), null);
+  assert.equal(liveTestNetworkRefusal('hl-testnet', { LOCAL_STACK_LIVE_TEST_NETWORK: ' on ' }), null);
+  // Nothing but the live kind needs the switch: the simulator and the recording make no network call.
+  for (const kind of [null, 'sim', 'hl-recorded']) assert.equal(liveTestNetworkRefusal(kind, {}), null, `kind ${kind}`);
+  // The venue process refuses on its own too, before it listens: a stack bypassed still never reaches the live network.
+  let started = null;
+  await assert.rejects(
+    (async () => {
+      started = await serveTestVenue({ host: '127.0.0.1', port: 0, appEnv: 'dev', kind: 'hl-testnet', env: {} });
+    })(),
+    /LOCAL_STACK_LIVE_TEST_NETWORK=on/,
+  );
+  if (started?.server) await new Promise((r) => started.server.close(r));
+  console.log('local-test-stack: the live test network needs LOCAL_STACK_LIVE_TEST_NETWORK=on beside hl-testnet');
 }
 
 // No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
@@ -2154,4 +2561,73 @@ console.log('local-test-stack: customer folder override checks passed');
   );
 
   console.log('local-test-stack: a slot whose owner is gone is taken back, and a live owner keeps its own');
+}
+
+// The owner's vendor keys (the box's sealed vendors.local.json): a service gets them only when its own switch asks, and no
+// refusal ever carries a value.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS, vendorKeys } = await import('./local-test-stack.mjs');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vendor-keys-'));
+  const file = path.join(dir, 'vendors.local.json');
+  const names = ['TURNKEY_ORGANIZATION_ID', 'TURNKEY_API_PUBLIC_KEY', 'TURNKEY_API_PRIVATE_KEY'];
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      TURNKEY_ORGANIZATION_ID: ' org-SECRET ',
+      TURNKEY_API_PUBLIC_KEY: 'pub-SECRET',
+      TURNKEY_API_PRIVATE_KEY: 'priv-SECRET',
+    }),
+  );
+  assert.deepEqual(vendorKeys(names, file), {
+    TURNKEY_ORGANIZATION_ID: 'org-SECRET',
+    TURNKEY_API_PUBLIC_KEY: 'pub-SECRET',
+    TURNKEY_API_PRIVATE_KEY: 'priv-SECRET',
+  });
+  const refusal = (fn) => {
+    try {
+      fn();
+    } catch (err) {
+      return err.message;
+    }
+    assert.fail('expected a refusal');
+  };
+  const missing = refusal(() => vendorKeys([...names, 'OPENSANCTIONS_API_KEY'], file, 'the switch'));
+  assert.match(missing, /^the switch needs OPENSANCTIONS_API_KEY in .*vendors\.local\.json/);
+  assert.doesNotMatch(missing, /SECRET/, 'a refusal never carries a value');
+  fs.writeFileSync(file, '{"TURNKEY_ORGANIZATION_ID": "org-SECRET", broken');
+  const malformed = refusal(() => vendorKeys(names, file));
+  assert.doesNotMatch(malformed, /SECRET/, 'a malformed file is refused by its name alone');
+  assert.match(
+    refusal(() => vendorKeys(names, path.join(dir, 'none.json'))),
+    /needs TURNKEY_ORGANIZATION_ID, TURNKEY_API_PUBLIC_KEY/,
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  const envOf = (envs, name) => envs.find((d) => d.name === name).env;
+  const prior = { wallet: process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET, screener: process.env.LOCAL_STACK_PAY_SCREENER };
+  try {
+    delete process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET;
+    delete process.env.LOCAL_STACK_PAY_SCREENER;
+    const plain = localTestServiceEnvs(PLAN_SECRETS);
+    for (const { name, env } of plain)
+      for (const key of [...names, 'OPENSANCTIONS_API_KEY']) assert.equal(env[key], undefined, `${name} gets no ${key} by default`);
+    assert.equal(envOf(plain, 'protocol').PROTOCOL_EMBEDDED_WALLET_PROVIDER, 'TEST:test');
+    assert.equal(envOf(plain, 'pay').PAY_SCREENING_SCREENER, 'local-test');
+    // With the switch and no sealed file in this state folder, the start stops, naming the switch and the file.
+    process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET = 'turnkey';
+    assert.throws(() => localTestServiceEnvs(PLAN_SECRETS), /LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=turnkey needs TURNKEY_ORGANIZATION_ID/);
+    delete process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET;
+    process.env.LOCAL_STACK_PAY_SCREENER = 'opensanctions';
+    assert.throws(() => localTestServiceEnvs(PLAN_SECRETS), /LOCAL_STACK_PAY_SCREENER=opensanctions needs OPENSANCTIONS_API_KEY/);
+  } finally {
+    for (const [key, value] of [
+      ['LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET', prior.wallet],
+      ['LOCAL_STACK_PAY_SCREENER', prior.screener],
+    ])
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  }
 }

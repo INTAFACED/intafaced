@@ -81,8 +81,9 @@ const READ_ITEMS = {
       refusal: { type: 'boolean' },
       note: { type: 'string' },
       picture: { type: 'string', enum: PICTURE_VERDICTS },
+      picture_note: { type: 'string' },
     },
-    required: ['step', 'verdict', 'refusal', 'note', 'picture'],
+    required: ['step', 'verdict', 'refusal', 'note', 'picture', 'picture_note'],
     additionalProperties: false,
   },
 };
@@ -165,8 +166,14 @@ export async function buildReads({
     const text = after.has(jf) ? after.get(jf) : await src.read(head, jf);
     if (text == null) continue;
     headFiles.set(jf, text);
-    for (const t of testsIn(text, j)) if (!headTests.has(t.step)) headTests.set(t.step, jf);
+    for (const t of testsIn(text, j)) {
+      const files = headTests.get(t.step) ?? [];
+      if (!files.includes(jf)) files.push(jf);
+      headTests.set(t.step, files);
+    }
   }
+  // The file a step's read is recorded under: one the PR changed when it holds a test for the step, else the first.
+  const testFile = (s) => headTests.get(s).find((jf) => after.has(jf)) ?? headTests.get(s)[0];
   const notRead = [];
   const asked = [...new Set([...own, ...claimed])].sort();
   for (const s of asked) if (!headTests.has(s)) notRead.push({ step: s, why: 'no test for it at the head' });
@@ -208,7 +215,8 @@ export async function buildReads({
     ];
     let size = parts.reduce((n, p) => n + Buffer.byteLength(p) + 1, 0);
     const left = [];
-    for (const jf of [...new Set(steps.map((s) => headTests.get(s)))].sort()) {
+    // Every file holding a test for a read step (a split journey's sibling files included), as READ.md says.
+    for (const jf of [...new Set(steps.flatMap((s) => headTests.get(s)))].sort()) {
       const block = `\nBEGIN UNTRUSTED FILE at the head (${head.slice(0, 10)}) ${jf}\n${fence(headFiles.get(jf))}\nEND UNTRUSTED FILE`;
       const b = Buffer.byteLength(block) + 1;
       if (size + b > MAX_PROMPT_BYTES - 64_000) left.push(jf);
@@ -239,7 +247,7 @@ export async function buildReads({
     second: second.length ? promptFor(second) : null,
     required: reads,
     secondRequired: second,
-    read: { steps: reads.map((s) => ({ step: s, test_file: headTests.get(s), own: own.has(s), second: secondReason(s, count) })), notRead },
+    read: { steps: reads.map((s) => ({ step: s, test_file: testFile(s), own: own.has(s), second: secondReason(s, count) })), notRead },
     shingleTexts: reads.flatMap((s) => {
       const w = words.get(s);
       return [w.title, w.does, w.sees, ...WORD_FIELDS.map((k) => w.fields?.[k] ?? '')];
@@ -275,10 +283,15 @@ export async function writeReads(dir, opts) {
   return `reading #${opts.pr} at ${opts.head}: ${got.required.length} step(s), ${got.secondRequired.length} with a second reader; ${got.read.notRead.length} not read`;
 }
 
+/** The pictures whose finding the read keeps: what is broken and where, or what the picture shows instead. */
+export const PICTURE_NOTED = ['BROKEN', 'NOT SHOWN'];
+
 /**
  * One reader call's answer (`--output-format json`) checked against the steps it was asked, or why it can't be used.
  * `pictures`: meta.json's pictures (step id without spaces -> its picture); a step with none reads NOT READ, and a BROKEN
- * picture caps a FAITHFUL verdict at WEAK, so neither can pass whatever the reader answers.
+ * picture caps a FAITHFUL verdict at WEAK, so neither can pass whatever the reader answers. A BROKEN or NOT SHOWN
+ * picture keeps the reader's `picture_note`, so the builder who takes the step knows what to fix; a blank one is
+ * `picture_note: null` and counted in `unnoted`. The note changes no verdict and no cap.
  */
 export function readAnswer(path, required, pictures = {}) {
   if (!existsSync(path)) return { ok: false, why: 'the reader wrote no answer' };
@@ -297,7 +310,8 @@ export function readAnswer(path, required, pictures = {}) {
     READ_VERDICTS.includes(e.verdict) &&
     typeof e.refusal === 'boolean' &&
     typeof e.note === 'string' &&
-    PICTURE_VERDICTS.includes(e.picture);
+    PICTURE_VERDICTS.includes(e.picture) &&
+    typeof e.picture_note === 'string';
   if (!Array.isArray(given) || !given.every(good)) return { ok: false, why: 'the reads are not well-formed' };
   const by = new Map();
   for (const e of given) {
@@ -306,12 +320,15 @@ export function readAnswer(path, required, pictures = {}) {
     by.set(norm(e.step), e);
   }
   const lines = [];
+  let unnoted = 0;
   for (const s of required) {
     const e = by.get(norm(s));
     if (!e) return { ok: false, why: `the reader left ${s} unanswered` };
     const pic = pictures?.[countKey(s)];
     const picture = pic ? e.picture : 'NOT READ';
     const capped = picture === 'BROKEN' && e.verdict === 'FAITHFUL';
+    const noted = PICTURE_NOTED.includes(picture);
+    if (noted && !e.picture_note.trim()) unnoted++;
     lines.push({
       step: s,
       verdict: capped ? 'WEAK' : e.verdict,
@@ -321,9 +338,10 @@ export function readAnswer(path, required, pictures = {}) {
       picture_file: pic?.file ?? null,
       picture_run: pic?.run ?? null,
       capped,
+      picture_note: noted && e.picture_note.trim() ? e.picture_note : null,
     });
   }
-  return { ok: true, lines };
+  return { ok: true, lines, unnoted };
 }
 
 /**
@@ -347,7 +365,13 @@ export function readDoc(meta, lines, { reader, run, builder, set }) {
       red_before: null,
       green_after: null,
       readers: [{ thread: `${run}/${reader}`, verdict: l.verdict, refusal: l.refusal, note: redact(l.note, set) }],
-      picture: { seen: l.picture ?? 'NOT READ', file: l.picture_file ?? null, run: l.picture_run ?? null, capped: l.capped === true },
+      picture: {
+        seen: l.picture ?? 'NOT READ',
+        file: l.picture_file ?? null,
+        run: l.picture_run ?? null,
+        capped: l.capped === true,
+        ...(l.picture_note ? { note: redact(l.picture_note, set) } : {}),
+      },
     })),
     not_read: meta.read.notRead.map((n) => ({ step: countKey(n.step), why: n.why })),
   };
@@ -398,7 +422,9 @@ export function cmdRead(dir, env = process.env) {
   }
   const status = readStatus([...first.lines, ...second.lines]);
   writeFileSync(join(dir, 'status.tsv'), `${status.state}\t${status.description}\n`);
-  return { ok: true, why: `${status.state}: ${status.description}; files: ${out.join(', ')}` };
+  const unnoted = first.unnoted + (second.unnoted ?? 0);
+  const flag = unnoted ? `; ${unnoted} BROKEN or NOT SHOWN picture(s) without the reader's picture_note` : '';
+  return { ok: true, why: `${status.state}: ${status.description}; files: ${out.join(', ')}${flag}` };
 }
 
 async function main() {

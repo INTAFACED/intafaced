@@ -70,13 +70,13 @@ export function Deposit() {
       description={t('lead')}
       actions={
         <a className="text-link" href="/uc/assets">
-          {supportedAssetsCopy.t('linkLabel')} ↗
+          {supportedAssetsCopy.t('linkLabel')} <span aria-hidden="true">↗</span>
         </a>
       }
     >
       <DepositMethods />
       <div className="bd-columns">
-        <div className="bd-stack">
+        <div className="lt-stack">
           <DepthPanel title={t('asset')}>
             <DepositAssetPicker
               assets={assets}
@@ -102,7 +102,7 @@ export function Deposit() {
             />
           </DepthPanel>
           <DepositAddressPanel asset={asset} catalogue={catalogue.resource} networkId={networkId} />
-          <AccountDetailsPanel />
+          <AccountDetailsPanel framed />
           <DepthPanel title={t('warningTitle')}>
             <ul className="bd-list">
               <li>{t('warning1')}</li>
@@ -111,20 +111,20 @@ export function Deposit() {
             </ul>
           </DepthPanel>
         </div>
-        <div className="bd-stack">
+        <div className="lt-stack">
           <DepositPendingPanel />
           <DepositRecordsPanel assets={assets} />
           <DepthPanel title={t('historyTitle')} lead={t('historyLead')}>
             {asset && (
               <div className="bd-filter">
-                <span className="money-caption">{onlyAsset ? t('historyFilter', { asset }) : t('historyAll')}</span>
+                <span className="lt-muted">{onlyAsset ? t('historyFilter', { asset }) : t('historyAll')}</span>
                 <Button variant="ghost" onClick={() => setOnlyAsset(!onlyAsset)}>
                   {onlyAsset ? t('historyAll') : t('historyFilter', { asset })}
                 </Button>
               </div>
             )}
             {activity.status === 'loading' ? (
-              <p className="money-caption" role="status">
+              <p className="lt-muted" role="status">
                 …
               </p>
             ) : activity.status === 'error' ? (
@@ -162,7 +162,7 @@ export function Deposit() {
                           <ReportedTime value={row.postedAt} />
                         </td>
                         <td>
-                          <a className="text-link" href={`/money/activity/${encodeURIComponent(row.id)}`}>
+                          <a className="lt-link" href={`/money/activity/${encodeURIComponent(row.id)}`}>
                             {row.kind === 'welcome_funds' ? t('kindWelcome') : t('kindDeposit')}
                           </a>
                         </td>
@@ -175,7 +175,7 @@ export function Deposit() {
                   </tbody>
                 </table>
                 {total && (
-                  <p className="money-caption">
+                  <p className="lt-muted">
                     <Copy k="total" params={{ amount: displayAmount(str(total.amount)), asset: total.asset }} />
                   </p>
                 )}

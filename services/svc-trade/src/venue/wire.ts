@@ -10,15 +10,21 @@ import type { EventBus } from '@intafaced/events';
 import { VenueRefusalError } from '@intafaced/venue-contracts';
 import type { ServiceAuthMode, ServiceSigner, ServiceVerifier, StepUpCheck } from '@intafaced/contracts';
 import { env } from '../env.js';
+import { createMarketMaintenanceReader } from '../market-maintenance-read.js';
 import type { RankPerksSource } from '../spot/rank-perks.js';
 import { builderFeesAt } from './builder-fee-versions.js';
 import { createFeeSaverClient } from './fee-saver-client.js';
 import { HttpUserVenue } from './http-user-venue.js';
+import { VenueReadCallers } from './venue-read-callers.js';
 import { registerInternalVenueDeposits } from './internal-deposits.js';
 import { registerInternalEquity } from './internal-equity.js';
 import { registerInternalOurFills } from './internal-our-fills.js';
 import { registerInternalRealised } from './internal-realised.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
+import { DailyLossGuard } from './daily-loss-limit.js';
+import { createIdentityTradingRestrictionRead } from './trading-restriction.js';
+import { createEmailProofClient } from '../spot/email-proof.js';
+import { SqlDailyLossLimitStore } from './daily-loss-limit-store.js';
 import { UserVenueDoor, parseBuilderAddress, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
 import { SqlVenueListingStore } from './venue-listing-store.js';
 import {
@@ -76,22 +82,49 @@ export function wireUserVenue(deps: {
   const feeSaverCoupons = env.CAMPAIGNS_URL.trim()
     ? createFeeSaverClient(env.CAMPAIGNS_URL.trim(), env.INTERNAL_SERVICE_SECRET, outS2s)
     : null;
+  const maintenanceBoard = createMarketMaintenanceReader({ notifyUrl: env.NOTIFY_URL });
+  // The person's own daily loss limit (daily-loss-limit.ts): one store, checked by every door on a fresh opening order.
+  const dailyLossStore = new SqlDailyLossLimitStore(sql);
+  const dailyLoss = new DailyLossGuard({ store: dailyLossStore, now: () => new Date() });
+  // Who in svc-trade reads the venue, a minute at a time: the venue's own counter says what left, not who asked.
+  const readCallers = new VenueReadCallers(
+    () => new Date(),
+    (minute) => process.stderr.write(`${JSON.stringify({ level: 'info', msg: 'trade.venue_reads_minute', ...minute })}\n`),
+  );
+  // Identity's trading restriction (J-support-public-20 #7): every door reads it per new order, and refuses when unreadable.
+  const tradingRestriction = createIdentityTradingRestrictionRead({
+    baseUrl: env.IDENTITY_URL,
+    internalSecret: env.INTERNAL_SERVICE_SECRET,
+    s2s: outS2s,
+  });
+  // Identity's email proof (J-identity-01 #8): every door reads it per new order, and refuses when unreadable.
+  const emailProof = createEmailProofClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
   const userVenueDoors = userVenueUrls.map(
     (url, i) =>
       new UserVenueDoor({
         connect: async () => {
-          const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS });
+          const venue = await HttpUserVenue.connect({
+            baseUrl: url,
+            timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS,
+            onRead: readCallers.onRead,
+          });
           testListingSeeds[i]!.connected(venue);
           return venue;
         },
         listings: new StoreVenueRoutingGate(venueListings),
+        maintenanceBoard,
+        dailyLoss,
+        tradingRestriction,
+        emailProof,
         appEnv: process.env.APP_ENV,
+        betaPosture: process.env.INTAFACED_BETA_POSTURE,
         store: userVenueStore,
         stepUp,
         builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
         builderAddress: parseBuilderAddress(env.TRADE_USER_VENUE_BUILDER_ADDRESS),
         slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
         spreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
+        closeSlippageBps: env.TRADE_CLOSE_SLIPPAGE_BPS,
         ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
         // J-cex-spot-07: the owner's published dead-man timeouts arm the venue's own scheduled cancel.
         scheduledCancelTimeouts: env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
@@ -194,6 +227,7 @@ export function wireUserVenue(deps: {
     venueDelistingNotices,
     venueSellQuotes,
     venueConverts,
+    dailyLossStore,
     startAtBoot,
   };
 }

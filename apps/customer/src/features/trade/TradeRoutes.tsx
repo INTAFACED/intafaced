@@ -12,13 +12,17 @@ import { BotsRoom } from '../../screens/trade/copybots/BotsRoom';
 import { CopyRoom } from '../../screens/trade/copybots/CopyRoom';
 import { CalendarRoom, NewsRoom } from './news/NewsRooms';
 import { RiskControl } from './risk/RiskControl';
+import { JournalRoom } from './journal/JournalRoom';
+import { RiskRules } from './risk/RiskRules';
 import { PositionsRoom } from './positions/PositionsRoom';
 import { TradingAccountRoom } from './account/TradingAccountRoom';
 import { VaultsRoom } from './vaults/VaultsRoom';
+import { StakingRoom } from './staking/StakingRoom';
 import { OrderDetailRoom } from './orders/OrderDetailRoom';
-import { OrderHistoryRoom } from './orders/OrderHistoryRoom';
+import { OrderHistoryRoom, OrdersRoom } from './orders/OrderHistoryRoom';
 import { LeadApplyRoom } from './lead-apply/LeadApplyRoom';
 import { MarketAnalyticsRoom } from './market-analytics/MarketAnalyticsRoom';
+import { DataDownloadsRoom } from './data-downloads/DataDownloadsRoom';
 import { ScreenerRoom } from './screener/ScreenerRoom';
 import { FuturesOrderDetail } from './orders/FuturesOrderDetail';
 import { VENUE_ORDER_ID, VenueOrderDetail, VenueOrdersRoom } from './orders/VenueOrders';
@@ -58,20 +62,27 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/news') return <NewsRoom />;
   if (pathname === '/trade/calendar') return <CalendarRoom />;
   if (pathname === '/trade/risk') return <RiskControl />;
+  if (pathname === '/trade/journal') return <JournalRoom path={path} />;
+  if (pathname === '/trade/risk/rules') return <RiskRules />;
   if (pathname === '/trade/positions') return <PositionsRoom path={path} />;
   if (pathname === '/trade/account') return <TradingAccountRoom />;
   if (pathname === '/trade/vaults') return <VaultsRoom />;
+  if (pathname === '/trade/staking') return <StakingRoom />;
   if (pathname === '/trade/screener') return <ScreenerRoom />;
+  if (pathname === '/trade/markets/downloads') return <DataDownloadsRoom />;
   if (pathname === '/copy/lead/apply') return <LeadApplyRoom />;
   const analytics = /^\/trade\/analytics\/([^/]+)$/.exec(pathname);
   if (analytics) return <MarketAnalyticsRoom pair={decodedSegment(analytics[1]!)} />;
   // Spot and futures orders are two halves of one room; `?product=futures` picks the futures half and its order pages.
   // `?product=venue` is the person's own venue account (J-cex-spot-06); a venue order's page is its venue client order id.
+  // The plain address is the venue half when venue trading is on (the menus' Orders and Order history), else spot.
   const product = new URL(path, location.origin).searchParams.get('product');
   const futures = product === 'futures';
   if (pathname === '/trade/orders') {
     if (product === 'venue') return <VenueOrdersRoom path={path} />;
-    return futures ? <FuturesOrdersRoom path={path} /> : <OrderHistoryRoom path={path} />;
+    if (futures) return <FuturesOrdersRoom path={path} />;
+    if (product === 'spot') return <OrderHistoryRoom path={path} />;
+    return <OrdersRoom path={path} />;
   }
   const orderMatch = /^\/trade\/orders\/([^/]+)$/.exec(pathname);
   if (orderMatch) {

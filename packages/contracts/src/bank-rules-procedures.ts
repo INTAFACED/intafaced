@@ -50,6 +50,47 @@ export const BANK_RULES_SET_REMINDER = defineProcedure({
   ],
 });
 
+/**
+ * A rule that moves money by itself, by date or by balance, between the person's own spaces. Refused
+ * `bank.rule_terms_unset` while the owner has published no terms for such rules; nothing is stored.
+ */
+export const BANK_RULES_CREATE_MONEY_RULE = defineProcedure({
+  ...base,
+  name: 'bank.rules.createMoneyRule',
+  kind: 'mutation',
+  path: 'rules.createMoneyRule',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z
+    .object({
+      name: z.string().trim().min(1).max(60),
+      fromSpaceId: z.string().uuid(),
+      toSpaceId: z.string().uuid(),
+      trigger: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('date'), cadence: z.enum(['daily', 'weekly', 'monthly']) }).strict(),
+        z.object({ kind: z.literal('balance'), above: amountString }).strict(),
+      ]),
+      amount: amountString,
+      clientRequestId: z.string().min(1).max(128),
+    })
+    .strict(),
+  output: z.never(),
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        name: 'USDC',
+        fromSpaceId: '11111111-1111-4111-8111-111111111111',
+        toSpaceId: '11111111-1111-4111-8111-111111111111',
+        trigger: { kind: 'date', cadence: 'daily' },
+        amount: '1',
+        clientRequestId: 'USDC',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 export const BANK_RULES_GET = defineProcedure({
   ...base,
   name: 'bank.rules.get',

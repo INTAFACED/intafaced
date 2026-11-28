@@ -1,6 +1,7 @@
+import { startCustodyLayer } from '../local-test-state.mjs';
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
-import { userVenueSwitchOn } from '../local-test-venue.mjs';
+import { userVenueKind } from '../local-test-venue.mjs';
 
 /** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
 import { CHAIN_HOST, CHAIN_PORTS, LOCAL_TEST_SANCTIONED_ADDRESS, TEST_CHAIN_ID } from '../local-test-facts.mjs';
@@ -79,7 +80,7 @@ function originationFee() {
 }
 
 /**
- * The TEST partner card adapter's switches (CUSTODY-DELTA §4, `services/svc-bank/src/cards/partner-terms.ts`): the
+ * The TEST partner card adapter's switches (CUSTODY-DELTA §4, `crates/svc-bank/src/cards/terms.rs`): the
  * profile's TEST partner (holds the crypto; spends USDC, BTC and USD; liability, reserve and funder not known), or on a
  * restart `LOCAL_STACK_BANK_CARD_PARTNER`:
  *   · `wallet_pull`: the same partner, but the card pulls from the person's own wallet (J-bank-29 in its second mode);
@@ -258,6 +259,9 @@ function depositCustody(urlOf) {
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN, testChain }) => ({
   name: 'bank',
+  // The Rust binary (crates/svc-bank), built by the stack (ensureRustBinaries); it applies its own migrations
+  // (`svc-bank migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-bank', PORTS.bank),
     DATABASE_URL: dbUrl('svc_bank', secrets),
@@ -369,17 +373,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN, testC
     BANK_TEST_PARTNER: 'test',
     // LOCAL TEST cash leg of a cash convert (J-cex-spot-11 #11), not a partner's price: the TEST partner sells USDC at a
     // TEST 1.08 a euro and 1 a dollar, paid into the person's own TEST venue account. Only with the TEST venue running.
-    ...(userVenueSwitchOn(process.env.LOCAL_STACK_USER_VENUE)
+    ...(userVenueKind(process.env.LOCAL_STACK_USER_VENUE) === 'sim'
       ? { BANK_TEST_CASH_LEG_RATES: 'EUR:USDC:1.08,USD:USDC:1', BANK_TEST_CASH_LEG_VENUE_URL: urlOf('test-venue') }
       : {}),
     // LOCAL TEST tax-effect map (J-portfolio-03 #7; refused at boot outside dev/test): made up for test stacks, not the
     // owner's or counsel's call, and the answer and the screen say TEST.
     BANK_TAX_EFFECTS: 'test',
-    // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
-    // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
+    // The custody switch as svc-bank reads it, the same value as svc-ledger's (startCustodyLayer): on, the TEST stack runs
+    // the custodial layer for the journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
     // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
     // partner-held (OWNER 226).
-    LEDGER_CUSTODY_LAYER: 'on',
+    LEDGER_CUSTODY_LAYER: startCustodyLayer(),
     // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
     // through the pay-in stand-in below.

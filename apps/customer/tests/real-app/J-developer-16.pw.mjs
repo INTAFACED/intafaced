@@ -26,6 +26,8 @@ const COMPONENTS = [
 /** The labelled TEST owner values this journey runs with. Production has none until the owner sets them. */
 const TEST_VALUES = { componentCap: 5, stalenessSeconds: 600, uptimeDays: 7 };
 let emptyBoard = false;
+/** When #1's TEST reading was observed: #2 finds it on that day's uptime, which is yesterday on a run just after midnight UTC. */
+let readingAt = null;
 
 async function useEmptyBoard(on) {
   await restartService('notify', { LOCAL_STACK_NOTIFY_NOTICES: on ? 'off' : null });
@@ -48,6 +50,7 @@ test(`${J} #1 /status shows each component's state with an as-of time and an emp
   await useEmptyBoard(true);
   await configureStatusPage({ components: COMPONENTS, ...TEST_VALUES }, `TEST journey ${J} #1`);
   const observedAt = new Date(Date.now() - 30_000).toISOString();
+  readingAt = observedAt;
   await recordReading({ componentId: 'rest-api', state: 'operational', observedAt, source: 'TEST probe' });
 
   const page = await signedOutVisitor(browser);
@@ -67,7 +70,10 @@ test(`${J} #1 /status shows each component's state with an as-of time and an emp
   await page.context().close();
 });
 
-test(`${J} #2 the machine feed lists components, incidents with impact and updates, and uptime history`, async () => {
+test(`${J} #2 the machine feed lists components, incidents with impact and updates, and uptime history`, async ({
+  browser,
+  stepPicture,
+}) => {
   test.setTimeout(300_000);
   if (!emptyBoard) throw new Error('#1 left no status page of this journey to read');
   try {
@@ -113,9 +119,12 @@ test(`${J} #2 the machine feed lists components, incidents with impact and updat
     expect(api.basis).toBe('incident');
     expect(api.incidentId).toBe(root.id);
     expect(feed.components.find((c) => c.id === 'webhooks').state).toBe('no_data');
-    // Uptime history: one day per day of the window, oldest first; today's reading counts on today.
+    // Uptime history: one day per day of the window, oldest first, ending on the feed's own day; #1's reading counts on
+    // the day it was observed, which is yesterday on a run just after midnight UTC.
     for (const c of feed.components) expect(c.uptime).toHaveLength(TEST_VALUES.uptimeDays);
-    expect(api.uptime.at(-1)).toMatchObject({ date: utcDay(new Date()), state: 'operational' });
+    expect(api.uptime.at(-1).date).toBe(utcDay(new Date(feed.asOf)));
+    if (!readingAt) throw new Error('#1 recorded no reading of this journey to find');
+    expect(api.uptime.find((day) => day.date === utcDay(new Date(readingAt)))).toMatchObject({ state: 'operational' });
     expect(feed.components.find((c) => c.id === 'webhooks').uptime.every((day) => day.state === null)).toBe(true);
     // The incident with its impact and both updates.
     expect(feed.incidents).toHaveLength(1);
@@ -125,6 +134,18 @@ test(`${J} #2 the machine feed lists components, incidents with impact and updat
       ['TEST investigating slow answers', 'minor'],
       ['TEST fix deployed, watching', 'major'],
     ]);
+
+    // The feed as the developer reads it in a browser: the same JSON, with the incident, its updates and the uptime days.
+    const page = await signedOutVisitor(browser);
+    await page.goto(`${EDGE}/api/notify/v1/status`);
+    const shown = JSON.parse(await page.locator('pre').first().innerText());
+    expect(shown.components.map((c) => [c.id, c.uptime.length])).toEqual([
+      ['rest-api', TEST_VALUES.uptimeDays],
+      ['webhooks', TEST_VALUES.uptimeDays],
+    ]);
+    expect(shown.incidents.map((i) => [i.id, i.impact, i.updates.length])).toEqual([[root.id, 'major', 2]]);
+    await stepPicture(page);
+    await page.context().close();
   } finally {
     await useEmptyBoard(false);
   }
@@ -138,6 +159,7 @@ const undated = { title: `TEST ${RUN}: order replies change shape`, body: `TEST 
 
 test(`${J} #3 the developer changelog shows dated entries by area with a breaking flag; an entry with no date reads "date not set" and is not upcoming`, async ({
   browser,
+  stepPicture,
 }) => {
   for (const [key, text, changelog] of [
     [
@@ -170,6 +192,8 @@ test(`${J} #3 the developer changelog shows dated entries by area with a breakin
   await expect(undatedEntry).toHaveAttribute('data-breaking', 'true');
   await expect(undatedEntry).toContainText('WebSocket · Breaking');
   await expect(undatedEntry).toContainText('In effect date not set');
+  // The changelog with both entries, before the area filter and the upcoming page.
+  await stepPicture(page);
 
   // By area: only the trading entry under Trading.
   await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption('trading');
@@ -183,7 +207,10 @@ test(`${J} #3 the developer changelog shows dated entries by area with a breakin
   await page.context().close();
 });
 
-test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dates and the retired list`, async ({ browser }) => {
+test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dates and the retired list`, async ({
+  browser,
+  stepPicture,
+}) => {
   const page = await signedOutVisitor(browser);
   await page.goto('/notice');
   const main = page.locator('main');
@@ -201,6 +228,7 @@ test(`${J} #4 /notice gives advance notice of breaking changes, with cutover dat
   const row = notice.locator('tr').filter({ has: page.getByRole('rowheader', { name: retiredEndpoint }) });
   await expect(row).toContainText(`Retired by ${dated.title}`);
   await expect(row).toContainText(releaseOn);
+  await stepPicture(page);
   await page.context().close();
 });
 
@@ -268,7 +296,7 @@ test(`${J} #5 the version header applies and is echoed; without one the account 
   }
 });
 
-test(`${J} #6 a call with a deprecated field carries the advisory header and entry`, async () => {
+test(`${J} #6 a call with a deprecated field carries the advisory header and entry`, async ({ stepPicture }) => {
   if (!key) throw new Error('#5 left no key to call with');
   const order = { symbol: 'BTC/USDT', type: 'stop_limit', side: 'buy', amount: '0.0001', price: '1' };
   const deprecated = await withKey(key, {
@@ -297,5 +325,14 @@ test(`${J} #6 a call with a deprecated field carries the advisory header and ent
   expect(echo(current)).toEqual([LATEST_API_VERSION, 'header']);
   expect(current.headers.get('deprecation')).toBeNull();
   expect(current.headers.get('intafaced-advisories')).toBeNull();
-  await holder?.page.context().close();
+
+  // The advisory's entry as the developer finds it on the keys page: the deprecated field and its replacement.
+  const { page } = holder;
+  await page.goto('/uc/safe/api-keys');
+  const deprecations = page.getByTestId('api-version').getByTestId('api-version__deprecations');
+  await expect(deprecations).toContainText(`${advisories[0].method} ${advisories[0].path} ${advisories[0].field}`);
+  await expect(deprecations).toContainText(advisories[0].replacement);
+  await expect(deprecations).toContainText('removal date not set');
+  await stepPicture(page);
+  await page.context().close();
 });

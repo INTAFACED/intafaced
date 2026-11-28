@@ -127,23 +127,6 @@ const PINNED = {
   // 1 — packages/db
   'packages/db': [[1, "src/db.test.ts | TS2339 | Property 'dbCredentials' does not exist on type 'Config'."]],
 
-  // 5 — services/svc-agents
-  'services/svc-agents': [
-    [
-      2,
-      'src/crew-events.test.ts | TS2345 | Argument of type \'{ crewId: string; userId: string; role: string; crewSize: number; matchRunId: string; }\' is not assignable to parameter of type \'{ crewId: string; userId: string; role: "anchor" | "builder" | "catalyst" | "scout"; crewSize: number; matchRunId: string; }\'.',
-    ],
-    [3, "src/providers/providers.test.ts | TS2339 | Property 'message' does not exist on type 'CompletionResult | ProviderError'."],
-  ],
-
-  // 1 — services/svc-bank
-  'services/svc-bank': [
-    [
-      1,
-      "src/loans/loans.test.ts | TS2353 | Object literal may only specify known properties, and 'quality' does not exist in type 'Mark'.",
-    ],
-  ],
-
   // 1 — services/svc-dex
   'services/svc-dex': [[1, "src/quote/adapters.test.ts | TS2552 | Cannot find name 'RequestInfo'. Did you mean 'RequestInit'?"]],
 

@@ -2236,7 +2236,22 @@ describe('private REST — mount boundary + order write path', () => {
       ],
       tiers: ['regular'],
       feeToken: null,
+      ownBook: true,
     });
+    await app.close();
+  });
+
+  it('GET /fees/published: with our own book off, the schedule says so: every order pays the venue', async () => {
+    const app = await build(
+      deps({
+        ownBookEnabled: false,
+        markets: async () => [fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 })],
+        feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' })),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ version: 'desk', ownBook: false });
     await app.close();
   });
 
@@ -2363,6 +2378,7 @@ describe('private REST — mount boundary + order write path', () => {
       ],
       tiers: ['regular'],
       feeToken: null,
+      ownBook: true,
     });
     await app.close();
   });

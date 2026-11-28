@@ -1,13 +1,15 @@
+// volt-room: /uc/safe/compromised
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { COMPROMISE_NOTE_MAX, type CompromiseCase, type CompromiseChecklistItem } from '@intafaced/contracts/identity-compromise';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { SettingsTemplate } from '@intafaced/ui/lit/templates';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { compromiseCopy as copy } from './compromise-copy';
-import './security.css';
 import {
   IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
   IDENTITY_ACCOUNT_COMPROMISED_MINE,
@@ -57,23 +59,29 @@ export function Compromised() {
   if (resource.status === 'ready') last.current = { case: resource.data?.case ?? null };
   const shown = resource.status === 'ready' || resource.status === 'loading' ? last.current : null;
   return (
-    <div data-testid="compromised" className="security stack" lang={languageFor('title')}>
-      <header>
-        <h1>{t('title')}</h1>
-        <p className="muted">{t('intro')}</p>
-      </header>
-      {resource.status === 'loading' && !shown && <Loading />}
-      {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {shown && (shown.case ? <OpenCase open={shown.case} reload={reload} /> : <Start />)}
-      <p className="muted">
-        <a className="text-link" href="/help/official-channels">
-          {t('scamLinks')}
-        </a>{' '}
-        ·{' '}
-        <a className="text-link" href="/support/new?topic=phishing">
-          {t('reportScam')}
-        </a>
-      </p>
+    <div data-testid="compromised" lang={languageFor('title')}>
+      <SettingsTemplate
+        title={t('title')}
+        description={t('intro')}
+        state={{ kind: 'ready' }}
+        sections={
+          <>
+            {resource.status === 'loading' && !shown && <Loading />}
+            {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
+            {shown && (shown.case ? <OpenCase open={shown.case} reload={reload} /> : <Start />)}
+            <p className="lt-hint">
+              <a className="lt-link" href="/help/official-channels">
+                {t('scamLinks')}
+              </a>{' '}
+              ·{' '}
+              <a className="lt-link" href="/support/new?topic=phishing">
+                {t('reportScam')}
+              </a>
+            </p>
+          </>
+        }
+        explain={<p>{t('explain')}</p>}
+      />
     </div>
   );
 }
@@ -108,7 +116,7 @@ function Start() {
 
   if (secured) {
     return (
-      <section data-testid="security__card" className="security__card" role="status">
+      <section data-testid="security__card" role="status">
         <h2>{t('securedTitle')}</h2>
         <p>{t('securedBody')}</p>
       </section>
@@ -116,7 +124,7 @@ function Start() {
   }
   const refusal = failure?.code ? START_REFUSALS[failure.code] : undefined;
   return (
-    <section data-testid="security__card" className="security__card" aria-labelledby="compromised-what">
+    <section data-testid="security__card" aria-labelledby="compromised-what">
       <h2 id="compromised-what">{t('whatTitle')}</h2>
       <ul data-testid="compromised__what">
         <li>{t('whatSessions')}</li>
@@ -126,13 +134,13 @@ function Start() {
       </ul>
       {failure &&
         (refusal ? (
-          <p className="notice" role="alert">
+          <p className="lt-refusal" role="alert">
             {t(refusal)}
           </p>
         ) : (
           <Failure result={failure} />
         ))}
-      <form ref={form} method="post" className="stack" onSubmit={submit} noValidate>
+      <form ref={form} method="post" onSubmit={submit} noValidate>
         <Field
           label={t('passwordField')}
           name="compromise-password"
@@ -143,8 +151,8 @@ function Start() {
           error={problem ? t('passwordNeeded') : undefined}
           data-security-sensitive="true"
         />
-        <div className="actions">
-          <Button type="submit" variant="danger" disabled={busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {busy ? t('working') : t('start')}
           </Button>
         </div>
@@ -175,26 +183,26 @@ function OpenCase({ open, reload }: { open: CompromiseCase; reload: () => void }
 
   return (
     <>
-      <section data-testid="compromised__case" data-case-id={open.id} className="security__card" aria-labelledby="compromised-case">
+      <section data-testid="compromised__case" data-case-id={open.id} aria-labelledby="compromised-case">
         <h2 id="compromised-case">{t('caseTitle')}</h2>
         <p>{t('caseOpened', { date: stamp(open.openedAt, timeZone), sessions: open.sessionsEnded, keys: open.keysEnded })}</p>
         <h3>{t('checklistTitle')}</h3>
-        <p className="muted">{t('checklistBody')}</p>
+        <p className="lt-hint">{t('checklistBody')}</p>
         {failure && <Failure result={failure} />}
-        <ol data-testid="compromised__checklist" className="security__rows">
+        <ol data-testid="compromised__checklist">
           {open.checklist.map(({ item, doneAt }) => (
-            <li key={item} data-item={item} data-done={doneAt !== null} className="security__row">
+            <li key={item} data-item={item} data-done={doneAt !== null}>
               <div>
-                <strong>{t(item)}</strong> <span className="badge">{doneAt ? t('done') : t('pending')}</span>
-                {doneAt && <span className="muted"> · {t('doneOn', { date: stamp(doneAt, timeZone) })}</span>}
-                {!doneAt && <p className="muted">{t(`${item}Why`)}</p>}
+                <strong>{t(item)}</strong> <span className="lt-chip">{doneAt ? t('done') : t('pending')}</span>
+                {doneAt && <span className="lt-hint"> · {t('doneOn', { date: stamp(doneAt, timeZone) })}</span>}
+                {!doneAt && <p className="lt-hint">{t(`${item}Why`)}</p>}
                 <p>
-                  <a className="text-link" href={ITEM_LINKS[item]}>
+                  <a className="lt-link" href={ITEM_LINKS[item]}>
                     {t(`${item}Link`)}
                   </a>
                 </p>
                 {item === 'addresses' && !doneAt && (
-                  <Button variant="secondary" disabled={busy} onClick={() => void reviewed('addresses')}>
+                  <Button tone="secondary" disabled={busy} onClick={() => void reviewed('addresses')}>
                     {t('addressesReviewed')}
                   </Button>
                 )}
@@ -251,28 +259,28 @@ function StolenFunds({ open, onFiled }: { open: CompromiseCase; onFiled: () => v
   }
 
   return (
-    <section data-testid="compromised__stolen-funds" className="security__card" aria-labelledby="compromised-stolen">
+    <section data-testid="compromised__stolen-funds" aria-labelledby="compromised-stolen">
       <h2 id="compromised-stolen">{t('stolenTitle')}</h2>
       <p>{t('stolenBody')}</p>
       {filed && <p role="status">{t('stolenFiled')}</p>}
       {failure && <Failure result={failure} />}
-      <form className="stack" onSubmit={submit} noValidate>
-        <label className="field">
+      <form onSubmit={submit} noValidate>
+        <label className="lt-field">
           <span>{t('stolenField')}</span>
           <textarea lang="und" value={body} onChange={(event) => setBody(event.target.value)} rows={5} disabled={busy} />
-          <small className={problem ? 'error-text' : ''}>
+          <small className="lt-hint">
             {problem ? t(problem, { max: COMPROMISE_NOTE_MAX }) : t('stolenHint', { max: COMPROMISE_NOTE_MAX })}
           </small>
         </label>
-        <div className="actions">
-          <Button type="submit" disabled={busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {t('stolenSend')}
           </Button>
         </div>
       </form>
       <h3>{t('notesTitle')}</h3>
       {open.notes.length === 0 ? (
-        <p className="muted">{t('notesNone')}</p>
+        <p className="lt-hint">{t('notesNone')}</p>
       ) : (
         <ul data-testid="compromised__notes">
           {open.notes.map((note) => (

@@ -3,8 +3,10 @@
  * small text/number helpers a row needs. No React here, so every rule is unit tested (select.test.ts).
  * Money is decimal strings and bigint only; floats appear once, to place the range marker (drawing).
  */
-import { add, compareDecimal, dec, fmtAmount, fmtPct, fmtPrice, fmtUsd, normalizePair, ratio, signOf, str, sub, SCALE } from './deps';
-import type { Decimal, MarketData, TickerRow } from './deps';
+import { SCALE } from '@intafaced/money-math';
+import { fmtAmount, fmtPct, fmtPrice, fmtUsd, type Decimal, type MarketRow as MarketData, type TickerRow } from '../../../data';
+import { add, compareDecimal, dec, ratio, signOf, str, sub } from '../../../data/decimal';
+import { normalizePair } from '../../../app/navigation';
 
 export type TickerMap = Record<string, TickerRow> | undefined;
 
@@ -13,7 +15,7 @@ export type MarketColumn = 'name' | 'price' | 'change' | 'spark' | 'range' | 'vo
 export const ALL_COLUMNS: readonly MarketColumn[] = ['name', 'price', 'change', 'spark', 'range', 'volume', 'action'];
 
 export type Mode = 'simple' | 'pro';
-export type Tab = 'favorites' | 'spot';
+export type Tab = 'favorites' | 'all' | 'spot' | 'perps';
 export type Chip = 'all' | 'gainers' | 'losers' | 'new';
 export type SortKey = 'name' | 'price' | 'change' | 'volume';
 export type SortDir = 'asc' | 'desc';
@@ -55,6 +57,59 @@ export interface FilterState {
 export interface Entry {
   market: MarketData;
   ticker: TickerRow | undefined;
+  /** Set on a perpetual only: its venue facts, each null until a read carries it. */
+  perp?: PerpFacts;
+}
+
+/** A perpetual's facts from the venue read; null where the read carries none, drawn as "—". */
+export interface PerpFacts {
+  /** A multiple, "40". */
+  maxLeverage: Decimal | null;
+  /** The hourly funding rate as a ratio, "0.000012". */
+  funding1h: Decimal | null;
+  /** The open contracts' value in the quote asset. */
+  openInterest: Decimal | null;
+}
+
+export const isPerp = (entry: Entry): boolean => entry.perp !== undefined;
+
+/** "40x", or null when the venue publishes no maximum. */
+export function leverageText(perp: PerpFacts | undefined): string | null {
+  const value = perp?.maxLeverage ?? null;
+  if (dec(value) === null) return null;
+  return `${fmtAmount(value, { places: 0 })}x`;
+}
+
+/** "+0.0012%": funding is a small rate, so four places; "—" when unknown or not a perpetual. */
+export function fundingText(perp: PerpFacts | undefined): string {
+  return fmtPct(perp?.funding1h ?? null, { places: 4 });
+}
+
+/** Open interest in the quote currency, compact ("$2.9B"); "—" when unknown or not a perpetual. */
+export function interestText(market: MarketData, perp: PerpFacts | undefined): string {
+  const value = perp?.openInterest ?? null;
+  if (dec(value) === null) return '—';
+  return isUsdQuote(market.quote) ? fmtUsd(value, { compact: true }) : `${fmtAmount(value, { places: 2 })} ${market.quote}`;
+}
+
+/** The name a row reads by: "BTC-PERP" for a perpetual, "BTC/USDC" for spot. */
+export const displayName = (entry: Entry) => (entry.perp ? `${entry.market.base}-PERP` : `${entry.market.base}/${entry.market.quote}`);
+
+/** Largest 24h volume first, markets without a figure after; one row per coin and kind, so BTC-PERP and BTC/USDC both stay. */
+export function byVolume(entries: readonly Entry[]): Entry[] {
+  const sorted = [...entries].sort((a, b) => byDecimal(a.ticker?.quoteVolume24h, b.ticker?.quoteVolume24h, 'desc'));
+  const key = (entry: Entry) => `${entry.market.base}|${isPerp(entry)}`;
+  return sorted.filter((entry, i) => sorted.findIndex((other) => key(other) === key(entry)) === i);
+}
+
+const absolute = (value: Decimal | null | undefined): Decimal | null => (value == null ? null : value.replace(/^[-−]/, ''));
+
+/** The biggest 24h moves either way, across every market that has a price and a 24h figure (the board's movers). */
+export function topMovers(entries: readonly Entry[], size = 6): Entry[] {
+  const moved = entries.filter((entry) => dec(entry.ticker?.last) !== null && dec(entry.ticker?.changePct24h) !== null);
+  return byVolume(moved)
+    .sort((a, b) => byDecimal(absolute(a.ticker?.changePct24h), absolute(b.ticker?.changePct24h), 'desc'))
+    .slice(0, size);
 }
 
 /** Open markets only, or with `includePaused` the ones the service lists as not orderable too (they draw a Paused badge). */
@@ -180,16 +235,43 @@ export function topCards(entries: readonly Entry[], size = 3): Card[] {
  * Where a row (or its Buy/Trade button) goes. Simple opens the coin page (or the Buy card while it is hidden); Pro always opens the desk,
  * whose route writes the pair with a dash ("BTC-USDT") although the service names it "BTC/USDT".
  * The coin page needs a session (it shows the person's holding), so a signed-out visitor goes to the public Buy card instead of a sign-in wall.
+ * Null while the desk is hidden too (the beta's build leaves it out): the row then names its market with no link, because
+ * the beta draws a link to a hidden room as nothing, with every word inside it (src/app/beta-links.ts).
  */
-export function marketTarget(market: MarketData, mode: Mode, isHidden: (path: string) => boolean, signedIn = true): string {
+export function marketTarget(market: MarketData, mode: Mode, isHidden: (path: string) => boolean, signedIn = true): string | null {
   if (mode === 'simple' && signedIn && !isHidden('/coin/:asset')) return `/coin/${encodeURIComponent(market.base)}`;
   if (mode === 'simple' && !isHidden('/trade/buy')) return `/trade/buy?asset=${encodeURIComponent(market.base)}`;
-  return `/trade/spot/${normalizePair(market.symbol)}`;
+  const desk = `/trade/spot/${normalizePair(market.symbol)}`;
+  return isHidden(desk) ? null : desk;
+}
+
+/**
+ * Where a row of either kind goes: a perpetual opens the futures desk on its contract (null where the build hides that
+ * desk); a spot market goes where `marketTarget` says.
+ */
+export function entryTarget(entry: Entry, mode: Mode, isHidden: (path: string) => boolean, signedIn = true): string | null {
+  if (!entry.perp) return marketTarget(entry.market, mode, isHidden, signedIn);
+  return isHidden('/trade/futures') ? null : `/trade/futures/${encodeURIComponent(entry.market.symbol)}`;
 }
 
 /** "$67,812.40" for a dollar-quoted market, "0.0123 BTC" otherwise; an unknown price is a bare "—". */
+/**
+ * The places a price is shown with: its tick's, but never more than about six significant digits, so a venue that
+ * publishes a hair-thin tick (Hyperliquid's spot BTC at 0.00000001) still reads $65,206.98, never $65,206.98000000.
+ */
+function displayTick(tickSize: Decimal | null | undefined, value: Decimal | null | undefined): Decimal | null | undefined {
+  const tickPlaces = tickSize?.includes('.') ? tickSize.split('.')[1]!.replace(/0+$/, '').length : 0;
+  const text = value?.replace(/^-/, '') ?? '';
+  if (!/^\d+(\.\d+)?$/.test(text)) return tickSize;
+  const [whole = '0', fraction = ''] = text.split('.');
+  const wholeDigits = whole.replace(/^0+/, '').length;
+  const sig = wholeDigits > 0 ? Math.max(2, 6 - wholeDigits) : (fraction.match(/^0*/)?.[0].length ?? 0) + 4;
+  const places = tickSize ? Math.min(tickPlaces, sig) : sig;
+  return places === 0 ? '1' : `0.${'0'.repeat(places - 1)}1`;
+}
+
 export function priceText(market: MarketData, value: Decimal | null | undefined): string {
-  const price = fmtPrice(value, market.tickSize);
+  const price = fmtPrice(value, displayTick(market.tickSize, value));
   if (price === '—') return price;
   return isUsdQuote(market.quote) ? `$${price}` : `${price} ${market.quote}`;
 }

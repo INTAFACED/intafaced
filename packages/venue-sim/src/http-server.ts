@@ -18,11 +18,13 @@ import {
   type UserVenueMarketStatus,
   type VenueIntent,
   type VenueSignature,
+  type VenueSubmitOutcome,
   type VenueSigner,
   type VenueCandleInterval,
   VENUE_CANDLE_INTERVALS,
 } from '@intafaced/venue-contracts';
 import type { TestVenueTypedData } from './signing.js';
+import { loadTestInstruments } from './instruments.js';
 import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketConfig } from './simulator.js';
 
 /**
@@ -42,6 +44,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /builder-account-mode {builder}   the address's account mode and the mode required to accrue builder fees
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
  *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /vaults, /vault-holdings {account}, /book {symbol,depth},
+ *        /position-mode {account,symbol}   the position mode the account holds one perpetual in (J-derivatives-05 #3)
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
@@ -54,20 +57,30 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   POST /test/deposit-route {asset, route: {network,how} | null}   the venue's route for an asset its bridge does not take
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?,builderModeRequirementUnpublished?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,tradesSignedBy?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?,builderModeRequirementUnpublished?}   each fee a MaybeKnown<Amount>
  *        /test/account-mode {account,mode?,actionsToday?,unreported?,refuseSwitch?}   the account's mode (J-derivatives-29),
  *                                                         the day's action count, the mode withheld from reads, a mode
  *                                                         switch the venue refuses with that reason (null: takes it)
+ *        /staking, /staking-account {account}             the venue's staking terms, and one account's staking (J-cex-spot-21)
+ *        /test/staking-published {rewardRate?,tiers?}     the venue withholds its staking reward rate or discount tiers, or publishes them again
+ *        /test/staking {account,passLockUp?,passQueue?,reward?,fillPending?}   one account's staking, moved as the venue's
+ *                                                         clock or the venue would (a lock-up passed, the queue arrived, a
+ *                                                         reward paid, withdrawals queued up to the venue's limit)
  *        /test/vault-lockup {account,vault}               the venue's clock passes one account's lock-up in one vault
  *                                                         (J-derivatives-31 #5); every other position keeps its own
- *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
+ *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?,refuseTriggerMoves?,refuseClose?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down
  *                                                         (and the read of its account mode as a builder);
  *                                                         `loseAnswers` applies the next N submits and answers each
  *                                                         `definite: false` (timeout); `failAfterSend` applies the next N
  *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
- *                                                         that long (at most 10 s) before the venue applies it
+ *                                                         that long (at most 10 s) before the venue applies it;
+ *                                                         `refuseTriggerMoves` (the venue's reason, or null) refuses each
+ *                                                         move of a resting stop or take profit, nothing moved;
+ *                                                         `refuseClose` {symbol,reason} refuses every reduce-only order
+ *                                                         on that market definitely, in the reason's words, applying
+ *                                                         nothing (null: takes them again; J-derivatives-33 #4)
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}   the mark moves; a trigger order it crosses fires
  *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
  *        /test/market-triggers {symbol,sources}           the prices a perpetual's trigger orders may be judged on ([]: none)
@@ -75,6 +88,10 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
  *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
  *        /test/fills {since}                              every account's fills since a time, with its account
+ *        /test/history-kept {symbol,fillsFrom?,candlesFrom?}   the venue keeps that market's fills (every account's) or its
+ *                                                         candles only from that time on, as a venue keeps a bounded
+ *                                                         history (Hyperliquid: the newest 10,000 fills, 5,000 candles);
+ *                                                         null keeps all again (J-portfolio-18 #3 #7)
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP,
  *                                                         XSTK-PERP and XSTD-PERP
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
@@ -107,18 +124,8 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
 
-/**
- * The rules the TEST venue publishes on its cash spot markets (J-cex-spot-04 #2): the smallest order value, a price band
- * around the middle of its own book, and the most open orders one account may hold, in the shape a real venue publishes
- * them (Hyperliquid publishes a 10-unit quote minimum on spot and 1000 open orders per account by default). TEST figures,
- * set loose so no journey's TEST order on the shared markets meets them: 1 USDC, 95% (9500 bps) of the book's middle,
- * 1000 orders. A journey that proves the rules lists a market of its own (`/test/market-add`) with its own figures.
- */
-export const TEST_SPOT_RULES = {
-  minOrderNotional: parseAmount('1'),
-  priceBandBps: parseAmount('9500'),
-  maxOpenOrders: 1000,
-} as const;
+import { TEST_SPOT_RULES } from './instruments/shared.js';
+export { TEST_SPOT_RULES };
 
 const rates = (maker: string, taker: string) =>
   ({
@@ -142,489 +149,17 @@ export const TEST_VENUE_FEE_TIERS = {
   volumeDays: 30,
 };
 
-/** The venue itself as the lister of its own markets (the BTC markets). */
-const VENUE_LISTED = { kind: 'venue', name: 'TEST venue simulator' } as const;
-
 /**
- * The stack's TEST markets: BTC-USDC cash spot, the BTC-PERP perpetual, ETH-USDC cash spot with no ladder (a market the
- * venue lists that INTAFACED has not reviewed: J-cex-spot-16), and XAU-PERP, a TEST gold perpetual a TEST HIP-3 deployer
- * lists, priced by the simulator's own TEST oracle; perpetuals take isolated margin only. Every market starts `trading`
- * with a TEST largest order. Every figure and word is TEST: the oracle reads no outside gold price.
+ * The stack's TEST markets, one file each in `./instruments/` (instruments.ts), in file-name order: BTC-USDC cash spot,
+ * the BTC-PERP perpetual, ETH-USDC cash spot with no ladder (a market the venue lists that INTAFACED has not reviewed:
+ * J-cex-spot-16), and each journey's own TEST perpetual, its file naming the journey. Every figure and word is TEST.
  */
-export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
-  {
-    symbol: 'BTC-USDC',
-    kind: 'spot',
-    baseAsset: 'BTC',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC', 'ALO'],
-    marginModes: [],
-    maxLeverageBps: null,
-    tickSize: parseAmount('1'),
-    lotSize: parseAmount('0.0001'),
-    makerFeeBps: { known: true, value: parseAmount('1') },
-    takerFeeBps: { known: true, value: parseAmount('3.5') },
-    status: 'trading',
-    // TEST: roomy enough for every journey's TEST orders on the shared BTC markets (J-cex-spot-01 #8 sells 100 BTC);
-    // J-cex-spot-16 proves the venue's own caps on TEST markets of its own (/test/market-add, /test/market-limits).
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('100000000'),
-    // TEST: the venue's own cap on a builder fee, 1% on spot (the figure Hyperliquid publishes for its builder codes).
-    builderFeeCapBps: { known: true, value: parseAmount('100') },
-    ...TEST_SPOT_RULES,
-  },
-  {
-    symbol: 'BTC-PERP',
-    kind: 'perpetual',
-    baseAsset: 'BTC',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 200_000,
-    tickSize: parseAmount('1'),
-    lotSize: parseAmount('0.0001'),
-    makerFeeBps: { known: true, value: parseAmount('1.5') },
-    takerFeeBps: { known: true, value: parseAmount('4.5') },
-    // TEST: the venue's own cap on a builder fee, 0.1% on perpetuals (the figure Hyperliquid publishes for its builder codes).
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.005'),
-    markPrice: parseAmount('60000'),
-    // TEST: one contract is one BTC, and the venue publishes a TEST hourly funding rate of 0.00125% (it settles none).
-    contractSize: parseAmount('1'),
-    funding: { rate: parseAmount('0.0000125'), intervalSeconds: 3600 },
-    status: 'trading',
-    // TEST: roomy enough for every journey's TEST orders on the shared BTC markets (J-cex-spot-01 #8 sells 100 BTC);
-    // J-cex-spot-16 proves the venue's own caps on TEST markets of its own (/test/market-add, /test/market-limits).
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('100000000'),
-    listedBy: VENUE_LISTED,
-  },
-  {
-    symbol: 'ETH-USDC',
-    kind: 'spot',
-    baseAsset: 'ETH',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC', 'ALO'],
-    marginModes: [],
-    maxLeverageBps: null,
-    tickSize: parseAmount('0.1'),
-    lotSize: parseAmount('0.001'),
-    makerFeeBps: { known: true, value: parseAmount('1') },
-    takerFeeBps: { known: true, value: parseAmount('3.5') },
-    status: 'trading',
-    maxOrderQty: parseAmount('500'),
-    maxOrderNotional: parseAmount('2000000'),
-    // TEST: the same spot builder-fee cap as BTC-USDC.
-    builderFeeCapBps: { known: true, value: parseAmount('100') },
-    ...TEST_SPOT_RULES,
-  },
+export const TEST_INSTRUMENTS = await loadTestInstruments();
+export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = TEST_INSTRUMENTS.map((i) => i.market);
 
-  {
-    // TEST: a perpetual of its own for the venue's trigger orders (J-derivatives-03): a take profit, a stop loss, a stop
-    // market and a stop limit rest here, judged on the mark or the last trade, and only J-derivatives-03 trades it, so
-    // moving its mark (/test/set-mark) or pulling a side of its ladder (/test/pull-ladder) reaches no other journey.
-    symbol: 'ETH-PERP',
-    kind: 'perpetual',
-    baseAsset: 'ETH',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 200_000,
-    tickSize: parseAmount('0.1'),
-    lotSize: parseAmount('0.001'),
-    makerFeeBps: { known: true, value: parseAmount('1.5') },
-    takerFeeBps: { known: true, value: parseAmount('4.5') },
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.005'),
-    markPrice: parseAmount('3000'),
-    contractSize: parseAmount('1'),
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('100000000'),
-    listedBy: VENUE_LISTED,
-    triggerSources: ['mark', 'last'],
-    // TEST: priced by its TEST oracle, so a fill never moves its mark: a journey step moves it only by /test/set-mark.
-    oracle: {},
-  },
-  {
-    symbol: 'XAU-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XAU',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 100_000,
-    tickSize: parseAmount('0.1'),
-    lotSize: parseAmount('0.01'),
-    makerFeeBps: { known: true, value: parseAmount('1') },
-    takerFeeBps: { known: true, value: parseAmount('3') },
-    // TEST: the same perpetual builder-fee cap as BTC-PERP.
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.01'),
-    markPrice: parseAmount('2650'),
-    // TEST: one contract is one unit of the base; no funding rate is published for it.
-    contractSize: parseAmount('1'),
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('10000000'),
-    listedBy: { kind: 'hip3', name: 'TEST gold deployer' },
-    oracleRule: "TEST oracle: one XAU/USD price, set by the simulator's TEST control; it reads no outside gold price.",
-    markRule: 'The mark price is the oracle price; fills do not move it.',
-    tradingHours: '24/7, no close',
-    oracle: {
-      staleRule: 'While the oracle is stale the mark holds at the last oracle price and only reduce-only orders are taken.',
-    },
-  },
-  {
-    // J-derivatives-27: a TEST stock perpetual a TEST HIP-3 deployer lists, priced by the simulator's own TEST feed, with
-    // a TEST home market whose hours the simulator's TEST control sets. It tracks no real company's share.
-    symbol: 'XSTK-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XSTK',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 100_000,
-    tickSize: parseAmount('0.01'),
-    lotSize: parseAmount('0.1'),
-    makerFeeBps: { known: true, value: parseAmount('1') },
-    takerFeeBps: { known: true, value: parseAmount('3') },
-    // TEST: the same perpetual builder-fee cap as BTC-PERP.
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.02'),
-    markPrice: parseAmount('200'),
-    // TEST: one contract is one unit of the base; no funding rate is published for it.
-    contractSize: parseAmount('1'),
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('1000000'),
-    listedBy: { kind: 'hip3', name: 'TEST stock deployer' },
-    oracleRule:
-      "TEST price feed: one XSTK/USD price for a TEST stock, set by the simulator's TEST control; it reads no outside share price.",
-    markRule: 'The mark price is the feed price; fills do not move it.',
-    tradingHours:
-      "24/7 on the venue. The TEST home market's hours are set by the simulator's TEST control; while it is closed the venue's off-hours mode applies.",
-    oracle: {
-      staleRule: 'While the feed is stale the mark holds at the last feed price and only reduce-only orders are taken.',
-    },
-    session: {
-      homeMarket: 'TEST home exchange',
-      offHoursMode: 'The mark holds at the last open-hours price; only limit orders inside the band are taken, at reduced leverage.',
-      offHoursBand: 'Limit prices within 5% of the mark when the home market closed.',
-      offHoursBandBps: 500,
-      offHoursMaxLeverageBps: 20_000,
-      offHoursRule:
-        'Off hours XSTK-PERP takes no market orders, and only limit orders within 5% of the closing mark at up to 2x; market orders wait for the home market to reopen.',
-      // TEST: the venue publishes a reopen time one hour after the TEST control closes the home market.
-      reopensAfterMs: 3_600_000,
-    },
-  },
-  {
-    // J-derivatives-27 #7 to #10: a second TEST stock perpetual, listed by a TEST HIP-3 deployer that keeps its own margin
-    // account for it (as a HIP-3 deployer's market is margined apart from the main account), with its own collateral and
-    // margin mode and a cap on its open interest. Priced by the simulator's own TEST feed; it tracks no real company's share.
-    symbol: 'XSTD-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XSTD',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 100_000,
-    tickSize: parseAmount('0.01'),
-    lotSize: parseAmount('0.1'),
-    makerFeeBps: { known: true, value: parseAmount('1') },
-    takerFeeBps: { known: true, value: parseAmount('3') },
-    // TEST: the same perpetual builder-fee cap as BTC-PERP.
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.02'),
-    markPrice: parseAmount('100'),
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('1000000'),
-    listedBy: { kind: 'hip3', name: 'TEST stock margin deployer' },
-    oracleRule:
-      "TEST price feed: one XSTD/USD price for a TEST stock, set by the simulator's TEST control; it reads no outside share price.",
-    markRule: 'The mark price is the feed price; fills do not move it.',
-    tradingHours: '24/7 on the venue.',
-    oracle: {
-      staleRule: 'While the feed is stale the mark holds at the last feed price and only reduce-only orders are taken.',
-    },
-    marginAccount: { name: 'TEST stock margin deployer margin', collateralAsset: 'USDC', marginMode: 'isolated' },
-    // TEST: room for every TEST order on it; J-derivatives-27 #8 lowers it for one step.
-    openInterestCap: parseAmount('500'),
-  },
-  {
-    // J-derivatives-02: a TEST perpetual of its own whose venue publishes its margin tiers, what it takes as margin with
-    // its haircut, and a cap on its open interest, so a trade can be sized against the venue's own risk figures. Only
-    // J-derivatives-02 trades it, so lowering its cap for one step reaches no other journey. It rests no ladder: every
-    // step is a read or a refusal. Priced by its TEST oracle; it tracks nothing outside the simulator.
-    symbol: 'XRSK-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XRSK',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 200_000,
-    tickSize: parseAmount('0.01'),
-    lotSize: parseAmount('0.1'),
-    makerFeeBps: { known: true, value: parseAmount('1.5') },
-    takerFeeBps: { known: true, value: parseAmount('4.5') },
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    markPrice: parseAmount('100'),
-    contractSize: parseAmount('1'),
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('1000000'),
-    listedBy: VENUE_LISTED,
-    oracle: {},
-    // TEST tiers: up to 20x below 5,000 USDC of position, 10x to 25,000, 5x above; maintenance half the initial margin
-    // at each tier's most leverage.
-    marginTiers: [
-      { fromNotional: parseAmount('0'), maxLeverageBps: 200_000, maintenanceRate: parseAmount('0.025') },
-      { fromNotional: parseAmount('5000'), maxLeverageBps: 100_000, maintenanceRate: parseAmount('0.05') },
-      { fromNotional: parseAmount('25000'), maxLeverageBps: 50_000, maintenanceRate: parseAmount('0.1') },
-    ],
-    // TEST: the venue takes USDC alone as margin here, at no haircut.
-    collateral: [{ asset: 'USDC', haircut: { known: true, value: parseAmount('0') } }],
-    // TEST: room for every TEST order on it; J-derivatives-02 #7 lowers it for one step.
-    openInterestCap: parseAmount('1000'),
-  },
-  {
-    // J-derivatives-07: a TEST perpetual of its own that the TEST venue liquidates on, so moving its mark to a position's
-    // liquidation price (/test/set-mark) reaches no other journey. Only J-derivatives-07 trades it. Priced by its TEST
-    // oracle, so a fill never moves its mark; it tracks nothing outside the simulator.
-    symbol: 'XLIQ-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XLIQ',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 100_000,
-    tickSize: parseAmount('0.01'),
-    lotSize: parseAmount('0.1'),
-    makerFeeBps: { known: true, value: parseAmount('1.5') },
-    takerFeeBps: { known: true, value: parseAmount('4.5') },
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.02'),
-    markPrice: parseAmount('100'),
-    contractSize: parseAmount('1'),
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('1000000'),
-    listedBy: VENUE_LISTED,
-    oracle: {},
-    liquidation: {
-      feeRate: parseAmount('0.01'),
-      priceRule:
-        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
-        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
-      feeRule:
-        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
-        "into the venue's TEST insurance fund.",
-    },
-  },
-  {
-    // J-derivatives-08: a TEST perpetual of its own whose TEST venue builds its funding rate from its mark and index and
-    // settles it, so closing a period (/test/settle-funding) and moving its index reach no other journey. Only
-    // J-derivatives-08 trades it. Priced by its TEST oracle, so a fill never moves its mark.
-    symbol: 'XFND-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XFND',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 100_000,
-    tickSize: parseAmount('0.01'),
-    lotSize: parseAmount('0.1'),
-    makerFeeBps: { known: true, value: parseAmount('1.5') },
-    takerFeeBps: { known: true, value: parseAmount('4.5') },
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.02'),
-    markPrice: parseAmount('100'),
-    contractSize: parseAmount('1'),
-    // TEST: hourly funding, an interest component of 0.00125% an hour, held within 4% an hour either way.
-    funding: {
-      rate: ZERO,
-      intervalSeconds: 3600,
-      settles: {
-        interestRate: parseAmount('0.0000125'),
-        rateCap: parseAmount('0.04'),
-        rule:
-          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
-          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
-      },
-    },
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('1000000'),
-    listedBy: VENUE_LISTED,
-    oracle: {},
-  },
-  {
-    // J-derivatives-12: a TEST perpetual of its own on which the TEST venue settles funding and liquidates, so one account
-    // gets a funding payment, a close and a liquidation on its bills, and moving its mark or closing its period reaches no
-    // other journey. Only J-derivatives-12 trades it. Priced by its TEST oracle, so a fill never moves its mark.
-    symbol: 'XBIL-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XBIL',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 100_000,
-    tickSize: parseAmount('0.01'),
-    lotSize: parseAmount('0.1'),
-    makerFeeBps: { known: true, value: parseAmount('1.5') },
-    takerFeeBps: { known: true, value: parseAmount('4.5') },
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.02'),
-    markPrice: parseAmount('100'),
-    contractSize: parseAmount('1'),
-    // TEST: the venue takes USDC alone as margin here, at no haircut.
-    collateral: [{ asset: 'USDC', haircut: { known: true, value: parseAmount('0') } }],
-    // TEST: hourly funding as on XFND-PERP.
-    funding: {
-      rate: ZERO,
-      intervalSeconds: 3600,
-      settles: {
-        interestRate: parseAmount('0.0000125'),
-        rateCap: parseAmount('0.04'),
-        rule:
-          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
-          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
-      },
-    },
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('1000000'),
-    listedBy: VENUE_LISTED,
-    oracle: {},
-    liquidation: {
-      feeRate: parseAmount('0.01'),
-      priceRule:
-        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
-        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
-      feeRule:
-        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
-        "into the venue's TEST insurance fund.",
-    },
-  },
-  {
-    // J-derivatives-26: a TEST perpetual of its own on cross margin, which the TEST venue liquidates at the account's cross
-    // liquidation level (simulator CROSS_RULE), so moving its mark reaches no other journey. Only J-derivatives-26 trades
-    // it. Priced by its TEST oracle, so a fill never moves its mark; it tracks nothing outside the simulator.
-    symbol: 'XCRS-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XCRS',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['cross'],
-    maxLeverageBps: 200_000,
-    tickSize: parseAmount('0.01'),
-    lotSize: parseAmount('0.1'),
-    makerFeeBps: { known: true, value: parseAmount('1.5') },
-    takerFeeBps: { known: true, value: parseAmount('4.5') },
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    // TEST: maintenance half the initial margin at the most leverage (20x).
-    maintenanceMarginRate: parseAmount('0.025'),
-    markPrice: parseAmount('100'),
-    contractSize: parseAmount('1'),
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('1000000'),
-    listedBy: VENUE_LISTED,
-    oracle: {},
-    liquidation: {
-      feeRate: parseAmount('0.01'),
-      priceRule:
-        'TEST rule: on cross margin the venue judges the whole account, not one position: once the account’s equity falls to ' +
-        'half its maintenance requirement, it closes every cross position at its mark.',
-      feeRule:
-        "TEST rule: a liquidation fee of 1% of each position's value at the mark, capped at what the account has left, paid " +
-        "into the venue's TEST insurance fund.",
-    },
-  },
-  {
-    // J-derivatives-14: a TEST perpetual of its own that a developer reads and trades through our API: its open interest
-    // and long/short count come from positions only this journey opens, its funding periods only it closes, and it
-    // publishes no margin tiers (the risk-limit ladder reads unset). Only J-derivatives-14 trades it, and it has no TEST
-    // makers' ladder, so every position on it is one the journey opened. Priced by its TEST oracle, so a fill never moves
-    // its mark.
-    symbol: 'XDEV-PERP',
-    kind: 'perpetual',
-    baseAsset: 'XDEV',
-    quoteAsset: 'USDC',
-    orderTypes: ['limit', 'market'],
-    timeInForce: ['GTC', 'IOC'],
-    marginModes: ['isolated'],
-    maxLeverageBps: 100_000,
-    tickSize: parseAmount('0.01'),
-    lotSize: parseAmount('0.1'),
-    makerFeeBps: { known: true, value: parseAmount('1.5') },
-    takerFeeBps: { known: true, value: parseAmount('4.5') },
-    builderFeeCapBps: { known: true, value: parseAmount('10') },
-    maintenanceMarginRate: parseAmount('0.02'),
-    markPrice: parseAmount('100'),
-    contractSize: parseAmount('1'),
-    // TEST: open interest reported, with no deployer cap.
-    openInterestCap: null,
-    // TEST: hourly funding as on XFND-PERP.
-    funding: {
-      rate: ZERO,
-      intervalSeconds: 3600,
-      settles: {
-        interestRate: parseAmount('0.0000125'),
-        rateCap: parseAmount('0.04'),
-        rule:
-          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
-          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
-      },
-    },
-    status: 'trading',
-    maxOrderQty: parseAmount('1000'),
-    maxOrderNotional: parseAmount('1000000'),
-    // TEST: a limit price more than 5% from the middle of its book is refused (the order price limit a developer reads).
-    priceBandBps: parseAmount('500'),
-    listedBy: VENUE_LISTED,
-    oracle: {},
-    // TEST: liquidated as XBIL-PERP is, so the venue publishes its liquidation and auto-deleveraging alerts here.
-    liquidation: {
-      feeRate: parseAmount('0.01'),
-      priceRule:
-        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
-        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
-      feeRule:
-        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
-        "into the venue's TEST insurance fund.",
-    },
-  },
-];
-
-/** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
-const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
-  'BTC-USDC',
-  'BTC-PERP',
-  'ETH-PERP',
-  'XAU-PERP',
-  'XSTK-PERP',
-  'XSTD-PERP',
-  'XLIQ-PERP',
-  'XFND-PERP',
-  'XBIL-PERP',
-  'XCRS-PERP',
-]);
-const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
+/** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS): those whose file names a ladder. */
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set(TEST_INSTRUMENTS.filter((i) => i.ladder).map((i) => i.market.symbol));
+const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'limit_only', 'halted', 'cancel_only', 'delisted']);
 
 /**
  * The ladder `seed` rests on each market, five levels a side, around the market's own price: BTC around 60000, 10 apart,
@@ -634,18 +169,9 @@ const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'canc
 const SEED_LEVELS = 5;
 /** Each level's size, in the market's base asset, unless `seedTestVenue` is given its own `levelSize`. TEST. */
 const SEED_SIZE = '1';
-const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
-  'BTC-USDC': { mid: parseAmount('60000'), step: parseAmount('10') },
-  'BTC-PERP': { mid: parseAmount('60000'), step: parseAmount('10') },
-  'ETH-PERP': { mid: parseAmount('3000'), step: parseAmount('1') },
-  'XAU-PERP': { mid: parseAmount('2650'), step: parseAmount('0.5') },
-  'XSTK-PERP': { mid: parseAmount('200'), step: parseAmount('0.1') },
-  'XSTD-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
-  'XLIQ-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
-  'XFND-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
-  'XBIL-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
-  'XCRS-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
-};
+const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = Object.fromEntries(
+  TEST_INSTRUMENTS.flatMap((i) => (i.ladder ? [[i.market.symbol, i.ladder]] : [])),
+);
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
 function testMakerKey(name: string) {
@@ -679,6 +205,30 @@ function readLimit(body: Record<string, unknown>): number {
   if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 500)
     throw new VenueWireError('limit is a whole number from 1 to 500');
   return limit;
+}
+
+/** A candle read's `limit` and optional `since`: either a plain limit (1..720) or `{ limit, since? }`. */
+function readCandleQuery(body: Record<string, unknown>): { readonly limit: number; readonly since?: Date } {
+  const raw = 'query' in body ? body.query : body;
+  if (typeof raw === 'number') {
+    if (!Number.isInteger(raw) || raw < 1 || raw > 720) throw new VenueWireError('limit is a whole number from 1 to 720');
+    return body.since === undefined ? { limit: raw } : { limit: raw, since: sinceOf(body) };
+  }
+  if (!raw || typeof raw !== 'object') throw new VenueWireError('limit is a whole number from 1 to 720');
+  const limit = 'limit' in raw ? raw.limit : undefined;
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 720)
+    throw new VenueWireError('limit is a whole number from 1 to 720');
+  const rawSince = 'since' in raw ? raw.since : undefined;
+  if (rawSince === undefined) return { limit };
+  if (!(rawSince instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
+  return { limit, since: rawSince };
+}
+
+/** A decoded wire amount (the request's `amount` fields arrive as bigints): required. */
+function amountIn(body: Record<string, unknown>): Amount {
+  const v = body.amount;
+  if (typeof v !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
+  return v;
 }
 
 function str(body: Record<string, unknown>, key: string): string {
@@ -854,6 +404,13 @@ export interface AccountSwitches {
   loseAnswers: number;
   failAfterSend: number;
   submitDelayMs: number;
+  /**
+   * The venue's reason for refusing every move of a resting stop or take profit on this account (`move_trigger`,
+   * J-derivatives-32 #4), answered as its definite refusal with nothing moved; null (the default) takes each move.
+   */
+  refuseTriggerMoves: string | null;
+  /** Every reduce-only order on `symbol` is refused definitely with `reason`, applying nothing; null takes them. */
+  refuseClose: { symbol: string; reason: string } | null;
 }
 
 const ACCOUNT_SWITCHES = new WeakMap<TestVenueSimulator, Map<string, AccountSwitches>>();
@@ -881,7 +438,15 @@ function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknow
   if (!/^0x[0-9a-f]{40}$/.test(owner)) throw new VenueWireError('owner must be a 0x address');
   const all = ACCOUNT_SWITCHES.get(sim) ?? new Map<string, AccountSwitches>();
   ACCOUNT_SWITCHES.set(sim, all);
-  const s = all.get(owner) ?? { down: false, figures: 'live', loseAnswers: 0, failAfterSend: 0, submitDelayMs: 0 };
+  const s = all.get(owner) ?? {
+    down: false,
+    figures: 'live',
+    loseAnswers: 0,
+    failAfterSend: 0,
+    submitDelayMs: 0,
+    refuseTriggerMoves: null,
+    refuseClose: null,
+  };
   if (body.figures !== undefined) {
     if (body.figures !== 'live' && body.figures !== 'stale' && body.figures !== 'unknown') {
       throw new VenueWireError("figures is 'live', 'stale' or 'unknown'");
@@ -901,8 +466,45 @@ function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknow
   whole('loseAnswers', 100);
   whole('failAfterSend', 100);
   whole('submitDelayMs', 10_000);
+  if (body.refuseTriggerMoves !== undefined) {
+    const why = body.refuseTriggerMoves;
+    if (why !== null && (typeof why !== 'string' || why.trim() === '' || why.length > 300))
+      throw new VenueWireError('refuseTriggerMoves is the venue reason in words (1 to 300 characters), or null');
+    s.refuseTriggerMoves = why;
+  }
+  if (body.refuseClose !== undefined) s.refuseClose = refuseCloseOf(body.refuseClose);
   all.set(owner, s);
   return { owner, ...s };
+}
+
+/** A field of a JSON object, or undefined. */
+const field = (value: unknown, key: string): unknown => (value !== null && typeof value === 'object' ? Reflect.get(value, key) : undefined);
+
+/** A `refuseClose` switch as sent: `{ symbol, reason }`, or null to take closes again. */
+function refuseCloseOf(raw: unknown): AccountSwitches['refuseClose'] {
+  if (raw === null) return null;
+  const symbol = field(raw, 'symbol');
+  const reason = field(raw, 'reason');
+  if (typeof symbol !== 'string' || typeof reason !== 'string' || reason.trim() === '')
+    throw new VenueWireError('refuseClose is { symbol, reason } or null');
+  return { symbol, reason };
+}
+
+/** The venue's definite refusal of a submitted reduce-only order on the switched market (`refuseClose`); null for any other. */
+function closeRefusal(
+  sim: TestVenueSimulator,
+  body: Record<string, unknown>,
+  refuse: { symbol: string; reason: string },
+): VenueSubmitOutcome | null {
+  const intent = field(body.prepared, 'intent');
+  if (field(intent, 'kind') !== 'place_order' || field(intent, 'reduceOnly') !== true || field(intent, 'symbol') !== refuse.symbol)
+    return null;
+  return {
+    definite: true,
+    accepted: false,
+    refusal: { venueId: sim.venue.id, code: 'venue_rejected', detail: `${refuse.reason} (TEST switch)` },
+    asOf: sim.venueTime(),
+  };
 }
 
 /** One request's answer. Exported so a test can drive it without a socket. */
@@ -940,6 +542,8 @@ export async function answerTestVenue(
       });
     }
     if (path === '/submit' && mine && mine.submitDelayMs > 0) await new Promise((r) => setTimeout(r, mine.submitDelayMs));
+    const refusedClose = path === '/submit' && mine?.refuseClose ? closeRefusal(sim, body, mine.refuseClose) : null;
+    if (refusedClose) return [200, encodeVenueWire(refusedClose)];
     if (path === '/submit' && mine && mine.loseAnswers > 0) {
       // Applied, then the answer is lost, as a timeout after the bytes reached the venue.
       await route({ sim, deposit }, path, body);
@@ -951,6 +555,14 @@ export async function answerTestVenue(
       await route({ sim, deposit }, path, body);
       mine.failAfterSend -= 1;
       return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
+    }
+    const prepared = body.prepared;
+    const intent = prepared && typeof prepared === 'object' && 'intent' in prepared ? prepared.intent : null;
+    const moving = !!intent && typeof intent === 'object' && 'kind' in intent && intent.kind === 'move_trigger';
+    if (path === '/submit' && mine?.refuseTriggerMoves && moving) {
+      // The venue's definite no to a move: nothing applied, the order resting as it was.
+      const refusal = { venueId: sim.venue.id, code: 'venue_rejected', detail: mine.refuseTriggerMoves };
+      return [200, encodeVenueWire({ definite: true, accepted: false, refusal, asOf: new Date() })];
     }
     const value = await route({ sim, deposit }, path, body);
     return value === undefined ? [404, { error: `no route ${path}` }] : [200, encodeVenueWire(value)];
@@ -980,13 +592,15 @@ async function route(
       return sim.preview(account(body), body.intent as PlaceUserOrderIntent);
     case '/best-prices':
       return sim.bestPrices(str(body, 'symbol'));
+    case '/perpetual-prices':
+      return sim.perpetualPrices();
     case '/trades':
       return sim.trades(str(body, 'symbol'), readLimit(body));
     case '/candles': {
       const interval = body.interval;
       if (typeof interval !== 'string' || !Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
         throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
-      return sim.candles(str(body, 'symbol'), interval as VenueCandleInterval, readLimit(body));
+      return sim.candles(str(body, 'symbol'), interval as VenueCandleInterval, readCandleQuery(body));
     }
     case '/funding-payments':
       return sim.fundingPayments(account(body), sinceOf(body));
@@ -1065,10 +679,16 @@ async function route(
       return sim.accountSummary(account(body));
     case '/account-mode':
       return sim.accountMode(account(body));
+    case '/position-mode':
+      return sim.positionMode(account(body), str(body, 'symbol'));
     case '/vaults':
       return sim.vaults();
     case '/vault-holdings':
       return sim.vaultHoldings(account(body));
+    case '/staking':
+      return sim.staking();
+    case '/staking-account':
+      return sim.stakingAccount(account(body));
     case '/sub-accounts':
       return sim.subAccounts(account(body));
     case '/transfer':
@@ -1140,6 +760,11 @@ async function route(
           throw new VenueWireError('cancelsPerAction must be a whole number above 1, or null');
         sim.declareCancelsPerAction(n);
       }
+      if (body.tradesSignedBy !== undefined) {
+        const by = body.tradesSignedBy;
+        if (by !== null && by !== 'session_key') throw new VenueWireError("tradesSignedBy must be 'session_key' or null");
+        sim.declareTradesSignedBy(by);
+      }
       if (body.scheduledCancelMinLeadMs !== undefined) {
         const n = body.scheduledCancelMinLeadMs;
         if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n >= 0))
@@ -1181,6 +806,7 @@ async function route(
         amendsInPlace: sim.venue.amendsInPlace === true,
         cancelsPerAction: sim.venue.cancelsPerAction ?? null,
         scheduledCancelMinLeadMs: sim.venue.scheduledCancel?.minLeadMs ?? null,
+        tradesSignedBy: sim.venue.tradesSignedBy ?? null,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         withdrawalArrivalSeconds: sim.switches.withdrawalArrivalSeconds,
@@ -1222,6 +848,40 @@ async function route(
       const vault = str(body, 'vault');
       const endedAt = sim.testVaultLockUpPassed(account(body), vault);
       return { label: 'TEST', lockUpEndsAt: endedAt.toISOString(), ...(await sim.vaultHoldings(account(body))) };
+    }
+    case '/test/staking-published': {
+      // J-cex-spot-21 #1: the venue withholds its reward rate or its discount tiers (false) or publishes them again (true).
+      const set: { rewardRate?: boolean; tiers?: boolean } = {};
+      for (const k of ['rewardRate', 'tiers'] as const) {
+        const v: unknown = body[k];
+        if (v === undefined) continue;
+        if (typeof v !== 'boolean') throw new VenueWireError(`${k} must be true or false`);
+        set[k] = v;
+      }
+      if (Object.keys(set).length === 0) throw new VenueWireError('rewardRate or tiers must be true or false');
+      sim.testStakingPublished(set);
+      return { label: 'TEST', ...(await sim.staking()) };
+    }
+    case '/test/staking': {
+      // J-cex-spot-21 #6 #7 #8 #9: one account's staking, as the venue's clock or the venue itself moves it.
+      const given: unknown = body.reward;
+      const reward: Record<string, unknown> | null =
+        given !== null && typeof given === 'object' ? Object.fromEntries(Object.entries(given)) : null;
+      sim.testStaking(account(body), {
+        ...(typeof body.passLockUp === 'string' ? { passLockUp: body.passLockUp } : {}),
+        ...(body.passQueue === true ? { passQueue: true } : {}),
+        ...(reward
+          ? {
+              reward: {
+                validator: str(reward, 'validator'),
+                amount: amountIn(reward),
+                rewardRef: str(reward, 'rewardRef'),
+              },
+            }
+          : {}),
+        ...(typeof body.fillPending === 'string' ? { fillPending: parseAmount(body.fillPending) } : {}),
+      });
+      return { label: 'TEST', ...(await sim.stakingAccount(account(body))) };
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };
@@ -1275,7 +935,8 @@ async function route(
     }
     case '/test/session': {
       const state = body.state;
-      if (state !== 'open' && state !== 'off_hours') throw new VenueWireError("state is required ('open' or 'off_hours')");
+      if (state !== 'open' && state !== 'off_hours' && state !== 'closed')
+        throw new VenueWireError("state is required ('open', 'off_hours' or 'closed')");
       const symbol = str(body, 'symbol');
       if (body.published !== undefined && typeof body.published !== 'boolean')
         throw new VenueWireError('published is true or false when given');
@@ -1283,6 +944,17 @@ async function route(
       if (typeof body.published === 'boolean') sim.setSessionPublished(symbol, body.published);
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { session: market?.session ?? { known: false }, label: 'TEST' };
+    }
+    case '/test/history-kept': {
+      const at = (k: 'fillsFrom' | 'candlesFrom') => {
+        const v = body[k];
+        if (v === undefined) return undefined;
+        if (v === null || v instanceof Date) return v;
+        const at = typeof v === 'string' ? new Date(v) : null;
+        if (!at || Number.isNaN(at.getTime())) throw new VenueWireError(`${k} is an ISO time or null`);
+        return at;
+      };
+      return { ...sim.keepHistoryFrom(str(body, 'symbol'), { fills: at('fillsFrom'), candles: at('candlesFrom') }), label: 'TEST' };
     }
     case '/test/fills': {
       const since = body.since;
@@ -1303,7 +975,7 @@ async function route(
     case '/test/market-status': {
       const status = body.status;
       if (status !== null && (typeof status !== 'string' || !MARKET_STATUSES.has(status)))
-        throw new VenueWireError('status is trading, halted, cancel_only, delisted or null');
+        throw new VenueWireError('status is trading, limit_only, halted, cancel_only, delisted or null');
       sim.setMarketStatus(str(body, 'symbol'), status as UserVenueMarketStatus | null);
       return { ok: true, label: 'TEST' };
     }
@@ -1387,6 +1059,21 @@ async function route(
       });
       return { ok: true, label: 'TEST' };
     }
+    case '/test/price-band': {
+      // J-derivatives-02 #8: widen a market's dynamic price range with the venue's reason, or null to restore its usual band.
+      const symbol = str(body, 'symbol');
+      const width = body.widthBps;
+      if (width === null) {
+        sim.setDynamicPriceBand(symbol, null);
+      } else if (typeof width === 'bigint') {
+        const reason = typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason : 'TEST: dynamic price range widened';
+        sim.setDynamicPriceBand(symbol, { widthBps: width, reason });
+      } else {
+        throw new VenueWireError('widthBps is a decimal string or null');
+      }
+      const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
+      return { priceBand: market?.priceBand ?? { known: false }, label: 'TEST' };
+    }
     case '/test/market-add': {
       const symbol = str(body, 'symbol');
       const asset = (k: string): string => {
@@ -1401,6 +1088,48 @@ async function route(
         if (typeof v !== 'bigint' || v <= 0n) throw new VenueWireError(`${k} is a decimal string above zero, or null`);
         return v as Amount;
       };
+      const step = (k: string, fallback: Amount): Amount => {
+        if (!(k in body) || body[k] === undefined) return fallback;
+        const v = body[k];
+        if (typeof v !== 'bigint' || v <= 0n) throw new VenueWireError(`${k} is a decimal string above zero`);
+        return v;
+      };
+      const openingWindowEndsAt =
+        body.openingWindowEndsAt === undefined || body.openingWindowEndsAt === null
+          ? null
+          : body.openingWindowEndsAt instanceof Date
+            ? body.openingWindowEndsAt
+            : (() => {
+                throw new VenueWireError('openingWindowEndsAt is an ISO time or null');
+              })();
+      const zone: 'higher_risk' | null =
+        body.zone === undefined || body.zone === null
+          ? null
+          : body.zone === 'higher_risk'
+            ? 'higher_risk'
+            : (() => {
+                throw new VenueWireError("zone is 'higher_risk' or null");
+              })();
+      const zoneOrderCap = 'zoneOrderCap' in body ? cap('zoneOrderCap') : null;
+      const rawSession =
+        typeof body.session === 'object' && body.session !== null && !Array.isArray(body.session)
+          ? Object.fromEntries(Object.entries(body.session))
+          : undefined;
+      const session = rawSession
+        ? {
+            homeMarket:
+              typeof rawSession.homeMarket === 'string' && rawSession.homeMarket.trim() ? rawSession.homeMarket.trim() : 'TEST Session',
+            reopensAfterMs:
+              typeof rawSession.reopensAfterMs === 'number' && Number.isFinite(rawSession.reopensAfterMs) && rawSession.reopensAfterMs > 0
+                ? rawSession.reopensAfterMs
+                : 3_600_000,
+            closedAtStart: rawSession.closed === true,
+            closedRule:
+              typeof rawSession.closedRule === 'string' && rawSession.closedRule.trim()
+                ? rawSession.closedRule.trim()
+                : 'This market is closed. Orders are not queued while it is closed.',
+          }
+        : undefined;
       sim.addMarket({
         symbol,
         kind: 'spot',
@@ -1410,8 +1139,8 @@ async function route(
         timeInForce: ['GTC', 'IOC', 'ALO'],
         marginModes: [],
         maxLeverageBps: null,
-        tickSize: parseAmount('0.1'),
-        lotSize: parseAmount('0.001'),
+        tickSize: step('tickSize', parseAmount('0.1')),
+        lotSize: step('lotSize', parseAmount('0.001')),
         makerFeeBps: { known: true, value: parseAmount('1') },
         takerFeeBps: { known: true, value: parseAmount('3.5') },
         status: 'trading',
@@ -1423,8 +1152,28 @@ async function route(
         minOrderNotional: 'minOrderNotional' in body ? cap('minOrderNotional') : TEST_SPOT_RULES.minOrderNotional,
         priceBandBps: 'priceBandBps' in body ? cap('priceBandBps') : TEST_SPOT_RULES.priceBandBps,
         maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : TEST_SPOT_RULES.maxOpenOrders,
+        ...(openingWindowEndsAt ? { openingWindowEndsAt } : {}),
+        ...(zone ? { zone, zoneOrderCap } : {}),
+        ...(session ? { session } : {}),
       });
       return { ok: true, symbol, label: 'TEST' };
+    }
+    case '/test/seed-prints': {
+      const symbol = str(body, 'symbol');
+      const rawEntries = body.entries;
+      if (!Array.isArray(rawEntries) || rawEntries.length === 0 || rawEntries.length > 2000)
+        throw new VenueWireError('entries is a non-empty array of at most 2000 prints');
+      const entries = rawEntries.map((item) => {
+        if (!item || typeof item !== 'object') throw new VenueWireError('each entry is an object');
+        const tradedAt = 'tradedAt' in item ? item.tradedAt : undefined;
+        const price = 'price' in item ? item.price : undefined;
+        const amount = 'amount' in item ? item.amount : undefined;
+        if (!(tradedAt instanceof Date)) throw new VenueWireError('tradedAt is an ISO time');
+        if (typeof price !== 'bigint' || typeof amount !== 'bigint') throw new VenueWireError('price and amount are decimal strings');
+        const takerSide = 'takerSide' in item && item.takerSide === 'sell' ? 'sell' : 'buy';
+        return { tradedAt, price, amount, takerSide } as const;
+      });
+      return { ok: true, count: sim.testSeedPrints(symbol, entries), label: 'TEST' };
     }
     default:
       return undefined;
@@ -1469,6 +1218,8 @@ export interface StartTestVenueOptions {
   readonly port: number;
   /** The RAW `process.env.APP_ENV`. Anything but `dev` or `test` refuses to start. */
   readonly appEnv: string | undefined;
+  /** The RAW `process.env.INTAFACED_BETA_POSTURE`: `test-networks` beside APP_ENV `staging` also lets a TEST venue run (the beta posture). */
+  readonly betaPosture?: string;
   readonly chainId?: number;
   readonly clock?: () => Date;
   /** The venue's id and name, so a stack can run two TEST venues side by side (J-derivatives-28). Defaults: the simulator's. */
@@ -1482,6 +1233,9 @@ export interface StartTestVenueOptions {
   readonly cancelsPerAction?: number;
   /** The least time ahead it takes a scheduled cancel (`schedule_cancel`), in ms; default: no scheduled cancel offered. */
   readonly scheduledCancelMinLeadMs?: number;
+  /** The position modes it declares (default: one-way only), and whether it moves an open position between accounts. */
+  readonly positionModes?: readonly ('one_way' | 'hedge')[];
+  readonly positionMoves?: boolean;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
@@ -1509,8 +1263,10 @@ export async function startTestVenueServer(
     ...(opts.amendsInPlace ? { amendsInPlace: true } : {}),
     ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
     ...(opts.scheduledCancelMinLeadMs !== undefined ? { scheduledCancelMinLeadMs: opts.scheduledCancelMinLeadMs } : {}),
+    ...(opts.positionModes ? { positionModes: opts.positionModes } : {}),
+    ...(opts.positionMoves ? { positionMoves: true } : {}),
   });
-  refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
+  refuseTestVenueOutsideTest(sim.venue, opts.appEnv, opts.betaPosture);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));
   // A scheduled cancel fires on the venue's own clock, when nobody is talking to it (J-cex-spot-07 #3).
   const sweep = setInterval(() => {

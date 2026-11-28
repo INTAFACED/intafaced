@@ -1,6 +1,6 @@
 import { profileEnvFor } from '../owner-settings.mjs';
 
-export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
+export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN, PUBLIC_ORIGIN }) => ({
   name: 'ws',
   env: () => {
     // svc-ws holds no service credential and no database (services/svc-ws/src/env.ts, FORBIDDEN_SERVICE_CREDENTIALS),
@@ -22,6 +22,8 @@ export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_
       // takes subscriptions (#8311), and the public depth socket opens with its depth, lag and listing limits
       // (J-cex-spot-14 #8). Every other WS_* owner value stays unset and refuses by its own *_unset code.
       ...profileEnvFor('ws', 'test'),
+      // Behind the hosted beta's front on loopback, the per-IP guard reads the caller from that one hop (#11027), as Edge does.
+      ...(PUBLIC_ORIGIN ? { WS_TRUST_PROXY: '127.0.0.1' } : {}),
       // `LOCAL_STACK_WS_IP_BAN_SECONDS=off` on a start or restart leaves the owner's ban time blank, so the storm ban is
       // off and svc-ws says so on GET /policy (J-developer-09 #6).
       ...(process.env.LOCAL_STACK_WS_IP_BAN_SECONDS === 'off' ? { WS_PER_IP_BAN_SECONDS: '' } : {}),

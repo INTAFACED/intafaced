@@ -26,8 +26,8 @@
         "tooling/scripts/{verify-look,look-options}.{pw,config}.mjs",
         // Started by hand: the Rust crates' recorders, which write their recorded files from the TypeScript.
         "crates/*/scripts/*.mjs",
-        // Run by hand: the count of customer rooms in Volt.
-        "tooling/design/volt-count.mjs",
+        // Run by hand: the prune of the kit ceilings, and the beta's rooms from a journeys report.
+        "tooling/design/volt-prune.mjs",
         "*.{mjs,js,cjs,ts}",
       ],
       "project": ["tooling/**/*.{mjs,cjs,js,ts}", "*.{mjs,js,cjs,ts}", "!tooling/pay-sim/**"],
@@ -40,6 +40,16 @@
         "**/harness/main.tsx",
         "src/{index,main,server,worker}.{ts,tsx}",
         "src/db/schema.ts",
+      ],
+      "project": ["**/*.{ts,tsx,mjs,js,cjs}"],
+    },
+    "packages/venue-sim": {
+      // The TEST instruments are loaded by a scan of their folder (src/instruments.ts); knip reads no folder scans.
+      "entry": [
+        "**/*.{test,spec,node-test}.{ts,tsx,mjs,js,cjs}",
+        "**/*.config.{ts,mjs,js,cjs}",
+        "src/index.ts",
+        "src/instruments/[0-9][0-9][0-9][0-9]-*.ts",
       ],
       "project": ["**/*.{ts,tsx,mjs,js,cjs}"],
     },

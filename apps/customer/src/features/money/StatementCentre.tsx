@@ -4,7 +4,7 @@ import { Button } from '../../shared/ui';
 import { useSession } from '../session';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { type LineTotal } from './contracts';
-import { LineTotals } from './StatementExtras';
+import { LineTotals } from './LineTotals';
 import { DepthPanel } from './DepthParts';
 import { dayIsOver, endedBy, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
 import { statementCentreCopy } from './statement-centre-copy';
@@ -13,6 +13,7 @@ import { refusedWords } from './statement-refusals';
 import { StatementDocuments } from './StatementDocuments';
 import './bank-depth.css';
 import { BANK_STATEMENTS_EXPORT, BANK_STATEMENTS_JOBS_CREATE } from '@intafaced/contracts/bank-statements-procedures';
+import { DateInput } from '@intafaced/ui/lit';
 
 type Said =
   | { kind: 'done'; name: string; count: number; fingerprint: string; totals: readonly LineTotal[] | null }
@@ -117,52 +118,52 @@ export function StatementCentre() {
 
   return (
     <DepthPanel title={t('title')} lead={t('notTaxForm')}>
-      <form className="bd-stack" data-testid="statement-centre" aria-label={t('title')} onSubmit={(event) => void download(event)}>
-        <fieldset className="bd-stack">
+      <form className="lt-stack" data-testid="statement-centre" aria-label={t('title')} onSubmit={(event) => void download(event)}>
+        <fieldset className="lt-stack">
           <legend>{t('kind')}</legend>
           <div className="bd-choice-row" role="radiogroup" aria-label={t('kind')}>
             {STATEMENT_REPORTS.map((kind) => (
               <label key={kind} className={`bd-choice ${report === kind ? 'bd-choice--on' : ''}`} data-report={kind}>
                 <input type="radio" name="statement-report" value={kind} checked={report === kind} onChange={() => choose(kind)} />
                 <strong>{t(`report_${kind}`)}</strong>
-                <span className="money-caption">{t(`report_${kind}_hint`)}</span>
+                <span className="lt-muted">{t(`report_${kind}_hint`)}</span>
               </label>
             ))}
           </div>
         </fieldset>
         {report === 'statement' ? (
-          <label className="field">
+          <label className="lt-field">
             <span>{t('month')}</span>
             <input type="month" value={month} max={lastFullMonth(new Date())} onChange={(event) => changed(setMonth)(event.target.value)} />
           </label>
         ) : report === 'balances' ? (
-          <label className="field">
+          <label className="lt-field">
             <span>{t('asOf')}</span>
-            <input type="date" value={asOf} onChange={(event) => changed(setAsOf)(event.target.value)} />
+            <DateInput type="date" value={asOf} onChange={(event) => changed(setAsOf)(event.target.value)} />
           </label>
         ) : (
           <div className="bd-choice-row">
-            <label className="field">
+            <label className="lt-field">
               <span>{t('from')}</span>
-              <input type="date" value={days.from} onChange={(event) => changed(setDays)({ ...days, from: event.target.value })} />
+              <DateInput type="date" value={days.from} onChange={(event) => changed(setDays)({ ...days, from: event.target.value })} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('to')}</span>
-              <input type="date" value={days.to} onChange={(event) => changed(setDays)({ ...days, to: event.target.value })} />
+              <DateInput type="date" value={days.to} onChange={(event) => changed(setDays)({ ...days, to: event.target.value })} />
             </label>
           </div>
         )}
-        <label className="field">
+        <label className="lt-field">
           <span>{t('format')}</span>
           <select value={format} onChange={(event) => changed(setFormat)(event.target.value as 'pdf' | 'csv')}>
             <option value="pdf">PDF</option>
             <option value="csv">CSV</option>
           </select>
         </label>
-        <p className="money-caption">
+        <p className="lt-muted">
           {t('noBalance')} {t('utcNote')}
         </p>
-        <div className="actions">
+        <div className="lt-actions">
           <Button type="submit" variant="secondary" disabled={busy || problem !== null}>
             <Download size={16} aria-hidden="true" />
             {t('download')}

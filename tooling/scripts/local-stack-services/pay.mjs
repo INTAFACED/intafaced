@@ -1,8 +1,9 @@
+import { startCustodyLayer } from '../local-test-state.mjs';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, vendorKeys }) => ({
   name: 'pay',
   env: () => ({
     ...c('svc-pay', PORTS.pay),
@@ -18,10 +19,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // through `local-test-stack.mjs bank-transfer`. svc-pay refuses this secret outside APP_ENV dev or test.
     PAY_BANK_TRANSFER_SANDBOX_WEBHOOK_SECRET: secrets.payBankTransferWebhook,
     PAY_CRYPTO_WATCHER_ENABLED: 'false', // no chain RPC in the local stack
-    // The custody switch (OWNER 226), the same value as svc-ledger's (ledger.mjs): on, for the journeys marked Later.
+    // The custody switch (OWNER 226), the same value as svc-ledger's (ledger.mjs, startCustodyLayer): on, for the journeys
+    // marked Later.
     // `LOCAL_STACK_PAY_CUSTODY_LAYER=off` on a restart runs svc-pay as at launch, so hosted checkout pays the business's own
     // wallet or the partner and books only our fee (J-merchant-04); the ledger's own switch is not changed by it.
-    LEDGER_CUSTODY_LAYER: process.env.LOCAL_STACK_PAY_CUSTODY_LAYER === 'off' ? 'off' : 'on',
+    LEDGER_CUSTODY_LAYER: process.env.LOCAL_STACK_PAY_CUSTODY_LAYER === 'off' ? 'off' : startCustodyLayer(),
     // LOCAL-TEST: our fee rate with the TEST bank, the only partner on this stack (tooling/profiles/test-owner-values/pay.json),
     // never an owner's contract rate. `LOCAL_STACK_PAY_PARTNER_FEE=off` on a restart leaves it blank, so the refusal shows.
     ...(process.env.LOCAL_STACK_PAY_PARTNER_FEE === 'off' ? {} : { PAY_PARTNER_FEE_BPS: 'bank-transfer-sandbox=250' }),
@@ -77,8 +79,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // LOCAL-TEST screener for custodial sends (W9): answers clear, recorded as provider local-test, so J-wallet-07 #3-#5 can
     // walk an internal withdrawal. No supplier is connected anywhere else; svc-pay refuses it outside APP_ENV dev or test.
     // `LOCAL_STACK_PAY_SCREENER=off` on a start or restart leaves it blank, so the blank-list refusal can be seen too
-    // (J-wallet-05 #2).
-    ...(process.env.LOCAL_STACK_PAY_SCREENER === 'off' ? {} : { PAY_SCREENING_SCREENER: 'local-test' }),
+    // (J-wallet-05 #2); `=opensanctions` asks the owner's screening vendor instead, with his key from the box's sealed
+    // file (vendorKeys). With the TEST list a send still refuses: a vendor never stands in for a counsel-grade list.
+    ...(process.env.LOCAL_STACK_PAY_SCREENER === 'off'
+      ? {}
+      : process.env.LOCAL_STACK_PAY_SCREENER === 'opensanctions'
+        ? {
+            PAY_SCREENING_SCREENER: 'opensanctions',
+            ...vendorKeys(['OPENSANCTIONS_API_KEY'], undefined, 'LOCAL_STACK_PAY_SCREENER=opensanctions'),
+          }
+        : { PAY_SCREENING_SCREENER: 'local-test' }),
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest product image, 500 KB.
     PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest hosted checkout logo, 100 KB.

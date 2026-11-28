@@ -13,7 +13,7 @@ import { type PrivateOrderHub, type PrivateStreamChannel } from './hub.js';
 import { EMPTY_PRIVATE_BOOK, type PrivateBookPort } from './book.js';
 import { CodController, type CodLeaseRange, type TradeCancelPort } from './cod.js';
 import { assertLiveCredential, type LiveCredentialPort } from './live-credential.js';
-import { callerIpFromUpgrade } from './caller-ip.js';
+import { publicCallerIp } from './caller-ip.js';
 import { requestOriginFromUpgrade } from './key-origin.js';
 import { foreignUpgradeOrigin } from '../customer-origin.js';
 import { requestAccountIdFromUpgrade } from './key-account.js';
@@ -26,7 +26,7 @@ import { handlePositionsSubscribeText, type PositionsSeed, type PositionsStream 
  * credential. Token is `?access_token=` on the upgrade URL (browsers cannot
  * set Authorization on WebSocket upgrades reliably).
  *
- * `?channel=orders|fills|positions` selects one catalog. Omitted (or empty)
+ * `?channel=orders|fills|positions|balances` selects one catalog. Omitted (or empty)
  * announces and fans all three — back-compat. Unknown channel is HTTP 400.
  * Positions updates still only arrive when `trade.futures` publishes
  * `positionUpdated`; a positions ready frame is not a fabricated book.
@@ -107,8 +107,13 @@ export function privateSubscribeReply(
 /** `setTimeout` delay is a 32-bit signed int; longer waits fire immediately. */
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
-/** The channels `/private/stream?channel=` serves; `parsePrivateChannel` accepts exactly these. */
-export const PRIVATE_CHANNELS: readonly PrivateStreamChannel[] = ['orders', 'fills', 'positions'];
+/**
+ * The channels `/private/stream?channel=` serves; `parsePrivateChannel` accepts exactly these. `balances` (J-cex-spot-15
+ * #9: the person's own venue balance changes) is opened only by name.
+ */
+export const PRIVATE_CHANNELS: readonly PrivateStreamChannel[] = ['orders', 'fills', 'positions', 'balances'];
+/** The channels an omitted `?channel=` opens: the three it always opened, so a connection that names none streams as before. */
+const PRIVATE_DEFAULT_CHANNELS: readonly PrivateStreamChannel[] = ['orders', 'fills', 'positions'];
 
 /**
  * Drop `access_token` from a request-target so access logs never store the credential.
@@ -182,6 +187,11 @@ export interface PrivateWebSocketGatewayOptions {
    * foreign Origin. Missing Origin and a same-host Origin stay allowed.
    */
   readonly customerOrigins?: readonly string[];
+  /**
+   * The reverse proxy's exact addresses (`WS_TRUST_PROXY`): its `x-forwarded-for` names the caller a key's IP allowlist
+   * is checked against (`publicCallerIp`). Omitted: the TCP peer.
+   */
+  readonly trustedProxies?: readonly string[];
 }
 
 export interface PrivateWebSocketGateway {
@@ -502,6 +512,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     liveCredential = null,
     authority = null,
     customerOrigins,
+    trustedProxies = [],
     positions = null,
   } = options;
   const book = configuredBook ?? EMPTY_PRIVATE_BOOK;
@@ -635,7 +646,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           return;
         }
 
-        const callerIp = callerIpFromUpgrade(req);
+        const callerIp = publicCallerIp(req, trustedProxies);
         const requestOrigin = requestOriginFromUpgrade(req);
         const accountId = requestAccountIdFromUpgrade(req);
         const policy = { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId, ...(stream ? { signedMint: true } : {}) };
@@ -727,7 +738,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           let inbound: Promise<void> = Promise.resolve();
           let inboundClosed = false;
           let detachPositions: (() => void) | null = null;
-          const openChannels: readonly PrivateStreamChannel[] = attachChannel === null ? PRIVATE_CHANNELS : [attachChannel];
+          const openChannels: readonly PrivateStreamChannel[] = attachChannel === null ? PRIVATE_DEFAULT_CHANNELS : [attachChannel];
           ws.on('message', (data) => {
             const receivedAt = now();
             const text = messageText(data);
@@ -821,7 +832,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             // `bus` is honesty, not a second auth: false means the process has no
             // private consumer yet (or it failed), so silence is unsubscribed not quiet.
             const bus = busAttached();
-            const announced = channelSel === 'all' ? PRIVATE_CHANNELS : [channelSel];
+            const announced = channelSel === 'all' ? PRIVATE_DEFAULT_CHANNELS : [channelSel];
             for (const channel of announced) {
               sink.send(JSON.stringify({ channel, type: 'ready', userId, bus }));
             }

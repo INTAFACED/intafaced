@@ -1,7 +1,12 @@
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
 import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { ProtocolEmbeddedWalletRefusal } from '@intafaced/contracts/protocol-embedded-wallet';
 import { gasSponsorFromSetting, type GasSponsorSetting } from './gas-sponsor.js';
-import { PROTOCOL_EMBEDDED_WALLET_CREATE, PROTOCOL_EMBEDDED_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
+import {
+  PROTOCOL_EMBEDDED_WALLET_CREATE,
+  PROTOCOL_EMBEDDED_WALLET_OUTCOME,
+  PROTOCOL_EMBEDDED_WALLET_STATUS,
+} from '@intafaced/contracts/protocol-wallet-procedures';
 import { mountProtocolRecord } from '../record-mount.js';
 import {
   EMBEDDED_PROVIDER_DOWN,
@@ -11,6 +16,8 @@ import {
   EmbeddedWalletRefusedError,
   createEmbeddedWallet,
   embeddedWalletStatus,
+  recordProviderOutcome,
+  type EmbeddedProviderOutcomeLine,
   type EmbeddedWalletDeps,
   type EmbeddedWalletRow,
   type EmbeddedWalletStore,
@@ -26,6 +33,11 @@ export interface EmbeddedWalletRouterDeps extends EmbeddedWalletDeps {
   now?: () => Date;
   /** The owner's gas-sponsor setting, read once at boot (gas-sponsor.ts). Absent reads as the blank setting: no sponsor. */
   gasSponsor?: GasSponsorSetting;
+  /**
+   * Where a provider outcome the page reported goes: index.ts writes it as one log line, which the beta's status
+   * counts. Absent, nothing is counted and `outcome` answers `recorded: false`.
+   */
+  outcomes?: (line: EmbeddedProviderOutcomeLine) => void;
 }
 
 const HTTP_CODE: Record<ProtocolEmbeddedWalletRefusal, TRPCError['code']> = {
@@ -76,9 +88,16 @@ export function createEmbeddedWalletRouter(deps: EmbeddedWalletRouterDeps) {
     ),
     create: mountProtocolRecord(PROTOCOL_EMBEDDED_WALLET_CREATE, ({ ctx, input }) =>
       guarded(async () => {
-        const { row, created } = await createEmbeddedWallet(deps, { userId: ctx.principal.userId, passkey: input.passkey }, now());
+        const { row, created } = await createEmbeddedWallet(
+          deps,
+          { userId: ctx.principal.userId, passkey: input.passkey, forwarded: forwardedPrincipalHeaders(ctx) },
+          now(),
+        );
         return { wallet: embeddedWalletOut(row), created };
       }),
+    ),
+    outcome: mountProtocolRecord(PROTOCOL_EMBEDDED_WALLET_OUTCOME, ({ ctx, input }) =>
+      guarded(async () => ({ recorded: await recordProviderOutcome(deps, { userId: ctx.principal.userId, ...input, now: now() }) })),
     ),
   });
 }

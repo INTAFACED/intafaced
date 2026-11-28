@@ -13,7 +13,10 @@ import {
   TAX_SET_INCLUDE_TRANSFERS,
   TAX_SET_LOT_METHOD,
 } from '@intafaced/contracts/tax-procedures';
-import { LOT_METHODS, type LotBook, type LotMethod, type MissingBasis } from './pnl-model';
+import { LOT_METHODS, venueSellPrice, type LotBook, type LotMethod, type MissingBasis, type VenuePrices } from './pnl-model';
+import type { Decimal } from '../../data';
+import { useResource } from '../../shared/resource';
+import { useVenueApi } from '../../features/trade';
 import type { PnlOverTime } from './pnl-time-model';
 import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, type BankValueOverTime } from './value-time-model';
 import { BANK_PORTFOLIO_VALUE_OVER_TIME } from '@intafaced/contracts/bank-portfolio-procedures';
@@ -171,21 +174,21 @@ export function useBasisOverride(): {
 }
 
 export type LotChoice =
-  | { procedure: 'setLotMethod'; input: { assetId: string | null; method: LotMethod | null } }
-  | { procedure: 'setDayMethod'; input: { day: string; assetId: string | null; method: LotMethod | null } }
-  | { procedure: 'pickSaleLot'; input: { saleTxId: string; assetId: string; lotId: string | null } }
-  | { procedure: 'setIncludeTransfers'; input: { include: boolean | null } };
+  | { choice: 'lotMethod'; input: { assetId: string | null; method: LotMethod | null } }
+  | { choice: 'dayMethod'; input: { day: string; assetId: string | null; method: LotMethod | null } }
+  | { choice: 'saleLot'; input: { saleTxId: string; assetId: string; lotId: string | null } }
+  | { choice: 'includeTransfers'; input: { include: boolean | null } };
 
 /** Each choice through its own record. */
 function saveChoice(api: ReturnType<typeof useDataEnv>['api'], choice: LotChoice) {
-  switch (choice.procedure) {
-    case 'setLotMethod':
+  switch (choice.choice) {
+    case 'lotMethod':
       return api.call(TAX_SET_LOT_METHOD, choice.input);
-    case 'setDayMethod':
+    case 'dayMethod':
       return api.call(TAX_SET_DAY_METHOD, choice.input);
-    case 'pickSaleLot':
+    case 'saleLot':
       return api.call(TAX_PICK_SALE_LOT, choice.input);
-    case 'setIncludeTransfers':
+    case 'includeTransfers':
       return api.call(TAX_SET_INCLUDE_TRANSFERS, choice.input);
   }
 }
@@ -202,7 +205,7 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome>
       const result = await saveChoice(env.api, choice);
       const unsure = !result.ok && result.reason === 'uncertain';
       if ((result.ok || unsure) && env.userId) {
-        for (const each of choice.procedure === 'setIncludeTransfers' ? [...LOT_METHODS, 'saved' as const] : ['saved' as const]) {
+        for (const each of choice.choice === 'includeTransfers' ? [...LOT_METHODS, 'saved' as const] : ['saved' as const]) {
           env.poller.refresh(bookKey(env.userId, each));
           env.poller.refresh(missingKey(env.userId, each));
         }
@@ -213,3 +216,31 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome>
     [env],
   );
 }
+
+const DOLLAR_QUOTES = new Set(['USDC', 'USDT']);
+
+/**
+ * The venue's own price now for each coin held in a venue account (J-portfolio-02 #2): what selling it there would get,
+ * the venue's best bid on the coin's dollar spot market. A coin with no such market, or no bid, gets no price, so its
+ * unrealised result stays not known; nothing is read when no venue coin is held.
+ */
+export function useVenuePrices(assets: readonly string[]): VenuePrices {
+  const venue = useVenueApi();
+  const key = [...new Set(assets)].sort().join(',');
+  const { resource } = useResource<VenuePrices>(async (signal) => {
+    if (!key) return { ok: true, data: new Map() };
+    const markets = await venue.markets(signal);
+    if (!markets.ok) return markets;
+    const prices = new Map<string, Decimal>();
+    for (const asset of key.split(',')) {
+      const market = markets.data.value.find((m) => m.kind === 'spot' && m.baseAsset === asset && DOLLAR_QUOTES.has(m.quoteAsset));
+      if (!market) continue;
+      const best = await venue.bestPrices(market.symbol, signal);
+      const price = best.ok ? venueSellPrice(best.data.value.bid) : null;
+      if (price !== null) prices.set(asset, price);
+    }
+    return { ok: true, data: prices };
+  }, `pnl-venue-prices:${key}`);
+  return resource.status === 'ready' ? resource.data : NO_PRICES;
+}
+const NO_PRICES: VenuePrices = new Map();

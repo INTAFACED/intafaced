@@ -5,6 +5,7 @@ import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
+import { parseRegistrationAllowlist } from './registration-allowlist.js';
 import { parseDisplayCurrencyList } from './preferences/account-display.js';
 import { parseMembershipTiers } from './membership/membership-offer.js';
 import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
@@ -118,6 +119,25 @@ const schema = serviceEnvSchema
        */
       REGISTRATION_OPEN: registrationOpen,
       /**
+       * Invited addresses that may sign up while REGISTRATION_OPEN=false (a staging stack open to a short list).
+       * Comma-separated emails. Ignored while registration is open; refuses nothing while unset.
+       * Blank / unset → no list. Malformed → fail boot.
+       */
+      REGISTRATION_EMAIL_ALLOWLIST: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseRegistrationAllowlist(raw ?? '');
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'REGISTRATION_EMAIL_ALLOWLIST is malformed',
+            });
+            return z.NEVER;
+          }
+        }),
+      /**
        * WebAuthn relying party. Defaults suit local dev; production must set
        * the real registrable domain and HTTPS origin.
        */
@@ -152,6 +172,15 @@ const schema = serviceEnvSchema
        * Dual-read still accepts legacy unprefixed plaintext until re-enrol.
        */
       IDENTITY_TOTP_SECRET_KEY: z.string().optional().default(''),
+      /**
+       * The owner's embedded-wallet provider's organisation and backend API key pair (P-256, hex), J-wallet-22
+       * (src/embedded-wallet/turnkey.ts). All blank: `embeddedWallet.provision` refuses `wallet.embedded_provider_unset`.
+       * Any one set: every one must be, well formed, or boot refuses, naming the setting, never its value. The key only
+       * identifies INTAFACED's parent organisation and is never a member of a person's wallet. Secrets: never logged.
+       */
+      TURNKEY_ORGANIZATION_ID: z.string().max(64).optional(),
+      TURNKEY_API_PUBLIC_KEY: z.string().max(200).optional(),
+      TURNKEY_API_PRIVATE_KEY: z.string().max(200).optional(),
       /**
        * Access-token signing keys for rotation: `id:secret,id2:secret2` (each secret at least 32 characters;
        * the id `legacy` is JWT_ACCESS_SECRET). Blank = no rotation possible; `authKeys.rotate` refuses.
@@ -811,12 +840,42 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(5).optional()),
       /**
-       * Mail transport. Blank / unset → unwired; confirmation and reset requests
-       * refuse. `local-outbox` is the only implemented transport and is refused
-       * at boot unless APP_ENV is exactly dev or test. Any other name refuses
-       * at boot. No provider is configured here.
+       * Mail transport (`auth/local-mail.ts`). `local-outbox` (a LOCAL-TEST file) is refused at boot unless APP_ENV is
+       * exactly dev or test; `http-gateway` posts each mail to IDENTITY_MAIL_GATEWAY_URL. Any other name refuses at boot.
+       * Blank / unset: dev and test run unwired (confirmation, sign-up and reset requests refuse); staging and prod
+       * refuse at boot. No provider is configured here.
        */
       IDENTITY_MAIL_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** The mail gateway's https address, for `http-gateway`. Required when that transport is selected. */
+      IDENTITY_MAIL_GATEWAY_URL: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** The mail gateway's bearer key: a secret, set on the host only. Required for `http-gateway`. */
+      IDENTITY_MAIL_GATEWAY_KEY: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** The address mail is sent from, for `http-gateway`. Required when that transport is selected. */
+      IDENTITY_MAIL_FROM: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** The customer app's https address; a mail's link is a path under it. Required for `http-gateway`. */
+      IDENTITY_MAIL_LINK_BASE: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** The founder console's https address, for the staff invite's link. Unset: a staff invite refuses to send. */
+      IDENTITY_MAIL_CONSOLE_LINK_BASE: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return typeof v === 'string' ? v.trim() : v;

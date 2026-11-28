@@ -116,12 +116,20 @@ test('on the real journeys, a full plan of MAX_SHARDS: the chart desks keep the 
 });
 
 test("the market step asks on every planned shard, a full run's too, and writes the history on any doubt", () => {
+  // The step runs the shard's one setup (tooling/ci/journey-shard.sh markets), with the plan, on every planned shard.
   const wf = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
-  const step = wf.slice(wf.indexOf('- name: Open the TEST markets, write TEST chart history'), wf.indexOf('- name: Load the TEST content'));
-  assert.ok(step.length > 0, 'the market step is in the workflow');
+  const wfStep = wf.slice(
+    wf.indexOf('- name: Open the TEST markets, write TEST chart history'),
+    wf.indexOf('- name: Load the TEST content'),
+  );
+  assert.match(wfStep, /SHARDS: \$\{\{ needs\.touch\.outputs\.shards \}\}\n\s+SHARD: \$\{\{ matrix\.shard \}\}/);
+  assert.match(wfStep, /run: bash tooling\/ci\/journey-shard\.sh markets\n/);
+  const sh = readFileSync(join(ROOT, 'tooling/ci/journey-shard.sh'), 'utf8');
+  const step = sh.slice(sh.indexOf('  markets)\n'), sh.indexOf('  content)\n'));
+  assert.ok(step.length > 0, 'the market step is in the shard setup');
   assert.match(
     step,
-    /if \[ -n "\$SHARDS" \]; then\n\s+history=\$\(node tooling\/scripts\/journey-market-past\.mjs --shard "\$SHARD"\) \|\| history=journeys\n\s+fi/,
+    /if \[ -n "\$\{SHARDS:-\}" \]; then\n\s+history=\$\(node tooling\/scripts\/journey-market-past\.mjs --shard "\$SHARD"\) \|\| history=journeys\n\s+fi/,
   );
   assert.doesNotMatch(step, /JOURNEYS_TARGET/, 'a full run has no target, and must still ask');
   assert.match(step, /^\s+history=journeys$/m, 'a run without a plan writes it');

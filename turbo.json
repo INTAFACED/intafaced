@@ -8,7 +8,7 @@
     "tooling/scripts/tsc.mjs",
     "tooling/scripts/ensure-workspace-types.mjs"
   ],
-  "globalPassThroughEnv": ["INTAFACED_LOCAL_JOBS"],
+  "globalPassThroughEnv": ["INTAFACED_LOCAL_JOBS", "INTAFACED_TEST_RESULTS"],
   "globalEnv": [
     "NODE_ENV",
     "APP_ENV",
@@ -53,12 +53,6 @@
       "cache": false,
       "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"],
       "passThroughEnv": ["GITHUB_BASE_REF"]
-    },
-    "@intafaced/svc-matching#test": {
-      "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
-      "outputs": ["coverage/**"],
-      "cache": false,
-      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
     },
     "@intafaced/svc-ws#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
@@ -147,6 +141,7 @@
         "@intafaced/telemetry#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -161,8 +156,8 @@
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
         "$TURBO_ROOT$/services/svc-market/**",
@@ -171,6 +166,7 @@
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
         "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -190,6 +186,7 @@
         "@intafaced/telemetry#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -204,8 +201,8 @@
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
         "$TURBO_ROOT$/services/svc-market/**",
@@ -214,6 +211,7 @@
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
         "$TURBO_ROOT$/tooling/tracker/features.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -278,9 +276,7 @@
         "@intafaced/sbe-codec#build",
         "@intafaced/service-kit#build",
         "@intafaced/telemetry#build",
-        "@intafaced/venue-adapter#build",
-        "@intafaced/venue-contracts#build",
-        "@intafaced/venue-sim#build"
+        "@intafaced/venue-adapter#build"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -294,8 +290,6 @@
         "$TURBO_ROOT$/packages/service-kit/**",
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
-        "$TURBO_ROOT$/packages/venue-contracts/**",
-        "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
         "$TURBO_ROOT$/services/svc-market/**",
@@ -306,11 +300,13 @@
         "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
         "$TURBO_ROOT$/tooling/ci/published-routes.*",
+        "$TURBO_ROOT$/tooling/ci/test-results-reporter.*",
         "$TURBO_ROOT$/tooling/lint/count-rule.*",
         "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
         "$TURBO_ROOT$/tooling/trade/inside.*",
         "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
+        "$TURBO_ROOT$/tooling/vitest/budget.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -328,9 +324,7 @@
         "@intafaced/sbe-codec#build",
         "@intafaced/service-kit#build",
         "@intafaced/telemetry#build",
-        "@intafaced/venue-adapter#build",
-        "@intafaced/venue-contracts#build",
-        "@intafaced/venue-sim#build"
+        "@intafaced/venue-adapter#build"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -344,8 +338,6 @@
         "$TURBO_ROOT$/packages/service-kit/**",
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
-        "$TURBO_ROOT$/packages/venue-contracts/**",
-        "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
         "$TURBO_ROOT$/services/svc-market/**",
@@ -356,11 +348,13 @@
         "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
         "$TURBO_ROOT$/tooling/ci/published-routes.*",
+        "$TURBO_ROOT$/tooling/ci/test-results-reporter.*",
         "$TURBO_ROOT$/tooling/lint/count-rule.*",
         "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
         "$TURBO_ROOT$/tooling/trade/inside.*",
         "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
+        "$TURBO_ROOT$/tooling/vitest/budget.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -425,12 +419,10 @@
         "$TURBO_ROOT$/packages/ui/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
-        "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
         "$TURBO_ROOT$/services/svc-indexer/**",
         "$TURBO_ROOT$/services/svc-market/**",
-        "$TURBO_ROOT$/services/svc-matching/**",
         "$TURBO_ROOT$/services/svc-notify/**",
         "$TURBO_ROOT$/services/svc-p2p/**",
         "$TURBO_ROOT$/services/svc-pay/**",
@@ -463,6 +455,7 @@
         "@intafaced/telemetry#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -479,8 +472,8 @@
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-campaigns/**",
         "$TURBO_ROOT$/services/svc-market/**",
         "$TURBO_ROOT$/services/svc-mining-pool/**",
@@ -529,39 +522,28 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
-    "@intafaced/svc-agents#typecheck": {
-      "outputs": [],
-      "dependsOn": ["^build", "@intafaced/i18n#build"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/i18n/**",
-        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
-        "!$TURBO_ROOT$/**/*.tsbuildinfo"
-      ]
-    },
     "@intafaced/svc-edge#typecheck": {
       "outputs": [],
       "dependsOn": [
         "^build",
-        "@intafaced/db#build",
-        "@intafaced/events#build",
         "@intafaced/exchange-contract#build",
         "@intafaced/money-math#build",
         "@intafaced/safe-regex#build",
-        "@intafaced/sbe-codec#build",
-        "@intafaced/ui#build"
+        "@intafaced/ui#build",
+        "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
+        "@intafaced/venue-sim#build"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/customer/**",
-        "$TURBO_ROOT$/packages/db/**",
-        "$TURBO_ROOT$/packages/events/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/money-math/**",
         "$TURBO_ROOT$/packages/safe-regex/**",
-        "$TURBO_ROOT$/packages/sbe-codec/**",
         "$TURBO_ROOT$/packages/ui/**",
-        "$TURBO_ROOT$/services/svc-matching/**",
+        "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
+        "$TURBO_ROOT$/packages/venue-sim/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -577,6 +559,7 @@
         "@intafaced/quant-honesty#build",
         "@intafaced/venue-adapter#build",
         "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
         "@intafaced/venue-sim#build"
       ],
       "inputs": [
@@ -588,6 +571,7 @@
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-trade/**",
@@ -712,7 +696,10 @@
         "@intafaced/i18n#build",
         "@intafaced/ledger-client#build",
         "@intafaced/money-math#build",
-        "@intafaced/safe-regex#build"
+        "@intafaced/safe-regex#build",
+        "@intafaced/venue-contracts#build",
+        "@intafaced/venue-hyperliquid#build",
+        "@intafaced/venue-sim#build"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -728,6 +715,9 @@
         "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/money-math/**",
         "$TURBO_ROOT$/packages/safe-regex/**",
+        "$TURBO_ROOT$/packages/venue-contracts/**",
+        "$TURBO_ROOT$/packages/venue-hyperliquid/**",
+        "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/tooling/ci/exact-revert.*",
         "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/lint/count-rule.*",

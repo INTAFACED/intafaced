@@ -52,10 +52,32 @@ if (!once) setInterval(() => {}, 1 << 30);
   sh('bin/pnpm', 'pnpm');
   sh('ledger-bin', 'ledger');
   sh('tax-bin', 'tax');
-  for (const svc of ['identity', 'pay', 'bank', 'matching', 'trade'])
+  // svc-matching is the Rust binary (crates/svc-matching), stood in like svc-ledger's and svc-tax's.
+  sh('matching-bin', 'svc-matching');
+  // svc-bank is the Rust binary (crates/svc-bank) too.
+  sh('bank-bin', 'svc-bank');
+  for (const svc of ['identity', 'pay', 'trade'])
     put(`services/svc-${svc}/dist/index.js`, `await import(${JSON.stringify(pathToFileURL(join(box, 'stub.mjs')).href)});\n`);
   put('services/svc-trade/scripts/order-path-smoke.mjs', `await import(${JSON.stringify(pathToFileURL(join(box, 'stub.mjs')).href)});\n`);
-  put('health.mjs', 'globalThis.fetch = async () => ({ ok: true, status: 200 });\n');
+  // Health is answered only once the service on that port has logged its start, so a loaded machine cannot end the
+  // boot (and stop every stand-in) before a late one has written its line.
+  put(
+    'health.mjs',
+    `import { existsSync, readFileSync } from 'node:fs';
+const ROLE = { 4001: 'ledger', 4002: 'svc-identity', 4004: 'svc-trade', 4005: 'svc-matching', 4006: 'svc-pay', 4009: 'svc-bank', 4020: 'tax' };
+const answered = {};
+globalThis.fetch = async (url) => {
+  const what = ROLE[new URL(String(url)).port];
+  if (!what) return { ok: true, status: 200 };
+  const log = process.env.CX8_TEST_LOG;
+  const lines = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  const starts = lines.filter((s) => s.what === what && s.args[0] !== 'migrate').length;
+  if (starts <= (answered[what] ?? 0)) return { ok: false, status: 503 };
+  answered[what] = starts;
+  return { ok: true, status: 200 };
+};
+`,
+  );
   // A service's index.js stand-in reads its role from SERVICE_NAME; the enrolment's, from its --enrol-founders flag.
   put(
     'stub-argv.mjs',
@@ -73,6 +95,8 @@ else if (process.argv[1]?.endsWith('dist/index.js')) process.argv.splice(2, 0, p
       NODE_OPTIONS: `--import ${pathToFileURL(join(box, 'stub-argv.mjs')).href}`,
       SVC_LEDGER_BIN: join(box, 'ledger-bin'),
       SVC_TAX_BIN: join(box, 'tax-bin'),
+      SVC_MATCHING_BIN: join(box, 'matching-bin'),
+      SVC_BANK_BIN: join(box, 'bank-bin'),
       CX8_AFTER: JSON.stringify([process.execPath, join(box, 'stub.mjs'), 'after']),
       CX8_TEST_LOG: log,
     },

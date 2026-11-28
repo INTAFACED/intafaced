@@ -5,6 +5,9 @@ import { defineCopy } from '../../../shared/i18n';
 // the region's own reason, which is the owner's words on the per-country switch.
 const en = {
   title: 'My wallet',
+  // The wallet's name where a room offers to connect a browser wallet ("Connect {name}").
+  announceName: 'INTAFACED wallet',
+  announceNameTest: 'INTAFACED wallet (TEST)',
   description: 'Your own self-custody wallet, made with a passkey. No seed phrase to write down.',
   backToWallet: 'Wallet',
   stepCreate: 'Create',
@@ -44,6 +47,7 @@ const en = {
   sessionReadFailed: 'Your trading session could not be read: {reason}',
   sessionAbout:
     'Start a session to trade on {venue}. Your wallet signs one approval, after your passkey, for a new session key made on this device. The key can place and cancel orders and can never withdraw. It ends at its expiry, when you end the session, or when you sign out.',
+  sessionReading: 'Reading your trading session on the venue…',
   sessionStart: 'Start trading session',
   sessionStartNew: 'Start a new session',
   sessionLive: 'Session on. Your session key can trade on {venue} and can never withdraw.',
@@ -63,6 +67,7 @@ const en = {
   builderNote: 'Orders through INTAFACED carry our builder fee of {fee} basis points. Your wallet approves it once, after your passkey.',
   builderApprove: 'Approve the builder fee',
   builderApproved: 'Your wallet has approved our builder fee.',
+  builderReading: 'Reading whether your wallet has approved our builder fee…',
   builderUnset: 'Our builder fee is not published, so no order can be placed.',
   withdrawNever: 'The session key never signs a withdrawal or an approval. Those always need your wallet and your passkey.',
   orderTitle: 'Place an order',
@@ -100,6 +105,8 @@ const en = {
   passkeyTitle: 'Your passkey check did not pass',
   passkeyBody:
     'Nothing was signed or sent. On a new device, use a passkey saved for this wallet or your recovery passkey; a device without one cannot sign.',
+  busyTitle: 'Your wallet provider is at its signing limit',
+  busyBody: '{provider} has reached its signing limit, which you cannot fix from here. Nothing was signed or sent. Try again later.',
   refusedTitle: 'Your wallet provider refused',
   refusedBody: '{provider} did not accept the passkey check. Nothing was signed or sent.',
   chainTitle: 'The chain refused this transaction',

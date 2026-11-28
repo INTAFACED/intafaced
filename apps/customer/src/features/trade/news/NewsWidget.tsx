@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { newsCopy } from './news-copy';
-import { NewsNotice } from './NewsRooms';
+import { NewsNotice } from './NewsNotice';
 
 /**
  * A symbol's news widget on the chart. No vendor feed is connected and the store holds no items, so it shows the same
@@ -19,8 +19,8 @@ export function NewsWidget({ symbol }: { symbol: string }) {
         <section id={panelId} className="news-widget" aria-label={t('widgetTitle', { symbol })} data-testid="cw-news" data-symbol={symbol}>
           <h2>{t('widgetTitle', { symbol })}</h2>
           <NewsNotice text={t('newsNotice')} />
-          <p className="muted">{t('widgetEmpty', { symbol })}</p>
-          <a className="text-link" href="/trade/news">
+          <p className="lt-muted">{t('widgetEmpty', { symbol })}</p>
+          <a className="lt-link" href="/trade/news">
             {t('widgetAll')}
           </a>
         </section>

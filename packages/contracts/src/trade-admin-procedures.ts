@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { deskAuditAnswer, deskConnectionAnswer, deskConnectionsAnswer, deskQuarantineAnswer } from './trade-call-schemas.js';
+import { supportTradeOrderSchema } from './support-trade-summary.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-trade `admin.*`, one record per call: svc-trade mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -57,6 +58,115 @@ export const TRADE_ADMIN_AGENT_DESK_QUARANTINE = defineProcedure({
   output: deskQuarantineAnswer,
   samples: [
     { verdict: 'accept', input: { keyId: 'USDC', reason: 'USDC', requestId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** One reading of a venue account's margin, every figure the venue's own at its as-of time (J-derivatives-26 #8). */
+const venueMarginSample = z.object({
+  asOf: z.string().datetime(),
+  asset: z.string(),
+  equity: z.string(),
+  maintenanceMargin: z.string(),
+  marginRatio: z.union([z.object({ known: z.literal(true), value: z.string() }), z.object({ known: z.literal(false) })]),
+  crossState: z.enum(['healthy', 'margin_call']).nullable(),
+});
+
+/**
+ * A founder's read of one person's venue accounts (J-derivatives-26 #8; svc-trade admin/venue-account-read.ts): each
+ * account their own signed actions named, its margin now and its ratio history, as the venue reported them. Audited
+ * (`venue_accounts.get`) before the venue is asked; read-only.
+ */
+export const TRADE_ADMIN_VENUE_ACCOUNTS_GET = defineProcedure({
+  ...base,
+  name: 'trade.admin.venueAccounts.get',
+  kind: 'query',
+  path: 'admin.venueAccounts.get',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid() }).strict(),
+  output: z.object({
+    userId: z.string(),
+    venueId: z.string(),
+    source: z.string(),
+    accounts: z.array(
+      z.object({
+        owner: z.string(),
+        subAccount: z.string().nullable(),
+        now: venueMarginSample.nullable(),
+        history: z.array(venueMarginSample),
+      }),
+    ),
+    auditId: z.string(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** One order on a person's venue account, as the venue keeps it (J-ops-console-02 #3; svc-trade admin/venue-account-read.ts). */
+const venueCustomerOrder = z.object({
+  owner: z.string(),
+  subAccount: z.string().nullable(),
+  venueClientOrderId: z.string().nullable(),
+  venueOrderId: z.string().nullable(),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  type: z.string(),
+  status: z.string(),
+  amount: z.string(),
+  filled: z.string(),
+  price: z.string(),
+  averagePrice: z.string().nullable(),
+  placedAt: z.string().datetime(),
+});
+
+/**
+ * A founder's read of one person's orders on their own venue accounts (J-ops-console-02 #3, the customer record's trade
+ * tab on the launch model): every order the venue keeps for each account the person's own wallet signed for through our
+ * door, newest first, up to `limit`. Every order is the venue's; INTAFACED holds none of it. Audited
+ * (`venue_orders.list`) before the venue is asked; read-only. With the user-venue door off it refuses
+ * `trade.user_venue_off`.
+ */
+export const TRADE_ADMIN_VENUE_ACCOUNTS_ORDERS = defineProcedure({
+  ...base,
+  name: 'trade.admin.venueAccounts.orders',
+  kind: 'query',
+  path: 'admin.venueAccounts.orders',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }).strict(),
+  output: z.object({
+    userId: z.string(),
+    venueId: z.string(),
+    source: z.string(),
+    asOf: z.string().datetime().nullable(),
+    orders: z.array(venueCustomerOrder),
+    truncated: z.boolean(),
+    auditId: z.string(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 200 } },
+    { verdict: 'refuse', input: { userId: '11111111-1111-4111-8111-111111111111' } },
+  ],
+});
+
+/**
+ * One customer's orders for the console's customer record (J-ops-console-02 #3, the trade tab), newest first, in the support
+ * trade summary's narrowed order view. Needs the desk read scope at the door and `support:lookup` in the service; audited.
+ */
+export const TRADE_ADMIN_CUSTOMER_ORDERS = defineProcedure({
+  ...base,
+  name: 'trade.admin.customerOrders',
+  kind: 'query',
+  path: 'admin.customerOrders',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }).strict(),
+  output: z.object({ userId: z.string(), readAt: z.string(), orders: z.array(supportTradeOrderSchema), truncated: z.boolean() }).strict(),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 200 } },
     { verdict: 'refuse', input: 42 },
   ],
 });

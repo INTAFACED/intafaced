@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StateBlock } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { REQUEST_SIGN_VERSION, type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
 import { useSession } from '../session';
 import { readServerClock, type ServerClockReading } from '../../shared/server-clock';
@@ -10,6 +10,8 @@ import { liveCopy } from './developers-live-copy';
 import { DATA_PRODUCTS, DATA_TERMS, connectivityOptions, hostTable } from './developers-model';
 import { hostsView, readDataTerms, readDeveloperHosts, termsView } from './developers-values';
 import { useRead } from './use-read';
+import { ReadFailed, ReadLoading } from './ReadState';
+import { DocPage as Page, GoLink } from './DocPage';
 import {
   CALL_COST,
   neverOnAKeyTable,
@@ -38,32 +40,14 @@ import {
   streamHostsView,
   type PerIpPolicy,
 } from './developers-streams';
-import '../../shared/public-pages.css';
-import './developers-docs.css';
 
 type Copy = ReturnType<typeof docsCopy.useCopy>['t'];
-
-function Page({ id, title, lead, children }: { id: string; title: string; lead: string; children: React.ReactNode }) {
-  const { t } = docsCopy.useCopy();
-  return (
-    <div className="pub-page" data-testid={`developers-${id}`}>
-      <header className="pub-heading">
-        <h1>{title}</h1>
-        <p className="muted">{lead}</p>
-      </header>
-      {children}
-      <a className="text-link" href="/developers">
-        ← {t('back')}
-      </a>
-    </div>
-  );
-}
 
 export function RestPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
   return (
     <Page id="rest" title={title} lead={t('restLead')}>
-      <section className="pub-card" aria-labelledby="dev-rest-rules">
+      <section aria-labelledby="dev-rest-rules">
         <h2 id="dev-rest-rules">{t('restRulesTitle')}</h2>
         <ul>
           {(['restUrls', 'restJson', 'restTimes', 'restIds', 'restSymbols', 'restDecimals', 'restErrors'] as const).map((key) => (
@@ -71,7 +55,7 @@ export function RestPage({ title }: { title: string }) {
           ))}
         </ul>
       </section>
-      <section className="pub-notice" role="status">
+      <section className="lt-hint" role="status">
         <p>{t('restPaging')}</p>
       </section>
     </Page>
@@ -88,12 +72,12 @@ export function ReferencePage({ title }: { title: string }) {
         const routes = REST_REFERENCE.filter((route) => route.product === product);
         const streams = STREAM_REFERENCE.filter((stream) => stream.product === product);
         return (
-          <section className="pub-card" key={product} aria-labelledby={`dev-ref-${product}`}>
+          <section key={product} aria-labelledby={`dev-ref-${product}`}>
             <h2 id={`dev-ref-${product}`}>{t(productKey(product))}</h2>
             {routes.length === 0 && streams.length === 0 ? <p>{t('fundingNone')}</p> : null}
             {routes.length ? (
-              <div className="table-scroll">
-                <table className="pub-table">
+              <div>
+                <table className="lt-table">
                   <thead>
                     <tr>
                       <th scope="col">{t('colRoute')}</th>
@@ -125,8 +109,8 @@ export function ReferencePage({ title }: { title: string }) {
               </div>
             ) : null}
             {streams.length ? (
-              <div className="table-scroll">
-                <table className="pub-table">
+              <div>
+                <table className="lt-table">
                   <thead>
                     <tr>
                       <th scope="col">{t('colStream')}</th>
@@ -153,8 +137,8 @@ export function ReferencePage({ title }: { title: string }) {
           </section>
         );
       })}
-      <p className="muted">{t('referenceMore')}</p>
-      <p className="muted">{t('streamsLive')}</p>
+      <p className="lt-hint">{t('referenceMore')}</p>
+      <p className="lt-hint">{t('streamsLive')}</p>
     </Page>
   );
 }
@@ -163,26 +147,28 @@ export function PermissionsPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
   return (
     <Page id="permissions" title={title} lead={t('permissionsLead')}>
-      <section className="pub-card">
-        <div className="table-scroll">
-          <table className="pub-table" aria-label={t('permissionsTable')}>
+      <section>
+        <div>
+          <table className="lt-table" aria-label={t('permissionsTable')}>
             <thead>
               <tr>
                 <th scope="col">{t('colScope')}</th>
-                <th scope="col">{t('colEndpoints')}</th>
+                <th scope="col" data-align="start">
+                  {t('colEndpoints')}
+                </th>
               </tr>
             </thead>
             <tbody>
               {permissionTable().map((row) => (
                 <tr key={row.scope} data-scope={row.scope}>
-                  <th scope="row">
-                    <code>{row.scope}</code>
+                  <th scope="row" data-valign="top">
+                    <code className="lt-mono lt-nowrap">{row.scope}</code>
                   </th>
-                  <td>
+                  <td data-align="start" data-valign="top">
                     <ul>
                       {row.routes.map((route) => (
                         <li key={routeLine(route)}>
-                          <code>{routeLine(route)}</code>
+                          <code className="lt-mono">{routeLine(route)}</code>
                         </li>
                       ))}
                     </ul>
@@ -191,16 +177,16 @@ export function PermissionsPage({ title }: { title: string }) {
               ))}
               {neverOnAKeyTable().map((row) => (
                 <tr key={row.scope} data-scope={row.scope} data-never-on-key="">
-                  <th scope="row">
-                    <code>{row.scope}</code>
+                  <th scope="row" data-valign="top">
+                    <code className="lt-mono lt-nowrap">{row.scope}</code>
                   </th>
-                  <td>
+                  <td data-align="start" data-valign="top">
                     {row.routes.length > 0 ? t('neverOnKeyStaff') : t('neverOnKey')}
                     {row.routes.length > 0 ? (
                       <ul>
                         {row.routes.map((route) => (
                           <li key={routeLine(route)}>
-                            <code>{routeLine(route)}</code>
+                            <code className="lt-mono">{routeLine(route)}</code>
                           </li>
                         ))}
                       </ul>
@@ -220,26 +206,26 @@ export function OpenApiPage({ title }: { title: string }) {
   const { t } = docsCopy.useCopy();
   return (
     <Page id="openapi" title={title} lead={t('openapiLead')}>
-      <section className="pub-card">
+      <section>
         <ul>
           <li>
-            <a className="text-link" href="/developers/openapi.json" download="trading-api.openapi.json">
+            <a className="lt-link lt-link-alone" href="/developers/openapi.json" download="trading-api.openapi.json">
               {t('openapiDownload')}
             </a>
           </li>
           <li>
-            <a className="text-link" href="/developers/collection.json" download="trading-api.collection.json">
+            <a className="lt-link lt-link-alone" href="/developers/collection.json" download="trading-api.collection.json">
               {t('collectionDownload')}
             </a>
           </li>
           <li>
-            <a className="text-link" href="/developers/llms.txt">
+            <a className="lt-link lt-link-alone" href="/developers/llms.txt">
               {t('llmsOpen')}
             </a>
           </li>
         </ul>
-        <p className="muted">{t('openapiCost', { cost: CALL_COST })}</p>
-        <p className="muted">{t('openapiHosts')}</p>
+        <p className="lt-hint">{t('openapiCost', { cost: CALL_COST })}</p>
+        <p className="lt-hint">{t('openapiHosts')}</p>
       </section>
     </Page>
   );
@@ -265,12 +251,12 @@ export function ClockCheck({ testId }: { testId: string }) {
     setState({ status: 'ready', reading: clock.data, window: policy.ok ? policy.data.windowSeconds : 'failed' });
   };
   return (
-    <div className="pub-form">
-      <button type="button" className="button button--primary" onClick={() => void check()} disabled={state.status === 'checking'}>
+    <div className="lt-stack">
+      <Button tone="primary" onClick={() => void check()} disabled={state.status === 'checking'}>
         {state.status === 'checking' ? t('clockChecking') : t('clockCheck')}
-      </button>
+      </Button>
       <ClockResult state={state} testId={testId} t={t} />
-      <p className="muted">{t('clockHow')}</p>
+      <p className="lt-hint">{t('clockHow')}</p>
     </div>
   );
 }
@@ -318,11 +304,11 @@ export function AuthenticationPage({ title }: { title: string }) {
   const { read, reload } = useRead((signal) => readSigningPolicy(api, signal), [api]);
   return (
     <Page id="authentication" title={title} lead={t('authLead')}>
-      <section className="pub-card" aria-labelledby="dev-auth-key">
+      <section aria-labelledby="dev-auth-key">
         <h2 id="dev-auth-key">{t('authKeyTitle')}</h2>
         <p>{t('authKeyBody')}</p>
       </section>
-      <section className="pub-card" aria-labelledby="dev-auth-sign">
+      <section aria-labelledby="dev-auth-sign">
         <h2 id="dev-auth-sign">{t('authSignTitle')}</h2>
         <p>{t('authSignBody')}</p>
         <ol aria-label={t('authLines')}>
@@ -335,16 +321,14 @@ export function AuthenticationPage({ title }: { title: string }) {
         </ol>
       </section>
       {read.status === 'loading' ? (
-        <StateBlock kind="loading" rows={3} rowHeight={48} label={t('authPolicyLoading')} />
+        <ReadLoading rows={3} label={t('authPolicyLoading')} />
       ) : read.status === 'failed' ? (
-        <StateBlock kind="error" title={t('authPolicyFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+        <ReadFailed title={t('authPolicyFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
       ) : (
         <SigningPolicy policy={read.data} t={t} />
       )}
-      <p className="muted">{t('authPolicyRead')}</p>
-      <a className="text-link" href="/developers/errors/auth">
-        {t('authErrorsLink')} →
-      </a>
+      <p className="lt-hint">{t('authPolicyRead')}</p>
+      <GoLink href="/developers/errors/auth">{t('authErrorsLink')}</GoLink>
     </Page>
   );
 }
@@ -357,10 +341,10 @@ function SigningPolicy({ policy, t }: { policy: RequestSigningPolicy; t: Copy })
   ] as const;
   return (
     <>
-      <section className="pub-card" aria-labelledby="dev-auth-headers">
+      <section aria-labelledby="dev-auth-headers">
         <h2 id="dev-auth-headers">{t('authHeadersTable')}</h2>
-        <div className="table-scroll">
-          <table className="pub-table dev-text-table">
+        <div>
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('colHeader')}</th>
@@ -380,7 +364,7 @@ function SigningPolicy({ policy, t }: { policy: RequestSigningPolicy; t: Copy })
           </table>
         </div>
       </section>
-      <section className="pub-card" aria-labelledby="dev-auth-window">
+      <section aria-labelledby="dev-auth-window">
         <h2 id="dev-auth-window">{t('authWindowTitle')}</h2>
         {policy.windowSeconds === null ? (
           <p data-testid="developers-sign-window" data-window-state="unset">
@@ -393,12 +377,12 @@ function SigningPolicy({ policy, t }: { policy: RequestSigningPolicy; t: Copy })
         )}
         <p>{t('authRefusals')}</p>
       </section>
-      <section className="pub-card" aria-labelledby="dev-auth-vector">
+      <section aria-labelledby="dev-auth-vector">
         <h2 id="dev-auth-vector">{t('authVectorTitle')}</h2>
         <p>{t('authVectorBody')}</p>
-        <div className="table-scroll" data-testid="developers-sign-vector">
-          <table className="pub-table dev-text-table">
-            <caption className="sr-only">{t('authVectorTable')}</caption>
+        <div data-testid="developers-sign-vector">
+          <table className="lt-table">
+            <caption className="lt-sr">{t('authVectorTable')}</caption>
             <thead>
               <tr>
                 <th scope="col">{t('colField')}</th>
@@ -410,7 +394,9 @@ function SigningPolicy({ policy, t }: { policy: RequestSigningPolicy; t: Copy })
                 <tr key={field}>
                   <th scope="row">{field}</th>
                   <td>
-                    <code data-testid={`vector-${field}`}>{policy.vector[field]}</code>
+                    <code className="lt-pre-wrap" data-testid={`vector-${field}`}>
+                      {policy.vector[field]}
+                    </code>
                   </td>
                 </tr>
               ))}
@@ -432,18 +418,14 @@ export function QuickstartPage({ title }: { title: string }) {
   ];
   return (
     <Page id="quickstart" title={title} lead={t('quickstartLead')}>
-      <ol className="pub-steps" aria-label={t('quickstartSteps')}>
+      <ol className="lt-stack" aria-label={t('quickstartSteps')}>
         {steps.map((step, index) => (
-          <li className="pub-step" key={step.key} data-step={step.key}>
-            <span className="pub-step__number">{t('stepLabel', { n: index + 1 })}</span>
+          <li className="lt-stack" key={step.key} data-step={step.key}>
+            <span className="lt-hint">{t('stepLabel', { n: index + 1 })}</span>
             <h2>{step.title}</h2>
             <p>{step.body}</p>
             {step.key === 'clock' ? <ClockCheck testId="developers-clock-check" /> : null}
-            {step.link ? (
-              <a className="text-link" href={step.link.href}>
-                {step.link.label} →
-              </a>
-            ) : null}
+            {step.link ? <GoLink href={step.link.href}>{step.link.label}</GoLink> : null}
           </li>
         ))}
       </ol>
@@ -465,19 +447,19 @@ export function ConnectivityPage({ title }: { title: string }) {
       : connectivityOptions().filter(({ state }) => state === 'parked_hardware');
   return (
     <Page id="connectivity" title={title} lead={t('connectivityLead')}>
-      <section className="pub-card" aria-labelledby="dev-conn-options">
+      <section aria-labelledby="dev-conn-options">
         <h2 id="dev-conn-options">{t('connectivityTable')}</h2>
         {view.kind === 'loading' ? (
-          <StateBlock kind="loading" rows={2} rowHeight={48} label={live('loading')} />
+          <ReadLoading rows={2} label={live('loading')} />
         ) : view.kind === 'failed' ? (
-          <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+          <ReadFailed title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
         ) : view.unsetCode ? (
-          <p className="pub-notice" role="status" data-testid="developers-connectivity-unset" data-code={view.unsetCode}>
+          <p className="lt-hint" role="status" data-testid="developers-connectivity-unset" data-code={view.unsetCode}>
             {portal('hostsUnpublished')}
           </p>
         ) : null}
-        <div className="table-scroll">
-          <table className="pub-table dev-text-table">
+        <div>
+          <table className="lt-table">
             <thead>
               <tr>
                 <th scope="col">{t('colOption')}</th>
@@ -508,11 +490,9 @@ export function ConnectivityPage({ title }: { title: string }) {
             </tbody>
           </table>
         </div>
-        <a className="text-link" href="/developers/hosts">
-          {t('hostsLink')} →
-        </a>
+        <GoLink href="/developers/hosts">{t('hostsLink')}</GoLink>
       </section>
-      <section className="pub-card" aria-labelledby="dev-conn-time">
+      <section aria-labelledby="dev-conn-time">
         <h2 id="dev-conn-time">{t('timeTitle')}</h2>
         <p>{t('timeLead')}</p>
         <ClockCheck testId="developers-time-probe" />
@@ -529,21 +509,21 @@ export function DataTermsPage({ title }: { title: string }) {
   const view = termsView(read);
   return (
     <Page id="data-terms" title={title} lead={t('dataTermsLead')}>
-      <section className="pub-card" aria-labelledby="dev-data-terms">
+      <section aria-labelledby="dev-data-terms">
         <h2 id="dev-data-terms">{t('dataTermsTable')}</h2>
         {view.kind === 'loading' ? (
-          <StateBlock kind="loading" rows={6} rowHeight={32} label={live('loading')} />
+          <ReadLoading rows={6} label={live('loading')} />
         ) : view.kind === 'failed' ? (
-          <StateBlock kind="error" title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
+          <ReadFailed title={live('loadFailed')} onRetry={reload} retryLabel={live('tryAgain')} />
         ) : (
           <>
             {view.unsetCode ? (
-              <p className="pub-notice" role="status" data-testid="developers-data-terms-unset" data-code={view.unsetCode}>
+              <p className="lt-hint" role="status" data-testid="developers-data-terms-unset" data-code={view.unsetCode}>
                 {t('dataTermsWaits')}
               </p>
             ) : null}
-            <div className="table-scroll">
-              <table className="pub-table dev-text-table">
+            <div>
+              <table className="lt-table">
                 <thead>
                   <tr>
                     <th scope="col">{t('colProduct')}</th>
@@ -592,22 +572,22 @@ export function WebSocketPage({ title }: { title: string }) {
   const perIp = policyView(policy.read);
   return (
     <Page id="websocket" title={title} lead={t('wsLead')}>
-      <section className="pub-card" aria-labelledby="dev-ws-endpoints">
+      <section aria-labelledby="dev-ws-endpoints">
         <h2 id="dev-ws-endpoints">{t('wsEndpointsTitle')}</h2>
         {view.kind === 'loading' ? (
-          <StateBlock kind="loading" rows={3} rowHeight={48} label={live('loading')} />
+          <ReadLoading rows={3} label={live('loading')} />
         ) : view.kind === 'failed' ? (
-          <StateBlock kind="error" title={live('loadFailed')} onRetry={hosts.reload} retryLabel={live('tryAgain')} />
+          <ReadFailed title={live('loadFailed')} onRetry={hosts.reload} retryLabel={live('tryAgain')} />
         ) : (
           <>
             {view.unsetCode ? (
-              <p className="pub-notice" role="status" data-testid="developers-websocket-hosts-unset" data-code={view.unsetCode}>
+              <p className="lt-hint" role="status" data-testid="developers-websocket-hosts-unset" data-code={view.unsetCode}>
                 {t('wsHostsUnpublished')}
               </p>
             ) : null}
-            <div className="table-scroll">
-              <table className="pub-table dev-text-table">
-                <caption className="sr-only">{t('wsEndpointsTable')}</caption>
+            <div>
+              <table className="lt-table">
+                <caption className="lt-sr">{t('wsEndpointsTable')}</caption>
                 <thead>
                   <tr>
                     <th scope="col">{t('colEndpoint')}</th>
@@ -643,18 +623,18 @@ export function WebSocketPage({ title }: { title: string }) {
         )}
         <p>{t('wsFailover')}</p>
       </section>
-      <section className="pub-card" aria-labelledby="dev-ws-messages">
+      <section aria-labelledby="dev-ws-messages">
         <h2 id="dev-ws-messages">{t('wsMessagesTitle')}</h2>
         <p>
           {t('wsUnknown')} {t('wsUnknownMore')}
         </p>
       </section>
-      <section className="pub-card" aria-labelledby="dev-ws-keepalive">
+      <section aria-labelledby="dev-ws-keepalive">
         <h2 id="dev-ws-keepalive">{t('wsKeepaliveTitle')}</h2>
         {ping.kind === 'loading' ? (
-          <StateBlock kind="loading" rows={1} rowHeight={24} label={live('loading')} />
+          <ReadLoading rows={1} label={live('loading')} />
         ) : ping.kind === 'failed' ? (
-          <StateBlock kind="error" title={t('wsPingFailed')} onRetry={timing.reload} retryLabel={live('tryAgain')} />
+          <ReadFailed title={t('wsPingFailed')} onRetry={timing.reload} retryLabel={live('tryAgain')} />
         ) : ping.kind === 'unset' ? (
           <p data-testid="developers-websocket-ping-interval" data-ping-state="unset">
             {t('wsPingUnset')}
@@ -665,12 +645,12 @@ export function WebSocketPage({ title }: { title: string }) {
           </p>
         )}
       </section>
-      <section className="pub-card" aria-labelledby="dev-ws-limits">
+      <section aria-labelledby="dev-ws-limits">
         <h2 id="dev-ws-limits">{t('wsLimitsTitle')}</h2>
         {perIp.kind === 'loading' ? (
-          <StateBlock kind="loading" rows={2} rowHeight={24} label={live('loading')} />
+          <ReadLoading rows={2} label={live('loading')} />
         ) : perIp.kind === 'failed' ? (
-          <StateBlock kind="error" title={t('wsPolicyFailed')} onRetry={policy.reload} retryLabel={live('tryAgain')} />
+          <ReadFailed title={t('wsPolicyFailed')} onRetry={policy.reload} retryLabel={live('tryAgain')} />
         ) : perIp.kind === 'unpublished' ? (
           <p role="status" data-testid="developers-websocket-policy" data-policy-state="unpublished">
             {t('wsPolicyUnpublished')}
@@ -679,10 +659,10 @@ export function WebSocketPage({ title }: { title: string }) {
           <PerIpRules perIp={perIp.perIp} t={t} />
         )}
       </section>
-      <section className="pub-card" aria-labelledby="dev-ws-guide">
+      <section aria-labelledby="dev-ws-guide">
         <h2 id="dev-ws-guide">{t('wsGuideTable')}</h2>
-        <div className="table-scroll">
-          <table className="pub-table dev-text-table" aria-labelledby="dev-ws-guide">
+        <div>
+          <table className="lt-table" aria-labelledby="dev-ws-guide">
             <thead>
               <tr>
                 <th scope="col">{t('colProtocolName')}</th>

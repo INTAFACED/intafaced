@@ -1,4 +1,4 @@
-// World: restart
+// World: book, restart
 import { expect, test } from './journey.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -6,25 +6,50 @@ import path from 'node:path';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api, fund, signUpInBrowser, tool } from './stack.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
+import { ORIGIN, api, signUpInBrowser, startService, stopService } from './stack.mjs';
 import { verify } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
+import { fundAtPartner, holdAtPartner } from './partner.mjs';
+import { ownSpotMarket } from './own-market.mjs';
+import { testWalletKey } from './test-wallet.mjs';
+import { testDeposit, venueForThisFile, venueRecord, walletDoorAct } from './venue.mjs';
 
 // J-ops-console-02 steps #3 and #4: /accounts/:userId shows the money, trade, pay, cards, documents and tickets tabs for one
-// account, each read loading or refusing on its own, and a part no service can read for one account names why; with svc-trade
-// stopped only the trade tab's read refuses and every other read keeps its state (#3). And the risk card and indicator strip,
-// which say there is no risk level and nothing is set rather than show a number (#4).
-// #3's last clause, a staff member without the cards scope seeing "permission denied", signs in the stack's TEST support
-// staff member (staff.mjs). Step #5
-// (each document's status and the viewer) is its own test, J-ops-console-02-documents.pw.mjs.
+// account, each read loading or refusing on its own; with svc-trade stopped only the trade tab refuses and every other tab
+// keeps what it showed (#3). And the risk card and indicator strip, which say there is no risk level and nothing is set
+// rather than show a number (#4). Step #5 (each document's status and the viewer) is its own test,
+// J-ops-console-02-documents.pw.mjs.
 // #4 looks at the stack's second TEST founder, an account that always exists on the stack. #3 looks at a fresh TEST
-// customer with money and a card on it: verified, funded with TEST USDT through the real ledger, and holding a TEST card
-// from the stack's card simulator, so the reads that answer have this customer's own records to show.
+// customer on the launch money model (INTAFACED holds no customer money; custody off) who has, each made as that customer
+// through the running product: a deposit (TEST USDT paid in at the TEST partner bank that holds their bank money), a trade
+// (a TEST limit buy from their own venue account through our door, on this file's own TEST market), a payment (a send to
+// another person), a card (a TEST card from the stack's card simulator) and a support request. Each tab then shows that
+// customer's own record, value for value, read from the service that holds it. #3's last clause, a staff member without the cards scope seeing "permission denied",
+// signs in the stack's TEST support staff member (staff.mjs), whose role reads accounts, payments, trading and documents
+// and not cards.
 
-/** A fresh verified TEST customer with `usdt` TEST USDT through the real ledger and one TEST virtual card. */
-async function customerWithMoneyAndCard(browser, usdt) {
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const two = (n) => String(n).padStart(2, '0');
+/** A time as the console prints when something happened (apps/admin as-of.ts): "15 Oct 2026, 10:02:03 UTC". */
+const deskWhen = (iso) => {
+  const d = new Date(iso);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} UTC`;
+};
+const DESK_TIME = /^\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}, \d{2}:\d{2}:\d{2} UTC$/;
+const J = 'J-ops-console-02';
+/** The TEST partner bank's label (svc-bank `partner/test-partner.ts`). */
+const PARTNER_BANK = 'TEST partner bank';
+/** Every read on the trade tab, answered. */
+const TRADE_READ = { 'read-trade.orders': 'read', 'read-trade.venue-orders': 'read', 'read-trade.controls': 'read' };
+
+// #3's trade is on the launch desk, the customer's own venue account: svc-trade's user-venue door is on for this file.
+venueForThisFile(test);
+
+/** A fresh TEST person, signed up and verified in a browser of their own. */
+async function verifiedPerson(browser, prefix) {
   const tag = randomUUID().slice(0, 8);
-  const who = { handle: `ops23${tag}`, email: `ops23-${tag}@local-test.invalid`, password: `Ops23-${tag}-Test!pass` };
+  const who = { handle: `${prefix}${tag}`, email: `${prefix}-${tag}@local-test.invalid`, password: `Ops23-${tag}-Test!pass` };
   const page = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
   try {
     await signUpInBrowser(page, who);
@@ -32,9 +57,78 @@ async function customerWithMoneyAndCard(browser, usdt) {
   } finally {
     await page.context().close();
   }
-  expect(fund(who.email, 'USDT', usdt).tx, 'the TEST deposit posted to the ledger').toBeTruthy();
-  const cardId = randomUUID();
+  return who;
+}
+
+/**
+ * A fresh verified TEST customer on the launch money model with a deposit, a trade, a payment, a card and a support
+ * request, each made as that customer through the running product, and what the product answered for each. Their bank
+ * money is held at the TEST partner bank, never on our ledger; their trade is on their own TEST venue account.
+ */
+async function customerWithRecords(browser) {
+  const who = await verifiedPerson(browser, 'ops23');
+  const payee = await verifiedPerson(browser, 'ops2p');
+  const tag = randomUUID().slice(0, 8);
+  // The deposit: TEST USDT paid in at the TEST partner bank, where launch holds a person's bank money.
+  await holdAtPartner(who);
+  await holdAtPartner(payee);
+  await fundAtPartner(who, `ops02-3-${tag}`, 'USDT', '2000');
   const own = await api(who);
+  // The trade: a TEST limit buy of 1 at 10 USDC, signed by the customer's own wallet and sent through our door from their own
+  // TEST venue account (TEST 100 USDC paid in there), on this file's own TEST market, whose empty book leaves it resting.
+  const key = privateKeyToAccount(testWalletKey());
+  const owner = key.address.toLowerCase();
+  expect(await testDeposit(owner, 'USDC', '100', `84532:0x${randomUUID().replace(/-/g, '')}${'0'.repeat(32)}:0`)).toBe(true);
+  const { symbol } = await ownSpotMarket(J, 'OC', 'A');
+  const intent = {
+    kind: 'place_order',
+    symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '1',
+    price: '10',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    builderFee: null,
+    clientOrderKey: `order:${owner}:${symbol.toLowerCase()}:ops02-3-${tag}`,
+  };
+  // Our door re-reads the venue's market list on a miss, at most every few seconds: wait until it previews this market.
+  await expect
+    .poll(async () => (await own.post('/api/v1/venue/preview', { owner, intent })).status, { timeout: 30_000, intervals: [2_000] })
+    .toBe(200);
+  await walletDoorAct(own, key, { intent });
+  const resting = (await venueRecord(owner, '/open-orders')).value;
+  expect(resting, 'the buy rests on the customer’s own venue account').toHaveLength(1);
+  const order = { ...resting[0], owner };
+  expect(order).toMatchObject({
+    symbol,
+    side: 'buy',
+    type: 'limit',
+    status: 'open',
+    amount: '1',
+    filled: '0',
+    price: '10',
+    venueClientOrderId: expect.stringMatching(/^0x[0-9a-f]{32}$/),
+  });
+  // The payment: a send of TEST 5 USDT from the customer's primary space, held at the partner, to another person.
+  const spacesOf = async () => {
+    const res = await own.get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  const from = (await spacesOf()).find((space) => space.kind === 'primary' && space.assetId === 'USDT');
+  expect(from?.id, 'the customer has a primary USDT space to pay from').toBeTruthy();
+  const payeeId = (await api(payee)).userId;
+  const paymentId = `ops02-pay-${tag}`;
+  const paid = await own.post('/api/bank/trpc/transfers.toUser', {
+    transferId: paymentId,
+    fromSpaceId: from.id,
+    toUserId: payeeId,
+    amount: '5',
+  });
+  expect(paid.status, JSON.stringify(paid.body).slice(0, 300)).toBe(200);
+  // The card: one TEST virtual card from the stack's card simulator.
+  const cardId = randomUUID();
   const issued = await own.post('/api/bank/trpc/cards.issue', {
     cardId,
     assetId: 'USDT',
@@ -42,16 +136,39 @@ async function customerWithMoneyAndCard(browser, usdt) {
     cardType: 'virtual',
   });
   expect(issued.status, JSON.stringify(issued.body).slice(0, 300)).toBe(200);
-  expect(issued.body.result.data).toMatchObject({ status: 'active', simulated: true });
-  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  const card = issued.body.result.data;
+  expect(card).toMatchObject({ id: cardId, status: 'active', simulated: true, cardType: 'virtual', assetId: 'USDT' });
+  // The support request.
+  const asked = await own.post('/api/support/trpc/create', {
+    category: 'account',
+    subject: `TEST J-ops-console-02 request ${tag}`,
+    body: `TEST J-ops-console-02 #3 support request ${tag}`,
+    clientRequestId: `J-ops-console-02:3:${tag}`,
   });
-  const userId = (await login.json())?.result?.data?.userId;
-  if (!userId) throw new Error(`sign-in for ${who.email} refused: ${login.status}`);
-  return { userId, cardId };
+  expect(asked.status, JSON.stringify(asked.body).slice(0, 300)).toBe(200);
+  const ticket = asked.body.result.data;
+  expect(ticket.userId, 'the support request is this customer’s').toBe(own.userId);
+  // The balances, as the customer's own spaces read them from the partner holding them: the deposit less the payment.
+  const spaces = (await spacesOf()).filter((space) => space.balance !== undefined);
+  expect(spaces.find((space) => space.id === from.id)?.balance).toBe('1995');
+  // The operator balances read stays shut to a session holding neither admin:read nor admin:treasury: the customer's own
+  // session asking it for themselves is refused 403 with the platform's one scope code, and gets no figure.
+  const operatorRead = await own.get(
+    `/api/bank/trpc/ops.customerBalances?input=${encodeURIComponent(JSON.stringify({ userId: own.userId }))}`,
+  );
+  expect(operatorRead.status, JSON.stringify(operatorRead.body).slice(0, 300)).toBe(403);
+  expect(operatorRead.body.result).toBeUndefined();
+  expect(operatorRead.body.error.message).toBe('One of admin:read, admin:treasury is required');
+  expect(operatorRead.body.error.data.intafacedCode).toBe('scope.denied');
+  return { userId: own.userId, payeeId, order, paymentId, card, ticket, spaces };
 }
+
+/**
+ * The customer's balance in each space, as the console's partner balances table must show it: coin, space, kind, balance,
+ * who reported it and whether the figure is current, each the one the customer's own spaces show.
+ */
+const partnerRows = (spaces, source) =>
+  spaces.map((space) => [space.assetId, space.name, space.kind, space.balance, source, 'Current', 'Open']);
 
 async function secondFounder() {
   const ctx = await makeContext({ log: () => {} });
@@ -109,10 +226,49 @@ test('J-ops-console-02 #4 the risk card says no risk level and the indicator str
   }
 });
 
-test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing on its own', async ({ page, browser }) => {
-  test.setTimeout(600_000);
-  const { userId: customer, cardId } = await customerWithMoneyAndCard(browser, '25');
+test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing on its own', async ({ page, browser, stepPicture }) => {
+  test.setTimeout(720_000);
+  const record = await customerWithRecords(browser);
+  const { userId: customer, order, card, ticket } = record;
   await founderSignIn(page, 'a');
+  /** A part no service can read for one account: its own words, "no source", and the code that tells it from a refusal. */
+  const noSource = async (id, label) => {
+    await expect(page.getByTestId(`unwired-${id}`)).toContainText(`${label}: no source`);
+    await expect(page.getByTestId(`unwired-${id}`)).toContainText('Code: ops.customer_record_source_unwired');
+  };
+  /** The one row of a list read, cell by cell (the last cell is its Open button). */
+  const onlyRow = async (p, read, cells) => {
+    const rows = p.getByTestId(read).locator('tbody tr');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first().locator('td')).toHaveText(cells);
+  };
+  /** Each of the customer's records, value for value, on the tab that holds it. */
+  const orderCells = [
+    DESK_TIME,
+    order.symbol,
+    order.side,
+    order.type,
+    order.status,
+    order.amount,
+    order.filled,
+    order.price,
+    order.owner,
+    'Open',
+  ];
+  const paymentCells = [DESK_TIME, 'Sent', record.payeeId, '5', 'USDT', 'Posted', 'Open'];
+  const ticketCells = [deskWhen(ticket.createdAt), ticket.subject, ticket.category, ticket.status, 'Open'];
+  /** The money tab's balances: the ledger holds none of this customer's money, and the partner bank holds each space's. */
+  const balancesShown = async (p) => {
+    await expect(p.getByTestId('read-bank.customer-balances').getByTestId('list-empty')).toHaveText(
+      'The ledger holds no balance for this customer. That means no coin has ever been posted to them, not that the id is right.',
+    );
+    const partner = p.getByTestId('read-bank.customer-partner-balances');
+    await expect(partner.locator('tbody tr')).toHaveCount(record.spaces.length);
+    for (const cells of partnerRows(record.spaces, PARTNER_BANK)) {
+      const row = partner.locator('tbody tr').filter({ has: p.locator('td:nth-child(2)', { hasText: new RegExp(`^${cells[1]}$`) }) });
+      await expect(row.locator('td')).toHaveText(cells);
+    }
+  };
 
   await page.goto(`${ADMIN}/accounts`, { waitUntil: 'load' });
   await page.getByLabel('Account id').fill(customer.toUpperCase());
@@ -122,122 +278,178 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   for (const tab of ['money', 'trade', 'pay', 'cards', 'documents', 'tickets'])
     await expect(page.getByTestId(`customer-tab-${tab}`)).toBeVisible();
 
-  // Money: svc-pay's three reads of this customer's deposits answer. The ledger's balance read refuses on its own, in
-  // words and with its code: svc-bank asks for the treasury permission admin:treasury, which a founder session never
-  // carries, so a founder's record cannot show the balance and says why in its place.
-  const money = await tabStates(page, 'money');
-  expect(money).toEqual({
-    'read-bank.customer-balances': 'COULD NOT LOAD THE CUSTOMER’S BALANCES / scope.denied',
+  // Money: the ledger's balances of this customer load and hold none of their money (the launch model), and the partner
+  // bank's balances load, one row per space, each figure exactly what the customer's own spaces show (the USDT the deposit
+  // paid in, less the payment). svc-pay's three deposit reads answer too. Each deposit one by one has no operator read, and
+  // the tab says so with its code.
+  expect(await tabStates(page, 'money')).toEqual({
+    'read-bank.customer-balances': 'read',
+    'read-bank.customer-partner-balances': 'read',
     'read-money.deposit-addresses': 'read',
     'read-money.deposit-freezes': 'read',
     'read-money.deposit-travel-rule': 'read',
   });
-  const balances = page.getByTestId('read-bank.customer-balances');
-  await expect(balances.getByTestId('read-failed')).toContainText('Refused your session.');
-  await expect(balances.getByTestId('read-failed')).toContainText('admin:treasury');
-  await expect(balances.locator('tbody tr')).toHaveCount(0);
-  await expect(page.getByTestId('unwired-money.deposits')).toContainText('no source');
+  await balancesShown(page);
+  await noSource('money.deposits', 'Each deposit and withdrawal of this account');
 
-  // Trade: svc-trade's restriction history answers for this customer; orders and positions name their blocker.
-  await page.getByTestId('customer-tab-trade').click();
-  await expect(page.getByTestId('customer-panel-trade')).toBeVisible({ timeout: 60_000 });
-  expect(await readState(page.getByTestId('read-trade.controls'))).toBe('read');
-  await expect(page.getByTestId('unwired-trade.orders')).toContainText('no source');
+  // Trade: svc-trade's reads of this customer load. Our own book holds no order of theirs (it is off at launch); the venue's
+  // orders on their own venue account hold the one buy they placed, as the venue keeps it; the restriction history says
+  // nothing is logged, since this customer was never restricted.
+  expect(await tabStates(page, 'trade')).toEqual(TRADE_READ);
+  await expect(page.getByTestId('read-trade.orders').getByTestId('list-empty')).toHaveText(
+    'svc-trade holds no order for this account: it has never placed one.',
+  );
+  await onlyRow(page, 'read-trade.venue-orders', orderCells);
+  await page.getByTestId('read-trade.venue-orders').getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.getByTestId('read-trade.venue-orders').getByTestId('row-detail')).toContainText(order.venueClientOrderId);
+  await page.getByTestId('read-trade.venue-orders').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByTestId('read-trade.controls').getByTestId('list-empty')).toHaveText(
+    'svc-trade has no restriction logged for this account: it has never been restricted or restored here.',
+  );
+  await noSource('trade.positions', 'Positions and margin');
 
-  // Pay: the two allowlist reads each answer or refuse alone.
-  const pay = await tabStates(page, 'pay');
-  expect(Object.keys(pay)).toEqual(expect.arrayContaining(['read-pay.allowlist-mode', 'read-pay.allowlist-policy']));
+  // Pay: svc-bank's payments of this customer load, and the one payment is the send of 5 USDT to the other person, posted;
+  // svc-pay's two allowlist reads load and say this customer set neither.
+  expect(await tabStates(page, 'pay')).toEqual({
+    'read-pay.payments': 'read',
+    'read-pay.allowlist-mode': 'read',
+    'read-pay.allowlist-policy': 'read',
+  });
+  await onlyRow(page, 'read-pay.payments', paymentCells);
+  await page.getByTestId('read-pay.payments').getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.getByTestId('read-pay.payments').getByTestId('row-detail')).toContainText(record.paymentId);
+  await page.getByTestId('read-pay.payments').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByTestId('read-pay.allowlist-mode').getByTestId('record').locator('dd')).toHaveText(['no', '—']);
+  await expect(page.getByTestId('read-pay.allowlist-policy').getByTestId('record').locator('dd')).toHaveText(['no', '—', '—', '—']);
+  await noSource('pay.checkouts', 'Payments to merchants at checkout');
 
-  // Documents: identity's document list for this account answers in words (a list or "holds no document"), and the
-  // per-document decisions identity does not keep name their blocker.
+  // Documents: identity's document list for this account answers in words, and the per-document decisions identity does
+  // not keep name their blocker.
   await page.getByTestId('customer-tab-documents').click();
   await expect(page.getByTestId('customer-panel-documents')).toBeVisible({ timeout: 60_000 });
-  const documents = page.getByTestId('read-identity.documents');
-  await expect(documents.getByText(/As of /).first()).toBeVisible();
+  await expect(
+    page
+      .getByTestId('read-identity.documents')
+      .getByText(/As of /)
+      .first(),
+  ).toBeVisible();
   await expect(page.getByTestId('unwired-documents.decisions')).toContainText('no source');
 
-  // Cards: svc-bank's card read answers with this customer's TEST card, active and simulated; card payments, which no
-  // service can read for one account, name why.
-  const cards = await tabStates(page, 'cards');
-  expect(cards['read-cards.list'], "svc-bank's card read answered").toBe('read');
-  const card = page.getByTestId('read-cards.list').locator('tbody tr').filter({ hasText: cardId });
-  await expect(card).toHaveCount(1);
-  await expect(card).toContainText('Active');
-  await expect(page.getByTestId('unwired-cards.payments')).toContainText('no source');
-  await expect(page.getByTestId('unwired-cards.payments')).toContainText('ops.customer_record_source_unwired');
+  // Cards: svc-bank's card read loads, and the one card is the TEST card the customer was issued, as svc-bank holds it.
+  expect(await tabStates(page, 'cards')).toEqual({ 'read-cards.list': 'read' });
+  await onlyRow(page, 'read-cards.list', [
+    card.id,
+    'Active',
+    card.cardType,
+    card.panTail,
+    card.assetId,
+    'yes',
+    card.perAuthorizationLimit,
+    'Open',
+  ]);
+  await noSource('cards.payments', 'Card payments of this account');
 
-  // Tickets: svc-support has no read of one customer's requests, so the tab names why in place of a list.
-  await page.getByTestId('customer-tab-tickets').click();
-  await expect(page.getByTestId('customer-panel-tickets')).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByTestId('unwired-tickets.list')).toContainText('no source');
-  await expect(page.getByTestId('unwired-tickets.list')).toContainText('ops.customer_record_source_unwired');
+  // Tickets: svc-support's requests from this customer load, and the one request is the one they sent, as svc-support holds it.
+  expect(await tabStates(page, 'tickets')).toEqual({ 'read-tickets.list': 'read' });
+  await onlyRow(page, 'read-tickets.list', ticketCells);
+  await noSource('tickets.thread', 'Each request’s messages');
 
-  // svc-trade down: the trade tab's read refuses as unavailable, and every other tab (money, pay, cards, documents and
-  // tickets) keeps the state it had before, so only the trade tab refuses.
-  /** A tab's whole state: each read's state, and its panel's words with the moments of reading left out. */
+  // svc-trade down: only the trade tab refuses, each of its reads as unavailable in its own words, and every other tab
+  // (money, pay, cards, documents and tickets) shows exactly what it showed before, values included.
+  /**
+   * A tab's whole state: each read's state, and its panel's words with the moments of reading left out (a read's "As of"
+   * line and its export's "as read at <time>", which the reload above reads again).
+   */
   const tabSnapshot = async (tab) => {
     const reads = await tabStates(page, tab);
     const words = (await page.getByTestId(`customer-panel-${tab}`).innerText())
       .replace(/As of [^\n]*/g, '')
-      .replace(/as read at \d{1,2} \w{3} \d{4}, \d{2}:\d{2}:\d{2} UTC/g, 'as read at <time>');
+      .replace(/, as read at \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}:\d{2} UTC\./g, '');
     return { reads, words };
   };
-  const before = {
-    money: await tabSnapshot('money'),
-    pay: await tabSnapshot('pay'),
-    cards: await tabSnapshot('cards'),
-    documents: await tabSnapshot('documents'),
-    tickets: await tabSnapshot('tickets'),
-  };
-  expect(before.pay.reads).toEqual(pay);
-  expect(Object.keys(before.money.reads)).toContain('read-bank.customer-balances');
-  expect(Object.keys(before.documents.reads)).toContain('read-identity.documents');
+  const others = ['money', 'pay', 'cards', 'documents', 'tickets'];
+  const before = {};
+  for (const tab of others) before[tab] = await tabSnapshot(tab);
+  expect(before.money.words).toContain(record.spaces[0].balance);
+  expect(before.pay.words).toContain(record.payeeId);
+  expect(before.cards.words).toContain(card.id);
+  expect(before.tickets.words).toContain(ticket.subject);
   let failure = null;
   try {
-    tool('local-test-stack.mjs', 'stop', 'trade');
-    await page.goto(`${ADMIN}/accounts/${customer}`, { waitUntil: 'load' });
+    await stopService('trade');
+    await page.goto(`${ADMIN}/accounts/${customer}?tab=trade`, { waitUntil: 'load' });
     await expect(page.getByTestId('customer-record-id')).toHaveText(customer, { timeout: 60_000 });
-    await page.getByTestId('customer-tab-trade').click();
-    const refused = page.getByTestId('read-trade.controls').getByTestId('read-failed');
-    await expect(refused).toBeVisible({ timeout: 60_000 });
-    // Unavailable, not a refused session or a part not switched on: the stopped service is the reason.
-    await expect(refused).toHaveAttribute('data-tone', 'danger');
-    for (const tab of ['money', 'pay', 'cards', 'documents', 'tickets']) {
-      const now = await tabSnapshot(tab);
-      expect(now, `the ${tab} tab is as it was`).toEqual(before[tab]);
+    expect(await tabStates(page, 'trade')).toEqual({
+      'read-trade.orders': 'COULD NOT LOAD SVC-TRADE’S ORDERS FOR THIS ACCOUNT / no code',
+      'read-trade.venue-orders': 'COULD NOT LOAD SVC-TRADE’S VENUE ORDERS FOR THIS ACCOUNT / no code',
+      'read-trade.controls': 'COULD NOT LOAD SVC-TRADE’S RESTRICTION HISTORY / no code',
+    });
+    for (const read of ['read-trade.orders', 'read-trade.venue-orders', 'read-trade.controls']) {
+      const refused = page.getByTestId(read).getByTestId('read-failed');
+      await expect(refused).toHaveAttribute('data-tone', 'danger');
+      await expect(refused).toContainText('Unavailable.');
+      await expect(refused).toContainText('svc-trade did not answer.');
+      await expect(page.getByTestId(read).locator('tbody tr')).toHaveCount(0);
+      await expect(page.getByTestId(read).getByTestId('list-empty')).toHaveCount(0);
+    }
+    for (const tab of others) {
+      expect(await tabSnapshot(tab), `the ${tab} tab is as it was`).toEqual(before[tab]);
       await expect(page.getByTestId(`customer-panel-${tab}`).getByTestId('read-failed').filter({ hasText: 'trade' })).toHaveCount(0);
     }
   } catch (error) {
     failure = error;
   }
-  // Bring svc-trade back for the journeys after this one; a failure to restart never hides the tab's own failure.
+  // Bring svc-trade back, its door to the venue on as this file runs it (venueForThisFile); a failure to restart never
+  // hides the tab's own failure.
   try {
-    tool('local-test-stack.mjs', 'start', '--only', 'trade');
+    await startService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
   } catch (restart) {
     failure ??= restart;
   }
   if (failure) throw failure;
-  // svc-trade answers again, so the journeys after this one find it as it was.
+  // svc-trade answers again, with the same order.
   await page.goto(`${ADMIN}/accounts/${customer}?tab=trade`, { waitUntil: 'load' });
-  await expect(page.getByTestId('customer-panel-trade')).toBeVisible({ timeout: 60_000 });
-  expect(await readState(page.getByTestId('read-trade.controls'))).toBe('read');
+  expect(await tabStates(page, 'trade')).toEqual(TRADE_READ);
+  await onlyRow(page, 'read-trade.venue-orders', orderCells);
 
-  // A staff member without the cards scope sees "permission denied" on the cards tab: the stack's TEST support staff member
-  // (staff.mjs), whose role reads accounts, payments, trading and documents and not cards. The other tabs still load for
-  // them, so the refusal is the cards tab's own and not the whole record's.
+  // A staff member without the cards scope: the stack's TEST support staff member (staff.mjs), whose role reads accounts,
+  // payments, trading and documents and not cards. The customer's balances, order and payment load for them as they did
+  // for the founder, so the refusal is the cards tab's own; on the cards tab they see "permission denied", and nothing is
+  // read for them there.
   const staff = await (await browser.newContext()).newPage();
   try {
     await staffSignIn(staff, browser, 'support');
+    for (const tab of ['money', 'trade', 'pay', 'documents', 'tickets']) {
+      await staff.goto(`${ADMIN}/accounts/${customer}?tab=${tab}`, { waitUntil: 'load' });
+      await expect(staff.getByTestId('customer-record-id')).toHaveText(customer, { timeout: 60_000 });
+      await expect(staff.getByTestId(`customer-panel-${tab}`)).toBeVisible({ timeout: 60_000 });
+      await expect(staff.getByTestId('customer-tab-denied')).toHaveCount(0);
+      if (tab === 'documents') await expect(staff.getByTestId('read-identity.documents')).toBeVisible();
+    }
+    await staff.goto(`${ADMIN}/accounts/${customer}?tab=money`, { waitUntil: 'load' });
+    expect(await readState(staff.getByTestId('read-bank.customer-balances'))).toBe('read');
+    await balancesShown(staff);
+    await staff.goto(`${ADMIN}/accounts/${customer}?tab=trade`, { waitUntil: 'load' });
+    expect(await readState(staff.getByTestId('read-trade.venue-orders'))).toBe('read');
+    await onlyRow(staff, 'read-trade.venue-orders', orderCells);
+    await staff.goto(`${ADMIN}/accounts/${customer}?tab=pay`, { waitUntil: 'load' });
+    expect(await readState(staff.getByTestId('read-pay.payments'))).toBe('read');
+    await onlyRow(staff, 'read-pay.payments', paymentCells);
+
     await staff.goto(`${ADMIN}/accounts/${customer}?tab=cards`, { waitUntil: 'load' });
     await expect(staff.getByTestId('customer-record-id')).toHaveText(customer, { timeout: 60_000 });
     const cards = staff.getByTestId('customer-panel-cards');
-    await expect(cards.getByTestId('customer-tab-denied')).toContainText('Permission denied');
-    await expect(cards.getByTestId('customer-tab-denied')).toContainText('ops.customer_record_permission_denied');
+    const denied = cards.getByTestId('customer-tab-denied');
+    await expect(denied.locator('strong')).toHaveText('Permission denied');
+    await expect(denied).toContainText(
+      'Your staff role may not read cards (the cards area), so nothing on this tab was read for this account.',
+    );
+    await expect(denied).toContainText('Code: ops.customer_record_permission_denied');
+    await expect(cards.getByTestId('read-cards.list')).toHaveCount(0);
     await expect(cards.getByTestId('unwired-cards.list')).toHaveCount(0);
-    await staff.goto(`${ADMIN}/accounts/${customer}?tab=documents`, { waitUntil: 'load' });
-    await expect(staff.getByTestId('customer-panel-documents')).toBeVisible({ timeout: 60_000 });
-    await expect(staff.getByTestId('customer-tab-denied')).toHaveCount(0);
-    await expect(staff.getByTestId('read-identity.documents')).toBeVisible();
+    await expect(cards).not.toContainText(card.id);
+    // The step's picture: the record's cards tab as this staff member sees it, permission denied.
+    await stepPicture(staff);
   } finally {
     await staff.context().close();
   }

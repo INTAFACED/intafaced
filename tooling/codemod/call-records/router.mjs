@@ -5,7 +5,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, load, resolveRelative, walk } from './ast.mjs';
 import { boundParams, exportOf } from './defined.mjs';
-import { checkedUse, withCheck } from './guard-check.mjs';
+import { founderAccess } from './founder-guard.mjs';
+import { checkedUse, optionCheck, withCheck } from './guard-check.mjs';
 import { wrappedInScope, wrappedUse } from './wrapped-check.mjs';
 
 const LEAF = new Set(['query', 'mutation']);
@@ -54,14 +55,16 @@ export function procedures(serviceDir, fnName) {
   const seen = new Set();
   const visit = (p, node, prefix, depth, env = undefined) => {
     if (!node || depth > 40) return;
-    const key = `${p.file}:${node.start}:${prefix}`;
+    // A wrapper and what it wraps can start at one offset (`a?.b` and `a.b`), so the type is part of the key.
+    const key = `${p.file}:${node.start}:${node.type}:${prefix}`;
     if (seen.has(key)) return;
     seen.add(key);
     if (
       node.type === 'TSAsExpression' ||
       node.type === 'TSSatisfiesExpression' ||
       node.type === 'ParenthesizedExpression' ||
-      node.type === 'TSNonNullExpression'
+      node.type === 'TSNonNullExpression' ||
+      node.type === 'ChainExpression'
     )
       return visit(p, node.expression, prefix, depth + 1, env);
     if (node.type === 'ObjectExpression') {
@@ -146,6 +149,7 @@ export function procedures(serviceDir, fnName) {
   };
   visit(root.p, root.node, '', 0);
   // Two procedures under one path (a switch's live and stand-in branches): neither is the record, so both are named.
+  // garden/no-switch-router refuses a new one where it is written.
   for (const path of twice) {
     unread.push({ path, why: 'two procedures under one path (a switch router)', file: out.get(path).p.file });
     out.delete(path);
@@ -187,8 +191,26 @@ function exportedFunction(q, name) {
 function objectValue(p, node, depth = 0) {
   if (!node || depth > 12) return undefined;
   if (node.type === 'ObjectExpression') return { p, node };
-  if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'ParenthesizedExpression')
+  if (
+    node.type === 'TSAsExpression' ||
+    node.type === 'TSSatisfiesExpression' ||
+    node.type === 'ParenthesizedExpression' ||
+    node.type === 'TSNonNullExpression' ||
+    node.type === 'ChainExpression'
+  )
     return objectValue(p, node.expression, depth + 1);
+  // An object behind a switch (`ready ? build() : null`, `a && b`): the one branch that gives an object. Two that do are
+  // not guessed between.
+  const branches =
+    node.type === 'ConditionalExpression'
+      ? [node.consequent, node.alternate]
+      : node.type === 'LogicalExpression'
+        ? [node.left, node.right]
+        : null;
+  if (branches) {
+    const found = branches.map((b) => objectValue(p, b, depth + 1)).filter(Boolean);
+    return found.length === 1 ? found[0] : undefined;
+  }
   if (node.type === 'Identifier') {
     const b = bindingOf(p, node, node.name);
     if (b.kind === 'var' && b.declarator.init) return objectValue(p, b.declarator.init, depth + 1);
@@ -242,10 +264,14 @@ export function chainOf(proc) {
     } else break;
     cur = cur.callee.object;
   }
-  const guard = guardOf(p, cur, problems);
+  // The service's founder guard is named on the record and handed to the mount where the procedure stood (founder-guard.mjs).
+  const guard = founderAccess(p, cur) ?? guardOf(p, cur, problems);
   // A wrapped check is written where the record mounts: it must read there what it read at its guard.
   if (guard?.check?.inline && !wrappedInScope(p, node, guard.check))
     problems.push('guard use() chained: its wrapped check reads a name that means something else where the record mounts');
+  // So must a check of this file handed as the guard's `check` option: the mount is handed it by the same name.
+  if (guard?.check?.names && !guard.check.inline && guard.check.file === p.file && !wrappedInScope(p, node, guard.check))
+    problems.push(`guard check ${guard.check.name} means something else where the record mounts`);
   if (!output) problems.push('no .output(): the record has no answer schema to take');
   if (!handler) problems.push('no handler');
   return { kind, input, output, handler, guard, problems };
@@ -259,19 +285,6 @@ const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person', 'ownSession', 
  */
 const KEPT_GUARDS = new Map([
   ['coachRunProcedure', 'checks agents:execute with its own refusal codes before the person-only check; no record field says that'],
-  [
-    'jobProcedure',
-    "is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
-  ],
-  ['personProcedure', 'refuses anyone but the person with no scope to name; a record has no caller for it yet'],
-  [
-    'founderProcedure',
-    "is the service's founder guard: its record mounts behind ServiceParts.founder, which the codemod's mount does not hand over yet",
-  ],
-  [
-    'founder',
-    "is the service's founder guard: its record mounts behind ServiceParts.founder, which the codemod's mount does not hand over yet",
-  ],
 ]);
 
 /** What an expression stands for, through parentheses, `as const`, a guard function's bound parameters and local consts. */
@@ -384,6 +397,8 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
     const v = literalOf(p, n, env);
     return v === undefined ? undefined : String(v);
   };
+  // The service's own check a guard's options hand it (`GuardOptions.check`), as `checkedUse` gives one; set by `opts`.
+  let check;
   const opts = (n, allowed) => {
     if (!n) return '';
     const v = valueOf(p, n, env);
@@ -391,9 +406,11 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
     const parts = [];
     for (const prop of v.node.properties) {
       const k = prop.type === 'Property' ? keyOf(prop) : undefined;
-      // The service's own check (`GuardOptions.check`) is named on the record; the mount takes it from the service's parts.
+      // The service's own check (`GuardOptions.check`) is named on the record; the mount takes it from the service's parts,
+      // or is handed it by name where the record mounts (`partsFor`).
       if (k === 'check' && allowed.has(k) && prop.value.type === 'Identifier') {
         parts.push(`check: '${prop.value.name}'`);
+        check = optionCheck(v.p, prop.value);
         continue;
       }
       const value = k && allowed.has(k) ? literalOf(v.p, prop.value, v.p === p ? env : undefined) : undefined;
@@ -415,15 +432,15 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
       problems.push('scopedProcedure with a scope or options a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'scope', scope: '${scope}'${rest} }`, scope };
+    return { text: `{ caller: 'scope', scope: '${scope}'${rest} }`, scope, ...(check ? { check } : {}) };
   }
   if (name === 'signedInProcedure') {
-    const rest = opts(args[0], new Set(['module', 'plane']));
+    const rest = opts(args[0], new Set(['module', 'plane', 'check']));
     if (rest === null) {
       problems.push('signedInProcedure options a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'signedIn'${rest} }` };
+    return { text: `{ caller: 'signedIn'${rest} }`, ...(check ? { check } : {}) };
   }
   if (name === 'publicJurisdictionProcedure') {
     const mod = lit(args[0]);
@@ -435,20 +452,36 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
   }
   if (name === 'anyScopeProcedure') {
     const list = literals(args[0]);
-    const rest = opts(args[1], new Set(['module', 'plane']));
+    const rest = opts(args[1], new Set(['module', 'plane', 'check']));
     if (!list || rest === null) {
       problems.push('anyScopeProcedure arguments a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'anyScope', scopes: [${list.join(', ')}]${rest} }` };
+    return { text: `{ caller: 'anyScope', scopes: [${list.join(', ')}]${rest} }`, ...(check ? { check } : {}) };
   }
   if (name === 'serviceProcedureFor') {
     const list = literals(args[0]);
-    if (!list) {
+    // `forbidden`: the door's own wording for an unlisted caller, which the record keeps.
+    const rest = opts(args[1], new Set(['forbidden']));
+    if (!list || rest === null) {
       problems.push('serviceProcedureFor arguments a record cannot copy');
       return undefined;
     }
-    return { text: `{ caller: 'service', callers: [${list.join(', ')}] }` };
+    return { text: `{ caller: 'service', callers: [${list.join(', ')}]${rest} }` };
+  }
+  if (name === 'personProcedure') {
+    // `personProcedure()` or `personProcedure(null, …)`: no scope; else the scope, then the guards a record copies.
+    const none = !args[0] || (args[0].type === 'Literal' && args[0].value === null);
+    const scope = none ? undefined : literalOf(p, args[0], env);
+    const rest = opts(args[1], new Set(['module', 'plane', 'tier']));
+    if ((!none && typeof scope !== 'string') || rest === null) {
+      problems.push('personProcedure with a scope or options a record cannot copy');
+      return undefined;
+    }
+    return {
+      text: `{ caller: 'person'${scope === undefined ? '' : `, scope: '${scope}'`}${rest} }`,
+      ...(scope === undefined ? {} : { scope }),
+    };
   }
   problems.push(`guard ${name}() is not one a record names`);
   return undefined;
@@ -461,6 +494,7 @@ const BUILDERS = new Set([
   'publicJurisdictionProcedure',
   'anyScopeProcedure',
   'serviceProcedureFor',
+  'personProcedure',
 ]);
 
 /** The name of a kept guard this expression is, or calls: `founder`, `opsProcedure`, `coachRunProcedure()`. */

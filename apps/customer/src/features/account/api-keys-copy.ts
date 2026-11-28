@@ -5,6 +5,10 @@ const messages = {
   intro: 'Keys let your own programs read your account and trade for you. Each key holds only the permissions you give it.',
   create: 'Create a key',
   backToKeys: 'Back to API keys',
+  explain:
+    'A key acts for you inside the permissions it holds and, when you list IP addresses, only from those. Revoking a key stops it at once and cannot be undone; no key can withdraw or move money off the platform.',
+  detailExplain:
+    'An earlier end date saves at once; a later one needs your passkey or a code. Rotating makes a new key and keeps the old one working only for the overlap you choose.',
   security: 'Security',
   safetyTitle: 'Keeping a key safe',
   safetyOnePurpose: 'Make one key for each program, so you can switch one off without stopping the others.',
@@ -13,6 +17,8 @@ const messages = {
   safetyIps: 'Add the IP addresses your program runs from. A copied key then fails from anywhere else.',
   safetyAgents: 'For an automated agent, use a key on a sub-account that holds only what the agent may use.',
   safetyWithdraw: 'No key can withdraw or move money off the platform. That needs you, signed in on a device.',
+  permissionsTableLink: 'See which endpoints each permission reaches',
+  idempotencyGuideLink: 'How to retry API orders safely with an Idempotency-Key',
   capTitle: 'Keys on this account',
   capUsed: '{live} of {limit} keys in use. Revoked and ended keys do not count.',
   capUnset: 'The number of keys an account may hold is not set, so new keys are refused.',
@@ -58,6 +64,44 @@ const messages = {
   scopesLoading: 'Reading the permissions a key may hold',
   accessRead: 'reads',
   accessWrite: 'acts',
+  /** A permission in plain words, "<area>: <action>"; the raw scope follows it in small type, for the API reference. */
+  scopeWords: '{area}: {action}',
+  scopeArea_identity: 'Your profile and security',
+  scopeArea_ledger: 'Your balances and history',
+  scopeArea_trade: 'Trading',
+  scopeArea_copy: 'Copy trading',
+  scopeArea_pay: 'Payments',
+  scopeArea_token: 'Token',
+  scopeArea_blueprint: 'Blueprint',
+  scopeArea_bank: 'Bank',
+  scopeArea_launch: 'Launchpad',
+  scopeArea_market: 'Market',
+  scopeArea_academy: 'Academy',
+  scopeArea_agents: 'Agents',
+  scopeArea_notify: 'Notifications',
+  scopeArea_support: 'Support',
+  scopeArea_tax: 'Tax',
+  scopeArea_campaigns: 'Rewards and campaigns',
+  scopeArea_ops: 'Operations',
+  scopeArea_protocol: 'Protocol',
+  scopeArea_quant: 'Strategies and backtests',
+  scopeArea_admin: 'Admin',
+  scopeAction_read: 'see',
+  scopeAction_write: 'make changes',
+  scopeAction_withdraw: 'withdraw',
+  scopeAction_lead: 'lead copy trades',
+  scopeAction_follow: 'follow leaders',
+  scopeAction_refund: 'refund payments',
+  scopeAction_payout: 'pay out',
+  scopeAction_onboard: 'sign up as a merchant',
+  scopeAction_stake: 'stake',
+  scopeAction_card: 'manage cards',
+  scopeAction_execute: 'run agents',
+  scopeAction_run: 'run backtests',
+  scopeAction_ops: 'run operations',
+  scopeAction_lookup: 'look up customers',
+  scopeAction_treasury: 'move treasury funds',
+  scopeAction_compliance: 'compliance reviews',
   blockedTitle: 'Never on a key',
   blocked_interactive_only: 'Only while you are signed in on a device, never by a key.',
   blocked_step_up_only: 'Only for a merchant key, after a second confirmation.',
@@ -101,6 +145,7 @@ const messages = {
   'refused.identity.key_name_taken': 'You already have a key with this name. Choose another name. Nothing was created.',
   'refused.identity.key_expiry_invalid': 'Choose an end date in the future. Nothing was created.',
   'refused.identity.key_cap_unset': 'The number of keys an account may hold is not set, so keys are refused. Nothing was created.',
+  'refused.identity.rate_limits_unset': 'No rate budget is set for API keys yet, so a key could make no call. No key was issued.',
   'refused.identity.key_signing_unset':
     'Keys that place orders sign every request, and request signing is not set up, so this key is refused. Nothing was created.',
   'refused.identity.key_lead_not_approved':
@@ -238,6 +283,8 @@ const messages = {
 /** Spanish and French for the key list's revoke, the key detail and its end date (DV-keys-03). */
 const written = {
   es: {
+    permissionsTableLink: 'Ver qué puntos finales alcanza cada permiso',
+    idempotencyGuideLink: 'Cómo reintentar órdenes de API de forma segura con Idempotency-Key',
     colActions: 'Acciones',
     revoke: 'Revocar',
     revokeTitle: 'Revocar esta clave',
@@ -309,6 +356,8 @@ const written = {
       'Inicia sesión en este dispositivo. Una clave de API o una subcuenta no puede cambiar claves.',
   },
   fr: {
+    permissionsTableLink: 'Voir quels points d’accès chaque autorisation atteint',
+    idempotencyGuideLink: 'Comment relancer des ordres API en toute sécurité avec Idempotency-Key',
     colActions: 'Actions',
     revoke: 'Révoquer',
     revokeTitle: 'Révoquer cette clé',
@@ -386,3 +435,19 @@ export type ApiKeysCopyKey = keyof typeof messages;
 export type ApiKeysPlainKey = {
   [K in ApiKeysCopyKey]: (typeof messages)[K] extends `${string}{${string}` ? never : K;
 }[ApiKeysCopyKey];
+
+type ScopeWordKey = Extract<ApiKeysPlainKey, `scopeArea_${string}` | `scopeAction_${string}`>;
+const isScopeWordKey = (key: string): key is ScopeWordKey =>
+  (key.startsWith('scopeArea_') || key.startsWith('scopeAction_')) && Object.prototype.hasOwnProperty.call(messages, key);
+
+/**
+ * A permission named in plain words ("Trading: make changes") in place of its raw scope (`trade:write`), so a first-time
+ * trader can choose a key's permissions. A scope this app has no words for yet is shown as it is, never hidden.
+ */
+export function scopeWords(t: (typeof apiKeysCopy)['t'], scope: string): string {
+  const [area, action, ...rest] = scope.split(':');
+  const areaKey = `scopeArea_${area}`,
+    actionKey = `scopeAction_${action}`;
+  if (rest.length > 0 || !isScopeWordKey(areaKey) || !isScopeWordKey(actionKey)) return scope;
+  return t('scopeWords', { area: t(areaKey), action: t(actionKey) });
+}

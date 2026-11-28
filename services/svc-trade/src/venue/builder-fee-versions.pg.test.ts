@@ -134,6 +134,7 @@ describe('builder-fee versions (PG-hard, TEST venue over loopback)', () => {
       builderFeesAt: async (at) => (await builderFeesAt(db.sql, at)).book,
       // The owner's market price protection is blank: these tests place limit orders only.
       slippageCapBps: null,
+      closeSlippageBps: 1000,
       // The stack's TEST listings (J-cex-spot-16): our listing gate shows the two markets these orders use.
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => now,

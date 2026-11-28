@@ -23,6 +23,8 @@ import {
   parseArgs,
   lsofPorts,
   parseHealth,
+  pilotPlan,
+  PILOT_LABEL,
   planDrive,
   againCommand,
   installedAnvil,
@@ -614,4 +616,15 @@ test('stop prunes: a run folder older than the CI window goes; a young one, one 
   ]);
   assert.equal(pruneRuns(path.join(dir, 'absent'), now), 0);
   fs.rmSync(dir, { recursive: true });
+});
+
+test('the pilot label: only on the box, only an open PR without it; no PR yet says to open it labelled', () => {
+  const pr = { number: 7, state: 'OPEN', labels: [{ name: 'design' }] };
+  assert.deepEqual(pilotPlan({ platform: 'linux', branch: 'j/J-x-01', pr }), { act: 'label', number: 7 });
+  assert.deepEqual(pilotPlan({ platform: 'linux', branch: 'j/J-x-01', pr: null }), { act: 'open' });
+  // the Mac stays CI-only: it never labels, even with a slot
+  assert.deepEqual(pilotPlan({ platform: 'darwin', branch: 'j/J-x-01', pr }), { act: 'none' });
+  assert.deepEqual(pilotPlan({ platform: 'linux', branch: 'j/J-x-01', pr: { ...pr, labels: [{ name: PILOT_LABEL }] } }), { act: 'none' });
+  assert.deepEqual(pilotPlan({ platform: 'linux', branch: 'j/J-x-01', pr: { ...pr, state: 'MERGED' } }), { act: 'none' });
+  for (const branch of ['HEAD', 'main', '']) assert.deepEqual(pilotPlan({ platform: 'linux', branch, pr }), { act: 'none' });
 });

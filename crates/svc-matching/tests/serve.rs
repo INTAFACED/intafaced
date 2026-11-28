@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use service_kit::json::{self, Json};
 use service_kit::metrics::{DURATION_BUCKETS, PROMETHEUS_CONTENT_TYPE};
-use service_kit::money::{format_amount, parse_amount};
+use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::{App, Door, Request};
 use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
@@ -288,6 +288,44 @@ fn health_reads_the_venue_halt_live_from_the_engine() {
     // The board svc-execution and svc-ws read agrees.
     let (_, board) = get(&door, "/markets");
     assert_eq!(board.get("venueHalted"), halted.get("venueHalted"));
+}
+
+/// The `/health` body svc-edge's halt guard reads (`services/svc-edge/src/matching-health-contract.test.ts`), held to the
+/// fixtures that test reads: this door's real body, open and venue-halted, without its `metrics` (they move with time).
+#[test]
+fn health_bodies_edge_reads_are_the_fixtures_it_reads() {
+    let body_of = |door: &MatchingDoor| {
+        let (_, j) = get(door, "/health");
+        let Json::Object(fields) = j else {
+            panic!("/health is an object")
+        };
+        Json::Object(fields.into_iter().filter(|(k, _)| k != "metrics").collect()).compact()
+    };
+    let fixture = |name: &str| {
+        std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .map(|t| service_kit::json::parse(&t).unwrap().compact())
+        .unwrap()
+    };
+    let open = door_over(engine_on(MemoryJournal::new()), ticking);
+    assert_eq!(body_of(&open), fixture("health-open.json"));
+
+    let mut journal = MemoryJournal::new();
+    journal
+        .append(&JournalCommand(Json::obj([
+            ("kind", Json::str("halt_all")),
+            ("at", Json::str("2026-01-01T00:00:01.000Z")),
+            ("operatorId", Json::str("ops-1")),
+            ("confirmOperatorId", Json::str("ops-2")),
+        ])))
+        .unwrap();
+    let mut engine = engine_on(journal);
+    engine.recover().unwrap();
+    let halted = door_over(engine, ticking);
+    assert_eq!(body_of(&halted), fixture("health-venue-halted.json"));
 }
 
 // ── operation-latency.test.ts ─────────────────────────────────────────────────────────────────────────────────────
@@ -813,7 +851,7 @@ fn sizes_a_buy_hold_as_ceil_price_times_remaining_and_a_sell_hold_as_remaining()
     // Ceil, not half-up: the smallest unit over is still a unit.
     assert_eq!(
         required_hold_amount(&subject(Side::Buy, "0.000000000000000001", Some("0.5"))),
-        Some(1)
+        Some(Amount::UNIT)
     );
 }
 

@@ -16,6 +16,7 @@ import {
   otcQuoteFields,
   firmRfqFields,
   firmRfqAnswer,
+  otcConvertQuoteAnswer,
 } from '@intafaced/contracts/trade-call-schemas';
 
 type Answer<F extends (...args: never[]) => unknown> = Awaited<ReturnType<F>>;
@@ -77,11 +78,6 @@ answerKeys<Answer<OtcDeskService['settle']>>()(otcSettleAnswer);
 
 answerKeys<ReturnType<OtcDeskService['convertBoundsStatus']>>()(otcConvertBoundsAnswer);
 
-export const otcConvertQuoteAnswer = z.object({
-  flow: z.enum(['convert', 'oneClickBuy']),
-  ...otcQuoteFields,
-  settleWindowMs: z.number().nullable(),
-});
 answerKeys<Answer<OtcDeskService['convertQuote']>>()(otcConvertQuoteAnswer);
 
 answerKeys<Answer<OtcDeskService['rfqGet']>>()(firmRfqAnswer);

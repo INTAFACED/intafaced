@@ -1,9 +1,11 @@
+// volt-room: /freeze/confirm
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@intafaced/ui/lit';
+import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, Failure } from '../../shared/ui';
+import { FailureNote } from '../../shared/failure-note';
 import { freezeConfirmCopy } from './freeze-confirm-copy';
-import '../../shared/public-pages.css';
 import { IDENTITY_FREEZE_LINK_REDEEM } from '@intafaced/contracts/identity-freeze-link-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -46,35 +48,38 @@ export function FreezeConfirm() {
 
   const dead = !token || refusal?.code === 'identity.freeze_link_invalid';
   return (
-    <div className="pub-page">
-      <header className="pub-heading">
-        <p className="eyebrow">{t('eyebrow')}</p>
-        <h1>{done ? (done.firstUse ? t('doneTitle') : t('usedTitle')) : dead ? t('deadTitle') : t('title')}</h1>
-      </header>
-      {done ? (
-        <p role="status" data-testid="freeze-link-result" data-first-use={String(done.firstUse)} data-frozen-now={String(done.frozenNow)}>
-          {done.firstUse ? t('doneBody') : t('usedBody')} <time dateTime={done.since}>{new Date(done.since).toUTCString()}</time>.{' '}
-          {done.frozenNow ? null : <>{t('liftedNow')} </>}
-          <a className="text-link" href="/login">
-            {t('signIn')}
-          </a>
-        </p>
-      ) : dead ? (
-        <div className="pub-notice" role="alert">
-          <p>{t('deadBody')}</p>
-          <a className="text-link" href="/cannot-sign-in">
-            {t('help')}
-          </a>
-        </div>
-      ) : (
-        <>
-          <p className="muted">{t('intro')}</p>
-          <Button onClick={() => void freeze()} disabled={busy}>
-            {busy ? t('freezing') : t('freeze')}
-          </Button>
-          {refusal && <Failure result={refusal} />}
-        </>
-      )}
-    </div>
+    <FlowTemplate
+      title={done ? (done.firstUse ? t('doneTitle') : t('usedTitle')) : dead ? t('deadTitle') : t('title')}
+      description={t('eyebrow')}
+      state={{ kind: 'ready' }}
+      step={
+        done ? (
+          <p role="status" data-testid="freeze-link-result" data-first-use={String(done.firstUse)} data-frozen-now={String(done.frozenNow)}>
+            {done.firstUse ? t('doneBody') : t('usedBody')} <time dateTime={done.since}>{new Date(done.since).toUTCString()}</time>.{' '}
+            {done.frozenNow ? null : <>{t('liftedNow')} </>}
+            <a className="lt-link" href="/login">
+              {t('signIn')}
+            </a>
+          </p>
+        ) : dead ? (
+          <div className="lt-refusal" role="alert">
+            <p className="lt-refusal-body">{t('deadBody')}</p>
+            <a className="lt-link" href="/cannot-sign-in">
+              {t('help')}
+            </a>
+          </div>
+        ) : (
+          <div className="lt-stack">
+            <p className="lt-muted">{t('intro')}</p>
+            <div className="lt-actions">
+              <Button tone="primary" onClick={() => void freeze()} disabled={busy}>
+                {busy ? t('freezing') : t('freeze')}
+              </Button>
+            </div>
+            {refusal && <FailureNote result={refusal} />}
+          </div>
+        )
+      }
+    />
   );
 }

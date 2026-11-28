@@ -5,10 +5,6 @@
  */
 import { z } from 'zod';
 
-/** svc-identity `kyc.status`: the tier and each record's status. */
-export const startedKycSchema = z
-  .object({ tier: z.string(), records: z.array(z.object({ status: z.string() }).passthrough()) })
-  .passthrough();
 /** svc-identity `webauthn.list`: one row per passkey. */
 export const startedPasskeysSchema = z.array(z.object({ credentialId: z.string() }).passthrough());
 /** svc-notify `notify.alerts`: each alert's kind and status. */

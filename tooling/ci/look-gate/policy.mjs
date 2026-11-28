@@ -34,13 +34,22 @@ export function roomName(route) {
 
 /**
  * Where a report row's page lives, from its target name: the kit gallery (`kit table`), the founder console
- * (`admin /x`) or a Customer room (`/status`); with its baseline folder and room, as the runner names them.
+ * (`admin /x`), a Customer room (`/status`) or a key room on the demo world with the venue on (`venue /trade`); with its
+ * baseline folder and room, as the runner names them.
  */
 export function placeOf(target) {
   if (target.startsWith('kit ')) return { surface: 'kit', baselines: 'packages/ui/look-baselines', room: `kit-${target.slice(4)}` };
   if (target.startsWith('admin /'))
     return { surface: 'admin', baselines: 'apps/admin/look-baselines', room: `admin-${roomName(target.slice(6))}` };
   if (target.startsWith('/')) return { surface: 'customer', baselines: 'apps/customer/look-baselines', room: roomName(target) };
+  // A key room on the demo world, venue on (`venue /trade`, `venue signed-out /`): the beta's own code path.
+  const venue = /^venue (signed-out )?(\/.*)$/.exec(target);
+  if (venue)
+    return {
+      surface: 'customer',
+      baselines: 'apps/customer/look-baselines',
+      room: `venue-${venue[1] ? 'signed-out-' : ''}${roomName(venue[2])}`,
+    };
   return { surface: 'other', baselines: null, room: null };
 }
 
@@ -123,6 +132,26 @@ export function newFindings(before, after) {
     }
   }
   return out;
+}
+
+/**
+ * main-bisect's proven revert of X (revert.mjs revertParent) is judged against X^ too, the state it restores: of the
+ * head's new findings (`fresh`, newFindings), those X^'s own rows (`parentRows`, the same page, viewport, kind and
+ * finding) already had are `restored` and block nobody; the rest are `kept` and are judged as on any pull request. A
+ * page X^ never drew keeps all its findings (project-state#3697: the reverts of #9717, #9828 and #9960 each blocked on
+ * findings their culprit had removed).
+ */
+export function restoredFindings(fresh, parentRows) {
+  const kept = newFindings(
+    parentRows,
+    fresh.map((f) => ({ target: f.target, viewport: f.viewport, findings: { [f.kind]: f.items } })),
+  );
+  const left = new Map(kept.map((f) => [`${f.target}|${f.viewport}|${f.kind}`, new Set(f.items)]));
+  const restored = fresh.flatMap((f) => {
+    const items = f.items.filter((i) => !left.get(`${f.target}|${f.viewport}|${f.kind}`)?.has(i));
+    return items.length ? [{ ...f, items }] : [];
+  });
+  return { kept, restored };
 }
 
 /**

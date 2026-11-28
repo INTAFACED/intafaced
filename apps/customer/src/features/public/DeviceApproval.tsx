@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
-import { sessionSchema, useSession, type Session } from '../session';
+import { FailureNote } from '../../shared/failure-note';
+import { useSession, type Session } from '../session';
 import { validAuthSession } from './public-auth-guards';
 import { deviceApprovalCopy } from './device-approval-copy';
+import { IDENTITY_AUTH_DEVICE_COMPLETE, IDENTITY_AUTH_DEVICE_APPROVE } from '@intafaced/contracts/identity-auth-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -69,7 +71,7 @@ export function DeviceApproval({
     setRefusal(answer);
   }
 
-  async function call(procedure: 'auth.deviceApprove' | 'auth.deviceComplete', input: object, quiet = false) {
+  async function call(send: () => Promise<ApiResult<Session>>, quiet = false) {
     if (done.current) return;
     if (inFlight.current) {
       if (quiet) return;
@@ -81,7 +83,7 @@ export function DeviceApproval({
       setRefusal(null);
     }
     const request = (async () => {
-      finish(await api.mutate('identity', procedure, input, sessionSchema), quiet);
+      finish(await send(), quiet);
     })();
     inFlight.current = request;
     try {
@@ -95,7 +97,7 @@ export function DeviceApproval({
   useEffect(() => {
     if (final) return;
     const timer = setInterval(() => {
-      void call('auth.deviceComplete', { flowId: waiting.flowId, secret: waiting.secret }, true);
+      void call(() => api.call(IDENTITY_AUTH_DEVICE_COMPLETE, { flowId: waiting.flowId, secret: waiting.secret }), true);
     }, POLL_MS);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one poll per waiting request
@@ -110,21 +112,21 @@ export function DeviceApproval({
       return;
     }
     if (input instanceof HTMLInputElement) input.value = '';
-    void call('auth.deviceApprove', { flowId: waiting.flowId, secret: waiting.secret, code });
+    void call(() => api.call(IDENTITY_AUTH_DEVICE_APPROVE, { flowId: waiting.flowId, secret: waiting.secret, code }));
   }
 
   const expires = new Date(waiting.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return (
-    <section className="public-auth-code" aria-labelledby="device-approval-title">
+    <section className="lt-stack" aria-labelledby="device-approval-title">
       <h2 id="device-approval-title" ref={heading} tabIndex={-1}>
         {t('title')}
       </h2>
       <p>{t('intro')}</p>
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {waiting.mailed ? t('mailed') : t('unmailed')}
       </p>
       {waiting.mailed && !final && (
-        <form method="post" className="form-stack" onSubmit={approve}>
+        <form method="post" className="lt-stack" onSubmit={approve}>
           <Field
             label={t('code')}
             name="deviceCode"
@@ -134,36 +136,46 @@ export function DeviceApproval({
             required
             disabled={busy}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? t('checking') : t('approve')}
-          </Button>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
+              {busy ? t('checking') : t('approve')}
+            </Button>
+          </div>
         </form>
       )}
       {!final && (
         <>
-          <p className="muted">{t('fromOther')}</p>
-          <Button
-            variant="secondary"
-            disabled={busy}
-            onClick={() => void call('auth.deviceComplete', { flowId: waiting.flowId, secret: waiting.secret })}
-          >
-            {t('continue')}
-          </Button>
-          <small className="muted">{t('expires', { time: expires })}</small>
+          <p className="lt-muted">{t('fromOther')}</p>
+          <div className="lt-actions">
+            <Button
+              tone="secondary"
+              disabled={busy}
+              onClick={() => void call(() => api.call(IDENTITY_AUTH_DEVICE_COMPLETE, { flowId: waiting.flowId, secret: waiting.secret }))}
+            >
+              {t('continue')}
+            </Button>
+          </div>
+          <small className="lt-muted">{t('expires', { time: expires })}</small>
         </>
       )}
       {refusal &&
         (refusal.code === 'codeMissing' || worded(refusal.code) ? (
-          <div className="pub-notice" role="alert">
-            <p>{refusal.code === 'codeMissing' ? t('codeMissing') : t(refusal.code as Worded)}</p>
-            {refusal.code !== 'codeMissing' && <small lang="zxx">{refusal.code}</small>}
+          <div className="lt-refusal" role="alert">
+            <p className="lt-refusal-body">{refusal.code === 'codeMissing' ? t('codeMissing') : t(refusal.code as Worded)}</p>
+            {refusal.code !== 'codeMissing' && (
+              <small className="lt-ref" lang="zxx">
+                {refusal.code}
+              </small>
+            )}
           </div>
         ) : (
-          <Failure result={refusal} />
+          <FailureNote result={refusal} />
         ))}
-      <Button variant="ghost" disabled={busy} onClick={onCancel}>
-        {t('cancel')}
-      </Button>
+      <div className="lt-actions">
+        <Button tone="quiet" disabled={busy} onClick={onCancel}>
+          {t('cancel')}
+        </Button>
+      </div>
     </section>
   );
 }

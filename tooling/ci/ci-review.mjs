@@ -55,7 +55,7 @@ import { reachesLook } from './ci-affected.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
 import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
 import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
-import { countCall } from './api-count.mjs';
+import { countCall, fetchFailure } from './api-count.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -187,14 +187,14 @@ export function groupedChanges(before, after) {
 }
 
 /**
- * The diff with each GENERATED_JSON file's two lines replaced by jsonChanges of them, and the call-record export's
- * sections summarised by summarizeExports (`readBlob` reads a changed export file's two sides; without it those stay
- * whole). Only a section whose `diff --git` header names that exact path on both sides is summarised: a rename into or
+ * The diff with each GENERATED_JSON file's two lines replaced by jsonChanges of them, the call-record export's
+ * sections summarised by summarizeExports and, in a diff over MAX_DIFF_BYTES, the venue recordings' by
+ * summarizeRecordings (`readBlob` reads a changed file's two sides; without it those stay whole). Only a section whose `diff --git` header names that exact path on both sides is summarised: a rename into or
  * out of it, or any other path, stays whole, so nothing else can hide behind the name. git's header lines (new,
  * deleted, mode, index) stay.
  */
 export function summarizeGenerated(diff, { readBlob = null } = {}) {
-  return summarizeExports(diff, readBlob)
+  return summarizeRecordings(summarizeExports(diff, readBlob), readBlob)
     .split(/^(?=diff --git )/m)
     .map((part) => {
       const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(part);
@@ -228,6 +228,56 @@ export function summarizeGenerated(diff, { readBlob = null } = {}) {
         '',
       ].join('\n');
       return Buffer.byteLength(out) < Buffer.byteLength(part) ? out : part;
+    })
+    .join('');
+}
+
+/**
+ * A diff still over MAX_DIFF_BYTES with each file it deletes whole given as one line in place of its every `-` line, when
+ * the reviewer's checkout holds that exact text at the same path (the job checks out the default branch, and its Read
+ * reads that tree): the section's one hunk must be its whole old text (one sign, the blob its `index` line names), and
+ * `readFile(path)` must return text of that same blob. Anything else stays whole: a file deleted in part, renamed, or
+ * changed on the default branch since. (Failure it prevents: a service switch deletes its TypeScript service, 3.6 MB of
+ * `-` lines, and no split under MAX_PARTS can carry it: intafaced #9811, weed project-state#3706.)
+ */
+export function summarizeDeleted(diff, readFile) {
+  if (Buffer.byteLength(diff) <= MAX_DIFF_BYTES) return diff;
+  return diff
+    .split(/^(?=diff --git )/m)
+    .map((part) => {
+      const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(part);
+      if (!m || m[1] !== m[2]) return part;
+      const lines = part.replace(/\n$/, '').split('\n');
+      const at = lines.findIndex((l) => l.startsWith('@@'));
+      if (at < 0) return part;
+      const head = lines.slice(1, at);
+      if (!head.some((l) => l.startsWith('deleted file mode ')) || !head.every((l) => EXPORT_HEADER.test(l))) return part;
+      const index = head.map((l) => /^index ([0-9a-f]{7,40})\.\.(0+)(?: [0-7]{6})?$/.exec(l)).filter(Boolean);
+      if (index.length !== 1) return part;
+      const oldId = index[0][1];
+      let body = lines.slice(at + 1);
+      let end = '\n';
+      if (body.at(-1) === '\\ No newline at end of file') {
+        body = body.slice(0, -1);
+        end = '';
+      }
+      if (!body.every((l) => l.startsWith('-'))) return part;
+      const was = body.map((l) => l.slice(1)).join('\n') + end;
+      if (!blobId(was).startsWith(oldId)) return part;
+      let there;
+      try {
+        there = readFile(m[1]);
+      } catch {
+        return part;
+      }
+      if (typeof there !== 'string' || blobId(there) !== blobId(was)) return part;
+      const kept = head.filter((l) => !/^(--- |\+\+\+ )/.test(l));
+      return [
+        `diff --git a/${m[1]} b/${m[1]}`,
+        ...kept,
+        `[deleted whole: ${body.length} lines, ${Buffer.byteLength(part)} bytes of diff; the CI review job checked that the file at this path in your checkout is exactly the text deleted (blob ${blobId(was).slice(0, 12)}), so Read it there to see what this change removes]`,
+        '',
+      ].join('\n');
     })
     .join('');
 }
@@ -308,8 +358,33 @@ const EXPORT_HEADER =
  * `readBlob`, the blobs themselves. A rename with no change has no hunk and no index line: it stays whole (it is small).
  */
 const exportSection = (section, readBlob) => {
+  const sides = wholeSides(section, readBlob, RECORD_EXPORT);
+  if (!sides) return null;
+  const { created, deleted, before, after } = sides;
+  const was = created ? null : exportForm(before);
+  const now = deleted ? null : exportForm(after);
+  if (was === undefined || now === undefined) return null;
+  return {
+    oldPath: sides.oldPath,
+    newPath: sides.newPath,
+    head: sides.head,
+    was,
+    now,
+    bytes: Buffer.byteLength(section),
+    lines: [],
+  };
+};
+
+/**
+ * One diff section's two whole sides, or null when they can't be read exactly: both paths of its `diff --git` line
+ * match `paths`, its header lines are only git's own (no copy), and each side's text is the blob its `index` line names
+ * (blobId). A file added or deleted is read from its one hunk; a changed one from `readBlob`, the blobs themselves.
+ * Returns { oldPath, newPath, head (git's header lines, without --- and +++), created, deleted, before, after }, the
+ * side a file lacks null.
+ */
+const wholeSides = (section, readBlob, paths) => {
   const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(section);
-  if (!m || !RECORD_EXPORT.test(m[1]) || !RECORD_EXPORT.test(m[2])) return null;
+  if (!m || !paths.test(m[1]) || !paths.test(m[2])) return null;
   const lines = section.replace(/\n$/, '').split('\n');
   const at = lines.findIndex((l) => l.startsWith('@@'));
   if (at < 0) return null;
@@ -344,27 +419,231 @@ const exportSection = (section, readBlob) => {
   const after = deleted ? null : created ? fromHunk('+') : read(newId);
   const exact = (text, id) => typeof text === 'string' && blobId(text).startsWith(id);
   if ((!created && !exact(before, oldId)) || (!deleted && !exact(after, newId))) return null;
-  const was = created ? null : exportForm(before);
-  const now = deleted ? null : exportForm(after);
-  if (was === undefined || now === undefined) return null;
   return {
     oldPath: m[1],
     newPath: m[2],
     head: head.filter((l) => !/^(--- |\+\+\+ )/.test(l)),
-    was,
-    now,
-    bytes: Buffer.byteLength(section),
-    lines: [],
+    created,
+    deleted,
+    before: created ? null : before,
+    after: deleted ? null : after,
   };
 };
 
-/** Whether the diff changes an export file in place, whose two sides summarizeGenerated reads through `readBlob`. */
-export const exportBlobsNeeded = (diff) =>
+/** Summary lines in runs of at most SUMMARY_RUN bytes, each under an `@@` line, where splitDiff may part a large one. */
+const inRuns = (lines) => {
+  const runs = [];
+  for (const l of lines) {
+    const last = runs.at(-1);
+    if (last && last.bytes + Buffer.byteLength(l) + 1 <= SUMMARY_RUN) {
+      last.lines.push(l);
+      last.bytes += Buffer.byteLength(l) + 1;
+    } else runs.push({ lines: [l], bytes: Buffer.byteLength(l) + 1 });
+  }
+  let n = 0;
+  return {
+    count: runs.length,
+    lines: runs.flatMap((r) => [`@@ summary lines ${n + 1}-${(n += r.lines.length)} of ${lines.length} @@`, ...r.lines]),
+  };
+};
+
+/** Whether the diff changes a file of `paths` in place, whose two sides summarizeGenerated reads through `readBlob`. */
+const changedInPlace = (diff, paths) =>
   diffSections(diff).some((s) => {
     const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(s);
     const head = s.slice(0, s.search(/^@@/m) >>> 0);
-    return m && RECORD_EXPORT.test(m[1]) && RECORD_EXPORT.test(m[2]) && /^@@/m.test(s) && !/^(new|deleted) file mode /m.test(head);
+    return m && paths.test(m[1]) && paths.test(m[2]) && /^@@/m.test(s) && !/^(new|deleted) file mode /m.test(head);
   });
+
+/**
+ * Whether summarizeGenerated reads blobs through `readBlob` for this diff: it changes an export file in place, or, over
+ * MAX_DIFF_BYTES, a venue recording (summarizeRecordings).
+ */
+export const exportBlobsNeeded = (diff) =>
+  changedInPlace(diff, RECORD_EXPORT) || (Buffer.byteLength(diff) > MAX_DIFF_BYTES && changedInPlace(diff, VENUE_RECORDING));
+
+/**
+ * The Hyperliquid venue recordings (packages/venue-hyperliquid/src/recorded.ts, HlRecording), which the daily live run
+ * rewrites whole (.github/workflows/hl-venue-daily.yml, tooling/scripts/local-test-venue.mjs): pretty-printed JSON whose
+ * few large `/info` answers (the spot listing alone is about 360 KB) change every day. Four of them were a 5,282,119-byte
+ * diff on intafaced #11192, over what MAX_PARTS parts of MAX_DIFF_BYTES carry, so its review could only FAIL it.
+ */
+export const VENUE_RECORDING = /^packages\/venue-hyperliquid\/recordings\/[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
+
+/** The most bytes of an `/info` answer a recording's summary shows whole; a larger one is its size, sha256 and shape. */
+export const RECORDING_ANSWER_SHOWN = 1_000;
+
+const CALL_KEYS = 'answer,path,request,source,status';
+
+/** One side of a recording as { meta: { label, note, trader }, calls }, or undefined when its text is not exactly that form. */
+const recordingForm = (text) => {
+  let j;
+  try {
+    j = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!isMap(j) || !['label,note,trader,calls', 'label,note,calls'].includes(Object.keys(j).join(','))) return undefined;
+  if (j.label !== 'TEST' || typeof j.note !== 'string' || !Array.isArray(j.calls)) return undefined;
+  const call = (c) =>
+    isMap(c) &&
+    Object.keys(c).sort().join(',') === CALL_KEYS &&
+    (c.path === '/info' || c.path === '/exchange') &&
+    Number.isInteger(c.status) &&
+    (c.source === 'testnet' || c.source === 'documented-shape');
+  if (!j.calls.every(call)) return undefined;
+  if (compactJson(text) !== JSON.stringify(j)) return undefined;
+  const { label, note, trader } = j;
+  return { meta: { label, note, ...('trader' in j ? { trader } : {}) }, calls: j.calls };
+};
+
+const shapeOf = (v) => {
+  if (Array.isArray(v)) return `an array of ${v.length}`;
+  if (isMap(v)) {
+    const keys = Object.keys(v);
+    return `an object of ${keys.length} key(s) ${show(keys.slice(0, 12))}${keys.length > 12 ? ' and more' : ''}`;
+  }
+  return typeof v;
+};
+
+/** One call as one line: `<path> <status> <source> <request> -> <answer>`, a large `/info` answer by its size and hash. */
+const callLine = (c) => {
+  const a = show(c.answer) ?? 'undefined';
+  const bytes = Buffer.byteLength(a);
+  const answer =
+    c.path === '/exchange' || bytes <= RECORDING_ANSWER_SHOWN
+      ? a
+      : `<${bytes} bytes of JSON, sha256 ${createHash('sha256').update(a).digest('hex').slice(0, 16)}, ${shapeOf(c.answer)}>`;
+  return `${c.path} ${c.status} ${c.source} ${show(c.request)} -> ${answer}`;
+};
+
+/** A key no recording holds: a signature (traderRecording drops it), a private key, a secret, a seed or a password. */
+const SECRET_KEY = /(^|_)(sig|signature|private_?key|privkey|secret|mnemonic|seed|password|api_?key|key)$/i;
+const ADDRESS = /^0x[0-9a-f]{40}$/i;
+const HEX64 = /^0x[0-9a-f]{64}$/i;
+
+/**
+ * What the job reads from a recording side's whole text, every answer included, as `#` (facts) and `!` (what a recording
+ * should never hold) lines: the trader not held as `<trader>`, a key named like a signature or secret at any depth, the
+ * addresses it names, and its 64-hex strings by the key they sit under (a transaction hash or a private key look alike).
+ */
+const recordingFacts = (r) => {
+  const out = [];
+  if (r.meta.trader !== '<trader>') out.push('! the recording holds no trader as "<trader>": its addresses are as they were recorded');
+  const secret = [];
+  const asked = new Map(); // the addresses requests name: whose state the calls read or change
+  const answered = new Set(); // the other addresses answers name (a listing's token contracts, a trade's counterparty)
+  const hex = new Map();
+  const bump = (m, k) => m.set(k, (m.get(k) ?? 0) + 1);
+  let inRequest = false;
+  const walk = (v, path, key) => {
+    if (typeof v === 'string') {
+      if (ADDRESS.test(v) && inRequest) bump(asked, v.toLowerCase());
+      else if (ADDRESS.test(v)) answered.add(v.toLowerCase());
+      if (HEX64.test(v)) bump(hex, key);
+      return;
+    }
+    if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`, key));
+    else if (isMap(v))
+      for (const [k, x] of Object.entries(v)) {
+        if (SECRET_KEY.test(k.replace(/([a-z])([A-Z])/g, '$1_$2'))) secret.push(`${path}.${show(k)}`);
+        walk(x, `${path}.${show(k)}`, k);
+      }
+  };
+  r.calls.forEach((c, i) => {
+    inRequest = true;
+    walk(c.request, `call ${i + 1} request`, null);
+    inRequest = false;
+    walk(c.answer, `call ${i + 1} answer`, null);
+  });
+  for (const p of secret) out.push(`! a key named like a signature or a secret: ${p}`);
+  const list = (m) =>
+    [...m]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, n]) => `${k} (${n})`)
+      .join(', ');
+  out.push(`# addresses its requests name, with how many times: ${asked.size ? list(asked) : 'none'}`);
+  const other = [...answered].filter((a) => !asked.has(a)).length;
+  out.push(`# ${other} other address(es) named only in answers`);
+  if (hex.size) out.push(`# strings of 0x and 64 hex, by the key they sit under: ${list(new Map([...hex].map(([k, n]) => [show(k), n])))}`);
+  return out;
+};
+
+/** The two sides' calls compared in order (a longest common run of equal lines): = runs the same, - old only, + new only. */
+const callChanges = (olds, news) => {
+  const [a, b] = [olds.map(callLine), news.map(callLine)];
+  const out = [];
+  if (a.length * b.length > 4_000_000) {
+    a.forEach((l, i) => out.push(`- old call ${i + 1}: ${l}`));
+    b.forEach((l, i) => out.push(`+ new call ${i + 1}: ${l}`));
+    return out;
+  }
+  // lcs[i][j]: the longest common run of a[i..] and b[j..].
+  const lcs = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  let same = null;
+  const close = () => {
+    if (same) out.push(`= ${same.n} call(s) the same: old ${same.i + 1}-${same.i + same.n}, new ${same.j + 1}-${same.j + same.n}`);
+    same = null;
+  };
+  let [i, j] = [0, 0];
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      if (!same) same = { i, j, n: 0 };
+      same.n++;
+      i++;
+      j++;
+    } else if (j >= b.length || (i < a.length && lcs[i + 1][j] >= lcs[i][j + 1])) {
+      close();
+      out.push(`- old call ${i + 1}: ${a[i]}`);
+      i++;
+    } else {
+      close();
+      out.push(`+ new call ${j + 1}: ${b[j]}`);
+      j++;
+    }
+  }
+  close();
+  return out;
+};
+
+/**
+ * The diff, when over MAX_DIFF_BYTES, with each venue recording's section summarised from its two whole sides, read
+ * exactly (wholeSides; a changed file's blobs through `readBlob`): its label, note and trader changes, the `#` and `!`
+ * lines of recordingFacts for the new side, and every call as one line, the two sides compared in order. Each section
+ * keeps its `diff --git` line and git's header lines. A section not read exactly, or not exactly a recording's form,
+ * stays whole, and so does the whole diff when the summary is no smaller.
+ */
+export function summarizeRecordings(diff, readBlob = null) {
+  if (Buffer.byteLength(diff) <= MAX_DIFF_BYTES) return diff;
+  const sections = diffSections(diff);
+  let saved = 0;
+  const out = sections.map((s) => {
+    const sides = wholeSides(s, readBlob, VENUE_RECORDING);
+    if (!sides || sides.oldPath !== sides.newPath) return s;
+    const was = sides.created ? null : recordingForm(sides.before);
+    const now = sides.deleted ? null : recordingForm(sides.after);
+    if (was === undefined || now === undefined) return s;
+    const lines = [
+      ...jsonChanges(was?.meta ?? {}, now?.meta ?? {}),
+      ...(now ? recordingFacts(now) : []),
+      ...callChanges(was?.calls ?? [], now?.calls ?? []),
+    ];
+    const runs = inRuns(lines);
+    const text = [
+      `diff --git a/${sides.oldPath} b/${sides.newPath}`,
+      ...sides.head,
+      `[Hyperliquid venue recording (TEST answers; packages/venue-hyperliquid/src/recorded.ts), ${Buffer.byteLength(s)} bytes of diff; summarised by the CI review job from its whole old and new text, each the blob its index line names (the whitespace between JSON tokens is not compared): ${was ? was.calls.length : 0} calls before and ${now ? now.calls.length : 0} after; its label, note and trader changes (~ + -); # lines are facts and ! lines what a recording should never hold, read from the new side's whole text, every answer included; then each call as one line "<path> <status> <source> <request> -> <answer>", an /exchange answer and an /info answer of at most ${RECORDING_ANSWER_SHOWN} bytes whole and a larger one by its size, sha256 and shape, the two sides' calls compared in order (= calls the same on both, - old only, + new only); ${lines.length} lines, under ${runs.count} @@ line(s)]`,
+      ...runs.lines,
+      '',
+    ].join('\n');
+    if (Buffer.byteLength(text) >= Buffer.byteLength(s)) return s;
+    saved++;
+    return text;
+  });
+  return saved ? out.join('') : diff;
+}
 
 /**
  * The diff with the call-record export's sections summarised: the records of every export file in it are compared by
@@ -437,21 +716,12 @@ export function summarizeExports(diff, readBlob = null) {
     const lines = [...jsonChanges(comment(f.was), comment(f.now)), ...f.lines];
     if (lines.length === 0) lines.push('= the text changed, and every record and the $comment are the same JSON');
     const count = (side) => (side ? Object.keys(side.records).length : 0);
-    // Its lines in runs of at most SUMMARY_RUN bytes, each under an `@@` line, where splitDiff may part a large one.
-    const runs = [];
-    for (const l of lines) {
-      const last = runs.at(-1);
-      if (last && last.bytes + Buffer.byteLength(l) + 1 <= SUMMARY_RUN) {
-        last.lines.push(l);
-        last.bytes += Buffer.byteLength(l) + 1;
-      } else runs.push({ lines: [l], bytes: Buffer.byteLength(l) + 1 });
-    }
-    let n = 0;
+    const runs = inRuns(lines);
     return [
       `diff --git a/${f.oldPath} b/${f.newPath}`,
       ...f.head,
-      `[generated call-record export (procedures:write), ${f.bytes} bytes of diff; summarised by the CI review job from its whole old and new text, each the blob its index line names, with the records of all ${read.length} export files this diff reads compared by name, old side against new (the whitespace between JSON tokens is not compared): ${count(f.was)} records before and ${count(f.now)} after in this file; every record added (+) or removed (-) shown whole, every change to one (~) at every depth, and records that only moved between files, unchanged, one line naming them on both files (> moved out, < moved in); ${lines.length} lines, under ${runs.length} @@ line(s)]`,
-      ...runs.flatMap((r) => [`@@ summary lines ${n + 1}-${(n += r.lines.length)} of ${lines.length} @@`, ...r.lines]),
+      `[generated call-record export (procedures:write), ${f.bytes} bytes of diff; summarised by the CI review job from its whole old and new text, each the blob its index line names, with the records of all ${read.length} export files this diff reads compared by name, old side against new (the whitespace between JSON tokens is not compared): ${count(f.was)} records before and ${count(f.now)} after in this file; every record added (+) or removed (-) shown whole, every change to one (~) at every depth, and records that only moved between files, unchanged, one line naming them on both files (> moved out, < moved in); ${lines.length} lines, under ${runs.count} @@ line(s)]`,
+      ...runs.lines,
       '',
     ].join('\n');
   });
@@ -466,12 +736,55 @@ const sectionPath = (s) => {
 };
 
 /**
+ * A hunk over `cap` that only adds lines (a new file's one hunk is one: `@@ -0,0 +1,N @@`) as several hunks between its
+ * lines, each under `header` and at most `cap` bytes, each a valid hunk at the same old position: `@@ -O,0 +n,k @@`. Its
+ * lines, joined, are the hunk's byte for byte. Null for any other hunk (a removed or context line, a line alone over
+ * `cap`): it stays too large. (Failure it prevents: #10910, a venue recording's new file of 931,787 bytes in one hunk.)
+ */
+function splitAddedHunk(header, hunk, cap) {
+  const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,\d+)? @@[^\n]*\n/.exec(hunk);
+  if (!m || m[2] !== '0') return null;
+  const body = hunk.slice(m[0].length).match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  // `\ No newline at end of file` belongs to the line before it, so it stays with that line.
+  const rows = [];
+  for (const l of body) {
+    if (l.startsWith('+')) rows.push(l);
+    else if (l.startsWith('\\') && rows.length) rows[rows.length - 1] += l;
+    else return null;
+  }
+  const out = [];
+  let start = Number(m[3]);
+  let cur = [];
+  let curBytes = 0; // the bytes of cur's lines, kept as they are added: joining them again for each line takes minutes on a 1.3 MB added recording
+  const close = () => {
+    out.push(`${header}@@ -${m[1]},0 +${start},${cur.length} @@\n${cur.join('')}`);
+    start += cur.length;
+    cur = [];
+    curBytes = 0;
+  };
+  for (const r of rows) {
+    const rBytes = Buffer.byteLength(r);
+    const next = Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},${cur.length + 1} @@\n`) + curBytes + rBytes;
+    if (next > cap) {
+      if (!cur.length) return null;
+      close();
+      if (Buffer.byteLength(`${header}@@ -${m[1]},0 +${start},1 @@\n${r}`) > cap) return null;
+    }
+    cur.push(r);
+    curBytes += rBytes;
+  }
+  if (cur.length) close();
+  return out;
+}
+
+/**
  * A diff over MAX_DIFF_BYTES in parts of at most `cap` bytes, in the diff's own order (so a service's files stay
  * together): whole files where they fit, a larger file between its hunks, each piece under its own file header. Nothing
  * is cut or left out. The sections `first` picks (the test part's own files) come first and close their own parts, so
  * when they fit one call, the first part is exactly the diff the test part judges and the one combined call carries it
- * once. Returns { parts }, or { tooLarge } when one hunk alone is over the cap, a file over it has no hunk
- * to split at, or it would take more than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
+ * once. A hunk over the cap that only adds lines splits between its lines (splitAddedHunk). Returns { parts }, or
+ * { tooLarge } when any other hunk alone is over the cap, a file over it has no hunk to split at, or it would take more
+ * than `maxParts` parts. (Failure it prevents: 24 of 85 FAILs from 10 to 12 Nov 2026
  * were the cap alone, 21 on intafaced #7728, a PR of about 420 to 560 KB; project-state #2065.)
  */
 export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, first = () => false) {
@@ -485,9 +798,16 @@ export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, firs
       .slice(at)
       .split(/^(?=@@ )/m)
       .map((h) => header + h);
-    const big = units.find((u) => Buffer.byteLength(u) > cap);
-    if (big) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(big)} bytes, over ${cap}` };
-    return { units };
+    const out = [];
+    for (const u of units) {
+      if (Buffer.byteLength(u) <= cap) out.push(u);
+      else {
+        const lines = splitAddedHunk(header, u.slice(header.length), cap);
+        if (!lines) return { tooLarge: `one hunk of ${sectionPath(s)} is ${Buffer.byteLength(u)} bytes, over ${cap}` };
+        out.push(...lines);
+      }
+    }
+    return { units: out };
   };
   const sections = diffSections(diff);
   const parts = [];
@@ -514,7 +834,7 @@ export function splitDiff(diff, cap = MAX_DIFF_BYTES, maxParts = MAX_PARTS, firs
 export function partNote(parts, k, bytes) {
   const files = parts.map((p, i) => `part ${i + 1}: ${[...new Set(diffSections(p).map(sectionPath))].join(', ')}`);
   return [
-    `This pull request's diff is ${bytes} bytes, over the ${MAX_DIFF_BYTES} one call reviews, so the job's code reviews it in ${parts.length} parts, one call each, split between files (a larger file between its hunks, each under its file header); nothing is cut or left out, and the review's verdict is FAIL when any part's is. This is part ${k} of ${parts.length}: judge the change in this part against the brief, and never fail it for being a part. The files in each part, as the diff names them (untrusted):`,
+    `This pull request's diff is ${bytes} bytes, over the ${MAX_DIFF_BYTES} one call reviews, so the job's code reviews it in ${parts.length} parts, one call each, split between files (a larger file between its hunks, and a hunk that only adds lines between its lines, each under its file header); nothing is cut or left out, and the review's verdict is FAIL when any part's is. This is part ${k} of ${parts.length}: judge the change in this part against the brief, and never fail it for being a part. The files in each part, as the diff names them (untrusted):`,
     ...files,
   ].join('\n');
 }
@@ -684,7 +1004,7 @@ export function reviewSection({ brief, diff, pr, head, stepWords = false, note =
   ].join('\n');
 }
 
-// ── The owner's record, for a pull request that changes the brief ─────────────────────────────────────────────────
+// ── The owner's record, for a pull request that cites it ──────────────────────────────────────────────────────────
 
 /** The brief's own path: a diff that changes it may add an owner decision, which the review checks against his record. */
 export const BRIEF_PATH = 'tooling/ci/ci-review/REVIEW.md';
@@ -713,18 +1033,21 @@ export function citedOwnerItems(diff) {
  * the 12 Nov test sentence, so the route could never pass it). Since project-state row d117 (17 Nov) a new decision has
  * no row file: his words stand in the body of a merged project-state PR labelled `decision`, cited as "project-state
  * decision PR #N" and returned as `#N` (intafaced #9186, CI review FAIL on 8b3f6cdc: the 20 Nov look decision had no
- * row to cite, so the route could never pass it).
+ * row to cite, so the route could never pass it). A decision PR is read when an added line of any file cites it, so the
+ * change that carries out a decision cites it itself and needs no entry PR in the brief first (on 24 Nov 2026 the
+ * entry PRs #10643 and #10644 took 40 and 45 minutes to land one line each). Rows stay brief-only.
  */
 export function citedRows(diff) {
   const rows = new Set();
+  const pulls = new Set();
   let inBrief = false;
   for (const l of String(diff).split('\n')) {
     if (l.startsWith('diff --git ')) inBrief = l.endsWith(` b/${BRIEF_PATH}`);
-    if (!inBrief || !l.startsWith('+') || l.startsWith('+++ ')) continue;
-    for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
-    for (const m of l.matchAll(/\bproject-state decision PR #(\d{1,6})\b/g)) rows.add(`#${Number(m[1])}`);
+    if (!l.startsWith('+') || l.startsWith('+++ ')) continue;
+    if (inBrief) for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
+    for (const m of l.matchAll(/\bproject-state decision PR #(\d{1,6})\b/g)) pulls.add(`#${Number(m[1])}`);
   }
-  return [...rows];
+  return [...rows, ...pulls];
 }
 
 /** Each cited item's text in OWNER.md (from its "N. " line to the next item or heading), or null when it has none. */
@@ -741,7 +1064,7 @@ export function ownerItems(text, numbers) {
 }
 
 /**
- * The trusted block the review is given with a diff that changes the brief: the cited items as the job read them from
+ * The trusted block the review is given with a diff that cites the owner's record: the cited items as the job read them from
  * project-state OWNER.md, so a new entry's quote is checked against the owner's own record, never taken on its form.
  */
 export function ownerRecordSection({ items, ref, rows = new Map() }) {
@@ -762,7 +1085,7 @@ export function ownerRecordSection({ items, ref, rows = new Map() }) {
     .filter(Boolean)
     .join(' and ');
   return [
-    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/ (a row dN) or its merged `decision` pull requests (a #N: the body, as long as it was not edited after the merge)' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
+    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines cite (OWNER.md items and rows only in this brief, decision pull requests in any file) from project-state OWNER.md${rows.size ? ' and open-list/decided/ (a row dN) or its merged `decision` pull requests (a #N: the body, as long as it was not edited after the merge)' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
     'BEGIN OWNER RECORD',
     ...body,
     'END OWNER RECORD',
@@ -917,6 +1240,8 @@ async function getText(path, accept, token = process.env.GH_TOKEN) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
+  }).catch((e) => {
+    throw new Error(fetchFailure(path, e));
   });
   countCall(res);
   const text = await res.text();
@@ -1098,6 +1423,135 @@ export async function indexHead(dir) {
 }
 
 /**
+ * The carry (poteto: "A verdict covers a patch ... Compare `git patch-id` at the verdict SHA with the current head before
+ * trusting an older verdict"; project-state #3728): a head whose diff against main is byte for byte the diff of an
+ * earlier reviewed head of the same pull request carries that head's verdicts, both parts, without asking the reviewer.
+ * Byte equality is stricter than patch-id: it counts whitespace, and each file's `index` line names its blob at the merge
+ * base, so a main that changed any file the patch touches changes the diff and the head is reviewed afresh. A file with
+ * no `index` line (a mode change or a pure rename) names no blob, so a diff holding one carries nothing. The earlier
+ * head's diff is read against today's main, so its merge base must have reached main before that head was first
+ * reviewed (`baseAtOf`), or the patch read now may not be the patch it was judged on. A FAIL is carried too, and any
+ * FAIL among the matching heads stands over a newer PASS: it stands for the same patch, as it stands for the same tree
+ * (review-marker.mjs), so merging main never asks again. A head with no verdict (pending, judge down) is passed over; a
+ * new patch matches nothing and is reviewed. CI's tests and the journeys still run on the new head. (Measured over 48 h
+ * to 22 Nov 2026 12:23 UTC: 111 of 699 reviews, 366 of 1,469 job minutes, were of a diff an earlier head had passed; in
+ * replay 2 of the 117 carried heads' fresh reviews FAILed a finding the first PASS had missed, the second look a carry
+ * gives up.)
+ *
+ * A verdict is the patch read against the briefs of its day, so it carries only while they stand: a head first reviewed
+ * before main's newest change to either brief (`CARRY_BRIEFS`) is passed over, and a patch the owner's new decision
+ * entry now allows is reviewed again rather than held by the FAIL the entry answers (intafaced#10229 on 23 Nov 2026:
+ * the entry merged and the FAIL of the patch it allowed still stood); for the same reason a review FAIL of a patch that
+ * cites a decision PR never carries. An unread brief date carries nothing.
+ *
+ * `runs` are this workflow's runs on the pull request's branch; `attempts(run)` the jobs of each attempt; `diffOf(sha)`
+ * the compare API's diff of base...sha, the same read as `diff`; `baseAtOf(sha)` when that diff's merge base reached
+ * main (ms); `briefsAt` when main last changed a brief (ms). Returns null (review it) or { from, review, tests } with
+ * each part `PASS` or `FAIL`.
+ */
+export const CARRY_HEADS = 5;
+
+/** The briefs a verdict is given against (REVIEW.md, the review's; JUDGE.md, the test part's). */
+export const CARRY_BRIEFS = ['tooling/ci/ci-review/REVIEW.md', 'tooling/ci/test-judge/JUDGE.md'];
+
+/** Whether every file in a unified diff has an `index <old>..<new>` line naming its blobs. */
+export const everyFileIndexed = (diff) =>
+  String(diff)
+    .split(/^diff --git /m)
+    .slice(1)
+    .every((sec) => /^index [0-9a-f]+\.\.[0-9a-f]+/m.test(sec));
+
+export async function carriedVerdict({ pull, diff, runs, attempts, diffOf, baseAtOf, briefsAt }) {
+  const { ciReviewVerdict, REVIEW_CHECK, JUDGE_CHECK, REVIEW_WORKFLOW, REVIEW_BASE } = await import('./review-marker.mjs');
+  if (!everyFileIndexed(diff) || typeof baseAtOf !== 'function' || !Number.isFinite(briefsAt)) return null;
+  const own = String(pull.head).toLowerCase();
+  const heads = new Map();
+  for (const r of runs ?? []) {
+    const sha = String(r?.head_sha ?? '').toLowerCase();
+    if (r?.path !== REVIEW_WORKFLOW || r?.event !== 'pull_request_target' || !SHA40.test(sha) || sha === own) continue;
+    if (!(r?.pull_requests ?? []).some((p) => Number(p?.number) === Number(pull.number) && p?.base?.ref === REVIEW_BASE)) continue;
+    const at = Date.parse(r?.created_at ?? '') || 0;
+    const h = heads.get(sha) ?? { at: 0, first: Infinity, runs: [] };
+    h.at = Math.max(h.at, at);
+    h.first = Math.min(h.first, at);
+    h.runs.push(r);
+    heads.set(sha, h);
+  }
+  const newest = [...heads.entries()].sort((a, b) => b[1].at - a[1].at).slice(0, CARRY_HEADS);
+  const matched = [];
+  for (const [sha, h] of newest) {
+    if (h.first < briefsAt) continue;
+    const read = (check) => ciReviewVerdict({ sha, runs: h.runs, attempts, base: REVIEW_BASE, number: pull.number, check });
+    const review = await read(REVIEW_CHECK);
+    const tests = await read(JUDGE_CHECK);
+    const decided = (v) => v.state === 'pass' || v.state === 'fail';
+    if (!decided(review) || !decided(tests)) continue;
+    if ((await diffOf(sha)) !== diff) continue;
+    const baseAt = await baseAtOf(sha);
+    if (!Number.isFinite(baseAt) || baseAt > h.first) continue;
+    matched.push({ from: sha, review: review.state === 'pass' ? 'PASS' : 'FAIL', tests: tests.state === 'pass' ? 'PASS' : 'FAIL' });
+  }
+  if (matched.length === 0) return null;
+  const failed = (part) => matched.find((m) => m[part] === 'FAIL');
+  // A review FAIL of a patch that cites a project-state decision PR is not carried: the PR it cites may have merged
+  // since, and the FAIL may be the review saying it had no record yet. A PASS still carries.
+  if (failed('review') && citedRows(diff).some((r) => r.startsWith('#'))) return null;
+  const from = (failed('review') ?? failed('tests') ?? matched[0]).from;
+  return { from, review: failed('review') ? 'FAIL' : 'PASS', tests: failed('tests') ? 'FAIL' : 'PASS' };
+}
+
+/** A carried verdict written as the diff step's decision (`skip-reviewer`, `skip-judge`), read back by `read` and `judge`. */
+export function writeCarried(dir, { head, carried }) {
+  const { from, review, tests } = carried;
+  const said = (part, v) =>
+    v === 'PASS'
+      ? `note: carried: ${from}, whose diff against main is byte for byte this head's, passed the ${part}; the same patch is not reviewed again (ci-review.mjs carriedVerdict)`
+      : `the ${part} FAILed on ${from}, whose diff against main is byte for byte this head's; a FAIL stands for the same patch, so push a fix that changes it`;
+  const t = join(dir, TESTS_DIR);
+  mkdirSync(t, { recursive: true });
+  writeFileSync(join(dir, 'head.txt'), head);
+  writeFileSync(join(t, 'head.txt'), head);
+  writeFileSync(join(t, 'verdict.json'), JSON.stringify({ head, verdict: tests, lines: [], findings: [said('test part', tests)] }));
+  writeFileSync(join(t, 'skip-judge'), '1');
+  writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict: review, findings: [said('CI review', review)] }));
+  writeFileSync(join(dir, 'skip-reviewer'), '1');
+  return `carried from ${from}: review ${review}, test part ${tests}, without asking the reviewer`;
+}
+
+/** The carry's reads from GitHub: the branch's newest runs of this workflow, each run's attempts, a head's compare diff. */
+async function readCarry({ repo, pull, diff, get = getText }) {
+  const json = async (p) => {
+    const r = await get(p, 'application/vnd.github+json');
+    if (r.status !== 200) throw new Error(`could not read ${p}: HTTP ${r.status}`);
+    return JSON.parse(r.text);
+  };
+  if (!pull.ref) return null;
+  const q = `event=pull_request_target&branch=${encodeURIComponent(pull.ref)}&per_page=100`;
+  const runs = (await json(`/repos/${repo}/actions/workflows/ci-review.yml/runs?${q}`)).workflow_runs ?? [];
+  const attempts = async (run) => {
+    const out = [];
+    for (let n = 1; n <= Math.max(1, Number(run.run_attempt) || 1); n++)
+      out.push((await runJobs(`/repos/${repo}/actions/runs/${run.id}/attempts/${n}/jobs`, json)) ?? []);
+    return out;
+  };
+  const diffOf = async (sha) => {
+    const r = await get(`/repos/${repo}/compare/${pull.base}...${sha}`, 'application/vnd.github.v3.diff');
+    return r.status === 200 ? r.text : null;
+  };
+  const baseAtOf = async (sha) => {
+    const c = await json(`/repos/${repo}/compare/${pull.base}...${sha}?per_page=1`);
+    return Date.parse(c?.merge_base_commit?.commit?.committer?.date ?? '');
+  };
+  // main's newest change to either brief, read at this run's base: the commit that changed it reached main then.
+  let briefsAt = -Infinity;
+  for (const path of CARRY_BRIEFS) {
+    const [c] = await json(`/repos/${repo}/commits?sha=${pull.base}&path=${encodeURIComponent(path)}&per_page=1`);
+    briefsAt = Math.max(briefsAt, Date.parse(c?.commit?.committer?.date ?? ''));
+  }
+  return carriedVerdict({ pull, diff, runs, attempts, diffOf, baseAtOf, briefsAt });
+}
+
+/**
  * The review's input and the test part's, from one diff. `diff` is the compare API's diff at base...head; `src` and
  * `loadWords` are test-judge.mjs's (buildInputs). The test part decides alone when nothing needs judging (PASS) or the
  * change is too large to judge whole (FAIL), in `<dir>/tests`; otherwise its prompt, which heads with both briefs and
@@ -1125,7 +1579,8 @@ export async function writeReviewInputs(
   },
 ) {
   mkdirSync(dir, { recursive: true });
-  // A diff that adds to the brief: the owner items it cites, read from his record, follow the brief as trusted input.
+  // The owner items and rows the diff's added lines of the brief cite, and the decision PRs any added line cites, read
+  // from his record, follow the brief as trusted input.
   let reviewBrief = briefText;
   const cited = citedOwnerItems(diff);
   const citedRowIds = citedRows(diff);
@@ -1240,8 +1695,16 @@ async function cmdDiff(dir) {
   const r = await getText(`/repos/${repo}/compare/${pull.base}...${pull.head}`, 'application/vnd.github.v3.diff');
   if (r.status !== 200) throw new Error(`could not read the diff ${pull.base.slice(0, 7)}...${pull.head.slice(0, 7)}: HTTP ${r.status}`);
   readableDiff(r.text, pull);
-  // A call-record export changed in place is summarised from its two whole sides (summarizeExports): the blobs at the
-  // merge base and the head, fetched as the test part's source fetches them. Unread, those sections stay whole.
+  // The same patch an earlier head of this pull request was reviewed on carries that verdict (carriedVerdict). A failed
+  // read carries nothing: the head is reviewed as it would be without the carry.
+  const carried = await readCarry({ repo, pull, diff: r.text }).catch((e) => {
+    console.log(`carry: none (${String(e.message).split('\n')[0]})`);
+    return null;
+  });
+  if (carried) return console.log(writeCarried(dir, { head: pull.head, carried }));
+  // A call-record export changed in place, or a venue recording in a diff over the cap, is summarised from its two
+  // whole sides (summarizeExports, summarizeRecordings): the blobs at the merge base and the head, fetched as the test
+  // part's source fetches them. Unread, those sections stay whole.
   let readBlob = null;
   if (exportBlobsNeeded(r.text)) {
     const ws = process.env.GITHUB_WORKSPACE ?? '.';
@@ -1285,33 +1748,32 @@ async function cmdDiff(dir) {
       images = [...images, ...got2.images];
     } else console.log(`look pictures: none (${look.why})`);
   }
-  const loadWords = async () => {
+  // The project-state read token (the App token minted in ci-review.yml): without it, `what` is unreadable.
+  const psToken = (what) => {
     const t = process.env.PROJECT_STATE_READ_TOKEN;
     if (!t)
       throw new Error(
-        'the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the step words are unreadable and nothing is decided',
+        `no project-state read token (the App token minted in ci-review.yml), so ${what} is unreadable and nothing is decided`,
       );
-    return readWordsApi(t);
+    return t;
   };
+  const loadWords = async () => readWordsApi(psToken('the step words'));
   console.log(
     await writeReviewInputs(dir, {
-      diff: summarizeGenerated(r.text, { readBlob }),
+      diff: summarizeDeleted(summarizeGenerated(r.text, { readBlob }), (p) =>
+        readFileSync(join(process.env.GITHUB_WORKSPACE ?? '.', p), 'utf8'),
+      ),
       base: pull.base,
       head: pull.head,
       pr: pull.number,
-      src: ciSource(repo, process.env.GH_TOKEN, process.env.GITHUB_WORKSPACE),
+      // The test part judges this same compare diff, not a second download of it: a 5 MB diff read once was read, and
+      // its second read closed (`UND_ERR_SOCKET other side closed`, intafaced #11192, twice).
+      src: ciSource(repo, process.env.GH_TOKEN, process.env.GITHUB_WORKSPACE, { base: pull.base, head: pull.head, diff: r.text }),
       loadWords,
       reviewBrief: readFileSync(new URL('./ci-review/REVIEW.md', import.meta.url), 'utf8'),
       testsBrief: readFileSync(JUDGE_BRIEF, 'utf8'),
       images,
-      loadOwner: (rows) => {
-        const t = process.env.PROJECT_STATE_READ_TOKEN;
-        if (!t)
-          throw new Error(
-            "the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the owner's record is unreadable and nothing is decided",
-          );
-        return readOwnerRecord(t, getText, rows);
-      },
+      loadOwner: (rows) => readOwnerRecord(psToken("the owner's record"), getText, rows),
       revertOf: await automaticRevert({
         repo,
         pull,
@@ -1454,6 +1916,47 @@ export function clearedLines(cleared) {
   return ['', '### Checked and cleared', '', ...cleared.map((c) => `  * ${String(c).replace(/\s+/g, ' ')}`)];
 }
 
+/** The first line of the comment that carries a review's notes to its pull request (#9357). */
+export const NOTES_MARK = '<!-- ci-review-notes -->';
+
+/** A review's non-blocking notes: each finding that starts `note:`, as the reviewer wrote it. */
+export const notesOf = (findings) => (findings ?? []).filter((f) => typeof f === 'string' && /^note:/i.test(f.trim()));
+
+/**
+ * The comment that carries a head's notes to its pull request (#9357): a note written only into the run's summary
+ * reached nobody once the review PASSed, so the problems it named merged (#8823's, #8712's and #8940's notes, now
+ * #9352 to #9355). Posted where the builder's watch wakes; the builder answers each in the PR body, as findings are
+ * (AGENTS.md, How work flows 5). A mention in a note is broken, so it notifies nobody.
+ */
+export function notesComment({ head, notes, run }) {
+  const quiet = (n) =>
+    String(n)
+      .replace(/\s+/g, ' ')
+      .replace(/@(?=[A-Za-z0-9])/g, '@\u200b');
+  return [
+    NOTES_MARK,
+    `**CI review notes on ${head}**: not blocking, and not read by any check. Answer each in the PR body before merge (AGENTS.md, How work flows 5). Push a fix only for a defect in this change: each push runs the journeys again, about 40 minutes. Anything else a note names, product or polish, gets its own \`bug\` issue.`,
+    '',
+    ...notes.map((n) => `- ${quiet(n)}`),
+    ...(run ? ['', `From the CI review run ${run}.`] : []),
+  ].join('\n');
+}
+
+/** The notes job: post the review's notes (env NOTES, a JSON list) on pull request PR_NUMBER, once per head. */
+function cmdNotes() {
+  const { REPO, PR_NUMBER, HEAD_SHA, RUN_URL } = process.env;
+  const notes = notesOf(JSON.parse(process.env.NOTES || '[]'));
+  if (notes.length === 0) return console.log('no notes on this head: nothing to post');
+  const gh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+  const mine = `${NOTES_MARK}\n**CI review notes on ${HEAD_SHA}**`;
+  const posted = gh(['api', '--paginate', `repos/${REPO}/issues/${PR_NUMBER}/comments`, '--jq', '.[].body']);
+  // A re-run of the same head's review posts nothing new: the head's notes are already on the pull request.
+  if (posted.includes(mine)) return console.log(`notes on ${HEAD_SHA} are already on #${PR_NUMBER}`);
+  const body = notesComment({ head: HEAD_SHA, notes, run: RUN_URL });
+  gh(['api', '-X', 'POST', `repos/${REPO}/issues/${PR_NUMBER}/comments`, '--input', '-'], JSON.stringify({ body }));
+  console.log(`posted ${notes.length} note(s) on #${PR_NUMBER}`);
+}
+
 /** The FAILs in a row at which the judge says to stop fixing (pstack principle-attack-the-premise: two fixes failed). */
 export const PREMISE_AT = 3;
 
@@ -1565,6 +2068,9 @@ async function cmdJudge(dir) {
   lines.push(...premise);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
   console.log(lines.join('\n'));
+  // The notes leave the run for the notes job, which posts them on the pull request (#9357). One JSON line.
+  const notes = notesOf(v.findings);
+  if (notes.length && process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `notes=${JSON.stringify(notes)}\n`);
   if (v.verdict !== 'PASS') {
     // The classes only: no finding's text, so nothing in it can change how the census reads this run (its classOf).
     console.error(`::error title=${CLASSES_TITLE}::${findingClasses(v.findings).join(' ') || 'other'}`);
@@ -1613,7 +2119,8 @@ async function main() {
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
   if (cmd === 'premise') return cmdPremise(dir, process.argv[4]);
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head]');
+  if (cmd === 'notes') return cmdNotes();
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head] | notes');
   process.exit(2);
 }
 

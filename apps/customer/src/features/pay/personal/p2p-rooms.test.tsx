@@ -10,7 +10,7 @@ import { createPayMutationGuard, createPersonalPayApi, type PersonalPayApi } fro
 import { OfferForm } from './OfferForm';
 import { DisputeProgress, EscrowPath, OfferTabs, OrderFilterTabs, TakeOfferPanel } from './P2PDepth';
 import { TakeAvailable, TakeFailureNote, TakeQuoteDetails, TakeReviewDetails } from './TakeOffer';
-import { CounterpartyMetrics, CounterpartyName } from '../P2PCounterparty';
+import { CounterpartyMetrics, CounterpartyName } from '../p2p-counterparty/CounterpartyRoom';
 import { TraderName, TraderSummary } from './Trader';
 
 const BUYER = 'b0000000-0000-4000-8000-000000000001';

@@ -1,8 +1,9 @@
+import { Button } from '@intafaced/ui/lit';
 import { displayAmount } from '../../../shared/money';
 import { type AsOf, type OrderIntent, type VenuePreview, type VenueSelfTradeMode, type VenueUp } from '../../../features/trade/venue-api';
 import { Known, TestMark, word } from '../../../features/trade/venue/VenueKit';
 import { rateShown } from '../../../features/trade/venue/fee-rates';
-import { bpsPercent, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
+import { bpsPercent, carriesBuilderFee, requiredBuilderFeeBps } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { spotVenueCopy } from './venue-copy';
 import { useClock } from './VenueAccountPanel';
@@ -32,13 +33,13 @@ function rateText(
 export function FeeCurrencyRow() {
   const { t } = spotVenueCopy.useCopy();
   return (
-    <section className="dk-panel form-stack" aria-label={t('Fee currency')} data-testid="venue-fee-currency">
-      <h2 className="dk-tab-title">{t('Fee currency')}</h2>
+    <section className="lt-panel" aria-label={t('Fee currency')} data-testid="venue-fee-currency">
+      <h2 className="lt-panel-title">{t('Fee currency')}</h2>
       <p data-line="fee-currency-venue">{t('Fee currency venue')}</p>
-      <button type="button" className="button" disabled aria-describedby="venue-fee-currency-ifc-reason" data-fee-currency="IFC">
+      <Button tone="secondary" disabled aria-describedby="venue-fee-currency-ifc-reason" data-fee-currency="IFC">
         {t('Fee currency IFC')}
-      </button>
-      <p id="venue-fee-currency-ifc-reason" className="muted">
+      </Button>
+      <p id="venue-fee-currency-ifc-reason" className="lt-note">
         {t('Fee currency IFC reason')}
       </p>
     </section>
@@ -74,33 +75,34 @@ export function VenueReviewRows({
   const clock = useClock();
   const p = preview.value;
   const carries = carriesBuilderFee(p.builderFee);
+  const requiredBps = requiredBuilderFeeBps(status, p);
   return (
-    <div data-testid="venue-review" className="form-stack">
+    <div data-testid="venue-review" className="lt-stack">
       <TestMark test={status.test} />
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <div>
           <dt>{t('Venue locks')}</dt>
-          <dd className="numeric" data-line="lock">
+          <dd className="lt-num" data-line="lock">
             {displayAmount(p.lock.amount)} {p.lock.asset}
           </dd>
         </div>
         <div>
           <dt>{t('Venue fee')}</dt>
-          <dd className="numeric" data-line="venue-fee">
+          <dd className="lt-num" data-line="venue-fee">
             <Known value={p.venueFee.known ? { known: true, value: p.venueFee.value.amount } : { known: false }} />{' '}
             {p.venueFee.known ? p.venueFee.value.asset : ''}
           </dd>
         </div>
         <div>
           <dt>{t('Our builder fee')}</dt>
-          <dd className="numeric" data-line="builder-fee">
+          <dd className="lt-num" data-line="builder-fee">
             {!carries ? (
               v('Builder none spot buy')
             ) : status.builder ? (
               <>
                 <Known value={p.builderFee.known ? { known: true, value: p.builderFee.value.amount } : { known: false }} />{' '}
                 {p.builderFee.known ? p.builderFee.value.asset : ''}
-                {approved === false ? ` · ${v('Builder not approved', { bps: status.builder.feeBps })}` : ''}
+                {approved === false && requiredBps ? ` · ${v('Builder not approved', { bps: requiredBps })}` : ''}
               </>
             ) : (
               <span role="alert">{v('Builder fee owner blank')}</span>
@@ -110,7 +112,7 @@ export function VenueReviewRows({
         {carries && p.feeDiscount ? (
           <div>
             <dt>{v('Builder fee discount')}</dt>
-            <dd className="numeric" data-line="builder-fee-discount" data-source={p.feeDiscount.source}>
+            <dd className="lt-num" data-line="builder-fee-discount" data-source={p.feeDiscount.source}>
               {p.feeDiscount.source === 'coupon'
                 ? v('Builder discount coupon', { code: p.feeDiscount.code, pct: bpsPercent(p.feeDiscount.bps) })
                 : v('Builder discount rank', { pct: bpsPercent(p.feeDiscount.bps) })}
@@ -152,7 +154,7 @@ export function VenueReviewRows({
         {intent.type === 'market' ? (
           <div>
             <dt>{t('Worst price review')}</dt>
-            <dd className="numeric" data-line="worst">
+            <dd className="lt-num" data-line="worst">
               {displayAmount(intent.price)}
             </dd>
           </div>
@@ -182,13 +184,13 @@ export function VenueReviewRows({
         ) : null}
         <div>
           <dt>{t('Client id')}</dt>
-          <dd className="numeric" data-line="client-id" data-testid="client-order-id">
+          <dd className="lt-num" data-line="client-id" data-testid="client-order-id">
             {intent.clientOrderKey}
           </dd>
         </div>
         <div>
           <dt>{t('As of')}</dt>
-          <dd className="numeric">{clock(preview.asOf)}</dd>
+          <dd className="lt-num">{clock(preview.asOf)}</dd>
         </div>
       </dl>
     </div>

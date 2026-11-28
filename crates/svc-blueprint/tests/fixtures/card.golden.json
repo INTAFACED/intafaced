@@ -1,0 +1,1341 @@
+{
+  "request": {
+    "svg": "<svg width=\"1080\"/>",
+    "size": "portrait",
+    "width": 1080,
+    "height": 1350,
+    "blueprintId": "77777777-7777-4777-8777-777777777777"
+  },
+  "composed": [
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "analytical",
+          "riskTemperament": "guarded",
+          "energyRhythm": "dawn",
+          "learningMode": "visual",
+          "crewRole": "anchor",
+          "curriculumPath": "foundations",
+          "toneRegister": "direct",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "Iron Meridian",
+        "season": 1
+      },
+      "size": "portrait",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1080\" height=\"1350\" viewBox=\"0 0 1080 1350\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1080\" height=\"1350\" fill=\"#000000\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-grid)\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-glow)\"/><text x=\"90\" y=\"150\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"30\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"10\">IDENTITY BLUEPRINT</text><rect x=\"90\" y=\"182\" width=\"900\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"90\" y=\"400\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"168\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-2\">ANCHOR</text><text x=\"90\" y=\"470\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"38\" fill=\"#FF8A2B\" font-weight=\"600\">Iron Meridian · Season 1</text><rect x=\"90\" y=\"530\" width=\"330\" height=\"66\" rx=\"33\" fill=\"rgba(255, 107, 0, 0.24)\" stroke=\"#FF6B00\"/><text x=\"130\" y=\"574\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"32\" fill=\"#FF8A2B\" font-weight=\"600\">Direct voice</text><rect x=\"90\" y=\"648\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"700\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">DECISION</text><text x=\"958\" y=\"700\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Analytical</text><rect x=\"90\" y=\"756\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"808\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RISK</text><text x=\"958\" y=\"808\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Guarded</text><rect x=\"90\" y=\"864\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"916\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RHYTHM</text><text x=\"958\" y=\"916\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Dawn</text><rect x=\"90\" y=\"972\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1024\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">LEARNING</text><text x=\"958\" y=\"1024\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Visual</text><rect x=\"90\" y=\"1080\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1132\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">PATH</text><text x=\"958\" y=\"1132\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Foundations</text><rect x=\"90\" y=\"1160\" width=\"900\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"90\" y=\"1230\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"46\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"8\">INTAFACED</text><text x=\"90\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#A2A2AC\">Sovereign Intelligence</text><text x=\"990\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" text-anchor=\"end\">Built by the Neural Engine</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "analytical",
+          "riskTemperament": "guarded",
+          "energyRhythm": "dawn",
+          "learningMode": "visual",
+          "crewRole": "anchor",
+          "curriculumPath": "foundations",
+          "toneRegister": "direct",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "Iron Meridian",
+        "season": 1
+      },
+      "size": "landscape",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1200\" height=\"630\" viewBox=\"0 0 1200 630\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1200\" height=\"630\" fill=\"#000000\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-grid)\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-glow)\"/><text x=\"70\" y=\"100\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"24\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"8\">IDENTITY BLUEPRINT</text><rect x=\"70\" y=\"126\" width=\"1060\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"70\" y=\"236\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"96\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-1\">ANCHOR</text><text x=\"70\" y=\"282\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#FF8A2B\" font-weight=\"600\">Iron Meridian · Season 1</text><text x=\"70\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">DECISION</text><text x=\"70\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Analytical</text><text x=\"70\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RISK</text><text x=\"70\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Guarded</text><text x=\"70\" y=\"486\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RHYTHM</text><text x=\"70\" y=\"520\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Dawn</text><text x=\"620\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">LEARNING</text><text x=\"620\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Visual</text><text x=\"620\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">PATH</text><text x=\"620\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Foundations</text><rect x=\"70\" y=\"538\" width=\"1060\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"70\" y=\"590\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"34\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"6\">INTAFACED</text><text x=\"1130\" y=\"590\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"22\" fill=\"#A2A2AC\" text-anchor=\"end\">Sovereign Intelligence</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "intuitive",
+          "riskTemperament": "measured",
+          "energyRhythm": "steady",
+          "learningMode": "narrative",
+          "crewRole": "scout",
+          "curriculumPath": "markets",
+          "toneRegister": "warm",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": null,
+        "season": null
+      },
+      "size": "portrait",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1080\" height=\"1350\" viewBox=\"0 0 1080 1350\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1080\" height=\"1350\" fill=\"#000000\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-grid)\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-glow)\"/><text x=\"90\" y=\"150\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"30\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"10\">IDENTITY BLUEPRINT</text><rect x=\"90\" y=\"182\" width=\"900\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"90\" y=\"400\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"168\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-2\">SCOUT</text><text x=\"90\" y=\"470\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"38\" fill=\"#FF8A2B\" font-weight=\"600\">Unplaced</text><rect x=\"90\" y=\"530\" width=\"330\" height=\"66\" rx=\"33\" fill=\"rgba(255, 107, 0, 0.24)\" stroke=\"#FF6B00\"/><text x=\"130\" y=\"574\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"32\" fill=\"#FF8A2B\" font-weight=\"600\">Warm voice</text><rect x=\"90\" y=\"648\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"700\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">DECISION</text><text x=\"958\" y=\"700\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Intuitive</text><rect x=\"90\" y=\"756\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"808\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RISK</text><text x=\"958\" y=\"808\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Measured</text><rect x=\"90\" y=\"864\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"916\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RHYTHM</text><text x=\"958\" y=\"916\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Steady</text><rect x=\"90\" y=\"972\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1024\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">LEARNING</text><text x=\"958\" y=\"1024\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Narrative</text><rect x=\"90\" y=\"1080\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1132\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">PATH</text><text x=\"958\" y=\"1132\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Markets</text><rect x=\"90\" y=\"1160\" width=\"900\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"90\" y=\"1230\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"46\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"8\">INTAFACED</text><text x=\"90\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#A2A2AC\">Sovereign Intelligence</text><text x=\"990\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" text-anchor=\"end\">Built by the Neural Engine</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "intuitive",
+          "riskTemperament": "measured",
+          "energyRhythm": "steady",
+          "learningMode": "narrative",
+          "crewRole": "scout",
+          "curriculumPath": "markets",
+          "toneRegister": "warm",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": null,
+        "season": null
+      },
+      "size": "landscape",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1200\" height=\"630\" viewBox=\"0 0 1200 630\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1200\" height=\"630\" fill=\"#000000\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-grid)\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-glow)\"/><text x=\"70\" y=\"100\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"24\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"8\">IDENTITY BLUEPRINT</text><rect x=\"70\" y=\"126\" width=\"1060\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"70\" y=\"236\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"96\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-1\">SCOUT</text><text x=\"70\" y=\"282\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#FF8A2B\" font-weight=\"600\">Unplaced</text><text x=\"70\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">DECISION</text><text x=\"70\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Intuitive</text><text x=\"70\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RISK</text><text x=\"70\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Measured</text><text x=\"70\" y=\"486\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RHYTHM</text><text x=\"70\" y=\"520\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Steady</text><text x=\"620\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">LEARNING</text><text x=\"620\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Narrative</text><text x=\"620\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">PATH</text><text x=\"620\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Markets</text><rect x=\"70\" y=\"538\" width=\"1060\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"70\" y=\"590\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"34\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"6\">INTAFACED</text><text x=\"1130\" y=\"590\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"22\" fill=\"#A2A2AC\" text-anchor=\"end\">Sovereign Intelligence</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "collaborative",
+          "riskTemperament": "assertive",
+          "energyRhythm": "surge",
+          "learningMode": "hands_on",
+          "crewRole": "builder",
+          "curriculumPath": "sovereign",
+          "toneRegister": "socratic",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "Quiet Harbour",
+        "season": null
+      },
+      "size": "portrait",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1080\" height=\"1350\" viewBox=\"0 0 1080 1350\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1080\" height=\"1350\" fill=\"#000000\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-grid)\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-glow)\"/><text x=\"90\" y=\"150\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"30\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"10\">IDENTITY BLUEPRINT</text><rect x=\"90\" y=\"182\" width=\"900\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"90\" y=\"400\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"168\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-2\">BUILDER</text><text x=\"90\" y=\"470\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"38\" fill=\"#FF8A2B\" font-weight=\"600\">Quiet Harbour</text><rect x=\"90\" y=\"530\" width=\"330\" height=\"66\" rx=\"33\" fill=\"rgba(255, 107, 0, 0.24)\" stroke=\"#FF6B00\"/><text x=\"130\" y=\"574\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"32\" fill=\"#FF8A2B\" font-weight=\"600\">Socratic voice</text><rect x=\"90\" y=\"648\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"700\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">DECISION</text><text x=\"958\" y=\"700\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Collaborative</text><rect x=\"90\" y=\"756\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"808\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RISK</text><text x=\"958\" y=\"808\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Assertive</text><rect x=\"90\" y=\"864\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"916\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RHYTHM</text><text x=\"958\" y=\"916\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Surge</text><rect x=\"90\" y=\"972\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1024\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">LEARNING</text><text x=\"958\" y=\"1024\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Hands-on</text><rect x=\"90\" y=\"1080\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1132\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">PATH</text><text x=\"958\" y=\"1132\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Sovereign</text><rect x=\"90\" y=\"1160\" width=\"900\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"90\" y=\"1230\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"46\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"8\">INTAFACED</text><text x=\"90\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#A2A2AC\">Sovereign Intelligence</text><text x=\"990\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" text-anchor=\"end\">Built by the Neural Engine</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "collaborative",
+          "riskTemperament": "assertive",
+          "energyRhythm": "surge",
+          "learningMode": "hands_on",
+          "crewRole": "builder",
+          "curriculumPath": "sovereign",
+          "toneRegister": "socratic",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "Quiet Harbour",
+        "season": null
+      },
+      "size": "landscape",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1200\" height=\"630\" viewBox=\"0 0 1200 630\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1200\" height=\"630\" fill=\"#000000\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-grid)\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-glow)\"/><text x=\"70\" y=\"100\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"24\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"8\">IDENTITY BLUEPRINT</text><rect x=\"70\" y=\"126\" width=\"1060\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"70\" y=\"236\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"96\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-1\">BUILDER</text><text x=\"70\" y=\"282\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#FF8A2B\" font-weight=\"600\">Quiet Harbour</text><text x=\"70\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">DECISION</text><text x=\"70\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Collaborative</text><text x=\"70\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RISK</text><text x=\"70\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Assertive</text><text x=\"70\" y=\"486\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RHYTHM</text><text x=\"70\" y=\"520\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Surge</text><text x=\"620\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">LEARNING</text><text x=\"620\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Hands-on</text><text x=\"620\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">PATH</text><text x=\"620\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Sovereign</text><rect x=\"70\" y=\"538\" width=\"1060\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"70\" y=\"590\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"34\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"6\">INTAFACED</text><text x=\"1130\" y=\"590\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"22\" fill=\"#A2A2AC\" text-anchor=\"end\">Sovereign Intelligence</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "decisive",
+          "riskTemperament": "bold",
+          "energyRhythm": "nocturnal",
+          "learningMode": "systematic",
+          "crewRole": "catalyst",
+          "curriculumPath": "foundations",
+          "toneRegister": "terse",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "A&B <\"Crew's\">",
+        "season": 12
+      },
+      "size": "portrait",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1080\" height=\"1350\" viewBox=\"0 0 1080 1350\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1080\" height=\"1350\" fill=\"#000000\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-grid)\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-glow)\"/><text x=\"90\" y=\"150\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"30\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"10\">IDENTITY BLUEPRINT</text><rect x=\"90\" y=\"182\" width=\"900\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"90\" y=\"400\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"168\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-2\">CATALYST</text><text x=\"90\" y=\"470\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"38\" fill=\"#FF8A2B\" font-weight=\"600\">A&amp;B &lt;&quot;Crew&apos;s&quot;&gt; · Season 12</text><rect x=\"90\" y=\"530\" width=\"330\" height=\"66\" rx=\"33\" fill=\"rgba(255, 107, 0, 0.24)\" stroke=\"#FF6B00\"/><text x=\"130\" y=\"574\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"32\" fill=\"#FF8A2B\" font-weight=\"600\">Terse voice</text><rect x=\"90\" y=\"648\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"700\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">DECISION</text><text x=\"958\" y=\"700\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Decisive</text><rect x=\"90\" y=\"756\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"808\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RISK</text><text x=\"958\" y=\"808\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Bold</text><rect x=\"90\" y=\"864\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"916\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RHYTHM</text><text x=\"958\" y=\"916\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Nocturnal</text><rect x=\"90\" y=\"972\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1024\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">LEARNING</text><text x=\"958\" y=\"1024\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Systematic</text><rect x=\"90\" y=\"1080\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1132\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">PATH</text><text x=\"958\" y=\"1132\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Foundations</text><rect x=\"90\" y=\"1160\" width=\"900\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"90\" y=\"1230\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"46\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"8\">INTAFACED</text><text x=\"90\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#A2A2AC\">Sovereign Intelligence</text><text x=\"990\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" text-anchor=\"end\">Built by the Neural Engine</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "decisive",
+          "riskTemperament": "bold",
+          "energyRhythm": "nocturnal",
+          "learningMode": "systematic",
+          "crewRole": "catalyst",
+          "curriculumPath": "foundations",
+          "toneRegister": "terse",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "A&B <\"Crew's\">",
+        "season": 12
+      },
+      "size": "landscape",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1200\" height=\"630\" viewBox=\"0 0 1200 630\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1200\" height=\"630\" fill=\"#000000\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-grid)\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-glow)\"/><text x=\"70\" y=\"100\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"24\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"8\">IDENTITY BLUEPRINT</text><rect x=\"70\" y=\"126\" width=\"1060\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"70\" y=\"236\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"96\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-1\">CATALYST</text><text x=\"70\" y=\"282\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#FF8A2B\" font-weight=\"600\">A&amp;B &lt;&quot;Crew&apos;s&quot;&gt; · Season 12</text><text x=\"70\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">DECISION</text><text x=\"70\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Decisive</text><text x=\"70\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RISK</text><text x=\"70\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Bold</text><text x=\"70\" y=\"486\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RHYTHM</text><text x=\"70\" y=\"520\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Nocturnal</text><text x=\"620\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">LEARNING</text><text x=\"620\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Systematic</text><text x=\"620\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">PATH</text><text x=\"620\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Foundations</text><rect x=\"70\" y=\"538\" width=\"1060\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"70\" y=\"590\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"34\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"6\">INTAFACED</text><text x=\"1130\" y=\"590\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"22\" fill=\"#A2A2AC\" text-anchor=\"end\">Sovereign Intelligence</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "analytical",
+          "riskTemperament": "guarded",
+          "energyRhythm": "dawn",
+          "learningMode": "visual",
+          "crewRole": "navigator",
+          "curriculumPath": "foundations",
+          "toneRegister": "dry & <odd>",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "Iron Meridian",
+        "season": 2
+      },
+      "size": "portrait",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1080\" height=\"1350\" viewBox=\"0 0 1080 1350\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1080\" height=\"1350\" fill=\"#000000\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-grid)\"/><rect width=\"1080\" height=\"1350\" fill=\"url(#ifc-glow)\"/><text x=\"90\" y=\"150\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"30\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"10\">IDENTITY BLUEPRINT</text><rect x=\"90\" y=\"182\" width=\"900\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"90\" y=\"400\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"168\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-2\">NAVIGATOR</text><text x=\"90\" y=\"470\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"38\" fill=\"#FF8A2B\" font-weight=\"600\">Iron Meridian · Season 2</text><rect x=\"90\" y=\"530\" width=\"330\" height=\"66\" rx=\"33\" fill=\"rgba(255, 107, 0, 0.24)\" stroke=\"#FF6B00\"/><text x=\"130\" y=\"574\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"32\" fill=\"#FF8A2B\" font-weight=\"600\">dry &amp; &lt;odd&gt; voice</text><rect x=\"90\" y=\"648\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"700\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">DECISION</text><text x=\"958\" y=\"700\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Analytical</text><rect x=\"90\" y=\"756\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"808\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RISK</text><text x=\"958\" y=\"808\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Guarded</text><rect x=\"90\" y=\"864\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"916\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">RHYTHM</text><text x=\"958\" y=\"916\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Dawn</text><rect x=\"90\" y=\"972\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1024\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">LEARNING</text><text x=\"958\" y=\"1024\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Visual</text><rect x=\"90\" y=\"1080\" width=\"900\" height=\"84\" rx=\"14\" fill=\"#16161A\" stroke=\"rgba(255, 255, 255, 0.18)\"/><text x=\"122\" y=\"1132\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"3\">PATH</text><text x=\"958\" y=\"1132\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"38\" fill=\"#F7F7F8\" font-weight=\"700\" text-anchor=\"end\">Foundations</text><rect x=\"90\" y=\"1160\" width=\"900\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"90\" y=\"1230\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"46\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"8\">INTAFACED</text><text x=\"90\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#A2A2AC\">Sovereign Intelligence</text><text x=\"990\" y=\"1278\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"26\" fill=\"#A2A2AC\" text-anchor=\"end\">Built by the Neural Engine</text></svg>"
+    },
+    {
+      "subject": {
+        "profile": {
+          "decisionStyle": "analytical",
+          "riskTemperament": "guarded",
+          "energyRhythm": "dawn",
+          "learningMode": "visual",
+          "crewRole": "navigator",
+          "curriculumPath": "foundations",
+          "toneRegister": "dry & <odd>",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "Iron Meridian",
+        "season": 2
+      },
+      "size": "landscape",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1200\" height=\"630\" viewBox=\"0 0 1200 630\" role=\"img\" aria-label=\"Identity Blueprint card\"><defs><radialGradient id=\"ifc-glow\" cx=\"50%\" cy=\"0%\" r=\"85%\"><stop offset=\"0%\" stop-color=\"#FF6B00\" stop-opacity=\"0.28\"/><stop offset=\"60%\" stop-color=\"#FF6B00\" stop-opacity=\"0.05\"/><stop offset=\"100%\" stop-color=\"#000000\" stop-opacity=\"0\"/></radialGradient><linearGradient id=\"ifc-rule\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0%\" stop-color=\"#FF6B00\"/><stop offset=\"100%\" stop-color=\"#FF6B00\" stop-opacity=\"0\"/></linearGradient><pattern id=\"ifc-grid\" width=\"60\" height=\"60\" patternUnits=\"userSpaceOnUse\"><path d=\"M60 0H0V60\" fill=\"none\" stroke=\"rgba(255, 255, 255, 0.18)\" stroke-width=\"1\"/></pattern></defs><rect width=\"1200\" height=\"630\" fill=\"#000000\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-grid)\"/><rect width=\"1200\" height=\"630\" fill=\"url(#ifc-glow)\"/><text x=\"70\" y=\"100\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"24\" fill=\"#FF6B00\" font-weight=\"700\" letter-spacing=\"8\">IDENTITY BLUEPRINT</text><rect x=\"70\" y=\"126\" width=\"1060\" height=\"3\" fill=\"url(#ifc-rule)\"/><text x=\"70\" y=\"236\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"96\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"-1\">NAVIGATOR</text><text x=\"70\" y=\"282\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"28\" fill=\"#FF8A2B\" font-weight=\"600\">Iron Meridian · Season 2</text><text x=\"70\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">DECISION</text><text x=\"70\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Analytical</text><text x=\"70\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RISK</text><text x=\"70\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Guarded</text><text x=\"70\" y=\"486\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">RHYTHM</text><text x=\"70\" y=\"520\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Dawn</text><text x=\"620\" y=\"330\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">LEARNING</text><text x=\"620\" y=\"364\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Visual</text><text x=\"620\" y=\"408\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"20\" fill=\"#A2A2AC\" font-weight=\"600\" letter-spacing=\"2\">PATH</text><text x=\"620\" y=\"442\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"32\" fill=\"#F7F7F8\" font-weight=\"700\">Foundations</text><rect x=\"70\" y=\"538\" width=\"1060\" height=\"1\" fill=\"rgba(255, 255, 255, 0.18)\"/><text x=\"70\" y=\"590\" font-family=\"&apos;Orbitron&apos;, &apos;Rajdhani&apos;, system-ui, sans-serif\" font-size=\"34\" fill=\"#F7F7F8\" font-weight=\"800\" letter-spacing=\"6\">INTAFACED</text><text x=\"1130\" y=\"590\" font-family=\"&apos;Inter&apos;, system-ui, -apple-system, sans-serif\" font-size=\"22\" fill=\"#A2A2AC\" text-anchor=\"end\">Sovereign Intelligence</text></svg>"
+    }
+  ],
+  "zeroPii": [
+    {
+      "payload": {
+        "profile": {
+          "decisionStyle": "analytical",
+          "riskTemperament": "guarded",
+          "energyRhythm": "dawn",
+          "learningMode": "visual",
+          "crewRole": "anchor",
+          "curriculumPath": "foundations",
+          "toneRegister": "direct",
+          "guardrails": {
+            "maxLeverage": 2,
+            "dailyLossPromptPct": 5,
+            "confirmBeforeMarketOrder": true,
+            "copyTradingVisible": false
+          }
+        },
+        "crewName": "Iron Meridian",
+        "season": 1
+      },
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "size": "portrait",
+        "width": 1080,
+        "height": 1350,
+        "svg": "<svg/>",
+        "raster": {
+          "status": "unavailable",
+          "code": "c",
+          "reason": "r"
+        },
+        "shareMode": "svg"
+      },
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "profile": {
+          "userId": "x"
+        }
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_custodial_user_id",
+        "field": "userId",
+        "message": "attestation/card payload refuses PII field userId (blueprint.attestation_pii_custodial_user_id)"
+      }
+    },
+    {
+      "payload": [
+        {
+          "Phone-Number": 1
+        }
+      ],
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "Phone-Number",
+        "message": "attestation/card payload refuses PII field Phone-Number (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "a": {
+          "b": [
+            {
+              "dateOfBirth": 1
+            }
+          ]
+        }
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "dateOfBirth",
+        "message": "attestation/card payload refuses PII field dateOfBirth (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "name": 1,
+        "email": 2
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "name",
+        "message": "attestation/card payload refuses PII field name (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "Wallet_Address": "0x"
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "Wallet_Address",
+        "message": "attestation/card payload refuses PII field Wallet_Address (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "display_name": "n"
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "display_name",
+        "message": "attestation/card payload refuses PII field display_name (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "KYC": true
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_kyc",
+        "field": "KYC",
+        "message": "attestation/card payload refuses PII field KYC (blueprint.attestation_pii_kyc)"
+      }
+    },
+    {
+      "payload": {
+        "public-key": "k"
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "public-key",
+        "message": "attestation/card payload refuses PII field public-key (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "accountId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_custodial_user_id",
+        "field": "accountId",
+        "message": "attestation/card payload refuses PII field accountId (blueprint.attestation_pii_custodial_user_id)"
+      }
+    },
+    {
+      "payload": {
+        "emailAddress": "e"
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "emailAddress",
+        "message": "attestation/card payload refuses PII field emailAddress (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "crew_name": "c",
+        "fullName": null
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "fullName",
+        "message": "attestation/card payload refuses PII field fullName (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "nested": [
+          [
+            {
+              "smartAccount": 1
+            }
+          ]
+        ]
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "smartAccount",
+        "message": "attestation/card payload refuses PII field smartAccount (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": null,
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": "userId",
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": [],
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {},
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "identity": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "identity",
+        "message": "attestation/card payload refuses PII field identity (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "identityId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "identityId",
+        "message": "attestation/card payload refuses PII field identityId (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "legalName": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "legalName",
+        "message": "attestation/card payload refuses PII field legalName (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "fullName": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "fullName",
+        "message": "attestation/card payload refuses PII field fullName (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "firstName": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "firstName",
+        "message": "attestation/card payload refuses PII field firstName (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "lastName": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "lastName",
+        "message": "attestation/card payload refuses PII field lastName (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "displayName": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "displayName",
+        "message": "attestation/card payload refuses PII field displayName (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "givenName": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "givenName",
+        "message": "attestation/card payload refuses PII field givenName (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "name": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "name",
+        "message": "attestation/card payload refuses PII field name (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "email": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "email",
+        "message": "attestation/card payload refuses PII field email (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "phone": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "phone",
+        "message": "attestation/card payload refuses PII field phone (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "handle": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "handle",
+        "message": "attestation/card payload refuses PII field handle (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "username": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "username",
+        "message": "attestation/card payload refuses PII field username (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "avatar": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "avatar",
+        "message": "attestation/card payload refuses PII field avatar (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "birthData": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "birthData",
+        "message": "attestation/card payload refuses PII field birthData (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "birthDate": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "birthDate",
+        "message": "attestation/card payload refuses PII field birthDate (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "birthTime": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "birthTime",
+        "message": "attestation/card payload refuses PII field birthTime (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "birthPlace": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "birthPlace",
+        "message": "attestation/card payload refuses PII field birthPlace (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "governmentId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "governmentId",
+        "message": "attestation/card payload refuses PII field governmentId (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "nationalId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "nationalId",
+        "message": "attestation/card payload refuses PII field nationalId (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "passport": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "passport",
+        "message": "attestation/card payload refuses PII field passport (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "ssn": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "ssn",
+        "message": "attestation/card payload refuses PII field ssn (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "kyc": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_kyc",
+        "field": "kyc",
+        "message": "attestation/card payload refuses PII field kyc (blueprint.attestation_pii_kyc)"
+      }
+    },
+    {
+      "payload": {
+        "kycStatus": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_kyc",
+        "field": "kycStatus",
+        "message": "attestation/card payload refuses PII field kycStatus (blueprint.attestation_pii_kyc)"
+      }
+    },
+    {
+      "payload": {
+        "kycId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_kyc",
+        "field": "kycId",
+        "message": "attestation/card payload refuses PII field kycId (blueprint.attestation_pii_kyc)"
+      }
+    },
+    {
+      "payload": {
+        "kycDocument": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_kyc",
+        "field": "kycDocument",
+        "message": "attestation/card payload refuses PII field kycDocument (blueprint.attestation_pii_kyc)"
+      }
+    },
+    {
+      "payload": {
+        "verificationLevel": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_kyc",
+        "field": "verificationLevel",
+        "message": "attestation/card payload refuses PII field verificationLevel (blueprint.attestation_pii_kyc)"
+      }
+    },
+    {
+      "payload": {
+        "aml": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_kyc",
+        "field": "aml",
+        "message": "attestation/card payload refuses PII field aml (blueprint.attestation_pii_kyc)"
+      }
+    },
+    {
+      "payload": {
+        "userId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_custodial_user_id",
+        "field": "userId",
+        "message": "attestation/card payload refuses PII field userId (blueprint.attestation_pii_custodial_user_id)"
+      }
+    },
+    {
+      "payload": {
+        "custodialUserId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_custodial_user_id",
+        "field": "custodialUserId",
+        "message": "attestation/card payload refuses PII field custodialUserId (blueprint.attestation_pii_custodial_user_id)"
+      }
+    },
+    {
+      "payload": {
+        "customerId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_custodial_user_id",
+        "field": "customerId",
+        "message": "attestation/card payload refuses PII field customerId (blueprint.attestation_pii_custodial_user_id)"
+      }
+    },
+    {
+      "payload": {
+        "ledgerUserId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_custodial_user_id",
+        "field": "ledgerUserId",
+        "message": "attestation/card payload refuses PII field ledgerUserId (blueprint.attestation_pii_custodial_user_id)"
+      }
+    },
+    {
+      "payload": {
+        "accountId": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_custodial_user_id",
+        "field": "accountId",
+        "message": "attestation/card payload refuses PII field accountId (blueprint.attestation_pii_custodial_user_id)"
+      }
+    },
+    {
+      "payload": {
+        "walletAddress": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "walletAddress",
+        "message": "attestation/card payload refuses PII field walletAddress (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "evmAddress": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "evmAddress",
+        "message": "attestation/card payload refuses PII field evmAddress (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "chainAddress": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "chainAddress",
+        "message": "attestation/card payload refuses PII field chainAddress (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "onChainAddress": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "onChainAddress",
+        "message": "attestation/card payload refuses PII field onChainAddress (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "crossPlaneAddress": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "crossPlaneAddress",
+        "message": "attestation/card payload refuses PII field crossPlaneAddress (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "smartAccount": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "smartAccount",
+        "message": "attestation/card payload refuses PII field smartAccount (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "intachainAddress": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "intachainAddress",
+        "message": "attestation/card payload refuses PII field intachainAddress (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "publicKey": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_cross_plane_address",
+        "field": "publicKey",
+        "message": "attestation/card payload refuses PII field publicKey (blueprint.attestation_pii_cross_plane_address)"
+      }
+    },
+    {
+      "payload": {
+        "phoneNumber": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "phoneNumber",
+        "message": "attestation/card payload refuses PII field phoneNumber (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "emailAddress": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "emailAddress",
+        "message": "attestation/card payload refuses PII field emailAddress (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "dateOfBirth": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "dateOfBirth",
+        "message": "attestation/card payload refuses PII field dateOfBirth (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "date_of_birth": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "date_of_birth",
+        "message": "attestation/card payload refuses PII field date_of_birth (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "PHONE_NUMBER": 1
+      },
+      "answer": {
+        "ok": false,
+        "code": "blueprint.attestation_pii_identity",
+        "field": "PHONE_NUMBER",
+        "message": "attestation/card payload refuses PII field PHONE_NUMBER (blueprint.attestation_pii_identity)"
+      }
+    },
+    {
+      "payload": {
+        "crewName": 1
+      },
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "season": 1
+      },
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "names": 1
+      },
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "userIds": 1
+      },
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "birth": 1
+      },
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "address": 1
+      },
+      "answer": {
+        "ok": true
+      }
+    },
+    {
+      "payload": {
+        "key": 1
+      },
+      "answer": {
+        "ok": true
+      }
+    }
+  ],
+  "renderer": [
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "apiKey": "placeholder-renderer-key",
+        "status": 200,
+        "body": "{\"url\":\"https://cdn.example/card.png\",\"bytes\":84000}"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"],
+          ["authorization", "Bearer placeholder-renderer-key"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "rendered",
+        "url": "https://cdn.example/card.png",
+        "contentType": "image/png",
+        "bytes": 84000
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example///",
+        "status": 200,
+        "body": "{\"bytes\":1,\"url\":\"https://cdn.example/b.png\",\"extra\":true}"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "rendered",
+        "url": "https://cdn.example/b.png",
+        "contentType": "image/png",
+        "bytes": 1
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 201,
+        "body": "{\"url\":\"https://cdn.example/c.png\",\"bytes\":2}"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "rendered",
+        "url": "https://cdn.example/c.png",
+        "contentType": "image/png",
+        "bytes": 2
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 500,
+        "body": "{\"url\":\"https://cdn.example/c.png\",\"bytes\":2}"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_unreachable",
+        "reason": "Card renderer returned 500"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 404,
+        "body": "gone"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_unreachable",
+        "reason": "Card renderer returned 404"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 200,
+        "body": "not json"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_protocol",
+        "reason": "Card renderer returned a body that is not JSON"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 200,
+        "body": ""
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_protocol",
+        "reason": "Card renderer returned a body that is not JSON"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 200,
+        "body": "{\"url\":\"nope\",\"bytes\":0}"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_protocol",
+        "reason": "Card renderer response did not match the contract: url, bytes"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 200,
+        "body": "[]"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_protocol",
+        "reason": "Card renderer response did not match the contract: (root)"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 200,
+        "body": "null"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_protocol",
+        "reason": "Card renderer response did not match the contract: (root)"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 200,
+        "body": "{\"url\":\"https://cdn.example/d.png\",\"bytes\":1.5}"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_protocol",
+        "reason": "Card renderer response did not match the contract: bytes"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 200,
+        "body": "{\"bytes\":-1.5}"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_protocol",
+        "reason": "Card renderer response did not match the contract: url, bytes"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "status": 200,
+        "body": "{\"url\":7,\"bytes\":\"84000\"}"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_protocol",
+        "reason": "Card renderer response did not match the contract: url, bytes"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "throws": "fetch failed"
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_unreachable",
+        "reason": "Card renderer is unreachable: TypeError"
+      }
+    },
+    {
+      "case": {
+        "baseUrl": "https://render.example",
+        "throws": "timeout",
+        "timeoutMs": 5
+      },
+      "sent": {
+        "method": "POST",
+        "url": "https://render.example/v1/render",
+        "headers": [
+          ["content-type", "application/json"],
+          ["accept", "application/json"]
+        ],
+        "body": "{\"svg\":\"<svg width=\\\"1080\\\"/>\",\"format\":\"png\",\"width\":1080,\"height\":1350,\"key\":\"blueprint/77777777-7777-4777-8777-777777777777/portrait.png\"}"
+      },
+      "answer": {
+        "status": "unavailable",
+        "code": "blueprint.card_renderer_unreachable",
+        "reason": "Card renderer timed out after 5ms"
+      }
+    }
+  ]
+}

@@ -41,10 +41,6 @@ const ORDER: PlaceUserOrderIntent = {
 
 /** A well-formed intent of every kind NOT_OFFERED names: a kind added there fails to compile until it is here too. */
 const NOT_OFFERED_INTENTS: { readonly [K in keyof typeof NOT_OFFERED]: Extract<VenueIntent, { kind: K }> } = {
-  revoke_agent: { kind: 'revoke_agent', agentAddress: SUB },
-  amend_order: { kind: 'amend_order', symbol: 'ETH-PERP', venueClientOrderId: '0x01', amount: a('1'), price: a('1') },
-  replace_order: { kind: 'replace_order', symbol: 'ETH-PERP', venueClientOrderId: '0x01', order: ORDER },
-  cancel_orders: { kind: 'cancel_orders', orders: [{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }] },
   schedule_cancel: { kind: 'schedule_cancel', timeoutSec: 60, time: null },
   create_sub_account: { kind: 'create_sub_account', name: 'TEST sub', subAccountKey: 'sub:owner:1' },
   sub_account_transfer: {
@@ -71,9 +67,26 @@ const NOT_OFFERED_INTENTS: { readonly [K in keyof typeof NOT_OFFERED]: Extract<V
     changeKey: 'change:owner:1',
   },
   place_orders: { kind: 'place_orders', orders: [ORDER], actionKey: 'action:owner:1' },
-  spot_perps_transfer: { kind: 'spot_perps_transfer', direction: 'perps_to_spot', asset: 'USDC', amount: a('1'), moveKey: 'move:owner:3' },
   set_account_mode: { kind: 'set_account_mode', mode: 'unified', changeKey: 'change:owner:2' },
+  set_position_mode: { kind: 'set_position_mode', symbol: 'ETH-PERP', mode: 'hedge', changeKey: 'change:owner:3' },
+  move_position: { kind: 'move_position', subAccount: SUB, direction: 'into_sub_account', symbol: 'ETH-PERP', moveKey: 'move:owner:7' },
+  move_trigger: {
+    kind: 'move_trigger',
+    symbol: 'ETH-PERP',
+    venueClientOrderId: '0x00000000000000000000000000000007',
+    triggerPrice: a('1900'),
+    price: a('1890'),
+  },
   vault_transfer: { kind: 'vault_transfer', vault: SUB, direction: 'deposit', asset: 'USDC', amount: a('1'), moveKey: 'move:owner:4' },
+  staking_transfer: { kind: 'staking_transfer', direction: 'to_staking', asset: 'HYPE', amount: a('1'), moveKey: 'move:owner:5' },
+  staking_delegate: {
+    kind: 'staking_delegate',
+    validator: SUB,
+    direction: 'delegate',
+    asset: 'HYPE',
+    amount: a('1'),
+    moveKey: 'move:owner:6',
+  },
 };
 
 /** The info answers `markets` reads: a perp listing, a spot listing and the account's fee rates. */
@@ -87,6 +100,8 @@ const INFO: Record<string, unknown> = {
     universe: [{ name: 'PURR/USDC', tokens: [1, 0], index: 0 }],
   },
   userFees: { userCrossRate: '0.00035', userAddRate: '0.0001', userSpotCrossRate: '0.0007', userSpotAddRate: '0.0004' },
+  metaAndAssetCtxs: [{ universe: [{ name: 'ETH', szDecimals: 4, maxLeverage: 25 }] }, [{ markPx: '2010', funding: '0.0000125' }]],
+  predictedFundings: [['ETH', [['HlPerp', { fundingRate: '0.0000125', nextFundingTime: NOW + 3_600_000, fundingIntervalHours: 1 }]]]],
 };
 
 function venue(): { venue: HyperliquidTestnetUserVenue; exchangeCalls: () => number } {

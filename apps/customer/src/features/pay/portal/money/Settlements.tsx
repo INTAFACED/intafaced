@@ -1,27 +1,42 @@
+// volt-room: /pay/settlements
+// volt-room: /pay/settlements/:settlementId
+// volt-room: portal:settlements
+// volt-room: portal:settlement
 import { useResource } from '../../../../shared/resource';
 import { formatAmount, parseAmount } from '../../../../shared/money';
-import { Button } from '@intafaced/ui';
-import { PaySection } from '../../components';
+import { Button } from '@intafaced/ui/lit';
 import { isUuid } from '../model';
-import { Gate, HaltBanner, PortalFailure, PortalLoading } from '../components';
 import { portalRefusal } from '../refusal';
 import type { PortalApi } from '../api';
 import { buildCsv, downloadText } from '../csv';
 import { useReadAt } from '../hooks';
-import { AuditPanel } from '../ui/AuditPanel';
-import { CopyReference } from '../ui/CopyReference';
 import { DateTime } from '../ui/DateTime';
-import { DetailHeader } from '../ui/DetailHeader';
-import { FilterRow, useListFilters } from '../ui/FilterRow';
-import { Freshness } from '../ui/Freshness';
-import { KpiStrip } from '../ui/Kpi';
-import { MoneyList, MoneyText } from '../ui/MoneyText';
-import { RelatedLinks } from '../ui/RelatedLinks';
-import { StatusChip } from '../ui/StatusChip';
-import { Timeline } from '../ui/Timeline';
+import { useListFilters } from '../ui/FilterRow';
 import { useServerList } from '../ui/useServerList';
 import { uiCopy } from '../ui/copy';
-import { ExportButton, ListBody, shortDay, TestBanner, useListQuery, useTestMode } from './common';
+import {
+  AuditPanel,
+  CopyReference,
+  DetailHeader,
+  Failure,
+  FilterRow,
+  Freshness,
+  Gate,
+  HaltNotice,
+  KpiStrip,
+  Loading,
+  MoneyLines,
+  MoneyText,
+  RelatedLinks,
+  Section,
+  StatusChip,
+  Timeline,
+} from '../volt/parts';
+import { RecordListRoom } from '../volt/RecordListRoom';
+import { ExportButton, ListBody, TestBanner } from './kit-parts';
+import { useListQuery } from './list-query';
+import { shortDay } from './money-words';
+import { useTestMode } from './test-mode';
 import { mc } from './copy';
 import { bpsPercent, latestApproval, payoutRowState, payoutState, statementTies } from './model';
 import { pictureCount, usePayoutPicture } from './payout-picture';
@@ -37,9 +52,30 @@ export const settlementHref = (id: string) => `/pay/settlements/${encodeURICompo
 type Words = ReturnType<typeof mc.useCopy>['t'];
 export const settlementName = (t: Words, locale: string, s: Pick<Settlement, 'createdAt'>) =>
   s.createdAt ? t('settlementName', { when: shortDay(s.createdAt, locale) }) : t('settlementNameBare');
+/** A line that needs attention, and one that only informs. */
+const WARN_LOOK = 'lt-stale';
+const NOTE_LOOK = 'lt-hint';
+
+/** `/pay/settlements` on the record-list template, for the business the access resolved. */
+export function SettlementsRoom({ portal }: { portal: PortalApi }) {
+  return (
+    <RecordListRoom need="settlements.read">
+      {({ merchantId }) => ({ list: <Settlements portal={portal} merchantId={merchantId} /> })}
+    </RecordListRoom>
+  );
+}
+
+/** `/pay/settlements/:id` on the record-list template: one settlement's own page. */
+export function SettlementRoom({ portal, settlementId }: { portal: PortalApi; settlementId: string }) {
+  return (
+    <RecordListRoom need="settlements.read">
+      {({ merchantId }) => ({ detail: <SettlementDetailPage portal={portal} merchantId={merchantId} settlementId={settlementId} /> })}
+    </RecordListRoom>
+  );
+}
 
 /** `/pay/settlements`: the statements that gather paid-in money into your balance, with fees taken. */
-export function Settlements({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+function Settlements({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
@@ -74,8 +110,8 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
     );
   const snap = snapshot.resource.status === 'ready' ? snapshot.resource.data : null;
   return (
-    <div className="stack">
-      <HaltBanner resource={halts.resource} scopes={['settlement']} />
+    <div className="lt-stack">
+      <HaltNotice resource={halts.resource} scopes={['settlement']} />
       <TestBanner />
       <Freshness asOf={snap?.freshness.asOf ?? readAt} lagSeconds={snap?.freshness.lagSeconds ?? 0} />
       <KpiStrip
@@ -86,7 +122,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
             period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
             value: snap ? (
-              <MoneyList
+              <MoneyLines
                 items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.gross }))}
                 emptyLabel={t('noPaymentsInPeriod')}
               />
@@ -99,7 +135,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
             period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
             value: snap ? (
-              <MoneyList
+              <MoneyLines
                 items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.fees }))}
                 emptyLabel={t('noPaymentsInPeriod')}
                 sign="minus"
@@ -113,7 +149,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
             period: t('mnPeriod30'),
             href: '/pay/settlements?date=30d',
             value: snap ? (
-              <MoneyList
+              <MoneyLines
                 items={snap.settlements.map((s) => ({ assetCode: s.assetCode, amount: s.net }))}
                 emptyLabel={t('noPaymentsInPeriod')}
               />
@@ -148,7 +184,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
         query={query}
         fallback={
           <Button
-            variant="secondary"
+            tone="secondary"
             disabled={items.length === 0}
             onClick={() =>
               downloadText(
@@ -192,7 +228,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
           title: t('settleEmptyTitle'),
           body: t('settleEmptyBody'),
           action: (
-            <a className="text-link" href="/pay/payments">
+            <a className="lt-link" href="/pay/payments">
               {t('settleEmptyAction')}
             </a>
           ),
@@ -207,12 +243,6 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
           { header: t('colFees'), cell: (s) => <MoneyText value={s.fees} asset={s.assetId} test={test} sign="minus" /> },
           { header: t('colStatus'), cell: statusOf },
         ]}
-        card={(s) => ({
-          title: settlementName(t, locale, s),
-          time: s.createdAt ? <DateTime value={s.createdAt} /> : undefined,
-          amount: <MoneyText value={s.net} asset={s.assetId} test={test} />,
-          status: statusOf(s),
-        })}
       />
     </div>
   );
@@ -223,15 +253,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
 const layerWords = { global: 'feeLayerGlobal', tier: 'feeLayerTier', merchant: 'feeLayerMerchant' } as const;
 
 /** `/pay/settlements/:id`: what came in, the fees as they were recorded, and where the money went. */
-export function SettlementDetailPage({
-  portal,
-  merchantId,
-  settlementId,
-}: {
-  portal: PortalApi;
-  merchantId: string;
-  settlementId: string;
-}) {
+function SettlementDetailPage({ portal, merchantId, settlementId }: { portal: PortalApi; merchantId: string; settlementId: string }) {
   const { t } = mc.useCopy();
   const locale = uiCopy.useCopy().requestedLocale;
   const test = useTestMode();
@@ -267,8 +289,8 @@ export function SettlementDetailPage({
     lines.reload();
   };
   return (
-    <div className="stack">
-      <HaltBanner resource={halts.resource} scopes={['settlement', 'payout']} />
+    <div className="lt-stack">
+      <HaltNotice resource={halts.resource} scopes={['settlement', 'payout']} />
       <Gate resource={settlement.resource} retry={retry} rows={5}>
         {(s) => {
           const ties = statementTies(s);
@@ -302,7 +324,7 @@ export function SettlementDetailPage({
                 subtitle={settlementName(t, locale, s)}
                 action={
                   <Button
-                    variant="primary"
+                    tone="primary"
                     onClick={() =>
                       downloadText(
                         `settlement-${s.id.slice(0, 8)}.csv`,
@@ -324,8 +346,8 @@ export function SettlementDetailPage({
               />
               <TestBanner />
               <Freshness asOf={readAt} />
-              <PaySection title={t('stlFactsTitle')}>
-                <dl data-testid="pp-facts" className="pp-facts">
+              <Section title={t('stlFactsTitle')}>
+                <dl data-testid="pp-facts" className="lt-kv">
                   <div>
                     <dt>{t('colStatus')}</dt>
                     <dd>{chip}</dd>
@@ -340,7 +362,7 @@ export function SettlementDetailPage({
                   )}
                   <div>
                     <dt>{t('stlMethod')}</dt>
-                    <dd>{s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="muted">{t('notPaidYet')}</span>}</dd>
+                    <dd>{s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="lt-muted">{t('notPaidYet')}</span>}</dd>
                   </div>
                   <div>
                     <dt>{t('stlReference')}</dt>
@@ -348,7 +370,7 @@ export function SettlementDetailPage({
                       {s.payoutRef ? (
                         <CopyReference value={s.payoutRef} what={t('stlReference')} />
                       ) : (
-                        <span className="muted">{t('notPaidYet')}</span>
+                        <span className="lt-muted">{t('notPaidYet')}</span>
                       )}
                     </dd>
                   </div>
@@ -359,10 +381,10 @@ export function SettlementDetailPage({
                     </dd>
                   </div>
                 </dl>
-              </PaySection>
+              </Section>
 
-              <PaySection title={t('stlStatementTitle')} description={t('stlStatementBody')}>
-                <dl data-testid="pp-facts" className="pp-facts">
+              <Section title={t('stlStatementTitle')} description={t('stlStatementBody')}>
+                <dl data-testid="pp-facts" className="lt-kv">
                   <div>
                     <dt>{t('lineGross')}</dt>
                     <dd>
@@ -382,14 +404,14 @@ export function SettlementDetailPage({
                     </dd>
                   </div>
                 </dl>
-                <p className={ties ? 'muted pp-note' : 'pp-callout pp-callout--warn'} role={ties ? undefined : 'alert'}>
+                <p className={ties ? NOTE_LOOK : WARN_LOOK} role={ties ? undefined : 'alert'}>
                   {ties ? t('statementTies') : t('statementDoesNotTie')}
                 </p>
-                <h3 className="pp-sub">{t('feeHowTitle')}</h3>
+                <h3>{t('feeHowTitle')}</h3>
                 {snap === null ? (
-                  <p className="muted">{t('feeNotRecorded')}</p>
+                  <p className="lt-muted">{t('feeNotRecorded')}</p>
                 ) : (
-                  <dl data-testid="pp-facts" className="pp-facts">
+                  <dl data-testid="pp-facts" className="lt-kv">
                     <div>
                       <dt>{t('feeCharged')}</dt>
                       <dd>
@@ -444,22 +466,22 @@ export function SettlementDetailPage({
                     )}
                   </dl>
                 )}
-                {snap !== null && <p className="muted pp-note">{t('feeAsRecorded')}</p>}
-              </PaySection>
+                {snap !== null && <p className="lt-hint">{t('feeAsRecorded')}</p>}
+              </Section>
 
-              <PaySection title={t('stlLifecycleTitle')} description={t('stlLifecycleBody')}>
+              <Section title={t('stlLifecycleTitle')} description={t('stlLifecycleBody')}>
                 {lc.status === 'loading' ? (
-                  <PortalLoading rows={3} />
+                  <Loading rows={3} />
                 ) : lc.status === 'ready' ? (
                   <LifecycleTrail lifecycle={lc.data} approvals={[]} me={portal.userId} names={new Map()} settlement={s} />
                 ) : events.length > 0 ? (
                   <Timeline label={t('stlLifecycleTitle')} items={events} />
                 ) : (
-                  <PortalFailure result={lc.failure} retry={lifecycle.reload} />
+                  <Failure result={lc.failure} retry={lifecycle.reload} />
                 )}
-              </PaySection>
+              </Section>
 
-              <PaySection title={t('stlPaymentsTitle')} description={t('stlPaymentsBody')}>
+              <Section title={t('stlPaymentsTitle')} description={t('stlPaymentsBody')}>
                 <ListBody
                   state={lines.state}
                   retry={() => lines.reload()}
@@ -476,23 +498,13 @@ export function SettlementDetailPage({
                         l.amount !== null ? (
                           <MoneyText value={l.amount} asset={l.assetId} test={test} />
                         ) : (
-                          <span className="muted">{t('lineNotRecorded')}</span>
+                          <span className="lt-muted">{t('lineNotRecorded')}</span>
                         ),
                     },
                     { header: t('mnColAdded'), cell: (l) => <DateTime value={l.createdAt} /> },
                   ]}
-                  card={(l) => ({
-                    title: t('paymentName', { when: shortDay(l.createdAt, locale) }),
-                    time: <DateTime value={l.createdAt} />,
-                    amount:
-                      l.amount !== null ? (
-                        <MoneyText value={l.amount} asset={l.assetId} test={test} />
-                      ) : (
-                        <span className="muted">{t('lineNotRecorded')}</span>
-                      ),
-                  })}
                 />
-              </PaySection>
+              </Section>
 
               <RelatedLinks
                 links={[

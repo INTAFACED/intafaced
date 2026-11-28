@@ -28,6 +28,10 @@
  * Reports for two weeks; then a failure on the kit gallery or on a page drawn in the new look blocks a pull request
  * that changes the kit, a baseline or a migrated room (policy.mjs). CI runs main's copy.
  *
+ * The key rooms are shot a second time with the venue on, as the beta runs it (`venue /trade`, `venue signed-out /`;
+ * venueTargets): answered by the demo world `pnpm shots` draws on (apps/customer/tests/demo-world/page.mjs), at the
+ * recording's time, with the seeded trader's TEST wallet; their baselines are `look-baselines/venue-<room>/`.
+ *
  * The founder console (apps/admin) is shot too, signed in as a TEST founder against a stand-in Edge (admin.mjs), at a
  * phone and a computer with no variants: its baselines catch a kit change that moves it. Rooms whose calls have no
  * fixture in look-fixtures.mjs still show their refuse state, said so in every report.
@@ -35,14 +39,16 @@
  *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer|admin] [--routes /a,/b]
  *        [--update-baselines] [--changed-from origin/main]
  *   node tooling/ci/look-gate/look-gate.mjs --pr --before <base's apps/customer/dist> [--after <dist>] [--shard 1/3]
- *        [--out <dir>] [--routes /a,/b]
+ *        [--out <dir>] [--routes /a,/b] [--parent <the culprit's parent's dist, on main-bisect's revert>]
  *   node tooling/ci/look-gate/look-gate.mjs --self-test
  *
  * `--pr` is a pull request's run (#9325): every Customer room is shot at the phone and the computer from the base's
  * build and from the head's, one after the other on the same port. The rooms whose pictures differ are the rooms the
  * change reaches; only those get every check above, at the base and at the head, and the run fails when the head adds a
  * finding on a new-look page (policy.mjs newFindings, prVerdict). It keeps each reached room's before, after and diff
- * pictures in `<out>/pictures/<room>/` with `pictures-<k>-of-<n>.json` naming them, for the CI review.
+ * pictures in `<out>/pictures/<room>/` with `pictures-<k>-of-<n>.json` naming them, for the CI review. On main-bisect's
+ * proven revert of X (revert.mjs revertParent), `--parent` is X^'s build: a new finding X^ already had is restored, not
+ * added, and blocks nobody (policy.mjs restoredFindings; project-state#3697).
  */
 import { execFileSync } from 'node:child_process';
 import { createDecipheriv } from 'node:crypto';
@@ -53,11 +59,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { securityHeaders } from '../../../apps/customer/deployment/render-security-headers.mjs';
 import { crop, decodePng, encodePng } from './png.mjs';
 import * as policy from './policy.mjs';
+import { revertParent } from './revert.mjs';
 import * as gpu from './gpu-budget.mjs';
 import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
 import { fixtureAnswer as answerAt } from './fixture-answer.mjs';
 import { adminRoutes, edgeAnswer, isAddressInUse, sealSession, startAdmin } from './admin.mjs';
+import { DEMO_ROOMS, LOADING, connectDemoWallet, prepareDemoPage, startDemoNode } from '../../../apps/customer/tests/demo-world/page.mjs';
+
+export { LOADING };
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440, height: 900 } };
@@ -106,6 +116,7 @@ function args(argv) {
     else if (a === '--pr') out.pr = true;
     else if (a === '--before') out.before = resolve(argv[++i]);
     else if (a === '--after') out.after = resolve(argv[++i]);
+    else if (a === '--parent') out.parent = resolve(argv[++i]);
     else throw new Error(`unknown argument ${a}`);
   }
   if (out.pr && !out.before) throw new Error('--pr needs --before <the base build of apps/customer/dist>');
@@ -119,6 +130,31 @@ export const KIT_ROUTE = '/kit';
 
 /** The baseline room name of a route (policy.mjs, where a row's room decides what blocks). */
 export const roomName = policy.roomName;
+
+/**
+ * The key rooms again on the demo world (apps/customer/tests/demo-world), with the venue on as the beta runs it: the
+ * TEST account's fixtures switch the venue off, so without these the beta's code path went unjudged. Each is
+ * signed in or out as `pnpm shots` draws it; `routes` narrows them as it narrows the rooms. `node` is the demo chain's
+ * node the signed-in TEST wallet reads (startDemoNode).
+ */
+export function venueTargets(routes, node) {
+  return DEMO_ROOMS.filter((r) => !routes || routes.includes(r.path)).map((r) => {
+    const name = `venue ${r.signedIn ? '' : 'signed-out '}${r.path}`;
+    return {
+      name,
+      path: r.path,
+      room: policy.placeOf(name).room,
+      baselines: 'apps/customer/look-baselines',
+      customer: true,
+      venue: { signedIn: r.signedIn, node },
+    };
+  });
+}
+
+/** Signed in on the demo world, the room connects the TEST wallet where it asks, once it has loaded. */
+async function landed(page, target) {
+  if (target.venue) await connectDemoWallet(page, target.venue);
+}
 
 /** A static server for a built folder, with the production headers and a report endpoint. SPA fallback to index.html. */
 function serve(dir, reports, port) {
@@ -342,6 +378,29 @@ async function settle(page) {
 }
 
 /**
+ * The whole page in one viewport (at most 12,000 px), so the boxes measured are where the shot draws them, and settled
+ * there. The height is read again after each resize until it holds: content sized by the viewport's height (a vh
+ * clamp, a desk grid) grows with it, and a page left taller than its viewport sets the fixed bars down over content its
+ * bottom padding keeps clear at a real screen's height, so the bar's own grey is measured as the text's background
+ * (/trade/spot's "Market" at 1.05:1, /charts' note at 1.07:1, 22 Nov). `fits` is false when it still grows after
+ * `tries` resizes, `settled` when the layout never stopped moving.
+ */
+export async function fitToPage(page, { tries = 6 } = {}) {
+  const { width, height: floor } = page.viewportSize();
+  const want = async () => Math.min(Math.max(floor, await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight))), 12_000);
+  let settled = false;
+  for (let i = 0; i < tries; i++) {
+    const full = await want();
+    if (i > 0 && full === page.viewportSize().height) return { settled, fits: true };
+    if (full !== page.viewportSize().height) await page.setViewportSize({ width, height: full });
+    settled = await settle(page);
+    // A layout that never stops moving gives no height to hold to.
+    if (!settled) break;
+  }
+  return { settled, fits: (await want()) === page.viewportSize().height };
+}
+
+/**
  * A generated id (React's useId on the client `_r_…_` or server `_R_…_`, base-ui, Radix) changes between pages and
  * renders, so a control named by it would be listed once per id. Passed into the page as a source string.
  */
@@ -441,7 +500,8 @@ const fixtureAnswer = (href, method, body, { signedIn }) => answerAt(href, metho
  * account has no fixture for is refused.
  */
 async function prepare(page, target = {}) {
-  await page.clock.setFixedTime(FROZEN);
+  // A venue-on room runs at the recording's time, answered by the demo world (venueTargets).
+  if (!target.venue) await page.clock.setFixedTime(FROZEN);
   await page.addInitScript({ content: INIT });
   if (target.customer)
     await page.addInitScript(
@@ -454,6 +514,7 @@ async function prepare(page, target = {}) {
       },
       ['intafaced.customer.view.v1', world.VIEW],
     );
+  if (target.venue) return prepareDemoPage(page, { signedIn: target.venue.signedIn, node: target.venue.node, refusal: REFUSAL });
   const signedIn = Boolean(target.customer) && !world.SIGNED_OUT.includes(target.path);
   // The console's own /api is its server talking to the stand-in Edge (admin.mjs), which already refuses.
   if (!target.admin)
@@ -510,23 +571,23 @@ async function check(context, origin, target, vpName, opts) {
   try {
     await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    await landed(page, target);
     if (target.admin && target.path !== '/login' && new URL(page.url()).pathname === '/login')
       add('signin', ['landed on /login: the console refused the TEST founder session (admin.mjs seals it as founder-session.ts)']);
     row.lit = await page.evaluate(() => !!document.querySelector('[data-look="lit"], [data-moment][data-jurisdiction]'));
     await page.addStyleTag({ content: FREEZE_CSS });
     // A lazy room shows its loading line first; measure what it settles on.
     await page
-      .waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 })
+      .waitForFunction((loading) => !document.querySelector(loading), LOADING, { timeout: 8_000 })
       .catch(() => row.notes.push('still loading after 8 s'));
     await page.evaluate(() => document.fonts.ready);
-    // The whole page in one viewport, so the boxes measured are where the shot draws them (a full-page shot resizes the
-    // viewport, which moves fixed bars and anything sized in vh).
+    // The whole page in one viewport (fitToPage), not a full-page shot, which resizes the viewport and so moves fixed
+    // bars and anything sized in vh after the boxes are measured.
     const viewport = page.viewportSize();
-    const fullHeight = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
-    if (!target.scope && fullHeight > viewport.height)
-      await page.setViewportSize({ width: viewport.width, height: Math.min(fullHeight, 12_000) });
     if (target.scope) await page.addStyleTag({ content: 'header.sticky{display:none !important}' });
-    if (!(await settle(page))) row.notes.push('layout still moving after 6 s');
+    const fit = target.scope ? { settled: await settle(page), fits: true } : await fitToPage(page);
+    if (!fit.settled) row.notes.push('layout still moving after 6 s');
+    if (!fit.fits) row.notes.push('page still taller than its viewport after 6 resizes (content sized in vh)');
 
     // The shots and the measurement back to back, so the boxes are where the pictures draw them.
     const shotOpts = { animations: 'disabled', caret: 'hide', timeout: 30_000 };
@@ -695,6 +756,16 @@ export const CLIPPED_COPY = (generatedId) => {
     return `${el.tagName.toLowerCase()}${id ? `#${id}` : cls ? `.${cls}` : ''}`;
   };
   const cuts = (v) => v === 'hidden' || v === 'clip';
+  // A box around the text that is visually hidden: clipped to nothing, or a 1 px box that cuts what it holds.
+  const hiddenAround = (el) => {
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const ac = getComputedStyle(a);
+      if (ac.clipPath.startsWith('inset(50%')) return true;
+      const ar = a.getBoundingClientRect();
+      if ((ar.width <= 1 || ar.height <= 1) && (cuts(ac.overflowX) || cuts(ac.overflowY))) return true;
+    }
+    return false;
+  };
   const out = new Map();
   for (const own of document.querySelectorAll('[data-look-gate-copy]')) {
     // The kit gallery's picture of a page (scaled down, cut by its frame on purpose) is not copy a person reads there.
@@ -709,6 +780,8 @@ export const CLIPPED_COPY = (generatedId) => {
     // readers (a 1 px clipped box): nobody sees it cut.
     const drawn = el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
     if (!drawn || c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
+    // Inside a visually hidden box (the kit's .lt-sr: a chart's data table for screen readers), the same: nobody sees it.
+    if (hiddenAround(el)) continue;
     const clamp = c.webkitLineClamp && c.webkitLineClamp !== 'none';
     const wide = (cuts(c.overflowX) || c.textOverflow === 'ellipsis') && el.scrollWidth > el.clientWidth + 1;
     const tall = (cuts(c.overflowY) || clamp) && el.scrollHeight > el.clientHeight + 1;
@@ -822,12 +895,13 @@ async function variants(browser, origin, target, opts) {
       await prepare(page, target);
       await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+      await landed(page, target);
       await page.addStyleTag({ content: FREEZE_CSS });
       if (setup.attr) await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
       if (setup.pseudo) {
         // A lazy room shows its loading line first; lengthen what it settles on.
         await page
-          .waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 })
+          .waitForFunction((loading) => !document.querySelector(loading), LOADING, { timeout: 8_000 })
           .catch(() => row.notes.push('still loading after 8 s'));
         row.notes.push(`${await pseudoCopy(page)} strings at 130%`);
       }
@@ -845,10 +919,8 @@ async function variants(browser, origin, target, opts) {
         const dir = join(opts.out, 'shots', target.room);
         mkdirSync(dir, { recursive: true });
         // The whole page in one viewport, as the main shots are, so fixed bars stay where a person sees them.
-        const height = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
-        if (!target.scope && height > VIEWPORTS.phone.height)
-          await page.setViewportSize({ width: VIEWPORTS.phone.width, height: Math.min(height, 12_000) });
-        await settle(page);
+        if (target.scope) await settle(page);
+        else await fitToPage(page);
         const path = join(dir, 'phone-copy-130.png');
         const shotOpts = { path, animations: 'disabled', caret: 'hide', timeout: 30_000 };
         await (target.scope ? page.locator(target.scope).screenshot(shotOpts) : page.screenshot(shotOpts));
@@ -1016,6 +1088,9 @@ async function main(opts) {
         baselines: 'apps/customer/look-baselines',
         customer: true,
       });
+    const node = await startDemoNode();
+    servers.push({ close: node.close });
+    for (const t of venueTargets(opts.routes, node.url)) targets.push({ ...t, origin: c.origin });
   }
   // `--routes` narrows a run to those Customer rooms, so the console runs only when asked for or in a whole run.
   if (opts.only === 'admin' || (!opts.only && !opts.routes)) {
@@ -1102,20 +1177,13 @@ async function picture(browser, origin, target, vpName) {
     await prepare(page, target);
     await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    await landed(page, target);
     await page.addStyleTag({ content: FREEZE_CSS });
-    await page.waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 }).catch(() => {});
+    await page.waitForFunction((loading) => !document.querySelector(loading), LOADING, { timeout: 8_000 }).catch(() => {});
     await page.evaluate(() => document.fonts.ready);
-    // Settled before the height is read, and read again after each resize until it holds: a room still filling in
-    // when its height is read is shot cut short, and two shots of one build then differ (seen on /portfolio).
-    await settle(page);
-    const { width, height } = page.viewportSize();
-    for (let i = 0, last = height; i < 4; i++) {
-      const full = Math.min(Math.max(height, await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight))), 12_000);
-      if (full === last && i > 0) break;
-      await page.setViewportSize({ width, height: full });
-      last = full;
-      await settle(page);
-    }
+    // Settled, and the height read again after each resize until it holds (fitToPage): a room still filling in when its
+    // height is read is shot cut short, and two shots of one build then differ (seen on /portfolio).
+    await fitToPage(page);
     return await page.screenshot({ animations: 'disabled', caret: 'hide', timeout: 30_000 });
   } catch (error) {
     // A page that can't be shot is reached: the full checks say why.
@@ -1165,13 +1233,24 @@ async function prMain(opts) {
   const sides = { before: opts.before, after: opts.after ?? join(ROOT, 'apps/customer/dist') };
   for (const [side, dir] of Object.entries(sides))
     if (!existsSync(join(dir, 'index.html'))) throw new Error(`no Customer build for the ${side} side in ${dir}`);
+  // X^'s build, on main-bisect's revert (look-pr.yml): read only once revertParent has proven it is X^'s.
+  if (opts.parent) sides.parent = opts.parent;
+  const git = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   if (!existsSync(join(ROOT, I18N_FIXTURES)))
     throw new Error(`no @intafaced/i18n build for the 130% copy pass (${I18N_FIXTURES}): pnpm --filter @intafaced/i18n build`);
   const [k, n] = opts.shard;
   // The rooms, and the kit page (/kit), which draws every kit part: a kit change seen only there reaches it too.
-  const targets = (opts.routes ?? [...customerRoutes(), KIT_ROUTE])
-    .filter((_, i) => i % n === k - 1)
-    .map((route) => ({ name: route, path: route, room: roomName(route), baselines: 'apps/customer/look-baselines', customer: true }));
+  const node = await startDemoNode();
+  const targets = [
+    ...(opts.routes ?? [...customerRoutes(), KIT_ROUTE]).map((route) => ({
+      name: route,
+      path: route,
+      room: roomName(route),
+      baselines: 'apps/customer/look-baselines',
+      customer: true,
+    })),
+    ...venueTargets(opts.routes, node.url),
+  ].filter((_, i) => i % n === k - 1);
   const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});
   const started = Date.now();
   // Each side on the gate's one fixed port in turn, so a room that prints its own address draws the same one.
@@ -1249,11 +1328,10 @@ async function prMain(opts) {
   });
 
   // 3. Every check on the reached rooms, at the base and at the head.
-  const rows = {};
-  for (const side of ['before', 'after'])
-    rows[side] = (
+  const checkSide = async (side, rooms) =>
+    (
       await onSide(side, (origin) =>
-        pool(reached, async (t) => {
+        pool(rooms, async (t) => {
           const out = [];
           for (const [vpName, viewport] of Object.entries(VIEWPORTS)) {
             const context = await browser.newContext({
@@ -1271,11 +1349,24 @@ async function prMain(opts) {
         }),
       )
     ).flat();
-  await browser.close();
+  const rows = {};
+  for (const side of ['before', 'after']) rows[side] = await checkSide(side, reached);
 
-  // 4. The verdict: what the head adds on the rooms it reaches.
+  // 4. The verdict: what the head adds on the rooms it reaches. On main-bisect's proven revert of X, what X^ already had
+  // there is restored, not added: X^'s build is checked on the rooms with a new finding on a new-look page, and only
+  // what it lacked is judged.
   const litTargets = new Set(rows.after.filter((r) => r.lit).map((r) => r.target));
-  const fresh = policy.newFindings(rows.before, rows.after);
+  let fresh = policy.newFindings(rows.before, rows.after);
+  let restored = [];
+  const revert = opts.parent ? revertParent({ env: process.env, base: 'origin/main', read: git, dir: opts.parent }) : null;
+  if (revert?.why) console.log(`::notice::${revert.why}`);
+  if (revert?.culprit) {
+    const rooms = reached.filter((t) => fresh.some((f) => f.target === t.name && litTargets.has(f.target)));
+    rows.parent = rooms.length ? await checkSide('parent', rooms) : [];
+    ({ kept: fresh, restored } = policy.restoredFindings(fresh, rows.parent));
+  }
+  await browser.close();
+  await node.close();
   const v = policy.prVerdict({ fresh, litTargets, today: new Date().toISOString().slice(0, 10) });
   const minutes = (ms) => (ms / 60_000).toFixed(1);
   const tag = opts.shard.join('-of-');
@@ -1299,6 +1390,22 @@ async function prMain(opts) {
           '',
         ]
       : []),
+    ...(revert?.culprit
+      ? [
+          `main-bisect's proven revert of ${revert.culprit.slice(0, 10)}: ${restored.reduce((n, f) => n + f.items.length, 0)} new finding(s) its parent ${revert.parent.slice(0, 10)} already had are restored, not added, and block nobody.`,
+          '',
+          ...(restored.length
+            ? [
+                '| Page | Viewport | Restored finding |',
+                '| --- | --- | --- |',
+                ...restored.map(
+                  (f) => `| ${f.target} | ${f.viewport} | **${f.kind}**: ${f.items.slice(0, 3).join('; ').replace(/\|/g, '/')} |`,
+                ),
+                '',
+              ]
+            : []),
+        ]
+      : []),
     "Findings the base already has on these rooms are main's, in the daily run's report; they block nobody here.",
     '',
   ];
@@ -1309,7 +1416,7 @@ async function prMain(opts) {
     JSON.stringify({ shard: opts.shard, rooms: targets.length, reached: manifest }, null, 2) + '\n',
   );
   writeFileSync(join(opts.out, `report-pr-${tag}.md`), md + '\n');
-  writeFileSync(join(opts.out, `report-pr-${tag}.json`), JSON.stringify({ verdict: v, fresh, rows }, null, 2) + '\n');
+  writeFileSync(join(opts.out, `report-pr-${tag}.json`), JSON.stringify({ verdict: v, fresh, restored, revert, rows }, null, 2) + '\n');
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.slice(0, 900_000) + '\n');
   console.log(md);
   if (v.mode === 'block') process.exit(1);
@@ -1344,6 +1451,8 @@ async function selfTestBrowser(eq) {
     );
     await cut(`<div data-look-gate-picture><div class="row" style="${box}">%</div></div>`);
     eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [['span.label', 'is cut by div.row']], 'the marker without inert is no exemption');
+    await cut('<div class="lt-sr" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">%</div>');
+    eq(await page.evaluate(CLIPPED_COPY, GENERATED_ID), [], 'text inside a visually hidden box is not cut');
 
     // Targets: two 16 px buttons stacked edge to edge clash; the same inside an inert picture of a page are no targets.
     const pair =
@@ -1608,6 +1717,23 @@ async function selfTest() {
     ['kit-table', 'admin-a-b', 'trade-spot-btc-usdt'],
     'a row names its room as the runner names its baselines',
   );
+  eq(
+    venueTargets(['/', '/trade'], 'http://127.0.0.1:1/demo-node').map((t) => [t.name, t.room, t.venue.signedIn]),
+    [
+      ['venue signed-out /', 'venue-signed-out-root', false],
+      ['venue signed-out /trade', 'venue-signed-out-trade', false],
+      ['venue /trade', 'venue-trade', true],
+    ],
+    'the key rooms run again venue-on, each named and placed as its own room',
+  );
+  eq(
+    [
+      policy.owns('apps/customer/look-baselines/venue-trade/phone.png', 'venue /trade', () => false),
+      policy.owns('apps/customer/look-baselines/trade/phone.png', 'venue /trade', () => false),
+    ],
+    [true, false],
+    "a venue-on room's baseline answers for its own rows, not the venue-off room's",
+  );
   eq(roomName('/'), 'root', 'root room');
   // The TEST account: signed in, its fixtures wrapped as tRPC results, at the frozen time, and nothing it has no fixture for.
   const api = (path, method = 'GET', body = null, signedIn = true) => fixtureAnswer('http://x' + path, method, body, { signedIn });
@@ -1753,6 +1879,17 @@ async function selfTest() {
     policy.prVerdict({ fresh, litTargets: new Set(['/pay']), today: '2026-11-01' }).mode,
     'report',
     'pr: report-only before BLOCKING_FROM',
+  );
+  eq(
+    policy.restoredFindings(fresh, [
+      {
+        target: '/pay',
+        viewport: 'phone',
+        findings: { contrast: ['span.label "Fee" 2.10 < 4.5 (worst pixel under it rgb(9,9,9), box at 4,9)'] },
+      },
+    ]),
+    { kept: fresh.slice(1), restored: fresh.slice(0, 1) },
+    "pr: on main-bisect's revert, a new finding the culprit's parent already had is restored; one it lacked, or on a page it never drew, is kept",
   );
   const h = securityHeaders({ reportUri: REPORT_PATH })['Content-Security-Policy'];
   ok(/script-src 'self';/.test(h) && /font-src 'self';/.test(h), 'the gate serves the production policy');

@@ -5,6 +5,7 @@ import {
   buildFilters,
   classify,
   rustCrates,
+  reachesRust,
   diffBase,
   mergeEdges,
   readEdges,
@@ -15,6 +16,8 @@ import {
   testedPackages,
 } from './ci-affected.mjs';
 import { detectedEdges } from './cross-package-reads.mjs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, normalize, relative } from 'node:path';
 
 const assert = (cond, msg) => nodeAssert.ok(cond, msg);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -130,6 +133,11 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     { files: ['packages/ledger-client/src/recipes/deposit.ts'], expected: { full: true, affected: false, rust: true } },
     { files: ['packages/ledger-client/package.json'], expected: { full: true, affected: false, rust: false } },
     { files: ['packages/contracts/procedures/svc-taxes.schema.json'], expected: { full: false, affected: true, rust: false } },
+    // svc-matching's tests read the events catalog, the scrape config, the conformance ADR and exchange-contract's enums.
+    { files: ['packages/events/src/catalog.ts'], expected: { full: true, affected: false, rust: true } },
+    { files: ['tooling/infra/prometheus.yaml'], expected: { full: true, affected: false, rust: true } },
+    { files: ['docs/adr/2026-09-18-matching-shared-conformance.md'], expected: { full: false, affected: false, rust: true } },
+    { files: ['packages/exchange-contract/src/schemas.ts'], expected: { full: false, affected: true, rust: true } },
     { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false, rust: false } },
     { files: ['docs/x.md'], expected: { full: false, affected: false, rust: false } },
     { files: ['vendor/x/y.ts'], expected: { full: true, affected: false, rust: false } },
@@ -199,7 +207,7 @@ test('base and trigger: merge-base, run-everything events, edges', () => {
 });
 
 test('seal: the required jobs a classification needs', () => {
-  const ok = { changes: 'success', gates: 'success', format: 'success', build: 'success' };
+  const ok = { changes: 'success', gates: 'success', build: 'success' };
   assert(sealNeeded(none, ok).length === 0, 'docs only needs no test job');
   assert(sealNeeded({ full: false, affected: true }, { ...ok, 'tests-full': 'success' }).length === 0, 'affected run green');
   assert(
@@ -282,4 +290,32 @@ test('tested packages: what turbo says a filter tests', () => {
     'turbo failing is unknown, not narrow',
   );
   assert(same(testedPackages(['./services/svc-trade']), ['@intafaced/svc-trade']), 'the real turbo names what a filter tests');
+});
+
+test('reachesRust: every file outside crates/ that the crates read with include_str! runs the Rust job', () => {
+  const root = process.cwd();
+  const outside = [];
+  for (const crate of readdirSync(join(root, 'crates'), { withFileTypes: true }).filter((d) => d.isDirectory())) {
+    for (const sub of ['src', 'tests']) {
+      const dir = join(root, 'crates', crate.name, sub);
+      let files = [];
+      try {
+        files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.rs'));
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        const at = join(dir, f);
+        for (const m of readFileSync(at, 'utf8').matchAll(/include_str!\(\s*"([^"]+)"\s*\)/g)) {
+          const read = relative(root, normalize(join(at, '..', m[1])))
+            .split('\\')
+            .join('/');
+          if (!read.startsWith('crates/') && !read.startsWith('..')) outside.push([relative(root, at), read]);
+        }
+      }
+    }
+  }
+  assert(outside.length > 0, 'the scan finds the crates reading outside crates/ (docker-compose.apps.yml at least)');
+  for (const [by, read] of outside)
+    assert(reachesRust(read), `${by} reads ${read}, which is not in RUST_READS: a change to it would not run that test`);
 });

@@ -11,19 +11,20 @@ const USER = '11111111-1111-4111-8111-111111111111';
 /** [name, frame selector under #boot-frame, Home selector under #root, every match] */
 const BLOCKS = [
   ['top bar', '.bf-top', 'header.tb'],
+  ['hero', '.hm-hero', '.hm-hero'],
   ['label', '.bf-label', '[data-testid="home-label"]'],
-  ['figure', '.bf-figure', '[data-testid="home-total"] > *'],
-  ['change', '.bf-line', '[data-testid="home-change"] > *'],
+  ['figure', '.bf-total > *', '[data-testid="home-total"] > *'],
+  ['figure bar', '.bf-total .lt-ghost-item', '[data-testid="home-total"] .lt-ghost-item'],
+  ['change', '.bf-change > *', '[data-testid="home-change"] > *'],
+  ['ranges', '.bf-ranges', '.hm-hero .lt-segmented'],
+  ['chart', '.hm-chart', '.hm-chart'],
   ['keys tray', '.bf-keys', '[data-testid="home-actions"]'],
-  ['key', '.bf-keys > i', '[data-testid="home-actions"] > *', true],
-  ['needs head', '.bf-work-head', '#home-work-title'],
-  ['needs card', '.bf-work', '.home-work__rows'],
-  ['needs bar', '.bf-work > i', '.home-work__row > div', true],
-  ['money object', '.bf-stack', '.volt-stack'],
-  ['stack card', '.bf-stack > i', '.volt-stack > .volt-card', true],
-  ['markets head', '.bf-markets-head', 'section:has(> [data-testid="home-cards"]) h2'],
-  ['card', '.bf-cards > *', '[data-testid="home-cards"] > *', true],
-  ['side card', '.bf-side > *', '.home-side > section', true],
+  ['key', '.bf-keys .lt-ghost-item', '[data-testid="home-actions"] .lt-ghost-item', true],
+  ['markets head', '.bf-markets-head', '.lt-panel-title:has(#home-markets-title)'],
+  // the side panels that have a loading state (Learn has none: its words are there at once, and the frame draws no words)
+  ['side card', '.bf-side > .lit-surface', '[data-testid="home-side"] > .lit-surface:has(.lt-ghost)', true],
+  ['side head', '.bf-side-head', '[data-testid="home-side"] > .lit-surface:has(.lt-ghost) h2', true],
+  ['side bar', '.bf-side .lt-ghost-item', '[data-testid="home-side"] .lt-ghost-item', true],
 ];
 
 async function boxes(browser, { width, height, frame }) {
@@ -50,7 +51,7 @@ async function boxes(browser, { width, height, frame }) {
   } else {
     await page.goto('/home');
     await expect(page.getByTestId('home-total')).toBeVisible();
-    await expect(page.locator('.home-work__row').first()).toBeVisible();
+    await expect(page.getByTestId('home-work__rows')).toBeVisible();
     // Home's text swaps to Inter when it arrives (font-display: swap), and at 390 the label row wraps to its settled
     // height only in Inter; measured on the fallback face the row is 18 px shorter (#7896)
     await page.evaluate(() => document.fonts.load('400 1rem Inter'));

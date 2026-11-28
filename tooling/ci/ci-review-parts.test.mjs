@@ -66,11 +66,45 @@ test('a file over the cap splits between its hunks, each under its file header; 
     assert.ok(Buffer.byteLength(p) <= MAX_DIFF_BYTES);
   }
   assert.equal(parts.map((p) => p.slice(header.length)).join(''), hunks.join(''), 'every hunk once, in order');
-  // Planted: one hunk alone over the cap, a large file with no hunk, and more parts than MAX_PARTS.
-  assert.match(splitDiff(header + hunk(1, 8_000)).tooLarge, /one hunk of big\.ts is \d+ bytes, over 400000/);
+  // Planted: one hunk alone over the cap that also removes a line, a large file with no hunk, and more parts than MAX_PARTS.
+  const changed = hunk(1, 8_000)
+    .replace(/^@@ -1,0 /, '@@ -1,1 ')
+    .replace('\n', '\n-gone\n');
+  assert.match(splitDiff(header + changed).tooLarge, /one hunk of big\.ts is \d+ bytes, over 400000/);
   assert.match(splitDiff(`diff --git a/x.bin b/x.bin\n${'Binary junk\n'.repeat(40_000)}`).tooLarge, /no hunk to split at/);
   const many = Array.from({ length: MAX_PARTS + 1 }, (_, i) => file(`f${i}.ts`, bulk(4_500, `m${i}_`))).join('');
   assert.match(splitDiff(many).tooLarge, new RegExp(`it takes ${MAX_PARTS + 1} parts .* over ${MAX_PARTS}`));
+});
+
+test('a hunk over the cap that only adds lines splits between its lines, each a valid hunk, nothing cut (#10910)', () => {
+  const header = 'diff --git a/rec.json b/rec.json\nnew file mode 100644\nindex 0..1\n--- /dev/null\n+++ b/rec.json\n';
+  const lines = bulk(12_000, 'r');
+  const one = `${header}@@ -0,0 +1,${lines.length} @@\n${lines.map((l) => `+${l}`).join('\n')}\n\\ No newline at end of file\n`;
+  assert.ok(Buffer.byteLength(one) > 2 * MAX_DIFF_BYTES);
+  const { parts, tooLarge } = splitDiff(one);
+  assert.equal(tooLarge, undefined);
+  assert.ok(parts.length >= 3);
+  let next = 1;
+  const got = [];
+  for (const p of parts) {
+    assert.ok(p.startsWith(header) && Buffer.byteLength(p) <= MAX_DIFF_BYTES);
+    const hunks = p.slice(header.length).split(/^(?=@@ )/m);
+    for (const h of hunks) {
+      const [, start, count] = /^@@ -0,0 \+(\d+),(\d+) @@\n/.exec(h);
+      assert.equal(Number(start), next, 'each piece starts where the last ended');
+      const body = h
+        .slice(h.indexOf('\n') + 1)
+        .split('\n')
+        .filter((l) => l.startsWith('+'));
+      assert.equal(body.length, Number(count), 'its count is its lines');
+      next += body.length;
+      got.push(...body.map((l) => l.slice(1)));
+    }
+  }
+  assert.deepEqual(got, lines, 'every line once, in order');
+  assert.ok(parts.at(-1).endsWith('\n\\ No newline at end of file\n'), 'the no-newline marker stays with the last line');
+  // A single added line over the cap still can't be split.
+  assert.match(splitDiff(`${header}@@ -0,0 +1,1 @@\n+${'y'.repeat(MAX_DIFF_BYTES)}\n`).tooLarge, /one hunk of rec\.json/);
 });
 
 test('the review in parts: one prompt per part with the note, and the review FAILs when any part does', async () => {

@@ -8,6 +8,7 @@
 
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /** The classes of data a tool touches; the first use of each by an agent asks the person's consent (AG-guardrails-01). */
 export const OWN_AGENT_DATA_CLASSES = ['own_data', 'market_data', 'draft_write', 'live_write'] as const;
@@ -345,7 +346,7 @@ export const ownAgentApprovalRequestSchema = z.object({
   decidedBy: z.enum(['person', 'reviewer']).nullable(),
   replacedBy: z.string().uuid().nullable(),
   /** The tool's first answer once an approved request has run; null before. A repeated approve returns this. */
-  result: z.unknown().nullable(),
+  result: jsonValueSchema.nullable(),
   ranAt: z.string().nullable(),
 });
 export type OwnAgentApprovalRequest = z.infer<typeof ownAgentApprovalRequestSchema>;
@@ -365,7 +366,7 @@ export type OwnAgentInboxRow = z.infer<typeof ownAgentInboxRowSchema>;
  * it; `waiting` is an approval request and the tool has not run. A refusal answers with its code as the error message.
  */
 export const ownAgentToolCallSchema = z.discriminatedUnion('outcome', [
-  z.object({ outcome: z.literal('ran'), tool: z.string(), dataClass: z.enum(OWN_AGENT_DATA_CLASSES), result: z.unknown() }),
+  z.object({ outcome: z.literal('ran'), tool: z.string(), dataClass: z.enum(OWN_AGENT_DATA_CLASSES), result: jsonValueSchema }),
   z.object({
     outcome: z.literal('waiting'),
     tool: z.string(),

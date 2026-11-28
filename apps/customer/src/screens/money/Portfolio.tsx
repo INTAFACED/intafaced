@@ -1,29 +1,19 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+import { AssetIcon, Button, EmptyState, Fold, RefusalBox, Select } from '@intafaced/ui/lit';
 import { AllocationBar } from './allocation-chart';
 import { assetName, moneyCopy } from './copy';
 import {
-  Amount,
-  Button,
-  ChangeText,
-  CoinIcon,
-  Collapsible,
-  CollapsiblePanel,
-  CollapsibleTrigger,
   dec,
   decOrNull,
   fmtAmount,
   fmtChangeLine,
   fmtPct,
-  HeroNumber,
   isHiddenPath,
-  Money,
   primarySymbolFor,
   refusalCopy,
   roundScaled,
   SCALE,
-  Skeleton,
-  StateBlock,
   toFixedString,
   useMarkets,
   type Loadable,
@@ -31,8 +21,7 @@ import {
 } from './deps';
 import { balanceEntriesHref } from './balance-entries-model';
 import { allAdd, heldFor, spacesFor, type Held, type Spaces } from './held-breakdown';
-import { setAsideWhat } from './set-aside';
-import { setAsideLabel } from './SetAside';
+import { setAsideLabel, setAsideWhat } from './set-aside';
 import { InfoTip } from './InfoTip';
 import { buyHref } from './links';
 import { clockTime } from './time';
@@ -51,10 +40,14 @@ import {
 } from './portfolio-source';
 import { DerivedTotalNote } from './total-note';
 import { USD_UNIT, UnitContext, changeText, useValueText, type ValueUnit } from './display-unit';
-import { Movers } from './Movers';
+import { Movers, spokenOf } from './Movers';
 import { fmtCoinPrice } from './price-text';
 import { ValuationNote } from './ValuationNote';
 import { HoldingsChange } from './HoldingsChange';
+import { ChangeLine, HeroTotal, Shown, btcParts, signOf, usdParts } from './money-parts';
+import { MoneyOverview } from './MoneyRoom';
+import { PartnerAccount } from './WhereItSits';
+import { usePartnerRead } from './standing-data';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
@@ -85,8 +78,6 @@ const PILLS = [
 type PillId = (typeof PILLS)[number]['id'];
 type PillMode = 'normal' | 'empty' | 'refused';
 const PILLS_FOR: Record<PillMode, readonly PillId[] | null> = { normal: null, empty: ['Receive'], refused: ['Receive'] };
-/** Real pill widths, so the skeletons are the final size. */
-const PILL_WIDTH: Record<PillId, number> = { Buy: 64, Sell: 60, Convert: 88, Send: 72, Receive: 88 };
 
 function livePills(mode: PillMode, layout: Mode) {
   const wanted = PILLS_FOR[mode];
@@ -98,26 +89,19 @@ function livePills(mode: PillMode, layout: Mode) {
   });
 }
 
-function ActionPills({ loading, mode, layout }: { loading: boolean; mode: PillMode; layout: Mode }) {
+function ActionPills({ mode, layout }: { mode: PillMode; layout: Mode }) {
   const { t } = moneyCopy.useCopy();
   const pills = livePills(mode, layout);
   return (
-    <nav data-testid="money-actions" className="money-actions" aria-label={t('Actions')}>
-      {pills.map((pill, index) =>
-        loading ? (
-          <Skeleton key={pill.id} width={PILL_WIDTH[pill.id]} height={40} circle />
-        ) : (
-          <Button
-            key={pill.id}
-            variant={index === 0 && mode !== 'empty' ? 'primary' : 'secondary'}
-            size={40}
-            nativeButton={false}
-            render={<a href={pill.href} />}
-          >
+    <nav data-testid="money-actions" className="lt-actions" aria-label={t('Actions')}>
+      {pills.map((pill, index) => {
+        const variant = index === 0 && mode !== 'empty' ? 'primary' : 'secondary';
+        return (
+          <a key={pill.id} className={`lt-button lt-button-${variant}`} data-variant={variant} href={pill.href}>
             {t(pill.id)}
-          </Button>
-        ),
-      )}
+          </a>
+        );
+      })}
     </nav>
   );
 }
@@ -135,7 +119,7 @@ function satoshis(value: string | null): string | null {
   return parsed === null ? null : toFixedString(roundScaled(parsed, 8), 8);
 }
 
-function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolean; copy: Copy; pro: boolean }) {
+function Headline({ view, hidden, copy }: { view: MoneyView; hidden: boolean; copy: Copy }) {
   const { t } = copy;
   const { timeZone, displayCurrency } = usePreferences();
   // The bank sends the BTC total and its price when asked; with no BTC price it says why and the dollar total stays on screen.
@@ -153,46 +137,54 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
   const change = useChangeText();
   // A cash-only account has no price moves: "$0.00 (0.00%) Today" would say nothing.
   const hasCrypto = (dec(view.cryptoUsd) ?? 0n) > 0n;
+  const btcTotal = inBtc ? satoshis(view.btc!.total) : null;
+  const usdTotal = cents(view.totalUsd);
   return (
     <>
-      <div data-testid="money-total" className="money-total">
-        {inBtc ? (
-          <HeroNumber value={satoshis(view.btc!.total)} decimals={8} prefix="₿" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
-        ) : (
-          <HeroNumber value={cents(view.totalUsd)} decimals={2} prefix="$" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
-        )}
+      <div data-testid="money-total">
+        <HeroTotal
+          parts={btcTotal !== null ? btcParts(btcTotal) : usdTotal !== null ? usdParts(usdTotal) : null}
+          hidden={hidden}
+          unknownLabel={t('Total unknown')}
+        />
       </div>
       {inBtc ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {/* The dollar figure is a balance too: it stays out of the note while balances are hidden. */}
           {hidden ? t('Shown in BTC hidden') : t('Shown in BTC', { usd: view.totalUsd ? `$${cents(view.totalUsd)}` : '—' })}
         </p>
       ) : null}
       {btcMissing ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {t('BTC price missing')}
         </p>
       ) : null}
       {view.cashUsd !== null && view.cryptoUsd !== null ? (
-        <p className="money-split" data-testid="total-split">
+        <p className="lt-hint" data-testid="total-split">
           <span data-part="cash">
-            {t('Cash')} <Money value={value(view.cashUsd)} hidden={hidden} />
+            {t('Cash')} <Shown text={value(view.cashUsd)} hidden={hidden} />
           </span>
           {' · '}
           <span data-part="crypto">
-            {t('Crypto')} <Money value={value(view.cryptoUsd)} hidden={hidden} />
+            {t('Crypto')} <Shown text={value(view.cryptoUsd)} hidden={hidden} />
           </span>
         </p>
       ) : null}
       {view.change24hUsd !== null && hasCrypto ? (
-        <p data-testid="money-change" className="money-change">
-          <ChangeText value={change(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
+        <p data-testid="money-change" className="lt-actions">
+          <ChangeLine
+            text={change(view.change24hUsd, view.change24hPct)}
+            sign={signOf(view.change24hUsd)}
+            hidden={hidden}
+            spoken={spokenOf(copy)}
+          />
+          <span className="lt-hint">{changeLabel}</span>
           <InfoTip text={t('Today change rule')} label={t('Today change rule label')} />
         </p>
       ) : null}
-      <DerivedTotalNote source={view.source} className="money-note" />
+      <DerivedTotalNote source={view.source} className="lt-hint" />
       {unpriced > 0 ? (
-        <p data-testid="money-note" className="money-note">
+        <p data-testid="money-note" className="lt-hint">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
           <InfoTip text={t('Not counted list', { assets: view.unpriced.join(', ') })} label={t('Not counted label')} />
         </p>
@@ -207,23 +199,6 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
 export function isSmall(row: MoneyRow): boolean {
   const value = dec(row.usdValue);
   return value !== null && value < SCALE;
-}
-
-function Colgroup({ pro }: { pro: boolean }) {
-  return (
-    <colgroup>
-      <col className="money-col--coin" />
-      <col className="money-col--amount" />
-      <col className="money-col--price money-cell--price" />
-      <col data-testid="money-cell--value" className="money-col--value money-cell--value" />
-      <col data-testid="money-cell--today" className="money-col--today money-cell--today" />
-      {pro ? <col className="money-col--free money-cell--pro" /> : null}
-      {pro ? <col className="money-col--used money-cell--pro" /> : null}
-      {pro ? <col className="money-col--locked money-cell--pro" /> : null}
-      {pro ? <col className="money-col--spaces money-cell--pro" /> : null}
-      <col className="money-col--actions money-cell--actions" />
-    </colgroup>
-  );
 }
 
 function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Loadable<MarketRow[]>; copy: Copy; layout: Mode }) {
@@ -241,12 +216,12 @@ function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Lo
     { id: 'Send', href: send, label: t('Send {asset}', { asset: row.asset }) },
   ] as const;
   return (
-    <div data-testid="money-row__actions" className="money-row__actions">
+    <div data-testid="money-row__actions" className="lt-actions">
       {items.map((item) =>
         item.href ? (
-          <Button key={item.id} variant="ghost" size={28} nativeButton={false} render={<a href={item.href} aria-label={item.label} />}>
+          <a key={item.id} className="lt-row-link" href={item.href} aria-label={item.label}>
             {t(item.id)}
-          </Button>
+          </a>
         ) : null,
       )}
     </div>
@@ -270,20 +245,20 @@ function claimsTitle(held: Held, copy: Copy, holds: boolean, hidden: boolean): s
  */
 function HeldCells({ held, hidden }: { held: Held; hidden: boolean }) {
   const copy = moneyCopy.useCopy();
-  const show = (value: string | null) => (value === null ? '—' : fmtAmount(value, { round: 'down' }));
+  const show = (value: string | null) => (value === null ? null : fmtAmount(value, { round: 'down' }));
   return (
     <>
-      <td className="money-num money-cell--pro" data-col="available">
-        <Amount value={show(held.available)} hidden={hidden} />
+      <td data-align="end" data-col="available" data-label={copy.t('Available')}>
+        <Shown slot="amount" text={show(held.available)} hidden={hidden} />
       </td>
-      <td className="money-num money-cell--pro" data-col="in-orders" title={claimsTitle(held, copy, true, hidden)}>
-        <Amount value={show(held.inOrders)} hidden={hidden} />
+      <td data-align="end" data-col="in-orders" data-label={copy.t('In orders')} title={claimsTitle(held, copy, true, hidden)}>
+        <Shown slot="amount" text={show(held.inOrders)} hidden={hidden} />
       </td>
-      <td className="money-num money-cell--pro" data-col="locked" title={claimsTitle(held, copy, false, hidden)}>
-        <Amount value={show(held.locked)} hidden={hidden} />
+      <td data-align="end" data-col="locked" data-label={copy.t('Locked')} title={claimsTitle(held, copy, false, hidden)}>
+        <Shown slot="amount" text={show(held.locked)} hidden={hidden} />
       </td>
-      <td className="money-num money-cell--pro" data-col="in-spaces">
-        <Amount value={show(held.inSpaces)} hidden={hidden} />
+      <td data-align="end" data-col="in-spaces" data-label={copy.t('In spaces')}>
+        <Shown slot="amount" text={show(held.inSpaces)} hidden={hidden} />
       </td>
     </>
   );
@@ -309,62 +284,59 @@ function CoinRow({
   const value = useValueText();
   const change = useChangeText();
   const today = row.usdChange24h === null || cash ? null : change(row.usdChange24h, row.changeRatio);
+  const amount = `${fmtAmount(row.amount, { round: 'down' })} ${row.asset}`;
   return (
-    <tr data-testid="money-row" className="money-row" data-asset={row.asset}>
-      <td>
-        {/* No link: the coin page is M3. The Buy, Sell and Send buttons on the row are the way on. */}
-        <div className="money-coin">
-          <CoinIcon asset={row.asset} size={32} />
-          <span data-testid="money-coin__text" className="money-coin__text">
-            <span className="money-coin__top">
-              <span className="money-coin__ticker">{row.asset}</span>
-              {row.share !== null ? (
-                <span className="money-coin__share" data-col="share">
-                  · {fmtPct(row.share, { signed: false, places: 1 })}
-                </span>
-              ) : null}
+    <tr data-testid="money-row" data-asset={row.asset}>
+      <td data-label={copy.t('Coin')}>
+        {/* No link: the coin page is M3. The Buy, Sell and Send links on the row are the way on. */}
+        <span className="lt-cell-name">
+          <AssetIcon asset={row.asset} />
+          <span data-testid="money-coin__text">
+            <span>
+              <span>{row.asset}</span>
+              {row.share !== null ? <span data-col="share">· {fmtPct(row.share, { signed: false, places: 1 })}</span> : null}
             </span>
-            {name ? <span className="money-coin__name">{name}</span> : null}
+            {name ? <span className="lt-hint">{name}</span> : null}
           </span>
-        </div>
+        </span>
       </td>
-      <td className="money-num">
+      <td data-align="end" data-label={copy.t('Amount')}>
         {/* The amount itself opens the entries behind it, so the cell shows nothing but the figure. */}
         <a
           data-testid="money-num__entries"
-          className="money-num__entries"
+          className="lt-row-link"
           href={balanceEntriesHref(row.asset)}
           title={copy.t('See the entries', { asset: row.asset })}
           aria-label={
-            hidden
-              ? copy.t('See the entries', { asset: row.asset })
-              : copy.t('Amount, see the entries', { amount: `${fmtAmount(row.amount, { round: 'down' })} ${row.asset}`, asset: row.asset })
+            hidden ? copy.t('See the entries', { asset: row.asset }) : copy.t('Amount, see the entries', { amount, asset: row.asset })
           }
         >
-          <Amount value={`${fmtAmount(row.amount, { round: 'down' })} ${row.asset}`} hidden={hidden} />
+          <Shown slot="amount" text={amount} hidden={hidden} />
         </a>
-        {/* On a phone the Value column folds under the Amount so the two never run into each other. */}
-        <span className="money-num__value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
-          <Money value={value(row.usdValue)} hidden={hidden} />
-        </span>
       </td>
       {/* The price the total used; a coin with no published price shows a dash that says so, never a zero. */}
-      <td className="money-num money-cell--price" data-col="price" title={row.priceUsd === null ? copy.t('No price published') : undefined}>
+      <td
+        data-align="end"
+        data-col="price"
+        data-label={copy.t('Price')}
+        title={row.priceUsd === null ? copy.t('No price published') : undefined}
+      >
         {row.priceUsd === null ? '—' : fmtCoinPrice(row.priceUsd)}
       </td>
       <td
         data-testid="money-cell--value"
-        className="money-num money-cell--value"
+        data-align="end"
         data-col="value"
+        data-label={copy.t('Value')}
         title={row.usdValue === null ? copy.t('No price published') : undefined}
       >
-        <Money value={value(row.usdValue)} hidden={hidden} />
+        <Shown text={value(row.usdValue)} hidden={hidden} />
       </td>
-      <td data-testid="money-cell--today" className="money-num money-cell--today">
-        <ChangeText value={today} hidden={hidden} className="money-today" />
+      <td data-testid="money-cell--today" data-align="end" data-label={copy.t('Today')}>
+        <ChangeLine text={today} sign={signOf(row.usdChange24h)} hidden={hidden} spoken={spokenOf(copy)} />
       </td>
       {layout === 'pro' ? <HeldCells held={held} hidden={hidden} /> : null}
-      <td className="money-cell--actions">
+      <td>
         <RowActions row={row} markets={markets} copy={copy} layout={layout} />
       </td>
     </tr>
@@ -379,6 +351,7 @@ function CoinTable({
   head,
   layout,
   helds,
+  label,
 }: {
   rows: MoneyRow[];
   hidden: boolean;
@@ -387,57 +360,59 @@ function CoinTable({
   head: boolean;
   layout: Mode;
   helds: ReadonlyMap<string, Held>;
+  /** The region's name: the card's title. */
+  label: string;
 }) {
   const { t } = copy;
   const pro = layout === 'pro';
   return (
-    <table data-testid="money-table" className="money-table">
-      <Colgroup pro={pro} />
-      {head ? (
-        <thead>
-          <tr>
-            <th scope="col">{t('Coin')}</th>
-            <th scope="col" className="money-num">
-              {t('Amount')}
-              <span className="money-num__value"> · {t('Value')}</span>
-            </th>
-            <th scope="col" className="money-num money-cell--price">
-              {t('Price')}
-            </th>
-            <th scope="col" data-testid="money-cell--value" className="money-num money-cell--value">
-              {t('Value')}
-            </th>
-            <th scope="col" data-testid="money-cell--today" className="money-num money-cell--today">
-              {t('Today')}
-            </th>
-            {pro ? (
-              <>
-                <th scope="col" className="money-num money-cell--pro">
-                  {t('Available')}
-                </th>
-                <th scope="col" className="money-num money-cell--pro">
-                  {t('In orders')}
-                </th>
-                <th scope="col" className="money-num money-cell--pro">
-                  {t('Locked')}
-                </th>
-                <th scope="col" className="money-num money-cell--pro">
-                  {t('In spaces')}
-                </th>
-              </>
-            ) : null}
-            <th scope="col" className="money-cell--actions">
-              <span className="if-sr">{t('Actions')}</span>
-            </th>
-          </tr>
-        </thead>
-      ) : null}
-      <tbody>
-        {rows.map((row) => (
-          <CoinRow key={row.asset} row={row} hidden={hidden} markets={markets} copy={copy} layout={layout} held={helds.get(row.asset)!} />
-        ))}
-      </tbody>
-    </table>
+    <div data-testid="money-table" className="lt-table-scroll" role="region" tabIndex={0} aria-label={label}>
+      <table className="lt-table">
+        {head ? (
+          <thead>
+            <tr>
+              <th scope="col">{t('Coin')}</th>
+              <th scope="col" data-align="end">
+                {t('Amount')}
+              </th>
+              <th scope="col" data-align="end">
+                {t('Price')}
+              </th>
+              <th scope="col" data-testid="money-cell--value" data-align="end">
+                {t('Value')}
+              </th>
+              <th scope="col" data-testid="money-cell--today" data-align="end">
+                {t('Today')}
+              </th>
+              {pro ? (
+                <>
+                  <th scope="col" data-align="end">
+                    {t('Available')}
+                  </th>
+                  <th scope="col" data-align="end">
+                    {t('In orders')}
+                  </th>
+                  <th scope="col" data-align="end">
+                    {t('Locked')}
+                  </th>
+                  <th scope="col" data-align="end">
+                    {t('In spaces')}
+                  </th>
+                </>
+              ) : null}
+              <th scope="col">
+                <span className="lt-sr">{t('Actions')}</span>
+              </th>
+            </tr>
+          </thead>
+        ) : null}
+        <tbody>
+          {rows.map((row) => (
+            <CoinRow key={row.asset} row={row} hidden={hidden} markets={markets} copy={copy} layout={layout} held={helds.get(row.asset)!} />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -482,52 +457,41 @@ function HoldingsCard({
   const folded = main === rows ? [] : small;
   const value = useValueText();
   return (
-    <section id={id} data-testid="money-card" className="money-card" aria-labelledby={`money-${id}-title`}>
-      <header data-testid="money-card__head" className="money-card__head">
+    <section id={id} data-testid="money-card" className="lt-stack" aria-labelledby={`money-${id}-title`}>
+      <header data-testid="money-card__head" className="lt-title-row">
         <h2 id={`money-${id}-title`}>{title}</h2>
-        <Money value={value(total)} hidden={hidden} data-testid="money-card__total" className="money-card__total" />
+        <Shown testId="money-card__total" text={value(total)} hidden={hidden} />
       </header>
-      <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head layout={layout} helds={helds} />
+      <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head layout={layout} helds={helds} label={title} />
       {folded.length > 0 ? (
-        <Collapsible className="money-small">
-          <CollapsibleTrigger data-testid="money-small__trigger" className="money-small__trigger">
-            <span>{t('Small balances')}</span>
-            <span className="money-small__count">
-              {folded.length === 1 ? t('1 coin under $1') : t('{count} coins under $1', { count: folded.length })}
-            </span>
-            <ChevronDown size={20} aria-hidden="true" className="money-small__chev" />
-          </CollapsibleTrigger>
-          <CollapsiblePanel>
-            <CoinTable rows={folded} hidden={hidden} markets={markets} copy={copy} head={false} layout={layout} helds={helds} />
-          </CollapsiblePanel>
-        </Collapsible>
+        <Fold
+          data-testid="money-small"
+          title={
+            <>
+              {t('Small balances')}{' '}
+              <span className="lt-hint">
+                {folded.length === 1 ? t('1 coin under $1') : t('{count} coins under $1', { count: folded.length })}
+              </span>
+            </>
+          }
+        >
+          <CoinTable
+            rows={folded}
+            hidden={hidden}
+            markets={markets}
+            copy={copy}
+            head={false}
+            layout={layout}
+            helds={helds}
+            label={t('Small balances')}
+          />
+        </Fold>
       ) : null}
       {note ? (
-        <p className="money-card__foot" data-testid="held-note">
+        <p className="lt-hint" data-testid="held-note">
           {note}
         </p>
       ) : null}
-    </section>
-  );
-}
-
-function CardSkeleton({ rows }: { rows: number }) {
-  return (
-    <section data-testid="money-card" className="money-card" aria-hidden="true">
-      <header data-testid="money-card__head" className="money-card__head">
-        <Skeleton width={72} height={28} className="bg-field" />
-        <Skeleton width={112} height={28} className="bg-field" />
-      </header>
-      {Array.from({ length: rows }, (_, index) => (
-        <div className="money-skeleton-row" key={index}>
-          <Skeleton width={32} height={32} circle className="bg-field" />
-          <Skeleton width={120} height={36} className="bg-field" />
-          <span className="money-skeleton-gap" />
-          <Skeleton width={96} height={20} className="bg-field" />
-          <Skeleton width={96} height={20} className="bg-field" />
-          <Skeleton width={120} height={20} className="bg-field" />
-        </div>
-      ))}
     </section>
   );
 }
@@ -537,17 +501,23 @@ function CardSkeleton({ rows }: { rows: number }) {
 function Accounts({ accounts, hidden, copy }: { accounts: NamedAccount[]; hidden: boolean; copy: Copy }) {
   const { t } = copy;
   return (
-    <section id="accounts" data-testid="money-card" className="money-card" aria-labelledby="money-accounts-title">
-      <header data-testid="money-card__head" className="money-card__head">
+    <section id="accounts" data-testid="money-card" className="lt-stack" aria-labelledby="money-accounts-title">
+      <header data-testid="money-card__head" className="lt-title-row">
         <h2 id="money-accounts-title">{t('Your accounts')}</h2>
       </header>
-      <p className="money-card__note">{t('Your accounts note')}</p>
-      <ul className="money-accounts">
+      <p className="lt-hint">{t('Your accounts note')}</p>
+      <ul className="lt-rows">
         {accounts.map((account) => (
-          <li key={account.id} data-testid="money-accounts__row" className="money-accounts__row">
-            <CoinIcon asset={account.asset} size={32} />
-            <span className="money-accounts__name">{account.name}</span>
-            <Amount value={`${fmtAmount(decOrNull(dec(account.balance)), { round: 'down' })} ${account.asset}`} hidden={hidden} />
+          <li key={account.id} data-testid="money-accounts__row">
+            <span className="lt-actions">
+              <AssetIcon asset={account.asset} />
+              <span>{account.name}</span>
+              <Shown
+                slot="amount"
+                text={`${fmtAmount(decOrNull(dec(account.balance)), { round: 'down' })} ${account.asset}`}
+                hidden={hidden}
+              />
+            </span>
           </li>
         ))}
       </ul>
@@ -557,6 +527,7 @@ function Accounts({ accounts, hidden, copy }: { accounts: NamedAccount[]; hidden
 
 // ── the screen ───────────────────────────────────────────────────────────────
 
+/** `/money` with the user-venue door off: the portfolio, on the overview template (MoneyRoom.tsx). */
 export default function Portfolio() {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
@@ -570,6 +541,9 @@ export default function Portfolio() {
   const lockSplit = useLockSplits(layout === 'pro');
   const markets = useMarkets();
   const accounts = useNamedAccounts();
+  // The partner bank's account, when it holds this person's money: no ledger balance counts it, so an empty ledger is
+  // not "nothing held" and its zero is not a total; the partner's own figures are shown instead.
+  const atPartner = usePartnerRead().state !== 'none';
 
   const view = portfolio.status === 'ready' ? portfolio.data : null;
   // BTC only when the bank gave both its BTC total and the price behind it; otherwise every value stays in USD.
@@ -630,50 +604,82 @@ export default function Portfolio() {
   const mode: PillMode = portfolio.status === 'refused' ? 'refused' : portfolio.status === 'empty' ? 'empty' : 'normal';
   const buyTarget = buyHref(null, null, false, layout);
 
-  let body;
-  if (portfolio.status === 'loading') {
-    body = (
-      <>
-        <CardSkeleton rows={2} />
-        <CardSkeleton rows={3} />
-      </>
-    );
-  } else if (portfolio.status === 'error') {
-    body = (
-      <StateBlock
-        kind="error"
-        testId="money-state"
-        className="money-state"
-        title={t('Couldn’t load your balance')}
-        onRetry={portfolio.retry}
-        retryLabel={t('Try again')}
-      />
+  const loading = portfolio.status === 'loading';
+  const label = (
+    <div data-testid="money-label" className="lt-actions">
+      <span className="lt-hint">{t('Est. total value')}</span>
+      <Button
+        tone="quiet"
+        onClick={() => savePreferences({ hideBalances: !hideBalances })}
+        aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
+      >
+        {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+      </Button>
+      <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+    </div>
+  );
+  // A read that failed or was refused says so where the figure would be, so the balance card is never left blank.
+  let failure: ReactNode = null;
+  if (portfolio.status === 'error') {
+    failure = (
+      <div data-testid="money-state" data-slot="state-block" data-kind="error" className="lt-stack">
+        <RefusalBox refusal={{ variant: 'unreachable', title: t('Couldn’t load your balance'), body: '' }} />
+        <div className="lt-actions">
+          <Button tone="secondary" onClick={portfolio.retry}>
+            {t('Try again')}
+          </Button>
+        </div>
+      </div>
     );
   } else if (portfolio.status === 'refused') {
     // The raw service code never reaches the screen: only a short reference a customer can quote to support.
     const words = refusalCopy(portfolio.code);
-    body = (
-      <StateBlock
-        kind="refused"
-        testId="money-state"
-        className="money-state"
-        title={words.title}
-        body={words.body}
-        code={words.reference}
-        action={words.action}
-      />
+    failure = (
+      <div data-testid="money-state" data-slot="state-block" data-kind="refused">
+        <RefusalBox
+          refusal={{ variant: 'refused', title: words.title, body: words.body ?? '', reference: words.reference, action: words.action }}
+        />
+      </div>
     );
+  }
+  const hero = loading ? null : (
+    <div data-testid="money-head" className="lt-stack">
+      {label}
+      {view ? (
+        <Headline view={view} hidden={hideBalances} copy={copy} />
+      ) : portfolio.status === 'empty' && !atPartner ? (
+        <div data-testid="money-total">
+          {/* The balance call answered with no assets, so zero is correct here and only here. */}
+          <HeroTotal parts={usdParts('0')} hidden={hideBalances} unknownLabel={t('Total unknown')} />
+        </div>
+      ) : (
+        failure
+      )}
+      <NoRateNote currency={displayCurrency} rate={rate} copy={copy} />
+    </div>
+  );
+
+  let body;
+  if (portfolio.status === 'loading' || failure) {
+    body = null;
+  } else if ((portfolio.status === 'empty' || !view) && atPartner) {
+    body = <PartnerAccount />;
   } else if (portfolio.status === 'empty' || !view) {
     body = (
       <>
-        <StateBlock
-          kind="empty"
-          testId="money-state"
-          className="money-state"
-          title={t('Nothing held')}
-          body={t('Nothing held body')}
-          action={buyTarget ? { label: t('Buy crypto'), href: buyTarget } : undefined}
-        />
+        <div data-testid="money-state" data-slot="state-block" data-kind="empty">
+          <EmptyState
+            title={t('Nothing held')}
+            body={t('Nothing held body')}
+            action={
+              buyTarget ? (
+                <a className="lt-button lt-button-primary" href={buyTarget}>
+                  {t('Buy crypto')}
+                </a>
+              ) : undefined
+            }
+          />
+        </div>
         {/* Nothing held now can still have been held at the start of the range. */}
         {!scoped && portfolio.status === 'empty' ? <HoldingsChange hidden={hideBalances} /> : null}
       </>
@@ -711,96 +717,78 @@ export default function Portfolio() {
             note={noteFirst === 'crypto' ? note : null}
           />
         ) : null}
-        <Movers
-          view={view}
-          hidden={hideBalances}
-          copy={copy}
-          sinceLabel={
-            view.windowStart !== null
-              ? t('Movers since {time}', { time: clockTime(view.windowStart, timeZone) })
-              : view.source === 'derived'
-                ? t('Today, from price moves')
-                : t('Today')
-          }
-        />
         <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} timeZone={timeZone} />
         {/* Main account and spaces together, so it is shown for all accounts only. */}
         {!scoped ? <HoldingsChange hidden={hideBalances} /> : null}
+        {!scoped ? <PartnerAccount /> : null}
         {/* A named account is listed here only while it holds something (J-portfolio-06 #5); the picker above offers them all. */}
         {!scoped && heldAccounts.length > 0 ? <Accounts accounts={heldAccounts} hidden={hideBalances} copy={copy} /> : null}
         {isHiddenPath('/money/pnl') ? null : (
-          <a data-testid="money-pnl-link" className="money-pnl-link" href="/money/pnl">
-            <span>{t('Profit and loss')}</span>
-            <span className="money-pnl-link__hint">{t('Profit and loss hint')}</span>
+          <a data-testid="money-pnl-link" className="lt-row-link" href="/money/pnl">
+            <span className="lt-stack">
+              <span>{t('Profit and loss')}</span>
+              <span className="lt-hint">{t('Profit and loss hint')}</span>
+            </span>
           </a>
         )}
       </>
     );
   }
 
+  // What the person watches beside the holdings: today's best and worst movers.
+  // While it loads the side column holds its skeleton (null), so the main column keeps the width it has once loaded.
+  const watching = loading ? null : view && portfolio.status !== 'empty' ? (
+    <Movers
+      view={view}
+      hidden={hideBalances}
+      copy={copy}
+      sinceLabel={
+        view.windowStart !== null
+          ? t('Movers since {time}', { time: clockTime(view.windowStart, timeZone) })
+          : view.source === 'derived'
+            ? t('Today, from price moves')
+            : t('Today')
+      }
+    />
+  ) : undefined;
+
+  const scopeOptions = [
+    { value: 'combined', label: t('All accounts') },
+    { value: 'main', label: t('Main account') },
+    ...(scope !== 'combined' && scope !== 'main' && !(accounts.status === 'ready' && accounts.data.some((a) => a.id === scope))
+      ? [{ value: scope, label: t('This account') }]
+      : []),
+    ...(accounts.status === 'ready' ? accounts.data : []).map((account) => ({ value: account.id, label: account.name })),
+  ];
+
   return (
     <UnitContext.Provider value={unit}>
       <div
         data-testid="if-money"
-        className="if-money"
         data-source={view?.source ?? undefined}
         data-density={layout === 'pro' ? 'pro' : undefined}
         data-unit={unit.code}
       >
-        <h1 className="if-sr">{t('Money')}</h1>
-        <div data-testid="money-head" className="money-head">
-          <div className="money-head__main">
-            <div data-testid="money-label" className="money-label">
-              <span>{t('Est. total value')}</span>
-              <button
-                type="button"
-                className="money-eye"
-                onClick={() => savePreferences({ hideBalances: !hideBalances })}
-                aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
-              >
-                {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-              </button>
-              <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
-            </div>
-            {portfolio.status === 'loading' ? (
-              <div aria-busy="true" aria-label={t('Est. total value')}>
-                <div data-testid="money-total" className="money-total">
-                  <Skeleton width={240} height={56} />
-                </div>
-                <div data-testid="money-change" className="money-change">
-                  <Skeleton width={180} height={20} />
-                </div>
+        <MoneyOverview
+          title={t('Money')}
+          state={loading ? { kind: 'loading' } : { kind: 'ready' }}
+          hero={hero}
+          // The label row, the figure and three lines under it (the split, the day's change, a note): one height
+          // while loading and once loaded.
+          heroReserve={3}
+          actions={loading ? null : <ActionPills mode={mode} layout={layout} />}
+          sections={
+            loading ? null : (
+              <div className="lt-stack">
+                {scoped || (accounts.status === 'ready' && accounts.data.length > 0) ? (
+                  <Select label={t('Accounts shown')} value={scope} onChange={setScope} options={scopeOptions} />
+                ) : null}
+                {body}
               </div>
-            ) : view ? (
-              <Headline view={view} hidden={hideBalances} copy={copy} pro={layout === 'pro'} />
-            ) : portfolio.status === 'empty' ? (
-              <div data-testid="money-total" className="money-total">
-                {/* The balance call answered with no assets, so zero is correct here and only here. */}
-                <HeroNumber value="0.00" decimals={2} prefix="$" size={layout === 'pro' ? 'hero-pro' : 'hero'} hidden={hideBalances} />
-              </div>
-            ) : null}
-          </div>
-          <ActionPills loading={portfolio.status === 'loading'} mode={mode} layout={layout} />
-        </div>
-        {scoped || (accounts.status === 'ready' && accounts.data.length > 0) ? (
-          <label className="money-scope">
-            <span>{t('Accounts shown')}</span>
-            <select value={scope} onChange={(event) => setScope(event.target.value)} aria-label={t('Accounts shown')}>
-              <option value="combined">{t('All accounts')}</option>
-              <option value="main">{t('Main account')}</option>
-              {scope !== 'combined' && scope !== 'main' && !(accounts.status === 'ready' && accounts.data.some((a) => a.id === scope)) ? (
-                <option value={scope}>{t('This account')}</option>
-              ) : null}
-              {(accounts.status === 'ready' ? accounts.data : []).map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <NoRateNote currency={displayCurrency} rate={rate} copy={copy} />
-        {body}
+            )
+          }
+          watching={watching}
+        />
       </div>
     </UnitContext.Provider>
   );
@@ -814,15 +802,15 @@ function NoRateNote({ currency, rate, copy }: { currency: string; rate: DisplayR
   if (rate.state === 'no_rate') {
     const words = refusalCopy(rate.code);
     return (
-      <p data-testid="money-note" className="money-note" role="status" data-refusal={rate.code}>
+      <p data-testid="money-note" className="lt-hint" role="status" data-refusal={rate.code}>
         {copy.t('No rate for display currency', { currency })}
-        {words.reference ? <span className="money-note__ref"> {words.reference}</span> : null}
+        {words.reference ? <span className="lt-ref"> {words.reference}</span> : null}
       </p>
     );
   }
   if (rate.state === 'unchecked')
     return (
-      <p data-testid="money-note" className="money-note" role="status">
+      <p data-testid="money-note" className="lt-hint" role="status">
         {copy.t('Display currency not checked', { currency })}
       </p>
     );

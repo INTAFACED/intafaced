@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { ACTIVITY_KINDS, Button, refusalCopy, StateBlock, type ActivityKind } from './deps';
+import { Button, StateBlock } from '@intafaced/ui/lit';
+import { ACTIVITY_KINDS, refusalCopy, type ActivityKind } from './deps';
 import { moneyCopy } from './copy';
 import { titleOf } from './activity-view';
 import { groupKindsByEffect, type KnownEffect } from './tax-effects';
@@ -71,7 +72,7 @@ export function TaxEffects() {
 
   const open = state.kind !== 'closed';
   let body: React.ReactNode = null;
-  if (state.kind === 'loading') body = <p className="money-detail__note">{t('Tax effect loading')}</p>;
+  if (state.kind === 'loading') body = <p className="lt-hint">{t('Tax effect loading')}</p>;
   else if (state.kind === 'failed')
     body = <StateBlock kind="error" title={t('Tax effect failed')} onRetry={() => void load()} retryLabel={t('Try again')} />;
   else if (state.kind === 'refused') {
@@ -89,19 +90,19 @@ export function TaxEffects() {
     body = (
       <>
         {state.test && (
-          <p className="money-detail__note" data-label="tax-effects-test">
+          <p className="lt-hint" data-label="tax-effects-test">
             {t('Tax effect test map')}
           </p>
         )}
-        <dl className="money-facts" data-label="tax-effects">
+        <dl className="lt-kv" data-label="tax-effects">
           {groups.map((group) => (
-            <div className="money-fact" key={group.effect} data-effect={group.effect}>
+            <div key={group.effect} data-slot="key-value-row" data-effect={group.effect}>
               <dt>{group.effect in EFFECT_WORD ? t(EFFECT_WORD[group.effect as KnownEffect]) : group.effect}</dt>
               <dd>{kindList(group.kinds, copy)}</dd>
             </div>
           ))}
           {unset.length > 0 && (
-            <div className="money-fact" data-effect="unset">
+            <div data-slot="key-value-row" data-effect="unset">
               <dt>{t('Tax effect not set')}</dt>
               <dd>{kindList(unset, copy)}</dd>
             </div>
@@ -112,13 +113,12 @@ export function TaxEffects() {
   }
 
   return (
-    <section className="money-tax-effects" aria-label={t('Tax effect')}>
+    <section className="lt-stack" aria-label={t('Tax effect')}>
       <Button
         type="button"
-        variant="secondary"
-        size={40}
+        tone="secondary"
         aria-expanded={open}
-        loading={state.kind === 'loading'}
+        busy={state.kind === 'loading'}
         onClick={() => {
           if (!open) return void load();
           asked.current += 1;
@@ -127,7 +127,7 @@ export function TaxEffects() {
       >
         {open ? t('Hide tax effect groups') : t('Group by tax effect')}
       </Button>
-      {open && <p className="money-detail__note">{t('Tax effect note')}</p>}
+      {open && <p className="lt-hint">{t('Tax effect note')}</p>}
       {body}
     </section>
   );

@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import type { ApiClient, ApiResult } from '../../shared/api';
+import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
+import { walletReader, type WalletRead, type WalletReader } from './venue/wallet-reads';
+import { VENUE_ORDER_LABELS_LIST } from '@intafaced/contracts/trade-venue-order-labels-procedures';
 import { decimalSchema, formatAmount, parseAmount } from '../../shared/money';
 import type { TypedDataDocument } from '../protocol';
 import {
@@ -9,6 +11,7 @@ import {
   type VenueTimeInForce,
   type VenueMarginMode,
   type VenueAccountMode,
+  type VenuePositionMode,
   venueMarketSchema,
   venueMarketMarginSchema,
   venueScheduledCancelSchema,
@@ -26,13 +29,17 @@ import {
   venueOrderRecordSchema,
   venueOrderPageSchema,
   venueFillSchema,
+  venueArrivalSchema,
   venuePositionSchema,
   venueLeverageChangeSchema,
   venueIsolatedMarginSchema,
   venueAccountSummarySchema,
   venueAccountModeSchema,
+  venuePositionModeSchema,
   venueVaultSchema,
   venueVaultHoldingsSchema,
+  venueStakingSchema,
+  venueStakingAccountSchema,
   venueLiquidationSchema,
   venueLiquidationStatusSchema,
   venueInsuranceFundSchema,
@@ -64,6 +71,10 @@ import {
   venueSubAccountSchema,
   venueStatementFileSchema,
   protectionListSchema,
+  breakevenAnswerSchema,
+  triggerMoveAnswerSchema,
+  type BreakevenRequest,
+  type TriggerMoveRequest,
   spotConditionalListSchema,
   spotFeeReviewSchema,
 } from '@intafaced/contracts/trade-venue-door';
@@ -136,6 +147,8 @@ export interface SpotConditionalRequest {
   /** A good-till-date order's expiry, an ISO time (J-cex-spot-03 #7). */
   expireAt?: string;
   clientOrderId: string;
+  /** Who signs the person's own orders here: the owner's wallet when absent, or the desk's trading session key. */
+  signer?: { role: 'owner' | 'agent'; address: string };
 }
 
 // ── Intents, as the door takes them: every Amount a decimal string ─────────────────────────────────────────────────
@@ -150,6 +163,8 @@ export interface OrderIntent {
   price: string;
   timeInForce: VenueTimeInForce;
   reduceOnly: boolean;
+  /** Optional trader label stored with the order by our door (J-derivatives-04 #2). */
+  label?: string | null;
   clientOrderKey: string;
   /** Our builder fee is the door's (the owner value), never the browser's. */
   builderFee: null;
@@ -193,8 +208,16 @@ export type VenueIntent =
   // the person's own signed venue action.
   | { kind: 'spot_perps_transfer'; direction: 'perps_to_spot' | 'spot_to_perps'; asset: string; amount: string; moveKey: string }
   | { kind: 'set_account_mode'; mode: VenueAccountMode; changeKey: string }
+  // J-derivatives-05 #3 #7: one perpetual switched between one-way and hedge mode, and an open position moved between the
+  // main account and a sub-account, each offered only where the venue offers it and signed by the person's wallet.
+  | { kind: 'set_position_mode'; symbol: string; mode: VenuePositionMode; changeKey: string }
+  | { kind: 'move_position'; subAccount: string; direction: 'into_sub_account' | 'out_of_sub_account'; symbol: string; moveKey: string }
   // J-derivatives-31 #2 #5: USDC put into a venue vault or taken out of it, the person's own signed venue transfer.
-  | { kind: 'vault_transfer'; vault: string; direction: 'deposit' | 'withdraw'; asset: string; amount: string; moveKey: string };
+  | { kind: 'vault_transfer'; vault: string; direction: 'deposit' | 'withdraw'; asset: string; amount: string; moveKey: string }
+  // J-cex-spot-21: HYPE moved between spot and staking, and delegated to or undelegated from a validator, each the person's
+  // own signed venue action.
+  | { kind: 'staking_transfer'; direction: 'to_staking' | 'to_spot'; asset: string; amount: string; moveKey: string }
+  | { kind: 'staking_delegate'; validator: string; direction: 'delegate' | 'undelegate'; asset: string; amount: string; moveKey: string };
 
 // ── Business keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -215,6 +238,8 @@ export const keys = {
   cancel: (clientOrderKey: string) => `cancel:${clientOrderKey}`,
   /** One reverse of a position: its close is `<key>:close` and its open `<key>:open`, each under the one reverse key. */
   reverse: (owner: string, draft: string) => `order:${part(owner)}:reverse:${draft}`,
+  /** One split order batch (J-derivatives-02 #5): children are `<key>:1`, `<key>:2`, ... under this action key. */
+  split: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:split:${draft}`,
   /** The person's own sub-account, by its name: a second press opens the same one (user-venue-door.ts OWN_SUB_ACCOUNT_PREFIX). */
   ownSubAccount: (owner: string, name: string) => `own:sub-account:${part(owner)}:${part(name.trim())}`,
   /** One move between the main account and an own sub-account, by its reviewed draft (OWN_MOVE_PREFIX). */
@@ -254,9 +279,20 @@ export const keys = {
     `class-move:${part(owner)}:${direction === 'perps_to_spot' ? 'to-spot' : 'to-perps'}:${draft}`,
   /** One reviewed change of the account's mode (J-derivatives-29 #7 #8). */
   accountMode: (owner: string, mode: VenueAccountMode, draft: string) => `account-mode:${part(owner)}:${part(mode)}:${draft}`,
+  /** One switch of a perpetual's position mode (J-derivatives-05 #3). */
+  positionMode: (owner: string, symbol: string, mode: VenuePositionMode, draft: string) =>
+    `position-mode:${part(owner)}:${part(symbol)}:${mode === 'hedge' ? 'hedge' : 'one-way'}:${draft}`,
+  /** One move of an open position between the main account and a sub-account (J-derivatives-05 #7). */
+  positionMove: (owner: string, draft: string) => `position-move:${part(owner)}:${draft}`,
   /** One reviewed move into or out of a vault (J-derivatives-31 #2 #5): the same move sent again is the same key. */
   vaultMove: (owner: string, vault: string, direction: 'deposit' | 'withdraw', draft: string) =>
     `vault-move:${part(owner)}:${part(vault)}:${direction}:${draft}`,
+  /** One reviewed move between spot and staking (J-cex-spot-21 #2 #7 #9): the same move sent again is the same key. */
+  stakeMove: (owner: string, direction: 'to_staking' | 'to_spot', draft: string) =>
+    `stake-move:${part(owner)}:${direction === 'to_staking' ? 'to-staking' : 'to-spot'}:${draft}`,
+  /** One reviewed delegation or undelegation (J-cex-spot-21 #3 #6). */
+  delegation: (owner: string, validator: string, direction: 'delegate' | 'undelegate', draft: string) =>
+    `delegation:${part(owner)}:${part(validator)}:${direction}:${draft}`,
 };
 
 // ── Figures ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -326,6 +362,46 @@ export function walletTypedData(typedData: PreparedAnswer['prepared']['typedData
   };
 }
 
+// ── The person's own-wallet reads, from their own browser where the door names the venue's read endpoint ──
+
+/** How long the door's answer on where wallet reads go is kept, and how soon a failed ask is tried again. */
+const WALLET_READS_KEPT_MS = 300_000;
+const WALLET_READS_RETRY_MS = 30_000;
+const walletReaders = new WeakMap<ApiClient, { at: number; ttl: number; reader: Promise<WalletReader | null> }>();
+
+/** This page's reader of the venue's public endpoint, or null when the door names none: read from the door's status. */
+function walletReaderOf(api: ApiClient): Promise<WalletReader | null> {
+  const now = Date.now();
+  const kept = walletReaders.get(api);
+  if (kept && now - kept.at < kept.ttl) return kept.reader;
+  const entry = { at: now, ttl: WALLET_READS_KEPT_MS, reader: Promise.resolve<WalletReader | null>(null) };
+  entry.reader = api.rest('/venue/status', venueStatusSchema).then((status) => {
+    if (!status.ok) {
+      entry.ttl = WALLET_READS_RETRY_MS;
+      return null;
+    }
+    const s = status.data;
+    if (!s.enabled || !s.available || !s.walletReads) return null;
+    // The person's own order labels come from the door's record, which reads nothing at the venue (J-derivatives-04 #2).
+    return walletReader(
+      { venueId: s.venue.id, baseUrl: s.walletReads.baseUrl, perpDexs: s.walletReads.perpDexs },
+      undefined,
+      async (owner) => {
+        const read = await api.call(VENUE_ORDER_LABELS_LIST, { owner });
+        return read.ok ? { ok: true, data: new Map(read.data.labels.map((l) => [l.venueClientOrderId.toLowerCase(), l.label])) } : read;
+      },
+    );
+  });
+  walletReaders.set(api, entry);
+  return entry.reader;
+}
+
+/** An order-history read's filters and page marker, without the account it names (the reader reads that by address). */
+function historyArgs(query: Record<string, string | undefined>): Record<string, string | undefined> {
+  const { owner: _owner, subAccount: _subAccount, venueId: _venueId, ...filters } = query;
+  return filters;
+}
+
 // ── The door ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export function venueApi(api: ApiClient) {
@@ -333,6 +409,31 @@ export function venueApi(api: ApiClient) {
     api.rest(`/venue${path}`, schema, { query, signal });
   const write = <T>(path: string, schema: z.ZodType<T>, body: unknown): Promise<ApiResult<T>> =>
     api.rest(`/venue${path}`, schema, { method: 'POST', body });
+  /**
+   * A main account's fills, balances, positions, account mode, open orders, order by client id or order history on the door's own venue:
+   * from this browser where the door names the venue's read endpoint, else through the door. A sub-account, or another venue, always reads through the door,
+   * which checks the sub-account is listed under the owner.
+   */
+  const ownRead = async <T>(
+    which: WalletRead,
+    path: string,
+    schema: z.ZodType<T>,
+    query: Record<string, string | undefined> & { owner: string; since?: string; clientOrderId?: string },
+    signal?: AbortSignal,
+  ): Promise<ApiResult<T>> => {
+    if (!query.subAccount) {
+      const reader = await walletReaderOf(api);
+      if (signal?.aborted) return authoredRefusal('aborted', { key: 'beforeDispatch' });
+      if (reader && (query.venueId === undefined || query.venueId === reader.venueId))
+        return reader.read(
+          which,
+          query.owner,
+          schema,
+          which === 'orderByClientId' ? query.clientOrderId : which === 'orderHistory' ? historyArgs(query) : query.since,
+        );
+    }
+    return read(path, schema, query, signal);
+  };
   return {
     status: (signal?: AbortSignal) => api.rest('/venue/status', venueStatusSchema, { signal }),
     markets: (signal?: AbortSignal, venueId?: string) => read('/markets', asOf(z.array(venueMarketSchema)), { venueId }, signal),
@@ -345,25 +446,29 @@ export function venueApi(api: ApiClient) {
       read('/candles', venueCandlesReadSchema, { symbol, interval, limit: String(limit) }, signal),
     gatedList: (signal?: AbortSignal) => read('/gated-list', asOf(z.array(venueGatedContractSchema)), {}, signal),
     balances: (owner: string, signal?: AbortSignal, subAccount?: string, venueId?: string) =>
-      read('/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount, venueId }, signal),
-    openOrders: (owner: string, signal?: AbortSignal) => read('/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),
+      ownRead('balances', '/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount, venueId }, signal),
+    openOrders: (owner: string, signal?: AbortSignal) =>
+      ownRead('openOrders', '/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),
     /** The orders this person's door kept on the owner's accounts, oldest first, a page at a time (J-agents-21 #7). */
     keptOrders: (owner: string, cursor?: string, signal?: AbortSignal) => read('/orders', venueOrderPageSchema, { owner, cursor }, signal),
     /** The person's agent accounts, each with its owner wallet and venue sub-account (J-agents-21). */
     agentAccounts: (signal?: AbortSignal) => read('/agent-accounts', agentAccountsReadSchema, {}, signal),
     /** The account's orders in every state as the venue keeps them, filtered and a page at a time (J-cex-spot-06 #1). */
     orderHistory: (owner: string, query: VenueHistoryQuery, signal?: AbortSignal) =>
-      read('/orders/history', venueHistoryPageSchema, { owner, ...query }, signal),
+      ownRead('orderHistory', '/orders/history', venueHistoryPageSchema, { ...query, owner }, signal),
     /** Our record of one order: amendments the venue accepted, and our builder fee on it (J-cex-spot-06 #5 #10). */
     orderRecord: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
       read('/orders/record', venueOrderRecordSchema, { owner, clientOrderId }, signal),
     orderByClientId: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
-      read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
+      ownRead('orderByClientId', '/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
-      read('/fills', asOf(z.array(venueFillSchema)), { owner, since, ...at }, signal),
+      ownRead('fills', '/fills', asOf(z.array(venueFillSchema)), { owner, since, ...at }, signal),
+    /** Credits into the account from outside it (deposits, transfers in), oldest first (J-portfolio-06 #3). */
+    arrivals: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
+      read('/arrivals', asOf(z.array(venueArrivalSchema)), { owner, ...at }, signal),
     /** The positions on one account: the main account, or one of the owner's sub-accounts, on a venue (J-derivatives-05). */
     positions: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
-      read('/positions', asOf(z.array(venuePositionSchema)), { owner, ...at }, signal),
+      ownRead('positions', '/positions', asOf(z.array(venuePositionSchema)), { owner, ...at }, signal),
     /** The owner's own sub-accounts, as the venue lists them on the main account (J-agents-08 #2). */
     subAccounts: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/sub-accounts', asOf(z.array(venueSubAccountSchema)), { owner, venueId }, signal),
@@ -387,7 +492,10 @@ export function venueApi(api: ApiClient) {
       read('/account-summary', asOf(venueAccountSummarySchema), { owner, venueId }, signal),
     /** The account's mode, its spot and perps balances in standard mode, and the day's action count (J-derivatives-29). */
     accountMode: (owner: string, signal?: AbortSignal, venueId?: string) =>
-      read('/account-mode', asOf(venueAccountModeSchema), { owner, venueId }, signal),
+      ownRead('accountMode', '/account-mode', asOf(venueAccountModeSchema), { owner, venueId }, signal),
+    /** The position mode the account holds one perpetual in, as the venue reports it (J-derivatives-05 #3). */
+    positionMode: (owner: string, q: { symbol: string; venueId: string }, signal?: AbortSignal) =>
+      read('/position-mode', asOf(venuePositionModeSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
     /** The position's liquidation state on one market and the venue's rules (J-derivatives-07 #1 #3). */
     liquidation: (owner: string, q: { symbol: string; venueId?: string }, signal?: AbortSignal) =>
       read('/liquidation', asOf(venueLiquidationStatusSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
@@ -404,6 +512,11 @@ export function venueApi(api: ApiClient) {
     /** The account's vault positions, its account value as the venue counts it, and its vault transfers (J-derivatives-31). */
     vaultHoldings: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/vault-holdings', asOf(venueVaultHoldingsSchema), { owner, venueId }, signal),
+    /** The venue's staking terms: validators, reward rate, discount tiers, lock-up, queue and limit (J-cex-spot-21 #1). */
+    staking: (signal?: AbortSignal, venueId?: string) => read('/staking', asOf(venueStakingSchema), { venueId }, signal),
+    /** The account's staking balance, delegations, queued and arrived withdrawals and rewards (J-cex-spot-21). */
+    stakingAccount: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/staking-account', asOf(venueStakingAccountSchema), { owner, venueId }, signal),
     /** The venue's public liquidation and auto-deleveraging alerts, newest first (J-derivatives-07 #7). */
     liquidationAlerts: (q: { symbol?: string; limit?: number; venueId?: string }, signal?: AbortSignal) =>
       read(
@@ -451,7 +564,7 @@ export function venueApi(api: ApiClient) {
       api.rest(`/venue/markets/${encodeURIComponent(symbol)}/venues`, marketVenuesSchema, { query: { owner, side }, signal }),
     routePreview: (owner: string, intent: OrderIntent) => write('/route-preview', routePreviewSchema, { owner, intent }),
     ordersByClientIdOn: (venueId: string, owner: string, clientOrderId: string, signal?: AbortSignal) =>
-      read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId, venueId }, signal),
+      ownRead('orderByClientId', '/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId, venueId }, signal),
     withdrawal: (owner: string, nonce: string, signal?: AbortSignal) =>
       api.rest(`/venue/withdrawals/${encodeURIComponent(nonce)}`, asOf(venueWithdrawalSchema.nullable()), { query: { owner }, signal }),
     preview: (owner: string, intent: OrderIntent) => write('/preview', asOf(venuePreviewSchema), { owner, intent }),
@@ -463,24 +576,37 @@ export function venueApi(api: ApiClient) {
       actionKey?: string;
       stepUpApprovalId?: string | null;
       venueId?: string;
+      /** Who signs it: the owner's wallet (the default), or a trading session's agent key (session-signer.ts). */
+      signer?: { role: 'owner' | 'agent'; address: string };
+      /** An order the venue definitely refused, sent again under the same client order id (J-derivatives-33 #5). */
+      retryRefused?: boolean;
     }) =>
       write('/prepare', preparedAnswerSchema, {
         ...(input.venueId ? { venueId: input.venueId } : {}),
         ...(input.subAccount ? { subAccount: input.subAccount } : {}),
         owner: input.owner,
-        signer: { role: 'owner', address: input.owner },
+        signer: input.signer ?? { role: 'owner', address: input.owner },
         intent: input.intent,
         actionKey: input.actionKey ?? null,
         stepUpApprovalId: input.stepUpApprovalId ?? null,
+        ...(input.retryRefused ? { retryRefused: true } : {}),
       }),
-    submit: (actionKey: string, signature: { digest: string; signature: string; signedBy: string }) =>
-      write('/submit', submitAnswerSchema, { actionKey, signature }),
+    submit: async (actionKey: string, signature: { digest: string; signature: string; signedBy: string }) => {
+      const answer = await write('/submit', submitAnswerSchema, { actionKey, signature });
+      // The person's own action changed their fills, balances and positions: the next read from this browser is fresh.
+      (await walletReaderOf(api))?.forgetOwnReads();
+      return answer;
+    },
     /** The person's protections: the venue's trigger orders our door sent and our engine's stops (J-derivatives-03). */
     protections: (owner: string, signal?: AbortSignal) => read('/protections', protectionListSchema, { owner }, signal),
     createProtection: (input: ProtectionRequest) => write('/protections', protectionCreatedSchema, input),
     cancelProtection: (id: string) => api.rest(`/venue/protections/${encodeURIComponent(id)}`, protectionViewSchema, { method: 'DELETE' }),
     protectionAgent: (owner: string, signal?: AbortSignal) => read('/protection-agent', protectionAgentSchema, { owner }, signal),
     prepareProtectionAgent: (owner: string) => write('/protection-agent/prepare', preparedAnswerSchema, { owner }),
+    /** The stop moved to the position's fee-adjusted breakeven: the actions to sign, in order (J-derivatives-32 #5 #6). */
+    breakeven: (input: BreakevenRequest) => write('/protections/breakeven', breakevenAnswerSchema, input),
+    /** A dragged stop or target line: the one action that moves that venue order in place (J-derivatives-32 #3 #4). */
+    moveTrigger: (input: TriggerMoveRequest) => write('/protections/move', triggerMoveAnswerSchema, input),
     /** The person's conditional spot orders: stops, OCOs, brackets and linked closes (J-cex-spot-08). */
     spotOrders: (owner: string, signal?: AbortSignal) => read('/spot-orders', spotConditionalListSchema, { owner }, signal),
     createSpotOrder: (input: SpotConditionalRequest) => write('/spot-orders', spotConditionalCreatedSchema, input),

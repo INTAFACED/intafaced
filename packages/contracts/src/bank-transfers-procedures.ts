@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
+import { stepUpApprovalField } from './bank-cards-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `transfers.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -60,6 +61,48 @@ export const BANK_TRANSFERS_EXECUTIONS = defineProcedure({
   ],
 });
 
+export const BANK_TRANSFERS_LIST_SCHEDULES = defineProcedure({
+  ...base,
+  name: 'bank.transfers.listSchedules',
+  kind: 'query',
+  path: 'transfers.listSchedules',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z
+    .object({
+      /**
+       * Page size. Optional so omit reaches `bank.schedules_list_limit_unset`
+       * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
+       */
+      limit: z.number().int().min(1).max(200).optional(),
+      /** Only the orders paying into this one of the caller's own spaces (BK-pots-02). */
+      toSpaceId: z.string().guid().optional(),
+    })
+    .optional(),
+  output: z.array(
+    z.object({
+      id: z.string(),
+      assetId: assetIdSchema,
+      amount: amountString,
+      cadence: z.string(),
+      startsAt: z.string(),
+      endsAt: z.string().nullable(),
+      nextRunAt: z.string(),
+      status: z.string(),
+      /** The revision an edit must name. */
+      revision: z.number().int(),
+      /** The caller's own space the order pays from. */
+      fromSpaceId: z.string(),
+      /** The caller's own space it pays into, or null when it pays another person. */
+      toSpaceId: z.string().nullable(),
+    }),
+  ),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 /**
  * Limits and fee for a personal send, before the review step.
  * Refuses when nothing is published. Never fills a zero fee or a default cap.
@@ -83,8 +126,9 @@ export const BANK_TRANSFERS_QUOTE = defineProcedure({
     fee: amountString,
     feeBlocker: z.string().nullable(),
     /**
-     * The partner's fee on the move (CUSTODY-DELTA §1.3). Absent: no partner reports one for this send. Null: the
-     * partner moves it and has not said what it costs, read as "not known", never 0.
+     * The network fee on the move (CUSTODY-DELTA §1.3): what the partner bank that holds the sender's money says it
+     * charges for a send; "0" for a send on our own book, which crosses no network. Null: the partner moves it and has
+     * not said what it costs, read as "not known", never 0. Absent only from an older service.
      */
     networkFee: amountString.nullable().optional(),
     withinPerTransfer: z.boolean(),
@@ -111,6 +155,143 @@ export const BANK_TRANSFERS_HELD = defineProcedure({
   output: heldSendOutput,
   samples: [
     { verdict: 'accept', input: { transferId: 'ethereum' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * The sender's own send to another person, by its transfer id, as its status page reads it (J-pay-01 #6): Confirming
+ * while the bank has reserved it and does not yet know it was made (the partner's answer was lost, or the partner is
+ * not answering), Completed once it posted, with the partner's move or the ledger transaction as its reference. Reading
+ * it asks the book that holds the money whether the move under the send's key was made, and settles it when it was;
+ * it never lets a send go. Nobody else can read it, and a stranger gets the same not-found as a missing id.
+ */
+export const BANK_TRANSFERS_SENT = defineProcedure({
+  ...base,
+  name: 'bank.transfers.sent',
+  kind: 'query',
+  path: 'transfers.sent',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z.object({ transferId: z.string().min(8).max(64) }),
+  output: z.object({
+    transferId: z.string(),
+    status: z.enum(['confirming', 'completed']),
+    amount: amountString,
+    assetId: assetIdSchema,
+    note: z.string().nullable(),
+    toHandle: z.string().nullable(),
+    /** The partner bank's move, once it is known to be made; null on the ledger path and while confirming. */
+    partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
+    /** The ledger transaction, once posted on our own book; null at the partner and while confirming. */
+    ledgerTxId: z.string().nullable(),
+    createdAt: z.string().datetime(),
+    postedAt: z.string().datetime().nullable(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { transferId: 'ethereum' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_TRANSFERS_TO_USER = defineProcedure({
+  ...base,
+  name: 'bank.transfers.toUser',
+  kind: 'mutation',
+  path: 'transfers.toUser',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({
+    transferId: z.string().min(8).max(64),
+    fromSpaceId: z.string().guid(),
+    toUserId: z.string().min(1).max(64),
+    amount: amountString,
+    /** Recipient-visible plain text. Omitted means no note. */
+    note: z.string().max(140).optional(),
+    /** Printable payment reference. Omitted means none. */
+    reference: z.string().max(64).optional(),
+    /** Settles this open payment request. One payment, one request. */
+    requestId: z.string().guid().optional(),
+    stepUpApprovalId: stepUpApprovalField,
+  }),
+  output: z.object({
+    /** The ledger transaction on the custodial layer; null when the partner bank moved it. */
+    ledgerTxId: z.string().nullable(),
+    partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
+    amount: amountString,
+    note: z.string().nullable(),
+    reference: z.string().nullable(),
+    requestId: z.string().guid().nullable(),
+  }),
+  samples: [
+    {
+      verdict: 'accept',
+      input: { transferId: 'ethereum', fromSpaceId: '11111111-1111-4111-8111-111111111111', toUserId: 'USDC', amount: '1' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_TRANSFERS_CANCEL = defineProcedure({
+  ...base,
+  name: 'bank.transfers.cancel',
+  kind: 'mutation',
+  path: 'transfers.cancel',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({ cancelled: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Start a paused standing order again.
+ *
+ * `skipped` is in the OUTPUT, not just the record, because resuming does not
+ * settle up. A client that renders `status: 'active'` and nothing else lets a
+ * user believe the missed months are still coming; they are not, and the
+ * moment to say so is the moment they ask for it. See `resumeSchedule` for
+ * why skipping is the safe direction.
+ */
+export const BANK_TRANSFERS_RESUME = defineProcedure({
+  ...base,
+  name: 'bank.transfers.resume',
+  kind: 'mutation',
+  path: 'transfers.resume',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({
+    status: z.string(),
+    nextRunAt: z.string(),
+    /** Occurrences that came due while paused and will never fire. */
+    skipped: z.array(z.number().int()),
+  }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Hold a standing order. The reversible half of `cancel`.
+ *
+ * Same ownership ordering as `cancel`, for the same reason written there.
+ */
+export const BANK_TRANSFERS_PAUSE = defineProcedure({
+  ...base,
+  name: 'bank.transfers.pause',
+  kind: 'mutation',
+  path: 'transfers.pause',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ scheduleId: z.string().guid() }),
+  output: z.object({ status: z.string(), nextRunAt: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { scheduleId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

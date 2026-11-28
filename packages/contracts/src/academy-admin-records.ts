@@ -33,8 +33,15 @@ import {
   academyTopicSchema,
   academyWithdrawAssignmentInputSchema,
   academyWithdrawLessonInputSchema,
+  academySaveAssignmentInputSchema,
+  academySaveReviewStepsInputSchema,
+  academyGradeSubmissionInputSchema,
+  academySetItemCaptionsInputSchema,
+  academySetItemCaptionsResultSchema,
+  academyMediaIntentInputSchema,
+  academyMediaIntentSchema,
 } from './academy-courses.js';
-import { academyCourseGradebookInputSchema } from './academy-course-gradebook.js';
+import { academyCourseGradebookInputSchema, academyCourseGradebookSchema } from './academy-course-gradebook.js';
 import {
   academyGradeReportFileInputSchema,
   academyGradeReportFileSchema,
@@ -49,11 +56,19 @@ import {
   academySetCourseItemPrerequisitesInputSchema,
 } from './academy-course-item-rules.js';
 import {
+  academyAddLearnerNoteInputSchema,
+  academyGrantAccessInputSchema,
+  academyGrantLearnerExtensionInputSchema,
+  academyLearnerChangeSchema,
   academyLearnerInputSchema,
   academyLearnerPageSchema,
   academyLearnerProgressSchema,
   academyLearnersInputSchema,
   academyLearnersSchema,
+  academyMarkCompleteForInputSchema,
+  academyReinstateAccessInputSchema,
+  academyUntagLearnerInputSchema,
+  academyVoidQuizAttemptInputSchema,
 } from './academy-learner-desk.js';
 import {
   academyAdminCourseQuizSchema,
@@ -82,8 +97,14 @@ import {
   academyProposeTeamChangeInputSchema,
   academyTeamChangeSchema,
   academyConfirmTeamChangeInputSchema,
+  academySaveCustomRoleInputSchema,
 } from './academy-team.js';
-import { academyGrantCertExceptionInputSchema, academyCertExceptionSchema } from './academy-certificates.js';
+import {
+  academyGrantCertExceptionInputSchema,
+  academyCertExceptionSchema,
+  academyRevokeCertInputSchema,
+  academyCertRevocationSchema,
+} from './academy-certificates.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-academy `admin.*`, one record per call: svc-academy mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -1065,6 +1086,520 @@ export const ACADEMY_ADMIN_GRANT_CERT_EXCEPTION = defineProcedure({
   output: academyCertExceptionSchema,
   samples: [
     { verdict: 'accept', input: { userId: '33333333-3333-4333-8333-333333333333', certId: 'placeholder', reason: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_ADD_LEARNER_NOTE = defineProcedure({
+  ...base,
+  name: 'academy.admin.addLearnerNote',
+  kind: 'mutation',
+  path: 'admin.addLearnerNote',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.permission_denied': 'FORBIDDEN', 'academy.reason_required': 'BAD_REQUEST', 'academy.revision_stale': 'CONFLICT' },
+  input: academyAddLearnerNoteInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    { verdict: 'accept', input: { userId: '33333333-3333-4333-8333-333333333333', body: 'placeholder', key: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_MARK_COMPLETE_FOR = defineProcedure({
+  ...base,
+  name: 'academy.admin.markCompleteFor',
+  kind: 'mutation',
+  path: 'admin.markCompleteFor',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.curriculum_not_found': 'NOT_FOUND',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.slug_reserved': 'BAD_REQUEST',
+  },
+  input: academyMarkCompleteForInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { userId: '33333333-3333-4333-8333-333333333333', itemSlug: 'placeholder', reason: 'placeholder', key: 'placeholder' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_VOID_QUIZ_ATTEMPT = defineProcedure({
+  ...base,
+  name: 'academy.admin.voidQuizAttempt',
+  kind: 'mutation',
+  path: 'admin.voidQuizAttempt',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.attempt_not_found': 'NOT_FOUND',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.slug_reserved': 'BAD_REQUEST',
+  },
+  input: academyVoidQuizAttemptInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { userId: '33333333-3333-4333-8333-333333333333', attemptId: '33333333-3333-4333-8333-333333333333', reason: 'placeholder' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_GRANT_LEARNER_EXTENSION = defineProcedure({
+  ...base,
+  name: 'academy.admin.grantLearnerExtension',
+  kind: 'mutation',
+  path: 'admin.grantLearnerExtension',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.curriculum_not_found': 'NOT_FOUND',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.slug_reserved': 'BAD_REQUEST',
+    'academy.window_invalid': 'BAD_REQUEST',
+  },
+  input: academyGrantLearnerExtensionInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        userId: '33333333-3333-4333-8333-333333333333',
+        itemSlug: 'placeholder',
+        until: '2026-01-01T00:00:00.000Z',
+        reason: 'placeholder',
+        key: 'placeholder',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const ACADEMY_ADMIN_UNTAG_LEARNER = defineProcedure({
+  ...base,
+  name: 'academy.admin.untagLearner',
+  kind: 'mutation',
+  path: 'admin.untagLearner',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.permission_denied': 'FORBIDDEN', 'academy.reason_required': 'BAD_REQUEST' },
+  input: academyUntagLearnerInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    { verdict: 'accept', input: { userId: '33333333-3333-4333-8333-333333333333', tag: 'placeholder', reason: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** `admin.grantAccess`: the samples are written by hand, since the door's stored sample ends in the past, which the door refuses. */
+export const ACADEMY_ADMIN_GRANT_ACCESS = defineProcedure({
+  ...base,
+  name: 'academy.admin.grantAccess',
+  kind: 'mutation',
+  path: 'admin.grantAccess',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.grant_expired': 'FORBIDDEN',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.window_invalid': 'BAD_REQUEST',
+  },
+  input: academyGrantAccessInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { userId: '33333333-3333-4333-8333-333333333333', pathSlug: 'foundations', reason: 'placeholder', expiresAt: null },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** `admin.reinstateAccess`: the samples are written by hand, since the door's stored sample ends in the past, which the door refuses. */
+export const ACADEMY_ADMIN_REINSTATE_ACCESS = defineProcedure({
+  ...base,
+  name: 'academy.admin.reinstateAccess',
+  kind: 'mutation',
+  path: 'admin.reinstateAccess',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: {
+    'academy.grant_active': 'CONFLICT',
+    'academy.grant_not_found': 'NOT_FOUND',
+    'academy.permission_denied': 'FORBIDDEN',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.revision_stale': 'CONFLICT',
+    'academy.window_invalid': 'BAD_REQUEST',
+  },
+  input: academyReinstateAccessInputSchema,
+  output: academyLearnerChangeSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        userId: '33333333-3333-4333-8333-333333333333',
+        grantId: '33333333-3333-4333-8333-333333333333',
+        reason: 'placeholder',
+        expiresAt: null,
+        n: 1,
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** AC-assignments-04: the grading policy, the course's graded items and each enrolled learner's scores. */
+export const ACADEMY_ADMIN_COURSE_GRADEBOOK = defineProcedure({
+  ...base,
+  name: 'academy.admin.courseGradebook',
+  kind: 'query',
+  path: 'admin.courseGradebook',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.course_not_found': 'NOT_FOUND', 'academy.permission_denied': 'FORBIDDEN', 'academy.role_not_found': 'NOT_FOUND' },
+  input: academyCourseGradebookInputSchema,
+  output: academyCourseGradebookSchema,
+  samples: [
+    { verdict: 'accept', input: { courseId: '33333333-3333-4333-8333-333333333333' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * AC-access-grants-02: the grant audit, newest first: course access grants, revokes, expiries and reinstatements,
+ * and certificates issued and revoked, each with who did it, when and why. The page size is the owner's
+ * (`ACADEMY_GRANT_AUDIT_PAGE_SIZE`); a caller may ask for fewer. Blank, it refuses `academy.grant_audit_list_limit_unset`.
+ */
+export const ACADEMY_ADMIN_GRANT_AUDIT = defineProcedure({
+  ...base,
+  name: 'academy.admin.grantAudit',
+  kind: 'query',
+  path: 'admin.grantAudit',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.cert_invalid': 'BAD_REQUEST', 'academy.grant_audit_list_limit_unset': 'PRECONDITION_FAILED' },
+  input: z
+    .object({
+      limit: z.number().int().min(1).optional(),
+      cursor: z.string().min(1).max(512).optional(),
+      /** One course's lines (its slug) or one certificate's (its id); never both. */
+      course: z.string().min(1).max(120).optional(),
+      certificate: z.string().min(1).max(120).optional(),
+    })
+    .refine((v) => !(v.course && v.certificate), { message: 'name a course or a certificate, not both' })
+    .optional(),
+  checks: { answer_holds: { at: 'input', says: 'name a course or a certificate, not both' } },
+  output: z.object({
+    items: z.array(
+      z.object({
+        accountId: z.string().guid(),
+        kind: z.enum([
+          'access_granted',
+          'access_revoked',
+          'access_expired',
+          'access_reinstated',
+          'certificate_granted',
+          'certificate_revoked',
+        ]),
+        target: z.string(),
+        source: z.string().nullable(),
+        actorId: z.string().nullable(),
+        reason: z.string().nullable(),
+        at: z.iso.datetime({ offset: true }),
+        reference: z.string(),
+      }),
+    ),
+    nextCursor: z.string().nullable(),
+  }),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+    { verdict: 'refuse', by: 'answer_holds', input: { course: 'USDC', certificate: 'USDC' } },
+  ],
+});
+
+/** AC-assignments-01: the brief over the revision read; a saved brief releases the item to enrolled learners. */
+export const ACADEMY_ADMIN_SAVE_ASSIGNMENT = defineProcedure({
+  ...base,
+  name: 'academy.admin.saveAssignment',
+  kind: 'mutation',
+  path: 'admin.saveAssignment',
+  access: { caller: 'scope', scope: 'admin:write', module: 'academy' },
+  refusals: {
+    'academy.assignment_closed': 'CONFLICT',
+    'academy.assignment_not_found': 'NOT_FOUND',
+    'academy.outline_item_unknown': 'CONFLICT',
+    'academy.revision_stale': 'CONFLICT',
+  },
+  input: academySaveAssignmentInputSchema,
+  checks: {
+    academy_save_assignment_input_holds: { at: 'input', says: 'a learner hands in text, a file or both' },
+    academy_points_holds: { at: 'input.points', says: 'points are more than zero' },
+  },
+  output: academyAdminAssignmentSchema,
+  outputChecks: {
+    academy_points_holds: { at: 'output.brief.points', says: 'points are more than zero' },
+    academy_rubric_criterion_holds: { at: 'output.review.rubric.criteria[]', says: 'levels go up, with no two alike' },
+  },
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        itemId: '11111111-1111-4111-8111-111111111111',
+        revision: 0,
+        instructions: 'USDC',
+        points: '1',
+        dueAt: '2026-01-01T00:00:00.000Z',
+        text: 'optional',
+        file: 'off',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      by: 'academy_save_assignment_input_holds',
+      input: {
+        itemId: '11111111-1111-4111-8111-111111111111',
+        revision: 0,
+        instructions: 'USDC',
+        points: '1',
+        dueAt: '2026-01-01T00:00:00.000Z',
+        text: 'off',
+        file: 'off',
+      },
+    },
+    {
+      verdict: 'refuse',
+      by: 'academy_points_holds',
+      input: {
+        itemId: '11111111-1111-4111-8111-111111111111',
+        revision: 0,
+        instructions: 'USDC',
+        points: '0',
+        dueAt: '2026-01-01T00:00:00.000Z',
+        text: 'optional',
+        file: 'off',
+      },
+    },
+  ],
+});
+
+/** AC-assignments-03: peer and self review steps and the rubric, over the revision read. */
+export const ACADEMY_ADMIN_SAVE_REVIEW_STEPS = defineProcedure({
+  ...base,
+  name: 'academy.admin.saveReviewSteps',
+  kind: 'mutation',
+  path: 'admin.saveReviewSteps',
+  access: { caller: 'scope', scope: 'admin:write', module: 'academy' },
+  refusals: {
+    'academy.assignment_closed': 'CONFLICT',
+    'academy.assignment_not_found': 'NOT_FOUND',
+    'academy.outline_item_unknown': 'CONFLICT',
+    'academy.peer_count_unset': 'BAD_REQUEST',
+    'academy.revision_stale': 'CONFLICT',
+    'academy.rubric_invalid': 'BAD_REQUEST',
+  },
+  input: academySaveReviewStepsInputSchema,
+  checks: { academy_rubric_criterion_holds: { at: 'input.criteria[]', says: 'levels go up, with no two alike' } },
+  output: academyAdminAssignmentSchema,
+  outputChecks: {
+    academy_points_holds: { at: 'output.brief.points', says: 'points are more than zero' },
+    academy_rubric_criterion_holds: { at: 'output.review.rubric.criteria[]', says: 'levels go up, with no two alike' },
+  },
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        itemId: '33333333-3333-4333-8333-333333333333',
+        revision: 0,
+        peer: true,
+        peerCount: 1,
+        self: true,
+        criteria: [{ name: 'Clarity', levels: ['0', '1', '2'] }],
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      input: {
+        itemId: '33333333-3333-4333-8333-333333333333',
+        revision: 0,
+        peer: true,
+        peerCount: 1,
+        self: true,
+        criteria: [{ name: 'Clarity', levels: ['2', '1'] }],
+      },
+      by: 'academy_rubric_criterion_holds',
+    },
+  ],
+});
+
+/** AC-assignments-02: grade event n, keyed `grade:<submission>:<n>`; an override needs a reason. */
+export const ACADEMY_ADMIN_GRADE_SUBMISSION = defineProcedure({
+  ...base,
+  name: 'academy.admin.gradeSubmission',
+  kind: 'mutation',
+  path: 'admin.gradeSubmission',
+  access: { caller: 'scope', scope: 'admin:write', module: 'academy' },
+  refusals: {
+    'academy.assignment_closed': 'CONFLICT',
+    'academy.assignment_not_found': 'NOT_FOUND',
+    'academy.grade_invalid': 'BAD_REQUEST',
+    'academy.grader_lease_unset': 'PRECONDITION_FAILED',
+    'academy.grader_locked': 'CONFLICT',
+    'academy.outline_item_unknown': 'CONFLICT',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.revision_stale': 'CONFLICT',
+    'academy.submission_not_found': 'NOT_FOUND',
+  },
+  input: academyGradeSubmissionInputSchema,
+  output: academyGradingQueueSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        itemId: '11111111-1111-4111-8111-111111111111',
+        submissionId: '11111111-1111-4111-8111-111111111111',
+        n: 1,
+        score: '1',
+        comment: 'USDC',
+        reason: 'USDC',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** AC-videos-02: one language's SRT or WebVTT file; the first malformed line comes back and nothing is stored. */
+export const ACADEMY_ADMIN_SET_ITEM_CAPTIONS = defineProcedure({
+  ...base,
+  name: 'academy.admin.setItemCaptions',
+  kind: 'mutation',
+  path: 'admin.setItemCaptions',
+  access: { caller: 'scope', scope: 'admin:write', module: 'academy' },
+  refusals: {
+    'academy.captions_invalid': 'BAD_REQUEST',
+    'academy.item_has_no_lesson': 'BAD_REQUEST',
+    'academy.item_video_missing': 'PRECONDITION_FAILED',
+    'academy.outline_item_unknown': 'CONFLICT',
+    'academy.video_grant_required': 'FORBIDDEN',
+    'academy.video_s3_region_unset': 'PRECONDITION_FAILED',
+    'academy.video_storage_unconfigured': 'PRECONDITION_FAILED',
+    'academy.video_url_ttl_unset': 'PRECONDITION_FAILED',
+  },
+  input: academySetItemCaptionsInputSchema,
+  output: academySetItemCaptionsResultSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { itemId: '11111111-1111-4111-8111-111111111111', language: 'abc', label: 'USDC', format: 'srt', text: 'USDC' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** AC-videos-02: a declared file checked against the owner's limits, and a signed upload address for its bytes. */
+export const ACADEMY_ADMIN_MEDIA_UPLOAD_INTENT = defineProcedure({
+  ...base,
+  name: 'academy.admin.mediaUploadIntent',
+  kind: 'mutation',
+  path: 'admin.mediaUploadIntent',
+  access: { caller: 'scope', scope: 'admin:write', module: 'academy' },
+  refusals: {
+    'academy.item_has_no_lesson': 'BAD_REQUEST',
+    'academy.outline_item_unknown': 'CONFLICT',
+    'academy.upload_limits_unset': 'PRECONDITION_FAILED',
+    'academy.upload_too_large': 'BAD_REQUEST',
+    'academy.upload_type_refused': 'BAD_REQUEST',
+    'academy.video_grant_required': 'FORBIDDEN',
+    'academy.video_s3_region_unset': 'PRECONDITION_FAILED',
+    'academy.video_storage_unconfigured': 'PRECONDITION_FAILED',
+    'academy.video_url_ttl_unset': 'PRECONDITION_FAILED',
+  },
+  input: academyMediaIntentInputSchema,
+  output: academyMediaIntentSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        itemId: '33333333-3333-4333-8333-333333333333',
+        kind: 'video',
+        fileName: 'lesson.mp4',
+        contentType: 'video/mp4',
+        bytes: 1024,
+        sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** AC-roles-01: a new custom role inside the owner's limit; blank refuses `academy.role_limit_unset`. */
+export const ACADEMY_ADMIN_SAVE_CUSTOM_ROLE = defineProcedure({
+  ...base,
+  name: 'academy.admin.saveCustomRole',
+  kind: 'mutation',
+  path: 'admin.saveCustomRole',
+  access: { caller: 'scope', scope: 'admin:write', module: 'academy' },
+  refusals: {
+    'academy.cert_invalid': 'BAD_REQUEST',
+    'academy.reason_required': 'BAD_REQUEST',
+    'academy.role_escalation': 'FORBIDDEN',
+    'academy.role_limit_reached': 'PRECONDITION_FAILED',
+    'academy.role_limit_unset': 'PRECONDITION_FAILED',
+    'academy.role_not_found': 'NOT_FOUND',
+  },
+  input: academySaveCustomRoleInputSchema,
+  checks: { academy_custom_role_name_holds: { at: 'input.name', says: 'that name is a built-in role' } },
+  output: academyRoleSchema,
+  samples: [
+    { verdict: 'accept', input: { name: 'course_reviewer', permissions: ['content.edit'], reason: 'sample', requestId: 'sample' } },
+    { verdict: 'refuse', input: 42 },
+    {
+      verdict: 'refuse',
+      input: { name: 'moderator', permissions: ['content.edit'], reason: 'sample', requestId: 'sample' },
+      by: 'academy_custom_role_name_holds',
+    },
+  ],
+});
+
+export const ACADEMY_ADMIN_ENROLMENTS = defineProcedure({
+  ...base,
+  name: 'academy.admin.enrolments',
+  kind: 'query',
+  path: 'admin.enrolments',
+  access: { caller: 'scope', scope: 'admin:read', module: 'academy' },
+  refusals: { 'academy.metrics_range_invalid': 'BAD_REQUEST' },
+  input: z.object({ from: z.string(), to: z.string() }),
+  output: z.object({
+    from: z.string(),
+    to: z.string(),
+    total: z.number().int().nonnegative(),
+    paths: z.array(z.object({ pathSlug: z.string(), count: z.number().int().nonnegative() })),
+  }),
+  samples: [
+    { verdict: 'accept', input: { from: '2026-01-01', to: '2026-01-31' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * AC-certificates-03: revoke one issued certificate by its public code, under two-person approval
+ * (`academy.cert.revoke`, payload `{publicId, reason}`). The public check then says revoked.
+ */
+export const ACADEMY_ADMIN_REVOKE_CERT = defineProcedure({
+  ...base,
+  name: 'academy.admin.revokeCert',
+  kind: 'mutation',
+  path: 'admin.revokeCert',
+  access: { caller: 'scope', scope: 'admin:write', module: 'academy' },
+  refusals: { 'academy.cert_invalid': 'BAD_REQUEST', 'academy.cert_not_found': 'NOT_FOUND' },
+  input: academyRevokeCertInputSchema,
+  output: academyCertRevocationSchema,
+  samples: [
+    { verdict: 'accept', input: { publicId: '00000000000000000000000000000000', reason: 'USDC' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

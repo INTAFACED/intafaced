@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Button, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
 import { useSession } from '../session';
@@ -65,7 +65,7 @@ export function HandleRecovery() {
 
   if (!open) {
     return (
-      <Button variant="ghost" onClick={() => setOpen(true)}>
+      <Button tone="quiet" onClick={() => setOpen(true)}>
         {t('open')}
       </Button>
     );
@@ -80,10 +80,10 @@ export function HandleRecovery() {
           ? recovery.t(problem === 'mailOff' ? 'mailOff' : 'resetLimitUnnamed')
           : pw(problem);
   return (
-    <section className="pub-step" aria-labelledby={`${problemId}-title`}>
+    <section className="lt-stack" aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{t('title')}</h2>
-      <p className="muted">{t('body')}</p>
-      <form ref={field} method="post" className="pub-form" onSubmit={ask} noValidate>
+      <p className="lt-muted">{t('body')}</p>
+      <form ref={field} method="post" className="lt-stack" onSubmit={ask} noValidate>
         <Field
           label={t('emailField')}
           name="handle-email"
@@ -94,17 +94,17 @@ export function HandleRecovery() {
           disabled={busy}
           aria-describedby={problemText ? problemId : undefined}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {busy ? t('sending') : t('send')}
         </Button>
       </form>
       {sent && (
-        <p role="status" className="muted">
+        <p role="status" className="lt-muted">
           {t('sent')}
         </p>
       )}
       {problemText && (
-        <p id={problemId} className="pub-notice" role="alert">
+        <p id={problemId} className="lt-refusal" role="alert">
           {problemText}
         </p>
       )}

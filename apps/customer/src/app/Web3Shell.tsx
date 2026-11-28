@@ -11,6 +11,7 @@ import { useApi, useSession } from '../features/session/session';
 import { usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
 import { SessionNotice } from './SessionNotice';
+import { isHiddenPath } from './feature-registry';
 import { shellCopy } from './shell-copy';
 import '../features/protocol/web3-shell.css';
 
@@ -76,7 +77,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
               <ShellSwitch current="web3" here={path} />
               <nav data-testid="tb-nav" className="tb-nav" aria-label={t('shellNav')}>
                 <ul>
-                  {NAV.map((item) => (
+                  {NAV.filter((item) => !isHiddenPath(item.href)).map((item) => (
                     <li key={item.key} data-testid="tb-item" className="tb-item">
                       <a data-testid="tb-tab" className="tb-tab" href={item.href} aria-current={item.match(path) ? 'page' : undefined}>
                         {t(item.key)}
@@ -140,7 +141,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
             <nav className="mobile-doors web3-doors" aria-label={t('shellNavPhone')}>
               {PHONE.map((key) => {
                 const item = NAV.find((entry) => entry.key === key)!;
-                return (
+                return isHiddenPath(item.href) ? null : (
                   <a key={key} href={item.href} aria-current={item.match(path) ? 'page' : undefined}>
                     {t(key)}
                   </a>

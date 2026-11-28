@@ -51,6 +51,10 @@ import { ContactPolicy } from './ops-config/contact-policy.js';
 import { PostgresContactPolicyStore } from './ops-config/contact-policy.pg.js';
 import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
+import { TELEGRAM_SWEEP_INTERVAL_MS, TelegramDesk } from './telegram/desk.js';
+import { PostgresTelegramStore, ageTelegramLinkCode } from './telegram/store.js';
+import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
+import { createTradeDeskClient, telegramTestBotTransport, telegramTransportFromToken, webhookSecretMatches } from './telegram/wire.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { subscribeNotificationEvents } from './events.js';
 import { SqlReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
@@ -405,6 +409,10 @@ const watchRules = new WatchRuleService(
   createIdentityWatchlistsClient({ identityUrl: process.env.IDENTITY_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
   async () => (alertMarks.marketIdsBySymbol ? alertMarks.marketIdsBySymbol() : null),
 );
+/** Telegram desk sweeps completed since start, and when the last one finished: a test proves "nothing more is sent" across real passes. */
+let telegramSweepPasses = 0;
+let lastTelegramSweepAt: string | null = null;
+
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
 let lastAlertSweepAt: string | null = null;
@@ -450,6 +458,22 @@ alerts.attachOwnerValues(
 const reconAlertFeed = new SqlReconAlertFeedStore(sql);
 // Set once the consumers attach below; until then, and if any of the four is pending, the feed reads as detached.
 let reconAlertFeedAttached = false;
+/**
+ * The launch desk's read-only Telegram alerts (telegram/desk.ts): off with `notify.telegram_token_unset` until the bot token
+ * is set, and with `notify.out_of_app_off` while the operator's out-of-app switch is off. The desk reads svc-trade's
+ * `venue.deskSnapshot` and nothing else: it holds no way to trade, cancel or move money.
+ */
+// The owner's bot when its token is set; else, on a test stack only, the TEST bot that writes each message to a file.
+const telegramBot = telegramTransportFromToken(env.NOTIFY_TELEGRAM_BOT_TOKEN, { timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS });
+const telegramTestBot = telegramBot ? null : telegramTestBotTransport(env.NOTIFY_TELEGRAM_TEST_OUTBOX, env.APP_ENV);
+const telegramDesk = new TelegramDesk({
+  store: new PostgresTelegramStore(sql),
+  transport: telegramBot ?? telegramTestBot,
+  testBot: telegramTestBot !== null,
+  bot: env.NOTIFY_TELEGRAM_BOT_NAME ?? null,
+  outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
+  reader: createTradeDeskClient({ tradeUrl: env.TRADE_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+});
 export const appRouter = createNotifyRouter(
   notify,
   alerts,
@@ -476,6 +500,7 @@ export const appRouter = createNotifyRouter(
   ),
   watchRules,
   { store: reconAlertFeed, attached: () => reconAlertFeedAttached },
+  telegramDesk,
 );
 export type AppRouter = typeof appRouter;
 
@@ -567,7 +592,35 @@ app.get('/ready', async () => ({
     unpublishedCode: ALERT_KIND_UNPUBLISHED,
     sweep: { lastAt: lastAlertSweepAt, ...(lastAlertSweep ?? { markets: 0, fired: 0, held: 0, refused: 0, refusals: {} }) },
   },
+  telegram: { on: telegramDesk.on, sweep: { passes: telegramSweepPasses, lastAt: lastTelegramSweepAt } },
 }));
+
+// The TEST age door (J-charts-desk-21 #1): on a TEST stack, a person's Telegram link code is made older, so a step sees its
+// five minutes pass without waiting them out. Closed (the default) it refuses with test_age.door_closed.
+registerTestAgeDoor(app, {
+  open: testAgeDoorOpen(process.env),
+  internalSecret: process.env.INTERNAL_SERVICE_SECRET,
+  s2s: s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined,
+  subjects: { 'telegram-link-code': ageTelegramLinkCode(sql) },
+  installRawBody: false,
+});
+
+/**
+ * The bot's webhook: every update carries the shared secret header the bot API was given; anything else is refused before
+ * it is read. The desk answers in the chat it came from. Always 200 to an authenticated update, so the bot API does not
+ * resend one the desk has already answered.
+ */
+app.post('/telegram/webhook', async (request, reply) => {
+  if (!telegramDesk.on) return reply.code(404).send({ code: telegramDesk.offReason });
+  if (!webhookSecretMatches(env.NOTIFY_TELEGRAM_WEBHOOK_SECRET, request.headers['x-telegram-bot-api-secret-token']))
+    return reply.code(401).send({ code: 'notify.telegram_webhook_unauthenticated' });
+  try {
+    await telegramDesk.handleUpdate(request.body);
+  } catch (err) {
+    app.log.error({ err }, 'svc-notify telegram update failed — the chat got no answer');
+  }
+  return reply.code(200).send({ ok: true });
+});
 
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
@@ -687,6 +740,27 @@ const maintenanceSweep = setInterval(() => {
   });
 }, MAINTENANCE_SWEEP_INTERVAL_MS);
 maintenanceSweep.unref();
+
+/**
+ * THE TELEGRAM DESK SWEEP: reads each linked person's desk, raises each alert once under its business key, and sends what is
+ * raised and unsent. Fail-safe like the sweeps above: a tick that cannot run logs and waits for the next.
+ */
+let telegramSweepRunning = false;
+const telegramSweep = setInterval(() => {
+  if (telegramSweepRunning || !telegramDesk.on) return;
+  telegramSweepRunning = true;
+  void telegramDesk
+    .sweep()
+    .then(() => {
+      telegramSweepPasses += 1;
+      lastTelegramSweepAt = new Date().toISOString();
+    })
+    .catch((err) => app.log.error({ err }, 'svc-notify telegram desk sweep failed — alerts wait for the next tick'))
+    .finally(() => {
+      telegramSweepRunning = false;
+    });
+}, TELEGRAM_SWEEP_INTERVAL_MS);
+telegramSweep.unref();
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 

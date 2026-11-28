@@ -228,7 +228,7 @@ for (const [tier, tag, status] of [
     const errors = watch(page);
     await mock(page, { 'kyc.status': () => kyc(tier, tier === 'none' ? [] : [kycRecord()]) });
     await open(page, '/verification');
-    const level = page.locator('[data-slot="status-tag"].verification__level-tag');
+    const level = page.getByTestId('verification__level-tag');
     await expect(level).toHaveText(tag);
     await expect(level).toHaveAttribute('data-status', status);
     expect(Math.round((await level.boundingBox()).height)).toBe(40);

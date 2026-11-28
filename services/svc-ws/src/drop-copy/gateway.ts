@@ -8,7 +8,7 @@ import { PrivateAuthorityLease } from '../private/authority-lease.js';
 import { resolveWsCopy, WS_COPY } from '../copy.js';
 import { CLOSE_GOING_AWAY, type DepthSink, type HubLogger } from '../depth/hub.js';
 import { redactAccessTokenQuery } from '../private/gateway.js';
-import { callerIpFromUpgrade } from '../private/caller-ip.js';
+import { publicCallerIp } from '../private/caller-ip.js';
 import { requestOriginFromUpgrade } from '../private/key-origin.js';
 import { foreignUpgradeOrigin } from '../customer-origin.js';
 import { requestAccountIdFromUpgrade } from '../private/key-account.js';
@@ -42,6 +42,11 @@ export interface DropCopyWebSocketGatewayOptions {
   readonly authority?: CurrentAuthorityPort | null;
   /** Same customer-origin list as `/private/stream`. Undefined leaves the check off. */
   readonly customerOrigins?: readonly string[];
+  /**
+   * The reverse proxy's exact addresses (`WS_TRUST_PROXY`): its `x-forwarded-for` names the caller a key's IP allowlist
+   * is checked against (`publicCallerIp`). Omitted: the TCP peer.
+   */
+  readonly trustedProxies?: readonly string[];
 }
 
 export interface DropCopyWebSocketGateway {
@@ -129,7 +134,18 @@ export function parseDropCopyChannel(raw: string | null): typeof DROP_COPY_CHANN
 }
 
 export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGatewayOptions): DropCopyWebSocketGateway {
-  const { server, hub, heartbeatMs, log, enabled, tokens, liveCredential = null, authority = null, customerOrigins } = options;
+  const {
+    server,
+    hub,
+    heartbeatMs,
+    log,
+    enabled,
+    tokens,
+    liveCredential = null,
+    authority = null,
+    customerOrigins,
+    trustedProxies = [],
+  } = options;
   let draining = false;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
 
@@ -227,7 +243,7 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
           return;
         }
 
-        const callerIp = callerIpFromUpgrade(req);
+        const callerIp = publicCallerIp(req, trustedProxies);
         const requestOrigin = requestOriginFromUpgrade(req);
         const accountId = requestAccountIdFromUpgrade(req);
         const policy = { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId };

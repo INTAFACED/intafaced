@@ -7,9 +7,12 @@ import {
 } from './venue-eligibility.js';
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
-import { compare, div, formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, tradeTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
+import { upcomingMaintenanceFor } from '@intafaced/contracts/market-maintenance';
+import type { VenueTickerRow } from '@intafaced/contracts/trade-venue-door';
+import { venueBoundPrice } from './venue-price.js';
 import {
   annualisedFundingRate,
   OWNER_ONLY_INTENTS,
@@ -28,35 +31,46 @@ import {
   venueClientOrderId,
   ordersTakenTogether,
   cancelsTakenTogether,
+  tradesSignedByOf,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueOrder,
   type UserVenueDepositRoute,
+  type UserVenueWithdrawalTerms,
   type UserVenueMarket,
   type VenueBestPrices,
+  type VenuePerpetualPrice,
   type VenueIntent,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  VENUE_CANDLE_INTERVALS,
   type VenueCandleInterval,
+  withOwnOrderLabel,
 } from '@intafaced/venue-contracts';
 import { requireMarketSlippageCapBps } from '../spot/risk.js';
-import { TradeError } from '../spot/types.js';
+import { TradeError, type PublicTapePrint } from '../spot/types.js';
+import { ANALYTICS_MAX_PRINTS, computeAnalytics, parseAnalyticsWindow } from '../spot/market-analytics.js';
+import type { MarketMaintenanceBoard } from '../market-maintenance-read.js';
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
 import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, type VenueRoutingGate } from './venue-listing.js';
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
+import { requireCloseSlippageBps } from './close-slippage.js';
 import {
-  AMEND_KEY_PREFIX,
-  amendTrail,
+  VENUE_ORDER_LABEL_RE,
   historyPage,
   parseHistoryQuery,
   VenueHistoryQueryError,
-  type VenueAmendment,
   type VenueHistoryPage,
-} from './venue-order-history.js';
+} from '@intafaced/venue-contracts';
+import { AMEND_KEY_PREFIX, amendTrail, type VenueAmendment } from './venue-order-history.js';
 import type { FeeSaverSource } from './fee-saver-client.js';
+import type { VenueWalletReads } from './http-user-venue.js';
+import type { DailyLossGuard, DailyLossWarning } from './daily-loss-limit.js';
+import { TradingRestrictionUnavailable, addsExposure, type TradingRestrictionRead } from './trading-restriction.js';
+import type { EmailProofSource } from '../spot/email-proof.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -101,7 +115,7 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
  * grants stay open below it: they only reduce what is on the venue, so a held account never strands its own funds there.
  */
 export function assertTradingLevel(principal: Principal, kind: VenueIntent['kind']): void {
-  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order' || kind === 'replace_order')
+  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order' || kind === 'replace_order' || kind === 'move_trigger')
     requireTradeTier(principal, 'basic');
 }
 
@@ -121,6 +135,8 @@ export function assertOwnWalletWithdrawal(principal: Principal, owner: string, i
   }
 }
 
+/** The asset a trader withdraws from the venue to their own wallet (J-cex-spot-01 #12), whose terms the fee page lists. */
+const WITHDRAWAL_ASSET = 'USDC';
 const MARKET_KINDS_TTL_MS = 60_000;
 /** On a symbol the list doesn't hold, the list is read again at most this often, so unlisted symbols can't each cost a venue read. */
 const MARKET_MISS_REREAD_MS = 5_000;
@@ -136,6 +152,32 @@ export const AGENT_ACCOUNT_INTENTS: ReadonlySet<VenueIntent['kind']> = new Set<V
   'sub_account_transfer',
 ]);
 
+/**
+ * A perpetual's ticker row from the venue's published prices: its mark, its index, its price 24 hours ago and the move
+ * since then (mark minus that price, and that over it as a ratio). It has no last print, high, low, bid or ask here.
+ */
+function perpetualTicker(p: VenuePerpetualPrice): VenueTickerRow {
+  const fmt = (value: Amount | undefined) => (value === undefined ? null : formatAmount(value));
+  const change = p.openPrice === undefined ? undefined : sub(p.markPrice, p.openPrice);
+  const changePct = change === undefined || p.openPrice === undefined || p.openPrice === ZERO ? undefined : div(change, p.openPrice);
+  return {
+    symbol: p.symbol,
+    last: null,
+    high: null,
+    low: null,
+    baseVolume: fmt(p.baseVolume),
+    quoteVolume: fmt(p.volume),
+    bid: null,
+    ask: null,
+    spread: null,
+    mark: formatAmount(p.markPrice),
+    index: fmt(p.indexPrice),
+    open: fmt(p.openPrice),
+    change: fmt(change),
+    changePct: fmt(changePct),
+  };
+}
+
 /** How the agent account (agent-account.ts) calls the door for its own actions. */
 export interface DoorCaller {
   readonly agentAccount?: boolean;
@@ -143,6 +185,8 @@ export interface DoorCaller {
   readonly liveRun?: boolean;
   /** Set only by Convert (src/venue/venue-convert.ts): its orders are stored under `convert:` keys. */
   readonly convert?: boolean;
+  /** Optional ISO-8601 caller deadline (J-cex-spot-04 #7), enforced on first submit before any venue call or lock. */
+  readonly requestDeadline?: string | null;
 }
 
 /** A live strategy run's keys (`algo:order:`, `algo:liquidate:`, `algo:stop:`, `algo:deploy:`): only the run stores or sends one. */
@@ -220,6 +264,7 @@ const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
 export type UserVenueDoorCode =
   | 'trade.user_venue_off'
+  | 'trade.request_expired'
   | 'trade.cancel_all_after_rejected'
   | 'trade.cancel_all_after_unset'
   | 'trade.venue.withdraw_own_wallet_only'
@@ -238,13 +283,13 @@ export type UserVenueDoorCode =
   | 'trade.venue_orders_limit_invalid'
   | 'trade.invalid_cursor'
   | 'trade.invalid_filter'
+  | 'trade.order_label_invalid'
   | 'trade.venue_order_not_found'
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
   | 'trade.venue.price_outside_protection'
   // A venue market order on a book whose spread is wider than the owner's spread limit (J-cex-spot-03 #2).
   | 'trade.venue.spread_too_wide'
-  | 'trade.venue_rule_unpublished'
   | 'trade.venue_agent_account_only'
   | 'trade.venue_live_run_only'
   | 'trade.venue_action_other_venue'
@@ -255,6 +300,7 @@ export type UserVenueDoorCode =
   | 'trade.venue_session_none'
   | 'trade.venue_session_unavailable'
   | 'trade.venue_session_superseded'
+  | 'trade.venue_session_signed_out'
   | 'trade.venue_own_key_misused'
   | 'trade.venue_sub_account_not_own'
   // J-derivatives-12 #4 #5: the eligibility level for the venue's perpetuals (venue-eligibility.ts), and the builder-fee read.
@@ -286,7 +332,19 @@ export type UserVenueDoorCode =
   | VenueRouteRefusalCode
   // J-derivatives-07 #5: the auto-deleveraging acknowledgement routes are off here, or name a version the venue replaced.
   | 'trade.venue_adl_acks_unmounted'
-  | 'trade.venue_adl_version_stale';
+  | 'trade.venue_adl_version_stale'
+  // J-cex-spot-14 #9: venue market analytics window validation.
+  | 'trade.analytics_window_unset'
+  | 'trade.analytics_window_invalid'
+  // The person's own daily loss limit (daily-loss-limit.ts): reached with blocking on, or unreadable while blocking.
+  | 'trade.daily_loss_limit_reached'
+  | 'trade.daily_loss_unreadable'
+  // Identity's trading restriction (trading-restriction.ts, J-support-public-20 #7): held, or unreadable.
+  | 'trade.account_restricted'
+  | 'trade.account_restriction_unavailable'
+  // The person's email proof (spot/email-proof.ts, J-identity-01 #8): never proved, or unreadable.
+  | 'trade.email_proof_required'
+  | 'trade.identity_unavailable';
 
 /**
  * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
@@ -319,10 +377,32 @@ export class UserVenueDoorError extends Error {
   }
 }
 
+/** A sent action the venue definitely refused: it did nothing, and its key only ever replays that refusal. */
+function refusedApproval(row: StoredVenueAction): boolean {
+  const o = row.lastOutcome;
+  return row.signature !== null && o?.definite === true && !o.accepted;
+}
+/** The same test for a sent order: the venue placed nothing under its client order id. */
+const refusedOrder = refusedApproval;
+/** A retried order's later tries are stored under `<its key>:retry:<n>` (`retryOrderKey`). */
+const ORDER_RETRY_INFIX = ':retry:';
+
+/** The key a fixed agent's approval was first prepared under: a retry's `:<n>` taken off (`fixedAgentApprovalKey`). */
+const approvalBase = (key: string) => key.replace(/:\d+$/, '');
+
 /** The longest Idempotency-Key header accepted (DV-auth-03). */
 export const IDEMPOTENCY_KEY_MAX = 255;
 /** How long one request may hold a key's send before another request can take it over (a crashed request). */
 const SEND_CLAIM_MS = 30_000;
+/**
+ * An agent approval sent while the venue still removes an agent ended moments before is refused `agent_removal_pending`
+ * (Hyperliquid holds the removal a few seconds). The same signed approval is sent again after each pause, at most this
+ * many times: 4 pauses of 2 s, well inside the app's 15-second request timeout and this door's send claim.
+ */
+const REMOVAL_PENDING_RESENDS = 4;
+const REMOVAL_PENDING_PAUSE_MS = 2_000;
+/** What the person reads when the venue still holds the removal after the last pause. */
+const REMOVAL_PENDING_WORDS = 'the venue is still ending your last trading session; nothing was approved: try again in a few seconds';
 
 /**
  * The business key an order sent with an `Idempotency-Key` header is stored and placed under (J-developer-05): the same
@@ -368,10 +448,15 @@ export interface VenueOrderPage {
   readonly nextCursor: string | null;
 }
 
-/** Our own record of one venue order (`UserVenueDoor.orderRecord`, J-cex-spot-06 #5 #10). */
+/** Our own record of one venue order (`UserVenueDoor.orderRecord`, J-cex-spot-06 #5 #10, J-derivatives-04 #2). */
 export interface VenueOrderRecordOfOurs {
+  /** The venue's display name for this order. */
+  readonly venueName: string;
   /** When the venue says the order was placed; null on a venue that keeps no order history. */
   readonly placedAt: Date | null;
+  readonly origin: UserVenueOrder['origin'];
+  readonly originRef: string | null;
+  readonly label: string | null;
   readonly amendments: readonly VenueAmendment[];
   readonly builderFee: {
     /** The rate the order was signed with, scaled bps. */
@@ -444,13 +529,20 @@ export function parseBuilderAddress(address: string | undefined): string | null 
 }
 
 /** A venue the door reaches, with the chain its actions name and its deposit route when it has one. */
-export type ConnectedUserVenue = UserVenue & { readonly chainId?: number; readonly depositRoute?: UserVenueDepositRoute | null };
+export type ConnectedUserVenue = UserVenue & {
+  readonly chainId?: number;
+  readonly depositRoute?: UserVenueDepositRoute | null;
+  /** Where the person's browser makes their own-wallet reads itself (http-user-venue.ts `VenueWalletReads`). */
+  readonly walletReads?: VenueWalletReads | null;
+};
 
 export interface UserVenueDoorDeps {
   /** Reach the venue. Called until it succeeds; its descriptor is checked against APP_ENV each time it connects. */
   readonly connect: () => Promise<ConnectedUserVenue>;
   /** The RAW `process.env.APP_ENV`. */
   readonly appEnv: string | undefined;
+  /** The RAW `process.env.INTAFACED_BETA_POSTURE`: `test-networks` beside APP_ENV `staging` also lets a TEST venue run (the beta posture). */
+  readonly betaPosture?: string;
   readonly store: PreparedActionStore;
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
@@ -471,9 +563,17 @@ export interface UserVenueDoorDeps {
    * on preview and on prepare, before anything is prepared. Never a default.
    */
   readonly spreadLimitBps?: number | null;
+  /**
+   * The owner's close tolerance in basis points (TRADE_CLOSE_SLIPPAGE_BPS, close-slippage.ts), or null/absent when blank.
+   * `status` publishes it for the desk's closes; blank refuses a perpetual's reduce-only market or IOC order
+   * `trade.close_slippage_unset`, on preview and on prepare. Never a default.
+   */
+  readonly closeSlippageBps?: number | null;
   /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
   readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
+  /** Pause this long before sending again (an approval the venue refused while it removes an ended agent). Default: a timer. */
+  readonly wait?: (ms: number) => Promise<void>;
   /** Our listings, routing states and largest routed orders (J-cex-spot-16). */
   readonly listings: VenueRoutingGate;
   /** Owner value: the largest page of `GET /api/v1/venue/orders`. Null (blank) refuses every list. */
@@ -495,6 +595,23 @@ export interface UserVenueDoorDeps {
    * wires it (venue/wire.ts); absent only in a unit test that does not exercise it, where no position is checked.
    */
   readonly eligibility?: { readonly level: VenueEligibilityLevel | null };
+  /** Published market maintenance windows from svc-notify (J-cex-spot-14 #5); absent in tests without notify. */
+  readonly maintenanceBoard?: MarketMaintenanceBoard;
+  /**
+   * The person's own daily loss limit (daily-loss-limit.ts): at or past it, a fresh opening order the person prepares
+   * warns (advisory) or is refused (blocking); a reduce-only order is never held. Absent: no limit is checked.
+   */
+  readonly dailyLoss?: DailyLossGuard;
+  /**
+   * Identity's trading restriction (J-support-public-20 #7), read per new order that adds exposure, before the venue is
+   * asked to prepare it and again before an order never sent is sent. wire.ts always passes it.
+   */
+  readonly tradingRestriction?: TradingRestrictionRead;
+  /**
+   * Identity's email proof (RC-identity-01, J-identity-01 #8): a new order that adds exposure waits until the person has
+   * proved they own the account's email, read per order the same way as the trading restriction. wire.ts always passes it.
+   */
+  readonly emailProof?: EmailProofSource;
 }
 
 /**
@@ -546,8 +663,9 @@ export function spreadTooWide(best: Pick<VenueBestPrices, 'bid' | 'ask'>, limitB
 }
 
 /**
- * A market order's furthest worst price under the protection: a buy at most the best ask plus `capBps` (rounded up to
- * the tick), a sell at least the best bid less it (rounded down), as the desk's `slippageLimit`. Null with no price.
+ * A market order's furthest worst price under the protection: a buy at most the best ask plus `capBps`, a sell at
+ * least the best bid less it, on the venue's price rule rounded toward the market (`venueBoundPrice`), as the
+ * desk's `slippageLimit`. Null with no price.
  */
 export function marketProtectionBound(
   side: 'buy' | 'sell',
@@ -560,8 +678,7 @@ export function marketProtectionBound(
   const one = 10_000n;
   const ratio = BigInt(capBps);
   const moved = side === 'buy' ? (reference * (one + ratio)) / one : (reference * (one - ratio)) / one;
-  const ticks = side === 'buy' ? (moved + tick - 1n) / tick : moved / tick;
-  const bound = ticks * tick;
+  const bound = venueBoundPrice(side, { moved, reference, tick });
   return bound > 0n ? bound : null;
 }
 
@@ -579,6 +696,19 @@ export interface PrepareRequest {
    * `orderKeyOfIdempotencyKey(header)`, which becomes its `clientOrderKey`.
    */
   readonly idempotencyKey?: string | null;
+  /**
+   * Optional ISO-8601 caller deadline (J-cex-spot-04 #7). If already passed when a fresh action is prepared or submitted,
+   * the door refuses `trade.request_expired` before asking the venue, spending step-up, or locking anything. Waived on
+   * replay of an already-stored action.
+   */
+  readonly requestDeadline?: string | null;
+  /**
+   * An order whose signed send the venue definitely refused is prepared afresh, under a try key of its own
+   * (`<key>:retry:<n>`) and the same client order key, so the same client order id goes to the venue once more under a
+   * new nonce (J-derivatives-33 #5: a failed close retried alone). An order the venue took, or one whose answer is not
+   * known, answers its stored action, as without it: it is never sent again by this.
+   */
+  readonly retryRefused?: boolean;
 }
 
 export interface PreparedAnswer {
@@ -588,6 +718,8 @@ export interface PreparedAnswer {
   readonly reused: boolean;
   readonly signed: boolean;
   readonly lastOutcome: VenueSubmitOutcome | null;
+  /** An advisory daily loss limit reached (or unreadable) on a fresh opening order: the order is still prepared. */
+  readonly warnings?: readonly DailyLossWarning[];
 }
 
 export interface SubmitAnswer {
@@ -603,6 +735,27 @@ export interface SubmitAnswer {
 
 function invalid(message: string): never {
   throw new UserVenueDoorError(message, 'trade.venue_request_invalid', 400);
+}
+
+const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T/;
+
+/** Parse an optional ISO-8601 `requestDeadline` to epoch ms, or null when omitted; malformed refuses 400 invalid. */
+function parseRequestDeadline(requestDeadline: string | null | undefined): number | null {
+  if (requestDeadline === undefined || requestDeadline === null) return null;
+  if (typeof requestDeadline !== 'string' || !ISO_TIMESTAMP_RE.test(requestDeadline)) {
+    invalid('requestDeadline must be an ISO-8601 timestamp');
+  }
+  const at = Date.parse(requestDeadline);
+  if (Number.isNaN(at)) invalid('requestDeadline must be an ISO-8601 timestamp');
+  return at;
+}
+
+/** Refuse a caller deadline that has already passed (J-cex-spot-04 #7), before any venue call, hold or step-up. */
+function assertRequestDeadline(requestDeadline: string | null | undefined, now: Date): void {
+  const at = parseRequestDeadline(requestDeadline);
+  if (at !== null && at <= now.getTime()) {
+    throw new UserVenueDoorError('the request deadline has passed; nothing was prepared, signed or locked', 'trade.request_expired', 400);
+  }
 }
 
 const SIDES: ReadonlySet<unknown> = new Set(['buy', 'sell']);
@@ -624,6 +777,11 @@ function assertPlaceIntent(intent: PlaceUserOrderIntent): void {
   if (!TIMES_IN_FORCE.has(i.timeInForce)) invalid('timeInForce must be GTC, IOC or ALO');
   if (typeof i.reduceOnly !== 'boolean') invalid('reduceOnly must be true or false');
   if (typeof i.clientOrderKey !== 'string') invalid('clientOrderKey must be the business key of this order');
+  if (i.label !== undefined && i.label !== null) {
+    if (typeof i.label !== 'string' || !VENUE_ORDER_LABEL_RE.test(i.label)) {
+      throw new UserVenueDoorError('A label is up to 36 letters, digits and . _ : - with no spaces.', 'trade.order_label_invalid', 400);
+    }
+  }
 }
 
 /**
@@ -674,6 +832,16 @@ function assertChangeIntent(intent: AmendUserOrderIntent | ReplaceUserOrderInten
   if (!order || typeof order !== 'object' || order.kind !== 'place_order') invalid('a replacement is a place_order');
   assertPlaceIntent(order);
   if (order.symbol !== intent.symbol) invalid('the replacement is on the market of the order it replaces');
+}
+
+/** A resting stop or take profit moved in place (J-derivatives-32): named by the venue's client id, both prices positive. */
+function assertMoveTriggerIntent(intent: VenueIntent): void {
+  const i: Record<string, unknown> = { ...intent };
+  if (typeof i.symbol !== 'string' || !/^\S{1,64}$/.test(i.symbol)) invalid('symbol must be a venue market symbol');
+  if (typeof i.venueClientOrderId !== 'string' || !CLIENT_ID_RE.test(i.venueClientOrderId))
+    invalid("venueClientOrderId must be the venue's client id of the stop or take profit to move");
+  if (!positive(i.triggerPrice)) invalid('triggerPrice must be a positive decimal string');
+  if (!positive(i.price)) invalid('price must be a positive decimal string');
 }
 
 /** Several orders cancelled in one signed action (J-cex-spot-05 #5, #6), each named by the venue's client id, once. */
@@ -756,7 +924,7 @@ export class UserVenueDoor {
   async venue(): Promise<ConnectedUserVenue> {
     if (!this.venuePromise) {
       this.venuePromise = this.deps.connect().then((v) => {
-        refuseTestVenueOutsideTest(v.venue, this.deps.appEnv);
+        refuseTestVenueOutsideTest(v.venue, this.deps.appEnv, this.deps.betaPosture);
         this.connectedVenueId = v.venue.id;
         return v;
       });
@@ -785,7 +953,11 @@ export class UserVenueDoor {
       // How the venue changes and cancels resting orders (J-cex-spot-05): in place or by cancel-and-replace signed once,
       // and how many it cancels in one signed action (0: one cancel per signature).
       amendsInPlace: venue.venue.amendsInPlace === true,
+      // Whether a resting stop or target moves in place (J-derivatives-32): dragged on the chart only where it does.
+      movesTriggersInPlace: venue.venue.movesTriggersInPlace === true,
       cancelsPerAction: cancelsTakenTogether(venue.venue),
+      // Who signs the venue's orders, cancels and changes: the owner's wallet, or a trading session's key it approved once.
+      tradesSignedBy: tradesSignedByOf(venue.venue),
       // The venue's own scheduled cancel (J-cex-spot-07), with the owner's published timeouts (null: blank); null where the
       // venue offers none.
       scheduledCancel: venue.venue.scheduledCancel
@@ -796,9 +968,16 @@ export class UserVenueDoor {
       chainId: venue.chainId ?? null,
       // Where the customer's own wallet sends a token to fund this venue account: the customer's transfer, never ours.
       deposit: venue.depositRoute ?? null,
+      // Where the desk reads the person's own fills, balances and positions from their own browser (the venue's
+      // public read endpoint, by address with no key), so they count against the person's IP, not this box's one. Null:
+      // every read comes through this door.
+      walletReads: venue.walletReads ?? null,
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
       // J-derivatives-30 #1: our builder address alone, so an approval stays readable and revocable while the fee is blank.
       builderAddress: this.publishedBuilderAddress(),
+      // The owner's close tolerance (TRADE_CLOSE_SLIPPAGE_BPS): how far the desk's reduce-only closes cross from the mark;
+      // null is blank, and every such close is refused here by name.
+      closeSlippageBps: this.deps.closeSlippageBps ?? null,
     };
   }
 
@@ -933,12 +1112,22 @@ export class UserVenueDoor {
    * A market order is bounded by the owner's price protection, here and not only in the browser: blank refuses
    * `trade.slippage_cap_unset`; no best price on the side it meets refuses `trade.no_reference_price` (never an
    * unbounded order); a worst price past the bound refuses `trade.venue.price_outside_protection`. A limit order is
-   * not touched. Spot only: a perpetual's market order carries the futures ticket's own typed worst price.
+   * not touched. On perpetuals, a blank slippage cap refuses market opens (`!reduceOnly`, J-derivatives-02 #5) while
+   * reduce-only closes always pass and, with a cap published, the futures ticket's typed worst price goes to the venue.
    */
   private async assertMarketProtection(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
+    // A reduce-only close that takes the book now (a market order, or an IOC limit at a close's worst price) on a
+    // perpetual is priced by the owner's close tolerance (close-slippage.ts): blank refuses before anything is prepared.
+    const takesNow = intent.type === 'market' || intent.timeInForce === 'IOC';
+    if (intent.reduceOnly && takesNow && (await this.market(venue, intent.symbol)).kind !== 'spot') {
+      requireCloseSlippageBps(this.deps.closeSlippageBps);
+    }
     if (intent.type !== 'market') return;
     const market = await this.market(venue, intent.symbol);
-    if (market.kind !== 'spot') return;
+    if (market.kind !== 'spot') {
+      if (!intent.reduceOnly) requireMarketSlippageCapBps(this.deps.slippageCapBps);
+      return;
+    }
     const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
     const spreadLimit = requireMarketSpreadLimitBps(this.deps.spreadLimitBps);
     if (typeof intent.price !== 'bigint') invalid('a market order carries its worst price as a decimal string');
@@ -965,28 +1154,6 @@ export class UserVenueDoor {
         422,
       );
     }
-  }
-
-  /**
-   * A new spot order is taken only on a market whose venue publishes the rules it is checked against (J-cex-spot-04 #6):
-   * its smallest order value, its price band and its open-order cap. One the venue does not publish refuses
-   * `trade.venue_rule_unpublished`, naming each missing rule, before anything is prepared: the door never stands in a
-   * default of its own. The venue enforces each published rule itself and refuses in its own words.
-   */
-  private async assertRulesPublished(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
-    const market = await this.market(venue, intent.symbol);
-    if (market.kind !== 'spot') return;
-    const missing = [
-      market.minOrderNotional == null ? 'smallest order value' : null,
-      market.priceBandBps == null ? 'price band' : null,
-      market.maxOpenOrders == null ? 'open-order cap' : null,
-    ].filter((x): x is string => x !== null);
-    if (missing.length === 0) return;
-    throw new UserVenueDoorError(
-      `${venue.venue.displayName} publishes no ${missing.join(', no ')} for ${intent.symbol}, so this order can't be checked against it; nothing was prepared`,
-      'trade.venue_rule_unpublished',
-      422,
-    );
   }
 
   /** Our builder address on the venue: the owner value, or null when it is blank. */
@@ -1017,7 +1184,11 @@ export class UserVenueDoor {
     const address = this.builderAddress();
     let feeBps: Amount | null = this.deps.builder?.feeBps ?? null;
     try {
-      const versioned = builderFeeOf((await this.deps.builderFeesAt?.(this.deps.now())) ?? null, venueId, intent?.symbol ?? '');
+      const versioned = builderFeeOf((await this.deps.builderFeesAt?.(this.deps.now())) ?? null, {
+        venueId,
+        symbol: intent?.symbol ?? '',
+        kind,
+      });
       if (versioned) feeBps = versioned.feeBps;
     } catch (err) {
       if (!(err instanceof BuilderFeeVersionError)) throw err;
@@ -1125,14 +1296,70 @@ export class UserVenueDoor {
   /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
   async markets() {
     const venue = await this.venue();
-    const read = await venue.markets(null);
-    const shown = await this.deps.listings.shown(venue.venue.id, this.deps.now());
+    const now = this.deps.now();
+    const [read, shown, board] = await Promise.all([
+      venue.markets(null),
+      this.deps.listings.shown(venue.venue.id, now),
+      this.deps.maintenanceBoard ? this.deps.maintenanceBoard() : Promise.resolve(null),
+    ]);
+    // Merge newly seen markets into the cached map without advancing `at`: a public `markets()` read (or svc-ws poll)
+    // must never reset the miss-reread window and cause a newly added market to fail `unknown_market` in `market()`.
+    if (this.marketList) {
+      for (const m of read.value) this.marketList.markets.set(m.symbol, m);
+    }
     const value: ListedVenueMarket[] = [];
     for (const m of read.value) {
       const listing = shown.get(m.symbol);
-      if (listing) value.push({ ...m, listing });
+      if (listing) {
+        value.push({
+          ...m,
+          listing,
+          ...(this.deps.maintenanceBoard ? { upcomingMaintenance: upcomingMaintenanceFor(m.symbol, board, now) } : {}),
+        });
+      }
     }
     return { ...read, value };
+  }
+
+  /**
+   * J-cex-spot-14 #1 #2 #5 #6 #7: each market we show, signed in or not, with the venue's own trading state, session,
+   * opening window, higher-risk zone, our listing and upcoming maintenance beside them. Read only: nothing is prepared
+   * or sent. `asOf` is the venue read's own time.
+   */
+  async marketStates() {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const test = isTestVenue(venue.venue);
+    return {
+      venueId: read.venueId,
+      value: {
+        venue: { id: venue.venue.id, displayName: venue.venue.displayName },
+        markets: read.value.map((m) => ({
+          symbol: m.symbol,
+          kind: m.kind,
+          baseAsset: m.baseAsset,
+          quoteAsset: m.quoteAsset,
+          tickSize: m.tickSize,
+          lotSize: m.lotSize,
+          status: m.status,
+          session: m.session,
+          listing: {
+            opensAt: m.listing.opensAt,
+            delistsAt: m.listing.delistsAt,
+            routing: m.listing.routing,
+            open: m.listing.open,
+            delisted: m.listing.delisted,
+          },
+          openingWindowEndsAt: m.openingWindowEndsAt ?? null,
+          zone: m.zone ?? null,
+          zoneOrderCap: m.zoneOrderCap ?? null,
+          ...(m.upcomingMaintenance ? { upcomingMaintenance: m.upcomingMaintenance } : {}),
+        })),
+        test,
+        ...(test ? { label: 'TEST' } : {}),
+      },
+      asOf: read.asOf,
+    };
   }
 
   /**
@@ -1147,6 +1374,11 @@ export class UserVenueDoor {
       throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no fee tiers' });
     const status = await venue.feeStatus(null);
     const listed = await this.markets();
+    // A venue that charges by tier publishes no rate of a market's own: a market read with no account shows the rate a
+    // new account pays there, the first tier's for its kind. A venue whose markets carry their own rates keeps a blank one
+    // blank ("not set").
+    const first = status.value.ratesByTier ? (status.value.schedule.tiers?.[0] ?? null) : null;
+    const base = (kind: 'spot' | 'perpetual') => (first ? (kind === 'spot' ? first.spot : first.perpetual) : null);
     const markets = [];
     for (const m of listed.value) {
       // The kind comes from the list just read, so a market listed seconds ago is priced, not refused from an older list.
@@ -1154,11 +1386,21 @@ export class UserVenueDoor {
       markets.push({
         symbol: m.symbol,
         kind: m.kind,
-        makerFeeBps: m.makerFeeBps,
-        takerFeeBps: m.takerFeeBps,
+        makerFeeBps: m.makerFeeBps.known ? m.makerFeeBps : (base(m.kind)?.makerFeeBps ?? m.makerFeeBps),
+        takerFeeBps: m.takerFeeBps.known ? m.takerFeeBps : (base(m.kind)?.takerFeeBps ?? m.takerFeeBps),
         builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
         builderFeeBps: ours && ours.carries ? { known: true, value: ours.feeBps } : { known: false },
       });
+    }
+    // What taking USDC out to the trader's own wallet costs, as the venue publishes it (J-cex-spot-01 #12), listed
+    // beside the trading fees. A venue that publishes no terms answers null, shown "not published", never as free.
+    let withdrawal: UserVenueWithdrawalTerms | null = null;
+    if (venue.withdrawalTerms) {
+      try {
+        withdrawal = (await venue.withdrawalTerms(WITHDRAWAL_ASSET)).value;
+      } catch (err) {
+        if (!(err instanceof VenueRefusalError && err.refusal.code === 'not_offered')) throw err;
+      }
     }
     const test = isTestVenue(venue.venue);
     return {
@@ -1167,6 +1409,7 @@ export class UserVenueDoor {
         venue: { id: venue.venue.id, displayName: venue.venue.displayName },
         schedule: status.value.schedule,
         markets,
+        withdrawal,
         test,
         ...(test ? { label: 'TEST' } : {}),
       },
@@ -1347,7 +1590,11 @@ export class UserVenueDoor {
   async spotCandles(base: string, interval: VenueCandleInterval, limit: number) {
     const venue = await this.venue();
     const wanted = base.toUpperCase();
-    const spot = (await this.markets()).value.find((m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted);
+    const markets = (await this.markets()).value;
+    const spot =
+      markets.find(
+        (m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted && ['USDC', 'USDT', 'USD'].includes(m.quoteAsset.toUpperCase()),
+      ) ?? markets.find((m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted);
     if (!spot)
       throw new VenueRefusalError({
         venueId: venue.venue.id,
@@ -1360,23 +1607,190 @@ export class UserVenueDoor {
     return { ...read, symbol: spot.symbol, test: isTestVenue(venue.venue) };
   }
 
-  async marketCandles(symbol: string, interval: VenueCandleInterval, limit: number) {
-    const venue = await this.listedVenue(symbol);
+  /** The deepest history one candle read answers on the chart workbench (matches HISTORY_DEPTH). */
+  static readonly CHART_CANDLE_DEPTH = 720;
+
+  async marketCandles(read: { symbol: string; interval: VenueCandleInterval; limit: number; since?: Date }) {
+    const venue = await this.listedVenue(read.symbol);
     if (!venue.candles)
       throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no candles' });
-    return { ...(await venue.candles(symbol, interval, limit)), test: isTestVenue(venue.venue) };
+    const query = read.since ? { limit: read.limit, since: read.since } : read.limit;
+    return { ...(await venue.candles(read.symbol, read.interval, query)), test: isTestVenue(venue.venue) };
+  }
+
+  /**
+   * Public chart markets (J-charts-desk-01): every venue market we list, with its tick and lot sizes, venue status,
+   * listing routing and the intervals this venue serves, signed in or signed out.
+   */
+  async chartMarkets() {
+    const venue = await this.venue();
+    const read = await this.markets();
+    return {
+      venueId: read.venueId,
+      venueName: venue.venue.displayName,
+      test: isTestVenue(venue.venue),
+      intervals: Object.keys(VENUE_CANDLE_INTERVALS),
+      asOf: read.asOf,
+      value: read.value.map((m) => ({
+        symbol: m.symbol,
+        kind: m.kind,
+        baseAsset: m.baseAsset,
+        quoteAsset: m.quoteAsset,
+        tickSize: m.tickSize,
+        lotSize: m.lotSize,
+        minOrderNotional: m.minOrderNotional ?? null,
+        status: m.status ?? null,
+        listing: m.listing,
+      })),
+    };
+  }
+
+  /** Public chart candles (J-charts-desk-01): the venue's own candles on a listed market, signed in or signed out. */
+  async chartCandles(read: { symbol: string; interval: VenueCandleInterval; limit: number; since?: Date }) {
+    const { symbol } = await this.resolveListedSymbol(read.symbol);
+    return { ...(await this.marketCandles({ ...read, symbol })), depth: UserVenueDoor.CHART_CANDLE_DEPTH };
+  }
+
+  /** Public depth book for a listed venue market (J-cex-spot-14 #8), signed in or out, with monotonic sequence. */
+  async publicBook(rawSymbol: string, depth: number) {
+    const { venue, symbol } = await this.resolveListedSymbol(rawSymbol);
+    if (!venue.book) throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
+    return { ...(await venue.book(symbol, depth)), test: isTestVenue(venue.venue) };
+  }
+
+  /**
+   * Public venue tickers (J-cex-spot-14 #8): every listed spot market's from the venue's own book and 24h prints, and
+   * every listed perpetual's from the venue's own published prices, read once for all of them (`perpetualPrices`). A
+   * venue that publishes none leaves the perpetuals out, and their rows show no price.
+   */
+  async publicTickers() {
+    const venue = await this.venue();
+    const listed = await this.markets();
+    const spots = listed.value.filter((m) => m.kind === 'spot');
+    const cutoffMs = listed.asOf.getTime() - 24 * 60 * 60_000;
+    const rows: Record<string, VenueTickerRow> = {};
+    let asOf = listed.asOf;
+    await Promise.all(
+      spots.map(async (m) => {
+        const [best, tape] = await Promise.all([
+          venue.bestPrices ? venue.bestPrices(m.symbol) : Promise.resolve(null),
+          venue.trades ? venue.trades(m.symbol, ANALYTICS_MAX_PRINTS) : Promise.resolve(null),
+        ]);
+        if (best && best.asOf.getTime() > asOf.getTime()) asOf = best.asOf;
+        if (tape && tape.asOf.getTime() > asOf.getTime()) asOf = tape.asOf;
+        const bid = best?.value.bid ?? null;
+        const ask = best?.value.ask ?? null;
+        const spread = bid !== null && ask !== null ? sub(ask, bid) : null;
+        const prints = tape?.value ?? [];
+        const last = prints[0]?.price ?? null;
+        let high: Amount | null = null;
+        let low: Amount | null = null;
+        let baseVol: Amount = ZERO;
+        let quoteVol: Amount = ZERO;
+        for (const p of prints) {
+          if (p.tradedAt.getTime() < cutoffMs) continue;
+          if (high === null || compare(p.price, high) > 0) high = p.price;
+          if (low === null || compare(p.price, low) < 0) low = p.price;
+          baseVol = add(baseVol, p.amount);
+          quoteVol = add(quoteVol, mul(p.price, p.amount, 'floor'));
+        }
+        rows[m.symbol] = {
+          symbol: m.symbol,
+          last: last === null ? null : formatAmount(last),
+          high: high === null ? null : formatAmount(high),
+          low: low === null ? null : formatAmount(low),
+          baseVolume: formatAmount(baseVol),
+          quoteVolume: formatAmount(quoteVol),
+          bid: bid === null ? null : formatAmount(bid),
+          ask: ask === null ? null : formatAmount(ask),
+          spread: spread === null ? null : formatAmount(spread),
+        };
+      }),
+    );
+    const perps = new Set(listed.value.filter((m) => m.kind === 'perpetual').map((m) => m.symbol));
+    if (perps.size > 0 && venue.perpetualPrices) {
+      // A failed perpetual read leaves those rows out (each then shows no price) and never takes the spot rows with it.
+      const read = await venue.perpetualPrices().catch(() => null);
+      if (read && read.asOf.getTime() > asOf.getTime()) asOf = read.asOf;
+      for (const p of read?.value ?? []) if (perps.has(p.symbol)) rows[p.symbol] = perpetualTicker(p);
+    }
+    return { venueId: listed.venueId, value: rows, asOf, test: isTestVenue(venue.venue) };
+  }
+
+  /** Public venue spreads for every listed spot market (J-cex-spot-14 #8): exact best ask minus best bid, or null. */
+  async publicSpreads() {
+    const venue = await this.venue();
+    const listed = await this.markets();
+    const spots = listed.value.filter((m) => m.kind === 'spot');
+    let asOf = listed.asOf;
+    const rows = await Promise.all(
+      spots.map(async (m) => {
+        const best = venue.bestPrices ? await venue.bestPrices(m.symbol) : null;
+        if (best && best.asOf.getTime() > asOf.getTime()) asOf = best.asOf;
+        const bid = best?.value.bid ?? null;
+        const ask = best?.value.ask ?? null;
+        const spread = bid !== null && ask !== null ? sub(ask, bid) : null;
+        return {
+          symbol: m.symbol,
+          bid: bid === null ? null : formatAmount(bid),
+          ask: ask === null ? null : formatAmount(ask),
+          spread: spread === null ? null : formatAmount(spread),
+        };
+      }),
+    );
+    return { venueId: listed.venueId, value: rows, asOf, test: isTestVenue(venue.venue) };
+  }
+
+  /**
+   * Public market analytics from the venue's own trade tape (J-cex-spot-14 #9): aggressor differential and window stats
+   * with the window named. A blank window refuses `trade.analytics_window_unset`.
+   */
+  async publicAnalytics(rawSymbol: string, rawWindow: unknown) {
+    const parsed = parseAnalyticsWindow(rawWindow);
+    if (!parsed.ok) {
+      const code = parsed.code === 'trade.analytics_window_unset' ? 'trade.analytics_window_unset' : 'trade.analytics_window_invalid';
+      throw new UserVenueDoorError(parsed.message, code, 400);
+    }
+    const { venue, symbol } = await this.resolveListedSymbol(rawSymbol);
+    if (!venue.trades)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no trades' });
+    const read = await venue.trades(symbol, ANALYTICS_MAX_PRINTS);
+    const tape: PublicTapePrint[] = [];
+    for (const [i, p] of read.value.entries()) {
+      if (p.takerSide !== 'buy' && p.takerSide !== 'sell') continue;
+      tape.push({
+        id: p.tradeId,
+        side: p.takerSide,
+        price: p.price,
+        qty: p.amount,
+        quoteAmount: mul(p.price, p.amount, 'floor'),
+        sequence: read.value.length - i,
+        ts: p.tradedAt,
+      });
+    }
+    const stats = computeAnalytics(symbol, parsed.window, tape, read.asOf.getTime(), read.value.length < ANALYTICS_MAX_PRINTS);
+    return { ...stats, venueId: read.venueId, asOf: read.asOf, test: isTestVenue(venue.venue) };
+  }
+
+  /** Resolve a venue symbol (accepting `BTC-USDC` or slash `BTC/USDC`) against our listed markets, else `not_offered`. */
+  private async resolveListedSymbol(rawSymbol: string) {
+    const venue = await this.venue();
+    const listed = (await this.markets()).value;
+    const exact = listed.find((m) => m.symbol === rawSymbol);
+    if (exact) return { venue, symbol: exact.symbol };
+    const dashed = rawSymbol.replace('/', '-');
+    const match = listed.find((m) => m.symbol === dashed);
+    if (match) return { venue, symbol: match.symbol };
+    throw new VenueRefusalError({
+      venueId: venue.venue.id,
+      code: 'not_offered',
+      detail: `${rawSymbol} is not a market we list on this venue`,
+    });
   }
 
   /** The venue, once `symbol` is a market we list on it; else `not_offered`. */
   private async listedVenue(symbol: string) {
-    const venue = await this.venue();
-    if (!(await this.markets()).value.some((m) => m.symbol === symbol))
-      throw new VenueRefusalError({
-        venueId: venue.venue.id,
-        code: 'not_offered',
-        detail: `${symbol} is not a market we list on this venue`,
-      });
-    return venue;
+    return (await this.resolveListedSymbol(symbol)).venue;
   }
 
   /** A new order our listing, routing state, dates or largest order refuse, as this door's typed refusal. */
@@ -1387,6 +1801,11 @@ export class UserVenueDoor {
       if (err instanceof VenueRouteRefusal) throw new UserVenueDoorError(err.message, err.code, 422);
       throw err;
     }
+  }
+
+  /** Refuse an optional ISO-8601 caller deadline that has already passed (J-cex-spot-04 #7). */
+  assertRequestDeadline(requestDeadline: string | null | undefined): void {
+    assertRequestDeadline(requestDeadline, this.deps.now());
   }
 
   async preview(principal: Principal, owner: string, intent: VenueIntent) {
@@ -1401,10 +1820,18 @@ export class UserVenueDoor {
     // The winning discount as it stands: a coupon is named, never taken, by a preview.
     const { intent: priced, discount } = await this.withFeeDiscount(principal, withFee, intent.clientOrderKey, 'quote');
     const account = await this.account(owner);
-    await this.assertRulesPublished(venue, withFee);
+    // Unpublished venue rules (such as Hyperliquid's spot price band) are left to the venue without defaulting
+    // (J-cex-spot-04 #6); blank owner values still refuse in assertMarketProtection.
     await this.assertMarketProtection(venue, withFee);
     const answered = await venue.preview(account, priced);
-    return { ...answered, value: { ...answered.value, feeDiscount: discount } };
+    return {
+      ...answered,
+      value: {
+        ...answered.value,
+        builderFeeBps: withFee.builderFee ? withFee.builderFee.feeBps : null,
+        feeDiscount: discount,
+      },
+    };
   }
 
   /**
@@ -1481,7 +1908,8 @@ export class UserVenueDoor {
    * together; a part one doesn't count. A new resting order that would close the whole position is refused when a
    * whole-position order of its own role already rests, and a resting whole close that is neither (a reduce-only limit)
    * is refused when both rest. An immediate close (IOC, a market close) is never refused here: it rests nothing. A
-   * replacement is judged without the order it replaces. Nothing is prepared or stored when refused.
+   * replacement is judged without the order it replaces. In a batch, each order is judged as if the batch's earlier
+   * orders already rest beside what the venue holds. Nothing is prepared or stored when refused.
    */
   private async assertOneWholeClose(venue: UserVenue, account: UserVenueAccount, intent: VenueIntent): Promise<void> {
     const orders =
@@ -1496,6 +1924,14 @@ export class UserVenueDoor {
     if (closes.length === 0) return;
     const positions = (await venue.positions(account)).value;
     let resting: readonly UserVenueOrder[] | null = null;
+    // The batch's earlier whole closes, judged as resting beside the venue's own (a batch is one placement).
+    const siblings: {
+      symbol: string;
+      side: string;
+      role: 'take_profit' | 'stop_loss' | null;
+      remaining: bigint;
+      venueClientOrderId: string;
+    }[] = [];
     for (const order of closes) {
       const position = positions.find((p) => p.symbol === order.symbol && p.size !== 0n);
       // Closing only: the order is on the other side of the position, and covers all of it.
@@ -1511,12 +1947,22 @@ export class UserVenueDoor {
           (o.status === 'open' || o.status === 'partially_filled') &&
           o.remaining >= position.size,
       );
+      const batched = siblings.filter((o) => o.symbol === order.symbol && o.side === order.side && o.remaining >= position.size);
       const roleOf = (o: { trigger?: { role: 'take_profit' | 'stop_loss' } | null }) => o.trigger?.role ?? null;
-      const tp = whole.find((o) => roleOf(o) === 'take_profit');
-      const sl = whole.find((o) => roleOf(o) === 'stop_loss');
+      const tp = whole.find((o) => roleOf(o) === 'take_profit') ?? batched.find((o) => o.role === 'take_profit');
+      const sl = whole.find((o) => roleOf(o) === 'stop_loss') ?? batched.find((o) => o.role === 'stop_loss');
       const role = roleOf(order);
       const taken = role === 'take_profit' ? tp : role === 'stop_loss' ? sl : tp && sl ? tp : undefined;
-      if (!taken) continue;
+      if (!taken) {
+        siblings.push({
+          symbol: order.symbol,
+          side: order.side,
+          role,
+          remaining: order.amount,
+          venueClientOrderId: `${order.clientOrderKey}, earlier in this batch`,
+        });
+        continue;
+      }
       throw new UserVenueDoorError(
         `one take profit and one stop loss for the whole position may rest together on ${order.symbol}, and ${
           role === null ? 'both' : `a ${role === 'take_profit' ? 'take profit' : 'stop loss'} for the whole ${formatAmount(position.size)}`
@@ -1536,8 +1982,16 @@ export class UserVenueDoor {
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
-    else if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') key = intent.changeKey;
-    else if (intent.kind === 'spot_perps_transfer' || intent.kind === 'vault_transfer') key = intent.moveKey;
+    else if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode' || intent.kind === 'set_position_mode')
+      key = intent.changeKey;
+    else if (
+      intent.kind === 'move_position' ||
+      intent.kind === 'spot_perps_transfer' ||
+      intent.kind === 'vault_transfer' ||
+      intent.kind === 'staking_transfer' ||
+      intent.kind === 'staking_delegate'
+    )
+      key = intent.moveKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {
@@ -1548,6 +2002,62 @@ export class UserVenueDoor {
       );
     }
     return k;
+  }
+
+  /**
+   * A new order that adds exposure is refused while identity holds a trading restriction on the person (a support
+   * agent's account freeze, J-support-public-20 #7), and while the restriction can't be read. Nothing is prepared, stored
+   * or sent; the person's own funds on the venue are untouched.
+   */
+  private async assertNotRestricted(userId: string, intent: VenueIntent): Promise<void> {
+    const read = this.deps.tradingRestriction;
+    if (!read || !addsExposure(intent)) return;
+    let restricted: boolean;
+    try {
+      restricted = await read.restricted(userId);
+    } catch (err) {
+      if (!(err instanceof TradingRestrictionUnavailable)) throw err;
+      throw new UserVenueDoorError(
+        'your account restriction could not be read just now, so no new order is placed; nothing was signed or sent',
+        'trade.account_restriction_unavailable',
+        503,
+      );
+    }
+    if (restricted) {
+      throw new UserVenueDoorError(
+        'your account is restricted from trading, so no new order is placed; your funds stay in your own wallet and venue account',
+        'trade.account_restricted',
+        403,
+      );
+    }
+  }
+
+  /**
+   * A new order that adds exposure waits until the person has proved the account's email (J-identity-01 #8: "a plain gate
+   * saying the email must be proved first"), and while the proof can't be read. Nothing is prepared, stored or sent; a
+   * cancel and a reduce-only order still go, so nobody is trapped in a position.
+   */
+  private async assertEmailProved(userId: string, intent: VenueIntent): Promise<void> {
+    const source = this.deps.emailProof;
+    if (!source || !addsExposure(intent)) return;
+    let proof: Awaited<ReturnType<EmailProofSource['get']>>;
+    try {
+      proof = await source.get(userId);
+    } catch (err) {
+      if (!(err instanceof TradeError)) throw err;
+      throw new UserVenueDoorError(
+        'your email proof could not be read just now, so no new order is placed; nothing was signed or sent',
+        'trade.identity_unavailable',
+        503,
+      );
+    }
+    if (proof !== 'accepted') {
+      throw new UserVenueDoorError(
+        'prove your email before placing an order; nothing was signed or sent',
+        'trade.email_proof_required',
+        403,
+      );
+    }
   }
 
   async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
@@ -1577,7 +2087,24 @@ export class UserVenueDoor {
     if (intent.kind === 'place_orders') assertTogetherIntent(intent, req.signer);
     if (intent.kind === 'amend_order' || intent.kind === 'replace_order') assertChangeIntent(intent);
     if (intent.kind === 'cancel_orders') assertCancelsIntent(intent);
-    const key = this.businessKey(intent, req.actionKey);
+    if (intent.kind === 'move_trigger') assertMoveTriggerIntent(intent);
+    const key =
+      req.retryRefused === true && intent.kind === 'place_order'
+        ? await this.retryOrderKey(principal, this.businessKey(intent, req.actionKey))
+        : this.businessKey(intent, req.actionKey);
+    const deadlineAt = parseRequestDeadline(req.requestDeadline);
+    // J-cex-spot-04 #7: a fresh action whose request deadline has passed is refused before any step-up, venue call or
+    // hold. A replay of an already-stored key is waived so retries still see their stored action.
+    if (deadlineAt !== null && deadlineAt <= this.deps.now().getTime()) {
+      const existing = await this.deps.store.find(principal.userId, key);
+      if (!existing) {
+        throw new UserVenueDoorError(
+          'the request deadline has passed; nothing was prepared, signed or locked',
+          'trade.request_expired',
+          400,
+        );
+      }
+    }
     assertDoorMay(intent.kind, caller, key);
     assertLiveRunKey(key, caller);
     assertConvertKey(key, caller);
@@ -1610,13 +2137,18 @@ export class UserVenueDoor {
         detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
       });
     }
+    if (req.signer.role === 'agent') await this.assertSessionKeyOfThisSignIn(principal, req.signer.address);
     // An agent key is approved once, under one business key, and never again, on any venue account and by any route,
     // the session routes included (user-venue.ts:177-180: a venue that prunes nonces could accept a replay of an old
     // key's actions). The same key asked again is the same stored approval (`reuse` below), never a second one.
     if (intent.kind === 'approve_agent') {
       const address = (intent.agentAddress ?? '').toLowerCase();
       const earlier = await this.deps.store.agentApprovals(principal.userId, address);
-      if (earlier.some((row) => row.businessKey !== key)) {
+      // A fixed agent's approval the venue definitely refused approved nothing: it never blocks the next try of
+      // the same approval (`fixedAgentApprovalKey`). A session key is never retried: its next Start takes a fresh key.
+      const retry = (row: StoredVenueAction) =>
+        !key.startsWith(SESSION_KEY_PREFIX) && refusedApproval(row) && approvalBase(row.businessKey) === approvalBase(key);
+      if (earlier.some((row) => row.businessKey !== key && !retry(row))) {
         throw new UserVenueDoorError(
           `${address} was approved as an agent before; a key is approved once and never again`,
           'trade.venue_session_key_reused',
@@ -1697,13 +2229,30 @@ export class UserVenueDoor {
     if (finalIntent.kind === 'sub_account_transfer' && key.startsWith(OWN_MOVE_PREFIX)) {
       await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     }
+    // A position moves only to or from a sub-account the person opened as their own (J-derivatives-05 #7), never an agent
+    // account's, whose funding is held to the person's cap.
+    if (finalIntent.kind === 'move_position') await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     if (finalIntent.kind === 'amend_order' || finalIntent.kind === 'replace_order') await this.assertNoRaise(venue, account, finalIntent);
     await this.assertOneWholeClose(venue, account, finalIntent);
+    await this.assertNotRestricted(principal.userId, finalIntent);
+    await this.assertEmailProved(principal.userId, finalIntent);
     finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));
+    // The person's own daily loss limit, on a fresh opening order of theirs. An agent account's orders keep its own
+    // daily-loss cap on its own sub-account (agent-orders.ts #18). Refused here, before the venue prepares anything.
+    const warnings =
+      this.deps.dailyLoss && !opts.agentAccount
+        ? await this.deps.dailyLoss.admit({
+            principal,
+            venue,
+            account,
+            intent: finalIntent,
+            kindOf: (symbol) => this.marketKind(venue, symbol),
+          })
+        : [];
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
     // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
-    finalIntent = await eachOrder(finalIntent, (order) => this.assertRulesPublished(venue, order));
+    // Unpublished venue rules are left to the venue without defaulting (J-cex-spot-04 #6).
     if (!opts.ownWorstPrice) finalIntent = await eachOrder(finalIntent, (order) => this.assertMarketProtection(venue, order));
     // Only an order every check admitted takes a coupon. It keeps the builder fee it is signed with: a coupon used up
     // later never reprices it (J-campaigns-09 #3).
@@ -1716,7 +2265,14 @@ export class UserVenueDoor {
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());
     // A concurrent prepare of the same key may have won the insert: the stored action is the one.
     if (stored.prepared.digest !== prepared.digest) return this.reuse(stored, account, signer, finalIntent);
-    return { actionKey: key, prepared: stored.prepared, reused: false, signed: false, lastOutcome: null };
+    return {
+      actionKey: key,
+      prepared: stored.prepared,
+      reused: false,
+      signed: false,
+      lastOutcome: null,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
   }
 
   /**
@@ -1799,12 +2355,71 @@ export class UserVenueDoor {
     return this.deps.store.find(principal.userId, actionKey);
   }
 
+  /**
+   * The key a fixed agent's approval (one address per person, derived, never a new one) is prepared under now: `base` the
+   * first time; the same key while its approval is unsent, unanswered or accepted, so an accepted approval is never sent
+   * twice; and a new key, `base:<n>`, once the venue definitely refused the latest one, which approved nothing (a passing
+   * `agent_removal_pending` included). Each try's own key keeps answering its own stored outcome.
+   */
+  async fixedAgentApprovalKey(principal: Principal, agentAddress: string, base: string): Promise<string> {
+    const tries = (await this.deps.store.agentApprovals(principal.userId, agentAddress)).filter(
+      (row) => approvalBase(row.businessKey) === base,
+    );
+    const n = (key: string) => (key === base ? 1 : Number(key.slice(base.length + 1)));
+    const latest = tries.reduce<StoredVenueAction | null>((a, r) => (a === null || n(r.businessKey) > n(a.businessKey) ? r : a), null);
+    if (latest === null) return base;
+    return refusedApproval(latest) ? `${base}:${n(latest.businessKey) + 1}` : latest.businessKey;
+  }
+
+  /**
+   * The key an order asked to be retried (`retryRefused`) is stored under now, as `fixedAgentApprovalKey` does for an
+   * approval: its own key the first time; the latest try's key while that try is unsent, unanswered or taken, so an order
+   * the venue took or may have taken is never sent again; and `<key>:retry:<n>` once the venue definitely refused the
+   * latest try, which placed nothing. Every try keeps the order's client order key, so the venue sees the same client
+   * order id each time (J-derivatives-33 #5), and each try's own row answers its own stored outcome.
+   */
+  private async retryOrderKey(principal: Principal, base: string): Promise<string> {
+    const prefix = `${base}${ORDER_RETRY_INFIX}`;
+    const first = await this.deps.store.find(principal.userId, base);
+    if (first === null) return base;
+    const n = (key: string) => (key === base ? 1 : Number(key.slice(prefix.length)));
+    const tries = [first, ...(await this.deps.store.listByPrefix(principal.userId, prefix))].filter((r) =>
+      Number.isInteger(n(r.businessKey)),
+    );
+    const latest = tries.reduce((a, r) => (n(r.businessKey) > n(a.businessKey) ? r : a));
+    return refusedOrder(latest) ? `${prefix}${n(latest.businessKey) + 1}` : latest.businessKey;
+  }
+
   /** Every stored action of this person under keys starting `prefix`: what a revoke reads the assistant's orders by (#12). */
   async storedByPrefix(principal: Principal, prefix: string): Promise<readonly StoredVenueAction[]> {
     return this.deps.store.listByPrefix(principal.userId, prefix);
   }
 
+  /**
+   * A trading session's key signs only in the sign-in that started it (J-wallet-22 #8: the key "ends at its expiry, when
+   * you end the session, or when you sign out"). A sign-out cannot revoke it at the venue without the owner's wallet, so
+   * the door ends it here: an agent key approved under `session-key:<user>:<venue>:<fam>.<n>` is refused for any other
+   * sign-in (`fam`), or a credential with none, before anything is stored or sent. Other agents (a named key the
+   * owner approved through the plain door) are not session keys and are not bound to a sign-in.
+   */
+  private async assertSessionKeyOfThisSignIn(principal: Principal, signerAddress: string): Promise<void> {
+    const address = (signerAddress ?? '').toLowerCase();
+    const signIns = (await this.deps.store.agentApprovals(principal.userId, address))
+      .filter((row) => row.businessKey.startsWith(SESSION_KEY_PREFIX))
+      .map((row) => /:([A-Za-z0-9_-]+)\.\d+$/.exec(row.businessKey)?.[1]);
+    if (signIns.length === 0) return;
+    const fam = (principal.fam ?? '').trim();
+    if (!fam || !signIns.includes(fam)) {
+      throw new UserVenueDoorError(
+        'this trading session ended when its sign-in did: its key signs nothing now; start a new session',
+        'trade.venue_session_signed_out',
+        403,
+      );
+    }
+  }
+
   async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
+    const deadlineAt = parseRequestDeadline(caller?.requestDeadline);
     const key = (actionKey ?? '').trim();
     const row = await this.deps.store.find(principal.userId, key);
     if (!row)
@@ -1848,6 +2463,10 @@ export class UserVenueDoor {
         );
       }
     }
+    // An action a session key was to sign, never sent, and now asked to be sent from another sign-in: refused.
+    if (!row.signature && row.prepared.signer.role === 'agent') {
+      await this.assertSessionKeyOfThisSignIn(principal, row.prepared.signer.address);
+    }
     if (
       !signature ||
       typeof signature.signature !== 'string' ||
@@ -1861,6 +2480,11 @@ export class UserVenueDoor {
     // answer about the action it already applied.
     if (row.signature !== null && row.lastOutcome?.definite === true) {
       return { actionKey: key, outcome: row.lastOutcome, readBack: null, replayed: true };
+    }
+    // J-cex-spot-04 #7: an action never sent to the venue whose request deadline has passed is refused before storing
+    // the signature or sending to the venue (replays and read-backs of bytes already sent are never refused here).
+    if (!row.signature && deadlineAt !== null && deadlineAt <= this.deps.now().getTime()) {
+      throw new UserVenueDoorError('the request deadline has passed; nothing was sent or locked', 'trade.request_expired', 400);
     }
     // One request sends a key at a time: a second one at the same moment is told to retry, never raced to the venue.
     const at = this.deps.now();
@@ -1885,7 +2509,10 @@ export class UserVenueDoor {
     signature: VenueSignature,
   ): Promise<Omit<SubmitAnswer, 'replayed'>> {
     let signed = row;
-    // An order never sent yet is checked again: a stop or limit approved since it was prepared applies to it.
+    // An order never sent yet is checked again: a restriction identity set since it was prepared refuses it, and a stop
+    // or limit approved since then applies to it.
+    if (!row.signature) await this.assertNotRestricted(principal.userId, row.prepared.intent);
+    if (!row.signature) await this.assertEmailProved(principal.userId, row.prepared.intent);
     if (!row.signature) await eachOrder(row.prepared.intent, (order) => this.admitPlace(row.prepared.venueId, order));
     if (!row.signature) {
       assertSignatureMatches(row.prepared, signature);
@@ -1917,7 +2544,9 @@ export class UserVenueDoor {
     let answered: VenueSubmitOutcome;
     try {
       const venue = await this.venue();
-      answered = await venue.submit(signed.prepared, signed.signature as VenueSignature);
+      const sent = signed.signature as VenueSignature;
+      answered = await venue.submit(signed.prepared, sent);
+      answered = await this.waitOutRemoval(venue, { prepared: signed.prepared, signature: sent }, answered);
     } catch (error) {
       // The venue is down for this attempt. If these bytes were already sent once, the action may be live: answer with
       // what is recorded (or "not definite") and the read-back, never a bare refusal that invites a new key.
@@ -1936,6 +2565,41 @@ export class UserVenueDoor {
     // A definite outcome already recorded is never replaced by a not-definite one: that is the answer.
     const outcome = await this.deps.store.recordOutcome(principal.userId, key, answered, this.deps.now());
     return { actionKey: key, outcome, readBack: readBackOf(outcome) };
+  }
+
+  /**
+   * An agent approval refused while the venue still removes an agent ended moments before: nothing was applied, so the
+   * same signed bytes are sent again after a pause, a few times. A later answer stands, except a duplicate-nonce one: it
+   * follows a definite refusal of these very bytes, so it means the venue kept the nonce of the refused send, never that
+   * it applied the approval, and the refusal stands. Still pending after the last pause: the refusal, in plain words.
+   */
+  private async waitOutRemoval(
+    venue: ConnectedUserVenue,
+    { prepared, signature }: { prepared: PreparedVenueAction; signature: VenueSignature },
+    first: VenueSubmitOutcome,
+  ): Promise<VenueSubmitOutcome> {
+    const pending = (o: VenueSubmitOutcome) => o.definite && !o.accepted && o.refusal.code === 'agent_removal_pending';
+    if (prepared.intent.kind !== 'approve_agent' || !pending(first)) return first;
+    const wait = this.deps.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    let answered = first;
+    for (let i = 0; i < REMOVAL_PENDING_RESENDS && pending(answered); i++) {
+      await wait(REMOVAL_PENDING_PAUSE_MS);
+      let again: VenueSubmitOutcome;
+      try {
+        again = await venue.submit(prepared, signature);
+      } catch (error) {
+        // Down before these bytes went out again: the refusal already in hand is the answer.
+        if (error instanceof VenueRefusalError && error.refusal.code === 'venue_down') break;
+        throw error;
+      }
+      if (!again.definite && again.reason === 'already_submitted') break;
+      answered = again;
+    }
+    if (!pending(answered) || answered.definite !== true || answered.accepted) return answered;
+    return {
+      ...answered,
+      refusal: { ...answered.refusal, detail: `${REMOVAL_PENDING_WORDS} (the venue said: ${answered.refusal.detail})` },
+    };
   }
 
   /** One order sent through this door, read by its key: the venue's record, or `unknown` until the venue answers. */
@@ -1977,11 +2641,43 @@ export class UserVenueDoor {
     return { orders, nextCursor: rows.length > size ? encodeCursor(page[page.length - 1]!) : null };
   }
 
+  /** Attach resolved origin, originRef and this person's own label to a venue order. */
+  private enrichOrder(order: UserVenueOrder, labels: ReadonlyMap<string, string>): UserVenueOrder {
+    return withOwnOrderLabel(order, labels);
+  }
+
+  /** Open orders on `account`, enriched with origin and this person's own order labels (J-derivatives-04 #1 #2). */
+  async openOrders(principal: Principal, account: UserVenueAccount) {
+    const venue = await this.venue();
+    const [read, labels] = await Promise.all([venue.openOrders(account), this.deps.store.orderLabels(principal.userId, account)]);
+    return { ...read, value: read.value.map((o) => this.enrichOrder(o, labels)) };
+  }
+
   /**
-   * One page of the account's order history, as the venue keeps it (J-cex-spot-06 #1); a venue that publishes none
-   * refuses `not_offered`. A filter or page marker that can't be used is refused 400 in words.
+   * This person's own labels on the orders they signed for `owner`'s main account (J-derivatives-04 #2), from our record
+   * only: nothing is read from the venue. A browser that reads its own orders from the venue adds them from this.
    */
-  async orderHistory(account: UserVenueAccount, raw: Record<string, string | undefined>): Promise<VenueHistoryPage> {
+  async orderLabelsOf(principal: Principal, owner: string): Promise<{ labels: { venueClientOrderId: string; label: string }[] }> {
+    const account = await this.account(owner);
+    const labels = await this.deps.store.orderLabels(principal.userId, account);
+    return { labels: [...labels].map(([venueClientOrderId, label]) => ({ venueClientOrderId, label })) };
+  }
+
+  /** One order by client id on `account`, enriched with origin and this person's own label (J-derivatives-04 #2). */
+  async orderByClientId(principal: Principal, account: UserVenueAccount, cloid: string) {
+    const venue = await this.venue();
+    const [read, labels] = await Promise.all([
+      venue.orderByClientId(account, cloid),
+      this.deps.store.orderLabels(principal.userId, account),
+    ]);
+    return { ...read, value: read.value ? this.enrichOrder(read.value, labels) : null };
+  }
+
+  /**
+   * One page of the account's order history, as the venue keeps it (J-cex-spot-06 #1; J-derivatives-04 #1 #2); a venue
+   * that publishes none refuses `not_offered`. A filter or page marker that can't be used is refused 400 in words.
+   */
+  async orderHistory(principal: Principal, account: UserVenueAccount, raw: Record<string, string | undefined>): Promise<VenueHistoryPage> {
     let query: ReturnType<typeof parseHistoryQuery>;
     try {
       query = parseHistoryQuery(raw);
@@ -1997,7 +2693,12 @@ export class UserVenueDoor {
         detail: `${venue.venue.displayName} publishes no order history`,
       });
     try {
-      return historyPage(await venue.orderHistory(account), query);
+      const [read, labels] = await Promise.all([venue.orderHistory(account), this.deps.store.orderLabels(principal.userId, account)]);
+      const enriched = {
+        ...read,
+        value: read.value.map((r) => ({ ...r, order: this.enrichOrder(r.order, labels) })),
+      };
+      return historyPage(enriched, query, venue.venue.displayName);
     } catch (err) {
       if (err instanceof VenueHistoryQueryError) throw new UserVenueDoorError(err.message, err.code, 400);
       throw err;
@@ -2005,19 +2706,22 @@ export class UserVenueDoor {
   }
 
   /**
-   * Our own record of one of this person's venue orders (J-cex-spot-06 #5, #10): the amendments the venue accepted on it,
-   * oldest first, and our builder fee on it: the rate the order was signed with, the rate published when it was placed,
-   * and the discount between them in basis points of our fee (a rank or a fee saver lowers it; `0` when none). `builderFee`
-   * is null when the order carries none (a spot buy) or was not placed through our door. An order the venue has no record
-   * of on this account is `trade.venue_order_not_found` (404), the same answer for another person's order as for none.
+   * Our own record of one of this person's venue orders (J-cex-spot-06 #5, #10; J-derivatives-04 #2): the amendments the
+   * venue accepted on it, oldest first, origin, any label, and our builder fee on it: the rate the order was signed with,
+   * the rate published when it was placed, and the discount between them in basis points of our fee (a rank or a fee
+   * saver lowers it; `0` when none). `builderFee` is null when the order carries none (a spot buy) or was not placed
+   * through our door. An order the venue has no record of on this account is `trade.venue_order_not_found` (404), the
+   * same answer for another person's order as for none.
    */
   async orderRecord(principal: Principal, account: UserVenueAccount, venueClientOrderId: string): Promise<VenueOrderRecordOfOurs> {
     const cloid = venueClientOrderId.trim().toLowerCase();
     if (!/^0x[0-9a-f]{32}$/.test(cloid)) invalid('clientOrderId is the venue client order id (0x and 32 hex)');
     const venue = await this.venue();
     const placed = venue.orderHistory ? (await venue.orderHistory(account)).value.find((r) => r.order.venueClientOrderId === cloid) : null;
-    const order = placed?.order ?? (await venue.orderByClientId(account, cloid)).value;
-    if (!order) throw new UserVenueDoorError('no such order on this account', 'trade.venue_order_not_found', 404);
+    const rawOrder = placed?.order ?? (await venue.orderByClientId(account, cloid)).value;
+    if (!rawOrder) throw new UserVenueDoorError('no such order on this account', 'trade.venue_order_not_found', 404);
+    const labels = await this.deps.store.orderLabels(principal.userId, account);
+    const order = this.enrichOrder(rawOrder, labels);
     const rows = await this.deps.store.listByPrefix(principal.userId, AMEND_KEY_PREFIX);
     // Only an order our door sent from this account with our fee: never another account's order under a guessed id.
     const sent = await this.deps.store.sentBuilderFeeOrders(account.venueId, account, [cloid]);
@@ -2026,11 +2730,12 @@ export class UserVenueDoor {
     if (charged !== null) {
       let published: Amount | null = this.deps.builder?.feeBps ?? null;
       try {
-        const versioned = builderFeeOf(
-          (await this.deps.builderFeesAt?.(placed?.placedAt ?? this.deps.now())) ?? null,
-          account.venueId,
-          order.symbol,
-        );
+        const book = (await this.deps.builderFeesAt?.(placed?.placedAt ?? this.deps.now())) ?? null;
+        // A version may set the perp and spot fees apart: a market no longer listed has no kind to read, so
+        // the fee published for it is not known rather than guessed.
+        const kind = book ? await this.marketKind(venue, order.symbol).catch(() => null) : null;
+        const versioned = book && kind ? builderFeeOf(book, { venueId: account.venueId, symbol: order.symbol, kind }) : null;
+        if (book && !kind) published = null;
         if (versioned) published = versioned.feeBps;
       } catch (err) {
         if (!(err instanceof BuilderFeeVersionError)) throw err;
@@ -2040,7 +2745,15 @@ export class UserVenueDoor {
         published !== null && published > 0n && charged < published ? Number(((published - charged) * 10_000n) / published) : 0;
       builderFee = { chargedBps: charged, publishedBps: published, discountBps: published === null ? null : discountBps };
     }
-    return { placedAt: placed?.placedAt ?? null, amendments: amendTrail(rows, account, cloid), builderFee };
+    return {
+      venueName: venue.venue.displayName,
+      placedAt: placed?.placedAt ?? null,
+      origin: order.origin,
+      originRef: order.originRef ?? null,
+      label: order.label ?? null,
+      amendments: amendTrail(rows, account, cloid),
+      builderFee,
+    };
   }
 
   private async orderState(userId: string, row: StoredVenueAction): Promise<VenueOrderByKey> {

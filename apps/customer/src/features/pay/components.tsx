@@ -1,18 +1,23 @@
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { payCopy, PayCopy, payAuthoredMessage } from './copy';
-import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { ApiResult } from '../../shared/api';
+import { isValidElement, useId, useRef, type ReactNode } from 'react';
+import { useOverflows } from '../../shared/use-overflows';
+import { isVerifyFirst, type ApiResult } from '../../shared/api';
+import { VerifyFirstNote } from '../../shared/verify-first';
 import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, ReviewDialog as Dialog, StateBlock, Amount, StatusTag } from '@intafaced/ui';
 import { EmptyState } from './ui-kit';
 import type { MoneyKind } from './portal/access/money-step';
-import { payStepUp } from './portal/access/step-up-store';
 import { StepUpNote } from './portal/access/step-up';
-import { stepUpRequired, stepUpWords } from './portal/access/step-up-words';
+import { useReviewedAction } from './reviewed-action';
+
+export { useReviewedAction } from './reviewed-action';
+export { PayTime, payTimeText } from './pay-time';
 
 function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { t, languageFor, requestedLocale } = uiCopy.useCopy();
+  if (isVerifyFirst(result)) return <VerifyFirstNote code={result.code} />;
   return (
     <div role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <StateBlock
@@ -35,45 +40,13 @@ function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: 
   );
 }
 
-export function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
+function PayFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { requestedLocale } = payCopy.useCopy();
   const authored = payAuthoredMessage(result);
   return (
     <div lang={authored === undefined ? 'und' : requestedLocale}>
       <Failure result={authored === undefined ? result : { ...result, message: authored }} retry={retry} />
     </div>
-  );
-}
-
-/**
- * "17 Oct, 21:43 UTC" ("17 Oct 2025, 21:43 UTC" in another year): the same day-month and 24-hour clock as the rest of the app,
- * always in UTC and always naming it, since Pay services record UTC. English uses day-month order, never "10/17/2026, 9:43 PM".
- */
-export function payTimeText(value: string, locale: string, now: number = Date.now()): string | null {
-  const at = Date.parse(value);
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(at)) return null;
-  const tag = locale.toLowerCase() === 'en' || locale.toLowerCase() === 'en-us' ? 'en-GB' : locale;
-  const year = (ms: number) => new Date(ms).getUTCFullYear();
-  const text = new Intl.DateTimeFormat(tag, {
-    day: 'numeric',
-    month: 'short',
-    ...(year(at) === year(now) ? {} : { year: 'numeric' }),
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-    timeZone: 'UTC',
-  }).format(at);
-  return `${text} UTC`;
-}
-
-export function PayTime({ value }: { value: string }) {
-  const { requestedLocale } = payCopy.useCopy();
-  const text = payTimeText(value, requestedLocale);
-  if (text === null) return <span lang="zxx">{value}</span>;
-  return (
-    <time dateTime={value} title={value} lang={requestedLocale}>
-      {text}
-    </time>
   );
 }
 
@@ -128,7 +101,7 @@ export function PaySection({
       <header>
         <div>
           <h2 lang={titleLanguage}>{title}</h2>
-          {description && <p className="muted">{description}</p>}
+          {description && <p className="lt-muted">{description}</p>}
         </div>
         {action}
       </header>
@@ -154,7 +127,7 @@ export function PayPagination({
   const full = fetched === limit;
   return (
     <div className="pay-pagination">
-      <p className="muted">
+      <p className="lt-muted">
         <PayCopy k="recordsWindow" params={{ count, limit }} />
         {full ? payCopy.t('moreRecordsMayExist') : ''}
       </p>
@@ -164,7 +137,7 @@ export function PayPagination({
         </Button>
       )}
       {full && limit === max && (
-        <p className="muted">
+        <p className="lt-muted">
           <PayCopy k="thisServiceHasNoContinuationCursorThis" />
         </p>
       )}
@@ -173,7 +146,7 @@ export function PayPagination({
 }
 export function PayDetails({ values }: { values: [string, ReactNode, string?][] }) {
   return (
-    <dl className="pay-details">
+    <dl className="pay-details" data-testid="pay-details">
       {values.map(([label, value, labelLanguage]) => (
         <div key={label} className={isValidElement(value) && value.type === PayAmount ? 'pay-details-amount' : undefined}>
           <dt lang={labelLanguage}>{label}</dt>
@@ -183,25 +156,13 @@ export function PayDetails({ values }: { values: [string, ReactNode, string?][] 
     </dl>
   );
 }
-export function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
+function PayAmount({ value, unit, label }: { value: string; unit: string; label: string }) {
   const viewport = useRef<HTMLSpanElement>(null);
   const digits = useRef<HTMLSpanElement>(null);
-  const [overflows, setOverflows] = useState(false);
+  const overflows = useOverflows(viewport, digits, value);
   const hintId = useId();
   const { requestedLocale } = payCopy.useCopy();
   const displayed = displayAmount(value);
-  useEffect(() => {
-    const region = viewport.current;
-    const token = digits.current;
-    if (!region || !token) return;
-    const measure = () => setOverflows(region.scrollWidth > region.clientWidth);
-    const observer = new ResizeObserver(measure);
-    observer.observe(region);
-    observer.observe(token);
-    region.scrollLeft = 0;
-    measure();
-    return () => observer.disconnect();
-  }, [value]);
   return (
     <span className="pay-exact-amount">
       <span className="pay-amount-value">
@@ -272,15 +233,7 @@ export function Status({ value }: { value: string }) {
   );
 }
 /** `refreshed`: the page already shows the new state itself, so it does not tell the person to refresh. */
-export function MutationResult({
-  result,
-  title,
-  refreshed = false,
-}: {
-  result: ApiResult<unknown> | null;
-  title: string;
-  refreshed?: boolean;
-}) {
+function MutationResult({ result, title, refreshed = false }: { result: ApiResult<unknown> | null; title: string; refreshed?: boolean }) {
   if (!result) return null;
   return result.ok ? (
     <p className="pay-confirmed" role="status">
@@ -321,104 +274,22 @@ export function ReviewedAction<T>({
   ready?: boolean;
   notReadyReason?: string;
 }) {
-  const [opened, setOpened] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ApiResult<T> | null>(null);
-  const inFlight = useRef(false);
-  const asking = useRef(false);
-  const lifetime = useRef({ mounted: true, opened, disabled, ready, review: 0 });
-  const reviewId = lifetime.current.review;
-  useLayoutEffect(() => {
-    lifetime.current.opened = opened;
-    lifetime.current.disabled = disabled;
-    lifetime.current.ready = ready;
-  });
-  useLayoutEffect(() => {
-    lifetime.current.mounted = true;
-    return () => {
-      lifetime.current.mounted = false;
-    };
-  }, []);
-  const currentReview = () => lifetime.current.mounted && lifetime.current.opened && lifetime.current.review === reviewId;
-  async function confirm() {
-    if (inFlight.current || !currentReview() || lifetime.current.disabled || !lifetime.current.ready) return;
-    inFlight.current = true;
-    setBusy(true);
-    try {
-      const outcome = stepUp ? await payStepUp.run(stepUp, () => perform(currentReview), stepUpWords) : await perform(currentReview);
-      if (!currentReview()) return;
-      setResult(outcome);
-      if (outcome.ok) {
-        lifetime.current.opened = false;
-        lifetime.current.review += 1;
-        onConfirmed?.(outcome.data);
-        setOpened(false);
-      } else if (outcome.reason === 'uncertain') {
-        // The answer is unknown: close the review so the recovery message and its check button are not covered.
-        lifetime.current.opened = false;
-        lifetime.current.review += 1;
-        setOpened(false);
-      }
-    } finally {
-      if (lifetime.current.mounted) setBusy(false);
-      inFlight.current = false;
-    }
-  }
+  const { opened, busy, result, unknown, open, close, confirm } = useReviewedAction({ perform, onConfirmed, disabled, stepUp, ready });
   return (
     <div className="pay-action" title={disabled ? disabledReason : undefined}>
-      <Button
-        variant={variant}
-        disabled={disabled || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
-        onClick={() => {
-          if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current || asking.current) return;
-          if (!stepUp) {
-            lifetime.current.review += 1;
-            setResult(null);
-            setOpened(true);
-            return;
-          }
-          // Money out: confirm it's them first, then show the review.
-          asking.current = true;
-          void payStepUp.ensure(stepUp).then((confirmed) => {
-            asking.current = false;
-            if (!lifetime.current.mounted || lifetime.current.disabled) return;
-            if (!confirmed) {
-              // Declining is the person's own choice and needs no message; a page with no one to ask says what is needed.
-              setResult(payStepUp.canAsk ? null : stepUpRequired());
-              return;
-            }
-            lifetime.current.review += 1;
-            setResult(null);
-            setOpened(true);
-          });
-        }}
-      >
+      <Button variant={variant} disabled={disabled || busy || unknown} onClick={open}>
         {title}
       </Button>
       <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
       {opened && (
-        <Dialog
-          closeLabel={uiCopy.t('closeDialog')}
-          title={payCopy.t('review', { title: title })}
-          onClose={() => {
-            if (!inFlight.current) {
-              lifetime.current.opened = false;
-              lifetime.current.review += 1;
-              setOpened(false);
-            }
-          }}
-        >
-          <div data-testid="form-stack" className="form-stack">
-            <p className="muted">{description}</p>
+        <Dialog closeLabel={uiCopy.t('closeDialog')} title={payCopy.t('review', { title: title })} onClose={close}>
+          <div data-testid="form-stack" className="lt-stack">
+            <p className="lt-muted">{description}</p>
             {review}
             {stepUp && <StepUpNote kind={stepUp} />}
             <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
-            {!ready && notReadyReason ? <p className="muted">{notReadyReason}</p> : null}
-            <Button
-              variant={variant}
-              disabled={!ready || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
-              onClick={() => void confirm()}
-            >
+            {!ready && notReadyReason ? <p className="lt-muted">{notReadyReason}</p> : null}
+            <Button variant={variant} disabled={!ready || busy || unknown} onClick={() => void confirm()}>
               {busy ? payCopy.t('waitingForConfirmation') : title}
             </Button>
           </div>

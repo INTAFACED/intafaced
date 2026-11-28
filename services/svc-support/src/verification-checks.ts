@@ -11,7 +11,6 @@ import type {
 } from '@intafaced/contracts';
 import {
   matchedVerificationCount,
-  SUPPORT_DISCLOSURE_OWNER,
   SUPPORT_VERIFICATION_CHECK_OWNER,
   SUPPORT_VERIFICATION_CHECKS_REQUIRED,
   supportVerificationCheckSchema,
@@ -19,11 +18,12 @@ import {
 import { SupportError } from './support-service.js';
 
 /**
- * BALANCE DISCLOSURE GATE (RC-support-public-01, ACC-0189, SUP-0004; J-support-public-20 #2).
+ * CHECKS THE CUSTOMER CAN CONFIRM (RC-support-public-01, ACC-0189, SUP-0004).
  *
- * Someone who writes in saying "my withdrawal is missing" may not be the account holder. So the desk may not read the
- * customer's balance, fills or withdrawal destination from a request until the request holds two matched checks the
- * customer can confirm: an email equal to their registered email, and one id of a record of their own.
+ * Someone who writes in saying "my withdrawal is missing" may not be the account holder. The desk can record, on a
+ * request, checks the customer can confirm: an email equal to their registered email, and one id of a record of their own.
+ * The reads of a balance or withdrawal destination do not open on these checks: they open on the customer's own grant for
+ * a set time (`read-grants.ts`, J-support-public-20 #2), given from the customer's signed-in account.
  *
  * A check is proved by the service that owns the fact, never by the operator ticking a box, and the customer comes off the
  * ticket, never from the operator's input. svc-support never reads that service's tables; it asks a `VerificationAnswer`:
@@ -40,16 +40,14 @@ import { SupportError } from './support-service.js';
  * the ticket and kind, with whether it matched: never the value. A mismatch is stored unmatched and refuses
  * `support.verification_mismatch` without saying which part failed. The same value again counts once and asks nothing.
  *
- * With the gate held, each read still refuses `support.disclosure_unwired` naming its owner (svc-ledger for a balance,
- * svc-trade for fills, svc-pay for a destination): the desk has no read door, and this module adds none. Nothing here
- * moves, posts or reads money.
+ * Nothing here moves, posts or reads money.
  *
  * Attempts per request are capped by an owner value (`SUPPORT_VERIFICATION_ATTEMPTS`). Blank, every check refuses
  * `support.verification_attempts_unset`; it is never defaulted. An attempt is a check an owner answered (a stored row):
  * an owner with no door, or one that gave no answer, tells a guesser nothing and takes none. The cap is held when the
  * answer is stored, under a lock per request, so a race cannot pass it; an answer refused at the cap is neither stored
- * nor shown. Every check and every read on a request is an audit row with the operator. A closed request takes no check
- * and opens no read. Checks stay on the request they were recorded on.
+ * nor shown. Every check on a request is an audit row with the operator. A closed request takes no check. Checks stay on
+ * the request they were recorded on.
  */
 
 /** Whether a value is the customer's, from the service that owns the fact. */
@@ -314,27 +312,5 @@ export class VerificationChecks {
       attemptsUsed: await this.book.attemptsUsed(ticket.id),
       checks,
     };
-  }
-
-  /**
-   * One read behind the gate. Always refuses: before the gate for want of the two matched checks, after it for want of the
-   * owner's read door. Every call is an audit row with the operator.
-   */
-  async disclose(operatorId: string, ticketId: string, kind: SupportDisclosureKind): Promise<never> {
-    const ticket = await this.openTicket(operatorId, ticketId, 'disclosure', kind, 'a closed request opens no read');
-    const at = this.now().toISOString();
-    const fail = async (code: SupportVerificationErrorCode, message: string, detail: string): Promise<never> => {
-      await this.book.audit({ ticketId: ticket.id, action: 'disclosure', kind, outcome: code, operator: operatorId, at });
-      throw refuse(code, message, detail);
-    };
-    const matched = matchedVerificationCount(await this.book.list(ticket.id));
-    if (matched < SUPPORT_VERIFICATION_CHECKS_REQUIRED)
-      return fail(
-        'support.verification_checks_required',
-        'an email and a record id the customer confirms are needed first',
-        `${matched} of ${SUPPORT_VERIFICATION_CHECKS_REQUIRED} matched`,
-      );
-    const ownerName = SUPPORT_DISCLOSURE_OWNER[kind];
-    return fail('support.disclosure_unwired', `${ownerName} serves the desk no read door yet`, ownerName);
   }
 }

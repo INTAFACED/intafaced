@@ -1,0 +1,60 @@
+# Send capped TEST USDC on Hyperliquid's TESTNET from the platform's funded testnet account to one address, by hand
+# only. The testnet faucet pays 1,000 once per address that exists on mainnet, so a fresh testnet address (a machine's
+# platform key, a tester's wallet: #10204) is funded this way. The script refuses mainnet, amounts above its cap
+# (packages/venue-hyperliquid/scripts/testnet-send.ts, MAX_SEND_USDC) and prints only addresses and amounts.
+# The owner allowed this key in CI for these sends (project-state decision PR #3883, REVIEW.md entry of 2026-11-23).
+name: Hyperliquid testnet send
+
+on:
+  workflow_dispatch:
+    inputs:
+      to:
+        description: 'Testnet address to fund (0x…)'
+        required: true
+        type: string
+      amount:
+        description: 'TEST USDC to send (at most the script cap)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hl-testnet-send
+  cancel-in-progress: false
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  send:
+    name: Send TEST USDC
+    # The funded account's key is used only from main's own copy of this file and the script.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build what the script imports
+        run: pnpm exec turbo run build --filter=@intafaced/venue-hyperliquid^...
+
+      # Inputs reach the script only as environment values, never inside the shell line.
+      - name: Send
+        env:
+          APP_ENV: test
+          HL_TESTNET_FUNDER_KEY: ${{ secrets.HL_TESTNET_TRADER_KEY }}
+          HL_SEND_TO: ${{ inputs.to }}
+          HL_SEND_AMOUNT: ${{ inputs.amount }}
+        run: pnpm --filter @intafaced/venue-hyperliquid testnet:send

@@ -17,6 +17,9 @@ import {
   bandEdgeQuote,
   crossingQuote,
   marketStatus,
+  MARKET_OFF_CUSTODY_OFF,
+  staleAfterMs,
+  startArgs,
   buildLadder,
   createPriceWalk,
   crossingSide,
@@ -111,7 +114,7 @@ try {
   r = run(home, ['hold', 'NOPE/USDT']);
   assert.equal(r.status, 2, r.stderr);
 
-  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-10, a `market` file that holds the
+  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-10-custodial, a `market` file that holds the
   // book; J-cex-spot-03 and J-cex-spot-08 trade on the venue and no longer hold it) does not outlive the
   // file: the journeys' world restore, entering the next file, clears it (world-restore.mjs restoreWorld, `unshift`).
   // Failure it prevents: a frozen BTC/USDT book for every journey file after it.
@@ -124,7 +127,7 @@ try {
       '--input-type=module',
       '-e',
       `const w = await import(${JSON.stringify(join(realApp, 'world-restore.mjs'))});
-       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-10.pw.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-10-custodial.pw.mjs'))});
        await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-04.pw.mjs'))});`,
     ],
     { env: { ...process.env, HOME: home, TEST_PARALLEL_INDEX: 'hold-leak' }, encoding: 'utf8' },
@@ -679,6 +682,12 @@ try {
   assert.equal(st.pid, fake.pid);
   assert.equal(marketStatus({ home: sup, now: old.getTime() + 119_000 }).state, 'ok');
   assert.equal(marketStatus({ home: sup, now: old.getTime() + 121_000 }).state, 'stale');
+  // A maker started with a longer interval (the beta's LOCAL_STACK_MARKET_INTERVAL) is stale two minutes past its sleep.
+  assert.equal(staleAfterMs(), 120_000);
+  assert.equal(staleAfterMs(['--interval', '300']), 412_000);
+  assert.deepEqual(startArgs(['--levels', '2'], {}), ['--levels', '2']);
+  assert.deepEqual(startArgs([], { LOCAL_STACK_MARKET_INTERVAL: '300' }), ['--interval', '300']);
+  assert.deepEqual(startArgs(['--interval', '9'], { LOCAL_STACK_MARKET_INTERVAL: '300' }), ['--interval', '9']);
 
   // 9c. Never twice: start and ensure see the running copy and leave its pid alone; a start already in progress also blocks.
   for (const cmd of ['start', 'ensure']) {
@@ -1086,6 +1095,10 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
     );
     assert.equal(existsSync(join(offState, 'market-accounts.json')), false, 'no maker account was made or funded');
     assert.equal(existsSync(join(offState, 'logs', 'market.log')), false, 'nothing ran to log');
+    // The stack's status table says why it is off, not "not started", which reads as a fault to start.
+    assert.deepEqual(marketStatus({ home: offHome }), { state: 'off', pid: null, ageMs: null, text: MARKET_OFF_CUSTODY_OFF });
+    writeFileSync(join(offState, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1, custodyLayer: 'on' } }));
+    assert.equal(marketStatus({ home: offHome }).text, 'not started (pnpm local:market)');
   } finally {
     rmSync(offHome, { recursive: true, force: true });
   }

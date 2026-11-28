@@ -240,6 +240,21 @@ const schema = serviceEnvSchema
       TRADE_URL: blankAsAbsent(z.string().url().optional()),
 
       /**
+       * The launch desk's read-only Telegram alerts (telegram/desk.ts). The bot token is a secret; blank or unset turns the
+       * channel off with `notify.telegram_token_unset`. The webhook secret (32+ characters) is the header the bot API sends
+       * with every update; without it the webhook refuses every update. svc-trade's `venue.deskSnapshot` is read at TRADE_URL.
+       */
+      NOTIFY_TELEGRAM_BOT_TOKEN: blankAsAbsent(z.string().min(1).optional()),
+      NOTIFY_TELEGRAM_WEBHOOK_SECRET: blankAsAbsent(z.string().min(32).optional()),
+      /** The bot's `@handle` account settings tells people to send their code to. Blank: no handle is shown. */
+      NOTIFY_TELEGRAM_BOT_NAME: blankAsAbsent(z.string().max(64).optional()),
+      /**
+       * The TEST bot (J-charts-desk-21): with no bot token, an absolute file every Telegram message is written to, labelled
+       * TEST. Refused at boot unless APP_ENV is exactly dev or test. Unset: no TEST bot.
+       */
+      NOTIFY_TELEGRAM_TEST_OUTBOX: blankAsAbsent(z.string().optional()),
+
+      /**
        * Owner-published page size for live mark `GET /api/v1/markets?limit=`.
        * Blank / unset is unpublished — never 50. Trade cap is 500. Owner may
        * set 500 explicitly. Omit with TRADE_URL set refuses

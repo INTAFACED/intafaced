@@ -2,7 +2,10 @@
  * Owner: lane B2 (templates). A table that becomes stacked rows under the compact width (no sideways scroll on a
  * phone, no labels broken mid-word: room-inventory flaws 4 and 6). Each cell carries its column's label for the
  * stacked form. Selection, when given, is a real link or button per row, so it works by keyboard. A long list sorts
- * by its headers and, with `virtual`, draws only the rows near the window's view.
+ * by its headers and, with `virtual`, draws only the rows near the window's view. With `onSelect` the rows are
+ * pickable (a grid). `virtual` and `onSelect` never go together (the type refuses the pair): a pickable grid has one
+ * Tab stop, its picked row, and a windowed body may not have drawn that row, so the grid would lose its only stop.
+ * Every other prop combines with either.
  */
 import * as React from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
@@ -19,6 +22,8 @@ export interface Column<Row> {
   cell: (row: Row) => React.ReactNode;
   /** The cell's own marks (`data-cell`, `data-testid`). */
   cellMarks?: (row: Row) => DataMarks;
+  /** The column header's own marks (`data-col`, `data-testid`). */
+  headMarks?: DataMarks;
   /** Figures align to the end. */
   align?: 'start' | 'end';
   /** Shown only in Pro (column chooser default). */
@@ -43,7 +48,7 @@ export interface VirtualRows {
   overscan?: number;
 }
 
-export interface TableProps<Row> {
+interface TableBase<Row> {
   caption: string;
   columns: readonly Column<Row>[];
   rows: readonly Row[];
@@ -59,8 +64,28 @@ export interface TableProps<Row> {
   empty?: React.ReactNode;
   /** The row's own marks (`data-testid`, the record's id). */
   rowMarks?: (row: Row) => DataMarks;
-  virtual?: VirtualRows;
+  /** Desk rows: the dense row height and type. */
+  dense?: boolean;
+  /** A wide table: it scrolls sideways in a labelled region of its own (a keyboard stop, so it can be scrolled). */
+  scroll?: boolean;
+  /** The header row's own marks (`data-testid`). */
+  headMarks?: DataMarks;
+  /** The rows are placeholders while the list loads: the table says it is busy. */
+  busy?: boolean;
 }
+
+export type TableProps<Row> = TableBase<Row> &
+  (
+    | {
+        /**
+         * Makes the rows pickable: the table becomes a `grid`, each row one Tab stop with `aria-selected`; a click on the
+         * row (not on a control inside it), Enter or Space picks it, and the arrow keys, Home and End move between rows.
+         */
+        onSelect?: (key: string) => void;
+        virtual?: never;
+      }
+    | { virtual?: VirtualRows; onSelect?: never }
+  );
 
 const LINK = '[data-row-link], .lt-row-link';
 
@@ -88,6 +113,16 @@ function moveFocus(event: React.KeyboardEvent<HTMLElement>, count: number, revea
 }
 
 type RenderRow<Row> = (row: Row, index: number, extra?: { ref: (node: HTMLTableRowElement | null) => void }) => React.ReactNode;
+
+/** A sorted column's mark, drawn (Volt's faces carry no ▲ ▼ glyphs): up for ascending, down for descending. */
+function SortMark({ order }: { order: ReturnType<typeof ariaSortOf> }) {
+  const way = order === 'ascending' ? 'up' : order === 'descending' ? 'down' : null;
+  return (
+    <span className="lt-sort-mark" aria-hidden="true">
+      {way && <span className={`lt-arrow lt-arrow-${way}`} />}
+    </span>
+  );
+}
 
 function Spacer({ size, span }: { size: number; span: number }) {
   if (size <= 0) return null;
@@ -159,11 +194,29 @@ export function Table<Row>({
   onSort,
   empty,
   rowMarks,
+  headMarks,
+  busy,
   virtual,
+  onSelect,
+  dense = false,
+  scroll = false,
 }: TableProps<Row>) {
   const cols = columns.filter((c) => mode === 'pro' || !c.pro);
   const sorts = sort !== undefined && onSort !== undefined;
   const windowed = virtual !== undefined && rows.length > (virtual.after ?? 50);
+  const body = React.useRef<HTMLTableSectionElement>(null);
+  const keys = rows.map(rowKey);
+  const stop = Math.max(0, selected === undefined ? 0 : keys.indexOf(selected));
+  const focusRow = (index: number) => body.current?.querySelectorAll<HTMLElement>('tr[data-row]')[index]?.focus();
+  const onGridKey = (event: React.KeyboardEvent, index: number) => {
+    if (!onSelect || event.target !== event.currentTarget) return;
+    const step = gridKey(event.key, index, keys.length);
+    if (step === null) return;
+    event.preventDefault();
+    const key = keys[index];
+    if (step !== 'pick') focusRow(step);
+    else if (key !== undefined) onSelect(key);
+  };
   const renderRow: RenderRow<Row> = (row, index, extra) => {
     const key = rowKey(row);
     return (
@@ -175,6 +228,17 @@ export function Table<Row>({
         data-index={virtual ? index : undefined}
         aria-rowindex={windowed ? index + 2 : undefined}
         data-selected={selected === key || undefined}
+        aria-selected={onSelect ? selected === key : undefined}
+        tabIndex={onSelect ? (index === stop ? 0 : -1) : undefined}
+        onClick={
+          onSelect
+            ? (event) => {
+                if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea')) return;
+                onSelect(key);
+              }
+            : undefined
+        }
+        onKeyDown={onSelect ? (event) => onGridKey(event, index) : undefined}
       >
         {cols.map((c, i) => {
           const content = c.cell(row);
@@ -205,13 +269,20 @@ export function Table<Row>({
         <td colSpan={cols.length}>{empty}</td>
       </tr>
     ) : null;
-  return (
-    <table className="lt-table" data-mode={mode} aria-rowcount={windowed ? rows.length + 1 : undefined}>
+  const table = (
+    <table
+      className={dense ? 'lt-table lt-table-dense' : 'lt-table'}
+      data-mode={mode}
+      role={onSelect ? 'grid' : undefined}
+      aria-rowcount={windowed ? rows.length + 1 : undefined}
+      aria-busy={busy || undefined}
+    >
       <caption className="lt-sr">{caption}</caption>
       <thead>
-        <tr aria-rowindex={windowed ? 1 : undefined}>
+        <tr {...headMarks} aria-rowindex={windowed ? 1 : undefined}>
           {cols.map((c) => (
             <th
+              {...c.headMarks}
               key={c.key}
               scope="col"
               data-align={c.align ?? 'start'}
@@ -225,9 +296,7 @@ export function Table<Row>({
                   onClick={() => onSort(nextSort(sort ?? null, c.key, c.sortType))}
                 >
                   {c.label}
-                  <span className="lt-sort-mark" aria-hidden="true">
-                    {ariaSortOf(sort ?? null, c.key) === 'ascending' ? '▲' : ariaSortOf(sort ?? null, c.key) === 'descending' ? '▼' : ''}
-                  </span>
+                  <SortMark order={ariaSortOf(sort ?? null, c.key)} />
                 </button>
               ) : (
                 c.label
@@ -239,11 +308,27 @@ export function Table<Row>({
       {windowed ? (
         <WindowBody rows={rows} span={cols.length} virtual={virtual} renderRow={renderRow} />
       ) : (
-        <tbody onKeyDown={virtual ? (event) => moveFocus(event, rows.length) : undefined}>
+        <tbody ref={body} onKeyDown={virtual ? (event) => moveFocus(event, rows.length) : undefined}>
           {emptyRow}
           {rows.map((row, index) => renderRow(row, index))}
         </tbody>
       )}
     </table>
   );
+  if (!scroll) return table;
+  return (
+    <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={caption}>
+      {table}
+    </div>
+  );
+}
+
+/** What a key does on a pickable row at `index`: pick it, move to another row's index, or nothing (null). */
+export function gridKey(key: string, index: number, count: number): 'pick' | number | null {
+  if (key === 'Enter' || key === ' ') return 'pick';
+  if (key === 'ArrowDown') return Math.min(count - 1, index + 1);
+  if (key === 'ArrowUp') return Math.max(0, index - 1);
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
 }

@@ -5,7 +5,7 @@
  * (fills, ended orders, verification, rank) the text is written here from the structured `params`, because the service's
  * body names a market by its internal id ("buy 0.00015 on 0f7bf12e-... at 64733.35"), which a person can't read.
  */
-import { customerRoomHref, normalizePair } from '../../app/navigation';
+import { inboxRoomHref, normalizePair } from '../../app/navigation';
 import { isHiddenPath } from '../../app/feature-registry';
 import { dec } from '../../data/decimal';
 import { fmtAmount, fmtPrice } from '../../data/format';
@@ -146,15 +146,15 @@ const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i;
 const marketDesk = (market: NotifyMarket | undefined) =>
   market ? `/trade/spot/${normalizePair(`${market.base}-${market.quote}`)}` : '/trade';
 
-/** The stored link's fallback room when it has one, else its own address if that is a customer room. */
+/** The stored link's fallback room when it has one, else its own address if that is a room a message may lead to. */
 function storedLink(href: string | null | undefined, markets?: ReadonlyMap<string, NotifyMarket>): string | undefined {
   // A `.` or `..` segment, plain or escaped, would fold into another room: no link at all.
   if (!href || DOT_SEGMENT.test(href.split(/[?#]/)[0] ?? href)) return undefined;
   for (const [pattern, to] of STORED_LINK) {
     const match = pattern.exec(href);
-    if (match) return customerRoomHref(to(match[1] ?? '', markets));
+    if (match) return inboxRoomHref(to(match[1] ?? '', markets));
   }
-  return customerRoomHref(href);
+  return inboxRoomHref(href);
 }
 
 /** A live customer screen for this notification, or null (the row then just marks itself read). Never a hidden feature. */

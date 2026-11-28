@@ -16,7 +16,6 @@ import {
   ACADEMY_MODERATION_LIST_MAX,
 } from '@intafaced/contracts/academy-team';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -31,6 +30,12 @@ import {
   ACADEMY_ADMIN_ACADEMY_ROLES,
   ACADEMY_ADMIN_MODERATION_QUEUE,
   ACADEMY_ADMIN_COURSE_TEAM,
+  ACADEMY_ADMIN_SAVE_CUSTOM_ROLE,
+  ACADEMY_ADMIN_DELETE_DISCUSSION_POST,
+  ACADEMY_ADMIN_BULK_DELETE_USER_POSTS,
+  ACADEMY_ADMIN_PROPOSE_TEAM_CHANGE,
+  ACADEMY_ADMIN_CONFIRM_TEAM_CHANGE,
+  ACADEMY_ADMIN_SET_CUSTOM_ROLE_ACTIVE,
 } from '@intafaced/contracts/academy-admin-records';
 import { ACADEMY_ADMIN_COURSES } from '@intafaced/contracts/academy-admin-procedures';
 
@@ -126,42 +131,42 @@ function reply(result: FounderCallResult<unknown>, what: string): { status: numb
 
 const OPS = {
   deletePost: {
-    procedure: 'admin.deleteDiscussionPost',
+    record: ACADEMY_ADMIN_DELETE_DISCUSSION_POST,
     schema: academyDeleteDiscussionPostInputSchema,
     parse: readModeration,
     what: 'post deleted',
     why: 'Which post, and why delete it (up to 500 characters)?',
   },
   bulkDelete: {
-    procedure: 'admin.bulkDeleteUserPosts',
+    record: ACADEMY_ADMIN_BULK_DELETE_USER_POSTS,
     schema: academyBulkDeleteUserPostsInputSchema,
     parse: readModeration,
     what: "the author's posts in this course deleted",
     why: 'Which course and author, and why delete their posts (up to 500 characters)?',
   },
   propose: {
-    procedure: 'admin.proposeTeamChange',
+    record: ACADEMY_ADMIN_PROPOSE_TEAM_CHANGE,
     schema: academyProposeTeamChangeInputSchema,
     parse: readChange,
     what: 'role change proposed; it waits for a second founder',
     why: 'A role change needs an account id, a role, a reason of up to 500 characters and a request id.',
   },
   confirm: {
-    procedure: 'admin.confirmTeamChange',
+    record: ACADEMY_ADMIN_CONFIRM_TEAM_CHANGE,
     schema: academyConfirmTeamChangeInputSchema,
     parse: readChange,
     what: 'role change confirmed',
     why: 'Which role change?',
   },
   saveRole: {
-    procedure: 'admin.saveCustomRole',
+    record: ACADEMY_ADMIN_SAVE_CUSTOM_ROLE,
     schema: academySaveCustomRoleInputSchema,
     parse: readRole,
     what: 'custom role saved',
     why: 'A custom role needs a name of 3 to 48 lower-case letters, digits and underscores (not a built-in role), at least one permission and a reason.',
   },
   setRoleActive: {
-    procedure: 'admin.setCustomRoleActive',
+    record: ACADEMY_ADMIN_SET_CUSTOM_ROLE_ACTIVE,
     schema: academySetCustomRoleActiveInputSchema,
     parse: readRole,
     what: 'custom role switched',
@@ -183,5 +188,5 @@ export async function changeTeam(
   if (!parsed.success) return { why: spec.why };
   let what: string = spec.what;
   if (op === 'setRoleActive') what = (parsed.data as { active: boolean }).active ? 'custom role switched on' : 'custom role switched off';
-  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, spec.parse as (raw: unknown) => unknown), what);
+  return reply(await founderRecordRead(ctx, spec.record, parsed.data, spec.parse as (raw: unknown) => unknown), what);
 }

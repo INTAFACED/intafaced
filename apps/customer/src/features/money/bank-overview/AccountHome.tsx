@@ -1,0 +1,293 @@
+import { useState } from 'react';
+import type { ReactNode } from 'react';
+import { Button, Select } from '@intafaced/ui/lit';
+import type { ApiResult } from '../../../shared/api';
+import { ReadFailure, ReadLoading } from '../../../shared/read-state';
+import { useSession } from '../../session';
+import { AccountDetailsPanel } from '../account-details/AccountDetails';
+import { Panel as DepthPanel } from '../account-details/parts';
+import { accountHomeCopy } from '../account-home-copy';
+import { funds, useBankRecord } from '../components';
+import { type AccountCurrency, type AccountTerms } from '../contracts';
+import { RefusalCode } from '../../../shared/RefusalCode';
+import { BANK_CURRENCIES_LIST, BANK_CURRENCIES_REMOVE } from '@intafaced/contracts/bank-currencies-procedures';
+import { BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE } from '@intafaced/contracts/bank-accounts-procedures';
+import { BANK_CURRENCIES_ADD } from '@intafaced/contracts/bank-currencies-2-procedures';
+
+function Fact({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * The account itself on the Bank Overview (BK-acct-01, BK-acct-03): the base-tier terms the bank published, the currencies
+ * the account holds with add and remove, and the account details per currency. Every figure is the service's own string; with
+ * nothing published each panel says so with its reference, and no fee, feature or account number is claimed.
+ *
+ * Every read and write carries the profile in view (J-bank-01 #7). The bank proves it is held on each call; a business has no
+ * account of its own here, so its panels say so and personal money is never shown as company money.
+ */
+
+type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+
+function Refused({ title, body, code }: { title: string; body: string; code?: string | undefined }) {
+  const { t } = accountHomeCopy.useCopy();
+  return (
+    <div data-testid="failure" className="lt-refusal" data-refusal="refused" role="status">
+      <h3 className="lt-refusal-title">{title}</h3>
+      <p className="lt-refusal-body">{body}</p>
+      {code && <RefusalCode className="lt-ref" code={code} line={(code) => t('reference', { code })} />}
+    </div>
+  );
+}
+
+/** svc-bank business roles to their copy keys. A role the bank adds later shows as sent. */
+const BUSINESS_ROLE_KEYS = {
+  admin: 'role_admin',
+  maker: 'role_maker',
+  checker: 'role_checker',
+  signer: 'role_signer',
+  editor: 'role_editor',
+  viewer: 'role_viewer',
+  security_auditor: 'role_security_auditor',
+  non_signing_admin: 'role_non_signing_admin',
+} as const;
+
+/** The profile in view, as the bank sends every account call. */
+function useProfile(): string {
+  return useSession().profiles.active;
+}
+
+/** The two refusals that come from the profile rather than from the panel's own data. */
+function ProfileRefused({ failure }: { failure: Refusal }) {
+  const { t } = accountHomeCopy.useCopy();
+  if (failure.code === 'bank.company_account_unwired') {
+    return <Refused title={t('companyTitle')} body={t('companyBody')} code={failure.code} />;
+  }
+  return <Refused title={t('profileNotHeldTitle')} body={t('profileNotHeldBody')} code={failure.code} />;
+}
+
+/** A panel's failure: the profile refusals say what they mean, anything else is the shared failure with a retry. */
+function PanelFailure({ failure, retry }: { failure: Refusal; retry: () => void }) {
+  return failure.code === 'bank.company_account_unwired' || failure.code === 'bank.profile_not_held' ? (
+    <ProfileRefused failure={failure} />
+  ) : (
+    <ReadFailure result={failure} retry={retry} />
+  );
+}
+
+function ProfilePanel() {
+  const { t } = accountHomeCopy.useCopy();
+  const read = useBankRecord(BANK_ACCOUNTS_PROFILE, { profile: useProfile() });
+  const { resource } = read;
+  const roleLabel = (role: string) =>
+    Object.hasOwn(BUSINESS_ROLE_KEYS, role) ? t(BUSINESS_ROLE_KEYS[role as keyof typeof BUSINESS_ROLE_KEYS]) : role;
+  return (
+    <DepthPanel title={t('profileTitle')} lead={t('profileLead')}>
+      <div data-testid="account-profile">
+        {resource.status === 'loading' ? (
+          <ReadLoading />
+        ) : resource.status === 'failed' ? (
+          <PanelFailure failure={resource.failure} retry={read.reload} />
+        ) : resource.data.business === null ? (
+          <p>{t('profilePersonal')}</p>
+        ) : (
+          <>
+            <p>
+              <strong lang="und">{t('profileBusiness', { name: resource.data.business.name })}</strong>
+            </p>
+            <p className="lt-hint">{t('profileRole', { role: roleLabel(resource.data.business.role) })}</p>
+          </>
+        )}
+      </div>
+    </DepthPanel>
+  );
+}
+
+function TermsFacts({ terms }: { terms: AccountTerms }) {
+  const { t } = accountHomeCopy.useCopy();
+  return (
+    <dl className="lt-kv" data-testid="account-terms">
+      <Fact label={t('tier')}>
+        <span lang="und">{terms.tier}</span>
+      </Fact>
+      <Fact label={t('monthlyFee')}>{funds(terms.monthlyFee, terms.currency)}</Fact>
+      <Fact label={t('minimumBalance')}>{funds(terms.minimumBalance, terms.currency)}</Fact>
+      <Fact label={t('overdraft')}>
+        {terms.overdraftFee === null ? (
+          t('noOverdraft')
+        ) : (
+          // A published overdraft the bank cannot book yet (J-bank-02 #8): the fee, then the blocker by name.
+          <>
+            {funds(terms.overdraftFee, terms.currency)} · {t('overdraftOff')}{' '}
+            <RefusalCode
+              className="lt-ref"
+              code={terms.overdraftBlocker ?? 'bank.overdraft_switched_off'}
+              line={(code) => t('reference', { code })}
+            />
+          </>
+        )}
+      </Fact>
+      <Fact label={t('included')}>
+        <ul lang="und">
+          {terms.included.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      </Fact>
+      <Fact label={t('version')}>
+        <span lang="und">{terms.version}</span>
+      </Fact>
+    </dl>
+  );
+}
+
+function TermsPanel() {
+  const { t } = accountHomeCopy.useCopy();
+  const read = useBankRecord(BANK_ACCOUNTS_FEATURES, { profile: useProfile() });
+  const { resource } = read;
+  return (
+    <DepthPanel title={t('termsTitle')} lead={t('termsLead')}>
+      {resource.status === 'loading' ? (
+        <ReadLoading />
+      ) : resource.status === 'failed' ? (
+        resource.failure.code === 'bank.account_terms_unset' ? (
+          <Refused title={t('termsUnsetTitle')} body={t('termsUnsetBody')} code={resource.failure.code} />
+        ) : (
+          <PanelFailure failure={resource.failure} retry={read.reload} />
+        )
+      ) : (
+        <TermsFacts terms={resource.data} />
+      )}
+    </DepthPanel>
+  );
+}
+
+function CurrencyRow({ row, onRemove, busy }: { row: AccountCurrency; onRemove: () => void; busy: boolean }) {
+  const { t } = accountHomeCopy.useCopy();
+  return (
+    <div className="lt-title-row" data-testid={`currency-${row.assetId}`}>
+      <strong lang="und">{row.assetId}</strong>
+      <span className="lt-mono" dir="ltr">
+        {funds(row.balance, row.assetId)}
+      </span>
+      <Button tone="quiet" onClick={onRemove} disabled={busy}>
+        {t('remove', { asset: row.assetId })}
+      </Button>
+    </div>
+  );
+}
+
+function CurrenciesPanel() {
+  const { t } = accountHomeCopy.useCopy();
+  const { api } = useSession();
+  const profile = useProfile();
+  const read = useBankRecord(BANK_CURRENCIES_LIST, { profile });
+  const [picked, setPicked] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<
+    | { kind: 'added' | 'removed'; asset: string }
+    | { kind: 'inUse'; asset: string; spaceId: string | undefined; code: string }
+    | { kind: 'refused'; result: Refusal }
+    | null
+  >(null);
+
+  async function write(kind: 'add' | 'remove', asset: string, spaceId?: string) {
+    setBusy(true);
+    setOutcome(null);
+    const result =
+      kind === 'add'
+        ? await api.call(BANK_CURRENCIES_ADD, { assetId: asset, profile })
+        : await api.call(BANK_CURRENCIES_REMOVE, { assetId: asset, profile });
+    setBusy(false);
+    if (result.ok) {
+      setOutcome({ kind: kind === 'add' ? 'added' : 'removed', asset });
+      setPicked('');
+      read.reload();
+    } else if (result.code === 'bank.currency_in_use') {
+      setOutcome({ kind: 'inUse', asset, spaceId, code: result.code });
+    } else {
+      setOutcome({ kind: 'refused', result });
+    }
+  }
+
+  const { resource } = read;
+  if (resource.status === 'loading') {
+    return (
+      <DepthPanel title={t('currenciesTitle')} lead={t('currenciesLead')}>
+        <ReadLoading />
+      </DepthPanel>
+    );
+  }
+  if (resource.status === 'failed') {
+    return (
+      <DepthPanel title={t('currenciesTitle')} lead={t('currenciesLead')}>
+        <PanelFailure failure={resource.failure} retry={read.reload} />
+      </DepthPanel>
+    );
+  }
+  const { currencies, addable, addableBlocker } = resource.data;
+  const choice = picked || addable?.[0] || '';
+  return (
+    <DepthPanel title={t('currenciesTitle')} lead={t('currenciesLead')}>
+      <div className="lt-stack">
+        {currencies.length === 0 ? (
+          <p className="lt-hint">{t('noCurrencies')}</p>
+        ) : (
+          currencies.map((row) => (
+            <CurrencyRow key={row.assetId} row={row} busy={busy} onRemove={() => void write('remove', row.assetId, row.spaceId)} />
+          ))
+        )}
+        {addable === null ? (
+          <p className="lt-hint">
+            {t('addUnset')}{' '}
+            {addableBlocker && <RefusalCode className="lt-ref" code={addableBlocker} line={(code) => t('reference', { code })} />}
+          </p>
+        ) : addable.length === 0 ? (
+          <p className="lt-hint">{t('addNone')}</p>
+        ) : (
+          <div className="lt-actions">
+            <Select label={t('addLabel')} value={choice} onChange={setPicked} options={addable} />
+            <Button tone="primary" onClick={() => void write('add', choice)} disabled={busy || choice === ''}>
+              {busy ? t('working') : t('add')}
+            </Button>
+          </div>
+        )}
+        {outcome?.kind === 'added' && <p role="status">{t('added', { asset: outcome.asset })}</p>}
+        {outcome?.kind === 'removed' && <p role="status">{t('removed', { asset: outcome.asset })}</p>}
+        {outcome?.kind === 'inUse' && (
+          <div data-testid="currency-in-use">
+            <Refused title={t('inUseTitle', { asset: outcome.asset })} body={t('inUseBody')} code={outcome.code} />
+            <div className="lt-actions">
+              <a
+                className="lt-button lt-button-secondary"
+                href={outcome.spaceId ? `/bank/transfers?from=${encodeURIComponent(outcome.spaceId)}` : '/bank/transfers'}
+              >
+                {t('send')}
+              </a>
+              <a className="lt-button lt-button-secondary" href="/trade/convert">
+                {t('convert')}
+              </a>
+            </div>
+          </div>
+        )}
+        {outcome?.kind === 'refused' && <ReadFailure result={outcome.result} />}
+      </div>
+    </DepthPanel>
+  );
+}
+
+export function AccountHome() {
+  return (
+    <div className="lt-stack" data-testid="account-home">
+      <ProfilePanel />
+      <TermsPanel />
+      <CurrenciesPanel />
+      <AccountDetailsPanel />
+    </div>
+  );
+}

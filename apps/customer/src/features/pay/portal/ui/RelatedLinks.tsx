@@ -10,7 +10,7 @@ export function RelatedLinks({ links }: { links: ReadonlyArray<{ href: string; l
       <ul>
         {links.map((link) => (
           <li key={link.href}>
-            <a className="text-link" href={link.href}>
+            <a className="lt-link" href={link.href}>
               {link.label}
             </a>
           </li>

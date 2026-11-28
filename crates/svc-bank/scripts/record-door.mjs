@@ -329,9 +329,11 @@ async function chainOf(path, proc) {
 const REFINES = {
   'value=>value===PERSONAL_PROFILE||BUSINESS_PROFILE.test(value)': 'account_profile',
   'value=>!/[\\u0000-\\u001F]/.test(value)': 'no_control_characters',
+  "(value) => ![...value].some((c) => c < ' ')": 'no_control_characters',
   'value=>value.text!==void 0||value.reportDescription!==void 0': 'note_or_report',
   'value=>/[1-9]/.test(value)': 'some_nonzero_digit',
   '(v) => /[1-9]/.test(v)': 'some_nonzero_digit',
+  'v=>/[1-9]/.test(v)': 'some_nonzero_digit',
   'day=>{const at=new Date(`${day}T00:00:00.000Z`);return!Number.isNaN(at.getTime())&&at.toISOString().slice(0,10)===day}': 'calendar_day',
   'value=>Object.keys(value).length<=8': 'at_most_eight_keys',
   '(input) => input.fromUserId !== input.toUserId': 'two_different_users',
@@ -504,6 +506,15 @@ const REST_SCHEMAS = {
   'POST /internal/agents/usage-payment': agentsUsagePaymentRequestSchema,
 };
 for (const [name, schema] of Object.entries(REST_SCHEMAS)) inputs[name] = node(schema);
+// The schemas a handler runs on a value it holds (`safeParse`), not on a call's input, under the call's path and a
+// `#` name (`src/door/inputs.rs`'s `HANDLER_SCHEMAS`): the card programme desk's settings and stored rules.
+const { SETTING_SCHEMAS } = await svc('cards/programme/programme-ops.ts');
+const { ruleParamsSchema } = await svc('cards/programme/rules.ts');
+const HANDLER_SCHEMAS = {
+  ...Object.fromEntries(Object.entries(SETTING_SCHEMAS).map(([key, schema]) => [`ops.cardProgrammeConfigure#${key}`, schema])),
+  'ops.cardProgrammeRuleCreate#params': ruleParamsSchema,
+};
+for (const [name, schema] of Object.entries(HANDLER_SCHEMAS)) inputs[name] = node(schema);
 
 if (UNNAMED.size) throw new Error(`unnamed refines:\n${[...UNNAMED].join('\n---\n')}`);
 
@@ -827,7 +838,7 @@ function pick(list, max, seed) {
 const cases = [];
 const bases = [];
 const seenRoots = new Map();
-for (const path of [...paths, ...Object.keys(REST_SCHEMAS)]) {
+for (const path of [...paths, ...Object.keys(REST_SCHEMAS), ...Object.keys(HANDLER_SCHEMAS)]) {
   const id = inputs[path];
   if (id === undefined) {
     cases.push([path, null, verdict({ safeParse: () => ({ success: true, data: undefined }) }, undefined, null)]);

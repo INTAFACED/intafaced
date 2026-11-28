@@ -3,9 +3,9 @@ import { SUPPORT_EVENTS } from '@intafaced/contracts/support-customer-procedures
 import type { SupportTicketEvent } from '@intafaced/contracts/support';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { supportEventsCopy } from './support-events-copy';
-import './support-events.css';
+import { EmptyNote, FailureNote, Waiting } from './volt-parts';
 
 export type SupportEvent = SupportTicketEvent;
 
@@ -45,48 +45,48 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
   }, `support-events:${userId}:${ticketId}:${ticketUpdatedAt}:${limit}`);
 
   return (
-    <section className="support-history" aria-labelledby={headingId} lang={languageFor('history')}>
-      <header className="support-history-heading">
+    <section className="lt-stack" aria-labelledby={headingId} lang={languageFor('history')}>
+      <header className="lt-toolbar">
         <h3 id={headingId}>
           <Copy k="history" />
         </h3>
-        <Button variant="secondary" onClick={reload} disabled={resource.status === 'loading'}>
+        <Button tone="secondary" onClick={reload} disabled={resource.status === 'loading'}>
           <Copy k="refresh" />
         </Button>
       </header>
-      <p className="support-history-description">
+      <p className="lt-hint">
         <Copy k="description" />
       </p>
       {resource.status === 'loading' ? (
-        <Loading label={t('loading')} />
+        <Waiting label={t('loading')} />
       ) : resource.status === 'failed' ? (
         <div lang="und">
-          <Failure result={resource.failure} retry={reload} />
+          <FailureNote result={resource.failure} retry={reload} />
         </div>
       ) : (
         <>
           {resource.data.length === 0 ? (
-            <EmptyState title={t('empty')}>
+            <EmptyNote title={t('empty')}>
               <Copy k="emptyDetail" />
-            </EmptyState>
+            </EmptyNote>
           ) : (
             <>
               {hasSupportEventGap(resource.data) && (
-                <p className="notice" role="status">
+                <p role="status">
                   <Copy k="gap" />
                 </p>
               )}
-              <ol className="support-event-list" aria-label={t('history')}>
+              <ol className="lt-stack" aria-label={t('history')}>
                 {resource.data.map((event) => (
-                  <li className="support-event" key={event.id}>
-                    <span className="support-event-sequence" aria-label={t('sequence')}>
+                  <li className="lt-toolbar" key={event.id}>
+                    <span className="lt-mono" aria-label={t('sequence')}>
                       {event.sequence}
                     </span>
-                    <div className="support-event-body">
+                    <div className="lt-stack">
                       <h4>
                         <Copy k={event.kind} />
                       </h4>
-                      <p className="support-event-meta">
+                      <p className="lt-hint">
                         <Copy k={event.actorRole === 'operator' ? 'operator' : event.actorId === userId ? 'you' : 'user'} />
                         {' · '}
                         <time dateTime={event.occurredAt} lang={requestedLocale}>
@@ -94,18 +94,18 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
                         </time>
                       </p>
                       {event.kind === 'status_changed' && event.fromStatus && event.toStatus && (
-                        <p className="support-event-transition">{t('transition', { from: t(event.fromStatus), to: t(event.toStatus) })}</p>
+                        <p>{t('transition', { from: t(event.fromStatus), to: t(event.toStatus) })}</p>
                       )}
                       {event.note !== null && (
-                        <p className="support-event-note" lang="und">
+                        <p className="lt-pre-wrap" lang="und">
                           {event.note}
                         </p>
                       )}
-                      <details className="support-event-reference">
+                      <details>
                         <summary>
                           <Copy k="showReference" params={{ sequence: event.sequence }} />
                         </summary>
-                        <dl>
+                        <dl className="lt-kv">
                           <div>
                             <dt>
                               <Copy k="eventReference" />
@@ -132,7 +132,7 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
               </ol>
             </>
           )}
-          <div className="support-history-coverage">
+          <div className="lt-stack">
             <p>
               <Copy k="returned" params={{ count: resource.data.length, limit }} />
             </p>
@@ -142,7 +142,7 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
                   <p>
                     <Copy k="more" />
                   </p>
-                  <Button variant="secondary" onClick={() => setLimit(Math.min(500, limit + 50))}>
+                  <Button tone="secondary" onClick={() => setLimit(Math.min(500, limit + 50))}>
                     <Copy k="loadMore" params={{ limit: Math.min(500, limit + 50) }} />
                   </Button>
                 </>

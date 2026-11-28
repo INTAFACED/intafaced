@@ -905,10 +905,33 @@ export async function ensureFunds(client, who, assets, divisor, { fund = fundThr
 
 // ── The loop ────────────────────────────────────────────────────────────────
 
+/** Seconds between two cycles when no `--interval` is given. */
+export const DEFAULT_INTERVAL_SECONDS = 8;
+/**
+ * The environment variable a long-lived stack sets to quote less often: `start` records it as `--interval`, so `ensure`
+ * starts the same cadence again. The beta link sets it (tooling/beta/beta-host.mjs): there, nobody waits on a cycle, and
+ * at 8 s the maker's orders kept the stack's services busy around the clock (project-state #3857). Journeys leave it unset.
+ */
+export const MARKET_INTERVAL_ENV = 'LOCAL_STACK_MARKET_INTERVAL';
+
+/** `start`'s arguments as recorded: `--interval` from MARKET_INTERVAL_ENV when the command line names none (exported for tests). */
+export function startArgs(rest, env = process.env) {
+  const seconds = env[MARKET_INTERVAL_ENV];
+  return seconds && !rest.includes('--interval') ? [...rest, '--interval', seconds] : rest;
+}
+
+/** How long the maker's log may stay quiet before `status` reads it STALE: two minutes past its own sleep between cycles. */
+export function staleAfterMs(args = []) {
+  const i = args.indexOf('--interval');
+  const seconds = i >= 0 ? Number(args[i + 1]) : DEFAULT_INTERVAL_SECONDS;
+  return STALE_AFTER_MS + 1000 * Math.max(0, (Number.isFinite(seconds) ? seconds : DEFAULT_INTERVAL_SECONDS) - DEFAULT_INTERVAL_SECONDS);
+}
+
 function parseArgs(argv) {
   const opts = {
     seed: '1013',
-    seconds: 8,
+    // `still` and `hold` wait a few cycles for the running maker: on a stack that set it, those cycles are this long.
+    seconds: process.env[MARKET_INTERVAL_ENV] ? Number(process.env[MARKET_INTERVAL_ENV]) : DEFAULT_INTERVAL_SECONDS,
     levels: 3,
     symbols: null,
     foreground: false,
@@ -936,7 +959,8 @@ function parseArgs(argv) {
         2,
       );
   }
-  if (!Number.isInteger(opts.seconds) || opts.seconds < 2) die('--interval must be a whole number of seconds, at least 2', 2);
+  if (!Number.isInteger(opts.seconds) || opts.seconds < 2)
+    die(`--interval (or ${MARKET_INTERVAL_ENV}) must be a whole number of seconds, at least 2`, 2);
   if (!Number.isInteger(opts.levels) || opts.levels < 1 || opts.levels > 10) die('--levels must be 1..10', 2);
   if (!Number.isInteger(opts.bars) || opts.bars < 1 || opts.bars > 2000) die('--bars must be 1..2000', 2);
   if (!Number.isInteger(opts.stepMinutes) || opts.stepMinutes < 1 || opts.stepMinutes > 1440) die('--step-minutes must be 1..1440', 2);
@@ -1836,14 +1860,26 @@ export function makerUnquoted({ home = os.homedir() } = {}) {
 }
 
 /**
+ * The maker's status on a custody-off stack that never ran it: off by design, since our own order book is off (the
+ * launch build's switch), so no TEST maker quotes there (CUSTODY_ON_ONLY). J-home-ia-11 #1 reads this exact row.
+ */
+export const MARKET_OFF_CUSTODY_OFF = 'off (custody off: our own order book is off, so its TEST market maker does not run)';
+
+/**
  * What `status` and `local:stack status` show. The pid file is the record of "it should be running": start writes
  * it, only an explicit `stop` removes it. So a record whose process is gone means it died on its own.
- *   state: 'ok' | 'stale' (alive, but no log line for 2+ minutes) | 'down' (should run, does not) | 'off' (never started or stopped)
+ *   state: 'ok' | 'stale' (alive, but no log line for 2 minutes past its interval) | 'down' (should run, does not) | 'off' (never started or stopped, or a custody-off stack, MARKET_OFF_CUSTODY_OFF)
  */
 export function marketStatus({ home = os.homedir(), now = Date.now() } = {}) {
   const p = stackPaths(home);
   const rec = readRecord(p);
-  if (!rec) return { state: 'off', pid: null, ageMs: null, text: 'not started (pnpm local:market)' };
+  if (!rec)
+    return {
+      state: 'off',
+      pid: null,
+      ageMs: null,
+      text: stackCustodyOff(p.stateDir) ? MARKET_OFF_CUSTODY_OFF : 'not started (pnpm local:market)',
+    };
   let ageMs = null;
   try {
     ageMs = Math.max(0, now - fs.statSync(p.log).mtimeMs);
@@ -1854,7 +1890,7 @@ export function marketStatus({ home = os.homedir(), now = Date.now() } = {}) {
   const pid = runningPid(p);
   if (!pid)
     return { state: 'down', pid: rec.pid, ageMs, text: `DOWN (was running, ${ago}; pnpm local:market ensure restarts it; why: ${p.log})` };
-  if (ageMs === null || ageMs > STALE_AFTER_MS) return { state: 'stale', pid, ageMs, text: `STALE (${ago}; log ${p.log})` };
+  if (ageMs === null || ageMs > staleAfterMs(rec.args)) return { state: 'stale', pid, ageMs, text: `STALE (${ago}; log ${p.log})` };
   return { state: 'ok', pid, ageMs, text: `ok (${ago})` };
 }
 function fmtAge(ms) {
@@ -2078,7 +2114,7 @@ async function main() {
       `unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move | unshift | hold | release | still | live`,
       2,
     );
-  await startBackground(p, rest, { wait: true });
+  await startBackground(p, startArgs(rest), { wait: true });
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();

@@ -1,9 +1,14 @@
 // World: book, restart
 import { createHash } from 'node:crypto';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, fromUnits, fund, ORIGIN, restartWithSetting, toUnits } from './stack.mjs';
-import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
+import { api, bestPrices, fromUnits, fund, ORIGIN, restartService, restartWithSetting, toUnits } from './stack.mjs';
+import { fundedTrader, openOrders, openHow, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { CHAIN_ID } from './dex.mjs';
+import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { connectAndSign, connections } from './venue-room.mjs';
+import { sameDecimal, testDeposit, venueBalance, venueRecord } from './venue.mjs';
 
 // J-home-ia-01, in the running app (docs/roadmap/journeys.json): I open the app and see where I stand. Tests titled
 // "J-home-ia-01 #<n>" prove a whole step: #4, #5, #6, #8 and #9 here; #1, #2 and #3, the total on the launch model
@@ -113,6 +118,7 @@ test(`${J}, with the user-venue door off: Home shows the bank's total to the cen
 
   // EUR has no USD market: it is named as left out, never counted as zero.
   expect(summary.unpriced.map((row) => row.asset)).toContain('EUR');
+  await openHow(page);
   await expect(page.getByText(/Excludes \d+ coins? \(no USD price\)/)).toBeVisible();
 
   // The person picks BTC in View; Home then shows the bank's BTC total, or keeps dollars and says why.
@@ -149,7 +155,7 @@ test(`${J}, with the user-venue door off: the eye hides amounts and keeps prices
   await expect(totalOn(page, HOME_TOTAL)).toHaveAttribute('data-hidden', 'true');
   await expect(totalOn(page, HOME_TOTAL).getByLabel('Hidden')).toBeVisible();
   // Prices are not balances: the markets on Home still show theirs.
-  await expect(page.locator('[data-testid="hp-markets"] [role=row], [data-testid="home-cards"] > *').nth(1)).toContainText(/\d/);
+  await expect(page.getByTestId('hp-markets').getByRole('row').nth(1)).toContainText(/\d/);
   await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
 
   // A second device: a fresh browser with nothing stored, signed in as the same person.
@@ -423,7 +429,7 @@ test(`${J}, part of #4: while Home's owner values cannot be read, Needs you says
   await expect(work).not.toContainText('Nothing needs you');
   fail = false;
   await work.getByRole('button', { name: 'Try again' }).click();
-  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
+  await expect(work.getByText('Nothing needs you right now.', { exact: true })).toBeVisible();
 });
 
 /** Each Get started step as the tile shows it: { step: status }, plus where each open step leads. */
@@ -440,73 +446,156 @@ async function startedSteps(page) {
 }
 const statuses = (steps) => Object.fromEntries(Object.entries(steps).map(([id, step]) => [id, step.status]));
 
-test(`${J} #6 Get started reads each step from the account's records, survives a cleared browser, and leaves when all six are done`, async ({
+/** The TEST USDT #6 puts into INTAFACED's own ledger, and the TEST USDC the TEST venue then credits to the trading account. */
+const LEDGER_USDT = '100';
+const VENUE_USDC = '25';
+
+/**
+ * The person connects a TEST wallet to their account from a second device: the Venue account room's own Connect and the
+ * wallet's signature, which svc-protocol records as theirs. The venue account that wallet owns is their trading account
+ * at the venue. Returns the wallet's address, lowercase, as the venue names the account's owner.
+ */
+async function connectsWallet(browser, who, walletKey) {
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
+  try {
+    const page = await context.newPage();
+    await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey });
+    await signIn(page, who);
+    await page.goto('/wallet');
+    await page.getByRole('button', { name: 'Venue account', exact: true }).click();
+    await expect(page).toHaveURL(/\/wallet\/venue$/);
+    await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
+    await connectAndSign(page);
+  } finally {
+    await context.close();
+  }
+  const address = privateKeyToAccount(walletKey).address;
+  expect((await connections(who)).map((c) => [c.address, c.status])).toEqual([[address, 'live']]);
+  return address.toLowerCase();
+}
+
+/** Home is drawn: its Recent activity section is on the page, so a missing tile is not a page still loading. */
+async function homeDrawn(page) {
+  await expect(
+    page.locator('section[aria-labelledby="home-activity-title"]').getByRole('heading', { name: 'Recent activity', exact: true }),
+  ).toBeVisible();
+}
+
+test(`${J} #6 a brand-new account's Get started list has register done and the rest open with links; a deposit the venue reports in the trading account turns Add money done on the next load and a deposit into our own ledger does not; the tile goes when all six are done; a cleared browser changes nothing`, async ({
   browser,
+  stepPicture,
 }) => {
-  test.setTimeout(300_000);
+  // Two restarts of svc-trade around the step: the user-venue door on, then off again.
+  test.setTimeout(600_000);
   // Passkeys belong to the stack's relying party, localhost, so this person uses the app there.
   const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN, viewport: { width: 1440, height: 900 } });
-  const page = await context.newPage();
-  const fresh = await signUp(page, 'hmg');
-  await page.goto('/');
-  const open = await startedSteps(page);
-  expect(statuses(open)).toEqual({ register: 'done', verify: 'todo', secure: 'todo', deposit: 'todo', trade: 'todo', alert: 'todo' });
-  expect(open.verify.href).toBe('/verification');
-  expect(open.secure.href).toBe('/uc/safe');
-  expect(open.deposit.href).toBe('/uc/recharge');
-  expect(open.trade.href).toBe('/trade/buy');
-  expect(open.alert.href).toBe('/notifications?view=alerts');
-  await expect(page.getByTestId('home-started__count')).toHaveText('1 of 6 done');
+  const cleared = async (page) => {
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.reload();
+  };
+  try {
+    // The launch model for this step: svc-trade's user-venue door on, which starts the stack's TEST venue. It is put back
+    // off after the step, so every other step of this file runs with the door off as before.
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on' });
+    const page = await context.newPage();
+    const fresh = await signUp(page, 'hmg');
+    await page.goto('/');
+    const open = await startedSteps(page);
+    expect(statuses(open)).toEqual({ register: 'done', verify: 'todo', secure: 'todo', deposit: 'todo', trade: 'todo', alert: 'todo' });
+    expect(open.verify.href).toBe('/verification');
+    expect(open.secure.href).toBe('/uc/safe');
+    expect(open.deposit.href).toBe('/uc/recharge');
+    expect(open.trade.href).toBe('/trade/buy');
+    expect(open.alert.href).toBe('/notifications?view=alerts');
+    await expect(page.getByTestId('home-started__count')).toHaveText('1 of 6 done');
 
-  // Nothing is kept in the browser: with its storage cleared, the same steps come back from the account.
-  await page.evaluate(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-  });
-  await page.reload();
-  expect(statuses(await startedSteps(page))).toEqual(statuses(open));
+    // Nothing is kept in the browser: with its storage cleared, the same steps come back from the account.
+    await cleared(page);
+    expect(statuses(await startedSteps(page))).toEqual(statuses(open));
 
-  // Verified, then money in through the real ledger: both steps are done on the next load.
-  await verify(page, fresh);
-  await signIn(page, fresh);
-  expect(fund(fresh.email, 'USDT', '100').tx).toBeTruthy();
-  await page.goto('/');
-  expect(statuses(await startedSteps(page))).toEqual({
-    register: 'done',
-    verify: 'done',
-    secure: 'todo',
-    deposit: 'done',
-    trade: 'todo',
-    alert: 'todo',
-  });
+    // Verified, then TEST money into INTAFACED's own ledger. The ledger holds it, and Add money stays open: only
+    // verification is done on the next load.
+    await verify(page, fresh);
+    await signIn(page, fresh);
+    expect(fund(fresh.email, 'USDT', LEDGER_USDT).tx).toBeTruthy();
+    const client = await api(fresh);
+    const ledgerUsdt = async () => toUnits((await client.balances()).USDT?.total ?? '0');
+    await expect.poll(async () => (await ledgerUsdt()) === toUnits(LEDGER_USDT), { timeout: 20_000 }).toBe(true);
+    const verified = { register: 'done', verify: 'done', secure: 'todo', deposit: 'todo', trade: 'todo', alert: 'todo' };
+    await page.goto('/');
+    expect(statuses(await startedSteps(page))).toEqual(verified);
 
-  // A passkey from Security, a price alert, and a first trade on the real book.
-  await virtualAuthenticator(page);
-  await addPasskey(page);
-  const client = await api(fresh);
-  const alert = await client.post('/api/notify/trpc/notify.createAlert', {
-    marketId: 'BTC-USDT',
-    direction: 'above',
-    targetPrice: '10000000',
-  });
-  expect(alert.status, JSON.stringify(alert.body).slice(0, 300)).toBe(200);
-  const { ask } = await bestPrices();
-  const buy = await client.post('/api/v1/orders', {
-    symbol: 'BTC/USDT',
-    type: 'limit',
-    side: 'buy',
-    amount: '0.0001',
-    price: ask,
-    timeInForce: 'IOC',
-    clientOrderId: `${J}-6-${fresh.handle}`,
-  });
-  expect(buy.status, JSON.stringify(buy.body).slice(0, 300)).toBeLessThan(300);
-  await expect.poll(async () => (await openOrders(fresh)).length, { timeout: 20_000 }).toBe(0);
-  await expect.poll(async () => toUnits((await client.balances()).BTC?.total ?? '0') > 0n, { timeout: 20_000 }).toBe(true);
+    // The person connects a wallet: its venue account is their trading account. The venue's own record holds nothing in
+    // it yet, so Add money is still open.
+    const owner = await connectsWallet(browser, fresh, testWalletKey());
+    expect((await venueRecord(owner, '/balances')).value.filter((balance) => !sameDecimal(balance.total, '0'))).toEqual([]);
+    await page.goto('/');
+    expect(statuses(await startedSteps(page))).toEqual(verified);
 
-  // Every step done: the tile has nothing left to say and is gone; the rest of Home is unchanged.
-  await page.goto('/');
-  await expect(totalOn(page, HOME_TOTAL).locator('[role=img]')).toBeVisible();
-  await expect(page.locator('section[aria-labelledby="home-started-title"]')).toHaveCount(0);
-  await context.close();
+    // TEST money into the trading account at the venue (the TEST venue's deposit control, keyed by this person's own
+    // chain-transfer-shaped reference). The venue's own record reports it, and on the next load Add money is done.
+    const depositRef = `${CHAIN_ID}:0x${createHash('sha256').update(`${J}-6-venue-deposit:${fresh.handle}`).digest('hex')}:0`;
+    expect(await testDeposit(owner, 'USDC', VENUE_USDC, depositRef)).toBe(true);
+    expect(sameDecimal((await venueBalance(owner, 'USDC')).total, VENUE_USDC)).toBe(true);
+    const funded = { ...verified, deposit: 'done' };
+    await page.goto('/');
+    expect(statuses(await startedSteps(page))).toEqual(funded);
+    await expect(page.getByTestId('home-started__count')).toHaveText('3 of 6 done');
+    await stepPicture(page);
+    // The venue's deposit posted nothing to our ledger, which still holds what was put there and no more.
+    expect(await ledgerUsdt()).toBe(toUnits(LEDGER_USDT));
+    expect((await client.balances()).USDC?.total ?? '0').toMatch(/^0(\.0+)?$/);
+
+    // A passkey from Security and a price alert: five done, the first trade still open.
+    await virtualAuthenticator(page);
+    await addPasskey(page);
+    // A sign-in of its own for the calls that follow: the one above may have run out by now.
+    const trader = await api(fresh);
+    const alert = await trader.post('/api/notify/trpc/notify.createAlert', {
+      marketId: 'BTC-USDT',
+      direction: 'above',
+      targetPrice: '10000000',
+    });
+    expect(alert.status, JSON.stringify(alert.body).slice(0, 300)).toBe(200);
+    const allButTrade = { ...funded, secure: 'done', alert: 'done' };
+    await page.goto('/');
+    expect(statuses(await startedSteps(page))).toEqual(allButTrade);
+    await expect(page.getByTestId('home-started__count')).toHaveText('5 of 6 done');
+
+    // Still nothing kept in the browser: cleared again, the same five are done, Add money from the venue's record.
+    await cleared(page);
+    expect(statuses(await startedSteps(page))).toEqual(allButTrade);
+
+    // A first trade on the real book.
+    const { ask } = await bestPrices();
+    const buy = await trader.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'buy',
+      amount: '0.0001',
+      price: ask,
+      timeInForce: 'IOC',
+      clientOrderId: `${J}-6-${fresh.handle}`,
+    });
+    expect(buy.status, JSON.stringify(buy.body).slice(0, 300)).toBeLessThan(300);
+    await expect.poll(async () => (await openOrders(fresh)).length, { timeout: 20_000 }).toBe(0);
+    await expect.poll(async () => toUnits((await trader.balances()).BTC?.total ?? '0') > 0n, { timeout: 20_000 }).toBe(true);
+
+    // Every step done: the tile has nothing left to say and is gone, on a Home that is drawn. A visit draws the tile
+    // while its steps are read (none before this one found it complete), so it leaves only once all six are done.
+    const tile = page.locator('section[aria-labelledby="home-started-title"]');
+    await page.goto('/');
+    await homeDrawn(page);
+    await expect(tile).toHaveCount(0, { timeout: 20_000 });
+    // And it stays gone with the browser cleared: a new visit draws it while it reads, then every step answers done.
+    await cleared(page);
+    await homeDrawn(page);
+    await expect(tile).toHaveCount(0, { timeout: 20_000 });
+  } finally {
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'off' });
+    await context.close();
+  }
 });

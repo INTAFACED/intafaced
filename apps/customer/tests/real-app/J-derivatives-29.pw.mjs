@@ -210,7 +210,7 @@ test(`${J} #2 in standard mode, with all the USDC in perps, opens a spot buy of 
 
 /**
  * #3's page, kept open for #4: the same move is sent again from the page that sent it, as the person would press it
- * there. #4 alone has no page to send it from, and says so.
+ * there. #4 alone has no page to send it from, and says so; it takes its step picture of that page before closing it.
  */
 let movePage = null;
 let moveWallet = null;
@@ -254,7 +254,7 @@ test(`${J} #3 signs the move: the venue moves the USDC once; perps falls and spo
   expect(await ledgerOf()).toEqual(state().ledger);
 });
 
-test(`${J} #4 sends the same move again: nothing moves; the first move's result is shown`, async () => {
+test(`${J} #4 sends the same move again: nothing moves; the first move's result is shown`, async ({ stepPicture }) => {
   test.setTimeout(180_000);
   const { owner, moved } = state();
   const page = movePage;
@@ -280,6 +280,8 @@ test(`${J} #4 sends the same move again: nothing moves; the first move's result 
     // Nothing moved at the venue, and the venue received no new action.
     await nextModeReads(page, 2);
     expect(await modeOf(owner)).toEqual(before);
+    // #3's page is closed below, so its picture is taken here, with the resend's answer and the first result on screen.
+    await stepPicture(page);
   } finally {
     await page.close();
     movePage = null;
@@ -386,6 +388,7 @@ test(`${J} #7 asks to switch the account to unified mode while the venue refuses
 
 test(`${J} #8 switches the account to unified mode and signs: one signed venue action; the account then reads unified, with one USDC balance used by spot and perps, from the venue`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const { owner } = state();
@@ -423,6 +426,7 @@ test(`${J} #8 switches the account to unified mode and signs: one signed venue a
   await expect(oneBalance).toContainText('One USDC balance, used by spot and perps');
   await expect(panel(page).getByTestId('mode-spot')).toHaveCount(0);
   expect(await ledgerOf()).toEqual(state().ledger);
+  await stepPicture(page);
 });
 
 test(`${J} #9 in unified mode, with the venue reporting the day's actions near the mode's limit, opens the order ticket: a warning names the venue's daily action limit, what it reports used today, and that standard mode has no such limit`, async ({

@@ -180,7 +180,7 @@ const SCREENING_FAIL_CLOSED_ENV: &str = "INTAFACED_SCREENING_FAIL_CLOSED";
 const UNRESOLVED_REGION: &str = "XX";
 
 /// `SANCTIONED_LIST_ROWS` (`packages/config/src/screening.ts`): unsigned, so used only when APP_ENV is dev or test.
-const SANCTIONED_LIST_ROWS: [(&str, &str); 8] = [
+const SANCTIONED_LIST_ROWS: [(&str, &str); 10] = [
     (
         "CU",
         "Cuba: comprehensively sanctioned (OFAC Cuba sanctions)",
@@ -212,6 +212,14 @@ const SANCTIONED_LIST_ROWS: [(&str, &str); 8] = [
     (
         "UA-09",
         "Luhansk region of Ukraine: comprehensively sanctioned (OFAC Ukraine-/Russia-related sanctions)",
+    ),
+    (
+        "UA-65",
+        "Kherson region of Ukraine: not served, as its occupied areas are under Ukraine-/Russia-related sanctions",
+    ),
+    (
+        "UA-23",
+        "Zaporizhzhia region of Ukraine: not served, as its occupied areas are under Ukraine-/Russia-related sanctions",
     ),
 ];
 const SANCTIONED_ROWS_SOURCE_UNSIGNED: &str = "config:SANCTIONED_LIST_ROWS (unsigned, agents' reading, not Hyperliquid's text; dev/test only)";
@@ -532,6 +540,18 @@ impl Jurisdiction {
         Ok(())
     }
 
+    /// `AccessDecision.blockedBy`: which authority refuses the region, `screening` winning when both name it; none for a
+    /// region neither names (so none for any refusal but `denied.region_blocked`).
+    pub fn blocked_by(&self, region: &str) -> Option<&'static str> {
+        if Self::hit(&self.screening.regions, region).is_some() {
+            Some("screening")
+        } else if Self::hit(&self.business, region).is_some() {
+            Some("business")
+        } else {
+            None
+        }
+    }
+
     /// `checkAccess({ module, plane: 'fiat', region, kycTier })` for a fiat module whose rule is open everywhere at
     /// `min_tier` (no region of the matrix names the module: `ruleFor` is its default rule): the checks of
     /// [`Jurisdiction::check_open`], then `denied.kyc_required` when the caller's tier does not satisfy it
@@ -584,12 +604,21 @@ mod tests {
             "denied.region_blocked"
         );
         assert_eq!(test.check_open("CA-QC"), Ok(()));
+        assert_eq!(test.blocked_by("US"), Some("business"));
+        assert_eq!(test.blocked_by("IR"), Some("screening"));
+        assert_eq!(test.blocked_by("DE"), None);
         assert!(
             test.check_open("UA-43")
                 .unwrap_err()
                 .message
                 .starts_with("Crimea")
         );
+        for (region, name) in [("UA-65", "Kherson"), ("UA-23", "Zaporizhzhia")] {
+            let refused = test.check_open(region).unwrap_err();
+            assert_eq!(refused.code, "denied.region_blocked", "{region}");
+            assert!(refused.message.starts_with(name), "{region}");
+            assert_eq!(test.blocked_by(region), Some("screening"), "{region}");
+        }
         assert_eq!(test.check_open("XX"), Ok(()));
         let prod = Jurisdiction::from_env(&env(&[
             ("APP_ENV", "prod"),

@@ -44,6 +44,8 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'maintenanceMarginRate',
   'takerFeeBps',
   'fee',
+  // MoveTriggerIntent's new trigger price (J-derivatives-32)
+  'triggerPrice',
   'withdrawalFee',
   'networkFee',
   // VenueBestPrices: the side a market order meets, null when it is empty
@@ -51,9 +53,15 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
-  // UserVenueMarket's smallest order value and price band (J-cex-spot-04), null where the venue publishes none
+  // UserVenueMarket's smallest order value, price band and higher-risk zone order cap (J-cex-spot-04, J-cex-spot-14 #7, J-derivatives-02 #5 #8), null where the venue publishes none
   'minOrderNotional',
   'priceBandBps',
+  'zoneOrderCap',
+  'widthBps',
+  'usualWidthBps',
+  'bandReference',
+  'bandLow',
+  'bandHigh',
   // UserVenueOpenInterest (J-derivatives-27 #8): the deployer's cap, null where it sets none
   'capSize',
   // UserVenueMarketEvent (J-derivatives-27 #9 #10)
@@ -104,6 +112,12 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'vaultValue',
   'creditedAmount',
   'leaderShare',
+  // UserVenueLockSplit, UserVenueValidator, UserVenueStakingTier and VenueStakingDiscount (J-cex-spot-21)
+  'delegated',
+  'unstaking',
+  'totalStake',
+  'fromStaked',
+  'countedStake',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -146,6 +160,8 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'maxOrderNotional',
   'minOrderNotional',
   'priceBandBps',
+  'zoneOrderCap',
+  'widthBps',
   'capSize',
   // VenueFundingRow.premium (J-derivatives-08 #6): null where the venue publishes none, and its annualised rate
   'premium',
@@ -153,6 +169,8 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueVault.vaultValue and UserVenueVaultTransfer.leaderShare (J-derivatives-31): null where not published or a deposit
   'vaultValue',
   'leaderShare',
+  // UserVenueValidator.totalStake (J-cex-spot-21 #1): null where not published
+  'totalStake',
 ]);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set([
@@ -203,6 +221,11 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueVaultPosition and UserVenueVaultTransfer (J-derivatives-31)
   'lockUpEndsAt',
   'transferredAt',
+  // UserVenueStakingAccount (J-cex-spot-21 #7 #8)
+  'arrivesAt',
+  'rewardedAt',
+  // UserVenueMarket opening window end (J-cex-spot-14 #7)
+  'openingWindowEndsAt',
 ]);
 
 /**

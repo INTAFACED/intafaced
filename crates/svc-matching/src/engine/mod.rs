@@ -37,7 +37,6 @@ use crate::book::types::{
 use crate::book::wire::{
     WireError, from_wire, from_wire_amend, spread_from_json, spread_json, to_wire, to_wire_amend,
 };
-use crate::door::Slice;
 use crate::journal::JournalError;
 use crate::journal::io::EngineJournal;
 use crate::journal::record::{JournalCommand, JournalRecord, js_string};
@@ -89,8 +88,6 @@ pub enum EngineError {
     /// A spread fill whose legs no longer price, though the rehearsal before the journal priced them: the book moved
     /// under it. The TypeScript throws here; nothing is announced, never half a spread.
     Invariant(String),
-    /// A cold start met state a later slice owns.
-    Owed { slice: Slice, why: String },
     /// A publish during the cold start kept timing out (`StartupPublishError`): the process exits before it listens.
     StartupPublish(String),
 }
@@ -102,9 +99,6 @@ impl std::fmt::Display for EngineError {
             EngineError::Publish(e) => write!(f, "event bus: {e}"),
             EngineError::Replay(e) => write!(f, "replay: {e}"),
             EngineError::Invariant(e) => write!(f, "{e}"),
-            EngineError::Owed { slice, why } => {
-                write!(f, "{why} (slice {} is not ported)", slice.name())
-            }
             EngineError::StartupPublish(message) => f.write_str(message),
         }
     }
@@ -927,7 +921,7 @@ impl MatchingEngine {
     pub fn net_position(&self, market_id: &str, account_id: &str) -> Amount {
         self.books
             .get(market_id)
-            .map_or(0, |b| b.net_position(account_id))
+            .map_or(Amount::ZERO, |b| b.net_position(account_id))
     }
 
     /// The engine's snapshot: every book's state at the journal's length, and the dead sessions.
@@ -1525,10 +1519,10 @@ impl MatchingEngine {
             return Ok(SubmitResult::refused(disabled(order_id)));
         }
         let net = self.net_position(market_id, account_id);
-        if net == 0 {
+        if net == Amount::ZERO {
             return Ok(position_flat());
         }
-        let long = net > 0;
+        let long = net > Amount::ZERO;
         let mut order = EngineOrder::new(
             order_id,
             account_id,
@@ -1626,13 +1620,8 @@ impl MatchingEngine {
         let mut into = Rebuild::default();
         replay_journal(&records, &mut into).map_err(|e| EngineError::Replay(e.to_string()))?;
         if let Some(e) = into.error {
-            return Err(match e {
-                WireError::Owed { field, slice } => EngineError::Owed {
-                    slice,
-                    why: format!("the journal holds a {field}"),
-                },
-                WireError::Malformed(why) => EngineError::Replay(why),
-            });
+            let WireError::Malformed(why) = e;
+            return Err(EngineError::Replay(why));
         }
         self.books = into.books;
         self.modes = replay_modes(&records);

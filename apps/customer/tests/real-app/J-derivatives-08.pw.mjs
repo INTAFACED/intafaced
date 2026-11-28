@@ -334,7 +334,7 @@ test(`${J} #6 reads public funding, index and mark history: rate rows with premi
     // The same public answer as a reader opens it, signed out, in the browser: null, with the venue's reason.
     const opened = await page.goto(`${EDGE}${unpublished}`);
     expect(opened.status()).toBe(200);
-    expect(JSON.parse(await page.locator('body').innerText())).toMatchObject({ series: null, reason: none.reason });
+    await expect.poll(async () => JSON.parse(await page.locator('body').innerText())).toMatchObject({ series: null, reason: none.reason });
     await expect(page.locator('body')).toContainText(`${venue.name} publishes no index for ${SYMBOL}`);
   } finally {
     await venueAt('/test/index-published', { symbol: SYMBOL, published: true });

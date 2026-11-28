@@ -62,7 +62,21 @@ export const sendInput = z.object({
   /** The single-use fresh confirmation for exactly this send, when the bank's money-out rule asks for one. */
   stepUpApprovalId: z.string().min(1).max(64).optional(),
 });
-export const sendOutput = z.object({ ledgerTxId: z.string().min(1), amount });
+/**
+ * A send's answer: the ledger transaction of a send on the custodial layer, or the partner bank's move of a send it holds
+ * the money for (J-pay-01 #5), exactly one of them. Read as `ledgerTxId`, the payment's reference the receipt names.
+ */
+export const sendOutput = z
+  .object({
+    ledgerTxId: z.string().min(1).nullable(),
+    partnerMove: z
+      .object({ id: z.string().min(1) })
+      .nullable()
+      .optional(),
+    amount,
+  })
+  .refine((data) => (data.ledgerTxId === null) !== (data.partnerMove == null), 'A send names one ledger transaction or one partner move')
+  .transform((data) => ({ ledgerTxId: data.ledgerTxId ?? data.partnerMove!.id, amount: data.amount }));
 /** One board page (`offers.page`): continue with `nextCursor` under the same filters and sort. */
 export type OfferPage = ProcedureOutput<typeof P2P_OFFERS_PAGE>;
 export type BoardSort = (typeof P2P_BOARD_SORTS)[number];
@@ -116,7 +130,6 @@ const merchantSchema = z.object({
     .nullable()
     .optional(),
 });
-export const balanceSchema = z.object({ clearing: amount, available: amount });
 export const linkSchema = z.object({
   id,
   prefix: z.string(),
@@ -278,52 +291,6 @@ export const subscriptionPostureSchema = z.object({
   ),
   preChargeNotify: z.object({ status: z.literal('unwired'), notified: z.literal(false), merchantReadable: z.string() }),
   card: z.object({ status: z.literal('refuse_closed'), code: z.literal('pay.mandate_rail_absent') }),
-});
-export const submerchantSchema = z.object({
-  id,
-  userId: z.string(),
-  parentMerchantId: id.nullable(),
-  mode: z.enum(['gateway', 'psp', 'payfac']),
-  status: z.enum(['pending', 'active', 'suspended', 'closed']),
-  kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
-  settlingParty: z.string(),
-  feeBps: z.number().int().nullable(),
-  depth: z.number().int(),
-  createdAt: z.string(),
-});
-export const grantSchema = z.object({
-  granteeMerchantId: id,
-  subjectMerchantId: id,
-  area: z.string(),
-  reason: z.string(),
-  actorId: z.string(),
-  actorMerchantId: id,
-  grantedAt: z.string(),
-});
-export const permissionEventSchema = z.object({
-  id,
-  seq: z.string(),
-  granteeMerchantId: id,
-  subjectMerchantId: id,
-  area: z.string(),
-  action: z.enum(['grant', 'revoke']),
-  reason: z.string(),
-  actorId: z.string(),
-  actorMerchantId: id,
-  actorScope: z.string(),
-  createdAt: z.string(),
-});
-export const keySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  prefix: z.string(),
-  scopes: z.array(z.string()),
-  lastUsedAt: z.string().nullable(),
-  revoked: z.boolean(),
-  mode: z.enum(['live', 'sandbox']),
-  requireSignature: z.boolean(),
-  requireNonEmptyIpAllowlist: z.boolean(),
-  ipAllowlist: z.array(z.string()),
 });
 export const webhookSchema = z.object({
   id,

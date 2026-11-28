@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { assetIdSchema } from './asset-id.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `ops.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -433,7 +433,84 @@ export const BANK_OPS_RAMP_HEALTH = defineProcedure({
     ),
   }),
   samples: [
-    { verdict: 'accept', input: {} },
+    // The door refuses a read with no window (its `_health_window_unset` refusal), so the accepted sample names one.
+    { verdict: 'accept', input: { windowHours: 24 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_TRANSFER_HEALTH = defineProcedure({
+  ...base,
+  name: 'bank.ops.transferHealth',
+  kind: 'query',
+  path: 'ops.transferHealth',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ windowHours: z.number().int().optional() }),
+  output: z.object({
+    asOf: z.string(),
+    standingOrders: standingOutput,
+    oneOff: z.object({
+      available: z.literal(true),
+      reserved: z.number().int().nonnegative(),
+      posted: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+      failureRate: z.null(),
+      failureRateReason: z.literal('failures_not_recorded'),
+      oldestPendingAgeSeconds: z.number().int().nonnegative().nullable(),
+    }),
+    p2p: z
+      .object({
+        available: z.literal(false),
+        reason: z.literal('served_by_p2p_ops'),
+      })
+      .strict(),
+    bills: z.object({
+      available: z.literal(true),
+      submitted: z.number().int().nonnegative(),
+      accepted: z.number().int().nonnegative(),
+      paid: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+      returned: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+      failureRate: ratioString.nullable(),
+      oldestPendingAgeSeconds: z.number().int().nonnegative().nullable(),
+    }),
+  }),
+  samples: [
+    // The door refuses a read with no window (its `_health_window_unset` refusal), so the accepted sample names one.
+    { verdict: 'accept', input: { windowHours: 24 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** One customer's payments to and from other people, newest first, for the console's customer record (J-ops-console-02 #3). */
+export const BANK_OPS_CUSTOMER_TRANSFERS = defineProcedure({
+  ...base,
+  name: 'bank.ops.customerTransfers',
+  kind: 'query',
+  path: 'ops.customerTransfers',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }).strict(),
+  output: z.object({
+    userId: z.string(),
+    transfers: z.array(
+      z.object({
+        id: z.string(),
+        direction: z.enum(['sent', 'received']),
+        counterpartyUserId: z.string(),
+        amount: z.string().regex(/^\d+(\.\d{1,18})?$/),
+        assetId: assetIdSchema,
+        status: z.string(),
+        ledgerTxId: z.string().nullable(),
+        createdAt: z.string(),
+      }),
+    ),
+    truncated: z.boolean(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 200 } },
     { verdict: 'refuse', input: 42 },
   ],
 });
@@ -443,7 +520,7 @@ export const BANK_OPS_CUSTOMER_BALANCES = defineProcedure({
   name: 'bank.ops.customerBalances',
   kind: 'query',
   path: 'ops.customerBalances',
-  access: { caller: 'scope', scope: 'admin:treasury' },
+  access: { caller: 'anyScope', scopes: ['admin:read', 'admin:treasury'] },
   refusals: {},
   input: z.object({ userId: z.string().guid() }).strict(),
   output: z.object({
@@ -463,6 +540,44 @@ export const BANK_OPS_CUSTOMER_BALANCES = defineProcedure({
   samples: [
     { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * J-derivatives-26 #8: one customer's spending balances as the partner that holds their money reports them, for the
+ * founder console (`admin:read`). Each figure is the one the customer's own `spaces.list` shows, with the partner's label
+ * as its source and the partner's as-of time; a stale figure says so, and a figure the partner has not reported refuses
+ * by name. `heldByPartner: false` with no spaces when no partner holds this person's money: ledger figures are never
+ * mixed in. Audited before anything is read; writes nothing.
+ */
+export const BANK_OPS_CUSTOMER_PARTNER_BALANCES = defineProcedure({
+  ...base,
+  name: 'bank.ops.customerPartnerBalances',
+  kind: 'query',
+  path: 'ops.customerPartnerBalances',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: { 'bank.ops_audit_unavailable': 'SERVICE_UNAVAILABLE', 'bank.partner_balance_not_known': 'PRECONDITION_FAILED' },
+  input: z.object({ userId: z.string().guid() }).strict(),
+  output: z.object({
+    userId: z.string(),
+    heldByPartner: z.boolean(),
+    spaces: z.array(
+      z.object({
+        spaceId: z.string(),
+        assetId: assetIdSchema,
+        kind: z.string(),
+        name: z.string(),
+        balance: signedAmount,
+        source: z.string(),
+        asOf: z.string(),
+        state: z.enum(['known', 'stale']),
+        staleAfterMs: z.number(),
+      }),
+    ),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: { userId: '11111111-1111-4111-8111-111111111111', extra: 1 } },
   ],
 });
 
@@ -526,4 +641,140 @@ export const BANK_OPS_SET_CARD_STATUS = defineProcedure({
     },
     { verdict: 'refuse', input: 42 },
   ],
+});
+
+export const figures = z.object({ spend: signed, open: signed });
+
+export const BANK_OPS_RUN_RISK_SWEEP = defineProcedure({
+  ...base,
+  name: 'bank.ops.runRiskSweep',
+  kind: 'mutation',
+  path: 'ops.runRiskSweep',
+  access: { caller: 'service', callers: ['svc-bank'], forbidden: 'ops job is callable only as svc-bank' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(10_000).optional() }),
+  output: z.object({
+    marked: z.number().int(),
+    called: z.number().int(),
+    liquidated: z.number().int(),
+    cleared: z.number().int(),
+    // Loans the sweep declined to act on — an unusable mark, no
+    // counterparty, a reserve that cannot cover. Surfaced rather than
+    // swallowed: a silent refusal is a position nobody is watching.
+    refused: z.array(z.object({ loanId: z.string(), reason: z.string() })),
+  }),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_CARD_PAY_FROM_RECONCILIATION = defineProcedure({
+  ...base,
+  name: 'bank.ops.cardPayFromReconciliation',
+  kind: 'query',
+  path: 'ops.cardPayFromReconciliation',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({
+    test: z.boolean(),
+    partnerReports: z.boolean(),
+    lines: z.array(
+      z.object({
+        assetId: assetIdSchema,
+        kind: z.enum(['spend', 'open_holds']),
+        app: signed,
+        partner: signed,
+        status: z.enum(['matches', 'break']),
+      }),
+    ),
+    breaks: z.array(
+      z.object({
+        authorizationRef: z.string(),
+        assetId: assetIdSchema,
+        reason: z.enum(['not_reported', 'unreadable', 'differs']),
+        app: figures,
+        partner: figures.nullable(),
+      }),
+    ),
+  }),
+  samples: [{ verdict: 'accept' }],
+});
+
+export const BANK_OPS_RUN_DUE_TRANSFERS = defineProcedure({
+  ...base,
+  name: 'bank.ops.runDueTransfers',
+  kind: 'mutation',
+  path: 'ops.runDueTransfers',
+  access: { caller: 'service', callers: ['svc-bank'], forbidden: 'ops job is callable only as svc-bank' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(10_000).optional() }),
+  output: z.object({
+    schedulesConsidered: z.number().int(),
+    settled: z.number().int(),
+    rejected: z.number().int(),
+    alreadyFired: z.number().int(),
+    /** Schedules looked at only because a claim was left behind. An operator wants zero. */
+    strandedSwept: z.number().int(),
+    /** Schedules that threw mid-drive; occurrence not consumed; next pass retries. */
+    failures: z.array(
+      z.object({
+        scheduleId: z.string(),
+        reason: z.string(),
+        code: z.string().optional(),
+      }),
+    ),
+  }),
+  samples: [
+    // Only svc-bank's own job is let through (the replay's callers are all refused), as its tests send it: one pass, bounded.
+    { verdict: 'accept', input: { limit: 10 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Re-drive loans stuck between the collateral lock and the draw. */
+export const BANK_OPS_RESUME_PENDING_LOANS = defineProcedure({
+  ...base,
+  name: 'bank.ops.resumePendingLoans',
+  kind: 'mutation',
+  path: 'ops.resumePendingLoans',
+  access: { caller: 'service', callers: ['svc-bank'], forbidden: 'ops job is callable only as svc-bank' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(1_000).optional() }),
+  output: z.array(z.object({ loanId: z.string(), outcome: z.string(), reason: z.string().optional() })),
+  samples: [
+    // Only svc-bank's own job is let through (the replay's callers are all refused), as its tests send it: one pass, bounded.
+    { verdict: 'accept', input: { limit: 10 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_OPS_LOAN_BOOK = defineProcedure({
+  ...base,
+  name: 'bank.ops.loanBook',
+  kind: 'query',
+  path: 'ops.loanBook',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: NO_INPUT,
+  output: z.object({
+    asOf: z.string(),
+    openCount: z.number().int().nonnegative(),
+    outstandingPrincipal: z.array(z.object({ assetId: assetIdSchema, amount: amountString })),
+    bands: z.object({
+      healthy: z.number().int().nonnegative(),
+      marginCall: z.number().int().nonnegative(),
+      liquidation: z.number().int().nonnegative(),
+      unpriced: z.number().int().nonnegative(),
+    }),
+    unpriced: z.array(
+      z.object({
+        loanId: z.string(),
+        reason: z.enum(['bank.loan_health_price_unset', 'bank.loan_opening_thresholds_unset']),
+      }),
+    ),
+    oldestPending: z.object({ id: z.string(), ageSeconds: z.number().int().nonnegative() }).nullable(),
+  }),
+  samples: [{ verdict: 'accept' }],
 });
