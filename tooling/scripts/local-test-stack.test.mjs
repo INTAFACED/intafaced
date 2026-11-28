@@ -1549,6 +1549,41 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   assert.equal(buildStillFresh({ stampHead: 'h1' }, { repo: '/w/a', head: 'h1', edits: '' }, same), false, 'an older stamp builds once');
 
+  // #11041: a commit that changes only a service's start settings (tooling/scripts/local-stack-services/, #11230's
+  // once-a-minute sweep on the beta) moved no backend source, so the long-lived beta kept svc-trade on its old settings.
+  // A move there gives the services a new build id, which restarts them onto the new settings; tooling and docs elsewhere don't.
+  {
+    const { serviceSettingsMoved } = await import('./local-test-stack.mjs');
+    const repo = mkdtempSync(join(tmpdir(), 'settings-moved-'));
+    const git = (...args) => {
+      const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    const commit = (file, text) => {
+      mkdirSync(dirname(join(repo, file)), { recursive: true });
+      writeFileSync(join(repo, file), text);
+      git('add', '-A');
+      git('commit', '-qm', file);
+      return git('rev-parse', 'HEAD');
+    };
+    try {
+      git('init', '-q');
+      const c1 = commit('tooling/scripts/local-stack-services/trade.mjs', "export default () => ({ SWEEP: '3000' });\n");
+      const c2 = commit('tooling/scripts/local-stack-services/trade.mjs', "export default () => ({ SWEEP: '60000' });\n");
+      const c3 = commit('docs/notes.md', 'a note\n');
+      const stampAt = (head) => ({ repo, head, settingsEdits: '' });
+      const now = (head) => ({ repo, head, edits: '' });
+      assert.equal(serviceSettingsMoved(stampAt(c1), now(c2)), true, "a service's settings changed: its services restart");
+      assert.equal(serviceSettingsMoved(stampAt(c2), now(c3)), false, 'a docs-only move restarts nothing');
+      assert.equal(serviceSettingsMoved(stampAt(c2), now(c2)), false, 'the same commit restarts nothing');
+      assert.equal(serviceSettingsMoved(stampAt(c2), { ...now(c2), edits: 'e1' }), true, 'an uncommitted settings edit restarts them');
+      assert.equal(serviceSettingsMoved({ repo, head: c2 }, now(c2)), true, 'a stamp from before settings counted restarts them once');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }
+
   assert.equal(onCurrentBuild({ build: 'b1' }, 'b1'), true);
   assert.equal(onCurrentBuild({ build: 'b1' }, 'b2'), false, 'rebuilt since it started');
   assert.equal(onCurrentBuild({}, 'b2'), false, 'started before builds had ids');

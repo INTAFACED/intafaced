@@ -18,6 +18,7 @@ import {
   type UserVenueMarketStatus,
   type VenueIntent,
   type VenueSignature,
+  type VenueSubmitOutcome,
   type VenueSigner,
   type VenueCandleInterval,
   VENUE_CANDLE_INTERVALS,
@@ -55,7 +56,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   POST /test/deposit-route {asset, route: {network,how} | null}   the venue's route for an asset its bridge does not take
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?,builderModeRequirementUnpublished?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,tradesSignedBy?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?,builderModeRequirementUnpublished?}   each fee a MaybeKnown<Amount>
  *        /test/account-mode {account,mode?,actionsToday?,unreported?,refuseSwitch?}   the account's mode (J-derivatives-29),
  *                                                         the day's action count, the mode withheld from reads, a mode
  *                                                         switch the venue refuses with that reason (null: takes it)
@@ -66,7 +67,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         reward paid, withdrawals queued up to the venue's limit)
  *        /test/vault-lockup {account,vault}               the venue's clock passes one account's lock-up in one vault
  *                                                         (J-derivatives-31 #5); every other position keeps its own
- *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?,refuseTriggerMoves?}   one owner's account only, so a journey can
+ *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?,refuseTriggerMoves?,refuseClose?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down
  *                                                         (and the read of its account mode as a builder);
@@ -75,7 +76,10 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
  *                                                         that long (at most 10 s) before the venue applies it;
  *                                                         `refuseTriggerMoves` (the venue's reason, or null) refuses each
- *                                                         move of a resting stop or take profit, nothing moved
+ *                                                         move of a resting stop or take profit, nothing moved;
+ *                                                         `refuseClose` {symbol,reason} refuses every reduce-only order
+ *                                                         on that market definitely, in the reason's words, applying
+ *                                                         nothing (null: takes them again; J-derivatives-33 #4)
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}   the mark moves; a trigger order it crosses fires
  *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
  *        /test/market-triggers {symbol,sources}           the prices a perpetual's trigger orders may be judged on ([]: none)
@@ -979,6 +983,8 @@ export interface AccountSwitches {
    * J-derivatives-32 #4), answered as its definite refusal with nothing moved; null (the default) takes each move.
    */
   refuseTriggerMoves: string | null;
+  /** Every reduce-only order on `symbol` is refused definitely with `reason`, applying nothing; null takes them. */
+  refuseClose: { symbol: string; reason: string } | null;
 }
 
 const ACCOUNT_SWITCHES = new WeakMap<TestVenueSimulator, Map<string, AccountSwitches>>();
@@ -1013,6 +1019,7 @@ function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknow
     failAfterSend: 0,
     submitDelayMs: 0,
     refuseTriggerMoves: null,
+    refuseClose: null,
   };
   if (body.figures !== undefined) {
     if (body.figures !== 'live' && body.figures !== 'stale' && body.figures !== 'unknown') {
@@ -1039,8 +1046,39 @@ function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknow
       throw new VenueWireError('refuseTriggerMoves is the venue reason in words (1 to 300 characters), or null');
     s.refuseTriggerMoves = why;
   }
+  if (body.refuseClose !== undefined) s.refuseClose = refuseCloseOf(body.refuseClose);
   all.set(owner, s);
   return { owner, ...s };
+}
+
+/** A field of a JSON object, or undefined. */
+const field = (value: unknown, key: string): unknown => (value !== null && typeof value === 'object' ? Reflect.get(value, key) : undefined);
+
+/** A `refuseClose` switch as sent: `{ symbol, reason }`, or null to take closes again. */
+function refuseCloseOf(raw: unknown): AccountSwitches['refuseClose'] {
+  if (raw === null) return null;
+  const symbol = field(raw, 'symbol');
+  const reason = field(raw, 'reason');
+  if (typeof symbol !== 'string' || typeof reason !== 'string' || reason.trim() === '')
+    throw new VenueWireError('refuseClose is { symbol, reason } or null');
+  return { symbol, reason };
+}
+
+/** The venue's definite refusal of a submitted reduce-only order on the switched market (`refuseClose`); null for any other. */
+function closeRefusal(
+  sim: TestVenueSimulator,
+  body: Record<string, unknown>,
+  refuse: { symbol: string; reason: string },
+): VenueSubmitOutcome | null {
+  const intent = field(body.prepared, 'intent');
+  if (field(intent, 'kind') !== 'place_order' || field(intent, 'reduceOnly') !== true || field(intent, 'symbol') !== refuse.symbol)
+    return null;
+  return {
+    definite: true,
+    accepted: false,
+    refusal: { venueId: sim.venue.id, code: 'venue_rejected', detail: `${refuse.reason} (TEST switch)` },
+    asOf: sim.venueTime(),
+  };
 }
 
 /** One request's answer. Exported so a test can drive it without a socket. */
@@ -1078,6 +1116,8 @@ export async function answerTestVenue(
       });
     }
     if (path === '/submit' && mine && mine.submitDelayMs > 0) await new Promise((r) => setTimeout(r, mine.submitDelayMs));
+    const refusedClose = path === '/submit' && mine?.refuseClose ? closeRefusal(sim, body, mine.refuseClose) : null;
+    if (refusedClose) return [200, encodeVenueWire(refusedClose)];
     if (path === '/submit' && mine && mine.loseAnswers > 0) {
       // Applied, then the answer is lost, as a timeout after the bytes reached the venue.
       await route({ sim, deposit }, path, body);
@@ -1294,6 +1334,11 @@ async function route(
           throw new VenueWireError('cancelsPerAction must be a whole number above 1, or null');
         sim.declareCancelsPerAction(n);
       }
+      if (body.tradesSignedBy !== undefined) {
+        const by = body.tradesSignedBy;
+        if (by !== null && by !== 'session_key') throw new VenueWireError("tradesSignedBy must be 'session_key' or null");
+        sim.declareTradesSignedBy(by);
+      }
       if (body.scheduledCancelMinLeadMs !== undefined) {
         const n = body.scheduledCancelMinLeadMs;
         if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n >= 0))
@@ -1335,6 +1380,7 @@ async function route(
         amendsInPlace: sim.venue.amendsInPlace === true,
         cancelsPerAction: sim.venue.cancelsPerAction ?? null,
         scheduledCancelMinLeadMs: sim.venue.scheduledCancel?.minLeadMs ?? null,
+        tradesSignedBy: sim.venue.tradesSignedBy ?? null,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         withdrawalArrivalSeconds: sim.switches.withdrawalArrivalSeconds,

@@ -688,6 +688,20 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const { cancelsPerAction: _dropped, ...rest } = this.venue;
     this.venue = n === null ? rest : { ...rest, cancelsPerAction: n };
   }
+  /** The venue's own clock, as its answers stamp them. */
+  venueTime(): Date {
+    return this.clock();
+  }
+  /**
+   * TEST: who the descriptor declares signs this venue's trades (`tradesSignedBy`): `session_key`, as Hyperliquid's orders
+   * name an approved agent, so a journey can drive the desk's trading session on the simulator (J-derivatives-33 #2: a
+   * flatten with no wallet prompt); `null` declares none (the owner's wallet). The simulator takes an agent's signature
+   * on every order either way (`agentLive`). A door reads it when it connects.
+   */
+  declareTradesSignedBy(signer: 'session_key' | null): void {
+    const { tradesSignedBy: _dropped, ...rest } = this.venue;
+    this.venue = signer === null ? rest : { ...rest, tradesSignedBy: signer };
+  }
   /**
    * TEST: whether the descriptor declares a scheduled cancel, and the least time ahead it takes one (J-cex-spot-07 #1:
    * "not offered by this venue" where it has none). `null` declares none. A door reads it when it connects.
