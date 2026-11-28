@@ -290,23 +290,37 @@ export function ExitLines({
   const entryY = drag?.kind === 'entry' ? drag.y : yOf(position.entryPrice);
   const entryFigures = drag?.kind === 'entry' && dragged ? figures(dragged) : null;
   // The labels' row positions: the stop first at the kit's inset, then the target, then the entry, each set after any
-  // earlier label whose price sits within LABEL_NEAR_PX of its own; Breakeven sits on the entry's row, after its label.
+  // earlier label whose price sits within LABEL_NEAR_PX of its own. Breakeven sits on a row of its own under the entry
+  // label (above it when one of these labels is there): the entry's own row ends at the chart's position label ("Long 1 ·
+  // +2.90", drawn by the chart at the pane's far edge), which a mark after the entry label would cover on a phone.
   const lineY = (kind: 'stop' | 'target', order: VenueOrder | null) => {
     const held = order?.trigger?.price ?? null;
     if (!held) return null;
     return drag?.kind === kind ? drag.y : yOf(held);
   };
-  const placed: { y: number; end: number }[] = [];
+  const placed: { y: number; start: number; end: number }[] = [];
   const place = (key: 'stop' | 'target' | 'entry', y: number | null) => {
     if (y === null) return LABEL_START_PX;
     const x = placed.reduce((at, p) => (Math.abs(p.y - y) < LABEL_NEAR_PX ? Math.max(at, p.end + LABEL_GAP_PX) : at), LABEL_START_PX);
-    placed.push({ y, end: x + (sizes[key]?.w ?? 0) });
+    placed.push({ y, start: x, end: x + (sizes[key]?.w ?? 0) });
     return x;
   };
   const stopX = place('stop', lineY('stop', stop));
   const targetX = place('target', lineY('target', target));
   const entryX = place('entry', entryY);
-  const actionsX = entryX + (sizes.entry?.w ?? 0) + LABEL_GAP_PX;
+  const actions = { w: sizes.actions?.w ?? 0, h: sizes.actions?.h ?? 0 };
+  const actionsRow = (() => {
+    if (entryY === null) return 0;
+    const apart = (sizes.entry?.h ?? 0) / 2 + actions.h / 2 + 2;
+    const free = (centre: number) =>
+      !placed.some(
+        (p) =>
+          p.y !== entryY && Math.abs(p.y - centre) < actions.h / 2 + LABEL_NEAR_PX / 2 && p.start < entryX + actions.w && entryX < p.end,
+      );
+    const below = entryY + apart;
+    const above = entryY - apart;
+    return free(below) || !free(above) ? below : above;
+  })();
   // The lines are drawn only once the chart reads a price back from a pixel (it has its bars): before then a line could
   // be pressed but never dropped at a price.
   const edges = { top: priceAt(pane.top), bottom: priceAt(pane.top + pane.height) };
@@ -349,9 +363,9 @@ export function ExitLines({
             {entryY !== null && drag === null && (
               <ChartMark
                 kind="menu"
-                // The menu hangs from its top: half its height above the line centres it on the entry's row.
-                y={entryY - (sizes.actions?.h ?? 0) / 2}
-                x={actionsX}
+                // The menu hangs from its top: half its height above its row's centre.
+                y={actionsRow - actions.h / 2}
+                x={entryX}
                 ref={measure('actions')}
                 data-testid="exit-line-entry-actions"
               >
