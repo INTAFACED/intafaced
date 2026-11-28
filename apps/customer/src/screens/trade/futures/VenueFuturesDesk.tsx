@@ -90,6 +90,8 @@ import { positionLines, sizeFromRisk, type PositionLine } from './risk-strip';
 import type { ChartOrderLine } from '../chart/PriceChart';
 import { VenueSplitReview, type SplitReviewData } from './VenueSplitReview';
 import { VenueTierConfirm } from './VenueTierConfirm';
+import { DailyLossConfirm, DeskDailyLoss, DailyLossRefused } from '../../../features/trade/risk/DailyLossParts';
+import { advisoryReached, counted, useDailyLoss } from '../../../features/trade/risk/daily-loss-source';
 import { venueRiskCopy } from './venue-risk-copy';
 import { VenueFunding } from './VenueFunding';
 import { TicketPreview } from './TicketPreview';
@@ -1004,6 +1006,11 @@ function Ticket({
     legs: Array<{ size: string; price: string; status: string }>;
   } | null>(null);
   const [tierAccepted, setTierAccepted] = useState(false);
+  // The person's daily loss limit (J-derivatives-35): an opening order past an advisory limit asks a confirm naming it; a
+  // blocking one is refused by svc-trade at prepare, before the wallet signs anything. Closes are never asked or held.
+  const dailyLossRead = useDailyLoss(owner, { terms: true });
+  const dailyLoss = dailyLossRead.status === 'ready' ? counted(dailyLossRead.data) : null;
+  const [lossAccepted, setLossAccepted] = useState(false);
   const [review, setReview] = useState<{
     intent: OrderIntent;
     preview: AsOf<VenuePreview>;
@@ -1319,9 +1326,12 @@ function Ticket({
         )
       : null);
   const needsTierConfirm = reviewTier?.confirmRequired === true;
+  const needsLossConfirm = review !== null && !review.intent.reduceOnly && advisoryReached(dailyLoss) !== null;
+  const lossRefused = result?.kind === 'refused' && result.code === 'trade.daily_loss_limit_reached';
   return (
     <section className="lt-panel" aria-label={t('Ticket')} data-testid="venue-ticket">
       <h2 className="lt-panel-title">{t('Ticket')}</h2>
+      <DeskDailyLoss view={dailyLoss} />
       <Segmented
         options={[
           { value: 'buy', label: t('Long') },
@@ -1601,17 +1611,22 @@ function Ticket({
           owner={owner}
           run={run}
           confirmLabel={side === 'buy' ? t('Open long') : t('Open short')}
-          confirmDisabled={needsTierConfirm && !tierAccepted}
+          confirmDisabled={(needsTierConfirm && !tierAccepted) || (needsLossConfirm && !lossAccepted)}
           beforeConfirm={
-            needsTierConfirm && reviewTier && perp ? (
-              <VenueTierConfirm
-                symbol={market.symbol}
-                tier={reviewTier}
-                leverageTimes={leverageTimes(perp.leverageBps)}
-                accepted={tierAccepted}
-                onAccept={setTierAccepted}
-              />
-            ) : null
+            <>
+              {needsTierConfirm && reviewTier && perp ? (
+                <VenueTierConfirm
+                  symbol={market.symbol}
+                  tier={reviewTier}
+                  leverageTimes={leverageTimes(perp.leverageBps)}
+                  accepted={tierAccepted}
+                  onAccept={setTierAccepted}
+                />
+              ) : null}
+              {needsLossConfirm && dailyLoss ? (
+                <DailyLossConfirm view={dailyLoss} accepted={lossAccepted} onAccept={setLossAccepted} />
+              ) : null}
+            </>
           }
           result={result}
           onConfirm={() => void confirm()}
@@ -1620,8 +1635,14 @@ function Ticket({
             setResult(null);
             setAttached(null);
             setTierAccepted(false);
+            setLossAccepted(false);
           }}
-          after={attached ? <AttachedLine attached={attached} /> : null}
+          after={
+            <>
+              {lossRefused ? <DailyLossRefused view={dailyLoss} /> : null}
+              {attached ? <AttachedLine attached={attached} /> : null}
+            </>
+          }
           extra={
             perp ? (
               <>

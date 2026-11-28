@@ -139,6 +139,7 @@ import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
 import { relaySelfFreezeEvents } from './auth/self-freeze-events.js';
+import { registerTradingRestrictionRoute } from './auth/trading-restriction-door.js';
 import { registerSupportAccountFreezeRoutes, relaySupportAccountFreezeEvents } from './auth/support-account-freeze.js';
 import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
@@ -1394,6 +1395,14 @@ registerSupportWithdrawalFreezeRoute(app, {
 
 /** A support agent's account freeze from a customer's request (J-support-public-20 #7): svc-support only. */
 registerSupportAccountFreezeRoutes(app, { sql, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+
+/** Whether identity refuses a new order for one person now (J-support-public-20 #7): svc-trade's user-venue door only. */
+registerTradingRestrictionRoute(app, {
+  sql,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  s2s: doorS2s,
+});
 
 /**
  * The owner's self-freeze (I-account-lifecycle-08), `selfFreezeStateSchema`. A service that moves money out or changes a

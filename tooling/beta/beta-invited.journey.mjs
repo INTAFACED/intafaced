@@ -232,6 +232,15 @@ try {
   check(took <= 60, `invited: within a minute (${took} s)`);
   const granted = JSON.parse(fs.readFileSync(paths.granted, 'utf8'));
   check(granted[invited.userId]?.amount === GRANT.amount, `invited: ${GRANT.amount} TEST ${GRANT.asset} granted once`);
+  // The public front reads this and reloads the person's open app once, so it shows Full and the grant (#11217).
+  const changedFor = (p) => {
+    try {
+      return JSON.parse(fs.readFileSync(paths.changed, 'utf8')).tokens?.[viewerToken(p.access)] ?? null;
+    } catch {
+      return null;
+    }
+  };
+  check(Boolean(changedFor(invited)), 'invited: the approval and grant are recorded for the front, which reloads their open app');
   // Home and Money read the person's TEST partner account (#10632): the grant is held there, as their own bank reads it.
   let held = null;
   const own = await login(invited);
@@ -258,6 +267,7 @@ try {
   while (Date.now() - uninvitedAt < 65_000) await sleep(1_000);
   mark(`uninvited: waited ${Math.round((Date.now() - uninvitedAt) / 1000)} s after its Full request`);
   const u = tierOf(uninvited);
+  check(changedFor(uninvited) === null, 'uninvited: nothing recorded for the front');
   check(!u.full && u.pending, 'uninvited: Full still waits, nobody approved it');
   check(!granted[uninvited.userId], 'uninvited: no TEST funds');
   if (!custodyOff) {

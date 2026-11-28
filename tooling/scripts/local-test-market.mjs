@@ -1860,14 +1860,26 @@ export function makerUnquoted({ home = os.homedir() } = {}) {
 }
 
 /**
+ * The maker's status on a custody-off stack that never ran it: off by design, since our own order book is off (the
+ * launch build's switch), so no TEST maker quotes there (CUSTODY_ON_ONLY). J-home-ia-11 #1 reads this exact row.
+ */
+export const MARKET_OFF_CUSTODY_OFF = 'off (custody off: our own order book is off, so its TEST market maker does not run)';
+
+/**
  * What `status` and `local:stack status` show. The pid file is the record of "it should be running": start writes
  * it, only an explicit `stop` removes it. So a record whose process is gone means it died on its own.
- *   state: 'ok' | 'stale' (alive, but no log line for 2 minutes past its interval) | 'down' (should run, does not) | 'off' (never started or stopped)
+ *   state: 'ok' | 'stale' (alive, but no log line for 2 minutes past its interval) | 'down' (should run, does not) | 'off' (never started or stopped, or a custody-off stack, MARKET_OFF_CUSTODY_OFF)
  */
 export function marketStatus({ home = os.homedir(), now = Date.now() } = {}) {
   const p = stackPaths(home);
   const rec = readRecord(p);
-  if (!rec) return { state: 'off', pid: null, ageMs: null, text: 'not started (pnpm local:market)' };
+  if (!rec)
+    return {
+      state: 'off',
+      pid: null,
+      ageMs: null,
+      text: stackCustodyOff(p.stateDir) ? MARKET_OFF_CUSTODY_OFF : 'not started (pnpm local:market)',
+    };
   let ageMs = null;
   try {
     ageMs = Math.max(0, now - fs.statSync(p.log).mtimeMs);

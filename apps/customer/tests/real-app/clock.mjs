@@ -45,3 +45,28 @@ export async function closedMinute(page, at) {
   if (left > 0) await page.waitForTimeout(left);
   return start;
 }
+
+/** Time for the stack to be in the new UTC day once the old one has ended. */
+const DAY_SETTLE = 5_000;
+
+/**
+ * How long to wait so that the next `need` ms all fall in one UTC day: 0 when the day `at` falls in has at least `need`
+ * left, else until the next day has begun. A step whose alerts are one per UTC day (a daily control's period) and that
+ * expects a repeat run to land on the same alert waits this out first, or a run either side of midnight opens a second
+ * alert for the new day (J-ops-console-07 #10 on main, run 46083906028: #9 at 23:58:37Z, its repeat after 00:00Z).
+ */
+export function dayTurnWait(at, need) {
+  const left = dayStart(at) + DAY - ms(at);
+  return left >= need ? 0 : left + DAY_SETTLE;
+}
+
+/**
+ * Waits `dayTurnWait(Date.now(), need)` on `page`, so the next `need` ms fall in one UTC day; returns the ms waited. Raise
+ * the step's timeout by `dayTurnWait` first, and take the founder sessions again after it (the pool renews an aged one).
+ * A UTC day ending has no event to await: the wall clock is the event, as for `closedMinute`.
+ */
+export async function clearOfDayTurn(page, need) {
+  const wait = dayTurnWait(Date.now(), need);
+  if (wait > 0) await page.waitForTimeout(wait);
+  return wait;
+}

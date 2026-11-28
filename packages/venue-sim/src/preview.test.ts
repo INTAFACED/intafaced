@@ -279,6 +279,7 @@ describe('HTTP answers', () => {
       'XBIL-PERP',
       'XCRS-PERP',
       'XDEV-PERP',
+      'XJRN-PERP',
       'XEXA-PERP',
       'XEXB-PERP',
     ]);

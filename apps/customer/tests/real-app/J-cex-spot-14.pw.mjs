@@ -491,7 +491,19 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
     const resting = (await venueRecord(owner, '/open-orders')).value.find((o) => o.symbol === lim.symbol && o.side === 'buy');
     expect(resting).toBeTruthy();
     expect(toUnits((await venueBalance(owner, 'USDC')).locked) - lockedBefore).toBe(toUnits('47.5'));
-    // Carry the browser's kept venue order keys (sessionStorage) into #4 so the same trader can cancel from its row.
+    // Carry the browser's kept venue order keys (sessionStorage) into #4 so the same trader can cancel from its row. The
+    // desk keeps the key only once its submit answer is back, which can land after the venue already lists the order:
+    // wait for this order's key before taking the copy, or #4's Cancel finds no key and asks no signature.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            (id) => Object.entries(sessionStorage).some(([k, v]) => k.startsWith('if.venue.keys.') && Object.hasOwn(JSON.parse(v), id)),
+            resting.venueClientOrderId,
+          ),
+        { timeout: 20_000, message: 'the desk keeps the resting order key' },
+      )
+      .toBe(true);
     const venueStorage = await page.evaluate(() => Object.fromEntries(Object.entries(sessionStorage).filter(([k]) => k.includes('venue'))));
     run.write({ ...run.read(), limitedMarket: lim, restingOrderId: resting.venueClientOrderId, venueStorage });
   });
