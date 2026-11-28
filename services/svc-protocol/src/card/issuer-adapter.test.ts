@@ -45,13 +45,35 @@ describe('S-E3 CardIssuer on-chain adapter — no keys', () => {
     }
   });
 
-  it('builds the same calldata whatever the process env holds: it reads no key from it', () => {
+  it('reads no process env at import or in any export, and builds the same calldata whatever the env holds', async () => {
     const before = [buildPullExactCalldata(7n), buildKillCalldata()];
-    for (const key of ISSUER_SECRET_ENV) vi.stubEnv(key, '0x' + 'ab'.repeat(32));
+    // Every read of process.env (a key, `in`, or a listing) while the module loads fresh and each export runs.
+    const reads: string[] = [];
+    const realEnv = process.env;
+    process.env = new Proxy(realEnv, {
+      get: (target, key, receiver) => (reads.push(`get ${String(key)}`), Reflect.get(target, key, receiver)),
+      has: (target, key) => (reads.push(`has ${String(key)}`), Reflect.has(target, key)),
+      ownKeys: (target) => (reads.push('ownKeys'), Reflect.ownKeys(target)),
+      getOwnPropertyDescriptor: (target, key) => (reads.push(`descriptor ${String(key)}`), Reflect.getOwnPropertyDescriptor(target, key)),
+    });
+    for (const key of ISSUER_SECRET_ENV) realEnv[key] = '0x' + 'ab'.repeat(32);
     try {
-      expect([buildPullExactCalldata(7n), buildKillCalldata()]).toEqual(before);
+      vi.resetModules();
+      const adapter = await import('./issuer-adapter.js');
+      // Each export, called: a new export has to be added here, so none goes unchecked.
+      const calls: Record<string, () => unknown> = {
+        ISSUER_SECRET_ENV: () => adapter.ISSUER_SECRET_ENV,
+        refuseIssuerSecrets: () => adapter.refuseIssuerSecrets({}),
+        buildPullExactCalldata: () => adapter.buildPullExactCalldata(7n),
+        buildKillCalldata: () => adapter.buildKillCalldata(),
+      };
+      expect(Object.keys(adapter).sort()).toEqual(Object.keys(calls).sort());
+      const answers = Object.fromEntries(Object.entries(calls).map(([name, call]) => [name, call()]));
+      expect(reads).toEqual([]);
+      expect([answers.buildPullExactCalldata, answers.buildKillCalldata]).toEqual(before);
     } finally {
-      vi.unstubAllEnvs();
+      process.env = realEnv;
+      for (const key of ISSUER_SECRET_ENV) delete realEnv[key];
     }
   });
 });

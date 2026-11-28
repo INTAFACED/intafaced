@@ -319,9 +319,27 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
     });
     const webUuid = vi.spyOn(globalThis.crypto, 'randomUUID');
     minted.count = 0;
-    vi.stubEnv('INTERNAL_SERVICE_SECRET', undefined);
-    vi.stubEnv('DATABASE_URL', undefined);
+    // Every read of process.env while each trigger module loads fresh and one order lives its whole life.
+    const reads: string[] = [];
+    const realEnv = process.env;
+    process.env = new Proxy(realEnv, {
+      get: (target, key, receiver) => (reads.push(String(key)), Reflect.get(target, key, receiver)),
+      has: (target, key) => (reads.push(String(key)), Reflect.has(target, key)),
+      getOwnPropertyDescriptor: (target, key) => (reads.push(String(key)), Reflect.getOwnPropertyDescriptor(target, key)),
+    });
     try {
+      vi.resetModules();
+      for (const load of [
+        () => import('./trigger-order.js'),
+        () => import('./trigger-keeper.js'),
+        () => import('./order-book.js'),
+        () => import('./order-signature.js'),
+        () => import('./trigger-ports.js'),
+        () => import('./trigger-settings.js'),
+        () => import('./trigger-math.js'),
+        () => import('./trigger-error.js'),
+      ])
+        await load();
       // The whole life of one order: placed, validated, read, held below its trigger, then filled by the keeper.
       const price = new ScriptPrice();
       const fill = new ScriptFill();
@@ -340,10 +358,14 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
       expect(calls).toEqual([]);
       expect(minted.count).toBe(0);
       expect(webUuid).not.toHaveBeenCalled();
+      // The env it does read (the screening answer) is seen, so a read of a service secret, a database or an
+      // identity address would be too.
+      expect(reads).toContain(SANCTIONS_REGIONS_ENV);
+      expect(reads.filter((key) => /SECRET|DATABASE|IDENTITY/.test(key))).toEqual([]);
     } finally {
+      process.env = realEnv;
       webUuid.mockRestore();
       vi.unstubAllGlobals();
-      vi.unstubAllEnvs();
     }
   });
 

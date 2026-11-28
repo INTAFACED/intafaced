@@ -9,8 +9,24 @@ import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrin
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED } from './codes.js';
 import { OPS_IDENTITY_UNPROBED, opsReadyUrlHonesty } from './ready-honesty.js';
 
-const booted = vi.hoisted(() => ({ apps: [] as FastifyInstance[] }));
+/** The tRPC router index.ts mounts, and where: read to ask every query it serves. */
+type ServedTrpc = { prefix: string; router: { _def: { procedures: Record<string, { _def: { type: string } }> } } };
 
+const booted = vi.hoisted(() => ({
+  apps: [] as FastifyInstance[],
+  routes: [] as Array<{ method: string | string[]; url: string }>,
+  trpc: [] as ServedTrpc[],
+}));
+
+vi.mock('@trpc/server/adapters/fastify', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@trpc/server/adapters/fastify')>();
+  const plugin = ((fastify, opts, done) => {
+    booted.trpc.push({ prefix: opts.prefix ?? '', router: opts.trpcOptions.router as unknown as ServedTrpc['router'] });
+    return real.fastifyTRPCPlugin(fastify, opts, done);
+  }) as typeof real.fastifyTRPCPlugin;
+  Object.defineProperties(plugin, Object.getOwnPropertyDescriptors(real.fastifyTRPCPlugin));
+  return { ...real, fastifyTRPCPlugin: plugin };
+});
 vi.mock('fastify', async (importOriginal) => {
   const real = await importOriginal<typeof import('fastify')>();
   const make = ((options?: FastifyServerOptions) => {
@@ -18,6 +34,7 @@ vi.mock('fastify', async (importOriginal) => {
     // The boot is driven by inject: no port is opened.
     Object.defineProperty(app, 'listen', { value: async () => '' });
     booted.apps.push(app);
+    app.addHook('onRoute', (route) => void booted.routes.push({ method: route.method, url: route.url }));
     return app;
   }) as typeof real.default;
   return { ...real, default: make };
@@ -43,6 +60,8 @@ const BASE_ENV = {
 async function boot(overrides: Record<string, string | undefined>) {
   vi.resetModules();
   booted.apps.length = 0;
+  booted.routes.length = 0;
+  booted.trpc.length = 0;
   for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) vi.stubEnv(key, value);
   await import('./index.js');
   const app = booted.apps.at(-1);
@@ -73,9 +92,27 @@ async function contactsAs(app: FastifyInstance, secret: string) {
   return { code: (res.json() as { error?: { data?: { code?: string } } }).error?.data?.code, text: res.body };
 }
 
+/** What the booted process can answer: every plain GET route it registers and every query of its router, asked anonymously. */
+async function everyAnswer(app: FastifyInstance): Promise<Array<{ url: string; status: number; text: string }>> {
+  const served = booted.trpc.at(-1);
+  if (!served) throw new Error('index.ts mounted no tRPC router');
+  const urls = booted.routes.filter((route) => [route.method].flat().includes('GET') && !/[:*]/.test(route.url)).map((route) => route.url);
+  for (const [name, procedure] of Object.entries(served.router._def.procedures)) {
+    if (procedure._def.type === 'query') urls.push(`${served.prefix}/${name}`);
+  }
+  const answers: Array<{ url: string; status: number; text: string }> = [];
+  for (const url of [...new Set(urls)].sort()) {
+    const res = await app.inject({ method: 'GET', url, headers: { 'x-intafaced-region': 'DE' } });
+    answers.push({ url, status: res.statusCode, text: res.body });
+  }
+  return answers;
+}
+
 afterEach(async () => {
   for (const app of booted.apps) await app.close();
   booted.apps.length = 0;
+  booted.routes.length = 0;
+  booted.trpc.length = 0;
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -123,5 +160,16 @@ describe('svc-ops index.ts, booted', () => {
     expect(accepted.code).toBe('SERVICE_UNAVAILABLE');
     expect(accepted.text).toContain('operator.authority_unavailable');
     expect((await contactsAs(app, 'o'.repeat(32))).code).toBe('UNAUTHORIZED');
+  });
+
+  it('every answer it gives, each GET route it registers and each query of its router, carries no custodial:false stamp and asks no peer', async () => {
+    const fetched = vi.spyOn(globalThis, 'fetch');
+    const app = await boot({ IDENTITY_URL: 'http://identity.test' });
+    const answers = await everyAnswer(app);
+    expect(fetched).not.toHaveBeenCalled();
+    expect(answers.map((answer) => answer.url)).toEqual(expect.arrayContaining(['/health', '/trpc/health']));
+    expect(answers.length).toBeGreaterThan(3);
+    const stamped = answers.filter((answer) => /"custodial":\s*false|non-custodial by construction/i.test(answer.text));
+    expect(stamped.map((answer) => answer.url)).toEqual([]);
   });
 });

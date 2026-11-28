@@ -6,7 +6,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import {
+  EDGE_PRINCIPAL_HEADER,
+  EDGE_SIGNATURE_HEADER,
+  encodePrincipal,
+  serviceAuthHeadersForBody,
+  signPrincipalHeader,
+} from '@intafaced/contracts';
 import { SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import { miningHealthHonesty } from './health-honesty.js';
 import { MINING_EPOCH_PAYOUT_JOB } from './epoch-jobs.js';
@@ -18,6 +24,7 @@ const booted = vi.hoisted(() => ({
   jobs: [] as Array<{ stop(): void }>,
   intervals: [] as number[],
   posts: [] as unknown[],
+  payoutCalls: 0,
 }));
 
 vi.mock('postgres', () => {
@@ -34,6 +41,17 @@ vi.mock('./ledger-client.js', () => ({
     getTxByKey: async () => null,
   }),
 }));
+vi.mock('./ledger.js', async (importOriginal) => {
+  // Every call into the payout door, whoever makes it: the booted server makes none outside its scheduled job.
+  const real = await importOriginal<typeof import('./ledger.js')>();
+  return {
+    ...real,
+    postPayouts: (...args: Parameters<typeof real.postPayouts>) => {
+      booted.payoutCalls += 1;
+      return real.postPayouts(...args);
+    },
+  };
+});
 vi.mock('./http.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./http.js')>();
   return {
@@ -72,6 +90,7 @@ async function boot(env: Record<string, string | undefined>) {
   booted.handlers.length = 0;
   booted.intervals.length = 0;
   booted.posts.length = 0;
+  booted.payoutCalls = 0;
   for (const [key, value] of Object.entries({
     DATABASE_URL: undefined,
     LEDGER_URL: undefined,
@@ -88,8 +107,8 @@ async function boot(env: Record<string, string | undefined>) {
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return async (path: string, headers: Record<string, string> = {}) => {
-    const res = await fetch(`${base}${path}`, { headers });
+  return async (path: string, headers: Record<string, string> = {}, init: { method?: string; body?: Buffer } = {}) => {
+    const res = await fetch(`${base}${path}`, { headers, ...init });
     return { status: res.status, text: await res.text() };
   };
 }
@@ -131,8 +150,27 @@ describe('svc-mining-pool server.ts, booted', () => {
       expect(JSON.parse(answer.text)).toEqual(expected);
       expect(answer.text).not.toMatch(/wired/);
     }
-    // The payout runs only as the one scheduled job, at the published interval; booting posts nothing.
+    // Every door it serves, a signed share batch included, answers without reaching the payout door.
+    const body = Buffer.from(
+      JSON.stringify({
+        windowId: 'w1',
+        epoch: 1,
+        assetId: 'IFC',
+        reward: '10',
+        feeBps: 100,
+        shares: [{ shareId: 's1', minerId: 'm1', weight: '1' }],
+      }),
+      'utf8',
+    );
+    const share = await get('/submitShare', serviceAuthHeadersForBody('svc-cron', 'i'.repeat(32), body), { method: 'POST', body });
+    // Signed: past sign-in and into the store, which this boot's never-connecting client cannot hold (409, not 401).
+    expect(share.status).toBe(409);
+    expect((await get('/submitShare', {}, { method: 'POST', body })).status).toBe(401);
+    expect((await get(`/trpc/workers.mine?input=${encodeURIComponent('{}')}`, signedAs('s'.repeat(32)))).status).not.toBe(404);
+    expect((await get('/elsewhere')).status).toBe(404);
+    // The payout runs only as the one scheduled job, at the published interval; booting and serving post nothing.
     expect(booted.intervals).toEqual([60_000]);
+    expect(booted.payoutCalls).toBe(0);
     expect(booted.posts).toEqual([]);
   });
 

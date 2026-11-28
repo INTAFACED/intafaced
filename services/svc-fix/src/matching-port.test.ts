@@ -20,6 +20,7 @@ import {
   readCompIdAccountMap,
   resolveAccountId,
   fixOrderId,
+  matchingSubmitAckSchema,
   toMatchingSubmitBody,
   type MatchingPortOptions,
 } from './matching-port.js';
@@ -408,6 +409,8 @@ describe('postAdaptedNewOrder — fake matching HTTP', () => {
     expect(JSON.stringify(result.ack)).not.toMatch(/100\.25/);
     expect(result.ack).not.toHaveProperty('fills');
     expect(result.ack).not.toHaveProperty('last');
+    // The whole ack the port can ever return: no last price, no fill, no figure of its own.
+    expect(Object.keys(matchingSubmitAckSchema.shape)).toEqual(['accepted', 'sequence']);
   });
 
   it('never posts ledger and does not depend on ledger-client', async () => {

@@ -12,16 +12,45 @@ import {
   generateEdgePrincipalKeyPair,
   encodePrincipal,
   signPrincipalHeader,
+  SERVICE_NAMES,
   signPrincipalHeaderEd25519,
 } from '@intafaced/contracts';
+import { MODULES } from '@intafaced/config';
 import { missingLake } from './backtest/lake.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 
-const booted = vi.hoisted(() => ({ apps: [] as FastifyInstance[] }));
+/** The tRPC router index.ts mounts, and where: read to ask every query it serves. */
+type ServedTrpc = { prefix: string; router: { _def: { procedures: Record<string, { _def: { type: string } }> } } };
+
+const booted = vi.hoisted(() => ({
+  apps: [] as FastifyInstance[],
+  routes: [] as Array<{ method: string | string[]; url: string }>,
+  trpc: [] as ServedTrpc[],
+  routerDeps: [] as Array<{ studioServiceAllowlist?: readonly string[] }>,
+}));
 
 vi.mock('@intafaced/events', async (importOriginal) => {
   const real = await importOriginal<typeof import('@intafaced/events')>();
   return { ...real, JetStreamEventBus: { connect: () => Promise.reject(new Error('TEST: no bus in this boot')) } };
+});
+vi.mock('./router.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./router.js')>();
+  return {
+    ...real,
+    createQuantRouter: (deps: Parameters<typeof real.createQuantRouter>[0]) => {
+      booted.routerDeps.push(deps);
+      return real.createQuantRouter(deps);
+    },
+  };
+});
+vi.mock('@trpc/server/adapters/fastify', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@trpc/server/adapters/fastify')>();
+  const plugin = ((fastify, opts, done) => {
+    booted.trpc.push({ prefix: opts.prefix ?? '', router: opts.trpcOptions.router as unknown as ServedTrpc['router'] });
+    return real.fastifyTRPCPlugin(fastify, opts, done);
+  }) as typeof real.fastifyTRPCPlugin;
+  Object.defineProperties(plugin, Object.getOwnPropertyDescriptors(real.fastifyTRPCPlugin));
+  return { ...real, fastifyTRPCPlugin: plugin };
 });
 vi.mock('fastify', async (importOriginal) => {
   const real = await importOriginal<typeof import('fastify')>();
@@ -30,6 +59,7 @@ vi.mock('fastify', async (importOriginal) => {
     // The boot is driven by inject: no port is opened.
     Object.defineProperty(app, 'listen', { value: async () => '' });
     booted.apps.push(app);
+    app.addHook('onRoute', (route) => void booted.routes.push({ method: route.method, url: route.url }));
     return app;
   }) as typeof real.default;
   return { ...real, default: make };
@@ -53,6 +83,9 @@ const BASE_ENV = {
 async function boot(overrides: Record<string, string | undefined> = {}) {
   vi.resetModules();
   booted.apps.length = 0;
+  booted.routes.length = 0;
+  booted.trpc.length = 0;
+  booted.routerDeps.length = 0;
   for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) vi.stubEnv(key, value);
   const index = await import('./index.js');
   const app = booted.apps.at(-1);
@@ -86,9 +119,27 @@ async function studioListAs(app: FastifyInstance, maxLifetimeSeconds = 120, hmac
   return (res.json() as { error?: { data?: { code?: string } } }).error?.data?.code;
 }
 
+/** What the booted process can answer: every plain GET route it registers and every query of its router, asked anonymously. */
+async function everyAnswer(app: FastifyInstance): Promise<Array<{ url: string; status: number; text: string }>> {
+  const served = booted.trpc.at(-1);
+  if (!served) throw new Error('index.ts mounted no tRPC router');
+  const urls = booted.routes.filter((route) => [route.method].flat().includes('GET') && !/[:*]/.test(route.url)).map((route) => route.url);
+  for (const [name, procedure] of Object.entries(served.router._def.procedures)) {
+    if (procedure._def.type === 'query') urls.push(`${served.prefix}/${name}`);
+  }
+  const answers: Array<{ url: string; status: number; text: string }> = [];
+  for (const url of [...new Set(urls)].sort()) {
+    const res = await app.inject({ method: 'GET', url, headers: { 'x-intafaced-region': 'DE' } });
+    answers.push({ url, status: res.statusCode, text: res.body });
+  }
+  return answers;
+}
+
 afterEach(async () => {
   for (const app of booted.apps) await app.close();
   booted.apps.length = 0;
+  booted.routes.length = 0;
+  booted.trpc.length = 0;
   vi.unstubAllEnvs();
 });
 
@@ -125,9 +176,25 @@ describe('svc-quant index.ts, booted', () => {
     expect(body).not.toHaveProperty('custodial');
   });
 
-  it('allow-lists no service for the studio: a service call with an explicit account is refused', async () => {
+  it('allow-lists no service for the studio: every service in the registries is refused a call with an explicit account', async () => {
     const { appRouter } = await boot();
-    const agent = appRouter.createCaller({ principal: null, service: 'svc-agents', region: 'DE', requestId: 's2s' });
-    await expect(agent.studio.list({ limit: 50, accountId: ACCOUNT })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    // Booting hands the router no studio allow-list of its own, so the empty default stands.
+    expect(booted.routerDeps).toHaveLength(1);
+    expect(booted.routerDeps[0]?.studioServiceAllowlist ?? []).toEqual([]);
+    const services = [...new Set([...Object.values(MODULES).map((m) => m.service), ...SERVICE_NAMES])].sort();
+    expect(services.length).toBeGreaterThan(10);
+    for (const service of services) {
+      const caller = appRouter.createCaller({ principal: null, service, region: 'DE', requestId: 's2s' });
+      await expect(caller.studio.list({ limit: 50, accountId: ACCOUNT }), service).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    }
+  });
+
+  it('every answer it gives, each GET route it registers and each query of its router, carries no custodial:false stamp', async () => {
+    const app = await boot().then((started) => started.app);
+    const answers = await everyAnswer(app);
+    expect(answers.map((answer) => answer.url)).toEqual(expect.arrayContaining(['/health', '/trpc/health']));
+    expect(answers.length).toBeGreaterThan(3);
+    const stamped = answers.filter((answer) => /"custodial":\s*false|non-custodial by construction/i.test(answer.text));
+    expect(stamped.map((answer) => answer.url)).toEqual([]);
   });
 });
