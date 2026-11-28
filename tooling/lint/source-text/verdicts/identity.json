@@ -303,7 +303,7 @@
     "asserts": "Production boot opens the vault only from the env key, still boots without it, and refuses a prod start without the TOTP or signing key.",
     "guard": {
       "kind": "test",
-      "ref": "services/svc-identity/src/kyc/index-boot-wire.test.ts#the booted service opens the vault only from the env key and still serves without it"
+      "ref": "services/svc-identity/src/kyc/index-boot-wire.test.ts#without the key the service still serves and every vault door refuses named"
     },
     "why": "Boots index.ts with and without IDENTITY_KYC_DOC_KEY (the vault answers or refuses kyc_doc.unwired; the service serves either way) and with APP_ENV=prod and no TOTP key (the start throws)."
   },

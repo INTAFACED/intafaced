@@ -382,7 +382,7 @@
       "kind": "test",
       "ref": "services/svc-indexer/src/health-honesty.test.ts#health-honesty.ts does not literal-stamp custodial:false"
     },
-    "why": "Protected (custody): calls indexerHealthHonesty and compares its custody field with the registered module record."
+    "why": "Protected (custody): calls indexerHealthHonesty for every ingest and venue setting and asserts the answer carries no `custodial` field."
   },
   {
     "file": "services/svc-indexer/src/ingest-poll-batch-compose-pin.test.ts",
