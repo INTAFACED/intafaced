@@ -1030,6 +1030,8 @@ export const appRouter = createTradeRouter(
         venue: () => userVenue.venue(),
         account: (owner: string, subAccount: string | null) => userVenue.readableAccount(owner, subAccount),
         now: () => new Date(),
+        // The warnings the daily loss limit gave, for the "keeping my rules" line (J-portfolio-19 #4).
+        warned: (key) => dailyLossStore.warned(key),
       }
     : null,
   venueDailyLoss,

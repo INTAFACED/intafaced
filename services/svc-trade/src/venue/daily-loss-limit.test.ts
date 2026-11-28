@@ -279,9 +279,23 @@ describe('the daily loss limit at the door, on the TEST venue', { timeout: 60_00
     at(due);
     const later = await limits.get(principal, owner);
     expect(later).toMatchObject({ active: { mode: 'advisory', limit: '3' }, pending: null, today: { reached: true } });
+    const key = { userId: USER, venueId: venue.sim.venue.id, owner };
+    // Nothing was noted while blocking refused, or below the limit.
+    expect(await store.warned(key)).toEqual([]);
     const answer = await prepare(order());
     expect(answer.warnings).toEqual([
       expect.objectContaining({ code: 'trade.daily_loss_limit_reached', asset: 'USDC', limit: '3', loss: todayOf(later).loss }),
+    ]);
+    // The warned opening order is kept by its venue client order id, with the warning's figures (J-portfolio-19 #4).
+    expect(answer.prepared.venueClientOrderId).toMatch(/^0x[0-9a-f]{32}$/);
+    expect(await store.warned(key)).toEqual([
+      {
+        venueClientOrderId: answer.prepared.venueClientOrderId,
+        asset: 'USDC',
+        limit: a('3'),
+        loss: a(todayOf(later).loss!),
+        warnedAt: expect.any(Date),
+      },
     ]);
     expect(answer.warnings![0]!.message).toContain('reaching your daily loss limit of 3 USDC');
     // Advisory never stops the order: it is prepared, and the venue takes it.

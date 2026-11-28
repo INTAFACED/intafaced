@@ -12,6 +12,7 @@ import { BotsRoom } from '../../screens/trade/copybots/BotsRoom';
 import { CopyRoom } from '../../screens/trade/copybots/CopyRoom';
 import { CalendarRoom, NewsRoom } from './news/NewsRooms';
 import { RiskControl } from './risk/RiskControl';
+import { JournalRoom } from './journal/JournalRoom';
 import { RiskRules } from './risk/RiskRules';
 import { PositionsRoom } from './positions/PositionsRoom';
 import { TradingAccountRoom } from './account/TradingAccountRoom';
@@ -61,6 +62,7 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/news') return <NewsRoom />;
   if (pathname === '/trade/calendar') return <CalendarRoom />;
   if (pathname === '/trade/risk') return <RiskControl />;
+  if (pathname === '/trade/journal') return <JournalRoom path={path} />;
   if (pathname === '/trade/risk/rules') return <RiskRules />;
   if (pathname === '/trade/positions') return <PositionsRoom path={path} />;
   if (pathname === '/trade/account') return <TradingAccountRoom />;

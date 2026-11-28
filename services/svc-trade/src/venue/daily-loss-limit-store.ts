@@ -31,8 +31,25 @@ export interface DailyLossRecord extends DailyLossKey {
   readonly updatedAt: Date;
 }
 
+/**
+ * An opening order the person prepared while their advisory limit stood reached: the warning they were given on it
+ * (`trade.user_venue_daily_loss_warnings`). The journal's "keeping my rules" line leaves out a trade it opened
+ * (J-portfolio-19 #4). A warned order that was never sent has no fill and so changes nothing.
+ */
+export interface DailyLossWarnedOrder {
+  readonly venueClientOrderId: string;
+  readonly asset: string;
+  readonly limit: Amount;
+  readonly loss: Amount;
+  readonly warnedAt: Date;
+}
+
 export interface DailyLossLimitStore {
   get(key: DailyLossKey): Promise<DailyLossRecord | null>;
+  /** Keeps each warned order once: a second note of the same order keeps the first. */
+  noteWarned(key: DailyLossKey, orders: readonly DailyLossWarnedOrder[]): Promise<void>;
+  /** Every warned order on the account. */
+  warned(key: DailyLossKey): Promise<readonly DailyLossWarnedOrder[]>;
   /** One change, under the row's lock: `fn` sees the record as stored (null: none yet) and returns what is stored. */
   update(key: DailyLossKey, fn: (current: DailyLossRecord | null) => DailyLossRecord): Promise<DailyLossRecord>;
 }
@@ -41,8 +58,17 @@ const id = (k: DailyLossKey) => `${k.userId}\n${k.venueId}\n${k.owner}`;
 
 export class InMemoryDailyLossLimitStore implements DailyLossLimitStore {
   readonly rows = new Map<string, DailyLossRecord>();
+  readonly warnings = new Map<string, Map<string, DailyLossWarnedOrder>>();
   async get(key: DailyLossKey) {
     return this.rows.get(id(key)) ?? null;
+  }
+  async noteWarned(key: DailyLossKey, orders: readonly DailyLossWarnedOrder[]) {
+    let mine = this.warnings.get(id(key));
+    if (!mine) this.warnings.set(id(key), (mine = new Map()));
+    for (const o of orders) if (!mine.has(o.venueClientOrderId)) mine.set(o.venueClientOrderId, o);
+  }
+  async warned(key: DailyLossKey) {
+    return [...(this.warnings.get(id(key))?.values() ?? [])];
   }
   async update(key: DailyLossKey, fn: (current: DailyLossRecord | null) => DailyLossRecord) {
     const next = fn(this.rows.get(id(key)) ?? null);
@@ -82,8 +108,43 @@ const recordOf = (r: Row): DailyLossRecord => ({
   updatedAt: r.updated_at,
 });
 
+const WarnedRow = z.object({
+  venue_client_order_id: z.string(),
+  asset: z.string(),
+  limit_amount: z.string(),
+  loss_amount: z.string(),
+  warned_at: z.date(),
+});
+
 export class SqlDailyLossLimitStore implements DailyLossLimitStore {
   constructor(private readonly sql: Sql) {}
+
+  async noteWarned({ userId, venueId, owner }: DailyLossKey, orders: readonly DailyLossWarnedOrder[]) {
+    for (const o of orders) {
+      await this.sql`
+        INSERT INTO trade.user_venue_daily_loss_warnings
+          (user_id, venue_id, owner, venue_client_order_id, asset, limit_amount, loss_amount, warned_at)
+        VALUES (${userId}, ${venueId}, ${owner}, ${o.venueClientOrderId}, ${o.asset}, ${formatAmount(o.limit)},
+          ${formatAmount(o.loss)}, ${o.warnedAt})
+        ON CONFLICT (user_id, venue_id, owner, venue_client_order_id) DO NOTHING`;
+    }
+  }
+
+  async warned({ userId, venueId, owner }: DailyLossKey) {
+    const rows = WarnedRow.array().parse(
+      await this.sql`
+      SELECT venue_client_order_id, asset, limit_amount::text AS limit_amount, loss_amount::text AS loss_amount, warned_at
+      FROM trade.user_venue_daily_loss_warnings
+      WHERE user_id = ${userId} AND venue_id = ${venueId} AND owner = ${owner}`,
+    );
+    return rows.map((r) => ({
+      venueClientOrderId: r.venue_client_order_id,
+      asset: r.asset,
+      limit: parseAmount(r.limit_amount),
+      loss: parseAmount(r.loss_amount),
+      warnedAt: r.warned_at,
+    }));
+  }
 
   async get({ userId, venueId, owner }: DailyLossKey) {
     const rows = Row.array().parse(

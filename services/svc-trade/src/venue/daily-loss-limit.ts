@@ -4,6 +4,7 @@ import type { Principal } from '@intafaced/auth';
 import type { dailyLossViewSchema } from '@intafaced/contracts/trade-daily-loss-procedures';
 import {
   isTestVenue,
+  venueClientOrderId,
   type PlaceUserOrderIntent,
   type UserVenue,
   type UserVenueAccount,
@@ -277,6 +278,18 @@ export class DailyLossGuard {
         422,
       );
     }
+    // Each warned opening order is kept before the venue prepares it, so a trade it opens is known to have been opened past
+    // the limit (J-portfolio-19 #4). Kept first: a crash after this and before the venue prepares leaves a row with no fill.
+    await this.deps.store.noteWarned(
+      { userId: principal.userId, venueId: venue.venue.id, owner: account.owner },
+      orders.map((o) => ({
+        venueClientOrderId: venueClientOrderId(venue.venue.id, o.clientOrderKey),
+        asset: rec.asset,
+        limit: active.limit,
+        loss,
+        warnedAt: now,
+      })),
+    );
     return [
       {
         code: 'trade.daily_loss_limit_reached',

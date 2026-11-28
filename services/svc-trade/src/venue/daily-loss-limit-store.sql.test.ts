@@ -67,6 +67,25 @@ describe('SqlDailyLossLimitStore on Postgres (trade.user_venue_daily_loss_limits
     expect(rows[0]!.n).toBe(1);
   });
 
+  it('keeps each warned opening order once, with its figures exactly (trade.user_venue_daily_loss_warnings)', async () => {
+    const store = new SqlDailyLossLimitStore(db!.sql);
+    const cloid = '0x0123456789abcdef0123456789abcdef';
+    const first = {
+      venueClientOrderId: cloid,
+      asset: 'USDC',
+      limit: a('20'),
+      loss: a('25.125'),
+      warnedAt: new Date('2026-11-28T10:00:00Z'),
+    };
+    await store.noteWarned(KEY, [first]);
+    await store.noteWarned(KEY, [{ ...first, loss: a('99'), warnedAt: new Date('2026-11-28T11:00:00Z') }]);
+    expect(await store.warned(KEY)).toEqual([first]);
+    expect(await store.warned({ ...KEY, owner: '0x00000000000000000000000000000000000000d9' })).toEqual([]);
+    await expect(store.noteWarned(KEY, [{ ...first, venueClientOrderId: 'not-an-id' }])).rejects.toThrow(
+      /user_venue_daily_loss_warnings_cloid_ck/,
+    );
+  });
+
   it("the TEST age door moves only a waiting loosening's time back, so its 24 hours pass on a TEST clock", async () => {
     const key = { ...KEY, userId: '11111111-1111-4111-8111-1111111111d4', owner: '0x00000000000000000000000000000000000000d4' };
     const store = new SqlDailyLossLimitStore(db!.sql);

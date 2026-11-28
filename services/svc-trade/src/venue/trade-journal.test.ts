@@ -165,7 +165,8 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
   it('example 1: entry, exit, size, fees, planned stop, R, MAE, MFE and the disciplined result', () => {
     const trip = roundTrips(btcFills, new Map())[0]!;
     const levels = plannedLevels(trip, btcOrders);
-    expect(levels).toEqual({ stop: a('96'), target: a('112') });
+    // The stop moved to 100 at 10:03 is nearer the entry: a tightening, never a widening.
+    expect(levels).toEqual({ stop: a('96'), target: a('112'), laterStops: [a('100')] });
     expect(journalTrade(trip, levels, { candles: btcCandles, interval: '1m' })).toEqual({
       tradeId: 'b1',
       symbol: 'BTC-PERP',
@@ -188,6 +189,8 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
       mfe: '9.5',
       candleInterval: '1m',
       disciplined: { exit: 'target', exitPrice: '112', netPnl: '21.77' },
+      // 1R = |101 − 96| × 2 = 10; its stop was only tightened, so it kept its rules and counts what it made.
+      rules: { verdict: 'kept', netPnl: '17.77', oneR: '10', widenedStop: null, dailyLoss: null },
       fillIds: ['b1', 'b2', 'b3'],
     });
   });
@@ -195,7 +198,7 @@ describe('trade journal: every figure of a closed trade, against the hand-worked
   it('example 2: a short with no plan has no R and no disciplined result; MAE is the high, MFE the low', () => {
     const trip = roundTrips(ethFills, new Map<string, Amount>([['ETH-PERP', a('1')]]))[0]!;
     const levels = plannedLevels(trip, [trigger('ETH-PERP', 'buy', 'stop_loss', '60', at('09:00:00'), null)]);
-    expect(levels).toEqual({ stop: null, target: null });
+    expect(levels).toEqual({ stop: null, target: null, laterStops: [] });
     const t = journalTrade(trip, levels, { candles: ethCandles, interval: '1m' });
     expect([t.entryPrice, t.exitPrice, t.size, t.fees, t.grossPnl, t.netPnl]).toEqual(['50', '45', '2', '0.29', '10', '9.71']);
     expect([t.rMultiple, t.maePrice, t.mae, t.mfePrice, t.mfe]).toEqual([null, '51', '1', '44', '6']);
@@ -297,6 +300,8 @@ describe('trade journal: the read', () => {
       disciplinedCount: 1,
       actualNetPnlOfDisciplined: '17.77',
       disciplinedNetPnl: '21.77',
+      // No rule broken on either trade: the rules line is what they made.
+      rulesNetPnl: '27.48',
     });
     expect(j.venue).toEqual({ id: 'hl-test', name: 'TEST venue', test: true });
   });
@@ -320,5 +325,134 @@ describe('trade journal: the read', () => {
     });
     await expect(readTradeJournal(deps(down), input)).rejects.toBeInstanceOf(VenueRefusalError);
     expect(TradeJournalError).toBeDefined();
+  });
+});
+
+/*
+ * HAND-WORKED "KEEPING MY RULES" EXAMPLES (J-portfolio-19), each a long on SOL-PERP of 1 @ 100, fees 0.1 on each of its
+ * two fills (0.2 in all), opened with a stop at 95 attached to its entry order: 1R = |100 − 95| × 1 = 5, so minus 1R less
+ * its fees is −5 − 0.2 = −5.2.
+ *   widened, lost:  the stop moved to 90 at 10:01; the 10:02 candle's low 92 reaches 95; sold @ 92: net −8.2. Capped −5.2.
+ *   widened, won:   the stop moved to 90; the 10:02 low 94 reaches 95; sold @ 108: net 7.8. Stopped −5.2, not 7.8.
+ *   widened, never reached: the stop moved to 90; lows stay at 97; sold @ 104: net 3.8. Counts 3.8.
+ *   warned at open: its entry order carries the daily loss limit's warning (limit 20, lost 25.5): left out, 0.
+ *   no stop: net 3.8, counts 3.8.
+ * And a short of 1 @ 100, stop 105 moved to 110, the 10:02 high 106 reaching 105, bought back @ 97: net 2.8. Stopped −5.2.
+ */
+describe('trade journal: the "keeping my rules" line (J-portfolio-19)', () => {
+  const trip = (side: 'long' | 'short', exit: string) =>
+    roundTrips(
+      [
+        fill({
+          fillId: 'r1',
+          venueClientOrderId: '0xentry',
+          symbol: 'SOL-PERP',
+          side: side === 'long' ? 'buy' : 'sell',
+          price: a('100'),
+          amount: a('1'),
+          venueFee: a('0.1'),
+          filledAt: at('10:00:10'),
+        }),
+        fill({
+          fillId: 'r2',
+          symbol: 'SOL-PERP',
+          side: side === 'long' ? 'sell' : 'buy',
+          price: a(exit),
+          amount: a('1'),
+          venueFee: a('0.1'),
+          filledAt: at('10:03:10'),
+        }),
+      ],
+      new Map(),
+    )[0]!;
+  const candles = (low: string, high: string) => [candle('10:00', '99', '101'), candle('10:01', '99', '101'), candle('10:02', low, high)];
+  const stops = (side: 'long' | 'short', first: string, moved: string | null) => {
+    const close = side === 'long' ? 'sell' : 'buy';
+    return [
+      trigger('SOL-PERP', close, 'stop_loss', first, at('10:00:10'), '0xentry'),
+      ...(moved ? [trigger('SOL-PERP', close, 'stop_loss', moved, at('10:01:00'), null)] : []),
+    ];
+  };
+  const rules = (side: 'long' | 'short', exit: string, c: VenueCandle[], orders: UserVenueOrderRecord[], warned = null as never) => {
+    const t = trip(side, exit);
+    return journalTrade(t, plannedLevels(t, orders), { candles: c, interval: '1m', warned }).rules;
+  };
+
+  it('a widened stop that lost more than 1R is capped at its first stop: minus 1R less its fees', () => {
+    const r = rules('long', '92', candles('92', '100'), stops('long', '95', '90'));
+    expect(r).toEqual({ verdict: 'capped', netPnl: '-5.2', oneR: '5', widenedStop: '90', dailyLoss: null });
+  });
+
+  it('a widened stop that won after its price crossed the first stop counts as stopped there, not its profit', () => {
+    expect(trip('long', '108').parts.length).toBe(2);
+    expect(rules('long', '108', candles('94', '108'), stops('long', '95', '90'))).toEqual({
+      verdict: 'stopped',
+      netPnl: '-5.2',
+      oneR: '5',
+      widenedStop: '90',
+      dailyLoss: null,
+    });
+    expect(rules('short', '97', candles('97', '106'), stops('short', '105', '110'))).toMatchObject({ verdict: 'stopped', netPnl: '-5.2' });
+  });
+
+  it('a widened stop whose first stop was never reached, a trade with no stop, and one that kept its stop count what they made', () => {
+    expect(rules('long', '104', candles('97', '104'), stops('long', '95', '90'))).toMatchObject({
+      verdict: 'widened_unreached',
+      netPnl: '3.8',
+    });
+    expect(rules('long', '104', candles('92', '104'), [])).toEqual({
+      verdict: 'no_stop',
+      netPnl: '3.8',
+      oneR: null,
+      widenedStop: null,
+      dailyLoss: null,
+    });
+    // Reached its own stop's level but the stop was never moved: what it made stands.
+    expect(rules('long', '94', candles('94', '100'), stops('long', '95', null))).toMatchObject({ verdict: 'kept', netPnl: '-6.2' });
+  });
+
+  it("a trade opened on an order warned by the daily loss limit counts 0, with the warning's figures", () => {
+    const warned = { venueClientOrderId: '0xentry', asset: 'USDC', limit: a('20'), loss: a('25.5'), warnedAt: at('10:00:05') };
+    expect(rules('long', '108', candles('94', '108'), stops('long', '95', '90'), warned as never)).toEqual({
+      verdict: 'left_out',
+      netPnl: '0',
+      oneR: '5',
+      widenedStop: '90',
+      dailyLoss: { limit: '20', loss: '25.5', asset: 'USDC', warnedAt: '2026-11-20T10:00:05.000Z' },
+    });
+  });
+
+  it('the read matches a warning to the trade whose opening fill carries its order id, and totals the rules line', async () => {
+    const account = { venueId: 'hl-test', owner: '0x1111111111111111111111111111111111111111', subAccount: null };
+    const asOf = at('10:10:00');
+    const venueId = 'hl-test';
+    const v = partial<JournalVenue>({
+      venue: partial<UserVenueDescriptor>({ id: venueId, displayName: 'TEST venue', proofLevel: 'simulator' }),
+      markets: async () => ({ venueId, asOf, value: [partial<UserVenueMarket>({ symbol: 'BTC-PERP', kind: 'perpetual' })] }),
+      fills: async () => ({ venueId, asOf, value: btcFills }),
+      positions: async () => ({ venueId, asOf, value: [] }),
+      orderHistory: async () => ({ venueId, asOf, value: btcOrders }),
+      candles: async () => ({ venueId, asOf, value: btcCandles }),
+    });
+    const seen: unknown[] = [];
+    const j = tradeJournalSchema.parse(
+      await readTradeJournal(
+        {
+          venue: async () => v,
+          account: async () => account,
+          now: () => asOf,
+          warned: async (key) => {
+            seen.push(key);
+            // The add (c-add) was warned: an opening order of the trade, so the whole trade is left out.
+            return [{ venueClientOrderId: 'C-ADD', asset: 'USDC', limit: a('20'), loss: a('21'), warnedAt: at('10:02:00') }];
+          },
+        },
+        { owner: account.owner, since: '2026-11-20T09:00:00.000Z', limit: 50 },
+        'user-1',
+      ),
+    );
+    expect(seen).toEqual([{ userId: 'user-1', venueId, owner: account.owner }]);
+    expect(j.trades[0]!.rules).toMatchObject({ verdict: 'left_out', netPnl: '0' });
+    expect(j.totals).toMatchObject({ netPnl: '17.77', rulesNetPnl: '0' });
   });
 });

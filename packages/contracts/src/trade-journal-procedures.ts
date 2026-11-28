@@ -17,6 +17,14 @@ import { defineProcedure, type Refusals } from './procedure.js';
  * - Disciplined: the result had the trade left at its planned stop or target, whichever price the venue's candles reached
  *   first from entry (both in one candle: the stop), with the trade's own fees. `unresolved` while neither has been
  *   reached; `no_plan` with neither set.
+ * - Keeping my rules (J-portfolio-19): the trade's result had the person kept the rules they set before it, changing only
+ *   a trade that broke one, never guessing a better entry or exit. A trade opened while their daily loss limit set to
+ *   warn stood reached (the warning svc-trade gave on that opening order) counts 0 (`left_out`). A trade whose stop was
+ *   moved further from the entry than the stop it opened with, and whose price then reached that first stop, counts as
+ *   stopped there: minus 1R less the trade's own fees, 1R being |entry − first stop| × size (`capped` when that is no
+ *   worse than what it made, `stopped` when it made more: a widened stop that won is never credited). A widened stop
+ *   whose first stop was never reached, a trade opened with no stop, and one that kept its stop and limit count what
+ *   they made.
  */
 
 const base = { service: 'svc-trade', module: 'trade', transport: 'trpc' } as const;
@@ -30,6 +38,10 @@ export const TRADE_JOURNAL_MAX_TRADES = 100;
 export const TRADE_JOURNAL_MAX_DAYS = 90;
 
 export const DISCIPLINED_EXITS = ['stop', 'target', 'unresolved', 'no_plan'] as const;
+
+/** How a trade counts on the "keeping my rules" line (the record's comment defines each). */
+export const RULES_VERDICTS = ['kept', 'no_stop', 'widened_unreached', 'capped', 'stopped', 'left_out'] as const;
+export type RulesVerdict = (typeof RULES_VERDICTS)[number];
 
 export const journalTradeSchema = z.object({
   /** The first opening fill's venue id: stable for the trade. */
@@ -66,6 +78,18 @@ export const journalTradeSchema = z.object({
     exitPrice: decimal.nullable(),
     netPnl: decimal.nullable(),
   }),
+  /** The trade on the "keeping my rules" line (J-portfolio-19). */
+  rules: z.object({
+    verdict: z.enum(RULES_VERDICTS),
+    /** What it counts on the rules line. */
+    netPnl: decimal,
+    /** 1R: |entry − the stop it opened with| × size; `null` with no stop. */
+    oneR: decimal.nullable(),
+    /** The furthest stop it was moved to past its first; `null` when never widened. */
+    widenedStop: decimal.nullable(),
+    /** The warning given on its opening order when the daily loss limit stood reached; `null` otherwise. */
+    dailyLoss: z.object({ limit: decimal, loss: decimal, asset: z.string(), warnedAt: z.string() }).nullable(),
+  }),
   fillIds: z.array(z.string()),
 });
 export type JournalTrade = z.infer<typeof journalTradeSchema>;
@@ -86,6 +110,8 @@ export const tradeJournalSchema = z.object({
     disciplinedCount: z.number().int(),
     actualNetPnlOfDisciplined: decimal,
     disciplinedNetPnl: decimal,
+    /** Every closed trade on the "keeping my rules" line; less `netPnl`, the gap between the two lines. */
+    rulesNetPnl: decimal,
   }),
 });
 export type TradeJournal = z.infer<typeof tradeJournalSchema>;
