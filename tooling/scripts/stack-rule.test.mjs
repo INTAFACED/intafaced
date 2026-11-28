@@ -8,7 +8,19 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { BETA_SLOT as HOST_BETA } from '../beta/beta-host.mjs';
 import { SLOTS } from './local-test-facts.mjs';
-import { BETA_SLOT, RULE, SHARED_SLOTS, STACK_GIB, QUEUE_MINUTES, agentStart, queueTurn, startGate, visibleFiles } from './stack-rule.mjs';
+import {
+  BETA_SLOT,
+  KEEP_FREE,
+  RULE,
+  SHARED_SLOTS,
+  STACK_GIB,
+  QUEUE_MINUTES,
+  agentStart,
+  memoryShort,
+  queueTurn,
+  startGate,
+  visibleFiles,
+} from './stack-rule.mjs';
 
 const agent = { T3CODE_THREAD_ID: 't' };
 const ui = ['apps/customer/src/routes/wallet.tsx'];
@@ -87,4 +99,13 @@ test("an agent's start that may not run a stack exits 3 before it claims anythin
   assert.equal(r.status, 3, `${r.stdout}${r.stderr}`);
   assert.match(r.stderr, /local-test-stack: refusing: (an agent starts no local stack on the Mac|slot 2 is not a shared slot)/);
   assert.equal(fs.existsSync(path.join(home, '.intafaced', 'slots')), false, 'no slot was claimed');
+});
+
+test('a shared stack starts only with its measured cost free over the share the memory killer keeps', () => {
+  const info = (totalGiB, availGiB) =>
+    `MemTotal: ${Math.round(totalGiB * 2 ** 20)} kB\nMemFree: 1 kB\nMemAvailable: ${Math.round(availGiB * 2 ** 20)} kB\n`;
+  const need = STACK_GIB + 29.6 * KEEP_FREE; // the box: 29.6 GiB, 13.84 needed
+  assert.equal(memoryShort(info(29.6, need + 0.1)), null, 'enough: it starts');
+  assert.match(memoryShort(info(29.6, need - 0.1)), /GiB available, under the 13\.8 GiB a stack needs/);
+  assert.equal(memoryShort(''), null, 'unread: the slot alone decides');
 });

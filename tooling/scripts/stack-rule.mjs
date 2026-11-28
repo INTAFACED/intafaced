@@ -17,6 +17,22 @@ import { SHARED_SLOTS } from './local-test-facts.mjs';
 export const BETA_SLOT = RULE.beta;
 export const STACK_GIB = RULE.stackGiB;
 export const QUEUE_MINUTES = RULE.queueMinutes;
+export const KEEP_FREE = RULE.keepFree;
+
+/**
+ * Why a stack may not start yet for memory (Linux, from /proc/meminfo's text), or null: it needs STACK_GIB available over
+ * the share the memory killer keeps free, so a shared stack never starts into the killer's range.
+ */
+export function memoryShort(meminfo) {
+  const kb = (k) => Number(meminfo.match(new RegExp(`^${k}:\\s+(\\d+) kB`, 'm'))?.[1]);
+  const total = kb('MemTotal') / 2 ** 20;
+  const avail = kb('MemAvailable') / 2 ** 20;
+  if (!Number.isFinite(total) || !Number.isFinite(avail)) return null;
+  const need = STACK_GIB + total * KEEP_FREE;
+  return avail < need
+    ? `${avail.toFixed(1)} GiB available, under the ${need.toFixed(1)} GiB a stack needs (${STACK_GIB} GiB over ${KEEP_FREE * 100}% kept free)`
+    : null;
+}
 
 /**
  * The changed files a person sees in the app: an app's own files outside its tests, and the shared UI and copy packages.

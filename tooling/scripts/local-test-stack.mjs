@@ -110,7 +110,7 @@ import {
   writeStackRecords,
 } from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
-import { agentStart, QUEUE_MINUTES, queueTurn, SHARED_SLOTS, startGate } from './stack-rule.mjs';
+import { agentStart, memoryShort, QUEUE_MINUTES, queueTurn, SHARED_SLOTS, startGate } from './stack-rule.mjs';
 import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
@@ -3118,15 +3118,23 @@ async function takeSlot() {
       if (!fs.existsSync(ticketFile)) fs.writeFileSync(ticketFile, JSON.stringify({ ...ticket, repo: REPO }), { mode: 0o600 });
       const { ahead, dead } = queueTurn(queueTickets(path.dirname(ticketFile)), ticket, pidAlive);
       for (const t of dead) fs.rmSync(t.file, { force: true });
-      if (ahead === 0 && (await claimShared(leave))) return;
+      // CI's runner holds one stack and nothing else: only a machine others share waits for memory.
+      const shared = process.platform === 'linux' && process.env.CI !== 'true';
+      const short = ahead === 0 && shared ? memoryShort(readText('/proc/meminfo') ?? '') : null;
+      if (ahead === 0 && !short && (await claimShared(leave))) return;
       const held = slotClaims()
         .filter((c) => SHARED_SLOTS.includes(c.slot))
         .map(holder)
         .join('; ');
       if (Date.now() >= deadline)
-        fail(`refusing: every slot is held (${held}) after ${QUEUE_MINUTES} min in the queue; prove it on CI (Real-app journeys)`);
-      if (!said) say(`  queued for a shared slot: ${ahead} ahead; held: ${held}; it waits up to ${QUEUE_MINUTES} min`);
-      said = true;
+        fail(
+          `refusing: ${short ? `the machine's memory is short (${short})` : `every slot is held (${held})`} after ${QUEUE_MINUTES} min in the queue; prove it on CI (Real-app journeys)`,
+        );
+      if (!said || (short && said !== 'memory'))
+        say(
+          `  queued for a shared slot: ${short ? `next, waiting for memory: ${short}` : `${ahead} ahead; held: ${held}`}; it waits up to ${QUEUE_MINUTES} min`,
+        );
+      said = short ? 'memory' : true;
       await sleep(5000);
     }
   } finally {
