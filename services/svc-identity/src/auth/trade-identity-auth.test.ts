@@ -420,4 +420,63 @@ describe('close does not post a ledger entry', () => {
     expect(loaded).toEqual([]);
     expect(requests).toEqual([]);
   });
+
+  it('close, on every branch, calls only the identity store: nothing it is handed is asked to post, debit or reach a ledger', async () => {
+    // Every property close reads on the store, its input and the book is recorded, so a close path that is
+    // handed a ledger-like collaborator and calls `post(...)` on anything it is given is seen here.
+    const read: string[] = [];
+    const watch = <T extends object>(name: string, target: T): T =>
+      new Proxy(target, {
+        get(obj, key, receiver) {
+          if (typeof key === 'string') read.push(`${name}.${key}`);
+          return Reflect.get(obj, key, receiver);
+        },
+        has(obj, key) {
+          if (typeof key === 'string') read.push(`${name}?${key}`);
+          return Reflect.has(obj, key);
+        },
+      });
+    const savedFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requests.push(String(input));
+      throw new Error('close made a request');
+    }) as typeof fetch;
+    const results = [];
+    try {
+      const box = memory();
+      box.users.set(CUSTOMER, { id: CUSTOMER, status: 'active' });
+      box.keys.set(KEY, { id: KEY, userId: CUSTOMER, revoked: false });
+      const store = watch('store', box.store);
+      const close = (book: CloseBook | null) =>
+        requestAccountDeletion(store, watch('input', { userId: CUSTOMER, book: book && watch('book', book) }));
+      results.push(await close(null)); // no book reader: refuses
+      results.push(await close(flat({ openOrders: 1, orderHold: TEST_HOLD }))); // blocked by the book
+      results.push(await close(flat({ available: '0.10' }))); // blocked by a balance
+      results.push(await close(flat())); // flat: closes
+      results.push(await close(flat())); // already closed: repeats
+    } finally {
+      globalThis.fetch = savedFetch;
+    }
+    expect(results.map((r) => [r.completed, r.code, r.blockedBy, r.repeated])).toEqual([
+      [false, 'auth.close_book_unwired', 'book', false],
+      [false, 'auth.close_open_book', 'open_order', false],
+      [false, 'auth.close_withdrawal_required', 'balance', false],
+      [true, null, null, false],
+      [true, null, null, true],
+    ]);
+    expect(results.every((r) => r.debited === false)).toBe(true);
+    const storeMethods = new Set(['getUser', 'closeUser', 'revokeLiveApiKeys', 'listApiKeys', 'getApiKey', 'getSubAccount']);
+    const bookFields = new Set(Object.keys(flat()));
+    const strays = [...new Set(read)].filter((entry) => {
+      const [owner, key] = entry.split(/[.?]/);
+      if (owner === 'store') return !storeMethods.has(key!);
+      if (owner === 'input') return key !== 'userId' && key !== 'book';
+      return !bookFields.has(key!);
+    });
+    expect(strays).toEqual([]);
+    expect(read.filter((entry) => /post|ledger|debit|entr/i.test(entry))).toEqual([]);
+    expect(read).toContain('store.closeUser');
+    expect(requests).toEqual([]);
+  });
 });

@@ -118,21 +118,52 @@ describe('generateFounderInvites', () => {
     const savedEnv = process.env;
     const savedFetch = globalThis.fetch;
     const envReads: string[] = [];
+    const requests: string[] = [];
     try {
-      const lib = await import('./founder-enrolment.js');
+      // The watched settings and fetch are in place before the load, so a read or request made on load is seen too.
       process.env = new Proxy({} as NodeJS.ProcessEnv, {
         get: (_t, prop) => {
           if (typeof prop === 'string') envReads.push(prop);
           return undefined;
         },
+        has: (_t, prop) => {
+          if (typeof prop === 'string') envReads.push(prop);
+          return false;
+        },
       });
-      globalThis.fetch = (() => {
+      globalThis.fetch = ((input: string | URL | Request) => {
+        requests.push(String(input));
         throw new Error('the invite library made a request');
       }) as typeof fetch;
+      const lib = await import('./founder-enrolment.js');
+      // Every function the library exports is called.
       const out = lib.generateFounderInvites();
+      const canonical = lib.canonicalInvite(out.codes[0]!);
+      expect(lib.isCanonicalInvite(canonical)).toBe(true);
+      expect(lib.groupInvite(canonical)).toBe(out.codes[0]);
+      expect(lib.hashInvite(canonical)).toBe(out.hashes[0]);
+      expect(lib.base32(new Uint8Array(lib.INVITE_BYTES))).toHaveLength(lib.INVITE_CANONICAL_LENGTH);
       expect(lib.matchInvite(out.codes[0]!, out.hashes)).toBe(out.hashes[0]);
       expect(lib.parseInviteHashes(out.hashes.join(','))).toEqual(out.hashes);
       expect(lib.parseInviteExpiry(new Date(Date.now() + 3_600_000).toISOString())).toBeInstanceOf(Date);
+      expect(lib.founderEnrolmentConfig(out.hashes.join(','), out.expiresAt)?.hashes).toEqual(out.hashes);
+      expect(lib.founderEnrolmentConfig(undefined, undefined)).toBeUndefined();
+      const functions = Object.entries(lib)
+        .filter(([, v]) => typeof v === 'function')
+        .map(([k]) => k)
+        .sort();
+      expect(functions).toEqual([
+        'base32',
+        'canonicalInvite',
+        'founderEnrolmentConfig',
+        'generateFounderInvites',
+        'groupInvite',
+        'hashInvite',
+        'isCanonicalInvite',
+        'matchInvite',
+        'parseInviteExpiry',
+        'parseInviteHashes',
+      ]);
     } finally {
       process.env = savedEnv;
       globalThis.fetch = savedFetch;
@@ -141,6 +172,7 @@ describe('generateFounderInvites', () => {
     }
     expect(loaded).toEqual([]);
     expect(envReads).toEqual([]);
+    expect(requests).toEqual([]);
   });
 });
 
