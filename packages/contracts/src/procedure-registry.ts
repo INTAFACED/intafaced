@@ -701,7 +701,12 @@ import {
   BANK_OPS_TRANSFER_DETAIL,
 } from './bank-ops-2-procedures.js';
 
-import { BANK_OPS_ACCRUE_INTEREST, BANK_OPS_ABANDON_PENDING_LOAN, BANK_OPS_RECONCILE_LOAN_RESERVE } from './bank-ops-3-procedures.js';
+import {
+  BANK_OPS_ACCRUE_INTEREST,
+  BANK_OPS_ABANDON_PENDING_LOAN,
+  BANK_OPS_RECONCILE_LOAN_RESERVE,
+  BANK_OPS_CUSTOMER_CARDS,
+} from './bank-ops-3-procedures.js';
 
 import {
   BANK_OPS_SALARY_RAILS,
@@ -722,9 +727,14 @@ import {
   BANK_OPS_SET_CARD_STATUS,
   BANK_OPS_RUN_RISK_SWEEP,
   BANK_OPS_CARD_PAY_FROM_RECONCILIATION,
+  BANK_OPS_RUN_DUE_TRANSFERS,
+  BANK_OPS_RESUME_PENDING_LOANS,
+  BANK_OPS_LOAN_BOOK,
 } from './bank-ops-procedures.js';
 
-import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from './bank-own-moves-procedures.js';
+import { BANK_OWN_MOVES_TO_WALLET } from './bank-own-moves-2-procedures.js';
+
+import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE, BANK_OWN_MOVES_RECORD_DEPOSIT } from './bank-own-moves-procedures.js';
 
 import { BANK_PARTNER_HOLDS } from './bank-partner-holds-procedures.js';
 
@@ -3223,6 +3233,7 @@ const part_bank_ops_3_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_ACCRUE_INTEREST,
   BANK_OPS_ABANDON_PENDING_LOAN,
   BANK_OPS_RECONCILE_LOAN_RESERVE,
+  BANK_OPS_CUSTOMER_CARDS,
 ];
 
 const part_bank_ops_procedures: readonly ProcedureRecord[] = [
@@ -3244,9 +3255,18 @@ const part_bank_ops_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_SET_CARD_STATUS,
   BANK_OPS_RUN_RISK_SWEEP,
   BANK_OPS_CARD_PAY_FROM_RECONCILIATION,
+  BANK_OPS_RUN_DUE_TRANSFERS,
+  BANK_OPS_RESUME_PENDING_LOANS,
+  BANK_OPS_LOAN_BOOK,
 ];
 
-const part_bank_own_moves_procedures: readonly ProcedureRecord[] = [BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE];
+const part_bank_own_moves_2_procedures: readonly ProcedureRecord[] = [BANK_OWN_MOVES_TO_WALLET];
+
+const part_bank_own_moves_procedures: readonly ProcedureRecord[] = [
+  BANK_OWN_MOVES_LIST,
+  BANK_OWN_MOVES_MESSAGE,
+  BANK_OWN_MOVES_RECORD_DEPOSIT,
+];
 
 const part_bank_partner_holds_procedures: readonly ProcedureRecord[] = [BANK_PARTNER_HOLDS];
 
@@ -5221,6 +5241,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_ops_2_procedures,
   ...part_bank_ops_3_procedures,
   ...part_bank_ops_procedures,
+  ...part_bank_own_moves_2_procedures,
   ...part_bank_own_moves_procedures,
   ...part_bank_partner_holds_procedures,
   ...part_bank_pay_yourself_procedures,

@@ -42,6 +42,7 @@ import {
   BANK_OPS_CUSTOMER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_CARD_PAY_FROM_RECONCILIATION,
+  BANK_OPS_LOAN_BOOK,
 } from '@intafaced/contracts/bank-ops-procedures';
 import { BANK_HEALTH } from '@intafaced/contracts/bank-health-procedures';
 import { BANK_EARN_POOLS } from '@intafaced/contracts/bank-earn-procedures';
@@ -208,9 +209,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.loan-book',
         title: 'Loan book',
         note: 'Open loans are active, margin-call and liquidating ones. Each is placed in a band using the levels stored on the loan when it opened. A loan with no usable price is counted as unpriced, never as healthy.',
-        module: 'bank',
         plainName: 'the loan book',
-        procedure: 'ops.loanBook',
+        ...readOf(BANK_OPS_LOAN_BOOK),
         shape: 'record',
         columns: [
           int('openCount', 'Open loans'),
@@ -229,9 +229,8 @@ const bankSections: readonly DeskSection[] = [
         id: 'bank.loans-unpriced',
         title: 'Open loans with no usable price',
         note: 'Loans svc-bank cannot place in a band, and why. An empty list is not a statement that the book is healthy.',
-        module: 'bank',
         plainName: 'the loans without a price',
-        procedure: 'ops.loanBook',
+        ...readOf(BANK_OPS_LOAN_BOOK),
         shape: 'list',
         rowsKey: 'unpriced',
         idKey: 'loanId',

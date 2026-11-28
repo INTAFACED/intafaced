@@ -27,7 +27,11 @@ import {
   BANK_OPS_ABANDON_PENDING_LOAN,
   BANK_OPS_RECONCILE_LOAN_RESERVE,
 } from '@intafaced/contracts/bank-ops-3-procedures';
-import { BANK_OPS_RUN_RISK_SWEEP } from '@intafaced/contracts/bank-ops-procedures';
+import {
+  BANK_OPS_RUN_RISK_SWEEP,
+  BANK_OPS_RUN_DUE_TRANSFERS,
+  BANK_OPS_RESUME_PENDING_LOANS,
+} from '@intafaced/contracts/bank-ops-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -280,9 +284,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'bank',
     label: 'Run due standing transfers',
     summary: 'Sweep schedules that are due. Safe to re-run; stranded claims are counted.',
-    edgeModule: 'bank',
-    procedure: 'ops.runDueTransfers',
-    kind: 'mutation',
+    ...toolOf(BANK_OPS_RUN_DUE_TRANSFERS),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,
@@ -318,9 +320,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'bank',
     label: 'Resume pending loans',
     summary: 'Re-drive loans stuck between collateral lock and draw.',
-    edgeModule: 'bank',
-    procedure: 'ops.resumePendingLoans',
-    kind: 'mutation',
+    ...toolOf(BANK_OPS_RESUME_PENDING_LOANS),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,

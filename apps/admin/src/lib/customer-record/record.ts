@@ -20,6 +20,7 @@ import { BANK_OPS_CUSTOMER_TRANSFERS } from '@intafaced/contracts/bank-ops-proce
 import { SUPPORT_LIST_ALL } from '@intafaced/contracts/support-list-queue-procedures';
 import { TRADE_ADMIN_CUSTOMER_ORDERS } from '@intafaced/contracts/trade-admin-procedures';
 import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
+import { BANK_OPS_CUSTOMER_CARDS } from '@intafaced/contracts/bank-ops-3-procedures';
 
 export {
   CUSTOMER_TABS,
@@ -325,9 +326,8 @@ function customerCards(userId: string): ReadSpec {
     id: 'cards.list',
     title: 'Cards issued to this account',
     note: 'The cards svc-bank issued to this account, newest first, in every status, closed ones included, as svc-bank holds it now: up to the newest 200 in one read. When 200 are shown, older cards may exist and are not shown here. A simulated card is the test card simulator: no real card exists. No card number, security code, PIN or shipping address is read here; svc-bank logs that you read this account’s cards before it reads them.',
-    module: 'bank',
     plainName: 'svc-bank’s cards for this account',
-    procedure: 'ops.customerCards',
+    ...readOf(BANK_OPS_CUSTOMER_CARDS),
     input: { userId, limit: CARD_LIMIT },
     shape: 'list',
     rowsKey: 'cards',
