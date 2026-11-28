@@ -733,3 +733,9 @@ export const currencyDetails = z.object({
   blocker: z.literal('rail.bank').nullable(),
   sets: z.array(detailSet),
 });
+
+export const actionApprovalFields = {
+  confirmOperatorId: z.string().max(128).nullish(),
+  approvalId: z.string().max(128).nullish(),
+  operationId: z.string().max(128).nullish(),
+};

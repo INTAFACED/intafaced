@@ -459,6 +459,8 @@ import { BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE } from './bank-accounts-p
 
 import { BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS } from './bank-activity-procedures.js';
 
+import { BANK_ADD_MONEY_START } from './bank-add-money-2-procedures.js';
+
 import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS, BANK_ADD_MONEY_METHODS } from './bank-add-money-procedures.js';
 
 import { BANK_ANALYTICS_COMPARE } from './bank-analytics-2-procedures.js';
@@ -486,6 +488,14 @@ import {
   BANK_AUTO_INVEST_CANCEL,
   BANK_AUTO_INVEST_POLICY,
 } from './bank-auto-invest-procedures.js';
+
+import {
+  BANK_BANK_ACCOUNT_ANSWER_REQUEST,
+  BANK_BANK_ACCOUNT_ANSWER_REVIEW,
+  BANK_BANK_ACCOUNT_REQUEST_CLOSURE,
+  BANK_BANK_ACCOUNT_REOPEN,
+  BANK_BANK_ACCOUNT_REQUEST_DATA,
+} from './bank-bank-account-procedures.js';
 
 import {
   BANK_BILLS_OPS_SUMMARY,
@@ -584,7 +594,9 @@ import {
   BANK_OPS_FRAUD_PREVIEW,
 } from './bank-credit-preview-procedures.js';
 
-import { BANK_CURRENCIES_LIST } from './bank-currencies-procedures.js';
+import { BANK_CURRENCIES_ADD } from './bank-currencies-2-procedures.js';
+
+import { BANK_CURRENCIES_LIST, BANK_CURRENCIES_REMOVE } from './bank-currencies-procedures.js';
 
 import {
   BANK_DEPOSITS_ASSETS,
@@ -689,6 +701,8 @@ import {
   BANK_OPS_TRANSFER_DETAIL,
 } from './bank-ops-2-procedures.js';
 
+import { BANK_OPS_ACCRUE_INTEREST, BANK_OPS_ABANDON_PENDING_LOAN, BANK_OPS_RECONCILE_LOAN_RESERVE } from './bank-ops-3-procedures.js';
+
 import {
   BANK_OPS_SALARY_RAILS,
   BANK_OPS_RAMP_METRICS,
@@ -706,6 +720,8 @@ import {
   BANK_OPS_CUSTOMER_PARTNER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
+  BANK_OPS_RUN_RISK_SWEEP,
+  BANK_OPS_CARD_PAY_FROM_RECONCILIATION,
 } from './bank-ops-procedures.js';
 
 import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from './bank-own-moves-procedures.js';
@@ -2938,6 +2954,8 @@ const part_bank_accounts_procedures: readonly ProcedureRecord[] = [BANK_ACCOUNTS
 
 const part_bank_activity_procedures: readonly ProcedureRecord[] = [BANK_ACTIVITY_LIST, BANK_ACTIVITY_TAX_EFFECTS];
 
+const part_bank_add_money_2_procedures: readonly ProcedureRecord[] = [BANK_ADD_MONEY_START];
+
 const part_bank_add_money_procedures: readonly ProcedureRecord[] = [
   BANK_ADD_MONEY_REQUEST,
   BANK_ADD_MONEY_REQUESTS,
@@ -2968,6 +2986,14 @@ const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [
   BANK_AUTO_INVEST_RESUME,
   BANK_AUTO_INVEST_CANCEL,
   BANK_AUTO_INVEST_POLICY,
+];
+
+const part_bank_bank_account_procedures: readonly ProcedureRecord[] = [
+  BANK_BANK_ACCOUNT_ANSWER_REQUEST,
+  BANK_BANK_ACCOUNT_ANSWER_REVIEW,
+  BANK_BANK_ACCOUNT_REQUEST_CLOSURE,
+  BANK_BANK_ACCOUNT_REOPEN,
+  BANK_BANK_ACCOUNT_REQUEST_DATA,
 ];
 
 const part_bank_bills_procedures: readonly ProcedureRecord[] = [
@@ -3076,7 +3102,9 @@ const part_bank_credit_preview_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_FRAUD_PREVIEW,
 ];
 
-const part_bank_currencies_procedures: readonly ProcedureRecord[] = [BANK_CURRENCIES_LIST];
+const part_bank_currencies_2_procedures: readonly ProcedureRecord[] = [BANK_CURRENCIES_ADD];
+
+const part_bank_currencies_procedures: readonly ProcedureRecord[] = [BANK_CURRENCIES_LIST, BANK_CURRENCIES_REMOVE];
 
 const part_bank_deposit_procedures: readonly ProcedureRecord[] = [
   BANK_DEPOSITS_ASSETS,
@@ -3191,6 +3219,12 @@ const part_bank_ops_2_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_TRANSFER_DETAIL,
 ];
 
+const part_bank_ops_3_procedures: readonly ProcedureRecord[] = [
+  BANK_OPS_ACCRUE_INTEREST,
+  BANK_OPS_ABANDON_PENDING_LOAN,
+  BANK_OPS_RECONCILE_LOAN_RESERVE,
+];
+
 const part_bank_ops_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_SALARY_RAILS,
   BANK_OPS_RAMP_METRICS,
@@ -3208,6 +3242,8 @@ const part_bank_ops_procedures: readonly ProcedureRecord[] = [
   BANK_OPS_CUSTOMER_PARTNER_BALANCES,
   BANK_OPS_CUSTOMER_BALANCE_ENTRIES,
   BANK_OPS_SET_CARD_STATUS,
+  BANK_OPS_RUN_RISK_SWEEP,
+  BANK_OPS_CARD_PAY_FROM_RECONCILIATION,
 ];
 
 const part_bank_own_moves_procedures: readonly ProcedureRecord[] = [BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE];
@@ -5145,12 +5181,14 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_account_details_procedures,
   ...part_bank_accounts_procedures,
   ...part_bank_activity_procedures,
+  ...part_bank_add_money_2_procedures,
   ...part_bank_add_money_procedures,
   ...part_bank_analytics_2_procedures,
   ...part_bank_analytics_procedures,
   ...part_bank_assets_procedures,
   ...part_bank_auto_invest_2_procedures,
   ...part_bank_auto_invest_procedures,
+  ...part_bank_bank_account_procedures,
   ...part_bank_bills_procedures,
   ...part_bank_business_2_procedures,
   ...part_bank_business_books_procedures,
@@ -5163,6 +5201,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_cash_leg_procedures,
   ...part_bank_cash_out_procedures,
   ...part_bank_credit_preview_procedures,
+  ...part_bank_currencies_2_procedures,
   ...part_bank_currencies_procedures,
   ...part_bank_deposit_procedures,
   ...part_bank_direct_debits_procedures,
@@ -5180,6 +5219,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_loans_3_procedures,
   ...part_bank_loans_procedures,
   ...part_bank_ops_2_procedures,
+  ...part_bank_ops_3_procedures,
   ...part_bank_ops_procedures,
   ...part_bank_own_moves_procedures,
   ...part_bank_partner_holds_procedures,

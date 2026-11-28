@@ -8,10 +8,11 @@ import { AccountDetailsPanel } from '../account-details/AccountDetails';
 import { Panel as DepthPanel } from '../account-details/parts';
 import { accountHomeCopy } from '../account-home-copy';
 import { funds, useBankRecord } from '../components';
-import { currencyWrites, type AccountCurrency, type AccountTerms } from '../contracts';
+import { type AccountCurrency, type AccountTerms } from '../contracts';
 import { RefusalCode } from '../../../shared/RefusalCode';
-import { BANK_CURRENCIES_LIST } from '@intafaced/contracts/bank-currencies-procedures';
+import { BANK_CURRENCIES_LIST, BANK_CURRENCIES_REMOVE } from '@intafaced/contracts/bank-currencies-procedures';
 import { BANK_ACCOUNTS_FEATURES, BANK_ACCOUNTS_PROFILE } from '@intafaced/contracts/bank-accounts-procedures';
+import { BANK_CURRENCIES_ADD } from '@intafaced/contracts/bank-currencies-2-procedures';
 
 function Fact({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
@@ -200,8 +201,8 @@ function CurrenciesPanel() {
     setOutcome(null);
     const result =
       kind === 'add'
-        ? await api.mutate('bank', 'currencies.add', { assetId: asset, profile }, currencyWrites.add)
-        : await api.mutate('bank', 'currencies.remove', { assetId: asset, profile }, currencyWrites.remove);
+        ? await api.call(BANK_CURRENCIES_ADD, { assetId: asset, profile })
+        : await api.call(BANK_CURRENCIES_REMOVE, { assetId: asset, profile });
     setBusy(false);
     if (result.ok) {
       setOutcome({ kind: kind === 'add' ? 'added' : 'removed', asset });

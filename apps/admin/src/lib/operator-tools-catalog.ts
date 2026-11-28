@@ -22,6 +22,12 @@ import {
   IDENTITY_COMPLIANCE_UNFREEZE_IDENTITY,
 } from '@intafaced/contracts/identity-compliance-procedures';
 import { PAY_ACCOUNT_CONTROLS_HISTORY, PAY_ACCOUNT_CONTROLS_CHANGE } from '@intafaced/contracts/pay-account-controls-procedures';
+import {
+  BANK_OPS_ACCRUE_INTEREST,
+  BANK_OPS_ABANDON_PENDING_LOAN,
+  BANK_OPS_RECONCILE_LOAN_RESERVE,
+} from '@intafaced/contracts/bank-ops-3-procedures';
+import { BANK_OPS_RUN_RISK_SWEEP } from '@intafaced/contracts/bank-ops-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -287,9 +293,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'bank',
     label: 'Accrue earn interest',
     summary: 'Pay daily interest for one pool or every pool. Idempotent per pool/date.',
-    edgeModule: 'bank',
-    procedure: 'ops.accrueInterest',
-    kind: 'mutation',
+    ...toolOf(BANK_OPS_ACCRUE_INTEREST),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,
@@ -303,9 +307,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'bank',
     label: 'Loan risk sweep',
     summary: 'Mark loans, call margin, liquidate where the ladder requires. Operator-only.',
-    edgeModule: 'bank',
-    procedure: 'ops.runRiskSweep',
-    kind: 'mutation',
+    ...toolOf(BANK_OPS_RUN_RISK_SWEEP),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,
@@ -329,9 +331,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'bank',
     label: 'Abandon pending loan',
     summary: 'Give up on a pending loan and release collateral back to the borrower.',
-    edgeModule: 'bank',
-    procedure: 'ops.abandonPendingLoan',
-    kind: 'mutation',
+    ...toolOf(BANK_OPS_ABANDON_PENDING_LOAN),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: true,
@@ -342,9 +342,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'bank',
     label: 'Reconcile loan reserve',
     summary: 'Read reserve vs outstanding principal for a debt asset — not ledger.reconcile.',
-    edgeModule: 'bank',
-    procedure: 'ops.reconcileLoanReserve',
-    kind: 'query',
+    ...toolOf(BANK_OPS_RECONCILE_LOAN_RESERVE),
     authority: 'treasury',
     scope: 'admin:treasury',
     consequential: false,

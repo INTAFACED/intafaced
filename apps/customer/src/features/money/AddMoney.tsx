@@ -1,5 +1,6 @@
 import type { ApiClient } from '../../shared/api';
-import { addMoneyRequestSchema, type AddMoneyMethod } from './contracts';
+import { type AddMoneyMethod } from './contracts';
+import { BANK_ADD_MONEY_START } from '@intafaced/contracts/bank-add-money-2-procedures';
 
 export { TrackerSteps, walletDeliveryMessage } from './add-money/AddMoneyRoom';
 
@@ -17,5 +18,5 @@ export function startAddMoney(
     walletSignature?: string;
   },
 ) {
-  return api.mutate('bank', 'addMoney.start', input, addMoneyRequestSchema);
+  return api.call(BANK_ADD_MONEY_START, input);
 }

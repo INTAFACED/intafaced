@@ -1,5 +1,5 @@
 import 'server-only';
-import { bankCardProgrammeDeskSchema, bankCardProgrammeFiguresSchema, type BankCardProgrammeFigures } from '@intafaced/contracts';
+import { bankCardProgrammeDeskSchema, type BankCardProgrammeFigures } from '@intafaced/contracts';
 import { founderCall, parseWith, type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
 import { refusalWords, type Authorization, type Cardholder, type CardholderDetail, type Desk } from './model';
 import {
@@ -7,6 +7,7 @@ import {
   BANK_OPS_CARD_PROGRAMME_AUTHORIZATION,
   BANK_OPS_CARD_PROGRAMME_CARDHOLDER,
 } from '@intafaced/contracts/bank-ops-procedures';
+import { BANK_OPS_CARD_PROGRAMME_FUNDING } from '@intafaced/contracts/bank-ops-2-procedures';
 
 const labels = {
   service: 'svc-bank',
@@ -40,6 +41,6 @@ export async function readCardholder(
 /** The programme's own figures as the card partner reports them, from the funding read (J-bank-26 #5). */
 export type ProgrammeFigures = BankCardProgrammeFigures;
 export async function readProgrammeFigures(ctx: FounderCallContext): Promise<Part<ProgrammeFigures>> {
-  const result = await founderCall(ctx, 'bank', 'ops.cardProgrammeFunding', 'GET', undefined, parseWith(bankCardProgrammeFiguresSchema));
+  const result = await founderRecordCall(ctx, BANK_OPS_CARD_PROGRAMME_FUNDING, undefined);
   return partFrom(result, (d) => d, labels);
 }
