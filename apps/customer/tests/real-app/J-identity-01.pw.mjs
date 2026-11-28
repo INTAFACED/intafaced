@@ -1,4 +1,4 @@
-// World: book, restart, stack
+// World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -6,7 +6,6 @@ import {
   api,
   DEVICE_KEY,
   EDGE,
-  fromUnits,
   journeyState,
   mailedCodes,
   mailedConfirmLinks,
@@ -16,24 +15,13 @@ import {
   signOutBrowser,
   stackFile,
   tool,
-  toUnits,
 } from './stack.mjs';
 import { reviewSheet, verify } from './desk.mjs';
-import { keccak256, toHex } from 'viem';
+import { ownSpotMarket } from './own-market.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { connectWhenAsked } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import {
-  continueInWallet,
-  openVenueDesk,
-  testDeposit,
-  testVenue,
-  venueBalance,
-  venueForThisFile,
-  venueInfo,
-  venueRecord,
-  walletDoorAct,
-} from './venue.mjs';
+import { continueInWallet, openVenueDesk, testDeposit, venueBalance, venueForThisFile, venueRecord, walletDoorAct } from './venue.mjs';
 
 // J-identity-01, in the running app (docs/roadmap/journeys.json): sign up with an email, get the code, land signed in.
 // One test per step this build serves, titled "J-identity-01 #<n>". Every person here is a TEST person on the local
@@ -659,7 +647,10 @@ test(`${J} #8 a verified account with TEST money on its own venue account and an
   const walletKey = testWalletKey();
   const owner = privateKeyToAccount(walletKey).address.toLowerCase();
   expect(await testDeposit(owner, 'USDC', '100', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-  const wallet = await openVenueDesk(page, who, VENUE_DESK, walletKey);
+  // The file's own TEST market on the venue: its book is empty and only this step trades it.
+  const { symbol, base } = await ownSpotMarket(J, 'JI', 'E');
+  const desk = `/trade/spot/${symbol}`;
+  const wallet = await openVenueDesk(page, who, desk, walletKey);
   const signatures = () => wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').length;
 
   // The room says it before the person tries, and links back to step 7.
@@ -668,9 +659,8 @@ test(`${J} #8 a verified account with TEST money on its own venue account and an
   await expect(notice.getByRole('link', { name: 'Confirm email', exact: true })).toHaveAttribute('href', '/uc/account');
 
   // Trying anyway: our door refuses the order in plain words before the wallet is asked; nothing rests and nothing is held.
-  const price = await venueAwayBid();
   const asked = signatures();
-  const refused = await confirmVenueBuy(page, price);
+  const refused = await confirmVenueBuy(page, base);
   expect(refused.status()).toBe(403);
   expect(JSON.stringify(await refused.json())).toContain('trade.email_proof_required');
   const outcome = page.getByTestId('venue-bottom').getByTestId('venue-outcome');
@@ -690,7 +680,7 @@ test(`${J} #8 a verified account with TEST money on its own venue account and an
   await expect(page.getByRole('region', { name: 'Verify your email address', exact: true })).toBeVisible();
 
   // Step 7 from the link: send, open the mailed link, confirm.
-  await page.goto(VENUE_DESK);
+  await page.goto(desk);
   await page
     .getByRole('region', { name: 'Confirm your email to place orders', exact: true })
     .getByRole('link', { name: 'Confirm email', exact: true })
@@ -703,51 +693,39 @@ test(`${J} #8 a verified account with TEST money on its own venue account and an
   await expect(page.getByRole('heading', { name: 'Your email address is verified', exact: true })).toBeVisible();
 
   // Proved: the notice is gone and the same order now rests on the person's own venue account.
-  await page.goto(VENUE_DESK);
+  await page.goto(desk);
   await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
-  await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: `Buy ${base}`, exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: /Confirm your email to place orders/i })).toHaveCount(0);
-  const placed = await confirmVenueBuy(page, price, { sign: true });
+  const placed = await confirmVenueBuy(page, base, { sign: true });
   expect(placed.status()).toBe(200);
   const key = placed.request().postDataJSON().intent.clientOrderKey;
   await expect(outcome).toContainText('Open on the venue.', { timeout: 20_000 });
   await expect.poll(async () => (await venueRecord(owner, '/open-orders')).value.length, { timeout: 20_000 }).toBe(1);
   // Leave the venue as it was: the person's own wallet cancels the TEST order through our door.
   await walletDoorAct(await api(who), privateKeyToAccount(walletKey), {
-    intent: { kind: 'cancel_order', symbol: VENUE_SYMBOL, clientOrderKey: key },
+    intent: { kind: 'cancel_order', symbol, clientOrderKey: key },
   });
 });
 
-/** The launch desk: the stack's TEST venue market BTC/USDC on the person's own venue account (venue.mjs). */
-const VENUE_DESK = '/trade/spot/BTC-USDC';
-const VENUE_SYMBOL = 'BTC-USDC';
-
-/** A TEST price half the venue's own best bid, on its tick: a buy there rests and never fills. */
-async function venueAwayBid() {
-  const { body } = await testVenue('/markets', {});
-  const market = body.value.find((m) => m.symbol === VENUE_SYMBOL);
-  expect(market, JSON.stringify(body).slice(0, 300)).toBeTruthy();
-  const { id } = await venueInfo();
-  // The TEST venue's own bid maker (venue-reads.mjs venueBook): the bid is read from the venue, never our engine.
-  const bidder = privateKeyToAccount(keccak256(toHex('intafaced TEST venue maker bid'))).address.toLowerCase();
-  const read = await testVenue('/open-orders', { account: { venueId: id, owner: bidder, subAccount: null } });
-  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
-  const bids = read.body.value.filter((o) => o.symbol === VENUE_SYMBOL && o.side === 'buy').map((o) => toUnits(o.price));
-  expect(bids.length, `the TEST venue has bids on ${VENUE_SYMBOL}`).toBeGreaterThan(0);
-  const best = bids.reduce((x, y) => (y > x ? y : x));
-  const tick = toUnits(market.tickSize);
-  return fromUnits((best / 2n / tick) * tick);
-}
-
-/** A TEST limit buy of 0.001 BTC typed, reviewed and confirmed on the venue desk; the door's prepare answer. */
-async function confirmVenueBuy(page, price, { sign = false } = {}) {
+/**
+ * A TEST limit buy of 1 `base` at 10 USDC typed, reviewed and confirmed on the venue desk of the file's own market, whose
+ * empty book only this step trades, so it rests; the door's prepare answer. A market listed a moment ago may not be in our
+ * door's market list yet (user-venue-door.ts MARKET_MISS_REREAD_MS), so the preview is asked again until it answers.
+ */
+async function confirmVenueBuy(page, base, { sign = false } = {}) {
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
   const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
-  await form.getByRole('textbox', { name: 'Price' }).fill(price);
-  const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-  await form.getByRole('textbox', { name: 'Amount' }).fill('0.001');
-  await preview;
-  await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
+  await form.getByRole('textbox', { name: 'Price', exact: true }).fill('10');
+  const amount = form.getByRole('textbox', { name: 'Amount', exact: true });
+  await expect(async () => {
+    await amount.fill('');
+    const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+    await amount.fill('1');
+    const res = await answer;
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  }).toPass({ timeout: 30_000, intervals: [2_000] });
+  await page.getByRole('button', { name: `Buy ${base}`, exact: true }).click();
   await expect(reviewSheet(page)).toBeVisible();
   const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();

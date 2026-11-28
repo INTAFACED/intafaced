@@ -1,5 +1,4 @@
 import { ActionLimitWarning } from '../../../features/trade';
-import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
 import { useMemo, useRef, useState } from 'react';
 import './exchange-desk.css';
 import { usePreferences } from '../../../shared/preferences';
@@ -571,8 +570,6 @@ export function VenueSpotDesk({
             <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
             <VenueDeskTicker market={market} timeZone={timeZone} />
             <ActionLimitWarning venueName={status.venue.displayName} />
-            {/* J-identity-01 #8: the door holds a new order until the email is proved; the desk says so before the person tries. */}
-            <EmailProofNotice />
           </>
         }
         chart={chartColumn}

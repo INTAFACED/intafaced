@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useRef, type ReactNode } from 'react';
+import { EmailProofNotice } from '../../account';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { Checkbox, Table, type Column } from '@intafaced/ui/lit/templates';
 import { displayAmount } from '../../../shared/money';
@@ -85,6 +86,8 @@ export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title
         {t('Trading mode')}: {t('Trading mode line', { venue: status.venue.displayName })}
       </p>
       {feeLine ? <p data-testid="venue-fee-line">{feeLine}</p> : null}
+      {/* J-identity-01 #8: our door holds a new order until the email is proved; every venue desk says so first. */}
+      <EmailProofNotice />
     </header>
   );
 }
