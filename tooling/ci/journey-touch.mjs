@@ -125,6 +125,9 @@ export const printable = (p) => String(p).replace(/[\u0000-\u001f\u007f]/g, '?')
 export const JOURNEY_CI = [
   'tooling/ci/journey-seal.mjs',
   'tooling/ci/journey-touch.mjs',
+  // Every shard's stack setup, which the journeys revert's probes run too (project-state#4151).
+  'tooling/ci/journey-shard.sh',
+  'tooling/ci/journey-shard.test.mjs',
   // Which earlier commits' journeys runs count for a head (#11076): the seal and the touch job read it.
   'tooling/ci/journey-carry.mjs',
   'tooling/ci/journey-carry.test.mjs',

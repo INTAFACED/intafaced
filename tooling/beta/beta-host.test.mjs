@@ -577,7 +577,8 @@ test("the beta runs its TEST chain with the journeys' pinned anvil image, so the
   assert.equal(stackEnv(paths, { LOCAL_STACK_ANVIL_BIN: '/opt/anvil' }).LOCAL_STACK_ANVIL_BIN, '/opt/anvil', 'a chosen anvil wins');
 
   // The image is the one CI's journeys run their chain with.
-  const workflow = fs.readFileSync(new URL('../../.github/workflows/real-app-journeys.yml', import.meta.url), 'utf8');
+  // (.github/actions/journey-runner, the runner every journeys shard and probe readies.)
+  const workflow = fs.readFileSync(new URL('../../.github/actions/journey-runner/action.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes(`docker run --rm --init --network host ${ANVIL_IMAGE} "anvil $*"`));
 
   // No docker, or a failed pull: no launcher, and the stack starts as before, with no TEST chain.
