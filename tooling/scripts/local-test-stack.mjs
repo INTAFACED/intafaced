@@ -910,13 +910,36 @@ const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml']
 /** What the running Node services are built from: a Customer-only change rebuilds no service process. */
 const BACKEND_SOURCE_PATHS = ['services', 'packages', 'pnpm-lock.yaml'];
 
+/**
+ * Each service's start settings (its env: paces, switches, test values). They are no build input, but a running service
+ * keeps the env it started with, so a move here restarts the services as a new build does (#11041: #11230 paced the
+ * beta's own-funds sweep there, and the long-lived beta kept svc-trade on the old 3 s for as long as no service source moved).
+ */
+const SERVICE_SETTINGS_PATHS = ['tooling/scripts/local-stack-services'];
+
 /** True when no service, package or Customer source changed between two commits (tooling and docs do not count). */
-function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
+function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS, repo = REPO) {
   if (!oldHead) return false;
   if (oldHead === head) return true;
-  const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...paths], { cwd: REPO });
+  const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...paths], { cwd: repo });
   return r.status === 0;
 }
+
+/**
+ * Whether the services' start settings moved since the stamp's head (a commit, or other uncommitted edits there): then
+ * the services get a new build id, and each restarts onto the settings (stopForNewBuild). A stamp from before settings
+ * counted vouches for nothing, so it restarts them once.
+ */
+export function serviceSettingsMoved(stamp, { repo, head, edits }) {
+  return !buildStillFresh(
+    { stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.settingsEdits },
+    { repo, head, edits },
+    (a, b) => sourceUnchangedSince(a, b, SERVICE_SETTINGS_PATHS, repo),
+  );
+}
+
+/** The uncommitted edits to the services' start settings, '' when there are none (worktreeEdits). */
+const settingsEditsNow = () => worktreeEdits(SERVICE_SETTINGS_PATHS);
 
 /**
  * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
@@ -1362,9 +1385,14 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
   ensureRustBinaries(rebuild);
   const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
+  // Read against the stamp before any branch below rewrites it.
+  const settingsEdits = settingsEditsNow();
+  const settingsMoved = serviceSettingsMoved(stamp, { repo: REPO, head, edits: settingsEdits });
+  const settingsStamp = settingsMoved ? { settingsEdits, backendBuild: newBuildId() } : {};
+  if (settingsMoved && backend !== 'full') say("  build: the services' start settings moved: they restart onto them");
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
-    if (stamp.head !== head) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head }, null, 2));
+    if (stamp.head !== head || settingsMoved) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head, ...settingsStamp }, null, 2));
     if (admin) ensureAdminBuilt(rebuild);
     return;
   }
@@ -1376,7 +1404,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     // Only services that were never built: nothing running was built from them, so the running build id stands.
     writePrivate(
       P.buildStamp,
-      JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2),
+      JSON.stringify({ ...stamp, head, repo: REPO, edits, builtAt: stamp.builtAt ?? new Date().toISOString(), ...settingsStamp }, null, 2),
     );
     if (admin) ensureAdminBuilt(rebuild);
     return;
@@ -1417,7 +1445,8 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
         builtAt: new Date().toISOString(),
         customerBuilt: !override,
         backendEdits,
-        backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
+        settingsEdits,
+        backendBuild: backendChanged || settingsMoved ? newBuildId() : stamp.backendBuild,
         customerBuild: override ? stamp.customerBuild : newBuildId(),
         customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
         customerPositions: override ? stamp.customerPositions : true,
