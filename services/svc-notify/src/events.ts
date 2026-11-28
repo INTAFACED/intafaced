@@ -26,6 +26,7 @@ import {
   ledgerFreezeUpdated,
   venueDelistingScheduled,
   venueRiskAlerted,
+  venueProfitLockReady,
   orderUpdated,
   p2pEscrowLocked,
   p2pEscrowRefunded,
@@ -1236,6 +1237,34 @@ export async function subscribeNotificationEvents(
           sourceSubject: venueRiskAlerted.subject,
           sourceIdempotencyKey: payload.alertKey,
           outOfApp: true,
+        }),
+      );
+    }),
+  );
+
+  // The person's weekly Profit lock reached its target (J-wallet-26 #2): svc-trade publishes the week's offer once, on its
+  // business key, and republishes until it is sent, so the person gets one message per week however often it arrives.
+  // It opens the offer in the venue wallet room; nothing moves until they sign there. The venue is never named.
+  attachments.push(
+    await attach(bus, 'venueProfitLockReady', venueProfitLockReady.subject, 'notify-venue-profit-lock', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'trade.profit_lock.ready',
+          titleKey: 'notify.trade.profit_lock.ready.title',
+          bodyKey: 'notify.trade.profit_lock.ready.body',
+          params: {
+            profit: payload.profit,
+            target: payload.target,
+            share: payload.share,
+            amount: payload.amount,
+            asset: payload.asset,
+            address: payload.coldWallet,
+          },
+          href: '/wallet/venue',
+          severity: 'action',
+          sourceSubject: venueProfitLockReady.subject,
+          sourceIdempotencyKey: payload.offerKey,
         }),
       );
     }),

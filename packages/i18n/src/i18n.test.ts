@@ -117,7 +117,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A copy skipped at the follower's most per contract or most per day (J-copy-bots-otc-02 #3) adds two reason bodies.
     // A recurring buy suspended for insufficient funds (J-copy-bots-otc-16 #6) adds a title and a body key.
     // A venue position's margin alert, margin call and liquidation alert in the inbox (J-derivatives-06 #6) add three titles and three bodies.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(346);
+    // A weekly Profit lock reaching its target in the inbox (J-wallet-26 #2) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(348);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

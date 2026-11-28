@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import type { UserVenue, UserVenueFill, UserVenueMarket } from '@intafaced/venue-contracts';
+import { VenueRefusalError, type UserVenue, type UserVenueFill, type UserVenueMarket } from '@intafaced/venue-contracts';
 import { partial } from '@intafaced/service-kit/testing';
 import { tradeDeskSnapshotSchema } from '@intafaced/contracts/trade-desk-snapshot';
 import type { PreparedActionStore } from './prepared-action-store.js';
@@ -32,7 +32,7 @@ function fill(fillId: string, symbol: string, filledAt: string, realised: string
   };
 }
 
-function venue(opts: { summary?: boolean } = {}): UserVenue {
+function venue(opts: { summary?: boolean; down?: boolean } = {}): UserVenue {
   const asOf = <T>(value: T) => ({ venueId: 'sim', value, asOf: NOW });
   return partial<UserVenue>({
     venue: { id: 'sim', displayName: 'Venue', kind: 'external-dex', sequencedDepth: false, proofLevel: 'simulator' },
@@ -47,8 +47,9 @@ function venue(opts: { summary?: boolean } = {}): UserVenue {
           marginAccount: { known: false },
         }),
       ]),
-    positions: async () =>
-      asOf([
+    positions: async () => {
+      if (opts.down) throw new VenueRefusalError({ code: 'venue_down', venueId: 'sim', detail: 'TEST venue down' });
+      return asOf([
         {
           symbol: 'BTC-PERP',
           side: 'long',
@@ -59,15 +60,29 @@ function venue(opts: { summary?: boolean } = {}): UserVenue {
           marginMode: 'cross',
           margin: a('300'),
           leverageBps: 30_000,
+          liquidationPrice: { known: true, value: a('61000') },
+        },
+        {
+          symbol: 'ETH-PERP',
+          side: 'short',
+          size: a('1'),
+          entryPrice: a('3000'),
+          markPrice: a('3000'),
+          unrealisedPnl: a('0'),
+          marginMode: 'cross',
+          margin: a('100'),
+          leverageBps: 30_000,
           liquidationPrice: { known: false },
         },
-      ]),
+      ]);
+    },
     fills: async (_acc, since) =>
       asOf(
         [
           fill('old', 'BTC-PERP', '2026-11-20T12:00:00Z', '1000'),
           fill('mon', 'BTC-PERP', '2026-11-24T09:00:00Z', '40'),
           fill('open', 'BTC-PERP', '2026-11-26T09:00:00Z', null),
+          fill('today', 'BTC-PERP', '2026-11-27T08:00:00Z', '-5'),
           fill('spot', 'BTC-USDC', '2026-11-26T10:00:00Z', null, '9'),
         ].filter((f) => f.filledAt.getTime() >= since.getTime()),
       ),
@@ -110,15 +125,37 @@ describe('venue.deskSnapshot', () => {
         marginUse: '83.33',
         unrealisedPnl: '10',
         positions: [
-          { symbol: 'BTC-PERP', side: 'long', size: '0.01', entryPrice: '90000', markPrice: '91000', unrealisedPnl: '10', margin: '300' },
+          {
+            symbol: 'BTC-PERP',
+            side: 'long',
+            size: '0.01',
+            entryPrice: '90000',
+            markPrice: '91000',
+            unrealisedPnl: '10',
+            margin: '300',
+            liquidationPrice: '61000',
+          },
+          {
+            symbol: 'ETH-PERP',
+            side: 'short',
+            size: '1',
+            entryPrice: '3000',
+            markPrice: '3000',
+            unrealisedPnl: '0',
+            margin: '100',
+            liquidationPrice: null,
+          },
         ],
       },
     ]);
     // Since Wednesday: the opening fill only; the spot fill is never listed.
-    expect(snap.fills.map((f) => f.fillId)).toEqual(['open']);
+    expect(snap.fills.map((f) => f.fillId)).toEqual(['open', 'today']);
     expect(snap.fills[0]).toMatchObject({ realisedPnl: null, fee: '0.6', feeAsset: 'USDC' });
-    // The week: Monday's close (40) less both perpetual fills' fees (0.6 each); last week's close is not counted.
-    expect(snap.week).toEqual({ asset: 'USDC', realisedPnl: '40', fees: '1.2', profit: '38.8' });
+    // The week: Monday's close (40) and today's (-5) less three perpetual fills' fees (0.6 each); last week's is not counted.
+    expect(snap.week).toEqual({ asset: 'USDC', realisedPnl: '35', fees: '1.8', profit: '33.2' });
+    // Today, from 00:00 UTC: today's close only.
+    expect(snap.dayStart).toBe('2026-11-27T00:00:00.000Z');
+    expect(snap.today).toEqual({ asset: 'USDC', realisedPnl: '-5', fees: '0.6', profit: '-5.6' });
   });
 
   it('a venue that reads no margin summary gives a null margin use, never zero', async () => {
@@ -129,7 +166,18 @@ describe('venue.deskSnapshot', () => {
       now: () => NOW,
     });
     if (snap.state !== 'read') throw new Error('not read');
-    expect(snap.accounts[0]).toMatchObject({ accountValue: null, marginUse: null, marginUsed: '300' });
+    expect(snap.accounts[0]).toMatchObject({ accountValue: null, marginUse: null, marginUsed: '400' });
+  });
+
+  it('a venue that refuses the read is named, never read as no positions', async () => {
+    const snap = await readDeskSnapshot({
+      venue: async () => venue({ down: true }),
+      store,
+      input: { userId: 'u', since: NOW.toISOString() },
+      now: () => NOW,
+    });
+    expect(snap).toEqual({ state: 'unreadable', venue: 'Venue', test: true });
+    expect(tradeDeskSnapshotSchema.parse(snap)).toEqual(snap);
   });
 
   it('the door off answers off', async () => {

@@ -144,10 +144,16 @@ interface VenueRoomContext {
 function VenueOrdersFrame({
   title,
   actions,
+  noWallet,
+  after,
   children,
 }: {
   title: ReactNode;
   actions?: ReactNode;
+  /** What stands where the list goes before a wallet is connected; by default one line asking for it. */
+  noWallet?: ReactNode;
+  /** Shown under the body whether or not a wallet is connected. */
+  after?: ReactNode;
   children: (ctx: VenueRoomContext) => ReactNode;
 }) {
   const { t } = venueOrdersCopy.useCopy();
@@ -188,7 +194,7 @@ function VenueOrdersFrame({
       <Page eyebrow={t('eyebrow')} title={title} actions={actions}>
         <TestMark test={test} />
         <WalletBar />
-        <Owned>
+        <Owned noWallet={noWallet}>
           {(owner) =>
             mode.status.available ? (
               // A venue whose orders a trading session's key signs (status `tradesSignedBy`): cancels and changes here
@@ -202,15 +208,16 @@ function VenueOrdersFrame({
             )
           }
         </Owned>
+        {after}
       </Page>
     </VenueFrame>
   );
 }
 
-function Owned({ children }: { children: (owner: string) => ReactNode }) {
+function Owned({ noWallet, children }: { noWallet?: ReactNode; children: (owner: string) => ReactNode }) {
   const { t } = venueOrdersCopy.useCopy();
   const owner = useOwner();
-  if (!owner) return <p className="lt-muted">{t('connectFirst')}</p>;
+  if (!owner) return noWallet ?? <p className="lt-muted">{t('connectFirst')}</p>;
   return <>{children(owner)}</>;
 }
 
@@ -225,7 +232,7 @@ type HistoryState =
  * order history and trades & executions on the person's own venue account, naming each order's venue, origin and label,
  * with the same status words as the trading desks. Defaults to Order history when `?view` is absent.
  */
-export function VenueOrdersRoom({ path }: { path: string }) {
+export function VenueOrdersRoom({ path, assistant }: { path: string; assistant?: ReactNode }) {
   const { t } = venueOrdersCopy.useCopy();
   const search = new URL(path, location.origin).search;
   const params = useMemo(() => readVenueParams(search), [search]);
@@ -238,6 +245,15 @@ export function VenueOrdersRoom({ path }: { path: string }) {
           {t('deskLink')}
         </a>
       }
+      // Before a wallet is connected there is no venue order of this person's to list: the list says so in one plain
+      // line, under the wallet bar, and the other halves of the room stay one click away.
+      noWallet={
+        <div className="lt-stack">
+          <ProductSwitch product="venue" />
+          <EmptyState title={t('noneYet')}>{t('connectFirst')}</EmptyState>
+        </div>
+      }
+      after={assistant}
     >
       {(ctx) => (
         <div className="lt-stack">

@@ -208,6 +208,9 @@ export const stackEnv = (paths, env = process.env, hasAnvil = fs.existsSync(path
   LOCAL_STACK_SLOT: String(BETA_SLOT),
   LOCAL_STACK_STATE: paths.state,
   LOCAL_STACK_CODE_REACH: 'off',
+  // A service restarts onto changed launch settings, not only onto a new build: a tooling-only commit otherwise never
+  // reached the running svc-trade (#11041: #11230's minute-long sweep kept the 3 s one).
+  LOCAL_STACK_RESTART_ON_SETTINGS: 'on',
   LOCAL_STACK_PG_DURABLE: '1',
   LOCAL_STACK_MARKET_INTERVAL: String(BETA_CADENCE_SECONDS),
   LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS: String(BETA_CADENCE_SECONDS),

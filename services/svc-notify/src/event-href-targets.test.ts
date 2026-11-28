@@ -49,6 +49,8 @@ const LIVE_ROOMS = [
   '/academy/rooms',
   // The positions room, where a venue position's margin alerts and margin calls are (J-derivatives-06 #6 #7).
   '/trade/positions',
+  // The venue account room, where a week's Profit lock offer waits to be signed or closed (J-wallet-26 #3).
+  '/wallet/venue',
 ];
 
 /** Detail rows IA-SPEC 2.3, 2.4, 2.6 and 2.9 give to bank, cex-spot, pay and agents. The app falls back to the nearest list room until they exist. */

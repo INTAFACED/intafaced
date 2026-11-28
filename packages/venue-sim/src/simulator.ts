@@ -839,7 +839,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       ...(options.positionMoves ? { positionMoves: true } : {}),
       ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
       ...(options.amendsInPlace ? { amendsInPlace: true } : {}),
-      // As Hyperliquid's own modify does: a resting trigger order's price moves in place (J-derivatives-32).
+      // The TEST venue moves a resting trigger order's price in place (J-derivatives-32); Hyperliquid's adapter does not
+      // offer it, as its modify carries no builder fee (venue-hyperliquid not-offered.ts).
       movesTriggersInPlace: true,
       ...(options.cancelsPerAction !== undefined ? { cancelsPerAction: options.cancelsPerAction } : {}),
       ...(options.scheduledCancelMinLeadMs !== undefined ? { scheduledCancel: { minLeadMs: options.scheduledCancelMinLeadMs } } : {}),

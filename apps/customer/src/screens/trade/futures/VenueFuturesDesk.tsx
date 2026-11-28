@@ -1650,6 +1650,7 @@ function Ticket({
           owner={owner}
           run={run}
           result={splitResult}
+          checklist={checklist}
           onConfirm={() => void confirmSplit()}
           onClose={() => {
             setSplitReview(null);
@@ -1667,6 +1668,7 @@ function Ticket({
           run={run}
           resend={resend}
           confirmLabel={side === 'buy' ? t('Open long') : t('Open short')}
+          checklist={checklist}
           onSent={(answer) => {
             hold(answer, routed.intent);
             setLast(answer);
