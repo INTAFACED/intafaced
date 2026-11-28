@@ -1083,6 +1083,18 @@ export const invitedPassDue = ({ state, invited, running }) => state === 'up' &&
  * failed pass waits a minute before the next, so a stack that refuses fills the log once a minute, not every 15 s.
  */
 export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling', 'beta', 'beta-invited.mjs') } = {}) {
+  return passLoop(paths, { script, args: ['pass', '--root', paths.root, '--checkout', paths.checkout], every: INVITED_EVERY_MS });
+}
+
+/** How often the testers' reports pass runs (beta-reports.mjs): a STUCK tester or a help request is an issue within 5 min. */
+const REPORTS_EVERY_MS = 5 * 60_000;
+
+/** The reports pass (#11218), on the same terms as the invited pass: each STUCK tester and help request is an issue. */
+function reportsLoop(paths, { script = path.join(paths.checkout, 'tooling', 'beta', 'beta-reports.mjs') } = {}) {
+  return passLoop(paths, { script, args: ['pass', '--root', paths.root], every: REPORTS_EVERY_MS });
+}
+
+function passLoop(paths, { script, args, every }) {
   let running = false;
   let nextAt = 0;
   const tick = () => {
@@ -1090,8 +1102,7 @@ export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling
     if (!invitedPassDue({ state: readJson(paths.status, {})?.state, invited: readInvited(paths.invited).size, running })) return;
     running = true;
     const out = fs.openSync(paths.log, 'a');
-    const args = [script, 'pass', '--root', paths.root, '--checkout', paths.checkout];
-    const child = spawn('node', args, { cwd: paths.checkout, env: stackEnv(paths), stdio: ['ignore', out, out] });
+    const child = spawn('node', [script, ...args], { cwd: paths.checkout, env: stackEnv(paths), stdio: ['ignore', out, out] });
     const timer = setTimeout(() => child.kill('SIGTERM'), 120_000);
     let ended = false;
     const end = (code) => {
@@ -1105,8 +1116,8 @@ export function invitedLoop(paths, { script = path.join(paths.checkout, 'tooling
     child.on('close', (code) => end(code ?? 1));
     child.on('error', () => end(127));
   };
-  const every = setInterval(tick, INVITED_EVERY_MS);
-  return () => clearInterval(every);
+  const timer = setInterval(tick, every);
+  return () => clearInterval(timer);
 }
 
 async function serve(paths) {
@@ -1115,6 +1126,7 @@ async function serve(paths) {
   const mine = selfHash();
   serveMailbox(paths);
   invitedLoop(paths);
+  reportsLoop(paths);
   for (;;) {
     try {
       await round(paths);

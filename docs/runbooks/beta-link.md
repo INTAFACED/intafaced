@@ -11,7 +11,13 @@ The Customer app on the latest `main`, always on, on TEST funds only, for the ow
 - **Where each tester is:** `node tooling/beta/beta-host.mjs testers` on the box (`--json` for the same as data): one
   block per invited account, by account id: signed up, wallet made, funded, desk reached, first order, the venue's
   refusals with their words, errors, the last thing they did, and STUCK with why (an error after their last stage, or no
-  new stage for 30 minutes short of a first order).
+  new stage for 30 minutes short of a first order), and each help request they opened from /support, in their words.
+- **A tester's trouble reaches a builder** (#11218): every 5 minutes the supervisor's reports pass
+  (`tooling/beta/beta-reports.mjs`) files each STUCK invited tester, and each help request, as one `bug` + `beta` issue
+  on this repo, by account id, stage, last call and the venue's refusal words; never an email, a viewer token or the
+  tester's own words. A tester seen stuck again gets a comment on their issue. The agents' own walks are never filed.
+  What was filed is in `~/.intafaced/beta/reports.json`; `beta-reports.mjs pass --dry` shows the next pass's plan.
+  Help works on the beta: its `launch-desk` profile runs svc-support.
 - **Move it now:** `node tooling/beta/beta-host.mjs move` on the box, for a fix testers need before the daily slot.
 - **Move it back:** `node tooling/beta/beta-host.mjs back [<sha>]` on the box, for a commit that came up but broke
   testers: within 15 seconds it goes back to `<sha>`, a commit on main (default: the one before the commit served), and

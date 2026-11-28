@@ -64,7 +64,7 @@ export function invitedOwner(email, tokens) {
  * TEST partner, as the testnet step already exempts the ready check's accounts (beta-testnet.mjs judgeAccount, Nino's
  * guide on project-state#4046, 25 Nov). Every other invited person stays capped.
  */
-const agentsInvite = (token) => String(token ?? '').startsWith('zenyoda');
+export const agentsInvite = (token) => String(token ?? '').startsWith('zenyoda');
 
 /** The ledger reference of an account's one grant: fixed, so a second post of it is a no-op. */
 export const grantRef = (userId) => `beta-invite-${userId}`;
