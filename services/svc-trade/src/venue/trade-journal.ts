@@ -201,7 +201,7 @@ export function plannedLevels(
  * Where the trade's stop stood: the stop it opened with (`plannedLevels`), then each stop-loss trigger placed after it
  * and before the close, with the time each was placed (J-charts-desk-20, the trade's replay).
  */
-export function stopTimeline(trip: RoundTrip, orders: readonly UserVenueOrderRecord[]): { price: Amount; placedAt: Date }[] {
+function stopTimeline(trip: RoundTrip, orders: readonly UserVenueOrderRecord[]): { price: Amount; placedAt: Date }[] {
   const first = firstLevel(trip, orders, 'stop_loss');
   if (!first) return [];
   const closedAt = trip.closedAt.getTime();
@@ -479,7 +479,7 @@ export async function readTradeJournal(deps: TradeJournalDeps, input: TradeJourn
 }
 
 /** The bars a trade's replay keeps: its market's 1-minute candles from 10 bars before its entry bar to its close. */
-export function replayBarsOf(trip: Pick<RoundTrip, 'openedAt' | 'closedAt'>, candles: readonly VenueCandle[]): ReplayBar[] {
+function replayBarsOf(trip: Pick<RoundTrip, 'openedAt' | 'closedAt'>, candles: readonly VenueCandle[]): ReplayBar[] {
   const from = bucketOf(trip.openedAt) - REPLAY_BARS_BEFORE_ENTRY * MINUTE_MS;
   return candles
     .filter((c) => c.openAt.getTime() >= from && c.openAt.getTime() <= trip.closedAt.getTime())
